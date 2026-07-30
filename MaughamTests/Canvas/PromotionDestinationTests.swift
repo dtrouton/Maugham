@@ -194,7 +194,7 @@ final class PromotionDestinationTests: XCTestCase {
         let store = try await makeCollectionManifest()
         let model = makeModel()
         model.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "gone-9" } }
-        XCTAssertNil(model.scene.node(a)?.boundPieceID,
+        XCTAssertNil(try XCTUnwrap(model.scene.node(a)).boundPieceID,
                      "there is nothing on the card for the writer to clear")
         XCTAssertEqual(
             PromotionPiece.resolve(for: .scrap(a), in: model.scene, store: store),
@@ -227,7 +227,7 @@ final class PromotionDestinationTests: XCTestCase {
         let store = try await makeCollectionManifest()
         let model = makeModel()
         model.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "loose-1" } }
-        XCTAssertNil(model.scene.node(a)?.boundPieceID, "nothing of its own")
+        XCTAssertNil(try XCTUnwrap(model.scene.node(a)).boundPieceID, "nothing of its own")
         XCTAssertEqual(
             PromotionPiece.resolve(for: .scrap(a), in: model.scene, store: store),
             .routed(id: "loose-1", title: "Story A", route: .ownResearch))
@@ -485,6 +485,7 @@ final class PromotionDestinationTests: XCTestCase {
         XCTAssertTrue(store.manifest.research.isEmpty,
                       "validate first, write second — a half-created artifact is "
                       + "worse than a refusal")
-        XCTAssertNil(model.scene.node(a)?.promotedItemID, "and no mark either")
+        XCTAssertNil(try XCTUnwrap(model.scene.node(a)).promotedItemID,
+                     "and no mark either")
     }
 }

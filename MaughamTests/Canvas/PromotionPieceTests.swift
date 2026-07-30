@@ -95,7 +95,7 @@ final class PromotionPieceTests: XCTestCase {
         s.insertRegion(CanvasRegion(id: r1, label: "Fog", frame: CGRect(x: 0, y: 0, width: 600, height: 400),
                                     homeMembers: [a]))
         s.updateRegion(r1) { $0.boundPieceID = "piece-region" }
-        XCTAssertNil(s.node(a)?.boundPieceID,
+        XCTAssertNil(try XCTUnwrap(s.node(a)).boundPieceID,
                      "the region binding must never cascade onto its members' own field")
     }
 
@@ -126,7 +126,7 @@ final class PromotionPieceTests: XCTestCase {
         XCTAssertEqual(node?.cachedHeight, 80)
         XCTAssertEqual(node?.z, 1)
         XCTAssertEqual(node?.promotedItemID, "res-1")
-        XCTAssertNil(node?.boundPieceID)
+        XCTAssertNil(try XCTUnwrap(node).boundPieceID)
     }
 
     /// Measured, not reasoned from Codable's synthesis: an unassociated

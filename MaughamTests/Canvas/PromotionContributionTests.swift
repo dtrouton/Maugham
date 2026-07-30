@@ -123,7 +123,8 @@ final class PromotionContributionTests: XCTestCase {
     func test_aCardCarryingOnlyAContributionRecordOffersNoUpdate() {
         var s = scene()
         s.setContributedItem("res-fog", for: a)
-        XCTAssertNil(s.node(a)?.promotedItemID, "the control: only the contribution is set")
+        XCTAssertNil(try XCTUnwrap(s.node(a)).promotedItemID,
+                     "the control: only the contribution is set")
         let idx = index(["res-fog": "Act II fog"])
         XCTAssertNil(Promotion.existingArtifact(for: .scrap(a), target: .researchNote,
                                                 in: s, artifacts: idx),
@@ -172,7 +173,7 @@ final class PromotionContributionTests: XCTestCase {
         XCTAssertEqual(node?.z, 1)
         XCTAssertEqual(node?.promotedItemID, "res-1")
         XCTAssertEqual(node?.boundPieceID, "piece-1")
-        XCTAssertNil(node?.contributedToItemID)
+        XCTAssertNil(try XCTUnwrap(node).contributedToItemID)
     }
 
     /// Measured, not reasoned from Codable's synthesis: an unrecorded canvas's

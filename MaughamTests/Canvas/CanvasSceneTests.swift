@@ -30,7 +30,7 @@ final class CanvasSceneTests: XCTestCase {
         scene.setCachedHeight(80, for: CanvasNodeID("a"))
         scene.setWidth(300, for: CanvasNodeID("a"))
         XCTAssertEqual(scene.node(CanvasNodeID("a"))?.width, 300)
-        XCTAssertNil(scene.node(CanvasNodeID("a"))?.cachedHeight,
+        XCTAssertNil(try XCTUnwrap(scene.node(CanvasNodeID("a"))).cachedHeight,
                      "a rewrapped scrap must be re-measured before it is hit-tested")
     }
 

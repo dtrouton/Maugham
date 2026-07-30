@@ -92,7 +92,7 @@ final class LineInspectorTests: XCTestCase {
                         "⌘Z takes back the NAME. The line is not the label — an "
                         + "undo that removed the line itself would be a second, "
                         + "unasked-for act")
-        XCTAssertNil(m.scene.line(l1)?.label, "and only the label went")
+        XCTAssertNil(try XCTUnwrap(m.scene.line(l1)).label, "and only the label went")
         XCTAssertFalse(m.undo.canUndo,
                        "one name, one step — not one per keystroke, which is what "
                        + "the local draft in the view is for")
@@ -182,7 +182,7 @@ final class LineInspectorTests: XCTestCase {
         inspector(m).commitLabel("leads to")
         inspector(m).commitLabel("leads to")
         m.undo.undo()
-        XCTAssertNil(m.scene.line(l1)?.label,
+        XCTAssertNil(try XCTUnwrap(m.scene.line(l1)).label,
                      "a commit that changed nothing must not push a step the "
                      + "writer has to press ⌘Z twice to get past")
     }
@@ -326,7 +326,7 @@ final class LineInspectorTests: XCTestCase {
                       + m.undo.undoMenuItemTitle)
 
         m.undo.undo()
-        XCTAssertNil(m.scene.line(l1)?.label, "one ⌘Z takes back the name…")
+        XCTAssertNil(try XCTUnwrap(m.scene.line(l1)).label, "one ⌘Z takes back the name…")
         XCTAssertEqual(m.scraps[a], "The fog came down.",
                        "…and the sentence in flight is not collateral damage")
     }

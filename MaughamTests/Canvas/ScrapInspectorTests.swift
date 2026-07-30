@@ -388,7 +388,7 @@ final class ScrapInspectorTests: XCTestCase {
         let m = model()
         inspector(m).commitPiece("ch-3")
         inspector(m).commitPiece(nil)
-        XCTAssertNil(m.scene.node(a)?.boundPieceID)
+        XCTAssertNil(try XCTUnwrap(m.scene.node(a)).boundPieceID)
         m.undo.undo()
         XCTAssertEqual(m.scene.node(a)?.boundPieceID, "ch-3")
     }
@@ -410,7 +410,7 @@ final class ScrapInspectorTests: XCTestCase {
     func test_anInheritedAssociationIsShownAsInherited() {
         let m = modelInRegion()
         m.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "ch-3" } }
-        XCTAssertNil(m.scene.node(a)?.boundPieceID, "nothing of its own")
+        XCTAssertNil(try XCTUnwrap(m.scene.node(a)).boundPieceID, "nothing of its own")
         XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
                                                   pieceTitle: binder),
                        .inherited(title: "Chapter Three"))
@@ -499,7 +499,7 @@ final class ScrapInspectorTests: XCTestCase {
     func test_aStaleAssociationInheritedFromARegionSaysWhereItCameFrom() {
         let m = modelInRegion()
         m.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "gone-9" } }
-        XCTAssertNil(m.scene.node(a)?.boundPieceID,
+        XCTAssertNil(try XCTUnwrap(m.scene.node(a)).boundPieceID,
                      "there is nothing on the card for the writer to clear")
         XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
                                                   pieceTitle: binder),

@@ -43,7 +43,7 @@ final class CanvasLineTests: XCTestCase {
         XCTAssertEqual(scene.lines.first?.label, "leads to")
 
         scene.updateLine(CanvasLineID("l1")) { $0.label = nil }
-        XCTAssertNil(scene.lines.first?.label)
+        XCTAssertNil(try XCTUnwrap(scene.lines.first).label)
     }
 
     // MARK: - Storage and ordering

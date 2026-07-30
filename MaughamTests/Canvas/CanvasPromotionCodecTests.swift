@@ -52,7 +52,7 @@ final class CanvasPromotionCodecTests: XCTestCase {
         var s = scene()
         s.setPromotedItem("res-9", for: a)
         s.setPromotedItem(nil, for: a)
-        XCTAssertNil(try roundTrip(s).node(a)?.promotedItemID)
+        XCTAssertNil(try XCTUnwrap(try roundTrip(s).node(a)).promotedItemID)
     }
 
     /// A schema-3 sidecar — every canvas 1C-c1 wrote — decodes unchanged rather
@@ -71,8 +71,8 @@ final class CanvasPromotionCodecTests: XCTestCase {
         """
         let decoded = try JSONDecoder().decode(CanvasSceneDTO.self, from: Data(json.utf8))
         let s = decoded.scene
-        XCTAssertNil(s.node(a)?.promotedItemID)
-        XCTAssertNil(s.region(r1)?.promotedItemID)
+        XCTAssertNil(try XCTUnwrap(s.node(a)).promotedItemID)
+        XCTAssertNil(try XCTUnwrap(s.region(r1)).promotedItemID)
         XCTAssertEqual(s.node(a)?.width, 240, "the rest of the file must survive the bump")
         XCTAssertEqual(s.region(r1)?.homeMembers, [a])
     }

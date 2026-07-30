@@ -215,7 +215,7 @@ final class RegionBindingTests: XCTestCase {
         let m = model()
         inspector(m).commitBinding("piece-3")
         inspector(m).commitBinding(nil)
-        XCTAssertNil(m.scene.region(r1)?.boundPieceID)
+        XCTAssertNil(try XCTUnwrap(m.scene.region(r1)).boundPieceID)
         m.undo.undo()
         XCTAssertEqual(m.scene.region(r1)?.boundPieceID, "piece-3",
                        "the unbind is its own step, not a silent write")

@@ -362,7 +362,7 @@ final class CanvasClaudePlacementTests: XCTestCase {
         XCTAssertEqual(plan.lines.count, 1)
         XCTAssertEqual(plan.lines.first?.from, plan.scraps.first?.node.id)
         XCTAssertEqual(plan.lines.first?.to, plan.scraps.last?.node.id)
-        XCTAssertNil(plan.lines.first?.label,
+        XCTAssertNil(try XCTUnwrap(plan.lines.first).label,
                      "`connect` carries no label — a label from Claude on an edge is "
                      + "the nearest thing to the typed edge §5 rejects (plan ruling 2)")
 

@@ -56,7 +56,8 @@ final class CanvasInteractionTests: XCTestCase {
         i.update(to: CGPoint(x: 400, y: 140), in: &scene)
         let n = scene.node(CanvasNodeID("s1"))
         XCTAssertEqual(n?.width, 300)
-        XCTAssertNil(n?.cachedHeight, "a rewrapped scrap must be re-measured before it is hit-tested")
+        XCTAssertNil(try XCTUnwrap(n).cachedHeight,
+                     "a rewrapped scrap must be re-measured before it is hit-tested")
     }
 
     func test_resizeIsClampedToAWorkableMinimum() {
@@ -166,7 +167,8 @@ final class CanvasInteractionTests: XCTestCase {
         let n = scene.node(id)
         XCTAssertEqual(n?.origin, CGPoint(x: 500, y: 400))
         XCTAssertGreaterThan(n!.z, scene.node(CanvasNodeID("s1"))!.z)
-        XCTAssertNil(n?.cachedHeight, "a new scrap is measured by the view, not guessed here")
+        XCTAssertNil(try XCTUnwrap(n).cachedHeight,
+                     "a new scrap is measured by the view, not guessed here")
         // The width is the one thing about a new card the writer sees before
         // typing a word, and nothing else in the suite reads
         // `defaultScrapWidth` — `createScrap` could hand `insert` the MINIMUM,
@@ -395,10 +397,10 @@ final class CanvasInteractionTests: XCTestCase {
         XCTAssertEqual(scene.node(CanvasNodeID("s1"))?.width, 240,
                        "precondition: the width is unchanged, so nothing about "
                        + "this card actually needs rewrapping")
-        XCTAssertNil(scene.node(CanvasNodeID("s1"))?.cachedHeight,
+        XCTAssertNil(try XCTUnwrap(scene.node(CanvasNodeID("s1"))).cachedHeight,
                      "the height went anyway — so a caller that re-measures only "
                      + "when `hasMoved` leaves this card with no frame, and a card "
                      + "with no frame is not on the canvas at all")
-        XCTAssertNil(scene.node(CanvasNodeID("s1"))?.frame)
+        XCTAssertNil(try XCTUnwrap(scene.node(CanvasNodeID("s1"))).frame)
     }
 }

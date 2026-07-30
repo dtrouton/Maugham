@@ -188,7 +188,7 @@ final class PromotionContributionPerformerTests: XCTestCase {
                       "found: \(model.undoManager.undoMenuItemTitle)")
 
         model.undo.undo()
-        XCTAssertNil(model.scene.region(r1)?.promotedItemID)
+        XCTAssertNil(try XCTUnwrap(model.scene.region(r1)).promotedItemID)
         XCTAssertNil(contribution(a, in: model),
                      "one ⌘Z takes the whole promotion's canvas-side effect back")
         XCTAssertNil(contribution(b, in: model))

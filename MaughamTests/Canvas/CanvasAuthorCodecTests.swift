@@ -161,6 +161,11 @@ final class CanvasAuthorCodecTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(s.region(r1)).author, .claude,
                        "a region reads the same table, so it over-marks the same way — "
                        + "drawn square, which says nobody's hand put it there")
-        XCTAssertNil(s.node(b)?.author, "a node with no key at all is still the writer's")
+        // Unwrapped, for this file's own reason 54 lines up: `s.node(b)?.author`
+        // is nil just as happily when node `b` was never decoded — which the
+        // decoder's `guard let kind else { continue }` can do, and which is the
+        // failure `test_aSchemaSixSidecarDecodesWithNoAuthor` exists to catch.
+        XCTAssertNil(try XCTUnwrap(s.node(b)).author,
+                     "a node with no key at all is still the writer's")
     }
 }

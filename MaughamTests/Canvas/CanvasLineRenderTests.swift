@@ -67,7 +67,7 @@ final class CanvasLineRenderTests: XCTestCase {
         XCTAssertEqual(s.lines.count, 2,
                        "control: BOTH lines are genuinely in the scene, so the "
                        + "filter below is not measuring an insert that failed")
-        XCTAssertNil(s.node(c)?.frame, "control: c really is unmeasured")
+        XCTAssertNil(try XCTUnwrap(s.node(c)).frame, "control: c really is unmeasured")
         XCTAssertEqual(s.drawnLines.map(\.id), [l1])
     }
 
@@ -448,6 +448,11 @@ final class CanvasLineRenderTests: XCTestCase {
                 XCTAssertTrue(regionFrame.contains(point),
                               "the \(part) sample \(point) has left the region — "
                               + "re-derive it from CanvasRegionMetrics")
+                // The `?.` here is inside the PREDICATE, not on the subject: what
+                // is asserted nil is `first {}`, which is legitimately nil and is
+                // the whole point. An unmeasured node cannot contain the point
+                // either, so the chain's own nil is the right answer for it.
+                // nil-chain-ok: the optional chain is in the predicate
                 XCTAssertNil(s.unorderedNodes.first { $0.frame?.contains(point) == true },
                              "the \(part) sample \(point) has ended up under a card, "
                              + "which draws over the line and would satisfy the "
