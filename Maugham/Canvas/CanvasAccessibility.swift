@@ -128,12 +128,14 @@ enum CanvasAccessibility {
     /// narrower trim, and an assistive client is handed `"1 line:"` followed by
     /// silence, which is indistinguishable from a bug.
     ///
-    /// It deliberately does NOT match `CanvasRenderer.lineLabelBox`, which
-    /// still trims `.whitespaces` and so draws an empty pill for that same
-    /// label. "Announce what is drawn" would be the tempting precedent and it
-    /// is the wrong one here: what is drawn in that case is the defect
-    /// `normalise`'s own doc comment describes — visible, unreadable, and
-    /// removable only by finding the field and clearing it twice. See AREA.md.
+    /// **`CanvasRenderer.lineLabelBox` now trims the same set** *(widened
+    /// 1C-c3)*, so all three readings of "whitespace is no name" agree and this
+    /// comment no longer records a divergence. It used to, and the reason is
+    /// worth keeping: matching the renderer was never the precedent here,
+    /// because what the renderer drew in that case was the defect `normalise`'s
+    /// own doc comment describes — an empty pill, visible, unreadable, and
+    /// removable only by finding the field and clearing it twice. The agreement
+    /// was reached by fixing the drawing, not by announcing it. See AREA.md.
     ///
     /// **Whose hand drew them rides in the count clause** (spec §8A.2
     /// constraint 1), and it has to: a line is an element nowhere, so its ends

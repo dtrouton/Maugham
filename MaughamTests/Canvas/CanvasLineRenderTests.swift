@@ -127,6 +127,35 @@ final class CanvasLineRenderTests: XCTestCase {
                        + "nothing for everything")
     }
 
+    /// Three readings of "whitespace is no name" and the renderer used to be the
+    /// odd one out: `LineInspector.normalise` and
+    /// `CanvasAccessibility.connectionPhrase` trim `.whitespacesAndNewlines`,
+    /// while `lineLabelBox` trimmed `.whitespaces` — space and tab only — so a
+    /// label of `"\n"` drew a pill with nothing in it and was announced as
+    /// nothing at all.
+    ///
+    /// The route in is a hand-edited sidecar: `CanvasSceneCodec` does not
+    /// normalise labels on load. It is NOT `add_canvas_scraps`, whose `connect`
+    /// carries no label to write.
+    ///
+    /// Disable experiment, run 2026-07-30: restore `.whitespaces` and the `"\n"`
+    /// case goes red on its own while `"\t"`, `" "` and the control stay green —
+    /// so the assertion is about the widening and not about the helper.
+    func test_aWhitespaceOnlyLabelDrawsNoPill() throws {
+        for blank in ["\n", "\t", " ", " \n\t "] {
+            let line = try XCTUnwrap(linked(label: blank).drawnLines.first)
+            XCTAssertTrue(CanvasRenderer.lineLabelBox(for: line).isEmpty,
+                          "a label of \(blank.debugDescription) is no name, so it "
+                          + "reserves no pill — the renderer trims the same set "
+                          + "LineInspector.normalise does")
+        }
+        let named = try XCTUnwrap(linked(label: "\nbecause\n").drawnLines.first)
+        XCTAssertFalse(CanvasRenderer.lineLabelBox(for: named).isEmpty,
+                       "control: a label that is only SURROUNDED by newlines still "
+                       + "has a name in it, so widening the trim must not swallow "
+                       + "the pill for everything containing one")
+    }
+
     // MARK: - Culling
 
     /// Per-frame work on this surface is viewport-proportional by design, and

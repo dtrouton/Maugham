@@ -646,9 +646,22 @@ enum CanvasRenderer {
     /// with a mounted editor's, and no editor ever mounts on a line. The pill is
     /// clipped to itself when it draws, so an under-estimate costs a truncated
     /// label rather than text spilling onto the ground.
+    ///
+    /// **The trim is `.whitespacesAndNewlines`, which is the same set
+    /// `LineInspector.normalise` and `CanvasAccessibility.connectionPhrase` trim**
+    /// *(widened 1C-c3)*. It was `.whitespaces` — space and tab only — so a label
+    /// of `"\n"` drew a pill with nothing in it while the inspector called the
+    /// same string no name and the accessibility layer said nothing about it:
+    /// three readings of one question, and the drawn one was the odd one out.
+    /// The route in is a hand-edited `.maugham/canvas.json` — `CanvasSceneCodec`
+    /// does not normalise labels on load and `normalise` guards only the
+    /// inspector — and it stays that way after 1C-c3, because
+    /// `add_canvas_scraps`' `connect` carries no label at all. Narrow, real, and
+    /// a one-word fix over a value: `test_aWhitespaceOnlyLabelDrawsNoPill`.
     static func lineLabelBox(for geometry: CanvasDrawnLine) -> CGRect {
         guard let label = geometry.label,
-              !label.trimmingCharacters(in: .whitespaces).isEmpty else { return .null }
+              !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return .null }
         let width = CGFloat(label.count) * CanvasMaterial.lineLabelFontSize * labelAdvanceRatio
             + CanvasMaterial.lineLabelPadding * 2
         let midpoint = CGPoint(x: (geometry.from.x + geometry.to.x) / 2,

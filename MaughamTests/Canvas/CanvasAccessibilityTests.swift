@@ -399,10 +399,12 @@ final class CanvasAccessibilityTests: XCTestCase {
     /// hand-edited sidecar never passed through it.
     ///
     /// **The newline case is the one that made the trims matter.**
-    /// `.whitespaces` is space and tab only, so `"\n"` survives it — and
-    /// `CanvasRenderer.lineLabelBox` still trims that narrower set, which is
-    /// why "match the renderer" is not the precedent here. Both fixtures are
-    /// driven, so widening one trim and not the other cannot pass.
+    /// `.whitespaces` is space and tab only, so `"\n"` survives it. The renderer
+    /// trimmed that narrower set until 1C-c3 widened it
+    /// (`CanvasLineRenderTests.test_aWhitespaceOnlyLabelDrawsNoPill` is its
+    /// half), so the three readings now agree — reached by fixing the drawing,
+    /// not by announcing it. This assertion is unchanged either way: it is about
+    /// what is SAID, and it fails on its own if this trim ever narrows.
     func test_aWhitespaceLabelIsNotReadOutAsAName() {
         for blank in ["   ", "\n", " \t\n "] {
             var scene = CanvasScene()
