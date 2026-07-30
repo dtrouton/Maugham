@@ -1,6 +1,8 @@
 import XCTest
 import SwiftUI
 import AppKit
+import ImageIO
+import UniformTypeIdentifiers
 @testable import Maugham
 
 /// The canvas's rasterisation harness — **one copy, shared by every fixture that
@@ -113,18 +115,71 @@ func render(scene: CanvasScene,
             size: CGSize,
             selection: CanvasSelection? = nil,
             scraps: [CanvasNodeID: String] = [:],
+            items: CanvasItemPresentation = .empty,
             sweep: CGRect? = nil,
             pendingLine: (from: CGPoint, to: CGPoint)? = nil,
             scheme: ColorScheme = .light,
             backing: NSColor? = nil) throws -> CanvasPage {
     try renderCanvasPage(size: size, scheme: scheme, backing: backing) { cx in
         CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: size,
-                            layouts: [:], scraps: scraps, selection: selection,
+                            layouts: [:], scraps: scraps, items: items, selection: selection,
                             visibleEditorNodeID: nil,
                             straighten: CanvasFocusStraighten(),
                             pendingRegionDraw: sweep,
                             pendingLine: pendingLine, into: &cx)
     }
+}
+
+/// Write a PNG of a known size — the fixture an item node's thumbnail is decoded
+/// from.
+///
+/// **Generated rather than committed**, on `CanvasThumbnailTests`' stated terms:
+/// nothing here measures decode *time*, so what a fixture has to be is a real
+/// image file of a known SHAPE, and a gradient gives that for a few kilobytes
+/// without putting a binary in the tree that nobody can review.
+///
+/// The gradient runs on both axes deliberately: a flat fill would let a picture
+/// drawn at the wrong rect, or not drawn at all, be indistinguishable from the
+/// card's own paper in a changed-pixel count.
+func writeCanvasFixtureImage(width: Int, height: Int, to url: URL) throws {
+    let ctx = try XCTUnwrap(CGContext(data: nil, width: width, height: height,
+                                      bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue))
+    for y in 0..<height {
+        for x in 0..<width {
+            ctx.setFillColor(red: Double(x) / Double(width),
+                             green: Double(y) / Double(height),
+                             blue: 0.35, alpha: 1)
+            ctx.fill(CGRect(x: x, y: y, width: 1, height: 1))
+        }
+    }
+    let image = try XCTUnwrap(ctx.makeImage())
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    let destination = try XCTUnwrap(
+        CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
+    CGImageDestinationAddImage(destination, image, nil)
+    XCTAssertTrue(CGImageDestinationFinalize(destination), "could not write the fixture image")
+}
+
+/// Resolve an item presentation the way the view does — ask, miss, service, ask
+/// again.
+///
+/// **Through the real two-verb split rather than around it.** `resolved` never
+/// decodes, so the first resolve always misses a photograph; a helper that
+/// handed back a picture without going through `servicePending()` would let a
+/// fixture pass over a view that never schedules the servicing at all.
+@MainActor
+func resolvedItemPresentation(scene: CanvasScene,
+                              index: CanvasItemIndex,
+                              projectRoot: URL) async -> CanvasItemPresentation {
+    let cache = CanvasThumbnails()
+    _ = CanvasItemPresentation.resolve(scene: scene, index: index,
+                                       thumbnails: cache, projectRoot: projectRoot)
+    _ = await cache.servicePending()
+    return CanvasItemPresentation.resolve(scene: scene, index: index,
+                                          thumbnails: cache, projectRoot: projectRoot)
 }
 
 /// Render an arbitrary `Canvas` draw closure at scale 1 and read its pixels.

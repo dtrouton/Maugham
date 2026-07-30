@@ -517,7 +517,7 @@ final class CanvasViewMountingTests: XCTestCase {
         var fixture = CanvasScene()
         fixture.insert(CanvasNode(id: itemID, kind: .item(.project(id: reference)),
                                   origin: CGPoint(x: 20, y: 20), width: 240,
-                                  cachedHeight: CanvasCardMetrics.itemPlaceholderHeight,
+                                  cachedHeight: CanvasCardMetrics.itemLabelOnlyHeight,
                                   author: .claude))
         let root = try projectRoot(scene: fixture, scraps: [:])
         let model = CanvasModel()
@@ -579,7 +579,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// record — a hand-edited sidecar can hand us an item node with no
     /// `cachedHeight`, and a node with no height has no `frame`, so it is neither
     /// drawn nor clickable. `rebuildLayouts` now writes
-    /// `CanvasCardMetrics.itemPlaceholderHeight` for one, which is the half of the
+    /// `CanvasCardMetrics.itemLabelOnlyHeight` for one, which is the half of the
     /// Critical's fix that does not depend on the gesture being guarded.
     ///
     /// The fixture is written through `CanvasStore`, so it cannot drift from the
@@ -601,10 +601,88 @@ final class CanvasViewMountingTests: XCTestCase {
         pump()
 
         XCTAssertEqual(try XCTUnwrap(model.scene.node(itemID)).cachedHeight,
-                       CanvasCardMetrics.itemPlaceholderHeight,
+                       CanvasCardMetrics.itemLabelOnlyHeight,
                        "an item node with no height stayed unmeasured after a load, "
                        + "so the writer's canvas is missing a card that is in the "
                        + "sidecar, in the accessibility tree and in list_canvas")
+
+        // …and the height is not the point. **What a height BUYS is a frame**,
+        // and what a frame buys is being drawn, hit-tested and culled at all: a
+        // node with no `cachedHeight` is dropped by both of the scene's own
+        // spatial queries. Asserting the number alone would pass for a heal that
+        // wrote a height the queries still could not use, which is exactly the
+        // state the 1C-c3 Critical persisted to disk.
+        let viewport = CGRect(x: 0, y: 0, width: 800, height: 600)
+        XCTAssertTrue(model.scene.nodes(intersecting: viewport).contains { $0.id == itemID },
+                      "the healed page card is not returned by nodes(intersecting:), "
+                      + "so it is neither drawn nor culled — it is simply not on the "
+                      + "canvas")
+        XCTAssertEqual(model.scene.topmostNode(at: CGPoint(x: 60, y: 60))?.id, itemID,
+                       "the healed page card cannot be clicked")
+    }
+
+    /// **A photograph arrives after the frame that asked for it, and the card
+    /// grows to hold it.**
+    ///
+    /// This is the whole of Task 5's off-frame-path contract, driven through the
+    /// real view rather than through the cache. `CanvasThumbnails.resolved` never
+    /// decodes — it records a miss — so the first measurement of an owned item
+    /// node lands on the floor. Something in the view has to notice, service the
+    /// queue and RE-MEASURE, and none of those three is visible to a test that
+    /// drives `CanvasThumbnails` directly: a view that never scheduled
+    /// `servicePending()` would leave every photograph on the canvas a blank
+    /// card, and one that serviced it but only bumped the redraw counter would
+    /// leave every one of them the wrong height.
+    ///
+    /// The floor assertion is the control: without it a card that was measured
+    /// with a picture from the start would pass the growth assertion for free.
+    func test_anOwnedItemNodesCardGrowsWhenItsPhotographHasDecoded() throws {
+        let path = "canvas_assets/image-20260730-220430.png"
+        let itemID = CanvasNodeID("owned-1")
+        var fixture = CanvasScene()
+        fixture.insert(CanvasNode(id: itemID, kind: .item(.owned(path: path)),
+                                  origin: CGPoint(x: 40, y: 40), width: 240,
+                                  cachedHeight: nil))
+        let root = try projectRoot(scene: fixture, scraps: [:])
+        // 400×300 — a landscape photograph, so a card holding it is unmistakably
+        // taller than one holding a line of label.
+        try writeCanvasFixtureImage(width: 400, height: 300,
+                                    to: root.appendingPathComponent(path))
+
+        let model = CanvasModel()
+        host(CanvasView(model: model, projectRoot: root, paletteSwatchHexes: { [] }))
+        pump()
+
+        let height = try XCTUnwrap(try XCTUnwrap(model.scene.node(itemID)).cachedHeight)
+        XCTAssertGreaterThan(height, CanvasCardMetrics.itemLabelOnlyHeight,
+                             "the card is still at the floor height after the photograph "
+                             + "had time to decode: either nothing scheduled "
+                             + "servicePending(), or it ran and nothing re-measured. A "
+                             + "canvas of blank cards is what the writer sees either way")
+        XCTAssertEqual(height,
+                       CanvasCardMetrics.itemCardHeight(forCardWidth: 240,
+                                                        pictureAspect: 4.0 / 3.0),
+                       accuracy: 1.5,
+                       "the card's height is not the one its photograph's shape asks "
+                       + "for — measured \(height) against the 4:3 fixture")
+
+        // …and the new height is a fact about the SCENE rather than about one
+        // frame: a point that is inside the card only because the photograph made
+        // it taller now hits it. A re-measure that reached the renderer and not
+        // the scene would leave a card drawn larger than it can be clicked.
+        XCTAssertEqual(
+            model.scene.topmostNode(
+                at: CGPoint(x: 60, y: 40 + CanvasCardMetrics.itemLabelOnlyHeight + 20))?.id,
+            itemID,
+            "the grown card cannot be clicked where it is drawn")
+
+        // **Nothing is asserted about the sidecar here, deliberately.** A height
+        // is DERIVED (§7A.3) and this pass runs on every load, so the sidecar's
+        // copy is an optimisation and not the record: a decode landing does not
+        // queue a save, and it should not — opening a canvas would then dirty its
+        // own file, and the next launch re-measures from the floor to the same
+        // number anyway. What must never persist is a NIL height, and the heal is
+        // what closes that (`test_anItemNodeThatArrivesWithNoHeightIsHealedOnLoad`).
     }
 
     /// **The card must stay on the canvas for the WHOLE of a resize, not just

@@ -34,12 +34,21 @@ struct RegionInspectorPane: View {
     /// `ScrapInspector.association`.
     let pieceTitle: (String) -> String?
     let onOpenResearchItem: (String) -> Void
+    /// What an item MEMBER of a region is called (1C-d). A Claude region holds
+    /// the page its scraps were read off, so a region's member list really does
+    /// contain item nodes, and a row is a title rather than a card.
+    ///
+    /// Defaulted for the same reason `CanvasView`'s is, and censused in the same
+    /// place: `ProjectWindow` is the one production caller and it names
+    /// `Self.canvasItemIndex(in: store)` for both.
+    var itemIndex: CanvasItemIndex = .empty
 
     var body: some View {
         if let region = model.selectedRegion {
             RegionInspector(model: model, regionID: region.id, pieces: pieces,
                             artifactTitle: artifactTitle, pieceTitle: pieceTitle,
-                            onOpenResearchItem: onOpenResearchItem)
+                            onOpenResearchItem: onOpenResearchItem,
+                            itemIndex: itemIndex)
         } else if let line = model.selectedLine {
             LineInspector(model: model, lineID: line.id)
         } else if let node = model.selectedNode, case .scrap = node.kind {
@@ -158,6 +167,13 @@ struct RegionInspector: View {
     /// stops the pane calling a piece in the writer's binder "missing".
     let pieceTitle: (String) -> String?
     let onOpenResearchItem: (String) -> Void
+    /// See `RegionInspectorPane.itemIndex`. It is deliberately **not** in
+    /// `currentRowsKey`: a manifest change with no structural change leaves an
+    /// item member's row showing the title it had when the region was selected,
+    /// which is the same narrow staleness the key already accepts for everything
+    /// else it gates, and the alternative is a manifest fingerprint on a key that
+    /// exists to be two cheap `Int`s.
+    var itemIndex: CanvasItemIndex = .empty
 
     /// What the writer has typed but not yet committed. Local, so one rename is
     /// one undo step rather than one per keystroke.
@@ -589,11 +605,17 @@ struct RegionInspector: View {
     /// iteration order deciding the list — a different order on every launch.
     /// Same discipline as `CanvasScene.isBehind`.
     private func rows(_ ids: Set<CanvasNodeID>) -> [Row] {
-        ids
+        // Resolved once per list rather than per row — this walks the scene, and
+        // `rows` is called for the residents, the visitors and the whole
+        // cite-a-card offer. Every caller is already behind `currentRowsKey`, so
+        // this is on the structural path and not on the drag loop.
+        let itemFacts = CanvasItemPresentation.facts(in: model.scene, index: itemIndex)
+        return ids
             .filter { model.scene.node($0) != nil }
             .map { Row(node: $0,
                        title: CanvasRenderer.chipTitle(for: $0, in: model.scene,
-                                                       scraps: model.scraps)) }
+                                                       scraps: model.scraps,
+                                                       items: itemFacts)) }
             .sorted { a, b in
                 let order = a.title.localizedStandardCompare(b.title)
                 if order != .orderedSame { return order == .orderedAscending }

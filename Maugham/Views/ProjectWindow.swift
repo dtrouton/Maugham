@@ -904,7 +904,8 @@ struct ProjectWindow: View {
             )
         case .canvas:
             CanvasView(model: canvasModel, projectRoot: store.url,
-                       paletteSwatchHexes: { store.paletteSwatchHexes() })
+                       paletteSwatchHexes: { store.paletteSwatchHexes() },
+                       itemIndex: Self.canvasItemIndex(in: store))
         case .research:
             if let id = selectedResearchId,
                let item = TreeWalk.find(
@@ -1170,7 +1171,11 @@ struct ProjectWindow: View {
                 TreeWalk.collect(in: store.manifest.structure,
                                  where: { $0.id == id }).first?.title
             },
-            onOpenResearchItem: openResearchItem)
+            onOpenResearchItem: openResearchItem,
+            // A region's member list names item nodes too — a Claude region holds
+            // the page its scraps were read off — so the pane resolves a title
+            // through the same index the canvas draws from (1C-d).
+            itemIndex: Self.canvasItemIndex(in: store))
     }
 
     /// The pieces both canvas pickers offer — the region's and, since 1C-c2a, the
@@ -1196,6 +1201,24 @@ struct ProjectWindow: View {
     static func pieceChoices(in store: ProjectStore) -> [RegionInspector.PieceChoice] {
         store.researchScopeTargets()
             .map { RegionInspector.PieceChoice(id: $0.id, title: $0.title) }
+    }
+
+    /// What every item node on the canvas resolves its title, kind glyph and
+    /// thumbnail path through (1C-d, spec §8A.1).
+    ///
+    /// **Built HERE, beside `pieceChoices`, and on exactly its terms.** This body
+    /// reads `store.manifest`, so it re-evaluates when the manifest changes and
+    /// not otherwise; it does **not** read `canvasModel.scene`, so it is not on
+    /// the canvas's drag loop. Building it inside `CanvasView` instead would put
+    /// one walk of the whole research tree on a body that re-evaluates every drag,
+    /// coast and straighten frame — tripwire 4's per-row manifest walk arriving on
+    /// the frame path, which is what made a binder click O(N²) in 3d.
+    ///
+    /// The second index over one manifest, the first being `ArtifactIndex`; the
+    /// two are not one because they answer different questions, and
+    /// `CanvasItemIndex`'s own doc comment carries why.
+    static func canvasItemIndex(in store: ProjectStore) -> CanvasItemIndex {
+        CanvasItemIndex.over(research: store.manifest.research)
     }
 
     /// Navigate to a research item in the right pane: switch to Research and

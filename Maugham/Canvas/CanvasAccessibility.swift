@@ -272,8 +272,21 @@ enum CanvasAccessibility {
     /// two so the tests assert what ships.
     static let collapsedTerm = "collapsed"
 
+    /// `items` is what the item arm SAYS, and it is the same value the draw pass
+    /// is handed (1C-d). Before it, an item node's spoken value was
+    /// `Item · res-3f2a` — the placeholder label — which was right only while the
+    /// card drew the same string. A card that shows a title over an element that
+    /// reads out an id is a drawn/spoken divergence nobody decided, and this
+    /// directory has two deliberate ones whose whole value is that they were.
+    ///
+    /// It defaults to `.empty` because the call sites that pass one are few and
+    /// the ones that do not are tests; the production wiring is censused as a
+    /// required token in `CanvasView.swift` rather than left to a compiler that
+    /// cannot see a default going missing
+    /// (`CanvasCompositionTests.test_theViewHandsItsResolvedItemFactsToBothConsumers`).
     static func elements(scene: CanvasScene,
-                         scraps: [CanvasNodeID: String]) -> [CanvasAXElement] {
+                         scraps: [CanvasNodeID: String],
+                         items: CanvasItemPresentation = .empty) -> [CanvasAXElement] {
         let connections = connections(in: scene)
         // Regions first into the list, but the ORDER is decided by `rowOrdered`
         // over everything together — a region's frame starts at or above-left of
@@ -356,7 +369,7 @@ enum CanvasAccessibility {
                                  connectedBy: connections[node.id]),
                     value: text.isEmpty ? emptyScrapValue : text,
                     contentFrame: frame))
-            case .item(let reference):
+            case .item:
                 elements.append(CanvasAXElement(
                     id: .node(node.id), role: .item,
                     // `promoted: false` unconditionally, and the author READ —
@@ -394,7 +407,12 @@ enum CanvasAccessibility {
                                  fromClaude: node.author == .claude,
                                  promoted: false,
                                  connectedBy: connections[node.id]),
-                    value: CanvasRenderer.placeholderLabel(for: reference),
+                    // The card's own title, resolved once for the whole scene and
+                    // handed here — see the parameter's note above. Unresolved
+                    // facts read as the empty string rather than as an id: the
+                    // card is drawing nothing in that window either, and the two
+                    // channels agree by reading one value.
+                    value: items.item(for: node.id)?.facts.title ?? "",
                     contentFrame: frame))
             }
         }

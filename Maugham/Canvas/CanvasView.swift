@@ -51,6 +51,15 @@ import SwiftUI
 ///     documented it beside the modifiers and left the promotion to Task 15,
 ///     the last task to edit this file. Both are therefore described in prose
 ///     and spelled nowhere in this file, here or below.
+/// **`@MainActor` on the whole struct** *(1C-d)*. Every method here is reached
+/// from `body` or from a closure `body` created, so this says out loud what was
+/// already true — and it is what lets the measurement pass read
+/// `CanvasThumbnails`, which is main-actor-isolated because asking it for an
+/// image RECORDS a miss. Without it the isolation has to be crossed somewhere,
+/// and every place to cross it is worse: a nonisolated closure that captures the
+/// cache does not compile, and dropping the cache's own isolation would trade a
+/// checked guarantee for a convention.
+@MainActor
 struct CanvasView: View {
     /// The scene, the scrap text, the selection, the sidecar store and the undo
     /// recorder — owned by `ProjectWindow` because the region inspector in the
@@ -62,6 +71,23 @@ struct CanvasView: View {
     /// palette card off disk, and evaluating that inside `ProjectWindow.body`
     /// would do file I/O per render. The canvas pulls it once, on appear.
     let paletteSwatchHexes: () -> [String]
+
+    /// Item id → title, kind and thumbnail path, for every research item in the
+    /// project — built in `ProjectWindow` beside `pieceChoices` and handed down.
+    ///
+    /// **Eager and handed in, exactly like `pieceChoices`, and for its reason.**
+    /// It walks the manifest once per manifest change on that window's body path;
+    /// building it here instead would put the walk on this view's own body, which
+    /// re-evaluates on every drag, coast and straighten frame — tripwire 4's
+    /// per-row manifest walk arriving on the frame path.
+    ///
+    /// It defaults to `.empty` for the same reason `CanvasAccessibility.elements`
+    /// does: the call sites are ~70 test hosts and one production window, and the
+    /// production one is censused by name in
+    /// `PromotionCommandTests.test_theCanvasWiringCensusNamesEveryProductionSite`
+    /// — a required token, which is what this directory uses where a default
+    /// would otherwise let wiring go missing with nothing red.
+    var itemIndex: CanvasItemIndex = .empty
 
     @State private var camera = CanvasCamera()
     @State private var layouts: [CanvasNodeID: ScrapLayout] = [:]
@@ -75,6 +101,32 @@ struct CanvasView: View {
     /// only clock on this surface.
     @State private var interaction = CanvasInteraction()
     @State private var momentum = CanvasMomentum()
+
+    /// The canvas's decoded thumbnails, bounded and keyed by path (tripwire 22).
+    ///
+    /// A reference type in `@State`, exactly like `layouts` and for the same
+    /// reason: it is a cache whose identity has to survive a body pass, and
+    /// mutating it does not redraw anything by itself.
+    @State private var thumbnails = CanvasThumbnails()
+
+    /// What every item node in the scene says it is, and the picture to draw on
+    /// it — resolved in `rebuildLayouts` and read by the draw pass, the
+    /// measurement and the accessibility tree.
+    ///
+    /// **Resolved on the structural path and never in `body`.** It rides
+    /// `rebuildLayouts` rather than an invalidation key of its own because the
+    /// measurement *needs* it — an item card's height is its picture's aspect
+    /// ratio plus a line of label — so the two cannot be scheduled apart without
+    /// one of them being a frame behind the other.
+    @State private var itemPresentation = CanvasItemPresentation.empty
+
+    /// How many thumbnails the last resolve asked for and did not have.
+    ///
+    /// **This is the `.task` trigger, and it must not be `revision`** (tripwire
+    /// 30): a decode has nothing to do with a frame, and keying it on the redraw
+    /// counter would restart a servicing task on every drag frame. It is a plain
+    /// count, so it settles at 0 and the task stops re-running.
+    @State private var pendingThumbnails = 0
 
     /// `layouts` holds ScrapLayout REFERENCES. Typing mutates the object in
     /// place, so `@State` observes no change and the `Canvas` never redraws.
@@ -208,6 +260,7 @@ struct CanvasView: View {
                     CanvasRenderer.draw(scene: model.scene, camera: camera, viewSize: size,
                                         layouts: layouts,
                                         scraps: model.scraps,
+                                        items: itemPresentation,
                                         selection: model.selection,
                                         visibleEditorNodeID: visibleEditorNodeID,
                                         straighten: straighten,
@@ -318,7 +371,28 @@ struct CanvasView: View {
         // somehow arrives without a bump still has an accessible canvas rather
         // than a silent one — the failure this whole layer exists to prevent.
         .onChange(of: sceneRevision, initial: true) { _, _ in
-            axElements = CanvasAccessibility.elements(scene: model.scene, scraps: model.scraps)
+            axElements = CanvasAccessibility.elements(scene: model.scene, scraps: model.scraps,
+                                                      items: itemPresentation)
+        }
+        // The manifest moved under a canvas that did not: the writer renamed the
+        // research note a card points at, or deleted it. Nothing on the canvas
+        // changed, so no structural counter budged — and the card would show the
+        // old title for the rest of the session. Keyed on the FINGERPRINT and
+        // never on the index itself: a dictionary comparison per body pass is the
+        // cost this key exists to avoid (`CanvasItemIndex.fingerprint`).
+        .onChange(of: itemIndex.fingerprint) { _, _ in rebuildLayouts() }
+        // The thumbnails the last resolve missed, decoded OFF the frame path.
+        //
+        // `CanvasThumbnails.resolved` never decodes — it records a miss and
+        // returns nil — so this is the only thing that ever turns a photograph
+        // into pixels, and it re-measures afterwards because an item card's height
+        // follows its picture. `.task(id:)` rather than a `Task {}` from a
+        // callback: SwiftUI cancels it when this view goes away, and the id
+        // settles at 0, so a canvas whose pictures have all landed schedules
+        // nothing at all.
+        .task(id: pendingThumbnails) {
+            guard pendingThumbnails > 0 else { return }
+            if await thumbnails.servicePending() { rebuildLayouts() }
         }
         // MIRRORED, not replaced. The model's counter is bumped by the inspector
         // from the other column; the view's is what the grep-pinned rebuild above
@@ -589,18 +663,31 @@ struct CanvasView: View {
     /// `CanvasScrapMeasure`, so a caller with no view on screen measures a card
     /// exactly as this does.
     ///
-    /// **It MEASURES `.scrap` only** — an item node has no text of its own and
-    /// nothing here to lay out — **but it HEALS an item node with no height**,
-    /// writing `CanvasCardMetrics.itemPlaceholderHeight`. That arm is not
-    /// bookkeeping: a node with no `cachedHeight` has no `frame`, and a node with
-    /// no frame is dropped by `CanvasScene.topmostNode(at:)` and
-    /// `nodes(intersecting:)` alike — neither drawn nor clickable, and persisted
-    /// that way. Producers still set the height at creation
-    /// (`CanvasClaudePlacement` does); this closes the two routes a producer
-    /// cannot: a hand-edited sidecar, and any future path that clears the height
-    /// the way `CanvasScene.setWidth` does. See `CanvasScrapMeasure`'s
-    /// scoped-gap paragraph, which records what 1C-d owns — a real measurement
-    /// for an item's thumbnail, which is not this constant.
+    /// **It measures BOTH kinds as of 1C-d, and they are two arithmetics.** A
+    /// scrap's height comes from its text through the shared `ScrapLayout`; an
+    /// item node's comes from its picture's aspect ratio plus one line of label
+    /// (`CanvasCardMetrics.itemCardHeight(forCardWidth:pictureAspect:)`). Both are
+    /// functions of the card's WIDTH, which is the rule §7A.3 already had and is
+    /// what makes Task 6's resize of an item node safe: `CanvasScene.setWidth`
+    /// clears the cached height by design, and this pass puts back one that
+    /// follows the new width.
+    ///
+    /// **`CanvasCardMetrics.itemLabelOnlyHeight` stays as the FLOOR**, which is
+    /// what a card with no picture measures to and what a card whose picture has
+    /// not decoded yet measures to as well. It is not bookkeeping: a node with no
+    /// `cachedHeight` has no `frame`, and a node with no frame is dropped by
+    /// `CanvasScene.topmostNode(at:)` and `nodes(intersecting:)` alike — neither
+    /// drawn nor clickable, and persisted that way, which is the 1C-c3
+    /// whole-branch Critical. Everything that can leave a node unmeasured now
+    /// lands on the floor instead of on nil: a hand-edited sidecar, a photograph
+    /// still decoding, a research item the writer deleted, and any future path
+    /// that clears a height the way `setWidth` does.
+    ///
+    /// **The item facts are re-resolved at the head of this function**, so the
+    /// measurement and the draw pass read the same value by construction. That is
+    /// also why a thumbnail landing calls this rather than only bumping the
+    /// redraw counter: the picture changes the card's *height*, not just its
+    /// pixels.
     ///
     /// `bumpsStructuralCounter` is `false` for a caller whose bump is already
     /// arriving by another route — one that calls `model.bumpSceneRevision()` on
@@ -617,9 +704,18 @@ struct CanvasView: View {
     /// which asks the published accessibility tree whether the deleted card has
     /// left it.
     private func rebuildLayouts(bumpsStructuralCounter: Bool = true) {
+        // FIRST, and inside this function rather than beside its callers: every
+        // path that changes the scene has to re-ask what its item nodes are, and
+        // the measurement below reads the answer. `resolve` decodes nothing — a
+        // miss is recorded and serviced by the `.task` in `body`.
+        itemPresentation = CanvasItemPresentation.resolve(scene: model.scene,
+                                                          index: itemIndex,
+                                                          thumbnails: thumbnails,
+                                                          projectRoot: projectRoot)
         // ONE `withScene` around the whole loop rather than one per node, and
         // `persist: false` because the caller owns the save.
         let scraps = model.scraps
+        let items = itemPresentation
         model.withScene(persist: false) { scene in
             for node in scene.unorderedNodes {
                 // A `switch` rather than a `guard … else { continue }`, so a
@@ -627,19 +723,26 @@ struct CanvasView: View {
                 // silently never gets a height.
                 switch node.kind {
                 case .item:
-                    // Heal, do not measure — see the doc above. Only when it is
-                    // missing: an item node's height is not derived from anything
-                    // this pass can see, so overwriting a present one would undo
-                    // whatever set it.
-                    if node.cachedHeight == nil {
-                        scene.setCachedHeight(CanvasCardMetrics.itemPlaceholderHeight,
-                                              for: node.id)
-                    }
+                    // Measured from the picture when there is one, floored to a
+                    // line of label when there is not — see the doc above. The
+                    // height is DERIVED, so it is written unconditionally: an
+                    // older sidecar's number, or one left by a producer that
+                    // planned a card before its picture existed, is not evidence
+                    // about the card being drawn now.
+                    scene.setCachedHeight(
+                        CanvasCardMetrics.itemCardHeight(
+                            forCardWidth: node.width,
+                            pictureAspect: items.item(for: node.id)?.pictureAspect),
+                        for: node.id)
                 case .scrap:
                     measureScrap(node, in: &scene, scraps: scraps)
                 }
             }
         }
+        // What the resolve above asked for and did not have, handed to the
+        // `.task` in `body`. Written after the measure so a pass that services
+        // nothing settles it back to 0.
+        pendingThumbnails = thumbnails.pendingCount
         // Layouts for nodes that no longer exist would keep their text alive.
         layouts = layouts.filter { model.scene.node($0.key) != nil }
         revision += 1
@@ -1161,10 +1264,16 @@ struct CanvasView: View {
     ///   front hides the mark, and `begin` resolves the source with
     ///   `topmostNode(at:)` — so without this the writer would press a card they
     ///   can see and get a line out of one they cannot.
-    static func pressStartsALine(at contentPoint: CGPoint,
-                                 selection: CanvasSelection?,
-                                 in scene: CanvasScene,
-                                 shiftHeld: Bool) -> Bool {
+    ///
+    /// **`nonisolated` because it is pure**, and that is worth saying now that the
+    /// enclosing struct carries `@MainActor` (1C-d): this reads its three
+    /// arguments and no view state, so isolating it would be a claim about where
+    /// it may be *called* that nothing about it justifies — and it would put every
+    /// caller, tests included, on the main actor for a rect test.
+    nonisolated static func pressStartsALine(at contentPoint: CGPoint,
+                                             selection: CanvasSelection?,
+                                             in scene: CanvasScene,
+                                             shiftHeld: Bool) -> Bool {
         if shiftHeld { return true }
         guard case .node(let id)? = selection,
               let frame = scene.node(id)?.frame,

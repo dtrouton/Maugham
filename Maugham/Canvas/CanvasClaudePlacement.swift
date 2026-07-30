@@ -245,10 +245,10 @@ enum CanvasClaudePlacement {
                                              kind: .item(.project(id: reference)),
                                              origin: CGPoint(x: cardX, y: y),
                                              width: CanvasInteraction.defaultScrapWidth,
-                                             cachedHeight: CanvasCardMetrics.itemPlaceholderHeight,
+                                             cachedHeight: CanvasCardMetrics.itemLabelOnlyHeight,
                                              z: z,
                                              author: .claude))
-                columnBottom = y + CanvasCardMetrics.itemPlaceholderHeight
+                columnBottom = y + CanvasCardMetrics.itemLabelOnlyHeight
                 y = columnBottom + cardGap
             }
         }

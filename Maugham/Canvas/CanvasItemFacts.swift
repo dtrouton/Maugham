@@ -112,7 +112,10 @@ struct CanvasItemFacts: Equatable, Sendable {
 /// overwritten, and it has no case for a photograph because a promotion never
 /// produces one. `AssetKind` has the photograph and not the palette card, which
 /// is not a `kind` in the manifest at all but a position in the tree
-/// (`PaletteConvention.paletteCards`). This is the union the canvas actually
+/// (`PaletteLookup.paletteCards`, which this file's own `over(research:)` calls
+/// twenty lines down — the name here read `PaletteConvention` for one commit,
+/// which is a *different* enum in the same file with no such member). This is the
+/// union the canvas actually
 /// draws from, which is neither.
 enum CanvasItemKind: Equatable, Hashable, Sendable, CaseIterable {
     case researchNote
@@ -218,10 +221,15 @@ struct CanvasItemIndex: Equatable, Sendable {
     /// these facts do not read (a tag, a link, a caption) leaves it alone and
     /// the cache survives, which a counter on `ProjectStore` could not do.
     ///
-    /// **Not `Equatable` on the index itself.** `.onChange(of: index)` compiles
-    /// and reads correctly and puts a dictionary comparison on every frame of
-    /// every drag — tripwire 30's shape, arriving through the invalidation
-    /// check rather than through the work it guards.
+    /// **Watch it, rather than the index itself.** `.onChange(of: index)`
+    /// compiles and reads correctly and compares a whole dictionary — every
+    /// entry, every title — on every body pass, which on this surface means every
+    /// frame of every drag and coast. That is not tripwire 30 (this comment said
+    /// it was, for one commit): tripwire 30 is specifically about keying
+    /// scene-proportional work off `CanvasView.revision`, the per-frame REDRAW
+    /// counter. The kinship is real and the rule is not — what is wrong with a
+    /// per-frame dictionary comparison is its cost, not its key — so the fix is
+    /// the same one either way: compare two `Int`s.
     ///
     /// **In-memory only. Never persist it, never compare it across processes.**
     /// Swift seeds `Hasher` per process, so the same manifest fingerprints
@@ -237,6 +245,13 @@ struct CanvasItemIndex: Equatable, Sendable {
         self.entriesByID = entriesByID
         self.fingerprint = entriesByID.hashValue
     }
+
+    /// No project behind it: every referenced item resolves to `missingTitle`, and
+    /// an owned image resolves in full because it never needed a manifest.
+    ///
+    /// It is what a canvas hosted without a window has, which is a real state —
+    /// see `CanvasItemPresentation.empty`.
+    static let empty = CanvasItemIndex(entriesByID: [:])
 
     /// One walk of the manifest, and it collects **everything** — groups
     /// included, so an item node pointing at a group resolves rather than

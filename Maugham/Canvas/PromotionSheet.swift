@@ -114,7 +114,11 @@ final class PromotionSheetModel: Identifiable {
         switch source {
         case .scrap(let id):
             self.sourceDescription =
-                "The card “\(CanvasRenderer.chipTitle(for: id, in: scene, scraps: scraps))”"
+                // `items: .empty` is exact: `PromotionSource.scrap` is a scrap by
+                // construction, so `chipTitle`'s item branch is unreachable from
+                // here — an item node cannot be promoted at all
+                // (`Promotion.itemNodeReason`).
+                "The card “\(CanvasRenderer.chipTitle(for: id, in: scene, scraps: scraps, items: .empty))”"
         case .region(let id):
             self.sourceDescription =
                 "The region “\(scene.region(id)?.displayLabel ?? CanvasRegion.untitledLabel)”"

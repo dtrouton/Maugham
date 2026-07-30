@@ -103,6 +103,34 @@ public final class CanvasThumbnails {
     /// `nonisolated` for the reason above — it is `init`'s other default argument.
     nonisolated public static let defaultEntryBudget = 256
 
+    /// Points → pixels, for a caller that has no way to ask the window.
+    ///
+    /// **This is not the raster scale spike requirement 3 forbids deriving**, and
+    /// the distinction is the reason it is allowed to exist at all: that rule is
+    /// about the scale a card's GLYPHS are drawn at, where a hand-derived number
+    /// bakes in AppKit's frame rounding and shifts text by a subpixel. This number
+    /// sizes a *decode request* — the drawn rect stays in points and the context's
+    /// own scale rasterises it — so being wrong here costs sharpness or memory and
+    /// can never move a pixel of drawn text.
+    ///
+    /// 2 rather than a reading, because a reading is not available: the cache is
+    /// asked from a measurement pass that has no window, and `backingScaleFactor`
+    /// is grep-banned across this directory. Over-asking on a 1× display costs one
+    /// step of the ladder and nothing else; under-asking on a 2× display is a
+    /// visibly soft photograph, which is the failure that fails *silently*.
+    ///
+    /// **The camera's zoom is deliberately not part of a request, and that is a
+    /// ruling rather than an omission.** An item card's HEIGHT is derived from its
+    /// picture's aspect ratio (`CanvasCardMetrics.itemCardHeight`), and a
+    /// thumbnail's aspect ratio differs from the source's by up to a pixel of
+    /// rounding at each rung — so a request that followed the zoom would re-measure
+    /// every pictured card as the writer zoomed, jittering their heights and
+    /// rebuilding the accessibility tree on the zoom path. A photograph inspected
+    /// at 6× is therefore softer than the display could show, which is the smaller
+    /// cost and is bounded by Task 6's resize: a card made bigger asks for more
+    /// pixels, because the request follows the card's WIDTH.
+    nonisolated public static let assumedPixelScale: CGFloat = 2
+
     /// The size ladder. Powers of two so the count stays small over the camera's
     /// two-decade zoom range, and the top entry doubles as the clamp: no single
     /// decode may exceed it, which is the other half of the byte budget's

@@ -71,8 +71,15 @@ struct ScrapInspector: View {
     var body: some View {
         Form {
             Section {
+                // `items: .empty` is exact rather than lazy: this arm renders for
+                // a `.scrap` and nothing else (`RegionInspectorPane`'s own guard
+                // — an item node's every sentence here would be wrong for a
+                // reference), so the item branch of `chipTitle` is unreachable
+                // from this call and a resolved presentation would be a value
+                // threaded through the window for no reader. Task 7's item-node
+                // arm is where a reference's title gets a pane.
                 Text(CanvasRenderer.chipTitle(for: nodeID, in: model.scene,
-                                              scraps: model.scraps))
+                                              scraps: model.scraps, items: .empty))
                     .lineLimit(2)
                 // **Whose card this is** — the third fact this pane states, and
                 // the one CLAUDE.md rule 8 asks for on `CanvasNode.author`. The
