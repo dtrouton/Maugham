@@ -138,12 +138,25 @@ A line costs nothing to draw and nothing to be wrong about, which is what thinki
 | A scrap | a research note, a palette card, or an intent statement |
 | A region | a research note, or a palette card |
 | A line | a `[[wiki-link]]`, when both ends have themselves been promoted |
+| An **owned** item node | a research asset, or an image on a palette card *(1C-d — see the 2026-07-30 amendment)* |
 
 > **Amendment, 2026-07-29 (Denver, after the 1C-c2 smoke).** The region row read *"a palette card, or a piece binding"*. Both halves were wrong in practice, and the smoke is what showed it.
 >
 > **A piece binding is not a promotion.** It produces no artifact — it sets `CanvasRegion.boundPieceID`, which the region inspector's own **Piece** picker already sets, so the sheet offered a second door to an existing control while wearing the words "Produce" and "Goes to". And the field's only intended reader is 1A's reference rail, which is unbuilt: measured 2026-07-29, `RegionBinding.references(forPiece:)` has **zero production callers**. The writer's report was simply "I don't see it doing anything", which was accurate. Removed as a target; the picker stays.
 >
 > **A region produces a research note.** A cluster of text scraps is a note — grouped, in the region's own reading order, with §6.1's offer to link each promoted member to it. The palette card **stays** on the row, and its case gets stronger rather than weaker in 1C-d: a palette card is worth making from a region that holds an *image*, which the canvas cannot hold until then. Today it makes a card of joined prose with no swatches and no images, which is why it could not be the only option.
+
+> **Amendment, 2026-07-30 (Denver, re-deriving 1C-d). An OWNED item node promotes; a REFERENCED one still does not.** The table gained a fourth row and the refusal it replaces was correct when it was written.
+>
+> **What made the blanket refusal right, and what changed.** An item node is refused in four places today (`Promotion.targets` returns `[]`, `Promotion.itemNodeReason` is the sentence, `CanvasPromotionModifier.isPromotable`, `RegionInspectorPane`'s `.scrap` guard), because until 1C-d every item node was a **reference** — a research note or a palette card that already exists, already the artifact, with nothing left to produce. §3.1's 2026-07-30 amendment adds the second provenance, and an **owned** capture is the case that refusal was never about: it exists nowhere but the canvas. Refusing it strands the photograph the writer just sent there.
+>
+> **This is what makes §8A.4's own sentence true.** That section says *"promotion is already the second arrow"* of `inbox → canvas → research`. For text and voice it is — they become scraps, and a scrap promotes. For a photograph it was not: the capture becomes an owned item node, promotion refuses it, and the inbox entry it came from is `.promoted` and gone, so the pane's existing **Promote to Research** is not a fallback either. The arrow was true of two capture kinds out of three, in a section whose own ruling is that the action ships for all three or it does not ship.
+>
+> **The two destinations are the inbox's own, because it is the same object one hop later.** A research asset (`InboxStore.promoteToResearch`'s `.image` branch, over `ProjectStore.createResearchAsset`) or an image on a palette card (`ProjectStore.addImage(toPaletteCard:fileURL:)` — the ingestion pair §3.1's amendment already names). Neither is new machinery, and neither is a new spelling of one: the canvas is a **caller**, exactly as the inbox and MCP `promote_inbox_entry` already are. There is no intent-statement row — an intent is prose about how a piece is written, and a photograph is not a sentence.
+>
+> **A referenced item node stays refused, and for the original reason** — it is already in the project, so the honest answer is to open it, which is what the item arm's **Open in Research** button is for. That keeps `Promotion.itemNodeReason` alive rather than deleting it; what changes is that it becomes the *referenced* node's sentence rather than every item node's.
+>
+> **It is still a SNAPSHOT (ruling 1 above), so the asset is COPIED and the node stays owned.** Promoting does not hand the file to research and turn the node into a reference. That variant was considered and rejected: it leaves no duplicate on disk, but it makes promotion the one verb on this surface that moves rather than copies, and a writer who promotes and then undoes would be relying on a file move to reverse. A duplicate photograph is the same cost §6.1 already accepts everywhere else, and the mark records which artifact it produced exactly as a scrap's does.
 
 ### 6.2 A piece association, and where a promotion lands
 
@@ -420,6 +433,14 @@ Two hazards, both already scarred into this file:
 **It reuses the promote contract rather than restating it.** `InboxStore.promoteToResearch` and `.promoteToPaletteCard` already settle the parts that are easy to get wrong and identical here: copy-then-remove the original so a failure leaves a harmless duplicate rather than losing the capture, and flip the entry to `.promoted` **only after every mutating step has succeeded**, so a half-promoted entry is not reachable. A third sibling belongs beside them, not a new spelling of them.
 
 **Where the writer finds it:** the Inbox pane, beside "Promote to Palette" — the precedent for a second destination on the same list, including the case where the destination is picked rather than assumed.
+
+> **Amendment, 2026-07-30 (Denver, re-deriving 1C-d). Two routes, and the gesture is the primary one.** The section above described a command and left placement open. It is a *drag*, and that removes a rule rather than adding one.
+>
+> **`.inbox` is one of the Plan persona's panes** (`Persona.panes`, `Maugham/Models/Persona.swift:88`), so the Inbox pane can sit in the right-hand column with the canvas in the centre — the two surfaces are on screen together, which is what makes a drag the obvious act. **An inbox row is draggable onto the canvas and the capture lands where it is dropped.** The canvas gains no placement rule for this: it is the **third caller** of the drop target §8A.1 already owes, beside an internal research drag and an external file drop.
+>
+> **The command stays, and it is not redundant.** A drag is unreachable from the keyboard, unreachable to VoiceOver, and unavailable when the writer has the pane closed or is in another persona. So the Inbox row keeps a **Send to Canvas** command beside Promote to Palette. It has no drop point, so it takes the one stated fallback: **loose, clear of the writer's existing work** — `CanvasClaudePlacement`'s `occupied.maxX + gutter` rule, which already exists and is already the answer for an arrival nobody aimed. **Loose, not in a region**, and that is the asymmetry with §8A.2 rather than an inconsistency: Claude's batches take a region because constraint 2 requires a derived scrap stay tied to its source, and a writer sending one capture has already decided what it is. A container they did not ask for and will delete is friction.
+>
+> **The command's landing place is off-screen by construction**, exactly as Claude's region is, so it inherits the same answer: the writer is told, and told where. Whether that is the existing arrival banner or something quieter is the plan's, but it may not be silent — a capture that leaves the inbox and appears nowhere the writer is looking is the failure this route exists to remove.
 
 **No MCP write path for this route, and the asymmetry is deliberate.** Claude's way onto the canvas is §8A.2, and its source is a research item — not because that is better but because `read_document` is the only image reader in the catalogue, so a photograph Claude can *see* is one that has already been promoted. Recorded here so the next author meets a decision rather than a gap: if Claude is ever to read a capture in place, the missing piece is an image response on `read_inbox_entry` (today: text, transcript, kind and asset *filename* only), and the corollary in §8A.2 would still require the photograph itself to reach the canvas.
 
