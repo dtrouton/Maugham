@@ -3751,4 +3751,62 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "writer's canvas can be left with a card whose connections "
                        + "are one keystroke behind it")
     }
+
+    /// **A card added from OUTSIDE the canvas is measured by the hosted view**,
+    /// which is the whole reason `CanvasModel.onSceneChangedExternally` exists
+    /// (1C-c3 Task 4).
+    ///
+    /// The census in `CanvasLiveSeamTests` proves the binding line is written in
+    /// `CanvasView.load()`. It cannot prove the closure ever RUNS — a binding
+    /// moved into a branch `load()` does not reach, a `load()` no longer called
+    /// from `.onAppear`, or a `rebuildLayouts` that stops measuring new nodes all
+    /// leave a text census green. That gap is this area's most expensive recorded
+    /// mistake: 1C-a shipped ⌘Z twenty-two green tests deep and greyed out in the
+    /// Edit menu, because every one of those tests drove the recorder directly.
+    /// So this drives the EMITTER, through a real hosted `CanvasView`.
+    ///
+    /// What it asserts is the failure, not the mechanism: an unmeasured node has
+    /// no `cachedHeight`, so it has no `frame`, so `drawCard` gets a nil layout
+    /// and `topmostNode(at:)` drops it — **an empty rectangle the writer cannot
+    /// click**, until they happen to do something else that rebuilds.
+    ///
+    /// Falsified by disabling the binding: comment out
+    /// `model.onSceneChangedExternally` in `CanvasView.load()` and the height
+    /// assertion goes red with `cachedHeight` nil.
+    ///
+    /// The scrap text is written BEFORE the scene edit, which is the ordering
+    /// `mutateFromInspector`'s doc requires of any caller writing both: the hook
+    /// measures each card from the words it finds, so a card measured before its
+    /// text arrives is measured empty. Asserting the height equals
+    /// `CanvasScrapMeasure.height(text:cardWidth:)` is what makes that visible —
+    /// a card measured empty is a different number, not a nil.
+    func test_aCardAddedFromOutsideTheCanvasIsMeasuredByTheHostedView() throws {
+        let model = CanvasModel()
+        host(CanvasView(model: model, projectRoot: try projectRoot(),
+                        paletteSwatchHexes: { [] }))
+        XCTAssertNotNil(model.scene.node(scrapID)?.cachedHeight,
+                        "precondition: load() measured the fixture's own card")
+
+        let added = CanvasNodeID("mcp1")
+        let text = "a card from the other side of the window"
+        model.setScrapText(text, for: added)
+        model.mutateFromInspector("Add Scrap") {
+            $0.insert(CanvasNode(id: added, kind: .scrap,
+                                 origin: CGPoint(x: 400, y: 300), width: 240))
+        }
+        pump()
+
+        let node = try XCTUnwrap(model.scene.node(added), "the applier's own write")
+        XCTAssertEqual(node.cachedHeight,
+                       CanvasScrapMeasure.height(text: text, cardWidth: 240),
+                       "the card arrived unmeasured and stayed that way: it has no "
+                       + "frame, so it draws as an empty rectangle and hit testing "
+                       + "cannot see it at all")
+        let frame = try XCTUnwrap(node.frame)
+        XCTAssertEqual(model.scene.topmostNode(at: CGPoint(x: frame.midX, y: frame.midY))?.id,
+                       added,
+                       "measured but not clickable — which is the same failure the "
+                       + "writer meets, reached through hit testing instead of the "
+                       + "draw pass")
+    }
 }

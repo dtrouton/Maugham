@@ -461,12 +461,23 @@ struct CanvasView: View {
         // cannot be clicked either. It stays that way until the writer happens
         // to touch something that rebuilds.
         //
-        // NOT bumping the structural counter, and this is the third caller that
-        // does not. Every writer through `mutateFromInspector` bumps the model's
-        // counter on its own line, and the mirror in `body` turns that into the
-        // view's bump — so bumping here as well sorts the scene, copies every
-        // scrap's string and rebuilds the region inspector's cached lists twice
-        // for one change.
+        // NOT bumping the structural counter, because a bump is already on its
+        // way: every writer through `mutateFromInspector` calls
+        // `model.bumpSceneRevision()` on its own line, and the mirror in `body`
+        // turns that into the view's bump. Bumping here as well would sort the
+        // scene, copy every scrap's string and rebuild the region inspector's
+        // cached lists twice for one change. (That is the RULE the argument
+        // exists for; `grep "bumpsStructuralCounter: false"` for who takes it.)
+        //
+        // **This pass runs under a MOUNTED editor on exactly tripwire 32's
+        // repro** — a focused scrap holding "Edit Scrap" open while the writer
+        // commits something in the other column — and it is safe only because
+        // the fold is per-keystroke. `ScrapLayout.text` is the shared
+        // `NSTextStorage`'s own string and `onTextChanged` keeps
+        // `model.scraps[id]` equal to it at every event boundary, so the reuse
+        // branch below hits and the layout the live `NSTextView` is bound to is
+        // not replaced. Make that fold debounced and this line swaps the stack
+        // under the writer mid-sentence and shows them the model's older text.
         model.onSceneChangedExternally = { rebuildLayouts(bumpsStructuralCounter: false) }
         model.onSceneReplacedByUndo = {
             // FIRST. A coast steps the scene directly from the timeline, outside
@@ -500,8 +511,8 @@ struct CanvasView: View {
             // Replacing the layout under a MOUNTED editor is safe; the
             // measurement is on `rebuildLayouts` below.
             //
-            // The ONE call site that does not bump the structural counter, and
-            // the argument is spelled out rather than defaulted so it cannot be
+            // A call site that does not bump the structural counter, and the
+            // argument is spelled out rather than defaulted so it cannot be
             // lost. The model bumps its own counter on the line after this
             // closure returns, and the mirror below turns that into the view's
             // bump — so bumping here as well rebuilds the whole accessibility
@@ -568,10 +579,13 @@ struct CanvasView: View {
     /// `CanvasCardMetrics.itemPlaceholderHeight` itself, or the card is neither
     /// drawn nor clickable.
     ///
-    /// `bumpsStructuralCounter` is `false` for the two callers that have a bump
-    /// arriving by another route — the undo apply and `deleteSelection()`, both
-    /// of which bump the model's counter on their own line. Every other caller
-    /// has changed the shape of the scene with nothing else about to say so.
+    /// `bumpsStructuralCounter` is `false` for a caller whose bump is already
+    /// arriving by another route — one that calls `model.bumpSceneRevision()` on
+    /// its own line, which the mirror in `body` turns into the view's bump. Every
+    /// other caller has changed the shape of the scene with nothing else about to
+    /// say so. **`grep "bumpsStructuralCounter: false"` for the current set**
+    /// rather than trusting a number here: this file has carried a stale count of
+    /// them before, and the rule is what a new caller needs to decide by.
     /// **Keeping the suppression is what makes one ⌫ or one ⌘Z rebuild the
     /// accessibility tree once rather than twice**, and a writer holding ⌘Z pays
     /// a scene sort and a copy of every scrap's string per step.
@@ -992,8 +1006,8 @@ struct CanvasView: View {
             model.withScene(persist: false) { $0.remove(id) }
             model.removeScrapText(id)
             model.endGesture()
-            // The SECOND caller that does not bump the structural counter, for
-            // the same reason as the first: `model.bumpSceneRevision()` below
+            // Another caller that does not bump the structural counter, for the
+            // same reason as the rest of them: `model.bumpSceneRevision()` below
             // reaches this view through the mirror in `body`, so bumping here as
             // well rebuilds the whole accessibility tree twice for one ⌫. The
             // deleted card leaving that tree is what

@@ -189,6 +189,15 @@ final class CanvasLiveSeamTests: XCTestCase {
     /// exactly the shape that passes while blind**, and this repo has shipped
     /// one. So the token is deleted from a copy of each real file and the
     /// predicate must go false.
+    ///
+    /// **Deletion alone does not demonstrate the predicate's strictness, and the
+    /// first draft of this test claimed it did.** Each token occurs exactly once
+    /// outside comments in its file, so after a deletion a bare
+    /// `contains(token)` also goes false — the arms below prove the census sees a
+    /// missing wire, and nothing more. The strictness is proved by the two
+    /// *downgrade* arms: a file that merely READS the property is not an
+    /// assigner, which is the case a bare `contains` would miscount and the case
+    /// a later slice actually produces (Task 5 reads `liveCanvas`).
     func test_theCensusFiresOnAPlantedRemoval() throws {
         let view = try CanvasSourceCensus.source(at: "Maugham/Canvas/CanvasView.swift")
         XCTAssertTrue(assigns("onSceneChangedExternally", in: view),
@@ -208,13 +217,45 @@ final class CanvasLiveSeamTests: XCTestCase {
                                                     with: "// the assignment, deleted")),
             "the scan cannot see an assignment that is gone")
 
-        // And the discrimination the census rests on: a file that only READS the
-        // property is not an assigner. Written as an equality comparison, which
-        // is the spelling a naive `contains("liveCanvas =")` would count.
+        // **The arms that prove the STRICTNESS**, which the deletions above
+        // cannot: the real assignment is downgraded to a READ, so the token is
+        // still there and a bare `contains(token)` would still call the file a
+        // caller. This is the case a later slice really produces — Task 5 reads
+        // `liveCanvas` and must not have to edit the expectation above.
+        XCTAssertFalse(
+            assigns("liveCanvas",
+                    in: window.replacingOccurrences(of: "s.liveCanvas = canvasModel",
+                                                    with: "_ = s.liveCanvas")),
+            "a file that only reads the property is being counted as the one that "
+            + "sets it — so the census would stay green with nothing wired, which "
+            + "is exactly the blind shape it exists to avoid")
+        XCTAssertFalse(
+            assigns("onSceneChangedExternally",
+                    in: view.replacingOccurrences(
+                        of: "model.onSceneChangedExternally = { rebuildLayouts(bumpsStructuralCounter: false) }",
+                        with: "_ = model.onSceneChangedExternally")),
+            "same, for the hook: declared, read once, bound to nothing")
+
+        // Two spellings that are the same assignment. Neither is how the source
+        // is written today, and both must count, or a reformat empties the census
+        // silently — which goes red rather than green here, but with a message
+        // about a missing production caller instead of about whitespace.
+        for spelling in ["s.liveCanvas=canvasModel", "s.liveCanvas   = canvasModel"] {
+            XCTAssertTrue(assigns("liveCanvas", in: spelling),
+                          "`\(spelling)` is an assignment and the scan cannot see it")
+        }
+
+        // And the comparison, which is the spelling a naive
+        // `contains("liveCanvas =")` counts because the range matches inside `==`.
         XCTAssertFalse(assigns("liveCanvas", in: "guard entry.store.liveCanvas == nil else { return }"),
                        "a reader counted as an assigner makes the census grow for "
                        + "the wrong reason, and the next author deletes the "
                        + "expectation rather than the bug")
+        XCTAssertFalse(assigns("liveCanvas", in: "guard store.liveCanvas != nil else { return }"),
+                       "…and the other comparison")
+        XCTAssertFalse(assigns("liveCanvas", in: "let x = store.liveCanvasSnapshot = y"),
+                       "a longer identifier that merely starts with the token is "
+                       + "not the token")
     }
 
     /// Every production file under `Maugham/` that ASSIGNS `token`, by name.
@@ -229,14 +270,36 @@ final class CanvasLiveSeamTests: XCTestCase {
     /// and not a mention in prose. Comments are stripped because this area's
     /// files discuss each other's properties at length, which is the point of
     /// them.
+    ///
+    /// Three things it has to get right, each with an arm in
+    /// `test_theCensusFiresOnAPlantedRemoval`:
+    ///
+    /// - **Whitespace is not load-bearing.** Any run of spaces or tabs, or none
+    ///   at all, is the same assignment; an aligned `=` in a reformat must not
+    ///   empty the census.
+    /// - **`==`, `!=` and friends are READS.** `range(of: token + " =")` matches
+    ///   inside `token ==`, so the character after the `=` decides.
+    /// - **The token must end where it ends.** `liveCanvasSnapshot = x` is a
+    ///   different property, so the next character may not continue an
+    ///   identifier.
     private func assigns(_ token: String, in source: String) -> Bool {
         CanvasSourceCensus.commentsStripped(source)
             .components(separatedBy: "\n")
             .contains { line in
-                guard let hit = line.range(of: token + " =") else { return false }
-                // `token ==` is a read. The range ends on the first `=`, so the
-                // next character is the second one.
-                return line[hit.upperBound...].first != "="
+                var searched = line[...]
+                while let hit = searched.range(of: token) {
+                    let after = line[hit.upperBound...]
+                    let continuesTheIdentifier = after.first
+                        .map { $0.isLetter || $0.isNumber || $0 == "_" } ?? false
+                    let operatorAndOn = after.drop { $0 == " " || $0 == "\t" }
+                    if !continuesTheIdentifier,
+                       operatorAndOn.first == "=",
+                       operatorAndOn.dropFirst().first != "=" {
+                        return true
+                    }
+                    searched = line[hit.upperBound...]
+                }
+                return false
             }
     }
 }

@@ -603,8 +603,13 @@ struct RegionInspector: View {
     /// canvas draws the region's label, its collapsed state and its members from
     /// inside a `Canvas` draw closure, where a model value is not in SwiftUI's
     /// dependency graph — the counter is mirrored into `CanvasView` and is what
-    /// gets the redraw. Nothing else here would: the writer never touched the
-    /// canvas, so no `@State` over there moved.
+    /// gets the redraw. **The bump is what MAKES it redraw, and it is not the
+    /// only `@State` these commits now move**: `CanvasModel.mutateFromInspector`
+    /// also fires `onSceneChangedExternally`, which the canvas binds to a layout
+    /// rebuild (1C-c3). Do not read that as a redraw this commit can rely on — it
+    /// exists for nodes arriving from outside with no measured height, it is
+    /// bound only while the canvas is on screen, and it deliberately suppresses
+    /// the structural bump. The counter is still the mechanism; keep the line.
     func commitLabel(_ new: String) {
         commitLabel(new, to: regionID)
     }
