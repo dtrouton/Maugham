@@ -306,7 +306,8 @@ final class CanvasViewMountingTests: XCTestCase {
         let container = try doubleClickTheScrap(in: window, settle: 0.04)
         XCTAssertEqual(container.alphaValue, 0,
                        "the editor is the visible text before the card is level: "
-                       + "axis-aligned glyphs over a card still up to 1.2° off, so "
+                       + "axis-aligned glyphs over a card still up to "
+                       + "\(CanvasMaterial.maximumTiltDegrees)° off, so "
                        + "the words snap straight the instant the writer clicks. "
                        + "The likeliest cause is a frame delta that is really a "
                        + "resume — see CanvasView.maximumFrameStep")

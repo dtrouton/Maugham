@@ -341,10 +341,10 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
 /// What it cannot express is the card's *drawn* angle, and there is now a window
 /// in which those differ: the editor is mounted from the click (so no keystroke
 /// is lost) while the card spends ~120 ms straightening under it. Anchoring a
-/// pinch through here during that window would be off by up to `r·θ` — ≈2.6 pt
-/// at the corner of a default card at the calibrated tilt — from where the
-/// writer's fingers are on the
-/// card they can see.
+/// pinch through here during that window would be off by up to `r·θ` — ≈2.2 pt
+/// at the corner of a default 240×80 card at the calibrated
+/// `CanvasMaterial.maximumTiltDegrees` (r = 126.5 pt, θ = 1.0°) — from where the
+/// writer's fingers are on the card they can see.
 ///
 /// **That window is closed by hit testing, not by arithmetic.** This function is
 /// only ever reached from an event the container received, and
@@ -355,7 +355,7 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
 ///
 /// The one thing that can still read the editor's geometry while it is invisible
 /// is AppKit's own input-method candidate window, which anchors on the text
-/// view's rect. Its error is bounded by the same ≈2.6 pt the unrotated hit test
+/// view's rect. Its error is bounded by the same ≈2.2 pt the unrotated hit test
 /// already accepts, and it lasts a tenth of a second; it is accepted, not
 /// overlooked.
 enum ScrapEditorGeometry {

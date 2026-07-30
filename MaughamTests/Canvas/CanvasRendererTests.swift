@@ -248,7 +248,8 @@ final class CanvasRendererTests: XCTestCase {
     /// VISIBLE text and the renderer stops drawing that card's own. §7A.5
     /// requirement 1 orders it: caret, then animate, then hand the text over.
     /// Showing the editor at progress 0 puts axis-aligned glyphs on a card that
-    /// is still up to 1.2° off level, at the unrotated text origin, with the
+    /// is still up to `CanvasMaterial.maximumTiltDegrees` off level, at the
+    /// unrotated text origin, with the
     /// drawn text already suppressed — the glyphs jump straight the instant the
     /// writer clicks and the card catches up afterwards, which is precisely the
     /// §7A.2 failure.

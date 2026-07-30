@@ -211,8 +211,16 @@ final class CanvasClaudePlacementTests: XCTestCase {
             CanvasClaudePlacement.Request(scraps: threeScraps), in: scene)
         CanvasClaudePlacement.apply(plan, to: &scene)
 
-        let region = try? XCTUnwrap(scene.region(plan.regionID))
-        XCTAssertEqual(region?.author, .claude,
+        // `guard let … else { XCTFail }`, matching every neighbour in this file.
+        // `try? XCTUnwrap(...)` followed by `region?.author` cannot actually
+        // false-pass here — XCTUnwrap records its failure before it throws — but
+        // it is the exact shape the doc comment two tests above warns against,
+        // and a reader auditing for that shape should not have to re-derive that
+        // this one instance is safe.
+        guard let region = scene.region(plan.regionID) else {
+            return XCTFail("`apply` must put the planned region in the scene")
+        }
+        XCTAssertEqual(region.author, .claude,
                        "a region the writer never swept must not be drawn with the lean "
                        + "that says a hand put it there")
     }

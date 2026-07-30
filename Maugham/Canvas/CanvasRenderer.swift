@@ -210,12 +210,32 @@ enum CanvasRenderer {
     /// **An item node is never tinted, and the renderer refuses it rather than
     /// trusting the model.** An item node is the page the words were read *off*:
     /// it already exists as itself, and tinting it would say Claude took the
-    /// photograph. `CanvasClaudePlacement` gives it no author, but a hand-edited
-    /// sidecar can — the same route by which a promoted mark reaches one, and the
-    /// promoted stripe below refuses it for the same reason.
-    /// `CanvasAuthorRenderTests.test_anItemNodeIsNeverTinted` is the ruling as an
-    /// assertion, and `CanvasAccessibility` refuses the spoken term on the same
-    /// terms.
+    /// photograph.
+    ///
+    /// **This is the NORMAL path, not a defence against hand-editing.** Since
+    /// 2026-07-30 `CanvasClaudePlacement` writes `author: .claude` on every
+    /// source page it creates — the only item node the product creates at all —
+    /// because Claude did mint the node and choose its place. So the guard below
+    /// fires on the ordinary case, and the whole reason `paper(for:)` asks about
+    /// `kind` and not only about `author` is that the two provenance signals
+    /// answer different questions: the tint says *whose words these are* and the
+    /// tilt (`seededRotation(for:)`, which keys on the author alone) says *who
+    /// put this here*. A source page is the one node where those differ, so it is
+    /// drawn straight and untinted. An `author = nil` recorded here to obtain the
+    /// colour decision was the shape until then, and it put a falsehood in a
+    /// field meaning "who made this card".
+    ///
+    /// `CanvasAuthorRenderTests.test_anItemNodeIsNeverTinted` holds both halves.
+    ///
+    /// **`CanvasAccessibility` deliberately does NOT mirror this refusal**, and
+    /// that is not drift. It speaks `claudeTerm` on an item node whose author is
+    /// `.claude`, because the spoken label is the only channel a VoiceOver user
+    /// has for *either* signal and the tilt's answer — Claude placed this — is
+    /// true here and inaudible otherwise. Denver ruled on 2026-07-30 that one
+    /// phrase covers all three primitives rather than two the listener has to
+    /// keep apart. So this function refuses the tint on the tint's terms, and
+    /// that arm speaks on the tilt's; anyone changing one should read the other
+    /// rather than making them agree.
     static func paper(for node: CanvasNode) -> NSColor {
         guard case .scrap = node.kind, node.author == .claude else { return cardPaper }
         return claudeCardPaper

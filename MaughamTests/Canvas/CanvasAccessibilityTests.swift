@@ -724,29 +724,153 @@ final class CanvasAccessibilityTests: XCTestCase {
         XCTAssertEqual(card.label, "Scrap, 1 line: because")
     }
 
-    /// The accessibility half of `CanvasAuthorRenderTests.test_anItemNodeIsNeverTinted`,
-    /// and the same ruling: an item node is the page the words were read off, it
-    /// already exists as itself, and saying "from Claude" on one would announce
-    /// that Claude took the photograph. Task 3 gives it no author; only a
-    /// hand-edited sidecar reaches this state, exactly as with the promoted mark
-    /// beside it.
+    /// **The spoken label deliberately does NOT mirror
+    /// `CanvasRenderer.paper(for:)`, which refuses to tint an item node whatever
+    /// its author says** (`CanvasAuthorRenderTests.test_anItemNodeIsNeverTinted`).
+    /// The two answer different questions. The tint's is *whose words are these*,
+    /// and a source page's words are the writer's own photograph — so refusing it
+    /// is right. The tilt's is *who placed this here*, and since 2026-07-30
+    /// `CanvasClaudePlacement` writes `author: .claude` on every source page it
+    /// creates, so `seededRotation(for:)` draws it perfectly straight. A lean is
+    /// inaudible: staying silent here left the page marked on screen and silent
+    /// to VoiceOver, which is the §7A.6 failure this layer exists to prevent.
+    /// Denver ruled on 2026-07-30 that it is spoken, with one phrase rather than
+    /// a second wording for the placement-versus-authorship distinction.
     ///
-    /// **The control is the scrap**: the same author on a card IS announced.
-    func test_anItemNodeWithAHandEditedAuthorIsNotAnnouncedAsClaudes() throws {
+    /// **The control is the writer's own reference**: an item node with no author
+    /// says nothing, so the term is the author being read rather than a word
+    /// every reference carries.
+    func test_anItemNodePlacedByClaudeSaysSoEvenThoughItsWordsAreTheWritersOwn() throws {
         var s = CanvasScene()
         s.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
                             origin: .zero, width: 180, cachedHeight: 120, author: .claude))
-        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap,
-                            origin: CGPoint(x: 0, y: 400), width: 240, cachedHeight: 80,
-                            author: .claude))
+        s.insert(CanvasNode(id: .item("r-4"), kind: .item(referenceId: "r-4"),
+                            origin: CGPoint(x: 0, y: 400), width: 180, cachedHeight: 120))
         let elements = CanvasAccessibility.elements(scene: s, scraps: [:])
-        let reference = try XCTUnwrap(elements.first { $0.id == .node(.item("r-9")) })
-        let card = try XCTUnwrap(elements.first { $0.id == .node(CanvasNodeID("a")) })
-        XCTAssertEqual(reference.label, "Reference",
-                       "a reference already exists as itself; the renderer refuses to "
-                       + "tint one for the same reason")
-        XCTAssertEqual(card.label, "Scrap, \(CanvasAccessibility.claudeTerm)",
-                       "the control: the same author on a card IS announced")
+        let claudes = try XCTUnwrap(elements.first { $0.id == .node(.item("r-9")) },
+                                    "Claude's reference is not in the tree at all")
+        let writers = try XCTUnwrap(elements.first { $0.id == .node(.item("r-4")) },
+                                    "the writer's reference is not in the tree at all")
+        XCTAssertEqual(claudes.label, "Reference, \(CanvasAccessibility.claudeTerm)",
+                       "a page Claude placed is drawn perfectly straight and a lean "
+                       + "is inaudible, so this label is the only thing that can say it")
+        XCTAssertEqual(writers.label, "Reference",
+                       "the control: a reference the writer dropped in says nothing")
+    }
+
+    /// **A region has no tint at all**, so the 1° lean is the whole of its drawn
+    /// provenance and a lean is inaudible — the strongest case on the surface for
+    /// saying it. The term sits after the region's NAME (kind-plus-name is how a
+    /// primitive identifies itself) and before the durable facts, which is
+    /// `CanvasAccessibility.label`'s one ordering rule.
+    ///
+    /// **The control is the writer's own region**, swept by hand, which says
+    /// nothing.
+    func test_aClaudeRegionSaysSoBecauseItsOnlyOtherMarkIsAnInaudibleLean() throws {
+        func label(author: AnnotationAuthor.SourceKind?) throws -> String {
+            var s = CanvasScene()
+            s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                        frame: CGRect(x: 0, y: 0, width: 600, height: 400),
+                                        author: author))
+            let region = try XCTUnwrap(CanvasAccessibility.elements(scene: s, scraps: [:])
+                .first { $0.id == .region(CanvasRegionID("r1")) },
+                                       "the region is not in the tree at all")
+            return region.label
+        }
+        XCTAssertEqual(try label(author: .claude),
+                       "\(CanvasAccessibility.regionKind), Act II fog, "
+                       + "\(CanvasAccessibility.claudeTerm)",
+                       "a region Claude swept carries no colour and leans 1° — nothing "
+                       + "else can say whose it is")
+        XCTAssertEqual(try label(author: nil),
+                       "\(CanvasAccessibility.regionKind), Act II fog",
+                       "the control: a region the writer swept says nothing")
+    }
+
+    /// The whole label of a Claude region that has also been promoted and
+    /// collapsed, against the scrap's, so the ordering rule is asserted as ONE
+    /// rule rather than twice: kind, name, provenance, then the durable facts in
+    /// the order they were added.
+    func test_provenanceSitsInTheSamePlaceOnARegionAsOnAScrap() throws {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                            width: 240, cachedHeight: 80, promotedItemID: "res-a",
+                            author: .claude))
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                    frame: CGRect(x: -20, y: -20, width: 600, height: 400),
+                                    isCollapsed: true, promotedItemID: "res-fog",
+                                    author: .claude))
+        let elements = CanvasAccessibility.elements(scene: s, scraps: [:])
+        let region = try XCTUnwrap(elements.first { $0.role == .region },
+                                   "the region is not in the tree at all")
+        XCTAssertEqual(region.label,
+                       "\(CanvasAccessibility.regionKind), Act II fog, "
+                       + "\(CanvasAccessibility.claudeTerm), "
+                       + "\(CanvasAccessibility.promotedTerm), "
+                       + "\(CanvasAccessibility.collapsedTerm)")
+        // The card is a resident of a collapsed region, so it has left the tree —
+        // which is why its label is asserted from a second scene rather than
+        // this one.
+        var flat = CanvasScene()
+        flat.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                               width: 240, cachedHeight: 80, promotedItemID: "res-a",
+                               author: .claude))
+        let card = try XCTUnwrap(CanvasAccessibility.elements(scene: flat, scraps: [:]).first,
+                                 "the card is not in the tree at all")
+        XCTAssertEqual(card.label,
+                       "Scrap, \(CanvasAccessibility.claudeTerm), "
+                       + "\(CanvasAccessibility.promotedTerm)",
+                       "provenance must sit between the kind and the durable facts on "
+                       + "both, or there are two ordering rules on one surface")
+    }
+
+    /// **The repetition is accepted, not overlooked** (Denver, 2026-07-30), and
+    /// this test is what stops a future reader "fixing" it. A Claude region and
+    /// each of its Claude cards say the phrase separately, and a region left on
+    /// `defaultRegionLabel` says it twice running.
+    ///
+    /// The alternative was saying it once, on the region. **This tree is FLAT** —
+    /// `rowOrdered` interleaves regions and cards by position and a card is not a
+    /// child of its region — so a user walking card to card can reach a Claude
+    /// card without ever passing the region that would have said it. Silence in
+    /// that case is the failure the term exists to prevent, so repetitive and
+    /// never wrong beats quiet and sometimes wrong.
+    ///
+    /// The `contains` loop discriminates despite the default label, because
+    /// `claudeTerm` is lower-case and `defaultRegionLabel` is "**F**rom Claude" —
+    /// and the last assertion pins the whole string anyway.
+    func test_aClaudeRegionAndItsCardsEachSayItBecauseTheTreeIsFlat() throws {
+        var s = CanvasScene()
+        let residents = [CanvasNodeID("a"), CanvasNodeID("b")]
+        for (index, id) in residents.enumerated() {
+            s.insert(CanvasNode(id: id, kind: .scrap,
+                                origin: CGPoint(x: 40 + 300 * Double(index), y: 40),
+                                width: 240, cachedHeight: 80, author: .claude))
+        }
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"),
+                                    label: CanvasClaudePlacement.defaultRegionLabel,
+                                    frame: CGRect(x: 0, y: 0, width: 900, height: 400),
+                                    homeMembers: Set(residents), author: .claude))
+        let elements = CanvasAccessibility.elements(scene: s, scraps: [:])
+        XCTAssertEqual(elements.count, 3,
+                       "the region and both cards must all be in the tree, or this "
+                       + "measures the wrong thing")
+        for element in elements {
+            XCTAssertTrue(element.label.contains(CanvasAccessibility.claudeTerm),
+                          "\(element.id.raw) says nothing about Claude, and a user "
+                          + "walking a flat tree can reach it without passing "
+                          + "anything that does: \(element.label)")
+        }
+        let region = try XCTUnwrap(elements.first { $0.role == .region },
+                                   "the region is not in the tree at all")
+        XCTAssertEqual(region.label,
+                       "\(CanvasAccessibility.regionKind), "
+                       + "\(CanvasClaudePlacement.defaultRegionLabel), "
+                       + "\(CanvasAccessibility.claudeTerm)",
+                       "the accepted stutter: the default label already contains the "
+                       + "phrase and the term is still said, because a term whose "
+                       + "presence depends on the region's name is one no listener "
+                       + "can rely on")
     }
 
     /// One wording for one fact. The term an assistive client hears must be the
