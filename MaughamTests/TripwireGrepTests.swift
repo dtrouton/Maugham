@@ -1992,4 +1992,134 @@ final class TripwireGrepTests: XCTestCase {
             + "must not be swept in — even though this file names CanvasModel, "
             + "which is the only pre-filter.")
     }
+
+    // MARK: - The canvas's asset well has exactly one writer (1C-d Task 2)
+
+    /// The shared image saver. Three seams own a `<slug>_assets/` well and so
+    /// may call it; a fourth caller is a fourth answer to "where does a dropped
+    /// image live", which is the decision this seam exists to make once.
+    private static let imageSaverCall = "ImagePasteHandler.saveAndReference"
+
+    /// **Count the set, not this comment.** Each entry is a seam that owns a
+    /// well of its own:
+    ///
+    /// - `ProjectStore+Palette.swift` — a palette card's images.
+    /// - `ResearchNoteEditor.swift` — an image pasted into a research note.
+    /// - `ProjectStore+CanvasAssets.swift` — the canvas's ingestion pair.
+    ///
+    /// 1C-d's drop, browser-bitmap and inbox routes are all *callers* of the
+    /// third; none of them is a fourth entry here.
+    private static let imageSaverCallers: Set<String> = [
+        "ProjectStore+Palette.swift",
+        "ResearchNoteEditor.swift",
+        "ProjectStore+CanvasAssets.swift",
+    ]
+
+    /// Which production files call the shared saver, comments excluded.
+    private func imageSaverCallSites(in dir: URL) throws -> Set<String> {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var callers: Set<String> = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            guard url.lastPathComponent != "ImagePasteHandler.swift" else { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            if Self.codeLines(of: text).contains(where: { $0.contains(Self.imageSaverCall) }) {
+                callers.insert(url.lastPathComponent)
+            }
+        }
+        return callers
+    }
+
+    /// **Census, not a ban.** An equality against a non-empty expected set is
+    /// its own control: a pattern that matched nothing would fail here rather
+    /// than pass quietly, which is the failure mode a bare `isEmpty` census has.
+    ///
+    /// The defect it exists for is the one 1C-d's remaining tasks are each one
+    /// keystroke away from. Task 10 (research drag), Task 11 (Finder and
+    /// browser drops) and Task 12 (inbox → canvas) all need an image on disk,
+    /// and the two-line palette call above is the obvious thing to copy. Copied,
+    /// it puts the photograph in a second place — and "where an ingested image
+    /// lives" then has as many answers as there are routes, none of which the
+    /// writer can see until a project is moved and half the cards are blank.
+    func test_theSharedImageSaverIsCalledFromTheSeamsThatOwnAWell() throws {
+        XCTAssertEqual(try imageSaverCallSites(in: sourceDir), Self.imageSaverCallers,
+            "The set of files calling \(Self.imageSaverCall) changed. If this is a "
+            + "canvas route (a drop, a browser bitmap, an inbox promotion), call "
+            + "ProjectStore.ingestCanvasAsset(image:)/(fileURL:) instead — the canvas "
+            + "decides where its images land in ONE place, and every route is a "
+            + "caller of that pair. If it is genuinely a new seam with a well of its "
+            + "own, add it to imageSaverCallers with a line saying which well.")
+    }
+
+    /// The well's name is **derived**, never spelled: `ImagePasteHandler`
+    /// builds `<slug>_assets` from `canvas.md`'s own filename, so
+    /// `canvas_assets/` falls out of `CanvasStore.scrapsRelativePath` with no
+    /// literal anywhere in production code. A hand-built
+    /// `appendingPathComponent("canvas_assets")` is the reach-around that
+    /// bypasses the pair without ever naming it — and it would keep working
+    /// right up until `canvas.md` moves, at which point the well and the file
+    /// it belongs to part company silently.
+    func test_theCanvasAssetWellIsDerivedAndNeverSpelledInCode() throws {
+        let offenders = try grepSwift(
+            in: sourceDir,
+            patterns: ["canvas_assets"],
+            excludeLine: { Self.isCommentLine($0) }
+        )
+        XCTAssertTrue(offenders.isEmpty,
+            "`canvas_assets` is spelled in production code. The well's name is derived "
+            + "from CanvasStore.scrapsRelativePath by ImagePasteHandler; build a path "
+            + "into it by calling ProjectStore.ingestCanvasAsset instead. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+
+        // Control: the SAME grep without the comment exclusion finds the doc
+        // comments that discuss the well. Without this, a typo in the pattern
+        // would leave the assertion above passing on a tree it never read.
+        XCTAssertFalse(try grepSwift(in: sourceDir, patterns: ["canvas_assets"]).isEmpty,
+            "Control: the pattern should still match the doc comments that name the "
+            + "well (CanvasItemReference, CanvasNode, CanvasRenderer). If it matches "
+            + "nothing at all, the tripwire above is reading an empty tree.")
+    }
+
+    /// Self-check: both halves FIRE on planted offenders. A ban that never
+    /// matches and a census that reads nothing look identical from the outside.
+    func test_canvasAssetWellTripwiresFireOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-canvas-assets-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct CanvasDropTarget {
+            /// A doc comment naming canvas_assets/ must NOT count.
+            func drop(_ image: NSImage, in projectURL: URL) throws {
+                let well = projectURL.appendingPathComponent("canvas_assets")
+                _ = try ImagePasteHandler.saveAndReference(
+                    image: image, forNoteAt: "canvas.md", in: projectURL)
+                _ = well
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("CanvasDropTarget.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let literalOffenders = try grepSwift(
+            in: tmp, patterns: ["canvas_assets"], excludeLine: { Self.isCommentLine($0) })
+        XCTAssertEqual(literalOffenders.count, 1,
+            "Self-check: exactly the hand-built path should be caught — the doc "
+            + "comment above it must not be. Offenders:\n"
+            + literalOffenders.joined(separator: "\n"))
+
+        XCTAssertEqual(try imageSaverCallSites(in: tmp), ["CanvasDropTarget.swift"],
+            "Self-check: a planted fourth caller of the shared saver should be "
+            + "recorded by the census.")
+    }
+
+    /// A whole-line comment, in either spelling. Shared by the canvas-asset
+    /// tripwires, which both guard tokens their own documentation names.
+    private static func isCommentLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//") || trimmed.hasPrefix("/*") || trimmed.hasPrefix("*")
+    }
 }

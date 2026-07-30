@@ -22,6 +22,7 @@ The persistence and coordination layer: project structure, documents, recents, s
   - `ProjectStore+WikiLink.swift` — `[[…]]` resolution and rename propagation
   - `ProjectStore+Search.swift` — search across the binder
   - `ProjectStore+Tasks.swift` — project-scope pane-created tasks + cross-project task aggregation
+  - `ProjectStore+CanvasAssets.swift` — the canvas's asset well (see below)
 - `DocumentStore.swift` — project-folder coordinator + Document registry. Owns the NSFilePresenter, manifest IO, session tracking, UI state, rename/copy/move orchestration, **and the typed user-content mover** (see below). Per-doc op-log, autosave, conflict-detection, and echo guard now live on `Document` (post-`milestone-document-first-class`); this file routes external presenter callbacks to the matching Document via the registry.
 - `MaughamSidecarPath.swift` — typed classification of project-relative file URLs into manifest / opLog / checkpoints / sessions / uiState / conflictBackup / scratch / pending / trash / unknownSidecar / otherProjectFile / outsideProject. `presenterDidChangeSubitem` dispatches via a switch on this enum — adding a new sidecar owner is a compile-error workflow. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `DebounceScheduler.swift`, `RecentsStore.swift`, `SessionLog.swift`, `TrashStore.swift` — small focused stores, well-bounded. **Use these as the model** for new stores; don't model new things after `ProjectStore`'s size.
@@ -71,6 +72,16 @@ Each runs the **close-before-FS-surgery** discipline INTERNALLY before any FS ca
 ## Palette + craft-intent seams (2026-07-09)
 
 Two new research-adjacent conventions, both plain-edited (no op log, no `¶id` anchors — same precedent as research notes) and both absence-is-valid: **palette cards** (`ProjectStore+Palette.swift`) are markdown research assets under a `research/palette/` group (kind/swatches/senses/images convention), parsed on load via `PaletteCard` (now `Packages/MaughamCore/Sources/MaughamCore/PaletteCard.swift`, moved from Mac-only, tripwire 19); the typed user-content mover already covers them for free since they're ordinary research items. **Craft intent** (`ProjectStore+CraftIntent.swift`) is a single conventional `craft-intent.md` per scope — project-level for novel/screenplay/short-story, per-loose-piece (in that piece's own research folder) for collections — with no doc existing being a first-class, deliberate state, not a missing file to backfill.
+
+## The canvas's asset well — `ProjectStore+CanvasAssets.swift` (1C-d, 2026-07-30)
+
+`ingestCanvasAsset(image:)` / `ingestCanvasAsset(fileURL:)` are the **one pair** that gives a canvas item node a file of its own, and every 1C-d route — research drag, Finder drop, browser bitmap, inbox promotion — is a *caller* of it rather than a storage decision of its own.
+
+- **`canvas_assets/` sits at the PROJECT ROOT, beside `canvas.md`, and is content rather than derived state.** It is deliberately not under `.maugham/`: deleting `.maugham/canvas.json` costs the arrangement and must never cost the photographs. It is the one asset well whose owner is the canvas rather than a research note.
+- **No naming, dedupe or timestamp scheme of its own.** The pair hands `ImagePasteHandler` the canvas's own `canvas.md`, and that saver's existing `<slug>_assets` derivation yields `canvas_assets/` for free. The well's name is therefore **derived and never spelled** in production code — move `canvas.md` and the well follows.
+- **The pair returns a PROJECT-RELATIVE path**, which is what `CanvasItemReference.owned(path:)` requires. The saver returns a Markdown ref one step earlier; resolving it is `ProjectStore.resolveImageRef(_:relativeTo:)` — the palette's, shared rather than respelled (its label was generalised from `cardDirectory:` for this). An absolute path, a `file://` URL or the ref itself each renders nothing, keys the thumbnail cache on a string that differs between Macs, and breaks the moment the project is moved or synced.
+- **Two tripwires, same shape as the palette's.** `TripwireGrepTests.test_theSharedImageSaverIsCalledFromTheSeamsThatOwnAWell` is a census of the files allowed to call `ImagePasteHandler.saveAndReference*` (count the set, not the prose); `…test_theCanvasAssetWellIsDerivedAndNeverSpelledInCode` catches the other reach-around, a hand-built `"canvas_assets"` path that never names the pair at all. Both have a planted-offender self-check.
+- **The image write itself is uncoordinated**, matching the two existing wells: these are new files with minted unique names, written once and never re-edited, so there is no second writer for NSFileCoordinator to arbitrate. A *manuscript* or a card's markdown is a different case — those still route through `DocumentStore` (tripwire 7).
 
 ## Role identity — `ResearchItem.role` (2026-07-11)
 

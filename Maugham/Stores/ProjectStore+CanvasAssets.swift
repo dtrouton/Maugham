@@ -15,8 +15,11 @@ import AppKit
 /// **This pair is the only writer of `canvas_assets/`.** Every route — the
 /// research drag, the Finder drop, the browser bitmap, the inbox promotion — is
 /// a *caller*, never a storage decision of its own; where an image lands is
-/// decided here once. `TripwireGrepTests.test_canvasAssetsHaveExactlyOneWriter`
-/// is the census that keeps it that way.
+/// decided here once. Two tripwires keep it that way:
+/// `TripwireGrepTests.test_theSharedImageSaverIsCalledFromTheSeamsThatOwnAWell`
+/// censuses the callers of the saver, and
+/// `…test_theCanvasAssetWellIsDerivedAndNeverSpelledInCode` catches the other
+/// reach-around — a hand-built path that never names the pair at all.
 ///
 /// **No naming, dedupe or timestamp scheme of its own.**
 /// `ImagePasteHandler.destination(forNoteAt:in:ext:)` derives `<slug>_assets`
