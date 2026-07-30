@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class CanvasAccessibilityTests: XCTestCase {
@@ -616,6 +617,145 @@ final class CanvasAccessibilityTests: XCTestCase {
                                     promotedItemID: "res-fog"))
         XCTAssertEqual(CanvasAccessibility.elements(scene: s, scraps: [:]).first?.label,
                        "Region, Act II fog, promoted")
+    }
+
+    // MARK: - Whose hand made this (§8A.2)
+
+    /// The drawn signal is a cooler paper and a cooler hairline, and neither is
+    /// visible to an assistive client — §8A.2 constraint 1 is not met by a colour
+    /// alone. So the label says it, in the same words the rest of the surface
+    /// uses: `CanvasClaudePlacement.defaultRegionLabel` is "From Claude" and
+    /// `CanvasClaudeWrite.undoStepName` is "Add Scraps from Claude", and a third
+    /// phrasing here would make one fact sound like three.
+    ///
+    /// **The kind stays first**, for the reason every label on this surface leads
+    /// with it: `CanvasAXRole` never reaches an assistive client. Then provenance
+    /// — where the card came from is prior to what has happened to it since — and
+    /// then the durable facts in the order they were added.
+    func test_aScrapFromClaudeSaysSoWithTheKindStillFirst() throws {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                            width: 240, cachedHeight: 80, promotedItemID: "res-a",
+                            author: .claude))
+        s.insert(CanvasNode(id: CanvasNodeID("b"), kind: .scrap,
+                            origin: CGPoint(x: 0, y: 400), width: 240, cachedHeight: 80))
+        s.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("a"),
+                                to: CanvasNodeID("b"), label: "because"))
+        let elements = CanvasAccessibility.elements(scene: s, scraps: [:])
+        let card = try XCTUnwrap(elements.first { $0.id == .node(CanvasNodeID("a")) },
+                                 "the card is not in the tree at all")
+        XCTAssertEqual(card.label,
+                       "Scrap, \(CanvasAccessibility.claudeTerm), "
+                       + "\(CanvasAccessibility.promotedTerm), 1 line: because")
+    }
+
+    /// The control for the test above: without an author the label says nothing
+    /// extra, so "from Claude" is the author being read and not a word every card
+    /// carries.
+    func test_aScrapTheWriterMadeSaysNothingAboutClaude() throws {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                            width: 240, cachedHeight: 80))
+        let card = try XCTUnwrap(CanvasAccessibility.elements(scene: s, scraps: [:]).first)
+        XCTAssertEqual(card.label, "Scrap")
+    }
+
+    /// **This is what carries a Claude line's provenance if the cooler hairline
+    /// turns out too quiet to see**, which is why it is not optional politeness:
+    /// a line is an element nowhere, so its ends are the only place anything can
+    /// be said about it at all.
+    ///
+    /// Both ends, because a relationship is legible at its ends and a user who
+    /// walks to only one of the two cards must still hear it.
+    func test_aLineFromClaudeIsNamedAsSuchAtBothItsEnds() throws {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                            width: 240, cachedHeight: 80))
+        s.insert(CanvasNode(id: CanvasNodeID("b"), kind: .scrap,
+                            origin: CGPoint(x: 0, y: 400), width: 240, cachedHeight: 80))
+        s.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("a"),
+                                to: CanvasNodeID("b"), label: "because", author: .claude))
+        let elements = CanvasAccessibility.elements(scene: s, scraps: [:])
+        XCTAssertEqual(elements.count, 2, "both ends must be in the tree to be read")
+        for id in [CanvasNodeID("a"), CanvasNodeID("b")] {
+            let card = try XCTUnwrap(elements.first { $0.id == .node(id) },
+                                     "\(id.raw) is not in the tree")
+            XCTAssertEqual(card.label,
+                           "Scrap, 1 line \(CanvasAccessibility.claudeTerm): because",
+                           "the end \(id.raw) does not say who drew the line touching it")
+        }
+    }
+
+    /// A writer's line and Claude's on the same card. The count is the whole set
+    /// and the provenance is a share of it, so "3 lines" never becomes a number
+    /// that excludes half of them — and the two phrasings differ on purpose: all
+    /// of them reads "2 lines from Claude", some of them reads "3 lines, 2 from
+    /// Claude", and "3 lines, 3 from Claude" would be the clumsy way to say the
+    /// first.
+    func test_aCardWithBothKindsOfLineSaysHowManyAreClaudes() throws {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                            width: 240, cachedHeight: 80))
+        for (index, author) in [nil, AnnotationAuthor.SourceKind.claude, .claude].enumerated() {
+            s.insert(CanvasNode(id: CanvasNodeID("e\(index)"), kind: .scrap,
+                                origin: CGPoint(x: 400, y: 400 + 200 * Double(index)),
+                                width: 240, cachedHeight: 80))
+            s.insertLine(CanvasLine(id: CanvasLineID("l\(index)"), from: CanvasNodeID("a"),
+                                    to: CanvasNodeID("e\(index)"), author: author))
+        }
+        let card = try XCTUnwrap(CanvasAccessibility.elements(scene: s, scraps: [:])
+            .first { $0.id == .node(CanvasNodeID("a")) })
+        XCTAssertEqual(card.label, "Scrap, 3 lines, 2 \(CanvasAccessibility.claudeTerm)")
+    }
+
+    /// A card the writer drew every line on says nothing about Claude, so the
+    /// clause above is the authors being read rather than a phrase every
+    /// connected card carries.
+    func test_aCardWhoseLinesAreAllTheWritersSaysNothingAboutClaude() throws {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                            width: 240, cachedHeight: 80))
+        s.insert(CanvasNode(id: CanvasNodeID("b"), kind: .scrap,
+                            origin: CGPoint(x: 0, y: 400), width: 240, cachedHeight: 80))
+        s.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("a"),
+                                to: CanvasNodeID("b"), label: "because"))
+        let card = try XCTUnwrap(CanvasAccessibility.elements(scene: s, scraps: [:])
+            .first { $0.id == .node(CanvasNodeID("a")) })
+        XCTAssertEqual(card.label, "Scrap, 1 line: because")
+    }
+
+    /// The accessibility half of `CanvasAuthorRenderTests.test_anItemNodeIsNeverTinted`,
+    /// and the same ruling: an item node is the page the words were read off, it
+    /// already exists as itself, and saying "from Claude" on one would announce
+    /// that Claude took the photograph. Task 3 gives it no author; only a
+    /// hand-edited sidecar reaches this state, exactly as with the promoted mark
+    /// beside it.
+    ///
+    /// **The control is the scrap**: the same author on a card IS announced.
+    func test_anItemNodeWithAHandEditedAuthorIsNotAnnouncedAsClaudes() throws {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+                            origin: .zero, width: 180, cachedHeight: 120, author: .claude))
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap,
+                            origin: CGPoint(x: 0, y: 400), width: 240, cachedHeight: 80,
+                            author: .claude))
+        let elements = CanvasAccessibility.elements(scene: s, scraps: [:])
+        let reference = try XCTUnwrap(elements.first { $0.id == .node(.item("r-9")) })
+        let card = try XCTUnwrap(elements.first { $0.id == .node(CanvasNodeID("a")) })
+        XCTAssertEqual(reference.label, "Reference",
+                       "a reference already exists as itself; the renderer refuses to "
+                       + "tint one for the same reason")
+        XCTAssertEqual(card.label, "Scrap, \(CanvasAccessibility.claudeTerm)",
+                       "the control: the same author on a card IS announced")
+    }
+
+    /// One wording for one fact. The term an assistive client hears must be the
+    /// term the rest of the surface uses, and these three are the whole set: a
+    /// third phrasing is how "Claude's" becomes three things to learn.
+    func test_theSpokenTermAgreesWithTheRegionLabelAndTheUndoStep() {
+        XCTAssertEqual(CanvasClaudePlacement.defaultRegionLabel, "From Claude")
+        XCTAssertEqual(CanvasClaudeWrite.undoStepName, "Add Scraps from Claude")
+        XCTAssertEqual(CanvasAccessibility.claudeTerm, "from Claude")
     }
 
     private func accessibilitySource() throws -> String {

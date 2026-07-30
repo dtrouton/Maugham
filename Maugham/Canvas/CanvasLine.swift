@@ -73,12 +73,21 @@ public struct CanvasDrawnLine: Equatable, Sendable {
     public let from: CGPoint
     public let to: CGPoint
     public let label: String?
+    /// Carried through from `CanvasLine.author` so the renderer can stroke a
+    /// line Claude drew in a cooler value (§8A.2). **nil means the writer**, as
+    /// it does everywhere else — and the projection carries it rather than the
+    /// renderer reaching back into the scene, for the reason every other field
+    /// here is carried: `CanvasRenderer.drawLine` is handed geometry and knows
+    /// nothing about the scene it came from.
+    public let author: AnnotationAuthor.SourceKind?
 
-    public init(id: CanvasLineID, from: CGPoint, to: CGPoint, label: String?) {
+    public init(id: CanvasLineID, from: CGPoint, to: CGPoint, label: String?,
+                author: AnnotationAuthor.SourceKind? = nil) {
         self.id = id
         self.from = from
         self.to = to
         self.label = label
+        self.author = author
     }
 }
 

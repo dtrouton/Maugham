@@ -91,6 +91,14 @@ final class CanvasGroundTests: XCTestCase {
     /// Headroom on 2026-07-27, in sRGB units: light 0.043 / 0.058 / 0.093,
     /// dark 0.087 / 0.080 / 0.069 — the tightest is dark's blue, which is the
     /// channel the tint damps most and the card's own darkest.
+    /// **Both papers, because 1C-c3 gave the surface a second one.** A card
+    /// Claude put down is drawn on a cooler, slightly darker paper
+    /// (`CanvasRenderer.claudeCardPaper`), and "darker" is exactly the direction
+    /// this ceiling bounds — so the new paper is the tighter of the two and the
+    /// one a calibration round will break first. Light's Claude paper clears the
+    /// grain peak by 0.0225 in red against the writer's 0.0425: the whole budget
+    /// for "darker than white" in light mode is that difference, and the test
+    /// says so rather than leaving it to be rediscovered.
     func test_theCardIsLighterThanTheGroundInBothAppearances() throws {
         let cases: [(NSAppearance.Name, amplitude: Double, tint: SIMD3<Double>)] = [
             (.aqua,
@@ -102,40 +110,91 @@ final class CanvasGroundTests: XCTestCase {
              tint: CanvasMaterial.grainTint(color: CanvasMaterial.darkGrainColor,
                                             chroma: CanvasMaterial.darkGrainChroma)),
         ]
+        let papers: [(String, NSColor)] = [
+            ("the writer's", CanvasRenderer.cardPaper),
+            ("Claude's", CanvasRenderer.claudeCardPaper),
+        ]
         for (name, amplitude, tint) in cases {
             NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
-                guard let ground = CanvasGround.base.usingColorSpace(.sRGB),
-                      let paper = CanvasRenderer.cardPaper.usingColorSpace(.sRGB) else {
-                    return XCTFail("could not resolve the colours under \(name.rawValue)")
+                guard let ground = CanvasGround.base.usingColorSpace(.sRGB) else {
+                    return XCTFail("could not resolve the ground under \(name.rawValue)")
                 }
-                XCTAssertGreaterThan(
-                    paper.brightnessComponent - ground.brightnessComponent, 0.04,
-                    "under \(name.rawValue) the ground is \(ground.brightnessComponent) "
-                    + "and the card paper is \(paper.brightnessComponent) — a card that "
-                    + "is not lighter than the ground under it reads as a hole, not as "
-                    + "an object (spec 7.2). CanvasGround.base must stay below "
-                    + "CanvasRenderer.cardPaper in BOTH appearances.")
-
-                // The shader adds `n * amplitude * tint` before the lamp
-                // multiplies down, and n peaks at +1/2.
-                let channels: [(String, ground: CGFloat, paper: CGFloat, tint: Double)] = [
-                    ("red", ground.redComponent, paper.redComponent, tint.x),
-                    ("green", ground.greenComponent, paper.greenComponent, tint.y),
-                    ("blue", ground.blueComponent, paper.blueComponent, tint.z),
-                ]
-                for (channel, groundValue, paperValue, weight) in channels {
-                    let peak = Double(groundValue) + amplitude / 2 * weight
+                for (whose, source) in papers {
+                    guard let paper = source.usingColorSpace(.sRGB) else {
+                        return XCTFail("could not resolve \(whose) paper under \(name.rawValue)")
+                    }
                     XCTAssertGreaterThan(
-                        Double(paperValue) - peak, 0.02,
-                        "under \(name.rawValue) the ground's \(channel) peaks at \(peak) "
-                        + "once the grain (amplitude \(amplitude), tint \(weight) in this "
-                        + "channel) is added, against a card's \(channel) of \(paperValue). "
-                        + "Raise CanvasMaterial's card paper, or lower its base, grain "
-                        + "amplitude, or grain chroma: a grain spike that reaches the "
-                        + "card's own value IN ANY ONE CHANNEL makes the scrap read as a "
-                        + "hole wherever it lands, and a mean that stays under says "
-                        + "nothing about it.")
+                        paper.brightnessComponent - ground.brightnessComponent, 0.04,
+                        "under \(name.rawValue) the ground is \(ground.brightnessComponent) "
+                        + "and \(whose) card paper is \(paper.brightnessComponent) — a card "
+                        + "that is not lighter than the ground under it reads as a hole, "
+                        + "not as an object (spec 7.2). CanvasGround.base must stay below "
+                        + "BOTH card papers in BOTH appearances.")
+
+                    // The shader adds `n * amplitude * tint` before the lamp
+                    // multiplies down, and n peaks at +1/2.
+                    let channels: [(String, ground: CGFloat, paper: CGFloat, tint: Double)] = [
+                        ("red", ground.redComponent, paper.redComponent, tint.x),
+                        ("green", ground.greenComponent, paper.greenComponent, tint.y),
+                        ("blue", ground.blueComponent, paper.blueComponent, tint.z),
+                    ]
+                    for (channel, groundValue, paperValue, weight) in channels {
+                        let peak = Double(groundValue) + amplitude / 2 * weight
+                        XCTAssertGreaterThan(
+                            Double(paperValue) - peak, 0.02,
+                            "under \(name.rawValue) the ground's \(channel) peaks at \(peak) "
+                            + "once the grain (amplitude \(amplitude), tint \(weight) in this "
+                            + "channel) is added, against \(whose) card \(channel) of "
+                            + "\(paperValue). Raise that card paper in CanvasMaterial, or "
+                            + "lower its base, grain amplitude, or grain chroma: a grain "
+                            + "spike that reaches the card's own value IN ANY ONE CHANNEL "
+                            + "makes the scrap read as a hole wherever it lands, and a mean "
+                            + "that stays under says nothing about it.")
+                    }
                 }
+            }
+        }
+    }
+
+    /// §8A.2 constraint 1: the writer must be able to tell at a glance what they
+    /// wrote from what was read off a photograph. The paper is where that is
+    /// said, and it is said in two ways at once — **cooler** and **slightly
+    /// darker** — so the two are asserted separately rather than through one
+    /// brightness comparison that either could satisfy alone.
+    ///
+    /// "Cooler" is blue-minus-red, per appearance, resolved under it: the writer's
+    /// light paper is `textBackgroundColor` and its components exist only inside
+    /// `performAsCurrentDrawingAppearance`. A comparison of the two literals in
+    /// `CanvasMaterial` could not see the light pair at all.
+    func test_claudesPaperIsCoolerThanTheWritersInBothAppearances() throws {
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
+                guard let writers = CanvasRenderer.cardPaper.usingColorSpace(.sRGB),
+                      let claudes = CanvasRenderer.claudeCardPaper.usingColorSpace(.sRGB) else {
+                    return XCTFail("could not resolve the papers under \(name.rawValue)")
+                }
+                let writersCast = writers.blueComponent - writers.redComponent
+                let claudesCast = claudes.blueComponent - claudes.redComponent
+                XCTAssertGreaterThan(
+                    claudesCast - writersCast, 0.01,
+                    "under \(name.rawValue) the writer's paper leans \(writersCast) toward "
+                    + "blue and Claude's leans \(claudesCast) — Claude's card must read as "
+                    + "the COOLER of the two, which is the whole of the difference §8A.2 "
+                    + "asks the writer to see at a glance.")
+                // Rec.709 luminance, not `brightnessComponent`. The latter is HSB
+                // brightness — the MAX channel — so a paper that dropped red and
+                // green and held blue would read as "not darker at all" while
+                // being visibly so. Darker is a claim about the whole colour.
+                let writersValue = Self.luminance(writers)
+                let claudesValue = Self.luminance(claudes)
+                XCTAssertGreaterThan(
+                    writersValue - claudesValue, 0.005,
+                    "under \(name.rawValue) Claude's paper has luminance \(claudesValue) "
+                    + "against the writer's \(writersValue) — it must be the slightly "
+                    + "DARKER of the two as well as the cooler. Light mode's whole budget "
+                    + "here is the grain-peak headroom the test above measures (0.0225 in "
+                    + "red), so this floor is deliberately small; dark mode has room and "
+                    + "uses it.")
             }
         }
     }
@@ -689,6 +748,15 @@ final class CanvasGroundTests: XCTestCase {
     /// threshold sits two orders of magnitude clear of both sides, so it is a
     /// floor rather than a tuning.
     private static let grainFloor: Double = 1.0
+
+    /// Rec.709 relative luminance of an already-sRGB-resolved colour — the same
+    /// weights `CanvasMaterial.grainTint` normalises by, so "darker" means one
+    /// thing across this file and the material it measures.
+    private static func luminance(_ c: NSColor) -> Double {
+        0.2126 * Double(c.redComponent)
+            + 0.7152 * Double(c.greenComponent)
+            + 0.0722 * Double(c.blueComponent)
+    }
 
     /// Mean green channel over a region, in 8-bit levels. A LOW-frequency
     /// measure, and the complement of `grainEnergy`: it sees the base colour and

@@ -187,6 +187,40 @@ enum CanvasRenderer {
     static let lineStroke: NSColor = CanvasMaterial.dynamic(light: CanvasMaterial.lightLineStroke,
                                                             dark: CanvasMaterial.darkLineStroke)
 
+    /// **Whose hand made this** (spec §8A.2 constraint 1), resolved per
+    /// appearance from the two pairs in `CanvasMaterial`. A card Claude put down
+    /// takes a cooler, slightly darker paper; a line Claude drew strokes in a
+    /// correspondingly cooler value. Same ink, same shape, same hairline weight —
+    /// see `CanvasMaterial.lightClaudeCardPaper` for the whole reasoning,
+    /// including why this is not a fourth card mark and where the light pair's
+    /// ceiling comes from.
+    static let claudeCardPaper: NSColor =
+        CanvasMaterial.dynamic(light: CanvasMaterial.lightClaudeCardPaper,
+                               dark: CanvasMaterial.darkClaudeCardPaper)
+    static let claudeLineStroke: NSColor =
+        CanvasMaterial.dynamic(light: CanvasMaterial.lightClaudeLineStroke,
+                               dark: CanvasMaterial.darkClaudeLineStroke)
+
+    /// Which paper a card is drawn on — **one definition**, so the shadow caster
+    /// and the fill under it cannot disagree. They antialias independently and a
+    /// sliver of the caster survives in every rounded-rect edge pixel, so two
+    /// answers here would put a fringe of the wrong author's paper around the
+    /// card.
+    ///
+    /// **An item node is never tinted, and the renderer refuses it rather than
+    /// trusting the model.** An item node is the page the words were read *off*:
+    /// it already exists as itself, and tinting it would say Claude took the
+    /// photograph. `CanvasClaudePlacement` gives it no author, but a hand-edited
+    /// sidecar can — the same route by which a promoted mark reaches one, and the
+    /// promoted stripe below refuses it for the same reason.
+    /// `CanvasAuthorRenderTests.test_anItemNodeIsNeverTinted` is the ruling as an
+    /// assertion, and `CanvasAccessibility` refuses the spoken term on the same
+    /// terms.
+    static func paper(for node: CanvasNode) -> NSColor {
+        guard case .scrap = node.kind, node.author == .claude else { return cardPaper }
+        return claudeCardPaper
+    }
+
     /// §7.2: each card sits at a seeded fraction of a degree — nothing is rough,
     /// but everything was *put down* rather than snapped to a grid.
     ///
@@ -742,8 +776,15 @@ enum CanvasRenderer {
         var path = Path()
         path.move(to: line.from)
         path.addLine(to: line.to)
+        // **Whose hand drew it is in the STROKE and nowhere else** (§8A.2): same
+        // weight, same opacity, same shape, a cooler value. The label pill below
+        // deliberately keeps the writer's `cardPaper` — it is a legibility
+        // backing rather than a statement about the line, an unlabelled line has
+        // none at all, and tinting it would make a labelled Claude line say so
+        // twice while an unlabelled one said it once.
         cx.stroke(path,
-                  with: .color(Color(nsColor: lineStroke)
+                  with: .color(Color(nsColor: line.author == .claude ? claudeLineStroke
+                                                                     : lineStroke)
                       .opacity(isSelected ? 1 : CanvasMaterial.lineOpacity)),
                   lineWidth: isSelected ? CanvasMaterial.selectedLineWidth
                                         : CanvasMaterial.lineWidth)
@@ -968,6 +1009,9 @@ enum CanvasRenderer {
                                  isSelected: Bool,
                                  on cx: GraphicsContext) {
         let shape = Path(roundedRect: frame, cornerRadius: 3)
+        // Resolved once — see `paper(for:)`. The caster below and the fill under
+        // it must be the same colour or every card carries a fringe of the other.
+        let paper = paper(for: node)
 
         var card = cx
         // ONE definition of the card rotation — the same transform `localPoint`
@@ -985,9 +1029,9 @@ enum CanvasRenderer {
         // into the dark that `cardPaper` exists to avoid.
         card.drawLayer { shadow in
             shadow.addFilter(.shadow(color: .black.opacity(0.18), radius: 3, x: 1, y: 2))
-            shadow.fill(shape, with: .color(Color(nsColor: cardPaper)))
+            shadow.fill(shape, with: .color(Color(nsColor: paper)))
         }
-        card.fill(shape, with: .color(Color(nsColor: cardPaper)))
+        card.fill(shape, with: .color(Color(nsColor: paper)))
 
         switch node.kind {
         case .scrap:

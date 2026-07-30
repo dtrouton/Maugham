@@ -867,6 +867,37 @@ final class CanvasRendererTests: XCTestCase {
         }
     }
 
+    /// The companion to the test above, for the surface's SECOND paper.
+    ///
+    /// A card Claude put down is drawn on `claudeCardPaper` and its text is drawn
+    /// with the same `cardInk` — same ink, same shape, one visual language
+    /// (§8A.2). That is only safe while the ink clears the new paper too, and the
+    /// new paper is the darker of the two in light mode and the darker of the two
+    /// in dark mode: the direction that erodes contrast in dark, where the ink is
+    /// white. Nothing else in the suite would say so — the raster fixtures render
+    /// no glyphs, and `test_theCardsInkContrastsWithItsPaperInBothAppearances`
+    /// reads only the writer's paper.
+    func test_theInkContrastsWithClaudesPaperInBothAppearances() throws {
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
+                guard let paper = CanvasRenderer.claudeCardPaper.usingColorSpace(.sRGB),
+                      let ink = CanvasRenderer.cardInk.usingColorSpace(.sRGB) else {
+                    return XCTFail("could not resolve Claude's card colours under "
+                                   + name.rawValue)
+                }
+                // Composite the ink over the paper — labelColor is not opaque.
+                let composited = ink.brightnessComponent * ink.alphaComponent
+                    + paper.brightnessComponent * (1 - ink.alphaComponent)
+                XCTAssertGreaterThan(
+                    abs(paper.brightnessComponent - composited), 0.5,
+                    "under \(name.rawValue) the ink is \(composited) on Claude's paper of "
+                    + "\(paper.brightnessComponent) — the words on a card Claude put down "
+                    + "are unreadable. CanvasMaterial's Claude paper pair is the ceiling "
+                    + "on how far that card may be darkened to say whose it is.")
+            }
+        }
+    }
+
     // MARK: - Rasterisation helper
 
     /// The columns inside a card's text box, clear of the border stroke and of

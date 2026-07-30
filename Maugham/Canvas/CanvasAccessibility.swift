@@ -135,11 +135,32 @@ enum CanvasAccessibility {
     /// `normalise`'s own doc comment describes — visible, unreadable, and
     /// removable only by finding the field and clearing it twice. See AREA.md.
     ///
+    /// **Whose hand drew them rides in the count clause** (spec §8A.2
+    /// constraint 1), and it has to: a line is an element nowhere, so its ends
+    /// are the only place anything can be said about it, and the drawn signal is
+    /// a hue shift on a 1.5 pt hairline that an assistive client cannot see at
+    /// all. This is what carries a Claude line's provenance whatever the stroke
+    /// manages to say.
+    ///
+    /// **The count stays the whole set and the provenance is a share of it.**
+    /// "2 from Claude" beside "3 lines" is a fact about the same three; a count
+    /// that excluded the writer's would be a different, smaller canvas. The two
+    /// phrasings differ on purpose — all of them reads "2 lines from Claude",
+    /// some of them reads "3 lines, 2 from Claude" — because "3 lines, 3 from
+    /// Claude" is the clumsy way to say the first, and a card whose every line
+    /// came from Claude is the ordinary case for a batch it placed itself.
+    ///
     /// Internal rather than private so the tests assert against the wording
     /// production ships, and pure so they can do it without a scene.
     static func connectionPhrase(for lines: [CanvasLine]) -> String? {
         guard !lines.isEmpty else { return nil }
-        let count = "\(lines.count) \(lines.count == 1 ? "line" : "lines")"
+        var count = "\(lines.count) \(lines.count == 1 ? "line" : "lines")"
+        let claudes = lines.count { $0.author == .claude }
+        if claudes == lines.count {
+            count += " \(claudeTerm)"
+        } else if claudes > 0 {
+            count += ", \(claudes) \(claudeTerm)"
+        }
         let names = lines
             .compactMap { $0.label?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -192,13 +213,30 @@ enum CanvasAccessibility {
     /// the tests assert against what ships, exactly as `regionKind` is.
     static let promotedTerm = "promoted"
 
-    /// The kind, then whether it has produced something, then what it is
-    /// connected to. The kind stays FIRST because `CanvasAXRole` never reaches
-    /// an assistive client — see `elements`.
+    /// The word a card or a line Claude made carries, in the label and in
+    /// `connectionPhrase`. A constant for the reason `promotedTerm` and
+    /// `regionKind` are, and **one wording for one fact**: the region a batch
+    /// lands in is called `CanvasClaudePlacement.defaultRegionLabel` ("From
+    /// Claude") and the undo step is `CanvasClaudeWrite.undoStepName` ("Add
+    /// Scraps from Claude"), so a third phrasing here would make one thing sound
+    /// like three. `CanvasAccessibilityTests`'
+    /// `test_theSpokenTermAgreesWithTheRegionLabelAndTheUndoStep` holds the three
+    /// against each other.
+    static let claudeTerm = "from Claude"
+
+    /// The kind, then where it came from, then whether it has produced
+    /// something, then what it is connected to. The kind stays FIRST because
+    /// `CanvasAXRole` never reaches an assistive client — see `elements`.
+    ///
+    /// **Provenance sits before the durable facts** because it is prior to them:
+    /// where a card came from does not change, and what has happened to it since
+    /// is read against that.
     private static func label(_ kind: String,
+                              fromClaude: Bool,
                               promoted: Bool,
                               connectedBy lines: [CanvasLine]?) -> String {
         var parts = [kind]
+        if fromClaude { parts.append(claudeTerm) }
         if promoted { parts.append(promotedTerm) }
         if let phrase = connectionPhrase(for: lines ?? []) { parts.append(phrase) }
         return parts.joined(separator: ", ")
@@ -260,6 +298,7 @@ enum CanvasAccessibility {
                 elements.append(CanvasAXElement(
                     id: .node(node.id), role: .scrap,
                     label: label("Scrap",
+                                 fromClaude: node.author == .claude,
                                  promoted: node.promotedItemID != nil,
                                  connectedBy: connections[node.id]),
                     value: text.isEmpty ? emptyScrapValue : text,
@@ -267,11 +306,17 @@ enum CanvasAccessibility {
             case .item(let referenceId):
                 elements.append(CanvasAXElement(
                     id: .node(node.id), role: .item,
-                    // `promoted: false` unconditionally: an item node already
-                    // exists as itself and cannot be promoted, so a mark on one
-                    // — which a hand-edited sidecar can write — says nothing
-                    // true. The renderer refuses it for the same reason.
+                    // `promoted: false` and `fromClaude: false` unconditionally,
+                    // for one reason: an item node already exists as itself. It
+                    // cannot be promoted, so a mark on one says nothing true;
+                    // and it is the page the words were read OFF, so announcing
+                    // it as Claude's would say Claude took the photograph.
+                    // `CanvasClaudePlacement` gives it neither field and a
+                    // hand-edited sidecar can give it both. The renderer refuses
+                    // the stripe and the tint on exactly these terms —
+                    // `CanvasRenderer.paper(for:)`.
                     label: label("Reference",
+                                 fromClaude: false,
                                  promoted: false,
                                  connectedBy: connections[node.id]),
                     value: CanvasRenderer.placeholderLabel(forReference: referenceId),

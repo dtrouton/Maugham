@@ -297,7 +297,8 @@ public struct CanvasScene: Equatable, Sendable {
         lines.compactMap { line in
             guard !isHidden(line.from), !isHidden(line.to),
                   let ends = endpoints(of: line) else { return nil }
-            return CanvasDrawnLine(id: line.id, from: ends.0, to: ends.1, label: line.label)
+            return CanvasDrawnLine(id: line.id, from: ends.0, to: ends.1, label: line.label,
+                                   author: line.author)
         }
     }
 
