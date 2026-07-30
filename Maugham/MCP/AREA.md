@@ -4,7 +4,7 @@ The local MCP server that lets Claude Desktop read and contribute to projects. R
 
 ## What this area owns
 
-The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the `add_note` write path (research-only), the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket.
+The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the **two write paths into the planning plane** — `add_note` under `research/`, and (1C-c3) `add_canvas_scraps` onto the planning canvas — the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket. **Manuscript text is never one of them**; see tripwire 4, which is where that half of the rule is stated and where it does not soften.
 
 ## Tool catalogue (54)
 
@@ -78,7 +78,7 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `translation_status` — summarise translation progress; with `document_id` one doc, without it every manuscript doc (skipping collection references, same walk as `ProjectStoreASTSource`). One row per (document, language) with `fresh`/`stale`/`missing`/`verbatim`/`orphans` counts plus `open_queries` (unresolved translator questions for that language; wired in the annotation-language pass).
 
 **Planning canvas**
-- `list_canvas` — the project's planning canvas read whole: every card (scrap or item node), every region with its home members and its appearances, every line, and the marks the inspector shows (`promoted_item_id`, `contributed_to_item_id`, `bound_piece_id`). `read_from` says which canvas answered — `"open_canvas"` (the attached `CanvasModel`, live and possibly mid-sentence) or `"sidecar"` (`.maugham/canvas.json` + `canvas.md`) — resolved by the shared `CanvasClaudeWrite.readScene`, never by a reader of its own. `author` is absent for the writer's own cards and lines, `"claude"` for ones added through this server. Scrap text is unbounded, so the tool calls `MCPResponseBudget.enforce` itself; `include_text: false` is the narrower read its refusal names.
+- `list_canvas` — the project's planning canvas read whole: every card (scrap or item node), every region with its home members and its appearances, every line, and the marks the inspector shows (`promoted_item_id`, `contributed_to_item_id`, `bound_piece_id`). **It reads the OPEN canvas when there is one and the sidecar otherwise, which is this surface's version of tripwire 20** — a derived file is not read as truth while the thing it was derived from is in memory. `read_from` says which answered — `"open_canvas"` (the attached `CanvasModel`, live and possibly mid-sentence, because the mounted editor folds every keystroke) or `"sidecar"` (`.maugham/canvas.json` + `canvas.md`) — and it is reported rather than inferable, for the reason `read_preview_page` returns the preview's filename and mtime. The discriminator is `CanvasModel.isAttached` and it is spelled once, in the shared `CanvasClaudeWrite.readScene`, never by a reader of its own: the read and the write must not come to different conclusions about which canvas is real. `author` is absent for the writer's own cards and lines, `"claude"` for ones added through this server. Scrap text is unbounded, so the tool calls `MCPResponseBudget.enforce` itself; `include_text: false` is the narrower read its refusal names.
 - `add_canvas_scraps` — **the second write tool in the catalogue.** Adds cards to the planning canvas: each string in `scraps` becomes one card marked `author: claude`, and they all land together in one labelled region (nothing Claude adds is loose, §8A.2). **The signature expresses no position, no node id and no region id** — where the cards go is `CanvasClaudePlacement`'s decision, and `connect` indexes *this call's own `scraps` array* (`[[0, 2]]`), so Claude can draw the arrows it read off a page and can reach nothing the writer made. `source_item_id` is the RESEARCH ITEM the words came off; it is placed above them in the same region (the reproduction corollary — reading and source checkable side by side) and carries no author, because the photograph is the writer's. Validates fully before writing anything: an empty or blank scrap, an unknown source id, and a `connect` pair that is not two in-range distinct indices are all refusals, as is a repeated or reversed pair (a line is undirected, so `[0,1]` and `[1,0]` are one line and two coincident lines read as one). Writes `canvas.md` and `.maugham/canvas.json` and nothing else; membrane reasoning in ADR 0026 and spec §8A.2. Persistence is `CanvasClaudeWrite.apply`, so the batch is one undo step whether the Plan persona is open or not.
 
 **Inbox / capture**
@@ -92,8 +92,8 @@ A **separate** catalog, `TestMCPToolCatalog`, that mirrors `MCPToolCatalog`'s sh
 (`register(router:registry:)`) but is registered onto the **same dev-build Unix socket**
 only inside `#if MAUGHAM_DEV_BUILD` in `MaughamApp.registerTools` — absent from the stable
 binary entirely (enforced by `TripwireGrepTests.test_testMCPCatalog_registeredOnlyUnderDevFlag`).
-It exists for **Claude Code**, not Claude Desktop, and is not part of the production 52-tool
-count above — the "Tool catalogue (52)" heading is unaffected by these tools.
+It exists for **Claude Code**, not Claude Desktop, and is not part of the production 54-tool
+count above — the "Tool catalogue (54)" heading is unaffected by these tools.
 
 Purpose: let Claude Code drive the full create → edit → autosave → checkpoint → quit →
 relaunch → verify loop end to end without the owner acting as a human tester, so the
@@ -154,7 +154,7 @@ URI** (per the draft, names aren't unique identifiers) and fails loudly (protoco
 only — any other URI fails loudly too (Maugham's server has no general resources support).
 These three are **protocol methods**, registered directly on the router in
 `MaughamApp.registerTools` alongside `initialize`/`tools/list`/`tools/call` — not tools,
-so **the tool catalogue count stays 52** whether or not a connecting client speaks the
+so **the tool catalogue count stays 54** whether or not a connecting client speaks the
 extension.
 
 **Content source:** `docs/skills/<name>/SKILL.md` (agentskills.io flat-frontmatter format:
@@ -189,7 +189,7 @@ a compatible superset (extra fields only), not a rename.
 - `MCPServer.swift` — Unix socket server, connection lifecycle, SIGPIPE handling. **SIGPIPE handling is idempotent and required** — don't simplify it away.
 - `MCPToolsListHandler.swift` — tool list response. Iterates `MCPToolCatalog.all` to advertise tools; never touches them directly.
 - `MCPTool.swift` — the `MCPTool` protocol (every tool conforms) and `MCPToolCatalog.all` (the single source of truth for the tool list). `MCPToolCatalog.register(router:registry:)` is the shared registration path used by both production (`MaughamApp.registerTools`) and the seam test (`MCPCatalogConsistencyTests`).
-- `Tools/` — one file per tool. Read tools are pure; `add_note` is the only writer in foundation scope and it can only write under `research/`.
+- `Tools/` — one file per tool. Read tools are pure. **Two tools write, and both write into the planning plane and nowhere else**: `add_note` under `research/`, and `add_canvas_scraps` (1C-c3, `Tools/CanvasTools.swift`) to `canvas.md` plus its `.maugham/canvas.json` sidecar. `add_note` was the only one for the whole of foundation scope, and the sentence that said so has been widened rather than qualified — a count is what a reader checks against the catalogue. The **manuscript** half is unchanged and unchangeable (tripwire 4): neither writer can reach manuscript text, and what they write reaches a manuscript only through a deliberate writer act (`promote_inbox_entry`, or the canvas's own `Promote…`).
 - Paragraph-anchored annotations live in `Tools/AnnotationCreationTools.swift` (add_comment / add_suggested_change / add_query / add_craft_note), `Tools/AnnotationReadTools.swift` (list_annotations / get_annotation), and `Tools/AnnotationToolHelpers.swift` (`withAnnotationDocument` — transient-load fallback when the doc isn't open in the editor). The parallel comment layer that lets Claude annotate the manuscript without mutating it.
 - `../maugham-mcp/` — the standalone CLI binary that bridges Claude Desktop's stdio to the app's Unix socket. Lives outside this directory but is conceptually part of this area. Main entry: `JSONRPCBridge.swift`.
 - `SkillsExtension.swift` — SEP-2640 skills extension surface (`skills/list`/`skills/get`/`resources/read` for `skill://`); see the section above. `MCPInitializeHandler.swift` declares the extension capability.
