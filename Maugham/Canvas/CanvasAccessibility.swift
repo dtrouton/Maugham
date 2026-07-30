@@ -356,7 +356,7 @@ enum CanvasAccessibility {
                                  connectedBy: connections[node.id]),
                     value: text.isEmpty ? emptyScrapValue : text,
                     contentFrame: frame))
-            case .item(let referenceId):
+            case .item(let reference):
                 elements.append(CanvasAXElement(
                     id: .node(node.id), role: .item,
                     // `promoted: false` unconditionally, and the author READ —
@@ -394,7 +394,7 @@ enum CanvasAccessibility {
                                  fromClaude: node.author == .claude,
                                  promoted: false,
                                  connectedBy: connections[node.id]),
-                    value: CanvasRenderer.placeholderLabel(forReference: referenceId),
+                    value: CanvasRenderer.placeholderLabel(for: reference),
                     contentFrame: frame))
             }
         }

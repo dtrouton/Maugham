@@ -21,7 +21,7 @@ final class PromotionTests: XCTestCase {
                             width: 240, cachedHeight: 80))
         s.insert(CanvasNode(id: b, kind: .scrap, origin: CGPoint(x: 0, y: 200),
                             width: 240, cachedHeight: 80))
-        s.insert(CanvasNode(id: img, kind: .item(referenceId: "r-9"),
+        s.insert(CanvasNode(id: img, kind: .item(.project(id: "r-9")),
                             origin: CGPoint(x: 800, y: 0), width: 180, cachedHeight: 120))
         s.insertRegion(CanvasRegion(id: r1, label: "Act II fog",
                                     frame: CGRect(x: 0, y: 0, width: 600, height: 400),

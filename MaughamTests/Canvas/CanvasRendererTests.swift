@@ -553,7 +553,7 @@ final class CanvasRendererTests: XCTestCase {
     /// thumbnails (spec §8A.1). The label must name the reference so a writer
     /// looking at a canvas from a newer build can tell what is on it.
     func test_itemPlaceholderLabelNamesItsReference() {
-        XCTAssertTrue(CanvasRenderer.placeholderLabel(forReference: "r-9").contains("r-9"))
+        XCTAssertTrue(CanvasRenderer.placeholderLabel(for: .project(id: "r-9")).contains("r-9"))
     }
 
     /// Spike requirement 3: draw at the window's true backingScaleFactor ×
@@ -909,7 +909,7 @@ final class CanvasRendererTests: XCTestCase {
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
             }, frame)
         }
-        let (item, frame) = try page(.item(referenceId: "r-9"))
+        let (item, frame) = try page(.item(.project(id: "r-9")))
         let (scrap, _) = try page(.scrap)
 
         // The label is drawn, inside the card, near the text origin. A scrap

@@ -145,7 +145,7 @@ final class CanvasInteractionTests: XCTestCase {
     func test_theCornerOfAnItemNodeMovesItRatherThanResizingIt() {
         var scene = CanvasScene()
         scene.insert(CanvasNode(id: CanvasNodeID.item("res-p3"),
-                                kind: .item(referenceId: "res-p3"),
+                                kind: .item(.project(id: "res-p3")),
                                 origin: CGPoint(x: 100, y: 100), width: 240,
                                 cachedHeight: 33, author: .claude))
         // Card is (100,100) 240x33, so the corner square is (326,119)–(340,133).

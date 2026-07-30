@@ -8,7 +8,7 @@ import MaughamCore
 /// `CanvasScene` so the in-memory model is free to change shape without
 /// rewriting every writer's sidecar.
 struct CanvasSceneDTO: Codable {
-    static let currentSchemaVersion = 7   // was 6 (contributedToItemID, 1C-c2b)
+    static let currentSchemaVersion = 8   // was 7 (author, 1C-c3)
 
     var schemaVersion: Int
     var nodes: [NodeDTO]
@@ -28,13 +28,27 @@ struct CanvasSceneDTO: Codable {
     /// line, and who swept a region to the region. All three arrived inside
     /// schema 7 rather than taking a bump each: they are one slice's one fact
     /// about provenance, they are optional so every older file still decodes, and
-    /// no build outside this branch has ever written a 7.
+    /// no build outside this branch has ever written a 7. **1C-d added
+    /// `ownedPath` to `NodeDTO`, same shape a fifth time** — which of the two
+    /// provenances an item node has belongs to the node.
     var lines: [LineDTO]?
 
     struct NodeDTO: Codable {
         var id: String
         var kind: String            // "scrap" | "item"
-        var referenceId: String?    // set when kind == "item"
+        /// Set when `kind == "item"` and the item is a PROJECT reference — a
+        /// research item or palette card id, which the canvas never writes to.
+        var referenceId: String?
+        /// Set when `kind == "item"` and the canvas OWNS the file (schema 8).
+        ///
+        /// **A project-relative path, and it is never written into
+        /// `referenceId`.** The two fields are the two arms of
+        /// `CanvasItemReference` and they are different kinds of claim: an id is
+        /// resolved against the project manifest, a path against the project
+        /// directory. Smearing a path into the id field would draw
+        /// `Item · canvas_assets/photo-….png` on the card and dangle every
+        /// reader that resolves a reference id.
+        var ownedPath: String?
         var x: CGFloat
         var y: CGFloat
         var width: CGFloat
@@ -102,15 +116,29 @@ struct CanvasSceneDTO: Codable {
         nodes = scene.nodes.map { n in
             switch n.kind {
             case .scrap:
-                return NodeDTO(id: n.id.raw, kind: "scrap", referenceId: nil,
+                return NodeDTO(id: n.id.raw, kind: "scrap",
+                               referenceId: nil, ownedPath: nil,
                                x: n.origin.x, y: n.origin.y, width: n.width,
                                cachedHeight: n.cachedHeight, z: n.z,
                                promotedItemID: n.promotedItemID,
                                boundPieceID: n.boundPieceID,
                                contributedToItemID: n.contributedToItemID,
                                author: n.author?.rawValue)
-            case .item(let ref):
-                return NodeDTO(id: n.id.raw, kind: "item", referenceId: ref,
+            case .item(.project(let id)):
+                return NodeDTO(id: n.id.raw, kind: "item",
+                               referenceId: id, ownedPath: nil,
+                               x: n.origin.x, y: n.origin.y, width: n.width,
+                               cachedHeight: n.cachedHeight, z: n.z,
+                               promotedItemID: n.promotedItemID,
+                               boundPieceID: n.boundPieceID,
+                               contributedToItemID: n.contributedToItemID,
+                               author: n.author?.rawValue)
+            case .item(.owned(let path)):
+                // The two arms write DISJOINT fields, which is what makes the
+                // both-fields case below a hand edit rather than something this
+                // encoder can produce.
+                return NodeDTO(id: n.id.raw, kind: "item",
+                               referenceId: nil, ownedPath: path,
                                x: n.origin.x, y: n.origin.y, width: n.width,
                                cachedHeight: n.cachedHeight, z: n.z,
                                promotedItemID: n.promotedItemID,
@@ -143,13 +171,38 @@ struct CanvasSceneDTO: Codable {
     /// written by a newer build still opens, minus the nodes this build cannot
     /// draw. Losing the whole canvas because one node is from the future is the
     /// worse failure.
+    ///
+    /// **An item node carrying BOTH provenances keeps the node, and the OWNED
+    /// PATH WINS.** The encoder above writes disjoint fields, so only a
+    /// hand-edited sidecar can say both — and this is the one place that can
+    /// answer, because it cannot ask. Three reasons, and the third is why the
+    /// answer is not "drop the contradictory node":
+    ///
+    /// - An owned path is a claim about a file **this project owns**, so
+    ///   honouring it cannot dangle outside the project; honouring `referenceId`
+    ///   instead points the card at an id this file gives no evidence for.
+    /// - It is the precedent one loop down. The other contradiction a hand edit
+    ///   can hand us — a node claimed as home by two regions — **demotes** the
+    ///   loser rather than dropping it, because inventing a relationship and
+    ///   discarding a true one are both worse than recording the weaker one.
+    /// - Dropping loses a card the writer can see, and a card that disappears is
+    ///   the worst failure available on a spatial surface.
+    ///
+    /// An item carrying NEITHER is still dropped: there is nothing to draw and
+    /// nothing to point at, which is the pre-existing rule and not a casualty of
+    /// this one.
     var scene: CanvasScene {
         var s = CanvasScene()
         for dto in nodes {
             let kind: CanvasNodeKind?
             switch dto.kind {
             case "scrap": kind = .scrap
-            case "item": kind = dto.referenceId.map { CanvasNodeKind.item(referenceId: $0) }
+            case "item":
+                if let path = dto.ownedPath {
+                    kind = .item(.owned(path: path))
+                } else {
+                    kind = dto.referenceId.map { CanvasNodeKind.item(.project(id: $0)) }
+                }
             default: kind = nil
             }
             guard let kind else { continue }

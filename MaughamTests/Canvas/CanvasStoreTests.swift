@@ -23,7 +23,7 @@ final class CanvasStoreTests: XCTestCase {
                             cachedHeight: 88, z: 1))
         // An item node is not CREATED by 1C-a, but the codec must carry one:
         // 1C-b and 1C-c depend on this round-trip.
-        s.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+        s.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                             origin: CGPoint(x: 400, y: 100), width: 180,
                             cachedHeight: 120, z: 2))
         return s

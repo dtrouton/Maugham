@@ -736,7 +736,7 @@ enum CanvasRenderer {
                           in scene: CanvasScene,
                           scraps: [CanvasNodeID: String]) -> String {
         if case .item(let reference)? = scene.node(id)?.kind {
-            return placeholderLabel(forReference: reference)
+            return placeholderLabel(for: reference)
         }
         let line = (scraps[id] ?? "")
             .split(separator: "\n", omittingEmptySubsequences: false)
@@ -754,10 +754,21 @@ enum CanvasRenderer {
         return n == 1 ? "1 card" : "\(n) cards"
     }
 
-    /// 1C-a draws item nodes as placeholders. 1C-d resolves the real title,
-    /// kind glyph and thumbnail (spec §8A.1) — do not do it here.
-    static func placeholderLabel(forReference referenceId: String) -> String {
-        "Item · \(referenceId)"
+    /// 1C-a draws item nodes as placeholders. 1C-d's Task 4/5 resolve the real
+    /// title, kind glyph and thumbnail (spec §8A.1) — do not do it here.
+    ///
+    /// **An owned item names no path.** A project reference's id is at least a
+    /// handle the writer could look up; a project-relative path is the *storage*
+    /// answer to a question the card is being asked about its content, and
+    /// `Item · canvas_assets/photo-20260730-121314.png` on a card is named in the
+    /// 1C-d plan as a failure rather than a placeholder. A fixed noun says the
+    /// true, small thing until Task 4 decides what an owned item's title is —
+    /// that decision is *its* to make, not this function's.
+    static func placeholderLabel(for reference: CanvasItemReference) -> String {
+        switch reference {
+        case .project(let id): return "Item · \(id)"
+        case .owned: return "Image"
+        }
     }
 
     /// Whether this pass draws a node's own text, or leaves it to the editor.
@@ -1275,13 +1286,13 @@ enum CanvasRenderer {
                     cg.restoreGState()
                 }
             }
-        case .item(let referenceId):
+        case .item(let reference):
             // The size is a shared constant because
             // `CanvasCardMetrics.itemPlaceholderHeight` is DERIVED from a line of
             // it: draw the label larger than the card was measured for and the
             // placeholder clips the only thing on it.
             var text = card.resolve(
-                Text(placeholderLabel(forReference: referenceId))
+                Text(placeholderLabel(for: reference))
                     .font(.system(size: CanvasCardMetrics.itemLabelFontSize)))
             text.shading = .color(Color(nsColor: .secondaryLabelColor))
             card.draw(text, at: CanvasCardMetrics.textOrigin(inCard: frame), anchor: .topLeading)

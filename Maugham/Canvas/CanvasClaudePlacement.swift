@@ -242,7 +242,7 @@ enum CanvasClaudePlacement {
                 // the writer's). The rule is not deleted, it is relocated — to
                 // `paper(for:)`, where the question it answers is actually asked.
                 source = .created(CanvasNode(id: id,
-                                             kind: .item(referenceId: reference),
+                                             kind: .item(.project(id: reference)),
                                              origin: CGPoint(x: cardX, y: y),
                                              width: CanvasInteraction.defaultScrapWidth,
                                              cachedHeight: CanvasCardMetrics.itemPlaceholderHeight,

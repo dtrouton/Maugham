@@ -1008,7 +1008,7 @@ final class RegionBindingTests: XCTestCase {
                 homeMembers: [self.a], author: author))
             if let source {
                 let page = CanvasNodeID.item(source)
-                s.insert(CanvasNode(id: page, kind: .item(referenceId: source),
+                s.insert(CanvasNode(id: page, kind: .item(.project(id: source)),
                                     origin: CGPoint(x: 0, y: 200), width: 240,
                                     cachedHeight: 40, author: .claude))
                 CanvasMembership.join(page, home: self.r1, in: &s)
@@ -1059,7 +1059,7 @@ final class RegionBindingTests: XCTestCase {
         let m = claudeRegionModel(source: "res-fog")
         m.withScene { s in
             let second = CanvasNodeID.item("res-a")
-            s.insert(CanvasNode(id: second, kind: .item(referenceId: "res-a"),
+            s.insert(CanvasNode(id: second, kind: .item(.project(id: "res-a")),
                                 origin: CGPoint(x: 300, y: 200), width: 240,
                                 cachedHeight: 40))
             CanvasMembership.join(second, home: self.r1, in: &s)

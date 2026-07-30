@@ -1,9 +1,19 @@
 import Foundation
 import MaughamCore
 
-/// Stable identity for a canvas node. A scrap's id is minted here; an item
-/// node's id is derived from the thing it points at, so the same research
+/// Stable identity for a canvas node. A scrap's id is minted; a *referenced*
+/// item node's id is derived from the thing it points at, so the same research
 /// note can never appear twice on the canvas by accident.
+///
+/// **An OWNED item node's id is minted too, and that is not an oversight**
+/// (1C-d, `CanvasItemReference.owned`). There is nothing to deduplicate — each
+/// ingestion writes its own file under `canvas_assets/` — and a filesystem path
+/// does not belong in an identity: it would put the whole of tripwire 22's
+/// rename hazard into the one field nothing may rewrite. Whoever creates one
+/// mints it the way every other id on this surface is minted
+/// (`CanvasInteraction.createScrap`'s retry-against-the-scene loop, or
+/// `CanvasClaudePlacement.newNodeID` when a whole batch is planned against a
+/// scene it must not touch). There is no sixth spelling.
 public struct CanvasNodeID: Hashable, Codable, Sendable, CustomStringConvertible {
     public let raw: String
     public init(_ raw: String) { self.raw = raw }
@@ -30,13 +40,16 @@ public enum CanvasNodeKind: Equatable, Sendable {
     /// A loose thought typed straight onto the canvas. Text lives in
     /// `canvas.md`, keyed by the node id. This is the ONLY kind 1C-a creates.
     case scrap
-    /// Something that already exists in the project. `referenceId` is the
-    /// research item id / palette card id. The canvas NEVER writes to it.
+    /// Something the canvas shows as itself rather than as words: a research
+    /// item or palette card that already exists in the project, or a photograph
+    /// the canvas ingested and owns. `CanvasItemReference` is which, and its own
+    /// doc comment carries why that distinction is nested here rather than
+    /// standing beside `.scrap` as a third kind.
     ///
-    /// In 1C-a an item node draws as a PLACEHOLDER card carrying its reference
-    /// id. 1C-d adds the drop target, the real title, the kind glyph and the
-    /// thumbnail path. Do not build any of that here.
-    case item(referenceId: String)
+    /// An item node still draws as a PLACEHOLDER card carrying its reference id.
+    /// 1C-d's later tasks add the drop target, the real title, the kind glyph
+    /// and the thumbnail.
+    case item(CanvasItemReference)
 }
 
 /// One node. `width` is authoritative; the text reflows to fit and the height

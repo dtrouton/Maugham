@@ -83,11 +83,11 @@ final class PromotionRenderTests: XCTestCase {
 
     func test_anItemNodeGetsNoMarkBecauseItCannotBePromoted() throws {
         var withItem = CanvasScene()
-        withItem.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+        withItem.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                                    origin: CGPoint(x: 100, y: 100), width: 180,
                                    cachedHeight: 120, promotedItemID: "res-nonsense"))
         var withoutMark = CanvasScene()
-        withoutMark.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+        withoutMark.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                                       origin: CGPoint(x: 100, y: 100), width: 180,
                                       cachedHeight: 120))
         XCTAssertEqual(

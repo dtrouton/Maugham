@@ -81,7 +81,7 @@ extension CanvasCardMetrics {
     ///
     /// **Derived from the label the renderer draws, not chosen by eye.**
     /// `CanvasRenderer.drawCard`'s `.item` arm draws one line of
-    /// `CanvasRenderer.placeholderLabel(forReference:)` at `itemLabelFontSize`,
+    /// `CanvasRenderer.placeholderLabel(for:)` at `itemLabelFontSize`,
     /// anchored `.topLeading` at `textOrigin(inCard:)` — so the card is that line
     /// plus `inset` at the top and `inset` at the bottom, which is the same
     /// arithmetic `cardHeight(forTextHeight:)` does for a scrap. The line is

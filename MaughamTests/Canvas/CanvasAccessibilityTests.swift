@@ -22,7 +22,7 @@ final class CanvasAccessibilityTests: XCTestCase {
         s.insert(scrapNode("s1", x: 0, y: 0))
         s.insert(scrapNode("s2", x: 400, y: 8))       // same band as s1, to its right
         s.insert(scrapNode("s3", x: 0, y: 400))
-        s.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+        s.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                             origin: CGPoint(x: 400, y: 400), width: 180, cachedHeight: 120))
         s.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("s1"),
                                 to: CanvasNodeID("s2"), label: "because"))
@@ -596,7 +596,7 @@ final class CanvasAccessibilityTests: XCTestCase {
     /// mentions promotion at all.
     func test_anItemNodeWithAHandEditedMarkIsNotAnnouncedAsPromoted() {
         var s = CanvasScene()
-        s.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+        s.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                             origin: .zero, width: 180, cachedHeight: 120,
                             promotedItemID: "res-nonsense"))
         s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap,
@@ -744,9 +744,9 @@ final class CanvasAccessibilityTests: XCTestCase {
     /// every reference carries.
     func test_anItemNodePlacedByClaudeSaysSoEvenThoughItsWordsAreTheWritersOwn() throws {
         var s = CanvasScene()
-        s.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+        s.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                             origin: .zero, width: 180, cachedHeight: 120, author: .claude))
-        s.insert(CanvasNode(id: .item("r-4"), kind: .item(referenceId: "r-4"),
+        s.insert(CanvasNode(id: .item("r-4"), kind: .item(.project(id: "r-4")),
                             origin: CGPoint(x: 0, y: 400), width: 180, cachedHeight: 120))
         let elements = CanvasAccessibility.elements(scene: s, scraps: [:])
         let claudes = try XCTUnwrap(elements.first { $0.id == .node(.item("r-9")) },

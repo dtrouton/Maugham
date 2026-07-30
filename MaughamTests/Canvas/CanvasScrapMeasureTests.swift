@@ -71,7 +71,7 @@ final class CanvasScrapMeasureTests: XCTestCase {
     /// rather than chosen by eye.
     ///
     /// `CanvasRenderer.drawCard`'s `.item` arm resolves
-    /// `Text(CanvasRenderer.placeholderLabel(forReference:))` at
+    /// `Text(CanvasRenderer.placeholderLabel(for:))` at
     /// `.system(size: CanvasCardMetrics.itemLabelFontSize)` and draws it
     /// `.topLeading` at `CanvasCardMetrics.textOrigin(inCard:)` — one line, inside
     /// a box inset `CanvasCardMetrics.inset` on every side. So the card must hold
@@ -79,7 +79,7 @@ final class CanvasScrapMeasureTests: XCTestCase {
     /// over the real label string, which is a different mechanism from the one the
     /// production value uses, so the two agreeing means something.
     func test_anItemPlaceholderIsTallEnoughForItsOwnLabel() {
-        let label = CanvasRenderer.placeholderLabel(forReference: "res-2026-07-30-abcd")
+        let label = CanvasRenderer.placeholderLabel(for: .project(id: "res-2026-07-30-abcd"))
         let line = NSAttributedString(
             string: label,
             attributes: [.font: NSFont.systemFont(ofSize: CanvasCardMetrics.itemLabelFontSize)]

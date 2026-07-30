@@ -23,8 +23,12 @@ final class CanvasLineCodecTests: XCTestCase {
         try json.write(to: sidecarURL(), atomically: true, encoding: .utf8)
     }
 
-    func test_theSchemaVersionIsSeven() {
-        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 7)
+    /// The one assertion of the literal that carries the number in its NAME, and
+    /// the two other files that pin it point here. Rename it at every bump — a
+    /// test called `…IsSeven` asserting 8 is the comment that lies loudest,
+    /// because the name is what a reader greps for.
+    func test_theSchemaVersionIsEight() {
+        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 8)
     }
 
     func test_linesRoundTripThroughDisk() {
@@ -95,17 +99,18 @@ final class CanvasLineCodecTests: XCTestCase {
     }
 
     /// The guard that makes the bump non-destructive in both directions: a
-    /// schema-8 sidecar (from the future, past this build's schema-7) opened
+    /// schema-9 sidecar (from the future, past this build's schema-8) opened
     /// by this build loses the arrangement and keeps the words. One line
     /// count, not three — a later slice bumps again.
     ///
-    /// **Rebump this fixture at every bump.** Left at the version this build
-    /// now writes it stops being from the future, the `schemaVersion <=
-    /// currentSchemaVersion` gate passes, and the test asserts nothing while
-    /// still going green. It has needed doing at every bump so far.
-    func test_aSchemaEightSidecarLosesTheArrangementAndKeepsTheWords() throws {
+    /// **Rebump this fixture at every bump, and rename it with the number.**
+    /// Left at the version this build now writes it stops being from the future,
+    /// the `schemaVersion <= currentSchemaVersion` gate passes, and the test
+    /// asserts nothing while still going green. It has needed doing at every
+    /// bump so far, 1C-d's included.
+    func test_aSchemaNineSidecarLosesTheArrangementAndKeepsTheWords() throws {
         try writeSidecar("""
-        {"schemaVersion":8,"nodes":[{"id":"a","kind":"scrap","x":5,"y":6,\
+        {"schemaVersion":9,"nodes":[{"id":"a","kind":"scrap","x":5,"y":6,\
         "width":240,"cachedHeight":80,"z":1}]}
         """)
         try "\(ScrapText.banner)\n\n## a\n\nthe falls at night\n"

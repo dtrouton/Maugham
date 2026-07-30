@@ -325,7 +325,7 @@ final class PromotionSheetTests: XCTestCase {
                      "an empty card has nothing to do with the wiki-link precedence")
 
         var withItem = scene()
-        withItem.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+        withItem.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                                    origin: CGPoint(x: 800, y: 0), width: 180,
                                    cachedHeight: 120))
         let reference = PromotionSheetModel(source: .scrap(.item("r-9")), scene: withItem,

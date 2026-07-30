@@ -187,9 +187,25 @@ public enum ListCanvasTool: MCPTool {
             // A scrap with no entry has no words yet, which is not the same as a
             // read that carried none — `includes_text` is what says which.
             text = includeText ? (scraps[node.id] ?? "") : nil
-        case .item(let reference):
+        case .item(.project(let id)):
             kind = "item"
-            referenceId = reference
+            referenceId = id
+            text = nil
+        case .item(.owned):
+            // **A project-relative path is not a reference id, so it is not put
+            // in the field named for one** (1C-d Task 1). `reference_id` is
+            // documented above as the research item / palette card an item node
+            // points at, and Claude may reasonably feed one to another tool;
+            // handing it `canvas_assets/photo-….png` would dangle every such
+            // call, which is the id/path smear this slice's type exists to stop.
+            //
+            // **Unreachable today and deliberately left so**: nothing in
+            // production makes an owned node until 1C-d's ingestion routes land.
+            // What an owned item should say on this wire — a path, a title, or a
+            // field of its own — is a decision for the slice that first creates
+            // one, and it is recorded in Task 1's report rather than guessed here.
+            kind = "item"
+            referenceId = nil
             text = nil
         }
         return Node(

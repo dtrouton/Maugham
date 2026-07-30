@@ -515,7 +515,7 @@ final class CanvasViewMountingTests: XCTestCase {
         let reference = "res-notebook-p3"
         let itemID = CanvasNodeID.item(reference)
         var fixture = CanvasScene()
-        fixture.insert(CanvasNode(id: itemID, kind: .item(referenceId: reference),
+        fixture.insert(CanvasNode(id: itemID, kind: .item(.project(id: reference)),
                                   origin: CGPoint(x: 20, y: 20), width: 240,
                                   cachedHeight: CanvasCardMetrics.itemPlaceholderHeight,
                                   author: .claude))
@@ -588,7 +588,7 @@ final class CanvasViewMountingTests: XCTestCase {
         let reference = "res-notebook-p9"
         let itemID = CanvasNodeID.item(reference)
         var fixture = CanvasScene()
-        fixture.insert(CanvasNode(id: itemID, kind: .item(referenceId: reference),
+        fixture.insert(CanvasNode(id: itemID, kind: .item(.project(id: reference)),
                                   origin: CGPoint(x: 40, y: 40), width: 240,
                                   cachedHeight: nil, author: .claude))
         let root = try projectRoot(scene: fixture, scraps: [:])

@@ -139,6 +139,14 @@ enum CanvasAuthorLine: Equatable {
     /// writer has since deleted falls back to the plain sentence instead of
     /// printing an id. A `store` is never read from a `body` or from anything a
     /// `body` calls.
+    ///
+    /// **An OWNED item is not a source here, and dropping it is the honest
+    /// answer rather than a gap** (1C-d Task 1). `title` is a lookup into the
+    /// project manifest, and an owned image has no manifest entry and never will
+    /// — `CanvasItemReference.owned` carries a path, which is the one thing this
+    /// caption must not print. The count below then falls to zero and the line
+    /// says the plain sentence, which is what it already does for a page the
+    /// writer has since deleted.
     private static func read(from region: CanvasRegion, in scene: CanvasScene,
                              title: (String) -> String?) -> CanvasAuthorLine {
         let sources = region.homeMembers.union(region.appearances)
@@ -146,7 +154,10 @@ enum CanvasAuthorLine: Equatable {
                 guard case .item(let reference) = scene.node(member)?.kind else {
                     return nil
                 }
-                return reference
+                switch reference {
+                case .project(let id): return id
+                case .owned: return nil
+                }
             }
         guard sources.count == 1, let resolved = title(sources[0]) else { return .claude }
         return .claudeReadFrom(title: resolved)

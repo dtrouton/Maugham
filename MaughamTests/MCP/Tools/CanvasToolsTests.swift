@@ -107,7 +107,7 @@ final class CanvasToolsTests: XCTestCase {
         model.withScene { scene in
             scene.insert(node("aaaa", x: 10, y: 20, width: 200, height: 44))
             scene.insert(node("bbbb", x: 300, y: 20))
-            scene.insert(node("cccc", kind: .item(referenceId: "res-7"), x: 10, y: 200))
+            scene.insert(node("cccc", kind: .item(.project(id: "res-7")), x: 10, y: 200))
             var region = CanvasRegion(id: CanvasRegionID("r1"), label: "The port",
                                       frame: CGRect(x: 0, y: 0, width: 500, height: 300))
             region.addHome(CanvasNodeID("aaaa"))
@@ -208,7 +208,7 @@ final class CanvasToolsTests: XCTestCase {
         model.withScene { scene in
             scene.insert(node("aaaa"))
             scene.insert(node("bbbb", author: .claude))
-            scene.insert(node("cccc", kind: .item(referenceId: "res-1"), y: 400))
+            scene.insert(node("cccc", kind: .item(.project(id: "res-1")), y: 400))
             scene.insertLine(CanvasLine(id: CanvasLineID("l1"),
                                         from: CanvasNodeID("aaaa"), to: CanvasNodeID("bbbb")))
             scene.insertLine(CanvasLine(id: CanvasLineID("l2"),
@@ -593,7 +593,7 @@ final class CanvasToolsTests: XCTestCase {
         let sourceNode = try XCTUnwrap(model.scene.node(CanvasNodeID(sourceNodeId)),
                                        "the page is not on the canvas, so what the "
                                        + "scraps were read off is unrecoverable")
-        XCTAssertEqual(sourceNode.kind, .item(referenceId: page.id),
+        XCTAssertEqual(sourceNode.kind, .item(.project(id: page.id)),
                        "the page node must point at the research item itself")
         XCTAssertEqual(sourceNode.author, .claude,
                        "Claude minted this node and chose where it went, which is what "

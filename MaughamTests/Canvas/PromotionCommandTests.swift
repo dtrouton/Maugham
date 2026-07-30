@@ -44,7 +44,7 @@ final class PromotionCommandTests: XCTestCase {
             binderSegment: .canvas, selection: .node(a), nodeKind: .scrap))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
             binderSegment: .canvas, selection: .node(a),
-            nodeKind: .item(referenceId: "r-9")))
+            nodeKind: .item(.project(id: "r-9"))))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
             binderSegment: .canvas, selection: .node(a), nodeKind: nil),
             "a selection naming a node the scene no longer holds resolves to no "
