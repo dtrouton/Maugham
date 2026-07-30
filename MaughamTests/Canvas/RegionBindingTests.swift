@@ -610,6 +610,21 @@ final class RegionBindingTests: XCTestCase {
     /// `CanvasMembership.addAppearance` was stored, drawn, listed and removable
     /// with no production caller at all, exactly as `CanvasScene.remove` was one
     /// slice before it. Only a caller count sees that.
+    ///
+    /// **Each name here is an admission, and it carries its reason.** A name with
+    /// no reason beside it is the census eroding into a list somebody appends to
+    /// when the build goes red:
+    ///
+    /// - `RegionInspector.swift` — the writer citing a card by hand, through
+    ///   "Cite a Card". Citing is an inspector act rather than a gesture,
+    ///   deliberately: a modifier-held drop would need a flag threaded through
+    ///   `CanvasEventNSView`'s callbacks for something nobody would discover.
+    /// - `CanvasClaudePlacement.swift` *(1C-c3)* — a second Claude batch read off
+    ///   a page the canvas already holds. The page keeps its home and the new
+    ///   region **cites** it, because moving it would make a geometry change into
+    ///   a membership change, which is the transition rule §4.2 exists to refuse
+    ///   (tripwire 31) — the one tldraw ships despite storing membership. One
+    ///   home, many appearances is what makes citing the available answer.
     func test_makingAnAppearanceHasAProductionCaller() throws {
         let callers = try CanvasSourceCensus.productionFiles()
             .filter { $0.name != "CanvasMembership.swift" && $0.name != "CanvasRegion.swift" }
@@ -619,10 +634,12 @@ final class RegionBindingTests: XCTestCase {
             }
             .map(\.name)
             .sorted()
-        XCTAssertEqual(callers, ["RegionInspector.swift"],
+        XCTAssertEqual(callers, ["CanvasClaudePlacement.swift", "RegionInspector.swift"],
                        "if this is ever empty again, appearances are persisted, "
                        + "drawn, listed and removable — and uncreatable. If it "
-                       + "grows, the new caller is a deliberate edit here.")
+                       + "grows, the new caller is a deliberate edit here — and "
+                       + "it gets a line in this test's doc comment saying why it "
+                       + "cites rather than joins.")
     }
 
     func test_theInspectorListsResidentsAndVisitorsSeparately() {
