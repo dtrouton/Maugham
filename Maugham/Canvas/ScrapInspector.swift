@@ -380,12 +380,16 @@ struct ScrapInspector: View {
     /// three cases are found by asking which of the region's members is an item
     /// node. It is read from the MEMBERSHIP rather than from a field because there
     /// is no field: a page-to-cards relationship is not in the data model, and
-    /// inventing one for a sentence would be a schema change for a caption. The
-    /// honest consequence: a writer who later drops a second research item into
-    /// Claude's region can make this name that one instead. The `.sorted()` keeps
-    /// the answer the same twice running when there is more than one candidate —
-    /// `CanvasMembership.homeRegion`'s reason for walking `regions` rather than
-    /// `unorderedRegions`.
+    /// inventing one for a sentence would be a schema change for a caption.
+    ///
+    /// **Exactly one, or the line says nothing** — which is the shape the planner
+    /// produces (a call carries at most one `source_item_id`) and the reason this
+    /// does not need to pick. With two item members in the region there is no fact
+    /// here to state: a writer who later drops a second research item into
+    /// Claude's region would otherwise have this name whichever one sorted first,
+    /// which is a caption asserting something nothing in the model knows. Silence
+    /// is right for that case, and it removes the misattribution rather than
+    /// documenting it.
     ///
     /// **The title is the deferred lookup the pane already holds** — the same one
     /// the mark and the contribution record resolve through, so a page the writer
@@ -418,8 +422,7 @@ struct ScrapInspector: View {
                 }
                 return reference
             }
-            .sorted()
-        guard let reference = sources.first, let resolved = title(reference) else {
+        guard sources.count == 1, let resolved = title(sources[0]) else {
             return .claude
         }
         return .claudeReadFrom(title: resolved)

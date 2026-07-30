@@ -207,6 +207,49 @@ final class CanvasClaudeBannerTests: XCTestCase {
         XCTAssertEqual(to.selection, .region(r1),
                        "the region, so the inspector's region arm names what "
                        + "arrived and ⌫/Promote… act on it")
+        XCTAssertTrue(to.opensInspector,
+                      "with the column closed by ⌘⌥I the writer clicks Show and "
+                      + "lands on the canvas with nothing naming what arrived — "
+                      + "every other navigation-to-a-pane in ProjectWindow forces "
+                      + "it open, PersonaModifier on every persona switch")
+    }
+
+    /// **And the camera moves, or Show shows nothing.**
+    /// `CanvasClaudePlacement.regionOrigin` is `occupied.maxX + gutter` over the
+    /// union of every node and region, so Claude's region is BY CONSTRUCTION
+    /// outside the bounding box of the writer's own work — off screen unless they
+    /// happen to be panned hard right. This is the seam: `show` hands the model the
+    /// region, and the canvas resolves and moves.
+    ///
+    /// Driven through the REAL model verb rather than through a stub, because the
+    /// interesting half is that the request survives a canvas that is not mounted
+    /// yet — Show switches the persona and asks in the same act.
+    func test_showAsksTheCanvasToBringTheRegionIntoSight() {
+        let model = CanvasModel()
+        var revealed: [CanvasRegionID] = []
+        model.onRevealRequested = { revealed.append($0) }
+
+        model.reveal(r1)
+
+        XCTAssertEqual(revealed.count, 1,
+                       "exactly one request, or the read below is off a list this "
+                       + "test does not control")
+        XCTAssertEqual(revealed[0], r1)
+    }
+
+    /// The census that pins the line above into `show`, since a `ViewModifier`'s
+    /// private method cannot be called from here. Paired with a planted offender
+    /// below, and comment-stripped: this file is mostly prose about the camera.
+    func test_showIsTheCallerOfTheReveal() throws {
+        let text = CanvasSourceCensus.commentsStripped(try CanvasSourceCensus.source(
+            at: "Maugham/Views/CanvasClaudeArrivalModifier.swift"))
+        XCTAssertTrue(text.contains("model.reveal("),
+                      "Show sets the persona, the segment and the selection and "
+                      + "leaves the camera where it was — so the writer arrives on "
+                      + "the canvas with the region off screen")
+        XCTAssertTrue(text.contains("showInspector = true"),
+                      "…and with the inspector column closed, nothing on screen "
+                      + "names what arrived either")
     }
 
     /// Two batches into the SAME region add up rather than replacing, which is
@@ -262,13 +305,18 @@ final class CanvasClaudeBannerTests: XCTestCase {
     /// rather than by a test. The specific shape here is the one 1C-c2 recorded:
     /// deleting the line that mounts a modifier on `ProjectWindow.body` leaves the
     /// subscription's own text present and every test green while nothing reaches
-    /// the writer. `PromotionCommandTests.test_theInspectorButtonsPostTheSameCommandAsTheMenu`
+    /// the writer. `PromotionCommandTests.test_theCanvasWiringCensusNamesEveryProductionSite`
     /// is the instrument for the promotion wiring and now carries this slice's
     /// mount token too; what is censused HERE is the modifier's own file, which
     /// that test has no entry for.
+    /// **Comment-stripped**, which is not fussiness: this file is more doc comment
+    /// than code, and every one of these tokens is the sort of thing its prose
+    /// discusses — one future paragraph mentioning `MCPNoteBanner(` would satisfy a
+    /// raw scan with the call gone. Four other censuses in this directory strip for
+    /// the same reason.
     func test_theModifierSubscribesToTheEventAndRendersTheHouseBanner() throws {
-        let text = try CanvasSourceCensus.source(
-            at: "Maugham/Views/CanvasClaudeArrivalModifier.swift")
+        let text = CanvasSourceCensus.commentsStripped(try CanvasSourceCensus.source(
+            at: "Maugham/Views/CanvasClaudeArrivalModifier.swift"))
         for token in [".onProjectEvent(.maughamCanvasNodesAdded",
                       "MCPNoteBanner(",
                       "Self.destination(forRegion:"] {
@@ -283,5 +331,12 @@ final class CanvasClaudeBannerTests: XCTestCase {
         // written to survive.
         XCTAssertFalse(text.contains(".onProjectEvent(.maughamNotARealEvent"),
                        "the scan reads the file rather than always answering true")
+        // And the arm that proves the STRIPPING, which the plant above cannot: a
+        // token present ONLY in a comment must not satisfy the census.
+        XCTAssertFalse(
+            CanvasSourceCensus.commentsStripped("// MCPNoteBanner( in prose\nlet x = 1")
+                .contains("MCPNoteBanner("),
+            "a census that reads comments is satisfied by a paragraph describing "
+            + "the call it is meant to require")
     }
 }

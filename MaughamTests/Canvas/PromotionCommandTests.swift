@@ -228,7 +228,7 @@ final class PromotionCommandTests: XCTestCase {
     /// deep, and unreachable from the Edit menu — and all four instances of it
     /// were found by counting production sites, never by a test. This is the
     /// count, written down.
-    func test_theInspectorButtonsPostTheSameCommandAsTheMenu() throws {
+    func test_theCanvasWiringCensusNamesEveryProductionSite() throws {
         let census: [(path: String, required: [String], why: String)] = [
             ("Maugham/Canvas/RegionInspector.swift", [".maughamPromoteCanvasSelection"],
              "the region inspector's Promote… button must post the ONE command; a "

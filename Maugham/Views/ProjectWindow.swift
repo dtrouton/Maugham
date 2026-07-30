@@ -339,6 +339,7 @@ struct ProjectWindow: View {
                                               model: canvasModel,
                                               persona: $persona,
                                               binderSegment: $binderSegment,
+                                              showInspector: $showInspector,
                                               documentStore: documentStore))
         .preferredColorScheme(preferredColorScheme)
     }

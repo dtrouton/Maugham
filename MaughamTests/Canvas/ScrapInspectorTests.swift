@@ -691,6 +691,31 @@ final class ScrapInspectorTests: XCTestCase {
                                               title: artifacts).sentence)
     }
 
+    /// **Two pages in the region and the line names neither.** A call carries at
+    /// most one `source_item_id`, so this is not a state the planner produces — it
+    /// is the state a writer produces by dragging another research item into
+    /// Claude's region afterwards, and there is then no fact here to state. Naming
+    /// whichever one sorted first would be a caption asserting something nothing in
+    /// the model knows, so the misattribution is removed rather than documented.
+    func test_twoPagesInTheRegionMeanTheSourceIsNotNamed() {
+        let m = claudeModel(source: "res-fog")
+        m.withScene { s in
+            let second = CanvasNodeID.item("res-a")
+            s.insert(CanvasNode(id: second, kind: .item(referenceId: "res-a"),
+                                origin: CGPoint(x: 300, y: 200), width: 240,
+                                cachedHeight: 40))
+            CanvasMembership.join(second, home: self.r1, in: &s)
+        }
+        // The control is the fixture one test up: the SAME model with one page
+        // names it, so this is about the count and not about the scene.
+        XCTAssertEqual(ScrapInspector.origin(for: a, in: claudeModel(source: "res-fog").scene,
+                                             title: artifacts),
+                       .claudeReadFrom(title: "Act II fog"))
+        XCTAssertEqual(ScrapInspector.origin(for: a, in: m.scene, title: artifacts),
+                       .claude,
+                       "with two pages in the region there is no source to name")
+    }
+
     /// A card with no region at all — Claude always lands in one, but an undo, a
     /// hand-edited sidecar or a later drag can leave one loose. It still says
     /// whose it is; only the source half goes.

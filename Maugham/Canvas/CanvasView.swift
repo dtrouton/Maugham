@@ -520,8 +520,24 @@ struct CanvasView: View {
             // and a copy of every scrap's string per step, twice.
             rebuildLayouts(bumpsStructuralCounter: false)
         }
+        // Another column asking the camera to move — the arrival banner's Show
+        // (1C-c3). `momentum.stop()` above is the precedent for writing `@State`
+        // from inside a model callback; the region is resolved HERE rather than by
+        // the caller because this is the first point past `attach()`, and a caller
+        // in another column may be holding a scene that predates the write (see
+        // `CanvasModel.onRevealRequested`).
+        model.onRevealRequested = { region in
+            guard let frame = model.scene.region(region)?.frame else { return }
+            camera.bring(frame.origin, toViewPoint: CanvasCamera.revealViewPoint)
+        }
         wash = CanvasGroundPalette.wash(fromHex: paletteSwatchHexes())
         rebuildLayouts()
+        // A reveal asked for while this view was not mounted — which is the
+        // ordinary case, because Show switches persona and asks in one act. Last,
+        // so it runs against the attached scene.
+        if let parked = model.takePendingReveal() {
+            model.onRevealRequested?(parked)
+        }
     }
 
     /// Build a layout per scrap and fill in the derived heights the model needs

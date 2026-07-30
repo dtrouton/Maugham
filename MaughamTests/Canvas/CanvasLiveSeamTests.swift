@@ -122,11 +122,61 @@ final class CanvasLiveSeamTests: XCTestCase {
         model.beforeFlush = { }
         model.onSceneReplacedByUndo = { }
         model.onSceneChangedExternally = { }
+        model.onRevealRequested = { _ in }
         model.detach()
         XCTAssertNil(model.onSceneChangedExternally,
                      "the new callback is the same retain cycle a third time")
+        XCTAssertNil(model.onRevealRequested,
+                     "and 1C-c3's reveal hook is the same cycle a fourth time — it "
+                     + "captures the view by value exactly as its two siblings do")
         XCTAssertNil(model.beforeFlush, "control: the two that were already cleared")
         XCTAssertNil(model.onSceneReplacedByUndo)
+    }
+
+    // MARK: - The reveal hook (1C-c3)
+
+    private let r1 = CanvasRegionID("r1")
+
+    /// A canvas that is on screen takes the reveal immediately, and nothing is
+    /// parked — a parked request that survived would re-jump on a later mount, to
+    /// a region the writer may have deliberately panned away from.
+    func test_aMountedCanvasTakesTheRevealAtOnceAndNothingIsParked() {
+        let model = loadedModel()
+        var revealed: [CanvasRegionID] = []
+        model.onRevealRequested = { revealed.append($0) }
+
+        model.reveal(r1)
+
+        XCTAssertEqual(revealed.count, 1, "exactly one call, or the read below is "
+                       + "off a list this test does not control")
+        XCTAssertEqual(revealed[0], r1)
+        XCTAssertNil(model.pendingReveal)
+    }
+
+    /// **The case the first draft of this dropped, and it is the ordinary one.**
+    /// Show switches the persona *and* asks for the reveal in one act, so at the
+    /// moment it asks, `CanvasView` has not mounted and there is no hook: a version
+    /// that only called the closure did nothing at all whenever the banner was the
+    /// thing that told the writer.
+    func test_arevealAskedForWithNoCanvasOnScreenIsKeptUntilThereIsOne() {
+        let model = loadedModel()
+        XCTAssertNil(model.onRevealRequested, "precondition: no canvas is mounted")
+
+        model.reveal(r1)
+        XCTAssertEqual(model.pendingReveal, r1,
+                       "dropped here, Show lands the writer on the canvas with the "
+                       + "region off screen — which is the whole finding")
+
+        // What `CanvasView.load()` does on the next appearance, after `attach`.
+        XCTAssertEqual(model.takePendingReveal(), r1)
+        XCTAssertNil(model.pendingReveal, "consumed once, or every mount re-jumps")
+        XCTAssertNil(model.takePendingReveal(), "and it stays consumed")
+    }
+
+    /// The control: no reveal asked for, nothing parked, so an ordinary persona
+    /// switch does not move the camera.
+    func test_amountWithNoRevealAskedForMovesNothing() {
+        XCTAssertNil(loadedModel().takePendingReveal())
     }
 
     // MARK: - The store's reference
@@ -181,6 +231,14 @@ final class CanvasLiveSeamTests: XCTestCase {
                        + "every tool sees nil — so every write goes to the sidecar "
                        + "behind the writer's back, including while they are "
                        + "looking at the canvas")
+        XCTAssertEqual(try assigners(of: "onRevealRequested",
+                                     excluding: "CanvasModel.swift"),
+                       ["CanvasView.swift"],
+                       "if this is empty, 1C-c3's reveal hook is declared, parked "
+                       + "into, cleared on detach and bound to nothing — so the "
+                       + "arrival banner's Show sets the persona and the selection "
+                       + "and the camera never moves, which is `addAppearance`'s "
+                       + "exact shape: stored, drawn, listed, and uncreatable")
     }
 
     /// The house self-check (`RegionBindingTests.test_theGateScanFiresOnAPlantedBypass`
@@ -235,6 +293,21 @@ final class CanvasLiveSeamTests: XCTestCase {
                         of: "model.onSceneChangedExternally = { rebuildLayouts(bumpsStructuralCounter: false) }",
                         with: "_ = model.onSceneChangedExternally")),
             "same, for the hook: declared, read once, bound to nothing")
+
+        // And both arms for 1C-c3's reveal hook, which is the one that would fail
+        // silently in the most useful direction: `load()` also CALLS it
+        // (`model.onRevealRequested?(parked)`, for the request parked while this
+        // view was unmounted), so a file that only calls it must not be counted as
+        // the file that binds it.
+        XCTAssertTrue(assigns("onRevealRequested", in: view),
+                      "control: the real file binds the reveal hook")
+        XCTAssertFalse(
+            assigns("onRevealRequested",
+                    in: view.replacingOccurrences(of: "model.onRevealRequested = { region in",
+                                                  with: "// the binding, deleted")),
+            "the scan cannot see a binding that is gone — and what is LEFT in that "
+            + "copy is the call site, so this is also the arm that proves a caller "
+            + "is not counted as a binder")
 
         // Two spellings that are the same assignment. Neither is how the source
         // is written today, and both must count, or a reformat empties the census

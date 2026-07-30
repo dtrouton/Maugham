@@ -44,6 +44,8 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
     let model: CanvasModel
     @Binding var persona: Persona
     @Binding var binderSegment: BinderSegment
+    /// Forced open by Show — see `Destination.opensInspector`.
+    @Binding var showInspector: Bool
     /// Where the persona lands durably. Nil while the project is still loading,
     /// which is also when no banner can be on screen.
     let documentStore: DocumentStore?
@@ -129,10 +131,18 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
         let persona: Persona
         let binderSegment: BinderSegment
         let selection: CanvasSelection
+        /// **A field rather than a bare `showInspector = true` in `show`**, so a
+        /// test pins it. Every other navigation-to-a-pane in `ProjectWindow`
+        /// forces the column open — `PersonaModifier` on *every* persona switch,
+        /// and the detail-segment command with "ensure pane is visible" — and
+        /// without it a writer who has closed the column with ⌘⌥I clicks Show and
+        /// gets a camera move and a selection with nothing naming what arrived.
+        let opensInspector: Bool
     }
 
     static func destination(forRegion region: CanvasRegionID) -> Destination {
-        Destination(persona: .plan, binderSegment: .canvas, selection: .region(region))
+        Destination(persona: .plan, binderSegment: .canvas,
+                    selection: .region(region), opensInspector: true)
     }
 
     /// **The jump does not go through `PersonaModifier`, and that is deliberate.**
@@ -149,6 +159,17 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
         persona = to.persona
         binderSegment = to.binderSegment
         model.selection = to.selection
+        if to.opensInspector { showInspector = true }
+        // **And the camera, or Show shows nothing.**
+        // `CanvasClaudePlacement.regionOrigin` is `occupied.maxX + gutter` over
+        // the union of every node and region, so on any non-empty canvas Claude's
+        // region is BY CONSTRUCTION outside the bounding box of the writer's own
+        // work — and therefore outside their viewport unless they happen to be
+        // panned hard right. The region id and not a point: this side of the
+        // window may be holding a scene written before the batch landed (see
+        // `CanvasModel.onRevealRequested`), and the model parks the request until
+        // a canvas is mounted to honour it.
+        model.reveal(arrival.region)
         documentStore?.updateUIState { $0.persona = to.persona }
         self.arrival = nil
     }
