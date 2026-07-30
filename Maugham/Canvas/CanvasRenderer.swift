@@ -221,17 +221,31 @@ enum CanvasRenderer {
         return claudeCardPaper
     }
 
-    /// §7.2: each card sits at a seeded fraction of a degree — nothing is rough,
-    /// but everything was *put down* rather than snapped to a grid.
+    /// §7.2: everything the writer put down sits at a seeded fraction of a
+    /// degree — nothing is rough, but everything was *put down* rather than
+    /// snapped to a grid.
     ///
-    /// Deterministic from the node id. A card must never shimmer or shift
-    /// between renders, so this cannot be `Double.random` and cannot depend on
-    /// anything that varies per frame. SplitMix64 over a stable string hash —
-    /// note `String.hashValue` is seeded per process and would give a card a
-    /// different tilt on every launch.
-    static func seededRotation(for id: CanvasNodeID) -> Angle {
+    /// **The lean is also the provenance signal (spec §8A.2 constraint 1), and
+    /// that is why the band excludes zero.** The magnitude lands in
+    /// `minimumTiltDegrees ... maximumTiltDegrees` and the sign comes off a bit
+    /// the magnitude does not use, so a human thing is never drawn straight and
+    /// **straight means Claude**. Before the dead band a seed near the middle of
+    /// the range gave a writer's own card an essentially level draw, which made
+    /// the signal usually-right — see `CanvasMaterial.minimumTiltDegrees` for why
+    /// that is worse than no signal.
+    ///
+    /// Deterministic from the id. A card must never shimmer or shift between
+    /// renders, so this cannot be `Double.random` and cannot depend on anything
+    /// that varies per frame. SplitMix64 over a stable string hash — note
+    /// `String.hashValue` is seeded per process and would give a card a different
+    /// tilt on every launch.
+    ///
+    /// Private, and reached only through the two `seededRotation` overloads
+    /// below: they are where the author is consulted, and a caller that could
+    /// take the raw lean would be a second place deciding whether a thing tilts.
+    private static func seededTilt(fromID raw: String) -> Angle {
         var h: UInt64 = 0xcbf2_9ce4_8422_2325          // FNV-1a offset basis
-        for byte in id.raw.utf8 {
+        for byte in raw.utf8 {
             h = (h ^ UInt64(byte)) &* 0x100_0000_01b3
         }
         // SplitMix64 finaliser — cheap, and well distributed in the low bits.
@@ -240,23 +254,63 @@ enum CanvasRenderer {
         z = (z ^ (z >> 27)) &* 0x94d0_49bb_1331_11eb
         z = z ^ (z >> 31)
 
-        // Map into ±CanvasMaterial.maximumTiltDegrees — the ONE definition of how
-        // far a card may lean. Everything downstream derives from it, including
-        // `cullingBleed`'s overhang budget.
+        // Magnitude from the low bits, sign from the TOP bit — two independent
+        // draws off one hash, so the sign is not a function of where in the band
+        // the magnitude landed.
         let unit = Double(z % 10_000) / 10_000.0        // 0..<1
-        return .degrees((unit * 2 - 1) * CanvasMaterial.maximumTiltDegrees)
+        let magnitude = CanvasMaterial.minimumTiltDegrees
+            + unit * (CanvasMaterial.maximumTiltDegrees - CanvasMaterial.minimumTiltDegrees)
+        return .degrees((z >> 63) & 1 == 0 ? -magnitude : magnitude)
+    }
+
+    /// A card's seeded lean. **Claude's cards are drawn at exactly 0°.**
+    ///
+    /// It takes the NODE rather than the id, and that is the whole guard: the
+    /// author is read here, in the one function `drawnAngle`, `drawCard` and the
+    /// caret's inverse transform all descend from, so the draw pass and the hit
+    /// test cannot disagree about whether a card is tilted. An id-only overload
+    /// would be a way to get the lean without the question.
+    ///
+    /// **An item node is included, and that is the point of keying on `author`
+    /// alone** rather than on `paper(for:)`'s rule. The two signals say different
+    /// things: the tint says *whose words these are*, and a photographed page's
+    /// words are the writer's; the tilt says *who put this here*, and Claude did.
+    /// So the source page is straight and untinted, which is the honest reading
+    /// of both.
+    static func seededRotation(for node: CanvasNode) -> Angle {
+        node.author == .claude ? .zero : seededTilt(fromID: node.id.raw)
+    }
+
+    /// A region's seeded lean, on the same rule and off the same seed function.
+    /// **Claude's regions are drawn at exactly 0°.**
+    ///
+    /// Regions did not lean at all before 1C-c3, and giving them one is what
+    /// makes "straight means Claude" true of the primitive Claude creates on
+    /// every call rather than only of the cards inside it.
+    static func seededRotation(for region: CanvasRegion) -> Angle {
+        region.author == .claude ? .zero : seededTilt(fromID: region.id.raw)
     }
 
     /// The angle a card is ACTUALLY drawn at right now: its seeded angle, scaled
     /// down toward zero as it straightens (spec §7A.5). At full straighten it is
     /// exactly level, which is what lets the editor take over the text
     /// axis-aligned and the §7A.2 glyph-origin pin compare two unrotated layouts.
-    static func drawnAngle(for id: CanvasNodeID, straighten: CanvasFocusStraighten) -> Angle {
-        .degrees(seededRotation(for: id).degrees * (1 - Double(straighten.progress(for: id))))
+    ///
+    /// A Claude card is already at zero, so it has nothing to straighten and the
+    /// focus affordance is invisible on one. That is accepted rather than worked
+    /// around: §7A.5's promise is that the card being edited is the only *square*
+    /// one, and inventing a lean to take away would undo the provenance signal
+    /// for the duration of every visit.
+    static func drawnAngle(for node: CanvasNode, straighten: CanvasFocusStraighten) -> Angle {
+        .degrees(seededRotation(for: node).degrees
+                 * (1 - Double(straighten.progress(for: node.id))))
     }
 
-    /// The rotation a card is drawn under, about its own centre. **The only
-    /// definition of it.**
+    /// The rotation a card — or, since 1C-c3, a region — is drawn under, about
+    /// its own centre. **The only definition of it.** The parameter keeps a
+    /// card's name because a card is the case with an inverse
+    /// (`localPoint(_:inCard:angle:)` for the caret); a region's grab is
+    /// deliberately unrotated, so it never asks for one.
     ///
     /// `drawCard` concatenates this onto the graphics context and `localPoint`
     /// inverts it, so the draw pass and the caret hit test cannot disagree about
@@ -292,12 +346,17 @@ enum CanvasRenderer {
     ///
     /// **The rotation term scales with the tilt AND with the card's diagonal, so
     /// this budget is re-done whenever `CanvasMaterial.maximumTiltDegrees`
-    /// moves.** At θ = 1.2° a default 240×80 card overhangs ~2.6 pt (r = 126.5)
-    /// and a generous 480×160 card ~5.3 pt (r = 253) — so 12 pt covers the
-    /// shadow and a wide card together with room left. At the original θ = 0.6°
-    /// the same arithmetic gave 1.4 pt and 8 pt sufficed; doubling the tilt
-    /// without re-doing this would let a wide card's corner be culled while it
-    /// was still on screen.
+    /// moves.** At the calibrated θ = 1.0° a default 240×80 card overhangs
+    /// ~2.2 pt (r = 126.5) and a generous 480×160 card ~4.4 pt (r = 253) — so
+    /// 12 pt covers the shadow and a wide card together with room left. At the
+    /// original θ = 0.6° the same arithmetic gave 1.4 pt and 8 pt sufficed; the
+    /// 2026-07-27 doubling to 1.2° (settled back to 1.0° the same day) would
+    /// have let a wide card's corner be culled while it was still on screen if
+    /// this had not been re-done with it.
+    ///
+    /// **A REGION does not use this budget alone** — it has no size ceiling, so
+    /// `visibleRegions` widens the shared bleed per region by
+    /// `rotationOverhang(of:)`. See there.
     /// `CanvasRendererTests.test_theCullingBleedCoversTheRotationOverhangAtTheCalibratedTilt`
     /// recomputes it, so a further tilt increase fails loudly rather than
     /// clipping a corner at the window edge.
@@ -323,11 +382,27 @@ enum CanvasRenderer {
             .insetBy(dx: -cullingBleed, dy: -cullingBleed))
     }
 
+    /// How far a rotated rect's corner swings outside the rect, at the calibrated
+    /// tilt. `r·θ`, with `r` the half-diagonal — the same arithmetic
+    /// `cullingBleed`'s doc comment does by hand for a card.
+    ///
+    /// It exists because **a region is unbounded in size and a card is not.**
+    /// `cullingBleed` is a flat 12 pt sized against a generous 480×160 card; a
+    /// region drawn round twenty cards can have a half-diagonal past 700 pt,
+    /// where 1° is over 12 pt and the flat budget would cull a region whose
+    /// corner was still on screen. Per-region and O(1), so the cull stays
+    /// viewport-proportional.
+    static func rotationOverhang(of size: CGSize) -> CGFloat {
+        let radius = (size.width * size.width + size.height * size.height).squareRoot() / 2
+        return radius * CGFloat(CanvasMaterial.maximumTiltDegrees * .pi / 180)
+    }
+
     /// The regions the viewport can see, culled exactly as the nodes are.
     ///
-    /// A region carries no seeded angle and no shadow, so the `cullingBleed`
-    /// budget is generous here rather than tight — it is shared with the node
-    /// cull so the two passes cannot disagree about where the viewport ends.
+    /// A region carries no shadow, but **since 1C-c3 it carries a seeded angle**,
+    /// so the shared `cullingBleed` is widened per region by its own
+    /// `rotationOverhang` — see there for why a flat budget cannot serve a
+    /// primitive with no size ceiling.
     static func visibleRegions(in scene: CanvasScene,
                                camera: CanvasCamera,
                                viewSize: CGSize) -> [CanvasRegion] {
@@ -346,7 +421,10 @@ enum CanvasRenderer {
                                        viewSize: CGSize) -> [CanvasRegion] {
         let viewport = camera.visibleContentRect(viewSize: viewSize)
             .insetBy(dx: -cullingBleed, dy: -cullingBleed)
-        return regions.filter { $0.frame.intersects(viewport) }
+        return regions.filter {
+            let overhang = rotationOverhang(of: $0.frame.size)
+            return $0.frame.insetBy(dx: -overhang, dy: -overhang).intersects(viewport)
+        }
     }
 
     /// The line drawn from a resident that has wandered out of the region that
@@ -745,7 +823,7 @@ enum CanvasRenderer {
             let ownText = drawsOwnText(node.id, visibleEditorNodeID: visibleEditorNodeID)
             drawCard(node, frame: frame,
                      layout: ownText ? layouts[node.id] : nil,
-                     angle: drawnAngle(for: node.id, straighten: straighten),
+                     angle: drawnAngle(for: node, straighten: straighten),
                      isSelected: selection == .node(node.id),
                      on: cx)
         }
@@ -859,9 +937,29 @@ enum CanvasRenderer {
     /// The wash, the outline, the chrome bar and its label, and the resize mark.
     ///
     /// Takes the context BY VALUE for the same reason `drawCard` does — nothing
-    /// a region does may leak into the next thing drawn. Unlike a card it adds
-    /// no transform of its own: a region is an area on the ground, not an object
-    /// put down on it, so it never tilts.
+    /// a region does may leak into the next thing drawn.
+    ///
+    /// **Since 1C-c3 a region leans, and ONLY its drawing does** (spec §8A.2
+    /// constraint 1). `seededRotation(for: region)` gives the writer's regions the
+    /// same put-down-by-hand lean the cards have and leaves Claude's at exactly
+    /// 0°, so the provenance signal covers the primitive Claude creates on every
+    /// call. The transform goes on a COPY of the context and covers the wash, the
+    /// chrome bar, the label, the promoted stripe and the resize mark — everything
+    /// drawn inside the rect, so the interior stays coherent.
+    ///
+    /// **The GRAB is unrotated and stays that way.** `CanvasInteraction` and
+    /// `CanvasScene.hitTest` test `CanvasRegionMetrics`' plain rects, unchanged.
+    /// The cost is stated rather than hidden: on a large region the ink and the
+    /// target diverge by up to `rotationOverhang(of:)` at the corners — a few
+    /// points, more than a card's because a region is bigger — and that is
+    /// accepted, because rotating the hit test would put a second geometry in the
+    /// file and grow the r·θ band `maximumTiltDegrees` has a ceiling to bound.
+    /// The chrome bar is 24 pt tall against a corner error of ~6 pt on a
+    /// 500 × 500 region (`r·θ`, r = 353.6 pt, θ = `maximumTiltDegrees`), so the
+    /// bar a writer aims at is still under the bar they see — against a card's
+    /// 2.2 pt at 240 × 80. **A TETHER is not rotated either** — one end of it is on a card
+    /// outside the region, so there is no one transform it belongs in; its region
+    /// end sits up to the same few points off the tilted edge.
     ///
     /// The chrome geometry comes from `CanvasRegionMetrics`, never spelled again
     /// here: Task 5 hit-tests the same rects, and a second spelling puts the mark
@@ -869,7 +967,14 @@ enum CanvasRenderer {
     private static func drawRegion(_ region: CanvasRegion,
                                    in scene: CanvasScene,
                                    isSelected: Bool,
-                                   on cx: GraphicsContext) {
+                                   on context: GraphicsContext) {
+        var cx = context
+        // ONE definition of the rotation, shared with the card — about the rect's
+        // own centre, inside the camera CTM already on the context.
+        cx.transform = cardTransform(inCard: region.frame,
+                                     angle: seededRotation(for: region))
+            .concatenating(cx.transform)
+
         let shape = Path(roundedRect: region.frame,
                          cornerRadius: CanvasMaterial.regionCornerRadius)
         cx.fill(shape, with: .color(Color(nsColor: regionWash)))
@@ -963,6 +1068,24 @@ enum CanvasRenderer {
     /// real card. Smaller than the thing it stands for, and drawn on the card's
     /// own paper at `chipOpacity` so it reads as lighter than a card without
     /// reading as a different material.
+    ///
+    /// **A chip carries NEITHER provenance signal, and that is a decision rather
+    /// than an omission** (spec §8A.2; reviewed 2026-07-30).
+    ///
+    /// - *No tint.* A chip is a reference, not the card. It is already the one
+    ///   thing on this surface deliberately drawn as "same paper, less of it", so
+    ///   that "which of these live here and which are visiting" is answerable at
+    ///   a glance without reading a word — a second material distinction stacked
+    ///   on that is two questions in one mark. The card itself IS tinted, where
+    ///   it lives, which is where the writer goes to read it.
+    /// - *No lean.* A chip is drawn in the host region's interior but its
+    ///   hairline ends on a card OUTSIDE that region, so there is no single
+    ///   transform it belongs in — the tether's problem exactly, and `drawRegion`
+    ///   declines to rotate a tether for the same reason. The consequence is
+    ///   honest and small: on a large tilted region a chip sits a few points off
+    ///   the tilted inside edge it hugs. Rotating the pill and not the hairline
+    ///   would trade a visible misalignment for an invisible one and add a second
+    ///   geometry to keep in step.
     private static func drawChip(_ chip: AppearanceChip,
                                  title: String,
                                  on cx: GraphicsContext) {

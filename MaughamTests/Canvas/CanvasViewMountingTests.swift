@@ -537,9 +537,25 @@ final class CanvasViewMountingTests: XCTestCase {
                              "precondition: the card is drawn at all before anything "
                              + "is dragged")
 
-        // Below where the 2-line card ends, and clear of the tilt (a card sits up
-        // to 0.6° off level, which moves an edge by ~2pt over this width).
-        let wrapBand = CGRect(x: cardBox.minX, y: cardBox.maxY + 4, width: 120, height: 24)
+        // Below where the 2-line card ends, and clear of BOTH the drop shadow and
+        // the tilt.
+        //
+        // **The tilt term is derived now, and it has to be.** The clearance was a
+        // hand-tuned 4pt, which worked only because this card's seed happened to
+        // land near level; 1C-c3 gave every card the writer made a minimum lean
+        // (`CanvasMaterial.minimumTiltDegrees`, so that *straight* can mean
+        // Claude), this card's angle grew several-fold, and its lower corner came
+        // down into the band — 33 ink pixels against a precondition of zero. A
+        // literal here is a test that depends on one id's hash.
+        //
+        // `cardBox` is the UNROTATED box (it is read off the mounted editor's
+        // frame, which is bounds-scaled and axis-aligned), so the corner furthest
+        // from the centre drops by `halfWidth · sin θ` at the calibrated maximum.
+        // The remaining 5pt is the shadow, radius 3 at offset (1, 2).
+        let tiltDrop = cardBox.width / 2
+            * CGFloat(sin(CanvasMaterial.maximumTiltDegrees * .pi / 180))
+        let wrapBand = CGRect(x: cardBox.minX, y: cardBox.maxY + tiltDrop + 5,
+                              width: 120, height: 24)
         XCTAssertEqual(try ink(in: wrapBand, of: hosted), 0,
                        "precondition: nothing is drawn below the card yet, so ink "
                        + "found there during the drag can only be the card having "

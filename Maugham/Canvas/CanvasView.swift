@@ -375,7 +375,7 @@ struct CanvasView: View {
     ///
     /// Making the editor visible from the click was the first draft's defect:
     /// axis-aligned glyphs at the unrotated text origin over chrome that was
-    /// still up to 1.2° off level, so they snapped straight on the click and the
+    /// still up to `CanvasMaterial.maximumTiltDegrees` off level, so they snapped straight on the click and the
     /// card caught up behind them — spec §7A.2's failure by §7A.5's own route.
     private var visibleEditorNodeID: CanvasNodeID? {
         guard let id = editingNodeID, straighten.isLevel(id) else { return nil }
@@ -843,7 +843,7 @@ struct CanvasView: View {
             // UNROTATED space at CLICK TIME — before the card straightens.
             // Straightening first moves the click point out from under the
             // cursor, and the caret lands somewhere the writer did not aim.
-            let angle = CanvasRenderer.drawnAngle(for: node.id, straighten: straighten)
+            let angle = CanvasRenderer.drawnAngle(for: node, straighten: straighten)
             let local = CanvasRenderer.localPoint(contentPoint, inCard: frame, angle: angle)
             let textOrigin = CanvasCardMetrics.textOrigin(inCard: frame)
             caretIndex = layout.characterIndex(

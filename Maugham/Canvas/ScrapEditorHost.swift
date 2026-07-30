@@ -52,7 +52,7 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
     /// It drives TWO things and both are required. `alphaValue` stops the
     /// double-draw. `hitTest(_:)` stops an invisible frontmost view owning the
     /// mouse: a click or a pinch inside that window would be resolved against
-    /// this view's UNROTATED box while the card beneath is still up to 1.2° off
+    /// this view's UNROTATED box while the card beneath is still up to `CanvasMaterial.maximumTiltDegrees` off
     /// level, so the pointer belongs to `CanvasEventNSView` — whose space is
     /// canvas space — until the handover is complete.
     ///
@@ -342,7 +342,7 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
 /// in which those differ: the editor is mounted from the click (so no keystroke
 /// is lost) while the card spends ~120 ms straightening under it. Anchoring a
 /// pinch through here during that window would be off by up to `r·θ` — ≈2.6 pt
-/// at the corner of a default card at the calibrated 1.2° tilt — from where the
+/// at the corner of a default card at the calibrated tilt — from where the
 /// writer's fingers are on the
 /// card they can see.
 ///

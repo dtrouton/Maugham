@@ -23,8 +23,12 @@ struct CanvasSceneDTO: Codable {
     /// association (spec §6.2) belongs to the node, not to a collection here.
     /// **1C-c2b added `contributedToItemID` to `NodeDTO`, same shape again** —
     /// spec §6.3's contribution record belongs to the card it describes.
-    /// **1C-c3 added `author` to `NodeDTO` and `LineDTO`, same shape once more**
-    /// — who made a card belongs to the card, and who drew a line to the line.
+    /// **1C-c3 added `author` to `NodeDTO`, `LineDTO` and `RegionDTO`, same shape
+    /// once more** — who made a card belongs to the card, who drew a line to the
+    /// line, and who swept a region to the region. All three arrived inside
+    /// schema 7 rather than taking a bump each: they are one slice's one fact
+    /// about provenance, they are optional so every older file still decodes, and
+    /// no build outside this branch has ever written a 7.
     var lines: [LineDTO]?
 
     struct NodeDTO: Codable {
@@ -61,6 +65,10 @@ struct CanvasSceneDTO: Codable {
         var boundPieceID: String?
         var isCollapsed: Bool
         var promotedItemID: String?
+        /// See `NodeDTO.author`. A region carries one because a region is drawn
+        /// with a seeded lean too, and straight is how the surface says Claude
+        /// swept it — see `CanvasRegion.author`.
+        var author: String?
     }
 
     struct LineDTO: Codable {
@@ -119,7 +127,8 @@ struct CanvasSceneDTO: Codable {
                       appearances: r.appearances.map(\.raw).sorted(),
                       boundPieceID: r.boundPieceID,
                       isCollapsed: r.isCollapsed,
-                      promotedItemID: r.promotedItemID)
+                      promotedItemID: r.promotedItemID,
+                      author: r.author?.rawValue)
         }
         // `scene.lines` is already id-sorted (that's its own doc comment's
         // reason); a second `.sorted()` here would be a second opinion about
@@ -179,7 +188,8 @@ struct CanvasSceneDTO: Codable {
                 appearances: real(dto.appearances).union(contested),
                 boundPieceID: dto.boundPieceID,
                 isCollapsed: dto.isCollapsed,
-                promotedItemID: dto.promotedItemID))
+                promotedItemID: dto.promotedItemID,
+                author: Self.authorKind(dto.author)))
         }
 
         // Endpoint validation, the same shape the region loader applies to

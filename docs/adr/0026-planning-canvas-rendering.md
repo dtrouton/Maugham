@@ -170,8 +170,13 @@ interaction the writer has with the surface.
 
 §7.2 puts each card at a seeded angle (±`CanvasMaterial.maximumTiltDegrees`, derived from
 the node id, stable across renders — deterministic irregularity, never random per frame).
-Calibrated by eye against the running app: 0.6° at first, **1.2° from 2026-07-27** at the
-writer's request. §7A.5 makes
+Calibrated by eye against the running app: 0.6° at first, doubled to 1.2° on 2026-07-27 at
+the writer's request to see the range, then **settled at 1.0° the same day** (`dfde12e`).
+**1C-c3 put a FLOOR under it** (`CanvasMaterial.minimumTiltDegrees`, 0.4°) without moving
+the ceiling: the surface already says "a hand put this here" by leaning, so straight is
+reserved to mean Claude — every card and every region the writer made leans by at least the
+minimum, and Claude's are drawn at exactly 0°. Regions lean at all only from 1C-c3, and
+only their DRAWING does; the grab stays the unrotated frame. §7A.5 makes
 the straighten the focus affordance: **click a card and the entire card animates to level,
 chrome and text together, over ~120 ms, settling back to its angle on blur.** The card
 being edited is the only square one on the canvas. The rotation is a value the renderer
@@ -186,7 +191,7 @@ callback, no new machinery.
 between two failures that pull in opposite directions:
 
 - Make the editor **visible on the click** and axis-aligned glyphs land at the unrotated
-  text origin over a card still up to 1.2° off level, with the drawn text already
+  text origin over a card still up to `maximumTiltDegrees` off level, with the drawn text already
   suppressed: they snap straight and the card catches up behind them. That is §7A.2's
   failure, reached by §7A.5's own route.
 - Defer the **mount** to `CanvasFocusStraighten.isLevel(_:)` and there is no first
@@ -762,9 +767,10 @@ stripe is how a promoted card says so without a panel being open.
   the promoted mark from outside the canvas and can run while a focused scrap holds "Edit
   Scrap" open, and `ScrapInspector.swift`, whose Piece picker sets an association from the
   same column through the same open bracket.
-- **Hit testing is on the unrotated rect**, so there is a mismatch band of `r·θ` — ~2.6 pt
-  at the corner of a default 240×80 card at the calibrated 1.2° tilt. It sits exactly where
-  the resize mark is drawn and tested, and is accepted because 2.6 pt is inside pointer
+- **Hit testing is on the unrotated rect**, so there is a mismatch band of `r·θ` — ~2.2 pt
+  at the corner of a default 240×80 card at the calibrated 1.0° tilt, and ~6 pt at the
+  corner of a 500 × 500 region since 1C-c3 gave regions a lean. It sits exactly where
+  the resize mark is drawn and tested, and is accepted because that is inside pointer
   slop and the 14 pt target absorbs it. It is also the ceiling on further tilt
   calibration, and `CanvasRenderer.cullingBleed` carries the same term (a card culled while
   a corner is still on screen) with a test that re-does the arithmetic.

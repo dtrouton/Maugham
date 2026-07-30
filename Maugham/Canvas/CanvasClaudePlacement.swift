@@ -220,19 +220,34 @@ enum CanvasClaudePlacement {
                     ? .adopted(id) : .cited(id)
             } else {
                 z += 1
-                // No author, deliberately, and it is the ruling most likely to be
-                // argued with: the tint means *these words came off a machine*,
-                // and the photograph is the writer's. Tinting this node would say
-                // Claude took the photograph. It echoes the rule that an item
-                // node never carries a promoted stripe, because it already exists
-                // as itself.
+                // **`author: .claude`, and the earlier `nil` here was wrong.**
+                //
+                // This comment used to say the opposite, with a reason that was
+                // sound while the tint was the only signal: the tint means *these
+                // words came off a machine*, and a photographed page's words are
+                // the writer's, so tinting this node would say Claude took the
+                // photograph. That is still true, and `CanvasRenderer.paper(for:)`
+                // still refuses to tint an item node for exactly it.
+                //
+                // What changed is that there are now TWO signals and they answer
+                // different questions. The tint asks *whose words are these*; the
+                // TILT asks *who put this here*, and Claude did — it minted this
+                // node, chose its place and its region. `author` is the field
+                // `CanvasNode.author`'s own doc comment defines as "who made this
+                // card", so nil was recording something false in order to get a
+                // colour decision the renderer now makes on its own.
+                //
+                // The result is the honest reading of both: the source page is
+                // drawn STRAIGHT (Claude placed it) and UNTINTED (the words are
+                // the writer's). The rule is not deleted, it is relocated — to
+                // `paper(for:)`, where the question it answers is actually asked.
                 source = .created(CanvasNode(id: id,
                                              kind: .item(referenceId: reference),
                                              origin: CGPoint(x: cardX, y: y),
                                              width: CanvasInteraction.defaultScrapWidth,
                                              cachedHeight: CanvasCardMetrics.itemPlaceholderHeight,
                                              z: z,
-                                             author: nil))
+                                             author: .claude))
                 columnBottom = y + CanvasCardMetrics.itemPlaceholderHeight
                 y = columnBottom + cardGap
             }
@@ -311,9 +326,14 @@ enum CanvasClaudePlacement {
     /// "plan once, apply twice": each route must call `plan` against the scene it
     /// is about to write.
     static func apply(_ plan: Plan, to scene: inout CanvasScene) {
+        // `author: .claude` — the region is the one primitive every call creates,
+        // so it is where "straight means Claude" earns most of its keep. A region
+        // carries no tint (it has no paper, only a wash felt rather than seen);
+        // the angle is the whole of its provenance. See `CanvasRegion.author`.
         scene.insertRegion(CanvasRegion(id: plan.regionID,
                                         label: plan.regionLabel,
-                                        frame: plan.regionFrame))
+                                        frame: plan.regionFrame,
+                                        author: .claude))
 
         if let source = plan.source {
             switch source {

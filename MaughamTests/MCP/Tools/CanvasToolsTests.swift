@@ -574,8 +574,10 @@ final class CanvasToolsTests: XCTestCase {
 
     /// **The reproduction corollary in full** (§8A.2 constraint 2): the page stays
     /// on the canvas beside what was read off it, so the two are checkable side by
-    /// side. And the page carries no author — the tint means *these words came off
-    /// a machine*, and the photograph is the writer's.
+    /// side. And the page carries Claude's author, because Claude minted the node
+    /// — the *words* on it are the writer's, which is a rule the renderer keeps
+    /// (`CanvasRenderer.paper(for:)` never tints an item node) rather than one
+    /// recorded by writing a falsehood into `author`.
     func test_aNamedSourcePutsThePageInTheRegionWithThem() async throws {
         let (url, store, registry, id) = try await registeredProject()
         let model = attached(to: store, at: url)
@@ -593,9 +595,14 @@ final class CanvasToolsTests: XCTestCase {
                                        + "scraps were read off is unrecoverable")
         XCTAssertEqual(sourceNode.kind, .item(referenceId: page.id),
                        "the page node must point at the research item itself")
-        XCTAssertNil(sourceNode.author,
-                     "the photograph is the writer's; tinting it would say Claude "
-                     + "took it")
+        XCTAssertEqual(sourceNode.author, .claude,
+                       "Claude minted this node and chose where it went, which is what "
+                       + "`author` records. The photograph's WORDS are still the "
+                       + "writer's, and that rule moved to CanvasRenderer.paper(for:), "
+                       + "which refuses to tint an item node whatever its author says — "
+                       + "so the page is drawn straight and untinted. See "
+                       + "CanvasClaudePlacementTests."
+                       + "test_everyNodeThisCallMintsIsClaudesIncludingTheSourcePage.")
 
         let region = try XCTUnwrap(model.scene.region(CanvasRegionID(result.region_id)))
         XCTAssertTrue(region.homeMembers.contains(sourceNode.id),

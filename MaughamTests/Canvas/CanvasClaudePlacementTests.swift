@@ -157,17 +157,25 @@ final class CanvasClaudePlacementTests: XCTestCase {
         }
     }
 
-    /// Both halves in one test so neither can be quietly dropped.
+    /// Every node this call mints is Claude's, **including the source page**, and
+    /// all of it in one test so no half can be quietly dropped.
     ///
-    /// The tint means *these words came off a machine*. The photograph is the
-    /// writer's, so tinting its node would say Claude took the photograph — and
-    /// it echoes the rule that an item node never carries a promoted stripe,
-    /// because it already exists as itself.
+    /// **The page's `author` was `nil` until 2026-07-30 and that was wrong.** The
+    /// reason given was sound while colour was the only signal: the tint means
+    /// *these words came off a machine*, the photograph is the writer's, and
+    /// tinting the page would say Claude took it. But `author` is "who made this
+    /// node" (`CanvasNode.author`), and Claude made it — minted the node, chose
+    /// its place and its region. Recording a falsehood to obtain a colour
+    /// decision put the rule in the wrong field; it now lives in
+    /// `CanvasRenderer.paper(for:)`, which refuses to tint an item node whatever
+    /// its author says, and the TILT reads the author instead. The page is drawn
+    /// straight (Claude placed it) and untinted (the words are the writer's).
+    ///
     /// Every assertion is guarded by an arity check first. A `for` over an empty
-    /// array is a no-op, and an optional-chained `XCTAssertNil` passes when the
-    /// thing it names was never created — so unguarded, the test that exists to
-    /// stop either half being quietly dropped is satisfied by dropping both.
-    func test_theSourcePageCarriesNoAuthorAndTheScrapsDo() {
+    /// array is a no-op, and an optional-chained assertion passes when the thing
+    /// it names was never created — so unguarded, the test that exists to stop
+    /// any half being quietly dropped is satisfied by dropping them all.
+    func test_everyNodeThisCallMintsIsClaudesIncludingTheSourcePage() {
         let plan = CanvasClaudePlacement.plan(
             CanvasClaudePlacement.Request(scraps: threeScraps,
                                           sourceReferenceID: "res-notebook-p3",
@@ -189,9 +197,24 @@ final class CanvasClaudePlacementTests: XCTestCase {
         guard let source = plan.source?.createdNode else {
             return XCTFail("a source that is not already on the canvas is created here")
         }
-        XCTAssertNil(source.author,
-                     "the photograph is the writer's — tinting its node would say "
-                     + "Claude took it")
+        XCTAssertEqual(source.author, .claude,
+                       "Claude minted this node and chose where it went, which is what "
+                       + "`author` records; the renderer is what declines to tint it")
+    }
+
+    /// A region is the one primitive every call creates, so it is where "straight
+    /// means Claude" earns most of its keep — and `apply` is the only writer of
+    /// it, which is why this reads the applied SCENE rather than the plan.
+    func test_theRegionThisCallCreatesIsClaudes() {
+        var scene = CanvasScene()
+        let plan = CanvasClaudePlacement.plan(
+            CanvasClaudePlacement.Request(scraps: threeScraps), in: scene)
+        CanvasClaudePlacement.apply(plan, to: &scene)
+
+        let region = try? XCTUnwrap(scene.region(plan.regionID))
+        XCTAssertEqual(region?.author, .claude,
+                       "a region the writer never swept must not be drawn with the lean "
+                       + "that says a hand put it there")
     }
 
     /// One home, many appearances (§4.3), and the second add is the one that
