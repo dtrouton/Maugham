@@ -6,7 +6,7 @@ The local MCP server that lets Claude Desktop read and contribute to projects. R
 
 The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the `add_note` write path (research-only), the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket.
 
-## Tool catalogue (52)
+## Tool catalogue (53)
 
 **Discovery / identity**
 - `list_projects` — enumerate all open Maugham projects
@@ -76,6 +76,9 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `write_translation` — record per-paragraph translations of a document into a language, in a parallel translation layer (the manuscript is never mutated). Each entry supplies `text` or `verbatim: true` (copy source chrome unchanged); the server stamps each record with a hash of the current source paragraph for downstream staleness detection. All-or-nothing on unknown paragraph ids; non-verbatim entries surface structural-drift warnings plus an advisory (never blocking) when the translated text is identical to the source — a nudge to mark it `verbatim: true` instead. Reads current paragraph state via the shared `currentParagraphState` helper (open doc → live `Document`; closed → `DerivedManuscriptCache`, never the on-disk `.md`, tripwire 20).
 - `read_translation` — read a document's translation into a language, paragraph by paragraph in manuscript order; each entry pairs source with translated text and a freshness `status` (`fresh`/`stale`/`missing`). Unknown language reads as all-`missing` (not an error). Optional `status` filter narrows to matching entries (`status=stale`+`status=missing` = the retranslation worklist). Whole-doc payload, so it self-enforces the 900 KB `MCPResponseBudget`.
 - `translation_status` — summarise translation progress; with `document_id` one doc, without it every manuscript doc (skipping collection references, same walk as `ProjectStoreASTSource`). One row per (document, language) with `fresh`/`stale`/`missing`/`verbatim`/`orphans` counts plus `open_queries` (unresolved translator questions for that language; wired in the annotation-language pass).
+
+**Planning canvas**
+- `list_canvas` — the project's planning canvas read whole: every card (scrap or item node), every region with its home members and its appearances, every line, and the marks the inspector shows (`promoted_item_id`, `contributed_to_item_id`, `bound_piece_id`). `read_from` says which canvas answered — `"open_canvas"` (the attached `CanvasModel`, live and possibly mid-sentence) or `"sidecar"` (`.maugham/canvas.json` + `canvas.md`) — resolved by the shared `CanvasClaudeWrite.readScene`, never by a reader of its own. `author` is absent for the writer's own cards and lines, `"claude"` for ones added through this server. Scrap text is unbounded, so the tool calls `MCPResponseBudget.enforce` itself; `include_text: false` is the narrower read its refusal names.
 
 **Inbox / capture**
 - `list_inbox` — enumerate capture inbox entries (voice/text/photo); summaries include the phone's optional `palette_subject`/`sense` aim fields when present
