@@ -167,12 +167,16 @@ struct RegionInspector: View {
     /// stops the pane calling a piece in the writer's binder "missing".
     let pieceTitle: (String) -> String?
     let onOpenResearchItem: (String) -> Void
-    /// See `RegionInspectorPane.itemIndex`. It is deliberately **not** in
-    /// `currentRowsKey`: a manifest change with no structural change leaves an
-    /// item member's row showing the title it had when the region was selected,
-    /// which is the same narrow staleness the key already accepts for everything
-    /// else it gates, and the alternative is a manifest fingerprint on a key that
-    /// exists to be two cheap `Int`s.
+    /// See `RegionInspectorPane.itemIndex`. **Its fingerprint is the third term
+    /// of `currentRowsKey`**, and the first draft of this comment left it out and
+    /// called that "the same narrow staleness the key already accepts" — which
+    /// was not true. Everything else the key gates (scrap text, membership, the
+    /// node set) changes *with the scene*, so `model.sceneRevision` catches it; an
+    /// item member's title is the first input to these rows that comes from
+    /// outside the scene, so leaving it out is a new KIND of staleness rather than
+    /// a new degree of one. And the canvas beside this pane refreshes on the same
+    /// fingerprint, so the two surfaces would visibly disagree about what a card
+    /// is called after a rename with the region still selected.
     var itemIndex: CanvasItemIndex = .empty
 
     /// What the writer has typed but not yet committed. Local, so one rename is
@@ -523,12 +527,21 @@ struct RegionInspector: View {
     /// the other two over the same scene, and a second cache with a second key
     /// is how a control comes to offer a card that is already listed above it.
     struct MemberRows: Equatable {
-        /// What the rows are keyed on. Both terms are needed: `revision` alone
-        /// misses a change of selected region (selection is not structural),
-        /// `region` alone misses a drop.
+        /// What the rows are keyed on. All three terms are needed: `revision`
+        /// alone misses a change of selected region (selection is not
+        /// structural), `region` alone misses a drop, and **without
+        /// `itemFingerprint` a rename of the research note an item member points
+        /// at leaves this list naming the old title while the canvas beside it
+        /// draws the new one** — the manifest is the one input to these rows that
+        /// the scene's own counter cannot see (1C-d).
+        ///
+        /// The third term is a 16-char hex string rather than an `Int`, which is
+        /// the whole of its cost: this is compared once per body pass, beside a
+        /// walk of the region's members.
         struct Key: Equatable {
             let revision: Int
             let region: CanvasRegionID
+            let itemFingerprint: String
         }
 
         var key: Key?
@@ -541,7 +554,8 @@ struct RegionInspector: View {
     /// What the rows would be keyed on right now. Read in `body`, which is what
     /// registers `sceneRevision` as a dependency.
     var currentRowsKey: MemberRows.Key {
-        MemberRows.Key(revision: model.sceneRevision, region: regionID)
+        MemberRows.Key(revision: model.sceneRevision, region: regionID,
+                       itemFingerprint: itemIndex.fingerprint)
     }
 
     /// Rebuild the member lists — **but only if the key has moved.**

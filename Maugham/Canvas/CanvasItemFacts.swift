@@ -116,7 +116,11 @@ struct CanvasItemFacts: Equatable, Sendable {
 /// twenty lines down — the name here read `PaletteConvention` for one commit,
 /// which is a *different* enum in the same file with no such member). This is
 /// the union the canvas actually draws from, which is neither.
-enum CanvasItemKind: Equatable, Hashable, Sendable, CaseIterable {
+/// **`String`-backed since 1C-d Task 5's fix round**, so `CanvasItemIndex`'s
+/// fingerprint can name a kind without `String(describing:)` reflection. The raw
+/// values are never written to disk and never parsed — nothing decodes this — so
+/// they are free to follow the case names.
+enum CanvasItemKind: String, Equatable, Hashable, Sendable, CaseIterable {
     case researchNote
     case paletteCard
     case image
@@ -201,9 +205,9 @@ struct CanvasItemIndex: Equatable, Sendable {
     /// likely to be got subtly wrong.**
     ///
     /// The key a caller caches resolved facts against is
-    /// `(CanvasModel.sceneRevision, index.fingerprint)` — two `Int`s, so
-    /// comparing it costs nothing on a body that re-evaluates per frame.
-    /// Both halves are load-bearing:
+    /// `(CanvasModel.sceneRevision, index.fingerprint)` — an `Int` and a 16-char
+    /// hex string, so comparing it costs nothing on a body that re-evaluates per
+    /// frame. Both halves are load-bearing:
     ///
     /// - **`sceneRevision` alone is wrong.** The writer renames the research
     ///   note a card points at and nothing on the canvas moves, so the counter
@@ -228,24 +232,39 @@ struct CanvasItemIndex: Equatable, Sendable {
     /// scene-proportional work off `CanvasView.revision`, the per-frame REDRAW
     /// counter. The kinship is real and the rule is not — what is wrong with a
     /// per-frame dictionary comparison is its cost, not its key — so the fix is
-    /// the same one either way: compare two `Int`s.
+    /// the same one either way: compare two scalars.
     ///
-    /// **In-memory only. Never persist it, never compare it across processes.**
-    /// Swift seeds `Hasher` per process, so the same manifest fingerprints
-    /// differently in the next launch — the same fact that made
-    /// `CanvasMembership.homeRegion` answer differently between runs of one
-    /// binary. Within a process it is stable, which is all a cache needs. A
-    /// 64-bit collision would serve one stale title until the next manifest
-    /// change; that is the accepted price of an O(1) key against an O(n)
-    /// comparison per frame.
-    let fingerprint: Int
+    /// **`StableHash.fnv1a64Hex`, not `hashValue`, and the reason is not that
+    /// this value is persisted — it is that nothing here needed seeding.** It was
+    /// `entriesByID.hashValue` for one commit, which is process-seeded (SE-0206),
+    /// which meant the same manifest fingerprinted differently on every launch
+    /// and the whole thing had to be caveated "in-memory only" — and it meant
+    /// widening `TripwireGrepTests.test_noHashValueInPersistedIdConstruction`,
+    /// load-bearing since the 2026-06-07 audit, to let it through. That is a
+    /// permanent hole in a tripwire bought for a value that can simply use the
+    /// thing the tripwire tells you to use. **Same O(n), same code path, one walk
+    /// of the same entries** — and this fingerprint is now stable across
+    /// launches, which costs nothing and closes a caveat.
+    ///
+    /// **Sorted by id before hashing, and that is not tidiness.** `Dictionary`
+    /// iteration order is seeded per process, so hashing the entries in
+    /// dictionary order would give one manifest a different fingerprint on every
+    /// rebuild — the cache would hold nothing and `.onChange` would fire on every
+    /// pass, with nothing red. `CanvasMembership.homeRegion` is the same fact
+    /// costing a different bug, in a third id space.
+    let fingerprint: String
 
     init(entriesByID: [String: Entry]) {
         self.entriesByID = entriesByID
-        // hashvalue-inmemory-ok: a per-process cache key, never written, never
-        // compared across processes, and never part of an id or a filename — see
-        // `fingerprint`'s own "In-memory only" paragraph above.
-        self.fingerprint = entriesByID.hashValue  // hashvalue-inmemory-ok: cache key only
+        // The separators are control characters so no title, path or id can spell
+        // one and make two different manifests hash alike.
+        self.fingerprint = StableHash.fnv1a64Hex(
+            entriesByID.sorted { $0.key < $1.key }
+                .map { id, entry in
+                    [id, entry.title, entry.kind.rawValue, entry.thumbnailPath ?? ""]
+                        .joined(separator: "\u{1}")
+                }
+                .joined(separator: "\u{2}"))
     }
 
     /// No project behind it: every referenced item resolves to `missingTitle`, and

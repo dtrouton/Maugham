@@ -123,13 +123,19 @@ struct CanvasView: View {
     /// one of them being a frame behind the other.
     @State private var itemPresentation = CanvasItemPresentation.empty
 
-    /// How many thumbnails the last resolve asked for and did not have.
+    /// Bumped by `rebuildLayouts` whenever a resolve missed a thumbnail — the
+    /// `.task` trigger in `body`, which is where the whole reasoning lives.
     ///
-    /// **This is the `.task` trigger, and it must not be `revision`** (tripwire
-    /// 30): a decode has nothing to do with a frame, and keying it on the redraw
-    /// counter would restart a servicing task on every drag frame. It is a plain
-    /// count, so it settles at 0 and the task stops re-running.
-    @State private var pendingThumbnails = 0
+    /// **A monotonic ticket, not the pending count.** It was the count for one
+    /// commit and stalled on a failed decode: `rebuildLayouts` is its only writer
+    /// and only runs after a service that reported something landed, so a failed
+    /// one left the count frozen and the next miss producing the same count moved
+    /// no id. A ticket cannot collide with itself.
+    ///
+    /// **And it must not be `revision`** (tripwire 30): a decode has nothing to do
+    /// with a frame, and keying it on the redraw counter would restart a servicing
+    /// task on every drag frame. This moves only when a resolve found work.
+    @State private var thumbnailServiceTicket = 0
 
     /// `layouts` holds ScrapLayout REFERENCES. Typing mutates the object in
     /// place, so `@State` observes no change and the `Canvas` never redraws.
@@ -390,11 +396,28 @@ struct CanvasView: View {
         // returns nil — so this is the only thing that ever turns a photograph
         // into pixels, and it re-measures afterwards because an item card's height
         // follows its picture. `.task(id:)` rather than a `Task {}` from a
-        // callback: SwiftUI cancels it when this view goes away, and the id
-        // settles at 0, so a canvas whose pictures have all landed schedules
-        // nothing at all.
-        .task(id: pendingThumbnails) {
-            guard pendingThumbnails > 0 else { return }
+        // callback: SwiftUI cancels it when this view goes away.
+        //
+        // **The id is a monotonic TICKET, and it was a pending COUNT for one
+        // commit — which stalled on a failed decode.** `rebuildLayouts` is the
+        // only writer, and it only runs after a service when `servicePending()`
+        // reports that something landed; a decode that FAILS (the writer deleted
+        // the photograph in the Finder) drains the queue, reports false, and
+        // leaves the count where it was. The next miss that happens to produce
+        // *the same count* then changes no id and schedules nothing at all — so
+        // the next photograph the writer drops on that canvas never decodes, for
+        // the rest of the session, silently. Found by the Task 5 review, which
+        // reproduced it through the real hosted view.
+        //
+        // A ticket says the honest thing: the trigger is **that there is work**,
+        // not how much of it there is. It cannot collide with itself, so no state
+        // of the queue can be mistaken for another, and a task that was cancelled
+        // before it ran is picked up by the next rebuild that sees work rather
+        // than only by one that sees a *different amount* of work.
+        .task(id: thumbnailServiceTicket) {
+            // No guard: the ticket only moves when a resolve missed something, and
+            // `servicePending` on an empty queue is a no-op returning false. The
+            // one call it costs is the initial mount, at ticket 0.
             if await thumbnails.servicePending() { rebuildLayouts() }
         }
         // MIRRORED, not replaced. The model's counter is bumped by the inspector
@@ -742,10 +765,10 @@ struct CanvasView: View {
                 }
             }
         }
-        // What the resolve above asked for and did not have, handed to the
-        // `.task` in `body`. Written after the measure so a pass that services
-        // nothing settles it back to 0.
-        pendingThumbnails = thumbnails.pendingCount
+        // A resolve that missed something is work for the `.task` in `body`.
+        // Written after the measure, and bumped rather than assigned — see
+        // `thumbnailServiceTicket` for the stall that a count produced.
+        if thumbnails.pendingCount > 0 { thumbnailServiceTicket += 1 }
         // Layouts for nodes that no longer exist would keep their text alive.
         layouts = layouts.filter { model.scene.node($0.key) != nil }
         revision += 1

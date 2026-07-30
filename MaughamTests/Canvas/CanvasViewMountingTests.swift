@@ -685,6 +685,90 @@ final class CanvasViewMountingTests: XCTestCase {
         // what closes that (`test_anItemNodeThatArrivesWithNoHeightIsHealedOnLoad`).
     }
 
+    /// **A photograph that fails to decode must not take the NEXT one down with
+    /// it** *(Task 5 review, Important 1)*.
+    ///
+    /// The servicing schedule is a `.task(id:)`, and for one commit the id was the
+    /// pending COUNT. `rebuildLayouts` is its only writer and it runs after a
+    /// service only when `servicePending()` reports that something landed — so a
+    /// decode that FAILS drains the queue, reports false, and leaves the count
+    /// frozen. The next miss that happened to produce the same count then moved no
+    /// id, scheduled nothing, and **the second photograph never decoded for the
+    /// rest of the session**, silently, at the floor height.
+    ///
+    /// It is the error path of the exact failure this task exists to prevent, and
+    /// it is the path `CanvasThumbnails`' own `Entry` doc anticipates ("a
+    /// photograph the writer deleted from the Finder"). Every other test in the
+    /// slice uses one good picture and cannot see it.
+    ///
+    /// The second card arrives through `mutateFromInspector` — the ordinary
+    /// other-column route, which is how a card gets added to a canvas the writer
+    /// is looking at — so the rebuild really is the one production takes.
+    ///
+    /// **The control is the same test with the first photograph READABLE**
+    /// (`test_aSecondPhotographDecodesAfterAReadableFirstOne` below): without it,
+    /// a delivery path that never added the second node at all would satisfy every
+    /// assertion here by leaving a card that was never measured.
+    func test_aFailedDecodeDoesNotStallTheNextPhotograph() throws {
+        try assertTheSecondPhotographDecodes(firstImageIsReadable: false)
+    }
+
+    /// The control for the test above. If this one ever fails, that one is
+    /// measuring the delivery route rather than the failed decode.
+    func test_aSecondPhotographDecodesAfterAReadableFirstOne() throws {
+        try assertTheSecondPhotographDecodes(firstImageIsReadable: true)
+    }
+
+    /// Two owned item nodes, the second added while the canvas is on screen. The
+    /// first one's file is written or not, which is the only difference.
+    private func assertTheSecondPhotographDecodes(firstImageIsReadable: Bool) throws {
+        let firstPath = "canvas_assets/image-20260731-000001.png"
+        let secondPath = "canvas_assets/image-20260731-000002.png"
+        let firstID = CanvasNodeID("owned-1"), secondID = CanvasNodeID("owned-2")
+
+        var fixture = CanvasScene()
+        fixture.insert(CanvasNode(id: firstID, kind: .item(.owned(path: firstPath)),
+                                  origin: CGPoint(x: 40, y: 40), width: 240,
+                                  cachedHeight: nil))
+        let root = try projectRoot(scene: fixture, scraps: [:])
+        if firstImageIsReadable {
+            try writeCanvasFixtureImage(width: 400, height: 300,
+                                        to: root.appendingPathComponent(firstPath))
+        }
+
+        let model = CanvasModel()
+        host(CanvasView(model: model, projectRoot: root, paletteSwatchHexes: { [] }))
+        pump()
+        XCTAssertEqual(try XCTUnwrap(model.scene.node(firstID)).cachedHeight
+                           == CanvasCardMetrics.itemLabelOnlyHeight,
+                       !firstImageIsReadable,
+                       "precondition: the first card is at the floor exactly when its "
+                       + "photograph was unreadable, so the two arms of this test "
+                       + "differ in the thing they claim to")
+
+        // The second photograph is written BEFORE the node arrives, so the only
+        // question this asks is whether the servicing schedule woke up.
+        try writeCanvasFixtureImage(width: 400, height: 300,
+                                    to: root.appendingPathComponent(secondPath))
+        model.mutateFromInspector("Add Card") { scene in
+            scene.insert(CanvasNode(id: secondID, kind: .item(.owned(path: secondPath)),
+                                    origin: CGPoint(x: 400, y: 40), width: 240,
+                                    cachedHeight: nil))
+        }
+        pump()
+
+        let height = try XCTUnwrap(try XCTUnwrap(model.scene.node(secondID)).cachedHeight)
+        XCTAssertGreaterThan(height, CanvasCardMetrics.itemLabelOnlyHeight,
+                             "the second photograph never decoded (height \(height)) — "
+                             + "the servicing schedule stalled, and every photograph "
+                             + "dropped on this canvas from here on is a blank card")
+        XCTAssertEqual(height,
+                       CanvasCardMetrics.itemCardHeight(forCardWidth: 240,
+                                                        pictureAspect: 4.0 / 3.0),
+                       accuracy: 1.5,
+                       "the second card's height is not its photograph's shape")
+    }
+
     /// **The card must stay on the canvas for the WHOLE of a resize, not just
     /// after the writer lets go.**
     ///
