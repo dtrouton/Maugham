@@ -531,6 +531,8 @@ Every other signal in this file — the cooler paper, the 0° lean, `claudeTerm`
 
 **Not built:** the page draws as a **dashed placeholder card carrying its reference id** until 1C-d gives item nodes a real title, kind glyph and thumbnail. So §8A.2's corollary is satisfied **structurally here and visibly at 1C-d** — the page node exists, is a member of the region and is announced, and what it *shows* is an id. Do not write down that the corollary is satisfied.
 
+**Not built, and 1C-d's first job in this file: an ITEM-NODE INSPECTOR ARM.** A selected page card shows *"Select something on the canvas"*. That is a ruling and not a bug — `RegionInspectorPane`'s `.scrap` guard is right, because every sentence in the card arm ("The words live on the card", "Promoting takes a copy") is wrong for a reference and an item node cannot be promoted — but the writer still clicks a card, watches `drawCard` give it the selected stroke and the connect dot, and is told to select something. Nor is there a click-through: a double-click resolves `.unenterableNode` and does nothing, and `onOpenResearchItem` is reached only from the two arms that do not render for an item node, so the card arm's `Read from "<title>"` sentence is the only route from the batch back to the page. The arm wanted is small — the reference's title, an **Open in Research** button, the provenance row — and it belongs with the thumbnail and the drag-in route because those are the rest of what an item node is for. Recorded here and in ADR 0026 §10; found by the 1C-c3 whole-branch review, on a comment that had justified the empty state with "nothing creates item nodes yet".
+
 ---
 
 ## Scale

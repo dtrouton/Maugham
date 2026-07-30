@@ -12,9 +12,12 @@ public struct CanvasNodeID: Hashable, Codable, Sendable, CustomStringConvertible
     /// Item nodes are identified by what they reference. Two adds of the same
     /// research item resolve to one node.
     ///
-    /// 1C-a does not create item nodes — 1C-d owns the drag-in route (spec
-    /// §8A.1) — but this spelling is consumed by 1C-b and 1C-c and by the
-    /// sidecar codec, so it lives here and is pinned by test.
+    /// **1C-c3 is the first producer**: `CanvasClaudePlacement` mints one for the
+    /// page a batch of scraps was read off. Until then nothing in production
+    /// called this — the spelling existed for 1C-b, 1C-c and the sidecar codec,
+    /// and several comments in this directory rested on "nothing creates item
+    /// nodes yet". They no longer can. 1C-d still owns the writer's own drag-in
+    /// route (spec §8A.1) and the thumbnail that goes with it.
     public static func item(_ referenceId: String) -> CanvasNodeID {
         CanvasNodeID("item:\(referenceId)")
     }

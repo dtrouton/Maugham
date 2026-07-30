@@ -47,13 +47,30 @@ struct RegionInspectorPane: View {
             // was right while a scrap had nothing to say about itself — the
             // promoted mark is what changed that.
             //
-            // **The `.scrap` guard is not decoration.** Nothing creates item
-            // nodes yet (1C-d owns the drag-in route), but this pane routed
-            // EVERY `selectedNode` here, and every sentence in that arm is
-            // wrong for a reference: "The words live on the card" and
-            // "Promoting takes a copy" describe a scrap, and an item node
-            // cannot be promoted at all. An item node falls to the empty state
-            // below until 1C-d gives it an arm of its own.
+            // **The `.scrap` guard is not decoration**, and what it does is now a
+            // RULING rather than a technicality. Every sentence in that arm is
+            // wrong for a reference: "The words live on the card" and "Promoting
+            // takes a copy" describe a scrap, and an item node cannot be promoted
+            // at all. So an item node falls to the empty state below.
+            //
+            // This comment used to open "Nothing creates item nodes yet (1C-d
+            // owns the drag-in route)", and **1C-c3 falsified that**:
+            // `CanvasClaudePlacement` mints one on every `add_canvas_scraps` that
+            // names a source. The claim was load-bearing in exactly one
+            // direction — it is why "falls to the empty state" cost nothing — and
+            // the consequence now ships: a writer can click the dashed page card,
+            // watch it draw itself selected, and be told to select something. It
+            // is recorded as an accepted limit in ADR 0026 §10 and in AREA.md's
+            // "Not built" list rather than papered over here, because the fix is
+            // an arm with the reference's title, an **Open in Research** button
+            // and the provenance row — 1C-d's, alongside the thumbnail and the
+            // drag-in route, and not a comment's to invent.
+            //
+            // There is no click-through either: a double-click on an item node
+            // resolves `.unenterableNode` and does nothing, and
+            // `onOpenResearchItem` is reached only from the two arms above. The
+            // card arm's `Read from "<title>"` sentence, on the scraps read off
+            // the page, is the recovery path that does ship.
             // The SAME offer the region arm gets — already filtered to the pieces
             // a promotion can be routed to, so the two pickers cannot disagree
             // about what a writer may choose.

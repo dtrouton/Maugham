@@ -892,7 +892,29 @@ accessibility tree, and what the writer *sees* of the source is an id until that
 **Do not write down that the corollary is satisfied.** Two related consequences are on the
 smoke list rather than fixed: whether the placeholder is enough to make the region legible,
 and that a second batch off a page already on the canvas leaves that page where it sits,
-because moving it would be the forbidden geometry→membership transition (decision 8).
+because moving it would be the forbidden geometry→membership transition (decision 8) — and if
+where they put it is a *collapsed* region, the page is hidden with the rest of that region's
+residents while Claude's new region still lists it.
+
+**And the limit is one notch weaker than the paragraph above reads, which the whole-branch
+review found: a SELECTED page card shows the inspector's empty state.** The first production
+item node is 1C-c3's, and three things that were written while there were none now meet on it.
+`CanvasScene.selectionTarget` returns `.node` for any topmost node and `drawCard` draws the
+selected stroke and the connect dot for any selected node, so the page card *visibly selects*.
+`RegionInspectorPane`'s `.scrap` guard is right — every sentence in the card arm is wrong for a
+reference, and an item node cannot be promoted — so the pane falls to *"Select something on the
+canvas"* over a card the writer just selected. There is no click-through either: a double-click
+resolves `.unenterableNode`, and `onOpenResearchItem` is reached only from the two arms that do
+not render for an item node. The only route from the batch back to the page is the card arm's
+`Read from "<title>"` sentence on the scraps read off it.
+
+**This is recorded as a decision so 1C-d meets one rather than a bug.** An item-node inspector
+arm — the reference's title, an **Open in Research** button, the provenance row — belongs with
+the thumbnail and the drag-in route, which are the rest of what an item node is *for*, and it is
+in `Maugham/Canvas/AREA.md`'s "Not built" list because that is where the next slice looks. What
+was fixed in the fix wave is only the record: the comment in `RegionInspector.swift` that
+justified the empty state with "nothing creates item nodes yet" said something this branch had
+made false.
 
 Constitution principles this decision answers to: **must-not #1, *no AI-authored manuscript
 text*** — the canvas is the planning plane, `add_canvas_scraps` cannot reach a manuscript,
