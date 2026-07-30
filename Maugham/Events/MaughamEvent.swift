@@ -58,6 +58,13 @@ enum MaughamEvent {
     /// `PersonaModifier`, so a rename cannot silently make the post a no-op.
     static let personaKey = "persona"
 
+    /// Payload keys for `.maughamCanvasNodesAdded`. Constants for the reason
+    /// `personaKey` is one: the post site (`AddCanvasScrapsTool`) and whatever
+    /// announces the arrival are written by different hands at different times,
+    /// and a rename on one side must not quietly make the other read nil.
+    static let canvasScrapCountKey = "scrap_count"
+    static let canvasRegionIDKey = "region_id"
+
     /// Post `name` to the given scope. `object` and `payload` pass through to
     /// NotificationCenter unchanged (payload keys must not shadow the
     /// reserved scope keys).

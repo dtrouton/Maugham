@@ -6,7 +6,7 @@ The local MCP server that lets Claude Desktop read and contribute to projects. R
 
 The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the `add_note` write path (research-only), the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket.
 
-## Tool catalogue (53)
+## Tool catalogue (54)
 
 **Discovery / identity**
 - `list_projects` — enumerate all open Maugham projects
@@ -26,7 +26,7 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `list_documents_by_tag` — filter binder documents by tag
 
 **Research / links**
-- `add_note` — write a new research note under `research/` (the only write tool)
+- `add_note` — write a new research note under `research/` (one of two write tools; the other is `add_canvas_scraps`, under Planning canvas below)
 - `list_research` — enumerate research items in a project
 - `link_research` — create a research ↔ manuscript link
 - `unlink_research` — remove a research ↔ manuscript link
@@ -79,6 +79,7 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 
 **Planning canvas**
 - `list_canvas` — the project's planning canvas read whole: every card (scrap or item node), every region with its home members and its appearances, every line, and the marks the inspector shows (`promoted_item_id`, `contributed_to_item_id`, `bound_piece_id`). `read_from` says which canvas answered — `"open_canvas"` (the attached `CanvasModel`, live and possibly mid-sentence) or `"sidecar"` (`.maugham/canvas.json` + `canvas.md`) — resolved by the shared `CanvasClaudeWrite.readScene`, never by a reader of its own. `author` is absent for the writer's own cards and lines, `"claude"` for ones added through this server. Scrap text is unbounded, so the tool calls `MCPResponseBudget.enforce` itself; `include_text: false` is the narrower read its refusal names.
+- `add_canvas_scraps` — **the second write tool in the catalogue.** Adds cards to the planning canvas: each string in `scraps` becomes one card marked `author: claude`, and they all land together in one labelled region (nothing Claude adds is loose, §8A.2). **The signature expresses no position, no node id and no region id** — where the cards go is `CanvasClaudePlacement`'s decision, and `connect` indexes *this call's own `scraps` array* (`[[0, 2]]`), so Claude can draw the arrows it read off a page and can reach nothing the writer made. `source_item_id` is the RESEARCH ITEM the words came off; it is placed above them in the same region (the reproduction corollary — reading and source checkable side by side) and carries no author, because the photograph is the writer's. Validates fully before writing anything: an empty or blank scrap, an unknown source id, and a `connect` pair that is not two in-range distinct indices are all refusals, as is a repeated or reversed pair (a line is undirected, so `[0,1]` and `[1,0]` are one line and two coincident lines read as one). Writes `canvas.md` and `.maugham/canvas.json` and nothing else; membrane reasoning in ADR 0026 and spec §8A.2. Persistence is `CanvasClaudeWrite.apply`, so the batch is one undo step whether the Plan persona is open or not.
 
 **Inbox / capture**
 - `list_inbox` — enumerate capture inbox entries (voice/text/photo); summaries include the phone's optional `palette_subject`/`sense` aim fields when present

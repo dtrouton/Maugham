@@ -15,8 +15,9 @@ import Foundation
 /// - **`.project(id:)`** (data events for windows on one project —
 ///   `maughamScriptDidUpdate`, `maughamOpenRewind`, `maughamMCPNoteAdded`,
 ///   `maughamCheckpointAdded`, `maughamSessionLogChanged`,
-///   `maughamNavigateToDocument`, `maughamTranslationDidUpdate`): delivered to
-///   live windows on the matching project only.
+///   `maughamNavigateToDocument`, `maughamTranslationDidUpdate`,
+///   `maughamCanvasNodesAdded`): delivered to live windows on the matching
+///   project only.
 /// - **`.allWindows`** (genuinely global fan-out, no liveness guard — see the
 ///   per-name zombie-harm audit note where present): `maughamNewProject`,
 ///   `maughamOpenProject`, `maughamAppWillTerminate`, `maughamShowHelp`.
@@ -130,6 +131,18 @@ extension Notification.Name {
     /// share a word.
     public static let maughamPromoteCanvasSelection =
         Notification.Name("maugham.promote.canvas")
+    /// Posted by `add_canvas_scraps` once Claude's batch has reached whichever
+    /// canvas is real. A data event, so it is scoped like `maughamMCPNoteAdded`:
+    /// a window on another project must not announce cards it did not receive,
+    /// and a closed window must not announce anything at all (the receive
+    /// helper's liveness guard, ADR 0021).
+    ///
+    /// `userInfo[MaughamEvent.canvasScrapCountKey]` (Int) is how many cards
+    /// arrived; `[MaughamEvent.canvasRegionIDKey]` (String) is the region they
+    /// landed in, so a receiver can take the writer to them without re-reading
+    /// the canvas. Scope: .project(id:).
+    public static let maughamCanvasNodesAdded =
+        Notification.Name("maugham.canvas.nodes.added")
     public static let maughamOpenRewind = Notification.Name("maugham.open.rewind")
     /// Posted when ⌘S is pressed — triggers a checkpoint capture with an auto-label.
     public static let maughamSaveCheckpoint = Notification.Name("maugham.save.checkpoint")
