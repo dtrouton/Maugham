@@ -3774,12 +3774,22 @@ final class CanvasViewMountingTests: XCTestCase {
     /// `model.onSceneChangedExternally` in `CanvasView.load()` and the height
     /// assertion goes red with `cachedHeight` nil.
     ///
-    /// The scrap text is written BEFORE the scene edit, which is the ordering
-    /// `mutateFromInspector`'s doc requires of any caller writing both: the hook
-    /// measures each card from the words it finds, so a card measured before its
-    /// text arrives is measured empty. Asserting the height equals
-    /// `CanvasScrapMeasure.height(text:cardWidth:)` is what makes that visible —
-    /// a card measured empty is a different number, not a nil.
+    /// **The words go IN the bracket, through `scrapTexts:`** — the ordering
+    /// `mutateFromInspector`'s doc requires of any caller writing both, and the
+    /// only one that is safe. Two things ride on it, and the second is why this
+    /// test was rewritten in 1C-c3 Task 5's fix round:
+    ///
+    /// - The hook measures each card from the words it finds, so a card measured
+    ///   before its text arrives is measured empty. Asserting the height equals
+    ///   `CanvasScrapMeasure.height(text:cardWidth:)` is what makes that visible —
+    ///   a card measured empty is a different number, not a nil.
+    /// - Written with `setScrapText` BEFORE the call — which is how this test was
+    ///   first written, following the doc as it then stood — the words are folded
+    ///   in *before* `beginGesture` takes its snapshot, so undoing "Add Scrap"
+    ///   removes the card and **leaves its text in `scraps`**: an orphan entry
+    ///   `ScrapText.render` writes into `canvas.md` for good. The census in
+    ///   `TripwireGrepTests` scans `Maugham/` only, so a test demonstrating the
+    ///   forbidden ordering is invisible to it — which is exactly what happened.
     func test_aCardAddedFromOutsideTheCanvasIsMeasuredByTheHostedView() throws {
         let model = CanvasModel()
         host(CanvasView(model: model, projectRoot: try projectRoot(),
@@ -3789,8 +3799,7 @@ final class CanvasViewMountingTests: XCTestCase {
 
         let added = CanvasNodeID("mcp1")
         let text = "a card from the other side of the window"
-        model.setScrapText(text, for: added)
-        model.mutateFromInspector("Add Scrap") {
+        model.mutateFromInspector("Add Scrap", scrapTexts: [added: text]) {
             $0.insert(CanvasNode(id: added, kind: .scrap,
                                  origin: CGPoint(x: 400, y: 300), width: 240))
         }

@@ -71,11 +71,27 @@ final class CanvasClaudeWriteTests: XCTestCase {
     /// Every node and line a plan describes, present in `scene` with the plan's own
     /// words beside it. Both routes have to satisfy this and the wording of the
     /// failure is the same for both, so it is asked in one place.
+    ///
+    /// **The non-empty guard is the whole reason this is not just two loops.** Four
+    /// tests route their central assertion through here, and over an empty
+    /// `plan.scraps` the loop vanishes and the helper degenerates to "the region
+    /// exists" while still reading, at each call site, as full coverage. Task 3 of
+    /// this slice shipped two assertions that passed that way.
+    ///
+    /// **Lines are the caller's to count, and deliberately.** Most requests here
+    /// name no connections at all, so a non-empty assertion would be false for them
+    /// rather than protective; the two tests that plan lines assert
+    /// `plan.lines.count` themselves, which says the number rather than merely
+    /// "some".
     private func assertLanded(_ plan: CanvasClaudePlacement.Plan,
                               in scene: CanvasScene,
                               scraps: [CanvasNodeID: String],
                               _ what: String,
                               file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse(plan.scraps.isEmpty,
+                       "\(what): the plan places no cards, so every loop below is a "
+                       + "no-op and this helper asserts almost nothing",
+                       file: file, line: line)
         XCTAssertNotNil(scene.region(plan.regionID),
                         "\(what): the region Claude's cards live in is missing, so "
                         + "nothing it added is labelled",
@@ -103,14 +119,29 @@ final class CanvasClaudeWriteTests: XCTestCase {
     /// 750 ms debounce, because a tool that answers "added" with the words only in
     /// memory has lied if the app is quit in the next 750 ms — and the canvas has
     /// no op log behind it (`Maugham/Canvas/AREA.md`, "The crash floor").
+    ///
+    /// **The hook count is asserted here, on the path that ships.** `CanvasView`
+    /// binds `onSceneChangedExternally` to a layout rebuild, and it is
+    /// `mutateFromInspector` that fires it — inside the bracket, deliberately (Task
+    /// 4), which is why this applier does not call it a second time. The only other
+    /// `fired == 1` assertion drives `mutateFromInspector` directly, so it cannot
+    /// see a future author adding that second call: one change and one rebuild, or
+    /// every batch measures the whole canvas twice.
     func test_anAttachedCanvasIsWrittenThroughTheModel() async throws {
         let (store, projectRoot) = try await project("Open")
         let model = attached(to: store, at: projectRoot)
+        var fired = 0
+        model.onSceneChangedExternally = { fired += 1 }
 
         let plan = CanvasClaudePlacement.plan(request(["a first thought", "a second"]),
                                               in: model.scene)
         try CanvasClaudeWrite.apply(plan, store: store, projectRoot: projectRoot)
 
+        XCTAssertEqual(fired, 1,
+                       "the view re-derives once per external change: at 0 Claude's "
+                       + "cards have no ScrapLayout and draw as empty rectangles "
+                       + "until the writer clicks; above 1 the whole canvas is "
+                       + "measured twice for one arrival")
         assertLanded(plan, in: model.scene, scraps: model.scraps, "the live model")
 
         let onDisk = sidecar(at: projectRoot)
@@ -152,6 +183,10 @@ final class CanvasClaudeWriteTests: XCTestCase {
 
         let plan = CanvasClaudePlacement.plan(
             request(["one", "two", "three"], connections: [(0, 2)]), in: model.scene)
+        XCTAssertEqual(plan.lines.count, 1,
+                       "precondition: there is a line for the two routes to agree "
+                       + "about — a scene equality over a plan with no lines in it "
+                       + "says nothing about how either route writes one")
 
         try CanvasClaudeWrite.apply(plan, store: live.store, projectRoot: live.root)
         try CanvasClaudeWrite.apply(plan, store: disk.store, projectRoot: disk.root)
@@ -245,6 +280,13 @@ final class CanvasClaudeWriteTests: XCTestCase {
     /// The scene assertion alone would pass with the batch split across two steps,
     /// or folded into a neighbour's, so the step is checked by NAME and the stack
     /// is checked for being empty afterwards.
+    ///
+    /// **The batch is asserted to have landed BEFORE the ⌘Z, and that is what makes
+    /// the two equalities afterwards mean anything.** On a fresh project
+    /// `beforeScraps` is empty, so `scraps == beforeScraps` after the undo is
+    /// empty-against-empty and would hold just as well if the words had never been
+    /// written at all — and it is the assertion that catches the orphan `scraps`
+    /// entry a write outside the bracket leaves behind.
     func test_theWholeBatchIsOneUndoStep() async throws {
         let (store, projectRoot) = try await project("OneStep")
         let model = attached(to: store, at: projectRoot)
@@ -260,6 +302,9 @@ final class CanvasClaudeWriteTests: XCTestCase {
             in: model.scene)
         try CanvasClaudeWrite.apply(plan, store: store, projectRoot: projectRoot)
         XCTAssertEqual(plan.lines.count, 2, "precondition: the plan drew both lines")
+        assertLanded(plan, in: model.scene, scraps: model.scraps,
+                     "before the ⌘Z, so the equalities after it are not empty "
+                     + "against empty")
 
         XCTAssertTrue(model.undoManager.undoMenuItemTitle
                         .contains(CanvasClaudeWrite.undoStepName),
