@@ -6,7 +6,7 @@
 
 **Architecture:** An item node gains a second provenance. `CanvasNodeKind.item` currently carries a bare `referenceId` and means *this already exists in the project*; it comes to carry a two-case `CanvasItemReference` — `.project(id:)` for that, and `.owned(path:)` for a capture or a drop that has nowhere else to live (spec §3.1's 2026-07-30 amendment). Owned assets are ingested through **one pair** on `ProjectStore` over the saver research notes and palette cards already share, into `canvas_assets/` beside `canvas.md`. Every route — research drag, Finder drop, browser bitmap, inbox — is a **caller** of that pair, never a storage decision of its own. What an item node *shows* is resolved from the manifest (referenced) or from the path (owned), cached against a manifest-change key, and never computed in `body`.
 
-**Tech stack:** Swift 6, SwiftUI + AppKit, `CGImageSource` for downsampling. No new dependency. **No new MCP tool** — spec §8A.4 rules the inbox route has no MCP write path, so the catalogue stays at 54 and no tools-list test moves.
+**Tech stack:** Swift **5.10** language mode with Swift 6 concurrency checking as *warnings* (`project.yml:11`, `:120` — verified 2026-07-30; an earlier draft of this line said Swift 6 and was wrong). SwiftUI + AppKit, `CGImageSource` for downsampling. No new dependency. **No new MCP tool** — spec §8A.4 rules the inbox route has no MCP write path, so the catalogue stays at 54 and no tools-list test moves.
 
 ---
 
