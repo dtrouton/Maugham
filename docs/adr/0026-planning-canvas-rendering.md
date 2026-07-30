@@ -170,8 +170,13 @@ interaction the writer has with the surface.
 
 §7.2 puts each card at a seeded angle (±`CanvasMaterial.maximumTiltDegrees`, derived from
 the node id, stable across renders — deterministic irregularity, never random per frame).
-Calibrated by eye against the running app: 0.6° at first, **1.2° from 2026-07-27** at the
-writer's request. §7A.5 makes
+Calibrated by eye against the running app: 0.6° at first, doubled to 1.2° on 2026-07-27 at
+the writer's request to see the range, then **settled at 1.0° the same day** (`dfde12e`).
+**1C-c3 put a FLOOR under it** (`CanvasMaterial.minimumTiltDegrees`, 0.4°) without moving
+the ceiling: the surface already says "a hand put this here" by leaning, so straight is
+reserved to mean Claude — every card and every region the writer made leans by at least the
+minimum, and Claude's are drawn at exactly 0°. Regions lean at all only from 1C-c3, and
+only their DRAWING does; the grab stays the unrotated frame. §7A.5 makes
 the straighten the focus affordance: **click a card and the entire card animates to level,
 chrome and text together, over ~120 ms, settling back to its angle on blur.** The card
 being edited is the only square one on the canvas. The rotation is a value the renderer
@@ -186,7 +191,7 @@ callback, no new machinery.
 between two failures that pull in opposite directions:
 
 - Make the editor **visible on the click** and axis-aligned glyphs land at the unrotated
-  text origin over a card still up to 1.2° off level, with the drawn text already
+  text origin over a card still up to `maximumTiltDegrees` off level, with the drawn text already
   suppressed: they snap straight and the card catches up behind them. That is §7A.2's
   failure, reached by §7A.5's own route.
 - Defer the **mount** to `CanvasFocusStraighten.isLevel(_:)` and there is no first
@@ -737,6 +742,192 @@ never required, and the link offer defaults to unchecked because membership is n
 vague where a wiki-link is binary and specific; **must #3, *delight, end to end*** — the
 stripe is how a promoted card says so without a panel being open.
 
+### 10. Claude reads the canvas and adds to it; the tilt is what says so *(added 2026-07-30, plan 1C-c3)*
+
+**Two tools, and the write one can express no position and no id.** `list_canvas` returns
+the whole canvas — every card, every region with both member sets, every line, and the
+marks the inspector shows. `add_canvas_scraps` adds cards: each string in `scraps` becomes
+one card, they all land together in one **labelled** region (nothing Claude adds is loose,
+spec §8A.2), and `connect` indexes *this call's own `scraps` array* so Claude can draw the
+arrows it read off a page and can reach nothing the writer made. `AddCanvasScrapsTool.Params`
+has five keys and **none of them is an `x`, a node id or a region id**; `Result` returns ids
+only, on the same principle one layer on — a caller that reads coordinates back starts
+reasoning about layout, and the next request is a parameter for it.
+
+**That is spec §8A.2's reproduction corollary made structural rather than promised.** The
+corollary requires a reproduction and its source to be checkable side by side, so the page
+goes at the top of the column and what was read off it below, inside one region: "what was
+read off this page" is answerable by looking. Making the *placement* unexpressible is what
+keeps that true without asking Claude to cooperate — there is no parameter with which to put
+a derived scrap somewhere its origin is unrecoverable.
+
+**The membrane holds because the canvas is the planning plane, and this is the argument, not
+an appeal to precedent.** Must-not #1 forbids AI originating *manuscript* text. `canvas.md`
+and `.maugham/canvas.json` are not manuscript: they are scratch, derived (decision 3), and
+reach a manuscript only through **promotion** — a deliberate writer act with a preview
+(decision 9). So `add_canvas_scraps` joins `add_note` as the second write tool in the
+catalogue and the destination list stays three (research, the annotation/translation layers,
+the canvas). `MCP/AREA.md` tripwire 4 is where that rule lives; its manuscript half does not
+soften, and **a fourth destination needs an argument at this level rather than this list as
+precedent.**
+
+**Two routes, and the discriminator is `CanvasModel.isAttached`.** The model is created
+eagerly with `ProjectWindow` and attached only while the Plan persona is on screen, so
+`liveCanvas != nil` is not the question: a window whose writer never opened the canvas holds
+a model that is real, addressable and unusable, and a *detached* model's scene is the
+snapshot from when the persona closed. Attached, the write goes through
+`mutateFromInspector`, the structural bump and `flush()`; otherwise `CanvasStore.load()` →
+`CanvasClaudePlacement.apply` → `save`. `CanvasClaudeWrite` is the one place that test is
+spelled, so the read tool and the write tool cannot disagree about which canvas is real.
+Neither route may claim the write reached **disk** — `CanvasStore.writeNow` swallows I/O
+errors with `try?`, area-wide and pre-existing — so the tool and the banner both say
+*added*.
+
+**Provenance reuses `AnnotationAuthor.SourceKind` rather than minting a second enum.** The
+annotation layer already answers "whose hand made this", and a canvas-local `enum Author`
+would be a second vocabulary for one fact. `author` is optional and **nil means the writer**:
+there is no `.human` default, so every canvas made before this slice reads back as the
+writer's without a migration. It rides schema 7 on `NodeDTO`, `LineDTO` and `RegionDTO`
+together — additive-optional, the shape decisions 4–6 of the sidecar established — and one
+bump for all three because node, line and region author are one concept.
+
+**The mark survives the writer's edit, and there is no setter.** A writer who rewrites every
+word of a Claude card leaves it marked, and that is deliberate: the field records *who put
+this here*, which is a historical fact an edit cannot change, and the alternative — clearing
+the mark on first keystroke — would make provenance depend on how much of a card the writer
+happened to retype. Nothing in the product writes `author` except `CanvasClaudePlacement`,
+and no inspector control sets or clears it. If that ever becomes wrong, the change is a
+writer-facing verb with its own undo step, not a side effect of typing.
+
+#### The TILT is the primary signal, and true zero is reserved
+
+**The canvas already said "a hand placed this" by leaning, so Claude's things are drawn at
+exactly 0°.** This replaced an earlier design in which colour was the only signal, and it
+dissolves that design's problem rather than paying for it. `CanvasMaterial.minimumTiltDegrees`
+(0.4°) is a **dead band around zero**: every card and every region the writer made leans by
+at least the minimum, so *straight means Claude* is reliable rather than usually-right.
+Before the floor, a seed landing mid-range drew a writer's own card essentially level — and
+the failure a usually-right provenance signal invites is the writer trusting that a card is
+theirs when it is not, which is worse than no signal.
+
+**Regions gained irregularity for this, having had none.** A region is the primitive
+`CanvasClaudePlacement` creates on *every* call and it carries no tint at all, so the angle
+is the whole of a region's provenance. Only the **drawing** is rotated — the wash, the chrome
+bar, the label, the promoted stripe and the resize mark, on a copy of the context inside
+`drawRegion` — and **the grab stays the unrotated frame**, unchanged, with no new geometry in
+the gesture layer. The accepted cost is that a large region's ink and its grab diverge
+slightly more at the corners than a card's: the `r·θ` band is ~6 pt at the corner of a
+500 × 500 region against a card's ~2.2 pt. It stays inside the affordances that absorb it (a
+24 pt chrome bar, a 14 pt resize target), and rotating the hit test instead would put a
+second geometry in the file and *grow* rather than bound the band `maximumTiltDegrees` has a
+ceiling to keep small.
+
+#### Colour is a second signal, and the correction is the general lesson
+
+**Both signals ship, and the writer will delete whichever does no work at the smoke.** The
+light-mode card tint is genuinely bounded: the writer's light paper is `textBackgroundColor`,
+which is pure white; the ground is 0.930 and peaks at 0.9575 with grain; the
+lighter-than-ground pin claims 0.02 of the remaining 0.0425 — so **red may fall at most
+0.0225 below white**, 5.7 levels of 255.
+
+**The first analysis concluded that bounded every channel, escalated for a ground
+recalibration, and was wrong — and the correction is worth recording because it generalises.**
+Blue never has to be darkened *at all*: a cool cast is bought by lowering **red**, so blue
+sits at 1.000 and green comes down to meet red. Lowering all three by similar amounts is a
+*dim*, and a 1.5% dim on white is near-invisible; holding blue and lowering R and G is a
+**tint**, and hue is the discriminable axis at near-neutral. Measured against white: the
+uniform draft ΔE2000 **1.36**, the shipped `(0.980, 0.980, 1.000)` **2.79** — the perceptual
+difference doubled with red's headroom **byte-identical**. The metric that hid it was
+"strongest per-channel Δ", which reports 5/255 either way. **The lesson: a per-channel
+ceiling on one channel is not a ceiling on the colour**, and a summary statistic that is
+invariant across the two candidates cannot adjudicate between them.
+
+**The two signals mean different things, and they diverge on exactly one node.** The tint
+says *whose words these are*; the tilt says *who placed this*. For the page a batch was read
+off those differ — Claude minted the node and chose its place, and the words on the paper are
+the writer's own photograph. So the source item node carries `author == .claude`, is drawn
+**straight** and is **not tinted**, with the refusal living in `CanvasRenderer.paper(for:)`
+where the colour question is actually asked. `author = nil` was the earlier shape for
+obtaining that refusal and it wrote a falsehood into a field meaning "who made this card" in
+order to get a colour decision; the rule was **relocated, not deleted**.
+
+**The provenance term is SPOKEN on all three primitives, because a lean is inaudible.**
+`CanvasAccessibility.claudeTerm` says it on a Claude scrap, a Claude region and a Claude item
+node — the last of which `paper(for:)` refuses to tint. The label is the only channel an
+assistive client has for *either* signal. Two consequences were weighed and accepted rather
+than worked around. The **repetition**: a six-card Claude region says the phrase seven times.
+Announcing once on the region was the alternative, and this tree is **flat** — a card is not
+a child of its region, `rowOrdered` interleaves them by position — so a user tabbing card to
+card can reach a Claude card without ever passing the region that would have said it.
+Repetitive and never wrong beats quiet and sometimes wrong. The **looseness**: **one phrase,
+not two**, even though the tint and the tilt answer different questions — a listener holding
+two phrases apart and remembering which primitive takes which is the worse cost, so on the
+item node the shared term covers a placement rather than an authorship.
+
+#### The rest, and the honest limit
+
+**Tripwire 32 gains a fifth census entry, and its repro is the sharpest of the five.**
+`CanvasClaudeWrite.swift` writes the scene from outside the canvas, so it uses
+`mutateFromInspector`; the other four need the writer to be touching the app, and this one
+needs **no gesture at all** — an `add_canvas_scraps` call arriving while the writer sits
+inside a scrap with "Edit Scrap" held open. Nothing on either side of the window closes their
+bracket, and the caller has none of its own to protect. Nested, the whole batch registers no
+undo step and rides into the writer's next sentence. The batch's scrap **text** travels
+*inside* that bracket (`mutateFromInspector(_:scrapTexts:)`); both other orderings are
+measured failures, recorded in `Maugham/Canvas/AREA.md`.
+
+**The writer is told twice over: on the drawing, and by an arrival banner.** Every signal
+above reaches a writer who is already looking at the canvas in the Plan persona, which is not
+where they are when a batch lands. `CanvasClaudeArrivalModifier` names the count and the
+region, and its **Show** switches persona, opens the inspector, selects the region *and moves
+the camera* — the last is not polish: `CanvasClaudePlacement` places Claude's region at
+`occupied.maxX + gutter`, so it is **by construction** outside the bounding box of the
+writer's own work and a Show that only selected it would show them nothing.
+
+**The honest limit: the corollary is STRUCTURAL here and VISIBLE at 1C-d.** The photographed
+page is a member of the region, is announced, and draws as a **dashed placeholder card
+carrying its reference id** — item nodes get their real title, kind glyph and thumbnail in
+1C-d. So the source and the reproduction are tied together in the model and in the
+accessibility tree, and what the writer *sees* of the source is an id until that slice.
+**Do not write down that the corollary is satisfied.** Two related consequences are on the
+smoke list rather than fixed: whether the placeholder is enough to make the region legible,
+and that a second batch off a page already on the canvas leaves that page where it sits,
+because moving it would be the forbidden geometry→membership transition (decision 8) — and if
+where they put it is a *collapsed* region, the page is hidden with the rest of that region's
+residents while Claude's new region still lists it.
+
+**And the limit is one notch weaker than the paragraph above reads, which the whole-branch
+review found: a SELECTED page card shows the inspector's empty state.** The first production
+item node is 1C-c3's, and three things that were written while there were none now meet on it.
+`CanvasScene.selectionTarget` returns `.node` for any topmost node and `drawCard` draws the
+selected stroke and the connect dot for any selected node, so the page card *visibly selects*.
+`RegionInspectorPane`'s `.scrap` guard is right — every sentence in the card arm is wrong for a
+reference, and an item node cannot be promoted — so the pane falls to *"Select something on the
+canvas"* over a card the writer just selected. There is no click-through either: a double-click
+resolves `.unenterableNode`, and `onOpenResearchItem` is reached only from the two arms that do
+not render for an item node. The only route from the batch back to the page is the card arm's
+`Read from "<title>"` sentence on the scraps read off it.
+
+**This is recorded as a decision so 1C-d meets one rather than a bug.** An item-node inspector
+arm — the reference's title, an **Open in Research** button, the provenance row — belongs with
+the thumbnail and the drag-in route, which are the rest of what an item node is *for*, and it is
+in `Maugham/Canvas/AREA.md`'s "Not built" list because that is where the next slice looks. What
+was fixed in the fix wave is only the record: the comment in `RegionInspector.swift` that
+justified the empty state with "nothing creates item nodes yet" said something this branch had
+made false.
+
+Constitution principles this decision answers to: **must-not #1, *no AI-authored manuscript
+text*** — the canvas is the planning plane, `add_canvas_scraps` cannot reach a manuscript,
+and its corollary on reproduction is answered by making the placement unexpressible rather
+than by asking Claude to place things well; **must #1, *the words are safe*** — validation
+completes before anything is written, the batch is one undo step whether or not the Plan
+persona is open, `flush()` rather than the 750 ms debounce because the canvas has no op log
+behind it, and the tool says *added* rather than *saved* because the sidecar writer swallows
+its own errors; **must #2, *get out of the way*** — no accept/reject queue, because the
+canvas is scratch by construction and the writer moves, edits, deletes or promotes Claude's
+cards exactly as they would their own; **must #3, *delight, end to end*** — the provenance is
+carried by the material and the lean the surface already had, not by a badge.
+
 ## Consequences
 
 - **More code than a `ZStack`**, and the accessibility layer is code that a hosted-view
@@ -756,15 +947,18 @@ stripe is how a promoted card says so without a panel being open.
 - **Eight tripwires (25–32)** and `Maugham/Canvas/AREA.md`. They exist because almost every
   defect behind them is invisible to a subview count, a geometry assertion or a green
   suite — 30 and 32 were each found by a review rather than by a test, and 32 was reached
-  three times in one slice before it was written down. **Tripwire 32's census is four
-  entries as of 1C-c2a** — count the array in `TripwireGrepTests`, not this sentence:
+  three times in one slice before it was written down. **Tripwire 32's census is five
+  entries as of 1C-c3** — count the array in `TripwireGrepTests`, not this sentence:
   `LineInspector.swift`, `RegionInspector.swift`, `PromotionPerformer.swift`, which writes
   the promoted mark from outside the canvas and can run while a focused scrap holds "Edit
-  Scrap" open, and `ScrapInspector.swift`, whose Piece picker sets an association from the
-  same column through the same open bracket.
-- **Hit testing is on the unrotated rect**, so there is a mismatch band of `r·θ` — ~2.6 pt
-  at the corner of a default 240×80 card at the calibrated 1.2° tilt. It sits exactly where
-  the resize mark is drawn and tested, and is accepted because 2.6 pt is inside pointer
+  Scrap" open, `ScrapInspector.swift`, whose Piece picker sets an association from the
+  same column through the same open bracket, and `CanvasClaudeWrite.swift` (decision 10),
+  whose repro needs no gesture at all — an MCP call arriving while the writer is inside a
+  scrap.
+- **Hit testing is on the unrotated rect**, so there is a mismatch band of `r·θ` — ~2.2 pt
+  at the corner of a default 240×80 card at the calibrated 1.0° tilt, and ~6 pt at the
+  corner of a 500 × 500 region since 1C-c3 gave regions a lean. It sits exactly where
+  the resize mark is drawn and tested, and is accepted because that is inside pointer
   slop and the 14 pt target absorbs it. It is also the ceiling on further tilt
   calibration, and `CanvasRenderer.cullingBleed` carries the same term (a card culled while
   a corner is still on screen) with a test that re-does the arithmetic.
@@ -805,11 +999,13 @@ stripe is how a promoted card says so without a panel being open.
   `CanvasView` and `ResearchNoteEditor` are two branches of the same centre-column switch,
   so the writer cannot have both on screen — and it is the same class as `AddNoteTool`'s,
   which is why it is recorded here with that one rather than solved locally.
-- **Left to later slices** *(updated 2026-07-28)*: item nodes, drops and images (1C-d), and
-  the MCP canvas surface (1C-c3). Lines and promotion were on this list and 1C-c1 and 1C-c2
-  built them (decision 9); regions, `CanvasModel` and deleting a scrap were on it and 1C-b
-  built all three. §8A.2's Claude write path is designed and unbuilt; its constitutional
-  reasoning is recorded in the spec, not here.
+- **Left to later slices** *(updated 2026-07-30)*: item nodes' real appearance, drops and
+  images, and `inbox → canvas` — all 1C-d, all of spec §8A. Lines and promotion were on this
+  list and 1C-c1 and 1C-c2 built them (decision 9); regions, `CanvasModel` and deleting a
+  scrap were on it and 1C-b built all three; **the MCP canvas surface was on it and 1C-c3
+  built it (decision 10)** — §8A.2's Claude write path is no longer "designed and unbuilt",
+  and its constitutional reasoning is now recorded in both places rather than only in the
+  spec, because the membrane argument is a decision of record and not a design note.
 - **Appearances had no creator for one commit, and 1C-b closed that too** *(2026-07-28)*.
   `CanvasMembership.addAppearance` shipped persisted, drawn as a chip, listed in the
   inspector and removable from it — every part under test, and no production caller. That is

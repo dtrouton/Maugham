@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 import AppKit
+import MaughamCore
 @testable import Maugham
 
 /// The rendered page is `CanvasPage` from `CanvasRasterPage.swift` — one buffer
@@ -10,15 +11,24 @@ private typealias Page = CanvasPage
 
 final class CanvasRendererTests: XCTestCase {
 
+    /// A card to ask for an angle. `seededRotation` and `drawnAngle` take the
+    /// NODE since 1C-c3, because the author is what decides whether a thing
+    /// leans at all — see `CanvasRenderer.seededRotation(for:)`.
+    private func card(_ id: String,
+                      author: AnnotationAuthor.SourceKind? = nil) -> CanvasNode {
+        CanvasNode(id: CanvasNodeID(id), kind: .scrap, origin: .zero,
+                   width: 240, cachedHeight: 80, author: author)
+    }
+
     func test_seededRotation_isStableForTheSameID() {
-        let a = CanvasRenderer.seededRotation(for: CanvasNodeID("s1"))
-        let b = CanvasRenderer.seededRotation(for: CanvasNodeID("s1"))
+        let a = CanvasRenderer.seededRotation(for: card("s1"))
+        let b = CanvasRenderer.seededRotation(for: card("s1"))
         XCTAssertEqual(a.degrees, b.degrees, accuracy: 1e-12,
                        "a card that shimmers between renders is the failure §7.2 forbids")
     }
 
     func test_seededRotation_differsAcrossIDs() {
-        let angles = (0..<40).map { CanvasRenderer.seededRotation(for: CanvasNodeID("s\($0)")).degrees }
+        let angles = (0..<40).map { CanvasRenderer.seededRotation(for: card("s\($0)")).degrees }
         XCTAssertGreaterThan(Set(angles.map { Int($0 * 1_000_000) }).count, 30,
                              "rotation must actually vary, or nothing was put down by hand")
     }
@@ -44,10 +54,117 @@ final class CanvasRendererTests: XCTestCase {
                                  + "than put down, and the hit-test mismatch band (r·θ) "
                                  + "grows past the pointer slop that absorbs it")
         for i in 0..<400 {
-            let d = CanvasRenderer.seededRotation(for: CanvasNodeID("node-\(i)")).degrees
+            let d = CanvasRenderer.seededRotation(for: card("node-\(i)")).degrees
             XCTAssertLessThanOrEqual(abs(d), CanvasMaterial.maximumTiltDegrees,
                                      "a card leaned further than the calibrated maximum")
         }
+    }
+
+    /// **Straight means Claude, and only a dead band makes that reliable** (spec
+    /// §8A.2 constraint 1). Before `minimumTiltDegrees` a seed landing near the
+    /// middle of the range drew a writer's own card essentially level, so the
+    /// signal was usually-right — and the failure a usually-right provenance
+    /// signal invites is the writer trusting a card is theirs when it is not.
+    ///
+    /// Asserted over 400 ids rather than on the constants, because the band is a
+    /// property of the mapping and a mapping can ignore its own floor. The
+    /// constants get their own assertion here too: a minimum at or above the
+    /// maximum gives every card the same lean, which is the grid §7.2 rejects.
+    func test_theTiltBandLeavesTrueZeroToClaude() {
+        XCTAssertGreaterThan(CanvasMaterial.minimumTiltDegrees, 0,
+                             "a zero floor is no dead band at all, and straight stops "
+                             + "meaning anything")
+        XCTAssertLessThan(CanvasMaterial.minimumTiltDegrees, CanvasMaterial.maximumTiltDegrees,
+                          "a floor that meets the ceiling gives every card one lean")
+        for i in 0..<400 {
+            let d = CanvasRenderer.seededRotation(for: card("node-\(i)")).degrees
+            XCTAssertGreaterThanOrEqual(
+                abs(d), CanvasMaterial.minimumTiltDegrees,
+                "node-\(i) leans \(d)°, inside the band reserved for Claude — a card the "
+                + "writer made must never draw straight, or the writer cannot trust that "
+                + "a straight card is not theirs")
+        }
+    }
+
+    /// The other half, and the two are not the same claim: the band above says a
+    /// human thing never draws straight, and this says Claude's thing always
+    /// does. **Both primitives**, because a region is the one Claude creates on
+    /// every call.
+    ///
+    /// Exactly zero, not nearly — the whole reading is "this is the one thing on
+    /// the canvas that was not put down by hand".
+    func test_claudesCardsAndRegionsAreDrawnExactlyStraight() {
+        for i in 0..<40 {
+            XCTAssertEqual(
+                CanvasRenderer.seededRotation(for: card("node-\(i)", author: .claude)).degrees,
+                0, accuracy: 0,
+                "a card Claude put down leaned")
+            let region = CanvasRegion(id: CanvasRegionID("r-\(i)"), label: "",
+                                      frame: CGRect(x: 0, y: 0, width: 400, height: 300),
+                                      author: .claude)
+            XCTAssertEqual(CanvasRenderer.seededRotation(for: region).degrees, 0, accuracy: 0,
+                           "a region Claude swept leaned")
+        }
+    }
+
+    /// A region the WRITER swept leans, and leans by its own seed rather than by
+    /// its cards'. Regions did not lean at all before 1C-c3, so without this the
+    /// provenance signal would say nothing about the primitive Claude creates
+    /// most often — and a region that never leaned would read as Claude's.
+    func test_theWritersRegionsLeanTooAndEachByItsOwnSeed() {
+        func region(_ id: String) -> CanvasRegion {
+            CanvasRegion(id: CanvasRegionID(id), label: "",
+                         frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        }
+        let degrees = (0..<40).map { CanvasRenderer.seededRotation(for: region("r-\($0)")).degrees }
+        XCTAssertEqual(degrees.count, 40, "the fixture must actually produce 40 angles")
+        for (index, d) in degrees.enumerated() {
+            XCTAssertGreaterThanOrEqual(abs(d), CanvasMaterial.minimumTiltDegrees,
+                                        "region r-\(index) drew straight, which reads as "
+                                        + "Claude's")
+            XCTAssertLessThanOrEqual(abs(d), CanvasMaterial.maximumTiltDegrees,
+                                     "region r-\(index) leaned past the calibrated maximum")
+        }
+        XCTAssertGreaterThan(Set(degrees.map { Int($0 * 1_000_000) }).count, 30,
+                             "every region got the same angle — the seed is not being read")
+    }
+
+    /// A region has no size ceiling and a card effectively does, so the flat
+    /// `cullingBleed` cannot serve both once regions lean. A region round twenty
+    /// cards has a half-diagonal past 700 pt, where 1° swings a corner more than
+    /// 12 pt outside the frame — and a region culled on its bare frame would
+    /// blink out with a corner still on screen.
+    func test_aBigTiltedRegionIsNotCulledWithACornerStillOnScreen() {
+        let viewSize = CGSize(width: 800, height: 600)
+        let side: CGFloat = 1_400
+        let overhang = CanvasRenderer.rotationOverhang(of: CGSize(width: side, height: side))
+        XCTAssertGreaterThan(overhang, CanvasRenderer.cullingBleed,
+                             "the fixture is too small to discriminate: at \(side)² the "
+                             + "overhang is \(overhang) pt, inside the flat bleed")
+
+        // Placed so the frame clears the inflated viewport by less than its own
+        // overhang — the exact window in which the corner is visible and the
+        // bare frame is not.
+        let gap = CanvasRenderer.cullingBleed + (overhang - CanvasRenderer.cullingBleed) / 2
+        var scene = CanvasScene()
+        scene.insertRegion(CanvasRegion(id: CanvasRegionID("big"), label: "",
+                                        frame: CGRect(x: -side - gap, y: 0,
+                                                      width: side, height: side)))
+        XCTAssertEqual(
+            CanvasRenderer.visibleRegions(in: scene, camera: CanvasCamera(),
+                                          viewSize: viewSize).count, 1,
+            "a region whose rotated corner reaches the viewport was culled")
+
+        // The control: pushed clear of even the overhang, it IS culled — so the
+        // assertion above is the inflation working and not the cull switched off.
+        var far = CanvasScene()
+        far.insertRegion(CanvasRegion(id: CanvasRegionID("far"), label: "",
+                                      frame: CGRect(x: -side - overhang - 40, y: 0,
+                                                    width: side, height: side)))
+        XCTAssertEqual(
+            CanvasRenderer.visibleRegions(in: far, camera: CanvasCamera(),
+                                          viewSize: viewSize).count, 0,
+            "culling is not happening at all")
     }
 
     /// The seeded angles must SPREAD across the calibrated range, not huddle near
@@ -56,7 +173,7 @@ final class CanvasRendererTests: XCTestCase {
     /// that does nothing, and every test above would still pass.
     func test_theSeededTiltActuallyUsesTheCalibratedRange() {
         let degrees = (0..<400).map {
-            CanvasRenderer.seededRotation(for: CanvasNodeID("node-\($0)")).degrees
+            CanvasRenderer.seededRotation(for: card("node-\($0)")).degrees
         }
         let extreme = CanvasMaterial.maximumTiltDegrees * 0.9
         XCTAssertTrue(degrees.contains { $0 > extreme },
@@ -69,8 +186,8 @@ final class CanvasRendererTests: XCTestCase {
 
     func test_anUnfocusedCardIsDrawnAtItsFullSeededAngle() {
         let straighten = CanvasFocusStraighten()
-        XCTAssertEqual(CanvasRenderer.drawnAngle(for: CanvasNodeID("s1"), straighten: straighten).degrees,
-                       CanvasRenderer.seededRotation(for: CanvasNodeID("s1")).degrees,
+        XCTAssertEqual(CanvasRenderer.drawnAngle(for: card("s1"), straighten: straighten).degrees,
+                       CanvasRenderer.seededRotation(for: card("s1")).degrees,
                        accuracy: 1e-12)
     }
 
@@ -78,7 +195,7 @@ final class CanvasRendererTests: XCTestCase {
         var straighten = CanvasFocusStraighten()
         straighten.focus(CanvasNodeID("s1"))
         while straighten.step(elapsed: 1.0 / 60) { }
-        XCTAssertEqual(CanvasRenderer.drawnAngle(for: CanvasNodeID("s1"), straighten: straighten).degrees,
+        XCTAssertEqual(CanvasRenderer.drawnAngle(for: card("s1"), straighten: straighten).degrees,
                        0, accuracy: 1e-12,
                        "the editor mounts on this card — anything but level and the "
                        + "glyph-origin pin is comparing a rotated layout to a flat one")
@@ -120,8 +237,8 @@ final class CanvasRendererTests: XCTestCase {
         straighten.focus(nil)
         XCTAssertFalse(straighten.isSettled, "blur must animate back, not snap back")
         while straighten.step(elapsed: 1.0 / 60) { }
-        XCTAssertEqual(CanvasRenderer.drawnAngle(for: CanvasNodeID("s1"), straighten: straighten).degrees,
-                       CanvasRenderer.seededRotation(for: CanvasNodeID("s1")).degrees,
+        XCTAssertEqual(CanvasRenderer.drawnAngle(for: card("s1"), straighten: straighten).degrees,
+                       CanvasRenderer.seededRotation(for: card("s1")).degrees,
                        accuracy: 1e-12)
         XCTAssertTrue(straighten.isSettled, "a settled canvas must pause its clock")
     }
@@ -131,7 +248,8 @@ final class CanvasRendererTests: XCTestCase {
     /// VISIBLE text and the renderer stops drawing that card's own. §7A.5
     /// requirement 1 orders it: caret, then animate, then hand the text over.
     /// Showing the editor at progress 0 puts axis-aligned glyphs on a card that
-    /// is still up to 1.2° off level, at the unrotated text origin, with the
+    /// is still up to `CanvasMaterial.maximumTiltDegrees` off level, at the
+    /// unrotated text origin, with the
     /// drawn text already suppressed — the glyphs jump straight the instant the
     /// writer clicks and the card catches up afterwards, which is precisely the
     /// §7A.2 failure.
@@ -147,7 +265,7 @@ final class CanvasRendererTests: XCTestCase {
 
         while straighten.step(elapsed: 1.0 / 60) { }
         XCTAssertTrue(straighten.isLevel(id))
-        XCTAssertEqual(CanvasRenderer.drawnAngle(for: id, straighten: straighten).degrees,
+        XCTAssertEqual(CanvasRenderer.drawnAngle(for: card("s1"), straighten: straighten).degrees,
                        0, accuracy: 1e-12,
                        "isLevel must not be able to be true while the card is tilted")
     }
@@ -835,6 +953,30 @@ final class CanvasRendererTests: XCTestCase {
         XCTAssertGreaterThan(pairs.count { $0 + 3 < $1 }, 40,
                              "the item card's border is nowhere heavier than a scrap's, "
                              + "so it is not being stroked at all")
+
+        // And NO resize mark, which is the drawn half of the 1C-c3 whole-branch
+        // Critical. The mark and the gesture are one decision — `begin` takes the
+        // corner for `.scrap` only — so a triangle on a page card is an
+        // affordance for a gesture that has been closed, and it is the one piece
+        // of chrome that invited the drag which took the card off the canvas.
+        //
+        // Sampled inside the triangle and ~4 pt clear of the border on both axes,
+        // each card against its OWN body pixel, so the two papers cannot decide
+        // the answer.
+        let mark = CGPoint(x: frame.maxX - CanvasRenderer.resizeHandleSize / 3,
+                           y: frame.maxY - CanvasRenderer.resizeHandleSize / 3)
+        let body2 = CGPoint(x: frame.midX, y: frame.midY)
+        XCTAssertNotEqual(scrap.value(x: Int(mark.x), y: Int(mark.y)),
+                          scrap.value(x: Int(body2.x), y: Int(body2.y)),
+                          "precondition: the comparison SCRAP drew no resize mark "
+                          + "either, so the assertion below would pass with the mark "
+                          + "drawn on everything")
+        XCTAssertEqual(item.value(x: Int(mark.x), y: Int(mark.y)),
+                       item.value(x: Int(body2.x), y: Int(body2.y)),
+                       "the page card is drawn with a resize triangle on it — the "
+                       + "affordance for a gesture that clears cachedHeight on a "
+                       + "node nothing re-measures, which takes the card off the "
+                       + "surface for good")
     }
 
     /// FINDING 3, pinned. `ScrapLayout`'s ink defaults to `NSColor.labelColor`,
@@ -863,6 +1005,37 @@ final class CanvasRendererTests: XCTestCase {
                     + "\(paper.brightnessComponent) — a scrap's text is unreadable. "
                     + "CanvasRenderer.cardInk and cardPaper must track the same "
                     + "appearance signal; Task 9/10 pass cardInk into ScrapLayout.")
+            }
+        }
+    }
+
+    /// The companion to the test above, for the surface's SECOND paper.
+    ///
+    /// A card Claude put down is drawn on `claudeCardPaper` and its text is drawn
+    /// with the same `cardInk` — same ink, same shape, one visual language
+    /// (§8A.2). That is only safe while the ink clears the new paper too, and the
+    /// new paper is the darker of the two in light mode and the darker of the two
+    /// in dark mode: the direction that erodes contrast in dark, where the ink is
+    /// white. Nothing else in the suite would say so — the raster fixtures render
+    /// no glyphs, and `test_theCardsInkContrastsWithItsPaperInBothAppearances`
+    /// reads only the writer's paper.
+    func test_theInkContrastsWithClaudesPaperInBothAppearances() throws {
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
+                guard let paper = CanvasRenderer.claudeCardPaper.usingColorSpace(.sRGB),
+                      let ink = CanvasRenderer.cardInk.usingColorSpace(.sRGB) else {
+                    return XCTFail("could not resolve Claude's card colours under "
+                                   + name.rawValue)
+                }
+                // Composite the ink over the paper — labelColor is not opaque.
+                let composited = ink.brightnessComponent * ink.alphaComponent
+                    + paper.brightnessComponent * (1 - ink.alphaComponent)
+                XCTAssertGreaterThan(
+                    abs(paper.brightnessComponent - composited), 0.5,
+                    "under \(name.rawValue) the ink is \(composited) on Claude's paper of "
+                    + "\(paper.brightnessComponent) — the words on a card Claude put down "
+                    + "are unreadable. CanvasMaterial's Claude paper pair is the ceiling "
+                    + "on how far that card may be darkened to say whose it is.")
             }
         }
     }

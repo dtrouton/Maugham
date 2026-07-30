@@ -192,8 +192,20 @@ struct CanvasInteraction {
         return (origin, current)
     }
 
-    /// A press inside the card's bottom-right corner square starts a resize;
-    /// anywhere else starts a move. The square's side is
+    /// A press inside a **scrap's** bottom-right corner square starts a resize;
+    /// anywhere else starts a move, and on an **item** node every press does —
+    /// the corner is a scrap's affordance and nothing else's.
+    ///
+    /// This sentence read "the card's corner" for the whole life of the guard,
+    /// and it was true then: nothing in production made an item node, so every
+    /// card on the surface was a scrap. `CanvasClaudePlacement` (1C-c3)
+    /// falsified it by putting Claude's page card on the canvas, and the corner
+    /// drag the ungated guard let through took that card OFF the surface. The
+    /// full chain — `setWidth` clearing `cachedHeight`, no measure pass for an
+    /// item's width, no height therefore no frame — is at the kind test itself,
+    /// below, where someone changing the condition will meet it.
+    ///
+    /// The square's side is
     /// `CanvasRenderer.resizeHandleSize`, the same constant the mark is drawn
     /// from, so the two cannot drift apart in SIZE. They are not the same SHAPE:
     /// the mark is the triangle below the square's hypotenuse, so the upper-left
@@ -263,8 +275,23 @@ struct CanvasInteraction {
                                     current: contentPoint)
                 return
             }
+            // The corner is a SCRAP's affordance and nothing else's, and the mark
+            // says so: `CanvasRenderer.drawCard` draws the triangle on a `.scrap`
+            // only. The two are one decision and must move together.
+            //
+            // Without the kind test this gesture DELETED an item node from the
+            // surface. `CanvasScene.setWidth` clears `cachedHeight` by design —
+            // the next measure pass refills it — and there is no measure pass for
+            // an item node's *width*: `CanvasView.rebuildLayouts` now heals a
+            // missing height to `itemPlaceholderHeight`, but only when it runs,
+            // and a node with no height has no `frame`, so mid-drag the card is
+            // invisible to `topmostNode(at:)`, to `nodes(intersecting:)` and to
+            // the renderer at once. `cachedHeight: nil` is also what the sidecar
+            // persists. An item node's width is not the writer's to set until
+            // 1C-d makes it mean something.
             let handle = CanvasRenderer.resizeHandleSize
-            if contentPoint.x >= frame.maxX - handle && contentPoint.y >= frame.maxY - handle {
+            if case .scrap = node.kind,
+               contentPoint.x >= frame.maxX - handle, contentPoint.y >= frame.maxY - handle {
                 beginResize(node.id, at: contentPoint, in: scene)
             } else {
                 mode = .moving(node.id, grabOffset: CGSize(width: contentPoint.x - node.origin.x,

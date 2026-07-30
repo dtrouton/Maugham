@@ -151,9 +151,6 @@ struct CanvasView: View {
     /// to be the one under the pointer.
     @State private var selectionWhenPressed: CanvasSelection?
 
-    private let scrapFont = NSFont(name: "Iowan Old Style", size: 13)
-        ?? .systemFont(ofSize: 13)
-
     /// The most any single tick of the timeline may advance an animation.
     ///
     /// **Without this the ~120 ms straighten completes on its FIRST frame, every
@@ -378,7 +375,7 @@ struct CanvasView: View {
     ///
     /// Making the editor visible from the click was the first draft's defect:
     /// axis-aligned glyphs at the unrotated text origin over chrome that was
-    /// still up to 1.2° off level, so they snapped straight on the click and the
+    /// still up to `CanvasMaterial.maximumTiltDegrees` off level, so they snapped straight on the click and the
     /// card caught up behind them — spec §7A.2's failure by §7A.5's own route.
     private var visibleEditorNodeID: CanvasNodeID? {
         guard let id = editingNodeID, straighten.isLevel(id) else { return nil }
@@ -453,6 +450,35 @@ struct CanvasView: View {
         // sure what was last queued includes the sentence the writer is halfway
         // through. `.onDisappear` does not fire on ⌘Q.
         model.beforeFlush = { syncActiveEdit() }
+        // Something in another column changed the scene — today the region and
+        // line inspectors, a promotion writing its mark, and 1C-c3's write tool
+        // adding cards to the canvas the writer is looking at.
+        //
+        // Nodes that arrive that way have no `ScrapLayout` here, so they have no
+        // measured height, and a node with no `cachedHeight` has no `frame`:
+        // `drawCard` gets a nil layout and draws an empty rectangle, and
+        // `topmostNode(at:)` and `nodes(intersecting:)` drop it, so the card
+        // cannot be clicked either. It stays that way until the writer happens
+        // to touch something that rebuilds.
+        //
+        // NOT bumping the structural counter, because a bump is already on its
+        // way: every writer through `mutateFromInspector` calls
+        // `model.bumpSceneRevision()` on its own line, and the mirror in `body`
+        // turns that into the view's bump. Bumping here as well would sort the
+        // scene, copy every scrap's string and rebuild the region inspector's
+        // cached lists twice for one change. (That is the RULE the argument
+        // exists for; `grep "bumpsStructuralCounter: false"` for who takes it.)
+        //
+        // **This pass runs under a MOUNTED editor on exactly tripwire 32's
+        // repro** — a focused scrap holding "Edit Scrap" open while the writer
+        // commits something in the other column — and it is safe only because
+        // the fold is per-keystroke. `ScrapLayout.text` is the shared
+        // `NSTextStorage`'s own string and `onTextChanged` keeps
+        // `model.scraps[id]` equal to it at every event boundary, so the reuse
+        // branch below hits and the layout the live `NSTextView` is bound to is
+        // not replaced. Make that fold debounced and this line swaps the stack
+        // under the writer mid-sentence and shows them the model's older text.
+        model.onSceneChangedExternally = { rebuildLayouts(bumpsStructuralCounter: false) }
         model.onSceneReplacedByUndo = {
             // FIRST. A coast steps the scene directly from the timeline, outside
             // any gesture and after the drag's own snapshot was taken at
@@ -485,8 +511,8 @@ struct CanvasView: View {
             // Replacing the layout under a MOUNTED editor is safe; the
             // measurement is on `rebuildLayouts` below.
             //
-            // The ONE call site that does not bump the structural counter, and
-            // the argument is spelled out rather than defaulted so it cannot be
+            // A call site that does not bump the structural counter, and the
+            // argument is spelled out rather than defaulted so it cannot be
             // lost. The model bumps its own counter on the line after this
             // closure returns, and the mirror below turns that into the view's
             // bump — so bumping here as well rebuilds the whole accessibility
@@ -494,8 +520,24 @@ struct CanvasView: View {
             // and a copy of every scrap's string per step, twice.
             rebuildLayouts(bumpsStructuralCounter: false)
         }
+        // Another column asking the camera to move — the arrival banner's Show
+        // (1C-c3). `momentum.stop()` above is the precedent for writing `@State`
+        // from inside a model callback; the region is resolved HERE rather than by
+        // the caller because this is the first point past `attach()`, and a caller
+        // in another column may be holding a scene that predates the write (see
+        // `CanvasModel.onRevealRequested`).
+        model.onRevealRequested = { region in
+            guard let frame = model.scene.region(region)?.frame else { return }
+            camera.bring(frame.origin, toViewPoint: CanvasCamera.revealViewPoint)
+        }
         wash = CanvasGroundPalette.wash(fromHex: paletteSwatchHexes())
         rebuildLayouts()
+        // A reveal asked for while this view was not mounted — which is the
+        // ordinary case, because Show switches persona and asks in one act. Last,
+        // so it runs against the attached scene.
+        if let parked = model.takePendingReveal() {
+            model.onRevealRequested?(parked)
+        }
     }
 
     /// Build a layout per scrap and fill in the derived heights the model needs
@@ -539,10 +581,34 @@ struct CanvasView: View {
     /// care which is in front, and `CanvasScene.nodes` sorts the whole scene on
     /// every access.
     ///
-    /// `bumpsStructuralCounter` is `false` for the two callers that have a bump
-    /// arriving by another route — the undo apply and `deleteSelection()`, both
-    /// of which bump the model's counter on their own line. Every other caller
-    /// has changed the shape of the scene with nothing else about to say so.
+    /// **The layout CACHE lives here; the HEIGHT arithmetic does not.** The
+    /// `ScrapLayout` objects are built and kept in this view because the mounted
+    /// `NSTextView` and the draw pass share one TextKit stack per scrap (tripwire
+    /// 26) — that sharing is §7A.2's structural mitigation and this loop is what
+    /// maintains it. The number that goes into the scene comes from
+    /// `CanvasScrapMeasure`, so a caller with no view on screen measures a card
+    /// exactly as this does.
+    ///
+    /// **It MEASURES `.scrap` only** — an item node has no text of its own and
+    /// nothing here to lay out — **but it HEALS an item node with no height**,
+    /// writing `CanvasCardMetrics.itemPlaceholderHeight`. That arm is not
+    /// bookkeeping: a node with no `cachedHeight` has no `frame`, and a node with
+    /// no frame is dropped by `CanvasScene.topmostNode(at:)` and
+    /// `nodes(intersecting:)` alike — neither drawn nor clickable, and persisted
+    /// that way. Producers still set the height at creation
+    /// (`CanvasClaudePlacement` does); this closes the two routes a producer
+    /// cannot: a hand-edited sidecar, and any future path that clears the height
+    /// the way `CanvasScene.setWidth` does. See `CanvasScrapMeasure`'s
+    /// scoped-gap paragraph, which records what 1C-d owns — a real measurement
+    /// for an item's thumbnail, which is not this constant.
+    ///
+    /// `bumpsStructuralCounter` is `false` for a caller whose bump is already
+    /// arriving by another route — one that calls `model.bumpSceneRevision()` on
+    /// its own line, which the mirror in `body` turns into the view's bump. Every
+    /// other caller has changed the shape of the scene with nothing else about to
+    /// say so. **`grep "bumpsStructuralCounter: false"` for the current set**
+    /// rather than trusting a number here: this file has carried a stale count of
+    /// them before, and the rule is what a new caller needs to decide by.
     /// **Keeping the suppression is what makes one ⌫ or one ⌘Z rebuild the
     /// accessibility tree once rather than twice**, and a writer holding ⌘Z pays
     /// a scene sort and a copy of every scrap's string per step.
@@ -556,24 +622,22 @@ struct CanvasView: View {
         let scraps = model.scraps
         model.withScene(persist: false) { scene in
             for node in scene.unorderedNodes {
-                guard case .scrap = node.kind else { continue }
-                let existing = layouts[node.id]
-                let text = scraps[node.id] ?? ""
-                let layout: ScrapLayout
-                if let existing, existing.text == text {
-                    existing.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
-                    layout = existing
-                } else {
-                    layout = ScrapLayout(
-                        text: text,
-                        width: CanvasCardMetrics.textWidth(forCardWidth: node.width),
-                        font: scrapFont,
-                        textColor: CanvasRenderer.cardInk)
-                    layouts[node.id] = layout
+                // A `switch` rather than a `guard … else { continue }`, so a
+                // third kind is a compiler error here rather than a card that
+                // silently never gets a height.
+                switch node.kind {
+                case .item:
+                    // Heal, do not measure — see the doc above. Only when it is
+                    // missing: an item node's height is not derived from anything
+                    // this pass can see, so overwriting a present one would undo
+                    // whatever set it.
+                    if node.cachedHeight == nil {
+                        scene.setCachedHeight(CanvasCardMetrics.itemPlaceholderHeight,
+                                              for: node.id)
+                    }
+                case .scrap:
+                    measureScrap(node, in: &scene, scraps: scraps)
                 }
-                scene.setCachedHeight(
-                    CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight),
-                    for: node.id)
             }
         }
         // Layouts for nodes that no longer exist would keep their text alive.
@@ -586,17 +650,56 @@ struct CanvasView: View {
         if bumpsStructuralCounter { model.bumpSceneRevision() }
     }
 
+    /// One scrap's layout and the height that follows from it — `rebuildLayouts`'s
+    /// `.scrap` arm, lifted out so that loop reads as the two-kind routing it is.
+    ///
+    /// It reuses the cached `ScrapLayout` when the text is unchanged, because that
+    /// object is the SAME TextKit stack the mounted editor types into (tripwire
+    /// 26); replacing it on a pass that only changed a width would hand the editor
+    /// a stack nothing is drawing.
+    private func measureScrap(_ node: CanvasNode,
+                              in scene: inout CanvasScene,
+                              scraps: [CanvasNodeID: String]) {
+        let existing = layouts[node.id]
+        let text = scraps[node.id] ?? ""
+        let layout: ScrapLayout
+        if let existing, existing.text == text {
+            existing.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
+            layout = existing
+        } else {
+            layout = ScrapLayout(
+                text: text,
+                width: CanvasCardMetrics.textWidth(forCardWidth: node.width),
+                font: CanvasScrapMeasure.scrapFont,
+                textColor: CanvasRenderer.cardInk)
+            layouts[node.id] = layout
+        }
+        scene.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: node.id)
+    }
+
     /// Re-derive ONE scrap's height from its live layout, for the resize path.
     ///
     /// This is `rebuildLayouts()`'s reuse branch for a single node, and it is
     /// deliberately the same two calls in the same order — `setWidth` on the
-    /// layout, then `cardHeight(forTextHeight:)` into the scene — so there is
+    /// layout, then `CanvasScrapMeasure.height(of:)` into the scene — so there is
     /// one spelling of card geometry. A second measurement path is precisely how
     /// drawn and edited text end up on different rects (spec §7A.2).
     ///
     /// A resize never changes the text, so the layout is always the reused one;
-    /// the guard is for an item node or a scrap whose layout has not been built,
-    /// neither of which can be resized.
+    /// the guard is for an item node or a scrap whose layout has not been built.
+    ///
+    /// **This comment used to say "neither of which can be resized", and that
+    /// sentence was true for the whole life of the guard and then quietly was
+    /// not.** It was true because nothing in production made an item node —
+    /// `CanvasScene.selectionTarget` could return one, the renderer could draw
+    /// one, but no writer or tool could create one. 1C-c3's
+    /// `CanvasClaudePlacement` creates them, and the corner test in
+    /// `CanvasInteraction.begin` had no kind test on it, so an item node COULD be
+    /// resized: `setWidth` cleared its `cachedHeight`, this guard declined to
+    /// refill it, and the card left the surface for good. It is written down
+    /// rather than deleted because a reviewer who came looking was reassured by
+    /// it — the reason a rule is safe has to age with the rule, and on this
+    /// surface that has now failed twice.
     ///
     /// Does NOT touch `revision` or `sceneRevision` — the caller owns both, and
     /// the structural counter must not move per frame.
@@ -606,9 +709,7 @@ struct CanvasView: View {
               let layout = layouts[id] else { return }
         layout.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
         model.withScene(persist: false) {
-            $0.setCachedHeight(
-                CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight),
-                for: id)
+            $0.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: id)
         }
     }
 
@@ -665,8 +766,7 @@ struct CanvasView: View {
         }
 
         model.withScene(persist: false) {
-            $0.setCachedHeight(
-                CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight), for: id)
+            $0.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: id)
         }
         // The fold, and the save that carries both it and the height above.
         model.setScrapText(updated, for: id)
@@ -805,7 +905,7 @@ struct CanvasView: View {
             // UNROTATED space at CLICK TIME — before the card straightens.
             // Straightening first moves the click point out from under the
             // cursor, and the caret lands somewhere the writer did not aim.
-            let angle = CanvasRenderer.drawnAngle(for: node.id, straighten: straighten)
+            let angle = CanvasRenderer.drawnAngle(for: node, straighten: straighten)
             let local = CanvasRenderer.localPoint(contentPoint, inCard: frame, angle: angle)
             let textOrigin = CanvasCardMetrics.textOrigin(inCard: frame)
             caretIndex = layout.characterIndex(
@@ -968,8 +1068,8 @@ struct CanvasView: View {
             model.withScene(persist: false) { $0.remove(id) }
             model.removeScrapText(id)
             model.endGesture()
-            // The SECOND caller that does not bump the structural counter, for
-            // the same reason as the first: `model.bumpSceneRevision()` below
+            // Another caller that does not bump the structural counter, for the
+            // same reason as the rest of them: `model.bumpSceneRevision()` below
             // reaches this view through the mirror in `body`, so bumping here as
             // well rebuilds the whole accessibility tree twice for one ⌫. The
             // deleted card leaving that tree is what

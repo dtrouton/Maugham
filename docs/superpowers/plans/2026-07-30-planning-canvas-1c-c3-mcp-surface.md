@@ -293,8 +293,9 @@ Denver, 2026-07-29/30, re-deriving c3 against the built canvas. **Do not re-open
 - [ ] **Step 2 — run, confirm failure.**
 - [ ] **Step 3 — implement.** Snake_case keys throughout, matching every existing tool.
 - [ ] **Step 4 — add `ListCanvasTool.self` to `MCPToolCatalog.all`** (`MCPTool.swift:37-92`). **That is the only registration step** — `MCPToolsListHandler` and `MaughamApp.registerTools` both derive from the catalog. If you are editing `MCPToolsListHandler`, stop.
-- [ ] **Step 5 — `./gen.sh`**, then run `MaughamTests/CanvasToolsTests`, `MaughamTests/MCPCatalogConsistencyTests`, `MaughamTests/MCPProtocolHandlersTests`, `MaughamTests/MCPToolsListSmokeTest`, `MaughamTests/ListMaughamToolsToolTests`, `MaughamTests/DocSyncTests`. **`DocSyncTests` will fail** until Task 10 updates the two counted doc literals — that is expected and is the test doing its job; note it and carry on. The other four must pass.
-- [ ] **Step 6 — commit.**
+- [ ] **Step 5 — bump the two counted doc literals to 53 in this commit**, so the suite never sits red: `CLAUDE.md`'s `**52 tools**` and `Maugham/MCP/AREA.md`'s `## Tool catalogue (52)` heading. Those two are the only ones `DocSyncTests` can see (it matches on `firstMatch`); **the three prose hits in `Maugham/MCP/AREA.md` are Task 10's** and no test guards them. Add this tool's catalogue entry to `AREA.md` while you are in it.
+- [ ] **Step 6 — `./gen.sh`**, then run `MaughamTests/CanvasToolsTests`, `MaughamTests/MCPCatalogConsistencyTests`, `MaughamTests/MCPProtocolHandlersTests`, `MaughamTests/MCPToolsListSmokeTest`, `MaughamTests/ListMaughamToolsToolTests`, `MaughamTests/DocSyncTests`. All green — including `DocSyncTests`, because of Step 5.
+- [ ] **Step 7 — commit.**
 
 ---
 
@@ -335,8 +336,9 @@ Denver, 2026-07-29/30, re-deriving c3 against the built canvas. **Do not re-open
 - [ ] **Step 4 — declare the notification in `MaughamEvent`** with its scope (tripwire 21, ADR 0021): every post declares scope, and the receive helper owns the filter and the closed-window liveness guard. `.project(id:)` is the scope — `AddNoteTool` (`:63-71`) is the model.
 - [ ] **Step 5 — add `AddCanvasScrapsTool.self` to `MCPToolCatalog.all`.**
 - [ ] **Step 6 — the membrane check, and write the answer into the ADR in Task 10.** MCP tripwire 6: a write tool needs ADR-level justification. It is justified — the canvas is a planning surface in the parallel plane where Claude already writes annotations and translations, nothing here is manuscript, and nothing reaches the manuscript except through promotion, which is a writer act (§8A.2's own constitutional reasoning). **It writes `canvas.md` and `canvas.json` and nothing else** — assert that: `test_itNeverTouchesAManuscriptOrAResearchFile`, comparing a directory snapshot before and after.
-- [ ] **Step 7 — `./gen.sh`**, run `MaughamTests/CanvasToolsTests`, `MaughamTests/MCPCatalogConsistencyTests`, `MaughamTests/MCPProtocolHandlersTests`, `MaughamTests/MCPToolsListSmokeTest`, `MaughamTests/ListMaughamToolsToolTests`. Green (`DocSyncTests` still red until Task 10).
-- [ ] **Step 8 — commit.**
+- [ ] **Step 7 — bump the same two counted literals to 54** (`CLAUDE.md`, `Maugham/MCP/AREA.md`'s heading) and add this tool's catalogue entry, for the reason Task 6 Step 5 gives: the suite never sits red, and the three unguarded prose hits stay Task 10's.
+- [ ] **Step 8 — `./gen.sh`**, run `MaughamTests/CanvasToolsTests`, `MaughamTests/MCPCatalogConsistencyTests`, `MaughamTests/MCPProtocolHandlersTests`, `MaughamTests/MCPToolsListSmokeTest`, `MaughamTests/ListMaughamToolsToolTests`, `MaughamTests/DocSyncTests`. All green.
+- [ ] **Step 9 — commit.**
 
 ---
 
@@ -410,8 +412,8 @@ Denver, 2026-07-29/30, re-deriving c3 against the built canvas. **Do not re-open
 
 **Requirements**
 
-- [ ] **Step 1 — the tool count, 52 → 54, and there are FOUR literals not two.** `DocSyncTests` matches on `firstMatch`, so it sees only `CLAUDE.md`'s `**52 tools**` and `Maugham/MCP/AREA.md`'s `## Tool catalogue (52)` heading. **`grep -n "52" Maugham/MCP/AREA.md` and fix every hit** — lines 91-92 ("not part of the production 52-tool count above", "the 'Tool catalogue (52)' heading is unaffected") and line 153 ("the tool catalogue count stays 52") are prose no test can see.
-- [ ] **Step 2 — catalogue entries** for both tools in `Maugham/MCP/AREA.md`, under a heading that says where they belong. Note in `list_canvas`'s entry that it reads the open canvas when there is one and the sidecar otherwise — the canvas's version of tripwire 20 — and in `add_canvas_scraps`'s that its signature can express no position and no id, and why.
+- [ ] **Step 1 — the three UNGUARDED count literals.** Tasks 6 and 7 already moved the two `DocSyncTests` can see. The rest are prose no test reads, because that test matches on `firstMatch`: **`grep -n "52" Maugham/MCP/AREA.md` and fix every remaining hit** — lines 91-92 ("not part of the production 52-tool count above", "the 'Tool catalogue (52)' heading is unaffected") and line 153 ("the tool catalogue count stays 52"). Then re-grep to confirm nothing is left.
+- [ ] **Step 2 — check both catalogue entries** Tasks 6 and 7 added to `Maugham/MCP/AREA.md` say what matters: that `list_canvas` reads the open canvas when there is one and the sidecar otherwise (the canvas's version of tripwire 20), and that `add_canvas_scraps`'s signature can express no position and no id, and why.
 - [ ] **Step 3 — `CLAUDE.md`.** The tool count; the canvas row gaining the MCP surface; **and tripwire 32's cell, which must now say the census expects FIVE entries and repeat the instruction to count the array rather than the cell.** The cell already carries that instruction because the last slice shipped a "four files" claim over a five-entry array one directory over and it survived three review passes.
 - [ ] **Step 4 — `Maugham/Canvas/AREA.md`.** A section for the MCP surface: the two routes and why `isAttached` is the discriminator, the applier as tripwire 32's fifth entry with its repro, the placement rules, the untinted item node, and Task 2's finding that nothing measures an item node. **And correct two sentences this slice makes false:**
   - the claim that **"1C-c3 is the slice that makes this reachable"** for `lineLabelBox` — `connect` carries no label (ruling 2), so c3 writes no label at all and does not make it reachable;

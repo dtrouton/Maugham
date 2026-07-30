@@ -128,18 +128,41 @@ enum CanvasAccessibility {
     /// narrower trim, and an assistive client is handed `"1 line:"` followed by
     /// silence, which is indistinguishable from a bug.
     ///
-    /// It deliberately does NOT match `CanvasRenderer.lineLabelBox`, which
-    /// still trims `.whitespaces` and so draws an empty pill for that same
-    /// label. "Announce what is drawn" would be the tempting precedent and it
-    /// is the wrong one here: what is drawn in that case is the defect
-    /// `normalise`'s own doc comment describes — visible, unreadable, and
-    /// removable only by finding the field and clearing it twice. See AREA.md.
+    /// **`CanvasRenderer.lineLabelBox` now trims the same set** *(widened
+    /// 1C-c3)*, so all three readings of "whitespace is no name" agree and this
+    /// comment no longer records a divergence. It used to, and the reason is
+    /// worth keeping: matching the renderer was never the precedent here,
+    /// because what the renderer drew in that case was the defect `normalise`'s
+    /// own doc comment describes — an empty pill, visible, unreadable, and
+    /// removable only by finding the field and clearing it twice. The agreement
+    /// was reached by fixing the drawing, not by announcing it. See AREA.md.
+    ///
+    /// **Whose hand drew them rides in the count clause** (spec §8A.2
+    /// constraint 1), and it has to: a line is an element nowhere, so its ends
+    /// are the only place anything can be said about it, and the drawn signal is
+    /// a hue shift on a 1.5 pt hairline that an assistive client cannot see at
+    /// all. This is what carries a Claude line's provenance whatever the stroke
+    /// manages to say.
+    ///
+    /// **The count stays the whole set and the provenance is a share of it.**
+    /// "2 from Claude" beside "3 lines" is a fact about the same three; a count
+    /// that excluded the writer's would be a different, smaller canvas. The two
+    /// phrasings differ on purpose — all of them reads "2 lines from Claude",
+    /// some of them reads "3 lines, 2 from Claude" — because "3 lines, 3 from
+    /// Claude" is the clumsy way to say the first, and a card whose every line
+    /// came from Claude is the ordinary case for a batch it placed itself.
     ///
     /// Internal rather than private so the tests assert against the wording
     /// production ships, and pure so they can do it without a scene.
     static func connectionPhrase(for lines: [CanvasLine]) -> String? {
         guard !lines.isEmpty else { return nil }
-        let count = "\(lines.count) \(lines.count == 1 ? "line" : "lines")"
+        var count = "\(lines.count) \(lines.count == 1 ? "line" : "lines")"
+        let claudes = lines.count { $0.author == .claude }
+        if claudes == lines.count {
+            count += " \(claudeTerm)"
+        } else if claudes > 0 {
+            count += ", \(claudes) \(claudeTerm)"
+        }
         let names = lines
             .compactMap { $0.label?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -192,17 +215,62 @@ enum CanvasAccessibility {
     /// the tests assert against what ships, exactly as `regionKind` is.
     static let promotedTerm = "promoted"
 
-    /// The kind, then whether it has produced something, then what it is
-    /// connected to. The kind stays FIRST because `CanvasAXRole` never reaches
-    /// an assistive client — see `elements`.
+    /// The word anything Claude made or placed carries — a scrap, a region, an
+    /// item node, and a line inside `connectionPhrase`. A constant for the reason
+    /// `promotedTerm` and `regionKind` are, and **one wording for one fact**: the
+    /// region a batch lands in is called
+    /// `CanvasClaudePlacement.defaultRegionLabel` ("From Claude") and the undo
+    /// step is `CanvasClaudeWrite.undoStepName` ("Add Scraps from Claude"), so a
+    /// third phrasing here would make one thing sound like three.
+    /// `CanvasAccessibilityTests`'
+    /// `test_theSpokenTermAgreesWithTheRegionLabelAndTheUndoStep` holds the three
+    /// against each other.
+    ///
+    /// **It is ONE term across all three primitives even though the two drawn
+    /// signals answer different questions** — the tint says *whose words these
+    /// are* and the tilt says *who placed this here*, and on an item node only
+    /// the second is true. Two spoken wordings were considered and rejected
+    /// (Denver, 2026-07-30): a listener holding "from Claude" and a second
+    /// phrase apart, and having to remember which primitive takes which, is a
+    /// worse cost than one phrase that is slightly loose on the one primitive
+    /// where the two signals diverge.
+    static let claudeTerm = "from Claude"
+
+    /// **The one ordering rule for every label on this surface.** The kind,
+    /// then what it is called, then where it came from, then the durable facts
+    /// in the order they were added.
+    ///
+    /// The kind stays FIRST because `CanvasAXRole` never reaches an assistive
+    /// client — see `elements`. A name follows it, because kind-plus-name is how
+    /// a primitive identifies itself and splitting the two with anything else
+    /// makes the name sound like an afterthought (and in the ordinary Claude
+    /// case it would read "Region, from Claude, From Claude"). **Provenance sits
+    /// before the durable facts** because it is prior to them: where a thing
+    /// came from does not change, and what has happened to it since is read
+    /// against that.
+    ///
+    /// Every arm of `elements` goes through here, deliberately — the region arm
+    /// built its own array until 2026-07-30, and the moment provenance had to
+    /// join it there were two copies of this ordering with nothing holding them
+    /// together.
     private static func label(_ kind: String,
+                              named name: String? = nil,
+                              fromClaude: Bool,
                               promoted: Bool,
-                              connectedBy lines: [CanvasLine]?) -> String {
+                              connectedBy lines: [CanvasLine]? = nil,
+                              collapsed: Bool = false) -> String {
         var parts = [kind]
+        if let name { parts.append(name) }
+        if fromClaude { parts.append(claudeTerm) }
         if promoted { parts.append(promotedTerm) }
         if let phrase = connectionPhrase(for: lines ?? []) { parts.append(phrase) }
+        if collapsed { parts.append(collapsedTerm) }
         return parts.joined(separator: ", ")
     }
+
+    /// The word a collapsed region carries, last. A constant beside the other
+    /// two so the tests assert what ships.
+    static let collapsedTerm = "collapsed"
 
     static func elements(scene: CanvasScene,
                          scraps: [CanvasNodeID: String]) -> [CanvasAXElement] {
@@ -233,13 +301,36 @@ enum CanvasAccessibility {
                 // cannot otherwise discover, because its cards have left the
                 // tree entirely.
                 //
-                // "Promoted" rides there too, after the name and before the
-                // collapsed state: the kind, then what it is called, then the
-                // durable facts about it in the order they were added.
-                label: [regionKind, region.displayLabel,
-                        region.promotedItemID != nil ? promotedTerm : nil,
-                        region.isCollapsed ? "collapsed" : nil]
-                    .compactMap { $0 }.joined(separator: ", "),
+                // "Promoted" rides there too, and so does WHOSE HAND SWEPT IT.
+                // A region carries no tint at all — no paper, no ink of its own
+                // — so the 1° lean is the whole of its provenance, and a lean is
+                // inaudible. Without the term a sighted writer sees "a machine
+                // put this here" and a VoiceOver user is told nothing, which is
+                // the failure §7A.6 calls not optional in a writing tool and
+                // §8A.2 constraint 1 asks us to close.
+                //
+                // **The repetition is accepted, not overlooked** (Denver,
+                // 2026-07-30). Walking a Claude region of six cards says the
+                // phrase seven times, and a region left on its default label
+                // says it twice in a row — "Region, From Claude, from Claude, 6
+                // cards". The alternative was announcing it once, here, and
+                // leaving the cards silent; **this tree is FLAT** — `rowOrdered`
+                // interleaves regions and cards by position and a card is not a
+                // child of its region — so a user walking card to card can reach
+                // a Claude card without ever passing the region that would have
+                // said it. Silence in that case is exactly the failure above.
+                // Repetitive and never wrong beats quiet and sometimes wrong.
+                //
+                // For the same reason the term is NOT suppressed when the
+                // region's name already contains it: a term whose presence
+                // depends on what the writer happened to call the region is a
+                // term no listener can rely on, and a renamed region — the case
+                // with the real hole — is precisely where it would vanish.
+                label: label(regionKind,
+                             named: region.displayLabel,
+                             fromClaude: region.author == .claude,
+                             promoted: region.promotedItemID != nil,
+                             collapsed: region.isCollapsed),
                 value: region.isCollapsed
                     ? CanvasRenderer.collapsedSummary(for: region.id, in: scene)
                     : "\(residents) \(residents == 1 ? "card" : "cards")",
@@ -260,6 +351,7 @@ enum CanvasAccessibility {
                 elements.append(CanvasAXElement(
                     id: .node(node.id), role: .scrap,
                     label: label("Scrap",
+                                 fromClaude: node.author == .claude,
                                  promoted: node.promotedItemID != nil,
                                  connectedBy: connections[node.id]),
                     value: text.isEmpty ? emptyScrapValue : text,
@@ -267,11 +359,39 @@ enum CanvasAccessibility {
             case .item(let referenceId):
                 elements.append(CanvasAXElement(
                     id: .node(node.id), role: .item,
-                    // `promoted: false` unconditionally: an item node already
-                    // exists as itself and cannot be promoted, so a mark on one
-                    // — which a hand-edited sidecar can write — says nothing
-                    // true. The renderer refuses it for the same reason.
+                    // `promoted: false` unconditionally, and the author READ —
+                    // and the two are not the same kind of decision.
+                    //
+                    // `promoted: false` is closed: an item node already exists as
+                    // itself, so it cannot be promoted and a mark on one says
+                    // nothing true. `CanvasClaudePlacement` sets no
+                    // `promotedItemID`, a hand-edited sidecar can, and
+                    // `CanvasRenderer` refuses the stripe on exactly these terms.
+                    //
+                    // **`fromClaude` deliberately does NOT follow
+                    // `CanvasRenderer.paper(for:)`, which refuses to tint an item
+                    // node whatever its author says.** Those answer different
+                    // questions. `paper(for:)` answers the TINT's — *whose words
+                    // are these* — and a photographed page's words are the
+                    // writer's own, so it is right to refuse. The *tilt* answers
+                    // *who placed this here*, and since 2026-07-30
+                    // `CanvasClaudePlacement` writes `author: .claude` on every
+                    // source page it creates, so `seededRotation(for:)` draws it
+                    // perfectly straight — Claude did mint the node and choose
+                    // its place. A lean is inaudible. Passing `false` here left
+                    // the page visually marked as placed-by-Claude and silent to
+                    // VoiceOver, which is the §7A.6 failure this whole layer
+                    // exists to prevent, so it is spoken (Denver, 2026-07-30).
+                    //
+                    // The looseness is real and was weighed: on this one
+                    // primitive the shared `claudeTerm` covers a placement rather
+                    // than an authorship, so "Reference, from Claude" says
+                    // slightly more than is true of the words on the page. A
+                    // second wording for that distinction was rejected — see
+                    // `claudeTerm`. One phrase every primitive uses beats two the
+                    // listener has to keep apart.
                     label: label("Reference",
+                                 fromClaude: node.author == .claude,
                                  promoted: false,
                                  connectedBy: connections[node.id]),
                     value: CanvasRenderer.placeholderLabel(forReference: referenceId),

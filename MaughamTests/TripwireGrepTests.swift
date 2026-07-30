@@ -1301,6 +1301,190 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: the XCTAssertNil-guarded rejection literal must NOT fire.")
     }
 
+    // MARK: - `XCTAssertNil` through an optional chain (1C-c3 whole-branch review)
+
+    /// The marker that exempts a line. Same spelling as `adr-0018-ok:` and
+    /// `adr-0021-ok:`, so an exemption is a decision with a name on it rather
+    /// than a silence.
+    static let nilChainMarker = "nil-chain-ok:"
+
+    /// Every offending line under `dir`: a `?.` reaching the subject of an
+    /// assertion that a value is absent — `XCTAssertNil(`, or the equality
+    /// spelling `XCTAssertEqual(…, nil)` — with no exemption marker.
+    ///
+    /// **Why this shape is a defect.** `XCTAssertNil(scene.node(a)?.author)`
+    /// passes when node `a` was never there at all — `Optional.none` satisfies it
+    /// exactly as a present node with a nil field does. So the assertion is true
+    /// for a reason other than the one its message names, and the failure it was
+    /// written to catch (the decoder dropping the node, the store not saving it)
+    /// is the failure it cannot see. `try XCTUnwrap(scene.node(a)).author` says
+    /// the same thing and fails on absence. **Four instances of this shape
+    /// shipped across four tasks of 1C-c3, each implementer having been warned
+    /// about the last** — which is `memory/feedback_prose_loses_to_a_test.md`'s
+    /// case for a census over a better comment.
+    ///
+    /// **Its reach, stated plainly, because it must not be sold as retiring the
+    /// class.** It catches the one greppable shape. It cannot catch "the
+    /// assertion is true for a reason other than the one named" in general — a
+    /// fixture whose region never drove the union it was meant to force, an
+    /// empty-vs-empty comparison after an undo, a `message.contains("1")`. Those
+    /// need a reader.
+    ///
+    /// **It scans two spellings, because absence has two.**
+    /// `XCTAssertEqual(scene.node(a)?.author, nil)` false-passes on a missing
+    /// node exactly as `XCTAssertNil` does — same defect, different words — so
+    /// the equality-against-`nil` form is scanned too. The census read
+    /// `XCTAssertNil` only for one commit, and its doc asserted flatly that
+    /// `XCTAssertEqual` chains "cannot false-pass on absence"; that is true of
+    /// `XCTAssertEqual(…?.author, .claude)`, where `Optional.none != .some(x)`
+    /// keeps the assertion honest, and false of the `nil` expectation. No
+    /// instance of the equality spelling existed when the gap was found, so it
+    /// was a hole in the guard rather than a live defect — which is the only
+    /// kind of hole a census gets to close cheaply. A chain against a **non**-nil
+    /// expectation still does not fire, and should not.
+    ///
+    /// **Line-based, and the limit is real**: an assertion wrapped so that the
+    /// `?.` lands on a later line is invisible to it — and so is
+    /// `XCTAssertEqual(x?.y,` with its `nil` on the line below, which is the
+    /// same limit costing twice now that there are two spellings. The marker is honoured on
+    /// the offending line OR on the line immediately above it, because these
+    /// assertions are long and pushing the marker onto a 100-column line is how a
+    /// convention stops being followed.
+    static func scanNilChainAssertions(in dir: URL,
+                                       allowed: Set<String> = []) throws -> [String] {
+        var offenders: [String] = []
+        guard let walker = FileManager.default.enumerator(
+            at: dir, includingPropertiesForKeys: nil) else { return [] }
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            if allowed.contains(url.lastPathComponent) { continue }
+            let lines = try String(contentsOf: url, encoding: .utf8)
+                .components(separatedBy: "\n")
+            for (i, line) in lines.enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("//") { continue }
+                guard trimmed.contains("?.") else { continue }
+                // Both spellings of "this is absent". The `nil` expectation is
+                // matched with its delimiter attached so that `, nil)` and
+                // `, nil, "message")` both fire and an identifier ending in
+                // `nil` does not.
+                let assertsAbsence = trimmed.contains("XCTAssertNil(")
+                    || (trimmed.contains("XCTAssertEqual(")
+                        && (trimmed.contains(", nil)") || trimmed.contains(", nil,")))
+                guard assertsAbsence else { continue }
+                let previous = i > 0 ? lines[i - 1] : ""
+                if line.contains(nilChainMarker) || previous.contains(nilChainMarker) { continue }
+                offenders.append("\(url.lastPathComponent):\(i + 1): \(trimmed)")
+            }
+        }
+        return offenders
+    }
+
+    /// Census: no `XCTAssertNil` reaches its subject through `?.` in this
+    /// directory's tests.
+    ///
+    /// **Scoped to `MaughamTests/Canvas` deliberately.** Eighty-two instances
+    /// exist across the three test trees, and a census that lands red on all of
+    /// them on day one gets a blanket annotation rather than eighty-two
+    /// decisions. This is the tree where the shape recurred four times in one
+    /// slice, and it is the tree that is clean.
+    func test_noXCTAssertNilReachesItsSubjectThroughAnOptionalChain() throws {
+        let dir = repoRoot.appendingPathComponent("MaughamTests/Canvas", isDirectory: true)
+        let offenders = try Self.scanNilChainAssertions(in: dir)
+        XCTAssertTrue(offenders.isEmpty,
+            "An assertion of absence — XCTAssertNil, or XCTAssertEqual(…, nil) — "
+            + "whose subject is reached through `?.` passes when the "
+            + "subject is ABSENT, which is usually the failure the assertion was "
+            + "written to catch. Use `try XCTUnwrap(subject).field` — or, if the "
+            + "chain's own nil really is the assertion, add `// \(Self.nilChainMarker) "
+            + "<reason>` on that line or the one above it. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Planted-offender companion, for the reason every census here has one: **a
+    /// census over a forbidden token is exactly the shape that passes while
+    /// blind.** A scan that walked the wrong directory, or matched a pattern no
+    /// line can contain, reports zero offenders and looks identical to a clean
+    /// tree.
+    ///
+    /// Six plants and three controls, one per rule the scan has to get right.
+    /// Two of the plants are the equality-against-`nil` spelling, which is the
+    /// arm that matters most here: it was added to the scan against a tree with
+    /// no instance of it, so the real census cannot tell a working clause from a
+    /// clause that matches nothing.
+    func test_theNilChainCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-nil-chain-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        final class PlantedTests: XCTestCase {
+            func test_plainOffender() throws {
+                XCTAssertNil(scene.node(a)?.author, "still the writer's")
+            }
+            func test_offenderWithAMessageOnTheNextLine() throws {
+                XCTAssertNil(scene.region(r)?.boundPieceID,
+                             "nothing of its own")
+            }
+            func test_offenderThroughAThrowingSubject() throws {
+                XCTAssertNil(try roundTrip(s).node(a)?.promotedItemID)
+            }
+            func test_offenderOnACollection() throws {
+                XCTAssertNil(scene.lines.first?.label)
+            }
+            func test_theEqualitySpellingOfTheSameDefect() throws {
+                XCTAssertEqual(scene.node(a)?.promotedItemID, nil)
+            }
+            func test_theEqualitySpellingWithAMessage() throws {
+                XCTAssertEqual(scene.region(r)?.boundPieceID, nil, "nothing of its own")
+            }
+            func test_exemptOnTheSameLine() throws {
+                XCTAssertNil(nodes.first { $0.frame?.contains(p) == true }) // \(Self.nilChainMarker) predicate
+            }
+            func test_exemptOnTheLineAbove() throws {
+                // \(Self.nilChainMarker) the chain's own nil is the assertion
+                XCTAssertNil(nodes.first { $0.frame?.contains(p) == true })
+            }
+            func test_theFixedShape() throws {
+                XCTAssertNil(try XCTUnwrap(scene.node(a)).author)
+            }
+            func test_aSafeChain() throws {
+                XCTAssertEqual(scene.node(a)?.author, .claude)
+            }
+            // XCTAssertNil(scene.node(a)?.author) in a comment is not code.
+        }
+        """.write(to: tmp.appendingPathComponent("PlantedTests.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try Self.scanNilChainAssertions(in: tmp)
+        XCTAssertEqual(offenders.count, 6,
+            "Self-check: exactly the six planted offenders should fire. Got:\n"
+            + offenders.joined(separator: "\n"))
+        for expected in ["node(a)?.author", "region(r)?.boundPieceID",
+                         "roundTrip(s).node(a)?.promotedItemID", "lines.first?.label"] {
+            XCTAssertTrue(offenders.contains { $0.contains(expected) },
+                          "Self-check: the planted `\(expected)` should be caught.")
+        }
+        XCTAssertTrue(offenders.contains {
+            $0.contains("XCTAssertEqual") && $0.contains("promotedItemID, nil)")
+        }, "Self-check: the equality spelling of absence should be caught — it "
+           + "false-passes on a missing node exactly as XCTAssertNil does.")
+        XCTAssertTrue(offenders.contains {
+            $0.contains("XCTAssertEqual") && $0.contains("nil, \"nothing of its own\"")
+        }, "Self-check: the equality spelling with a trailing message should be "
+           + "caught, or the clause only matches assertions nobody explains.")
+        XCTAssertFalse(offenders.contains { $0.contains("XCTUnwrap") },
+                       "Self-check: the FIXED shape must not fire, or the census "
+                       + "punishes the repair it is asking for.")
+        XCTAssertFalse(offenders.contains { $0.contains(".claude") },
+                       "Self-check: a chain against a NON-nil expectation cannot "
+                       + "false-pass on absence and must not fire — "
+                       + "Optional.none != .some(x).")
+        XCTAssertFalse(offenders.contains { $0.contains("in a comment") },
+                       "Self-check: a commented-out assertion is not code.")
+    }
+
     // MARK: - Segmented-picker child uniformity (2026-07-25 smoke, defect C)
 
     /// A segmented `Picker` whose `ForEach` emits more than one KIND of child
@@ -1692,11 +1876,18 @@ final class TripwireGrepTests: XCTestCase {
     /// 1C-c2 added the third: `PromotionPerformer` writes the promoted mark from
     /// outside the canvas, and `beginPromotion` can run while a focused scrap
     /// holds "Edit Scrap" open.
+    ///
+    /// 1C-c3 added the fifth, and **its repro is the sharpest here**:
+    /// `CanvasClaudeWrite` is reached from an MCP call, which arrives from outside
+    /// the window entirely. The inspector entries at least require the writer's
+    /// hand to be in the window; this one needs nothing but a message on a socket
+    /// while the writer types.
     func test_theCanvasUndoBracketIsReachedFromAnotherColumnByOneVerbOnly() throws {
         let census = try canvasBracketCensus(in: sourceDir)
         XCTAssertEqual(
             census,
-            ["LineInspector.swift": [Self.canvasOutsideVerb],
+            ["CanvasClaudeWrite.swift": [Self.canvasOutsideVerb],
+             "LineInspector.swift": [Self.canvasOutsideVerb],
              "PromotionPerformer.swift": [Self.canvasOutsideVerb],
              "RegionInspector.swift": [Self.canvasOutsideVerb],
              "ScrapInspector.swift": [Self.canvasOutsideVerb]],
@@ -1712,6 +1903,12 @@ final class TripwireGrepTests: XCTestCase {
             + "and opens the bracket. NOT a card: AppKit sends clickCount 1 "
             + "first and that click selects the card. Nested, your edit "
             + "registers NO undo step and rides into the writer's next one.\n\n"
+            + "The sharper repro, and it needs no gesture at all: an MCP call "
+            + "arriving while the writer is inside a scrap. Nothing on that side "
+            + "of the window closes their bracket, and nothing on this side has "
+            + "one of its own to protect — so a write from a tool is the same "
+            + "case as the inspector's, minus the requirement that anyone be "
+            + "touching the app. That is CanvasClaudeWrite.swift above.\n\n"
             + "From the canvas itself the answer is the opposite — refuse "
             + "mid-gesture (`deleteSelection`'s `isInGesture` guard), because "
             + "closing the bracket would end one the writer still holds.\n\n"

@@ -20,11 +20,79 @@ final class CanvasLineTests: XCTestCase {
     func test_aLineCarriesNoTypeOnlyAnOptionalLabel() {
         let line = CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("a"), to: CanvasNodeID("b"))
         XCTAssertNil(line.label, "a fresh line has nothing to say")
+        XCTAssertNil(line.author, "a fresh line is the writer's")
         let fieldNames = Mirror(reflecting: line).children.compactMap { $0.label }.sorted()
-        XCTAssertEqual(fieldNames, ["from", "id", "label", "to"],
+        // `author` (1C-c3) is on this list and `kind` may never be, and the
+        // difference is not a matter of degree: provenance says WHO DREW the
+        // line, which asserts nothing about the two cards' relationship, while a
+        // kind says what the line MEANS. A field that would make the writer pick
+        // from a vocabulary before the line can exist is the thing §5 refuses.
+        XCTAssertEqual(fieldNames, ["author", "from", "id", "label", "to"],
                         "CanvasLine must carry no `kind` — Kinopio shipped typed connections for " +
                         "years and removed them in April 2026 because typed connections confused " +
                         "first-time users; re-read spec §5 before adding one back")
+    }
+
+    /// **`author` is `let`, and the compiler is the enforcement.**
+    ///
+    /// `CanvasScene.updateLine` is a general block mutator — it is how a label is
+    /// set and cleared — so while this field was `var`, `$0.author = …` inside it
+    /// compiled. Nothing in production ever did it (grepped: every call site
+    /// writes `label` and nothing else), but the line was the one primitive of
+    /// three whose "written once at creation" was a convention rather than a
+    /// guarantee, and three doc comments asserted the rule as though it held
+    /// everywhere. `CanvasRegion.author` has been `let` since 1C-c3 and
+    /// `CanvasScene` has no `setAuthor` for a node, so this makes the three
+    /// uniform.
+    ///
+    /// A `let` cannot be asserted by calling anything — the failure mode is a
+    /// *compile* error — so this reads the declaration, which is the only
+    /// observable. It is one line, and it is the line that would be flipped by
+    /// someone making an accidental write compile.
+    ///
+    /// **It is SLICED to `CanvasLine`'s own declaration, and the first draft was
+    /// not.** A `contains` over the whole file passed with the field flipped to
+    /// `var`, because `CanvasDrawnLine` — the projection two structs down —
+    /// declares a character-identical `public let author:`. Caught by the disable
+    /// experiment, which is the whole argument for running one: the assertion was
+    /// true for a reason other than the one its message named, in the fix wave
+    /// whose own Minor 1 is that exact shape.
+    func test_theLinesAuthorIsDeclaredLetSoTheCompilerHoldsTheRule() throws {
+        let stripped = CanvasSourceCensus.commentsStripped(
+            try CanvasSourceCensus.source(at: "Maugham/Canvas/CanvasLine.swift"))
+        let start = try XCTUnwrap(stripped.range(of: "public struct CanvasLine:"),
+                                  "CanvasLine's declaration has been renamed or "
+                                  + "reshaped, so this slice reads nothing")
+        let rest = stripped[start.upperBound...]
+        let end = rest.range(of: "public struct ")?.lowerBound ?? rest.endIndex
+        let declaration = rest[..<end]
+        XCTAssertTrue(declaration.contains("public let author: AnnotationAuthor.SourceKind?"),
+            "CanvasLine.author is no longer declared `let`. `updateLine` is a "
+            + "general block mutator, so a `var` here lets any caller rewrite a "
+            + "line's provenance — the one thing on this surface that records "
+            + "where a thing came from rather than what happened to it. "
+            + "CanvasRegion.author is `let` for the same reason.")
+        // The projection has to still BE there for the slice to be worth
+        // anything, and this pair is deliberately two assertions rather than
+        // one. The first draft of the repair asserted only that `declaration`
+        // omits `"public struct CanvasDrawnLine"` — which is true for every
+        // possible content of the file, because `declaration` is sliced at the
+        // next `"public struct "` and so contains that token by construction.
+        // An unfalsifiable assertion in the fix for an unfalsifiable assertion.
+        // Split in two, both halves can fail: the control if `CanvasDrawnLine`
+        // is renamed or moved out of this file (the slice then guards nothing
+        // and the first assertion is back to reading one struct by luck), the
+        // slice assertion if the slicing is ever removed.
+        XCTAssertTrue(stripped.contains("public struct CanvasDrawnLine"),
+            "CanvasDrawnLine is no longer declared below CanvasLine in this file, "
+            + "so the slice above has nothing to exclude and the assertion below "
+            + "is measuring nothing. If the projection moved, re-aim this control "
+            + "at whatever now follows CanvasLine — or delete the slicing and this "
+            + "pair together, deliberately.")
+        XCTAssertFalse(declaration.contains("CanvasDrawnLine"),
+            "The slice has swallowed the projection below it, whose own `author` "
+            + "is `let` — which is exactly how the first draft of this test "
+            + "passed with the field flipped to `var`.")
     }
 
     func test_labelCanBeSetAndCleared() {
@@ -37,7 +105,7 @@ final class CanvasLineTests: XCTestCase {
         XCTAssertEqual(scene.lines.first?.label, "leads to")
 
         scene.updateLine(CanvasLineID("l1")) { $0.label = nil }
-        XCTAssertNil(scene.lines.first?.label)
+        XCTAssertNil(try XCTUnwrap(scene.lines.first).label)
     }
 
     // MARK: - Storage and ordering

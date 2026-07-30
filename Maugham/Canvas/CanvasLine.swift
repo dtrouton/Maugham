@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Stable identity for a line. Minted by `CanvasInteraction` with a uniqueness
 /// loop against the scene, exactly as `createScrap` and `createRegion` mint
@@ -28,12 +29,34 @@ public struct CanvasLine: Equatable, Sendable {
     public var to: CanvasNodeID
     /// Optional free text. Not a type, not a vocabulary, not validated.
     public var label: String?
+    /// Who drew this line. **nil means the writer**, and it is written once at
+    /// creation and never afterwards — see `CanvasNode.author` for the whole
+    /// ruling, including why `CanvasScene` gains no setter for it.
+    ///
+    /// **`let`, so the compiler is the enforcement** — `CanvasRegion.author`'s
+    /// shape, and for `CanvasRegion.author`'s reason. `CanvasScene.updateLine` is
+    /// a general block mutator (it is how a label is set and cleared), so while
+    /// this was `var` a `$0.author = …` inside it compiled: the one primitive of
+    /// the three whose provenance was a convention rather than a guarantee, in a
+    /// file whose own doc comment said "written once at creation" as though it
+    /// held everywhere. Nothing in production ever reached through it — the only
+    /// field any caller writes is `label` — and this is what makes that a fact
+    /// rather than a habit. Tripwire 24's argument, one field over.
+    ///
+    /// A line carries no semantics (see this type's own doc comment) and
+    /// provenance does not give it any: this says who drew the line, not what
+    /// the line means. That is also why it does not violate §5's no-`kind` rule,
+    /// and why `CanvasLineTests.test_aLineCarriesNoTypeOnlyAnOptionalLabel`
+    /// lists it.
+    public let author: AnnotationAuthor.SourceKind?
 
-    public init(id: CanvasLineID, from: CanvasNodeID, to: CanvasNodeID, label: String? = nil) {
+    public init(id: CanvasLineID, from: CanvasNodeID, to: CanvasNodeID,
+                label: String? = nil, author: AnnotationAuthor.SourceKind? = nil) {
         self.id = id
         self.from = from
         self.to = to
         self.label = label
+        self.author = author
     }
 
     public func touches(_ node: CanvasNodeID) -> Bool { from == node || to == node }
@@ -54,12 +77,21 @@ public struct CanvasDrawnLine: Equatable, Sendable {
     public let from: CGPoint
     public let to: CGPoint
     public let label: String?
+    /// Carried through from `CanvasLine.author` so the renderer can stroke a
+    /// line Claude drew in a cooler value (§8A.2). **nil means the writer**, as
+    /// it does everywhere else — and the projection carries it rather than the
+    /// renderer reaching back into the scene, for the reason every other field
+    /// here is carried: `CanvasRenderer.drawLine` is handed geometry and knows
+    /// nothing about the scene it came from.
+    public let author: AnnotationAuthor.SourceKind?
 
-    public init(id: CanvasLineID, from: CGPoint, to: CGPoint, label: String?) {
+    public init(id: CanvasLineID, from: CGPoint, to: CGPoint, label: String?,
+                author: AnnotationAuthor.SourceKind? = nil) {
         self.id = id
         self.from = from
         self.to = to
         self.label = label
+        self.author = author
     }
 }
 

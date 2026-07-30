@@ -123,7 +123,8 @@ final class PromotionPerformerTests: XCTestCase {
         XCTAssertNotNil(model.scene.node(a))
         XCTAssertEqual(model.scraps[a], "The falls at night\n\nSodium light on the spray.")
         XCTAssertEqual(model.scene.node(a)?.promotedItemID, result.createdItemID)
-        XCTAssertNil(model.scene.node(b)?.promotedItemID, "and only the one promoted")
+        XCTAssertNil(try XCTUnwrap(model.scene.node(b)).promotedItemID,
+                     "and only the one promoted")
     }
 
     /// The mark is a scene change made from OUTSIDE `CanvasView`, so it has to
@@ -152,7 +153,7 @@ final class PromotionPerformerTests: XCTestCase {
             .perform(plan(.scrap(a), .researchNote, store: store, model: model))
 
         model.undo.undo()
-        XCTAssertNil(model.scene.node(a)?.promotedItemID)
+        XCTAssertNil(try XCTUnwrap(model.scene.node(a)).promotedItemID)
         XCTAssertNotNil(TreeWalk.first(in: store.manifest.research,
                                        where: { $0.title == "The falls at night" }),
                         "the canvas's undo is scene-scoped; the note is a real file "
@@ -888,7 +889,8 @@ final class PromotionPerformerTests: XCTestCase {
             XCTFail("expected a refusal")
         } catch PromotionFailure.emptyTitle {
             XCTAssertTrue(store.manifest.research.isEmpty)
-            XCTAssertNil(model.scene.node(a)?.promotedItemID, "and no mark either")
+            XCTAssertNil(try XCTUnwrap(model.scene.node(a)).promotedItemID,
+                     "and no mark either")
         }
         _ = root
     }

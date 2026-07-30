@@ -215,7 +215,7 @@ final class RegionBindingTests: XCTestCase {
         let m = model()
         inspector(m).commitBinding("piece-3")
         inspector(m).commitBinding(nil)
-        XCTAssertNil(m.scene.region(r1)?.boundPieceID)
+        XCTAssertNil(try XCTUnwrap(m.scene.region(r1)).boundPieceID)
         m.undo.undo()
         XCTAssertEqual(m.scene.region(r1)?.boundPieceID, "piece-3",
                        "the unbind is its own step, not a silent write")
@@ -610,6 +610,21 @@ final class RegionBindingTests: XCTestCase {
     /// `CanvasMembership.addAppearance` was stored, drawn, listed and removable
     /// with no production caller at all, exactly as `CanvasScene.remove` was one
     /// slice before it. Only a caller count sees that.
+    ///
+    /// **Each name here is an admission, and it carries its reason.** A name with
+    /// no reason beside it is the census eroding into a list somebody appends to
+    /// when the build goes red:
+    ///
+    /// - `RegionInspector.swift` — the writer citing a card by hand, through
+    ///   "Cite a Card". Citing is an inspector act rather than a gesture,
+    ///   deliberately: a modifier-held drop would need a flag threaded through
+    ///   `CanvasEventNSView`'s callbacks for something nobody would discover.
+    /// - `CanvasClaudePlacement.swift` *(1C-c3)* — a second Claude batch read off
+    ///   a page the canvas already holds. The page keeps its home and the new
+    ///   region **cites** it, because moving it would make a geometry change into
+    ///   a membership change, which is the transition rule §4.2 exists to refuse
+    ///   (tripwire 31) — the one tldraw ships despite storing membership. One
+    ///   home, many appearances is what makes citing the available answer.
     func test_makingAnAppearanceHasAProductionCaller() throws {
         let callers = try CanvasSourceCensus.productionFiles()
             .filter { $0.name != "CanvasMembership.swift" && $0.name != "CanvasRegion.swift" }
@@ -619,10 +634,12 @@ final class RegionBindingTests: XCTestCase {
             }
             .map(\.name)
             .sorted()
-        XCTAssertEqual(callers, ["RegionInspector.swift"],
+        XCTAssertEqual(callers, ["CanvasClaudePlacement.swift", "RegionInspector.swift"],
                        "if this is ever empty again, appearances are persisted, "
                        + "drawn, listed and removable — and uncreatable. If it "
-                       + "grows, the new caller is a deliberate edit here.")
+                       + "grows, the new caller is a deliberate edit here — and "
+                       + "it gets a line in this test's doc comment saying why it "
+                       + "cites rather than joins.")
     }
 
     func test_theInspectorListsResidentsAndVisitorsSeparately() {
@@ -969,6 +986,199 @@ final class RegionBindingTests: XCTestCase {
                       + "THIS view — and nothing above it. If this ever goes false "
                       + "the pane has stopped reading the model and the inspector "
                       + "is showing a frozen region.")
+    }
+
+    // MARK: - Whose region this is (spec §8A.2)
+
+    /// The index both panes already hold, standing in for the manifest.
+    private let artifacts: (String) -> String? = { id in
+        ["res-fog": "Act II fog", "res-a": "The falls at night"][id]
+    }
+
+    /// A Claude region, optionally holding the page the batch was read off — the
+    /// shape `CanvasClaudePlacement.apply` produces.
+    private func claudeRegionModel(source: String? = nil,
+                                   author: AnnotationAuthor.SourceKind? = .claude)
+        -> CanvasModel {
+        let m = model()
+        m.withScene { s in
+            s.insertRegion(CanvasRegion(
+                id: self.r1, label: CanvasClaudePlacement.defaultRegionLabel,
+                frame: CGRect(x: 0, y: 0, width: 600, height: 400),
+                homeMembers: [self.a], author: author))
+            if let source {
+                let page = CanvasNodeID.item(source)
+                s.insert(CanvasNode(id: page, kind: .item(referenceId: source),
+                                    origin: CGPoint(x: 0, y: 200), width: 240,
+                                    cachedHeight: 40, author: .claude))
+                CanvasMembership.join(page, home: self.r1, in: &s)
+            }
+        }
+        return m
+    }
+
+    /// **The asymmetry CLAUDE.md rule 8 exists for.** A Claude region is drawn at
+    /// exactly 0° and announced with `CanvasAccessibility.claudeTerm`, and for one
+    /// round the only pane a writer could inspect one in said nothing about it —
+    /// which is the previous slice's Critical (a region drew the stripe, carried
+    /// the field, was announced, and its own pane was silent) arriving on the
+    /// other field.
+    func test_aClaudeRegionSaysSoInItsInspector() {
+        let m = claudeRegionModel()
+        let line = CanvasAuthorLine.forRegion(r1, in: m.scene, title: artifacts)
+        XCTAssertEqual(line, .claude)
+        let sentence = line.sentence ?? ""
+        XCTAssertFalse(sentence.isEmpty,
+                       "a region the writer did not sweep must say so in its own pane")
+        // One wording for one fact: the spoken term, the default region label and
+        // the undo step are the other three, and the card arm's line is this same
+        // sentence — not a fifth phrasing and not a sixth.
+        XCTAssertTrue(sentence.lowercased()
+            .contains(CanvasAccessibility.claudeTerm.lowercased()),
+                      "found: \(sentence), which does not contain "
+                      + "\"\(CanvasAccessibility.claudeTerm)\"")
+    }
+
+    /// The source page, named — through the **deferred** `artifactTitle` closure
+    /// this pane already holds, which has no default for the reason
+    /// `PromotedArtifactSection` records: a default is how a section went missing
+    /// with nothing red.
+    func test_aClaudeRegionWhoseSourceIsKnownNamesIt() {
+        let m = claudeRegionModel(source: "res-fog")
+        XCTAssertEqual(CanvasAuthorLine.forRegion(r1, in: m.scene, title: artifacts),
+                       .claudeReadFrom(title: "Act II fog"))
+        XCTAssertEqual(
+            CanvasAuthorLine.forRegion(r1, in: m.scene, title: artifacts).sentence,
+            "From Claude. Read from “Act II fog”.")
+    }
+
+    /// The one-source rule, on this arm too: with two item members in the region
+    /// there is no fact to state, so it names neither rather than whichever sorted
+    /// first.
+    func test_twoPagesInTheRegionMeanTheRegionNamesNoSource() {
+        let m = claudeRegionModel(source: "res-fog")
+        m.withScene { s in
+            let second = CanvasNodeID.item("res-a")
+            s.insert(CanvasNode(id: second, kind: .item(referenceId: "res-a"),
+                                origin: CGPoint(x: 300, y: 200), width: 240,
+                                cachedHeight: 40))
+            CanvasMembership.join(second, home: self.r1, in: &s)
+        }
+        XCTAssertEqual(CanvasAuthorLine.forRegion(r1, in: m.scene, title: artifacts),
+                       .claude)
+        // The control, so this is about the COUNT: one page and it is named.
+        XCTAssertEqual(
+            CanvasAuthorLine.forRegion(r1, in: claudeRegionModel(source: "res-fog").scene,
+                                       title: artifacts),
+            .claudeReadFrom(title: "Act II fog"))
+    }
+
+    /// A page the writer has since deleted is not printed as an id — the treatment
+    /// both promotion records already get.
+    func test_aDeletedSourcePageIsNotNamedByItsId() {
+        let m = claudeRegionModel(source: "res-gone")
+        let line = CanvasAuthorLine.forRegion(r1, in: m.scene, title: artifacts)
+        XCTAssertEqual(line, .claude)
+        XCTAssertFalse((line.sentence ?? "").contains("res-gone"),
+                       "found: \(line.sentence ?? "nil")")
+    }
+
+    /// **The writer's own regions say nothing new.** `author` nil is the writer, so
+    /// this guards a line reading "swept by you" — chrome stating the default, on
+    /// every region on every canvas made before 1C-c3.
+    func test_theWritersOwnRegionsSayNothingNew() {
+        let mine = claudeRegionModel(source: "res-fog", author: nil)
+        XCTAssertEqual(CanvasAuthorLine.forRegion(r1, in: mine.scene, title: artifacts),
+                       .writer,
+                       "a nil author is the writer's own sweep, and a source page "
+                       + "sitting in the region must not make it claim otherwise")
+        XCTAssertNil(CanvasAuthorLine.writer.sentence,
+                     "the writer's own region has no provenance line at all")
+        // The control: the same scene with the author restored does speak.
+        XCTAssertNotNil(CanvasAuthorLine
+            .forRegion(r1, in: claudeRegionModel(source: "res-fog").scene,
+                       title: artifacts).sentence)
+    }
+
+    /// A selection naming a region the scene no longer holds — an undo, or a
+    /// deletion — answers `.writer` rather than asserting anything.
+    func test_aRegionTheSceneNoLongerHoldsClaimsNothing() {
+        let m = claudeRegionModel()
+        m.withScene { $0.removeRegion(self.r1) }
+        XCTAssertEqual(CanvasAuthorLine.forRegion(r1, in: m.scene, title: artifacts),
+                       .writer)
+    }
+
+    /// **Two facts on this arm now, and they must read as different claims** — the
+    /// region is Claude's, *and* it produced an artifact. §6.3's rule against one
+    /// sentence serving two records is what makes this worth pinning, and the
+    /// provenance line specifically must not read as a promotion: re-promoting a
+    /// Claude region is as available as re-promoting the writer's own.
+    func test_theRegionsProvenanceLineIsNotItsPromotedMark() {
+        let m = claudeRegionModel()
+        m.withScene { $0.updateRegion(self.r1) { $0.promotedItemID = "res-fog" } }
+        let line = CanvasAuthorLine.forRegion(r1, in: m.scene, title: artifacts)
+        // `artifactState` takes the RESOLVED title (the region arm resolves it with
+        // `flatMap(artifactTitle)`), unlike `provenance`, which takes the lookup.
+        let markID = m.scene.region(r1)?.promotedItemID
+        let mark = PromotedArtifactSection.artifactState(
+            promotedItemID: markID, title: markID.flatMap(artifacts))
+
+        XCTAssertEqual(mark,
+                       PromotedArtifactSection.ArtifactState.promoted(itemID: "res-fog",
+                                                                      title: "Act II fog"),
+                       "precondition: both facts are true of this region at once")
+        let sentences = [line.sentence,
+                         PromotedArtifactSection.Subject.region.became("Act II fog")]
+            .compactMap { $0 }
+        XCTAssertEqual(sentences.count, 2,
+                       "both facts must have a sentence, or the comparison below "
+                       + "passes by having nothing to compare")
+        XCTAssertEqual(Set(sentences).count, 2, "found: \(sentences)")
+        let provenance = line.sentence ?? ""
+        XCTAssertFalse(provenance.contains("Became"), "found: \(provenance)")
+        XCTAssertFalse(provenance.lowercased().contains("promot"),
+                       "a provenance line that reads as a promotion is a region "
+                       + "telling the writer it has already been promoted — found: "
+                       + "\(provenance)")
+    }
+
+    /// **The census: both arms render the ONE row, and neither builds its own.**
+    ///
+    /// Which arm of a `_ConditionalContent` renders cannot be asserted and a
+    /// `Form`'s contents are not inspectable, so what is pinned is that each arm
+    /// reaches the shared implementation. This line lived in `ScrapInspector` alone
+    /// for a round — the same shape as `PromotedArtifactSection`, which only the
+    /// card arm mounted for a whole slice — and a second resolver on this side
+    /// would be a second spelling of both the wording and the one-source rule.
+    func test_bothInspectorArmsRenderTheOneAuthorLine() throws {
+        for (file, token) in [("Maugham/Canvas/ScrapInspector.swift",
+                               "CanvasAuthorLine.forCard("),
+                              ("Maugham/Canvas/RegionInspector.swift",
+                               "CanvasAuthorLine.forRegion(")] {
+            let text = CanvasSourceCensus.commentsStripped(
+                try CanvasSourceCensus.source(at: file))
+            XCTAssertTrue(text.contains("CanvasAuthorLineRow("),
+                          "\(file) must render the shared row — a field with a drawn "
+                          + "signal, a spoken term and no inspectable surface is "
+                          + "CLAUDE.md rule 8 failing, and it failed for the region "
+                          + "arm for a round")
+            XCTAssertTrue(text.contains(token),
+                          "\(file) must resolve through \(token)")
+            XCTAssertFalse(text.contains("\"From Claude.\""),
+                           "\(file) spells the sentence itself — there are already "
+                           + "four strings for this one fact and the shared type "
+                           + "owns the wording")
+        }
+        // The companion: prove the scan reports an absence rather than always
+        // answering true. The plant names a spelling that cannot exist in
+        // production.
+        let line = try CanvasSourceCensus.source(at: "Maugham/Canvas/LineInspector.swift")
+        XCTAssertFalse(line.contains("CanvasAuthorLineRow("),
+                       "a line carries no pane-side provenance line (its author is "
+                       + "spoken inside `connectionPhrase` and it has no name of its "
+                       + "own to sit beside) — and this proves the scan above reads "
+                       + "the file rather than always answering true")
     }
 
     // MARK: - Source helpers

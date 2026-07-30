@@ -67,7 +67,7 @@ final class CanvasLineRenderTests: XCTestCase {
         XCTAssertEqual(s.lines.count, 2,
                        "control: BOTH lines are genuinely in the scene, so the "
                        + "filter below is not measuring an insert that failed")
-        XCTAssertNil(s.node(c)?.frame, "control: c really is unmeasured")
+        XCTAssertNil(try XCTUnwrap(s.node(c)).frame, "control: c really is unmeasured")
         XCTAssertEqual(s.drawnLines.map(\.id), [l1])
     }
 
@@ -125,6 +125,35 @@ final class CanvasLineRenderTests: XCTestCase {
                        "control: the same geometry WITH a label does reserve one, "
                        + "so the emptiness above is not lineLabelBox returning "
                        + "nothing for everything")
+    }
+
+    /// Three readings of "whitespace is no name" and the renderer used to be the
+    /// odd one out: `LineInspector.normalise` and
+    /// `CanvasAccessibility.connectionPhrase` trim `.whitespacesAndNewlines`,
+    /// while `lineLabelBox` trimmed `.whitespaces` — space and tab only — so a
+    /// label of `"\n"` drew a pill with nothing in it and was announced as
+    /// nothing at all.
+    ///
+    /// The route in is a hand-edited sidecar: `CanvasSceneCodec` does not
+    /// normalise labels on load. It is NOT `add_canvas_scraps`, whose `connect`
+    /// carries no label to write.
+    ///
+    /// Disable experiment, run 2026-07-30: restore `.whitespaces` and the `"\n"`
+    /// case goes red on its own while `"\t"`, `" "` and the control stay green —
+    /// so the assertion is about the widening and not about the helper.
+    func test_aWhitespaceOnlyLabelDrawsNoPill() throws {
+        for blank in ["\n", "\t", " ", " \n\t "] {
+            let line = try XCTUnwrap(linked(label: blank).drawnLines.first)
+            XCTAssertTrue(CanvasRenderer.lineLabelBox(for: line).isEmpty,
+                          "a label of \(blank.debugDescription) is no name, so it "
+                          + "reserves no pill — the renderer trims the same set "
+                          + "LineInspector.normalise does")
+        }
+        let named = try XCTUnwrap(linked(label: "\nbecause\n").drawnLines.first)
+        XCTAssertFalse(CanvasRenderer.lineLabelBox(for: named).isEmpty,
+                       "control: a label that is only SURROUNDED by newlines still "
+                       + "has a name in it, so widening the trim must not swallow "
+                       + "the pill for everything containing one")
     }
 
     // MARK: - Culling
@@ -419,6 +448,11 @@ final class CanvasLineRenderTests: XCTestCase {
                 XCTAssertTrue(regionFrame.contains(point),
                               "the \(part) sample \(point) has left the region — "
                               + "re-derive it from CanvasRegionMetrics")
+                // The `?.` here is inside the PREDICATE, not on the subject: what
+                // is asserted nil is `first {}`, which is legitimately nil and is
+                // the whole point. An unmeasured node cannot contain the point
+                // either, so the chain's own nil is the right answer for it.
+                // nil-chain-ok: the optional chain is in the predicate
                 XCTAssertNil(s.unorderedNodes.first { $0.frame?.contains(point) == true },
                              "the \(part) sample \(point) has ended up under a card, "
                              + "which draws over the line and would satisfy the "

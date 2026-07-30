@@ -226,7 +226,7 @@ final class PromotionPieceRoutingTests: XCTestCase {
         let (root, store) = try await makeProject(type: .novel)
         let model = makeModel(at: root)
         model.withScene { $0.updateRegion(r1) { $0.boundPieceID = "ch-1" } }
-        XCTAssertNil(model.scene.node(a)?.boundPieceID, "nothing of its own")
+        XCTAssertNil(try XCTUnwrap(model.scene.node(a)).boundPieceID, "nothing of its own")
 
         let result = try await PromotionPerformer(store: store, model: model)
             .perform(plan(.scrap(a), .researchNote, store: store, model: model))

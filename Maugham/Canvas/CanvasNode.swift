@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Stable identity for a canvas node. A scrap's id is minted here; an item
 /// node's id is derived from the thing it points at, so the same research
@@ -11,9 +12,12 @@ public struct CanvasNodeID: Hashable, Codable, Sendable, CustomStringConvertible
     /// Item nodes are identified by what they reference. Two adds of the same
     /// research item resolve to one node.
     ///
-    /// 1C-a does not create item nodes — 1C-d owns the drag-in route (spec
-    /// §8A.1) — but this spelling is consumed by 1C-b and 1C-c and by the
-    /// sidecar codec, so it lives here and is pinned by test.
+    /// **1C-c3 is the first producer**: `CanvasClaudePlacement` mints one for the
+    /// page a batch of scraps was read off. Until then nothing in production
+    /// called this — the spelling existed for 1C-b, 1C-c and the sidecar codec,
+    /// and several comments in this directory rested on "nothing creates item
+    /// nodes yet". They no longer can. 1C-d still owns the writer's own drag-in
+    /// route (spec §8A.1) and the thumbnail that goes with it.
     public static func item(_ referenceId: String) -> CanvasNodeID {
         CanvasNodeID("item:\(referenceId)")
     }
@@ -90,6 +94,23 @@ public struct CanvasNode: Equatable, Sendable {
     /// own note, *and* its words are in a region's.
     public var contributedToItemID: String?
 
+    /// Who made this card. **nil means the writer**, which is why there is no
+    /// `.human` default: every card on every canvas written before 1C-c3 is the
+    /// writer's, and inventing a value for them would put an `author` key in
+    /// every sidecar for a feature nobody had used.
+    ///
+    /// **Written once, at creation, and never afterwards** — which is why
+    /// `CanvasScene` has no `setAuthor` beside `setPromotedItem`,
+    /// `setBoundPiece` and `setContributedItem`. Those three record something
+    /// that *happened to* a card and can be undone; this records where the card
+    /// came from, and that does not change because the writer edited it. A
+    /// setter would make provenance something the canvas can quietly rewrite.
+    ///
+    /// It reuses the annotation layer's provenance shape by name
+    /// (`AnnotationAuthor.SourceKind`, spec §8A.2) rather than minting a second
+    /// enum, so "Claude wrote this" means one thing across the whole app.
+    public var author: AnnotationAuthor.SourceKind?
+
     public init(id: CanvasNodeID,
                 kind: CanvasNodeKind,
                 origin: CGPoint,
@@ -98,7 +119,8 @@ public struct CanvasNode: Equatable, Sendable {
                 z: Int = 0,
                 promotedItemID: String? = nil,
                 boundPieceID: String? = nil,
-                contributedToItemID: String? = nil) {
+                contributedToItemID: String? = nil,
+                author: AnnotationAuthor.SourceKind? = nil) {
         self.id = id
         self.kind = kind
         self.origin = origin
@@ -108,6 +130,7 @@ public struct CanvasNode: Equatable, Sendable {
         self.promotedItemID = promotedItemID
         self.boundPieceID = boundPieceID
         self.contributedToItemID = contributedToItemID
+        self.author = author
     }
 
     /// The node's rect in canvas content coordinates, or nil if it has never
@@ -136,6 +159,19 @@ public enum CanvasCardMetrics {
     /// Below this a scrap wraps to one word per line and the measured height
     /// runs away.
     public static let minimumTextWidth: CGFloat = 40
+
+    /// The size `CanvasRenderer` draws an item node's placeholder label at, and
+    /// the size `itemPlaceholderHeight` measures a line of it with. **One
+    /// constant because those two must agree**: the height is derived from the
+    /// label, so a renderer that drew it a point larger would clip the only
+    /// thing on the card, and nothing about a placeholder that is one point
+    /// short looks like a broken measurement.
+    public static let itemLabelFontSize: CGFloat = 11
+
+    /// `itemPlaceholderHeight` lives in `CanvasScrapMeasure.swift` — one line of
+    /// `itemLabelFontSize` needs `NSFont`, and the model types in this directory
+    /// are deliberately Foundation-only. It is still a member of this type,
+    /// because this is where a card's geometry is looked up.
 
     public static func textWidth(forCardWidth width: CGFloat) -> CGFloat {
         max(minimumTextWidth, width - inset * 2)

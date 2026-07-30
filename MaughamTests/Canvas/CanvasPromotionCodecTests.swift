@@ -29,11 +29,11 @@ final class CanvasPromotionCodecTests: XCTestCase {
 
     func test_theSchemaIsFourBecauseThisSliceAddedAField() {
         // 1C-c2's own field (`promotedItemID`) is schema 4; the literal moved
-        // to 5 in 1C-c2a, which added `boundPieceID`, and to 6 in 1C-c2b,
-        // which added `contributedToItemID` — see
-        // `CanvasLineCodecTests.test_theSchemaVersionIsSix` for the other
-        // assertion of the same literal.
-        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 6)
+        // to 5 in 1C-c2a, which added `boundPieceID`, to 6 in 1C-c2b, which
+        // added `contributedToItemID`, and to 7 in 1C-c3, which added `author`
+        // — see `CanvasLineCodecTests.test_theSchemaVersionIsSeven` for the
+        // other assertion of the same literal.
+        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 7)
     }
 
     func test_aPromotedScrapKeepsItsArtifactAcrossASaveAndLoad() throws {
@@ -52,7 +52,7 @@ final class CanvasPromotionCodecTests: XCTestCase {
         var s = scene()
         s.setPromotedItem("res-9", for: a)
         s.setPromotedItem(nil, for: a)
-        XCTAssertNil(try roundTrip(s).node(a)?.promotedItemID)
+        XCTAssertNil(try XCTUnwrap(try roundTrip(s).node(a)).promotedItemID)
     }
 
     /// A schema-3 sidecar — every canvas 1C-c1 wrote — decodes unchanged rather
@@ -71,8 +71,8 @@ final class CanvasPromotionCodecTests: XCTestCase {
         """
         let decoded = try JSONDecoder().decode(CanvasSceneDTO.self, from: Data(json.utf8))
         let s = decoded.scene
-        XCTAssertNil(s.node(a)?.promotedItemID)
-        XCTAssertNil(s.region(r1)?.promotedItemID)
+        XCTAssertNil(try XCTUnwrap(s.node(a)).promotedItemID)
+        XCTAssertNil(try XCTUnwrap(s.region(r1)).promotedItemID)
         XCTAssertEqual(s.node(a)?.width, 240, "the rest of the file must survive the bump")
         XCTAssertEqual(s.region(r1)?.homeMembers, [a])
     }

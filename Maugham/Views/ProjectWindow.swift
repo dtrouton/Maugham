@@ -330,6 +330,17 @@ struct ProjectWindow: View {
             selectedPaletteCardId: $selectedPaletteCardId))
         .modifier(CanvasPromotionModifier(window: window, store: store,
                                           model: canvasModel, binderSegment: binderSegment))
+        // The writer's notice that Claude added cards to their canvas, and the way
+        // to go and look. One line, because this body has no expression budget
+        // (the Release type-check ceiling); the whole of the behaviour is in the
+        // modifier, and THIS LINE is what makes it reachable — deleting it leaves
+        // every token in that file present and every test green.
+        .modifier(CanvasClaudeArrivalModifier(url: url, window: window,
+                                              model: canvasModel,
+                                              persona: $persona,
+                                              binderSegment: $binderSegment,
+                                              showInspector: $showInspector,
+                                              documentStore: documentStore))
         .preferredColorScheme(preferredColorScheme)
     }
 
@@ -1294,6 +1305,11 @@ struct ProjectWindow: View {
             let s = try await ProjectStore.load(from: url)
             let ds = try await DocumentStore.open(url: url)
             s.documentStore = ds
+            // The canvas's equivalent, and set here for the same reason: the
+            // model is `@State` on this view, so nothing an MCP tool is handed
+            // can reach it otherwise. In `load()` and never in `body` — a store
+            // is not read from a view body or anything a body calls.
+            s.liveCanvas = canvasModel
             self.store = s
             self.documentStore = ds
             mcpRegistry.register(url: url, store: s)

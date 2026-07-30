@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Stable identity for a region. Minted by `CanvasInteraction.createRegion`
 /// with a uniqueness loop against the scene — never by a bare random call
@@ -72,6 +73,24 @@ public struct CanvasRegion: Equatable, Sendable {
     /// record of something that happened once.
     public var promotedItemID: String?
 
+    /// Who swept this region. **nil means the writer**, on exactly the terms
+    /// `CanvasNode.author` sets out — written once at creation, no setter, and
+    /// nil rather than `.human` so no sidecar written before 1C-c3 gains a key
+    /// for a feature nobody had used.
+    ///
+    /// It is here because **a region is drawn with a seeded lean too**, and the
+    /// lean is how the surface says a hand put a thing down (see
+    /// `CanvasMaterial.minimumTiltDegrees`). A region with no author to read
+    /// would either have to tilt always — saying a writer swept the region Claude
+    /// made — or never, which would make the whole signal say nothing about the
+    /// one primitive Claude creates on every call.
+    ///
+    /// Unlike a node's, it carries **no colour**: a region has no paper, only a
+    /// wash felt rather than seen (§4), and a second wash calibrated against the
+    /// first is the "region becomes the object" failure that dosage exists to
+    /// prevent. The angle is the whole of a region's provenance.
+    public let author: AnnotationAuthor.SourceKind?
+
     public init(id: CanvasRegionID,
                 label: String,
                 frame: CGRect,
@@ -79,7 +98,8 @@ public struct CanvasRegion: Equatable, Sendable {
                 appearances: Set<CanvasNodeID> = [],
                 boundPieceID: String? = nil,
                 isCollapsed: Bool = false,
-                promotedItemID: String? = nil) {
+                promotedItemID: String? = nil,
+                author: AnnotationAuthor.SourceKind? = nil) {
         self.id = id
         self.label = label
         self.frame = frame
@@ -90,6 +110,7 @@ public struct CanvasRegion: Equatable, Sendable {
         self.boundPieceID = boundPieceID
         self.isCollapsed = isCollapsed
         self.promotedItemID = promotedItemID
+        self.author = author
     }
 
     public var displayLabel: String { label.isEmpty ? Self.untitledLabel : label }

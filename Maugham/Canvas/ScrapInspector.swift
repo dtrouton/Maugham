@@ -74,6 +74,22 @@ struct ScrapInspector: View {
                 Text(CanvasRenderer.chipTitle(for: nodeID, in: model.scene,
                                               scraps: model.scraps))
                     .lineLimit(2)
+                // **Whose card this is** — the third fact this pane states, and
+                // the one CLAUDE.md rule 8 asks for on `CanvasNode.author`. The
+                // tint and the 0° lean say it to a writer who is already looking
+                // at the canvas; this is where it is inspectable, beside the words
+                // themselves rather than under "Promotion", because a card being
+                // Claude's is not something that has happened *to* it.
+                //
+                // Nothing at all for the writer's own cards, which is every card
+                // on every canvas made before this slice. **The same row the
+                // region arm renders** — `CanvasAuthorLine` is one implementation
+                // both arms are handed, for the reason `PromotedArtifactSection`
+                // is: this line lived here alone for one round, which is the same
+                // rule failing for the other half of the same field.
+                CanvasAuthorLineRow(
+                    line: CanvasAuthorLine.forCard(nodeID, in: model.scene,
+                                                   title: artifactTitle))
             } header: {
                 Text("Card")
             } footer: {
@@ -300,6 +316,20 @@ struct ScrapInspector: View {
         }
         return inherited ? .inherited(title: title) : .own(title: title)
     }
+
+    // MARK: - Where the card came from (spec §8A.2)
+    //
+    // `CanvasAuthorLine` is the whole of it, and it is deliberately not a member of
+    // this type. It lived here — as `ScrapInspector.Origin` — for one round, while
+    // a Claude REGION's pane said nothing about being Claude's: the same field, the
+    // same drawn signal, the same spoken term, and a surface for one half of it.
+    // The frame-path cost is stated in that file's class doc, under "What this
+    // costs on the frame path, honestly" — which covers both arms. **That pointer
+    // was false for one commit**: the extraction dropped the paragraph and left
+    // this sentence aimed at nothing, which is how a disclosure a review relied on
+    // stops holding without anything going red. What is worth repeating here is
+    // that it costs **nothing at all for the writer's own cards**, because the
+    // author check is one dictionary lookup and returns before any walk.
 
     /// **`mutateFromInspector`, never `mutate` (tripwire 32).** This Picker is in
     /// the right-hand column and a focused scrap holds "Edit Scrap" open behind

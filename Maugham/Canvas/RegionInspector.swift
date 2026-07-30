@@ -47,13 +47,30 @@ struct RegionInspectorPane: View {
             // was right while a scrap had nothing to say about itself — the
             // promoted mark is what changed that.
             //
-            // **The `.scrap` guard is not decoration.** Nothing creates item
-            // nodes yet (1C-d owns the drag-in route), but this pane routed
-            // EVERY `selectedNode` here, and every sentence in that arm is
-            // wrong for a reference: "The words live on the card" and
-            // "Promoting takes a copy" describe a scrap, and an item node
-            // cannot be promoted at all. An item node falls to the empty state
-            // below until 1C-d gives it an arm of its own.
+            // **The `.scrap` guard is not decoration**, and what it does is now a
+            // RULING rather than a technicality. Every sentence in that arm is
+            // wrong for a reference: "The words live on the card" and "Promoting
+            // takes a copy" describe a scrap, and an item node cannot be promoted
+            // at all. So an item node falls to the empty state below.
+            //
+            // This comment used to open "Nothing creates item nodes yet (1C-d
+            // owns the drag-in route)", and **1C-c3 falsified that**:
+            // `CanvasClaudePlacement` mints one on every `add_canvas_scraps` that
+            // names a source. The claim was load-bearing in exactly one
+            // direction — it is why "falls to the empty state" cost nothing — and
+            // the consequence now ships: a writer can click the dashed page card,
+            // watch it draw itself selected, and be told to select something. It
+            // is recorded as an accepted limit in ADR 0026 §10 and in AREA.md's
+            // "Not built" list rather than papered over here, because the fix is
+            // an arm with the reference's title, an **Open in Research** button
+            // and the provenance row — 1C-d's, alongside the thumbnail and the
+            // drag-in route, and not a comment's to invent.
+            //
+            // There is no click-through either: a double-click on an item node
+            // resolves `.unenterableNode` and does nothing, and
+            // `onOpenResearchItem` is reached only from the two arms above. The
+            // card arm's `Read from "<title>"` sentence, on the scraps read off
+            // the page, is the recovery path that does ship.
             // The SAME offer the region arm gets — already filtered to the pieces
             // a promotion can be routed to, so the two pickers cannot disagree
             // about what a writer may choose.
@@ -180,6 +197,22 @@ struct RegionInspector: View {
                 TextField("Name", text: $draftLabel, prompt: Text(CanvasRegion.untitledLabel))
                     .focused($labelFocused)
                     .onSubmit { commitLabel(draftLabel) }
+                // **Whose region this is**, beside its name — the region arm's half
+                // of `CanvasNode.author`'s surface, and it was missing for a round.
+                // A region carries no tint at all (no paper, no ink of its own), so
+                // its 1° lean is the whole of its drawn provenance and a lean is
+                // not something a pane can show; VoiceOver said `claudeTerm` and
+                // the one pane a writer can inspect it in said nothing, which is
+                // CLAUDE.md rule 8 and the previous slice's Critical exactly.
+                //
+                // Above the Piece picker and nowhere near "Promotion": a region
+                // being Claude's is an ATTRIBUTE and not an event, and under that
+                // heading it would start reading as a mark. Nothing at all for the
+                // writer's own regions. **The same row the card arm renders** —
+                // one implementation both arms are handed.
+                CanvasAuthorLineRow(
+                    line: CanvasAuthorLine.forRegion(regionID, in: model.scene,
+                                                     title: artifactTitle))
                 Toggle("Collapsed", isOn: Binding(
                     get: { region?.isCollapsed ?? false },
                     set: { commitCollapsed($0) }))
@@ -603,8 +636,13 @@ struct RegionInspector: View {
     /// canvas draws the region's label, its collapsed state and its members from
     /// inside a `Canvas` draw closure, where a model value is not in SwiftUI's
     /// dependency graph — the counter is mirrored into `CanvasView` and is what
-    /// gets the redraw. Nothing else here would: the writer never touched the
-    /// canvas, so no `@State` over there moved.
+    /// gets the redraw. **The bump is what MAKES it redraw, and it is not the
+    /// only `@State` these commits now move**: `CanvasModel.mutateFromInspector`
+    /// also fires `onSceneChangedExternally`, which the canvas binds to a layout
+    /// rebuild (1C-c3). Do not read that as a redraw this commit can rely on — it
+    /// exists for nodes arriving from outside with no measured height, it is
+    /// bound only while the canvas is on screen, and it deliberately suppresses
+    /// the structural bump. The counter is still the mechanism; keep the line.
     func commitLabel(_ new: String) {
         commitLabel(new, to: regionID)
     }

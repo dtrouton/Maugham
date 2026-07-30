@@ -228,7 +228,7 @@ final class PromotionCommandTests: XCTestCase {
     /// deep, and unreachable from the Edit menu — and all four instances of it
     /// were found by counting production sites, never by a test. This is the
     /// count, written down.
-    func test_theInspectorButtonsPostTheSameCommandAsTheMenu() throws {
+    func test_theCanvasWiringCensusNamesEveryProductionSite() throws {
         let census: [(path: String, required: [String], why: String)] = [
             ("Maugham/Canvas/RegionInspector.swift", [".maughamPromoteCanvasSelection"],
              "the region inspector's Promote… button must post the ONE command; a "
@@ -236,14 +236,24 @@ final class PromotionCommandTests: XCTestCase {
             ("Maugham/Canvas/LineInspector.swift", [".maughamPromoteCanvasSelection"],
              "the line inspector's Promote… button must post the ONE command; a "
              + "closure of its own would be a second path that can drift from the keystroke"),
-            ("Maugham/Canvas/ScrapInspector.swift", [".maughamPromoteCanvasSelection"],
+            ("Maugham/Canvas/ScrapInspector.swift", [".maughamPromoteCanvasSelection",
+                                                     "CanvasAuthorLine.forCard("],
              "the scrap inspector's Promote… button must post the ONE command; a "
-             + "closure of its own would be a second path that can drift from the keystroke"),
+             + "closure of its own would be a second path that can drift from the "
+             + "keystroke. The second token is 1C-c3's provenance line: "
+             + "`CanvasAuthorLine` and every sentence on it can be fully tested "
+             + "with nothing in `body` reading it, and a card that is Claude's "
+             + "would then say so on the canvas, in VoiceOver and nowhere the "
+             + "writer can inspect — which is CLAUDE.md rule 8 and the previous "
+             + "slice's Critical exactly. `RegionInspector`'s half of the same "
+             + "line is censused in `RegionBindingTests`, beside that arm's own "
+             + "source scans"),
             ("Maugham/Views/ProjectWindow.swift",
              [".onKeyWindowCommand(.maughamPromoteCanvasSelection",
               ".modifier(CanvasPromotionModifier(",
               "result.confirmation(for: plan)",
-              "PromotionPiece.resolve("],
+              "PromotionPiece.resolve(",
+              ".modifier(CanvasClaudeArrivalModifier("],
              "nothing in the window RECEIVES the command — every button and the "
              + "keystroke post into nothing, and no test that hosts its own "
              + "onKeyWindowCommand can see it. The second token is the mount line "
@@ -260,7 +270,11 @@ final class PromotionCommandTests: XCTestCase {
              + "The fourth is the PIECE (spec §6.2): `PromotionSheetModel.init` "
              + "has no default for it, so the compiler demands a value — but "
              + "`piece: .none` compiles, and every destination in the sheet then "
-             + "quietly reverts to the pre-§6.2 wording with nothing red"),
+             + "quietly reverts to the pre-§6.2 wording with nothing red. The FIFTH "
+             + "is 1C-c3's arrival banner, and it is the mount-line shape again one "
+             + "slice on: `CanvasClaudeArrivalModifier` is a whole file of its own, "
+             + "so every token in it stays present and its own census stays green "
+             + "while the writer is never told that Claude added anything"),
             ("Maugham/MaughamApp.swift",
              ["FocusedPromoteButton()", ".maughamPromoteCanvasSelection"],
              "the File-menu item is not IN the menu (or does not post this command), "
@@ -278,8 +292,9 @@ final class PromotionCommandTests: XCTestCase {
     /// matches something else, or a predicate inverted by a tidy-up all read as
     /// green — so the repo's convention is to pair one with a planted offender.
     ///
-    /// **All five plants are deliberately unspellable in production** — count
-    /// the array below, not this sentence; it said "three" over five. An
+    /// **Every plant is deliberately unspellable in production** — count the
+    /// assertions below rather than trusting a number in this sentence; it said
+    /// "three" over five once already, and "five" over seven after 1C-c3. An
     /// earlier draft planted `.onKeyWindowCommand(.maughamPromotePiece` — a
     /// *plausible* defect — and that made this self-check go red under the very
     /// mutation it was written to survive: breaking the receiver's name made the
@@ -332,6 +347,24 @@ final class PromotionCommandTests: XCTestCase {
                                          "PromotionPiece.notARealResolver("]),
             ["PromotionPiece.notARealResolver("],
             "the census reports the ABSENT piece token and not the present one")
+        // 1C-c3's arrival-banner mount line, falsified the same way. The
+        // subscription, the banner and the Show action all live in
+        // `CanvasClaudeArrivalModifier.swift`, so its own census stays green with
+        // this line deleted and the writer is simply never told.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: [".modifier(CanvasClaudeArrivalModifier(",
+                                         ".modifier(CanvasNotAnArrivalModifier("]),
+            [".modifier(CanvasNotAnArrivalModifier("],
+            "the census reports the ABSENT arrival-mount token and not the present one")
+        // And 1C-c3's provenance line in the card arm: `Origin` and its sentences
+        // are fully testable with nothing in `body` reading them.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Canvas/ScrapInspector.swift",
+                              required: ["CanvasAuthorLine.forCard(",
+                                         "CanvasAuthorLine.forNotARealSubject("]),
+            ["CanvasAuthorLine.forNotARealSubject("],
+            "the census reports the ABSENT provenance token and not the present one")
     }
 
     /// The name must not collide with the collection-piece promotion that

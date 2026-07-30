@@ -339,6 +339,88 @@ enum CanvasMaterial {
     /// it, and a second hue there would be a second answer to "what is selected".
     static let connectMarkDiameter: CGFloat = 8
 
+    // MARK: - Claude's hand
+
+    /// The paper of a card Claude put on the canvas, per appearance.
+    ///
+    /// Spec §8A.2 constraint 1: **the writer must be able to tell at a glance
+    /// what they wrote from what was read off a photograph.** This pair and the
+    /// line pair below are the whole of how that is said, and they are one
+    /// gesture on purpose — a cooler, slightly darker paper, and a
+    /// correspondingly cooler stroke, with the same ink, the same shape and the
+    /// same hairline weight. "Claude's" is then one thing to learn rather than
+    /// three. **Not a fourth mark**: `CanvasRenderer.drawCard`'s adjacency
+    /// warning already covers three (the promoted stripe, the resize triangle,
+    /// the connect dot), and a fourth of the same family is exactly what §6.3
+    /// spends its length arguing against — the writer would have no way to tell
+    /// which mark meant what.
+    ///
+    /// **The two appearances are not equally free, and that is arithmetic rather
+    /// than taste.** The mark is *darker than the writer's paper*, and the ceiling
+    /// on darkening is the ground at peak grain — below it a card reads as a hole
+    /// cut out of the surface (§7.2), which
+    /// `CanvasGroundTests.test_theCardIsLighterThanTheGroundInBothAppearances`
+    /// pins for BOTH papers.
+    ///
+    /// - **Light is bounded in RED and only in red.** The writer's paper is
+    ///   `textBackgroundColor`, i.e. white, over a 0.930 ground whose grain peaks
+    ///   at 0.9575 in red — so red may fall at most 0.0225 below white, and the
+    ///   shipped 0.980 spends all but 0.0025 of that. **Green and blue are not
+    ///   bound by red's ceiling**, and the first draft of this pair wrongly
+    ///   assumed they were: it dropped all three by similar amounts, which is a
+    ///   *dim*, and a 1.5% dim on white is near-invisible. The cool cast is bought
+    ///   by lowering red, so **blue is free to sit at 1.000** — holding it there
+    ///   and taking green down to meet red turns the dim into a *tint*, and hue at
+    ///   near-neutral is the discriminable axis. Measured against white: the
+    ///   uniform draft was ΔE2000 **1.36**, this is **2.79**, and red's headroom
+    ///   is byte-identical. That is the dark side's own insight (the hue flip
+    ///   below), applied to light.
+    /// - **Dark has room in every channel and uses it.** The writer's dark paper
+    ///   is a deliberately *warm* 0.235 grey against the ground's cool slate, so
+    ///   Claude's can be both meaningfully darker and cool — the hue flips as well
+    ///   as the value, which is the stronger of the two signals at this size.
+    ///
+    /// Light still reaches only ~70% of dark's ΔE, and it cannot do better without
+    /// moving red — i.e. without `lightGrainAmplitude` or `lightBase` coming down,
+    /// which is a recalibration of a material signed off on 2026-07-26 and is
+    /// Denver's call rather than a tidy-up. **The tilt is the other half of the
+    /// answer** (`minimumTiltDegrees`): Claude's things are drawn exactly
+    /// straight, which costs no colour budget at all.
+    ///
+    /// Authored in **sRGB**, like everything here: `NSColor(calibratedRed:)` with
+    /// the same digits resolves ~30% lighter and the lift is invisible in the
+    /// source.
+    static let lightClaudeCardPaper = NSColor(srgbRed: 0.980, green: 0.980, blue: 1.000,
+                                              alpha: 1)
+    static let darkClaudeCardPaper = NSColor(srgbRed: 0.198, green: 0.204, blue: 0.216,
+                                             alpha: 1)
+
+    /// The ink of a line Claude drew, per appearance — the counterpart of the
+    /// paper above, cooler by the same gesture against the writer's warm stroke.
+    ///
+    /// Authored at full alpha so `lineOpacity` stays the whole story about how
+    /// loud a line is, exactly as `lightLineStroke`/`darkLineStroke` are: two
+    /// alphas multiplying each other is how the tether reached 0.105 and
+    /// invisible.
+    ///
+    /// **Held at roughly the writer's own lightness rather than darkened.** The
+    /// card says "Claude's" with value *and* hue because it has a broad surface
+    /// to say it on; a 1.5 pt hairline has no such surface, and darkening it as
+    /// well would make Claude's lines quieter than the writer's rather than
+    /// merely different. Rec.709 luminance: light 0.279 against the writer's
+    /// 0.301, dark 0.755 against 0.783.
+    ///
+    /// **This pair is the one to watch.** At `lineWidth` 1.5 and `lineOpacity`
+    /// 0.6 no pixel on a hairline is even fully covered, and a hue shift may
+    /// simply be too quiet to read. Measured through `CanvasRenderer.draw`, the
+    /// strongest pixel on a bare run moves ~0.05 in light and ~0.08 in dark —
+    /// 14 and 21 levels of 255. **If that proves too quiet, the answer is these
+    /// four numbers and not a second mark**, and a line's provenance is carried
+    /// by `CanvasAccessibility.connectionPhrase` regardless of what the hairline
+    /// manages to say.
+    static let lightClaudeLineStroke = NSColor(srgbRed: 0.24, green: 0.28, blue: 0.38, alpha: 1)
+    static let darkClaudeLineStroke = NSColor(srgbRed: 0.68, green: 0.75, blue: 0.88, alpha: 1)
+
     // MARK: - Promotion
 
     /// The stripe down the left edge of a card that has produced a durable
@@ -396,23 +478,51 @@ enum CanvasMaterial {
 
     // MARK: - The tilt
 
-    /// The half-width of the seeded per-card rotation: every card sits somewhere
-    /// in `-maximumTiltDegrees ... +maximumTiltDegrees`, deterministically from
-    /// its id (§7.2 — nothing is rough, but everything was *put down* rather than
-    /// snapped to a grid).
+    /// The half-width of the seeded rotation: everything the writer put down
+    /// leans somewhere in `±minimumTiltDegrees ... ±maximumTiltDegrees`,
+    /// deterministically from its id (§7.2 — nothing is rough, but everything was
+    /// *put down* rather than snapped to a grid).
     ///
     /// **More tilt:** raise this. It is the only definition; `seededRotation`
     /// scales into it and everything downstream — the drawn angle, the caret's
     /// inverse transform, the culling bleed's overhang budget — derives from
     /// there.
     ///
-    /// 0.6° was the first calibration and read as almost square; 1.2° is the
-    /// writer's doubling, to see the range. `CanvasRenderer.cullingBleed` carries
+    /// 0.6° was the first calibration and read as almost square; 1.2° was the
+    /// writer's doubling, asked for to see the range; **1.0° is where he settled
+    /// it on 2026-07-27 (`dfde12e`) and it is his number, not a derived one.**
+    /// 1C-c3 added a floor under it rather than moving it — see
+    /// `minimumTiltDegrees`. `CanvasRenderer.cullingBleed` carries
     /// the overhang this produces and
     /// `CanvasRendererTests.test_theCullingBleedCoversTheRotationOverhangAtTheCalibratedTilt`
     /// re-does that arithmetic against whatever this is set to, so raising it
     /// further fails loudly rather than clipping a card corner at the window edge.
     static let maximumTiltDegrees: Double = 1.0
+
+    /// The DEAD BAND around zero, and the reason it exists is provenance rather
+    /// than looks (spec §8A.2 constraint 1).
+    ///
+    /// **Straight means Claude.** The surface already says "a hand put this here"
+    /// with the seeded lean, so the cheapest possible way to say "a machine put
+    /// this here" is to withhold it — Claude's cards and Claude's regions are
+    /// drawn at exactly 0°, and it costs no colour budget at all, which matters
+    /// because light mode has almost none (see `lightClaudeCardPaper`).
+    ///
+    /// That reading is only reliable if **true zero is reserved.** Before this,
+    /// `seededRotation` mapped a uniform sample straight onto
+    /// `±maximumTiltDegrees`, so a card whose seed landed near the middle drew
+    /// essentially straight and a writer's own card could pass for Claude's. A
+    /// signal that is usually right is worse than no signal: the failure it
+    /// invites is the writer trusting that a card is theirs when it is not. So
+    /// every human thing leans by at least this much, and the drawn angles are
+    /// two disjoint bands with a gap between them.
+    ///
+    /// **More separation:** raise this. It is bounded above by
+    /// `maximumTiltDegrees` — the band is `min…max` and a minimum that met the
+    /// maximum would give every card the same lean, which is the grid §7.2
+    /// rejects. `CanvasRendererTests.test_theTiltBandLeavesTrueZeroToClaude`
+    /// pins both ends.
+    static let minimumTiltDegrees: Double = 0.4
 
     // MARK: -
 

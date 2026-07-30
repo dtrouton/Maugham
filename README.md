@@ -36,7 +36,7 @@ Ask Claude `get_help` for any topic, or `list_maugham_tools` to see everything C
 
 ## Writing with Claude
 
-Maugham ships a local MCP server (`maugham-mcp`, bundled inside `Maugham.app/Contents/MacOS/`). Once configured, Claude Desktop can read your open projects (binder, manuscript, research, wiki-link graph), add research notes, and annotate the manuscript without mutating it. The manuscript itself stays yours — Claude operates in a parallel annotation layer, surfaced in Maugham's Annotations pane.
+Maugham ships a local MCP server (`maugham-mcp`, bundled inside `Maugham.app/Contents/MacOS/`). Once configured, Claude Desktop can read your open projects (binder, manuscript, research, wiki-link graph, planning canvas), add research notes, add cards to the planning canvas, and annotate the manuscript without mutating it. The manuscript itself stays yours — Claude operates in a parallel annotation layer, surfaced in Maugham's Annotations pane.
 
 Claude Desktop can also **publish** your project — compile it to PDF (bundled tectonic/LaTeX) or EPUB, co-authoring a per-project LaTeX template tuned to your typographic taste. Outputs land in the project's `Exports/` folder (shown in the binder). The template and a small `config.json` live under `.maugham/publish/`; `EMISSION.md` there is the authoritative contract describing what the body emitter produces. Ask Claude `list_maugham_tools` to see the full tool surface, or "set up publishing for this project."
 

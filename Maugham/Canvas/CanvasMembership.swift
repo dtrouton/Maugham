@@ -22,6 +22,17 @@ public enum CanvasMembership {
 
     /// Cite the node in `region` without moving it there. A reference, not a
     /// copy — "copies are rejected outright" (§4.3).
+    ///
+    /// **Its production callers are asserted BY NAME** —
+    /// `RegionBindingTests.test_makingAnAppearanceHasAProductionCaller`, which
+    /// fails both when the list empties and when it grows, so adding a caller
+    /// means adding an entry with its reason. This is written here as
+    /// *redundancy*, not as news: `Maugham/Canvas/AREA.md` already names that
+    /// test under Membership, and an implementer who read that very section
+    /// still wrote a second caller (`CanvasClaudePlacement`'s `.cited` case) and
+    /// left the census red for a whole task. The fact was recorded; it was not
+    /// recorded **where the choice is made**, which is right here, at the fork
+    /// between `join` (move the home) and this (cite it where it lives).
     public static func addAppearance(_ node: CanvasNodeID,
                                      to region: CanvasRegionID,
                                      in scene: inout CanvasScene) {

@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// The on-disk shape of `.maugham/canvas.json`.
 ///
@@ -7,7 +8,7 @@ import Foundation
 /// `CanvasScene` so the in-memory model is free to change shape without
 /// rewriting every writer's sidecar.
 struct CanvasSceneDTO: Codable {
-    static let currentSchemaVersion = 6   // was 5 (boundPieceID, 1C-c2a)
+    static let currentSchemaVersion = 7   // was 6 (contributedToItemID, 1C-c2b)
 
     var schemaVersion: Int
     var nodes: [NodeDTO]
@@ -22,6 +23,12 @@ struct CanvasSceneDTO: Codable {
     /// association (spec §6.2) belongs to the node, not to a collection here.
     /// **1C-c2b added `contributedToItemID` to `NodeDTO`, same shape again** —
     /// spec §6.3's contribution record belongs to the card it describes.
+    /// **1C-c3 added `author` to `NodeDTO`, `LineDTO` and `RegionDTO`, same shape
+    /// once more** — who made a card belongs to the card, who drew a line to the
+    /// line, and who swept a region to the region. All three arrived inside
+    /// schema 7 rather than taking a bump each: they are one slice's one fact
+    /// about provenance, they are optional so every older file still decodes, and
+    /// no build outside this branch has ever written a 7.
     var lines: [LineDTO]?
 
     struct NodeDTO: Codable {
@@ -36,6 +43,11 @@ struct CanvasSceneDTO: Codable {
         var promotedItemID: String?
         var boundPieceID: String?
         var contributedToItemID: String?
+        /// `AnnotationAuthor.SourceKind.rawValue`, absent for the writer's own
+        /// cards. Stored as a `String?` rather than the enum so an unrecognised
+        /// value is a decision this file makes (see `authorKind`) instead of a
+        /// throw that costs the whole sidecar.
+        var author: String?
     }
 
     struct RegionDTO: Codable {
@@ -53,11 +65,36 @@ struct CanvasSceneDTO: Codable {
         var boundPieceID: String?
         var isCollapsed: Bool
         var promotedItemID: String?
+        /// See `NodeDTO.author`. A region carries one because a region is drawn
+        /// with a seeded lean too, and straight is how the surface says Claude
+        /// swept it — see `CanvasRegion.author`.
+        var author: String?
     }
 
     struct LineDTO: Codable {
         var id, from, to: String
         var label: String?
+        /// See `NodeDTO.author`.
+        var author: String?
+    }
+
+    /// `author` off disk.
+    ///
+    /// **An unrecognised value reads as `.claude`, never as nil.** nil means the
+    /// writer, and the mark means *not your words* — so over-marking a card is a
+    /// question the writer can answer, while telling them they wrote a sentence
+    /// they did not is one they cannot. This is the only asymmetric decode in
+    /// this file: everywhere else an unreadable value is dropped (an unknown node
+    /// `kind`, a line naming a missing node), because there the safe direction is
+    /// to show less.
+    ///
+    /// **This is a floor, not a place to add author kinds.** A genuine third
+    /// author wants its own `AnnotationAuthor.SourceKind` case — reached here it
+    /// would be flattened into Claude's and lose its identity for good, since the
+    /// sidecar is the only record.
+    private static func authorKind(_ raw: String?) -> AnnotationAuthor.SourceKind? {
+        guard let raw else { return nil }
+        return AnnotationAuthor.SourceKind(rawValue: raw) ?? .claude
     }
 
     init(scene: CanvasScene) {
@@ -70,14 +107,16 @@ struct CanvasSceneDTO: Codable {
                                cachedHeight: n.cachedHeight, z: n.z,
                                promotedItemID: n.promotedItemID,
                                boundPieceID: n.boundPieceID,
-                               contributedToItemID: n.contributedToItemID)
+                               contributedToItemID: n.contributedToItemID,
+                               author: n.author?.rawValue)
             case .item(let ref):
                 return NodeDTO(id: n.id.raw, kind: "item", referenceId: ref,
                                x: n.origin.x, y: n.origin.y, width: n.width,
                                cachedHeight: n.cachedHeight, z: n.z,
                                promotedItemID: n.promotedItemID,
                                boundPieceID: n.boundPieceID,
-                               contributedToItemID: n.contributedToItemID)
+                               contributedToItemID: n.contributedToItemID,
+                               author: n.author?.rawValue)
             }
         }
         regions = scene.regions.map { r in
@@ -88,12 +127,16 @@ struct CanvasSceneDTO: Codable {
                       appearances: r.appearances.map(\.raw).sorted(),
                       boundPieceID: r.boundPieceID,
                       isCollapsed: r.isCollapsed,
-                      promotedItemID: r.promotedItemID)
+                      promotedItemID: r.promotedItemID,
+                      author: r.author?.rawValue)
         }
         // `scene.lines` is already id-sorted (that's its own doc comment's
         // reason); a second `.sorted()` here would be a second opinion about
         // the order.
-        lines = scene.lines.map { LineDTO(id: $0.id.raw, from: $0.from.raw, to: $0.to.raw, label: $0.label) }
+        lines = scene.lines.map {
+            LineDTO(id: $0.id.raw, from: $0.from.raw, to: $0.to.raw,
+                    label: $0.label, author: $0.author?.rawValue)
+        }
     }
 
     /// Unknown node kinds are DROPPED, not fatal (ADR 0015's spirit): a canvas
@@ -115,7 +158,8 @@ struct CanvasSceneDTO: Codable {
                                 width: dto.width, cachedHeight: dto.cachedHeight, z: dto.z,
                                 promotedItemID: dto.promotedItemID,
                                 boundPieceID: dto.boundPieceID,
-                                contributedToItemID: dto.contributedToItemID))
+                                contributedToItemID: dto.contributedToItemID,
+                                author: Self.authorKind(dto.author)))
         }
 
         // AFTER the nodes, and the order is the whole of the scrub: a node of an
@@ -144,7 +188,8 @@ struct CanvasSceneDTO: Codable {
                 appearances: real(dto.appearances).union(contested),
                 boundPieceID: dto.boundPieceID,
                 isCollapsed: dto.isCollapsed,
-                promotedItemID: dto.promotedItemID))
+                promotedItemID: dto.promotedItemID,
+                author: Self.authorKind(dto.author)))
         }
 
         // Endpoint validation, the same shape the region loader applies to
@@ -154,7 +199,8 @@ struct CanvasSceneDTO: Codable {
         for dto in lines ?? [] {
             let from = CanvasNodeID(dto.from), to = CanvasNodeID(dto.to)
             guard s.node(from) != nil, s.node(to) != nil else { continue }
-            s.insertLine(CanvasLine(id: CanvasLineID(dto.id), from: from, to: to, label: dto.label))
+            s.insertLine(CanvasLine(id: CanvasLineID(dto.id), from: from, to: to,
+                                    label: dto.label, author: Self.authorKind(dto.author)))
         }
         return s
     }

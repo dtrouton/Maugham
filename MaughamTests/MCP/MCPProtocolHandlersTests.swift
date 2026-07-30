@@ -58,6 +58,7 @@ final class MCPProtocolHandlersTests: XCTestCase {
             "read_translation", "write_translation", "translation_status",
             "set_piece_style", "clear_piece_style",
             "list_inbox", "read_inbox_entry", "promote_inbox_entry",
+            "list_canvas", "add_canvas_scraps",
             "list_maugham_tools", "get_help"
         ]))
     }

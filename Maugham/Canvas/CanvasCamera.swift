@@ -40,6 +40,27 @@ struct CanvasCamera: Equatable {
                size: CGSize(width: viewSize.width / zoom, height: viewSize.height / zoom))
     }
 
+    /// Where a revealed point is put, in view coordinates.
+    ///
+    /// Not the origin: a region's chrome bar and label flush against the window's
+    /// top-left corner reads as clipped rather than as arrived. Not centred
+    /// either — centring needs the viewport size, and this view deliberately has
+    /// no `GeometryReader` (the size exists only inside the `Canvas` closure), so
+    /// a fixed inset is the whole of what can be honoured without inventing one.
+    static let revealViewPoint = CGPoint(x: 120, y: 120)
+
+    /// Pan so that `content` sits at `view` — `viewPoint(fromContent:)` solved
+    /// for `pan`, which is what makes the round trip a test rather than an
+    /// argument.
+    ///
+    /// **Zoom is untouched, deliberately.** A reveal that also zoomed would
+    /// change what the writer can see of their own work in order to show them
+    /// somebody else's, and "fit this rect" needs the viewport size this view
+    /// does not have outside its draw closure.
+    mutating func bring(_ content: CGPoint, toViewPoint view: CGPoint) {
+        pan = CGPoint(x: view.x - content.x * zoom, y: view.y - content.y * zoom)
+    }
+
     /// Translate the content by `delta`, in VIEW points. Sign is the caller's
     /// decision; this only applies it.
     mutating func panBy(_ delta: CGSize) {
