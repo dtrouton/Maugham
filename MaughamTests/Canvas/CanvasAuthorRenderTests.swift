@@ -168,9 +168,13 @@ final class CanvasAuthorRenderTests: XCTestCase {
             XCTAssertEqual(
                 tinted.pixels(matching: CanvasRenderer.claudeCardPaper,
                               under: scheme, in: itemBody), 0,
-                "under \(named) a reference was painted in Claude's paper by a hand-edited "
-                + "author — it already exists as itself, and tinting it would say Claude "
-                + "took the photograph")
+                "under \(named) a reference was painted in Claude's paper — and "
+                + "`author: .claude` is the ORDINARY state of one, not a hand-edited "
+                + "sidecar: `CanvasClaudePlacement` writes it on every source page it "
+                + "creates. The page already exists as itself and its words are the "
+                + "writer's, so tinting it would say Claude took the photograph. The "
+                + "tilt is what carries the placement, and `CanvasAccessibility` "
+                + "speaks it.")
             XCTAssertGreaterThan(
                 tinted.pixels(matching: CanvasRenderer.claudeCardPaper,
                               under: scheme, in: scrapBody),
