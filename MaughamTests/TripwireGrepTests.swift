@@ -108,6 +108,14 @@ final class TripwireGrepTests: XCTestCase {
     ///     ProjectWindow.swift, a SwiftUI Identifiable on a never-persisted enum).
     ///   - Comment lines (// or ///  prefix after trim) — doc-comments that
     ///     explain the hazard are fine; the danger is in executable expressions.
+    ///   - A line carrying `// hashvalue-inmemory-ok: <reason>` — the same escape
+    ///     shape as `// adr-0018-ok:` and `// nil-chain-ok:`, and it was added
+    ///     for one real caller: `CanvasItemIndex.fingerprint` (1C-d) is a
+    ///     per-process CACHE key that is never written, never compared across
+    ///     processes and never part of an id or a filename. **The reason is not
+    ///     optional** — the marker without one does not excuse the line, because
+    ///     an escape nobody has to justify is an escape the next author reaches
+    ///     for instead of `StableHash`.
     func test_noHashValueInPersistedIdConstruction() throws {
         let offenders = try grepSwift(
             in: sourceDir,
@@ -118,6 +126,12 @@ final class TripwireGrepTests: XCTestCase {
                 if trimmed.contains("Identifiable") || trimmed.contains("Hashable") { return true }
                 // Allow: comment lines (the hazard note in DeviceSlug was a comment)
                 if trimmed.hasPrefix("//") { return true }
+                // Allow: an explicit, reasoned in-memory escape. The reason is
+                // required — the marker alone is not enough.
+                if let marker = trimmed.range(of: "// hashvalue-inmemory-ok:"),
+                   !trimmed[marker.upperBound...].trimmingCharacters(in: .whitespaces).isEmpty {
+                    return true
+                }
                 return false
             }
         )

@@ -281,14 +281,18 @@ struct CanvasInteraction {
             //
             // Without the kind test this gesture DELETED an item node from the
             // surface. `CanvasScene.setWidth` clears `cachedHeight` by design —
-            // the next measure pass refills it — and there is no measure pass for
-            // an item node's *width*: `CanvasView.rebuildLayouts` now heals a
-            // missing height to `itemPlaceholderHeight`, but only when it runs,
-            // and a node with no height has no `frame`, so mid-drag the card is
-            // invisible to `topmostNode(at:)`, to `nodes(intersecting:)` and to
-            // the renderer at once. `cachedHeight: nil` is also what the sidecar
-            // persists. An item node's width is not the writer's to set until
-            // 1C-d makes it mean something.
+            // the next measure pass refills it — and when this guard was written
+            // there was no measure pass for an item node at all, so mid-drag the
+            // card was invisible to `topmostNode(at:)`, to `nodes(intersecting:)`
+            // and to the renderer at once, and `cachedHeight: nil` is what the
+            // sidecar persists.
+            //
+            // **1C-d Task 5 supplied the pass**: `CanvasView.rebuildLayouts` now
+            // measures an item card from its picture's aspect ratio and floors it
+            // at `CanvasCardMetrics.itemLabelOnlyHeight`, so a cleared height is
+            // refilled exactly as a scrap's is. That is what makes handing the
+            // corner back safe — and it is **Task 6's** change, together with the
+            // mark in `drawCard`, not something to do here in passing.
             let handle = CanvasRenderer.resizeHandleSize
             if case .scrap = node.kind,
                contentPoint.x >= frame.maxX - handle, contentPoint.y >= frame.maxY - handle {

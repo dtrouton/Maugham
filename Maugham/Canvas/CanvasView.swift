@@ -81,9 +81,12 @@ struct CanvasView: View {
     /// re-evaluates on every drag, coast and straighten frame — tripwire 4's
     /// per-row manifest walk arriving on the frame path.
     ///
-    /// It defaults to `.empty` for the same reason `CanvasAccessibility.elements`
-    /// does: the call sites are ~70 test hosts and one production window, and the
-    /// production one is censused by name in
+    /// It defaults to `.empty` for the same reason the accessibility tree's own
+    /// item parameter does (named in that file rather than here, because a raw
+    /// source scan on this one takes the FIRST mention of that builder as the
+    /// call site — contract 4 in the header above): the call sites are ~70 test
+    /// hosts and one production window, and the production one is censused by
+    /// name in
     /// `PromotionCommandTests.test_theCanvasWiringCensusNamesEveryProductionSite`
     /// — a required token, which is what this directory uses where a default
     /// would otherwise let wiring go missing with nothing red.

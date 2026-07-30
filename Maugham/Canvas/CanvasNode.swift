@@ -173,18 +173,20 @@ public enum CanvasCardMetrics {
     /// runs away.
     public static let minimumTextWidth: CGFloat = 40
 
-    /// The size `CanvasRenderer` draws an item node's placeholder label at, and
-    /// the size `itemPlaceholderHeight` measures a line of it with. **One
-    /// constant because those two must agree**: the height is derived from the
-    /// label, so a renderer that drew it a point larger would clip the only
-    /// thing on the card, and nothing about a placeholder that is one point
-    /// short looks like a broken measurement.
+    /// The size `CanvasRenderer` draws an item node's title at, and the size
+    /// `itemLabelLineHeight` measures a line of it with. **One constant because
+    /// those two must agree**: the card's height is derived from that line, so a
+    /// renderer that drew it a point larger would clip the only thing on a card
+    /// with no picture, and nothing about a card that is one point short looks
+    /// like a broken measurement.
     public static let itemLabelFontSize: CGFloat = 11
 
-    /// `itemPlaceholderHeight` lives in `CanvasScrapMeasure.swift` — one line of
-    /// `itemLabelFontSize` needs `NSFont`, and the model types in this directory
-    /// are deliberately Foundation-only. It is still a member of this type,
-    /// because this is where a card's geometry is looked up.
+    /// The rest of an item card's geometry — `itemLabelLineHeight`,
+    /// `itemLabelOnlyHeight` (the floor), the gaps, and the rects the picture and
+    /// the label are drawn in — lives in `CanvasScrapMeasure.swift`, because
+    /// measuring a line of text needs `NSFont` and the model types in this
+    /// directory are deliberately Foundation-only. They are still members of this
+    /// type, because this is where a card's geometry is looked up.
 
     public static func textWidth(forCardWidth width: CGFloat) -> CGFloat {
         max(minimumTextWidth, width - inset * 2)

@@ -131,7 +131,34 @@ final class CanvasAccessibilityTests: XCTestCase {
         let element = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps)
             .first { $0.id == .node(.item("r-9")) }
         XCTAssertEqual(element?.role, .item)
-        XCTAssertTrue(element?.value.contains("r-9") == true)
+        XCTAssertEqual(element?.label, "Reference")
+    }
+
+    /// **What an item node READS OUT is its title, and never its reference id**
+    /// *(1C-d)*. It was `Item · r-9` — the placeholder label — which was honest
+    /// only while the card drew the same string; a card that shows "Notebook
+    /// page 3" over an element that says `Item · r-9` is a drawn/spoken
+    /// divergence nobody decided, and the two on this surface that ARE decided
+    /// are recorded as such in `Maugham/Canvas/AREA.md`.
+    ///
+    /// The id assertion is the one that matters and it is written as an absence,
+    /// with the title equality beside it as the control: "does not contain the
+    /// id" is satisfied by an empty string, and an element that says nothing is
+    /// the §7A.6 failure this whole layer exists to prevent.
+    func test_anItemNodeReadsOutItsTitleRatherThanItsReferenceId() throws {
+        let scene = sampleScene()
+        let index = CanvasItemIndex(entriesByID: [
+            "r-9": .init(title: "Notebook page 3", kind: .researchNote)])
+        let element = try XCTUnwrap(
+            CanvasAccessibility.elements(scene: scene, scraps: scraps,
+                                         items: .facts(in: scene, index: index))
+                .first { $0.id == .node(.item("r-9")) })
+
+        XCTAssertEqual(element.value, "Notebook page 3")
+        XCTAssertFalse(element.value.contains("r-9"),
+                       "an item node still reads out its reference id — a code is not "
+                       + "something a listener can act on, and the card beside it "
+                       + "draws a title")
     }
 
     // MARK: - Regions (§7A.6 — a primitive the writer can see and the VoiceOver

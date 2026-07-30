@@ -253,7 +253,8 @@ final class PromotionCommandTests: XCTestCase {
               ".modifier(CanvasPromotionModifier(",
               "result.confirmation(for: plan)",
               "PromotionPiece.resolve(",
-              ".modifier(CanvasClaudeArrivalModifier("],
+              ".modifier(CanvasClaudeArrivalModifier(",
+              "itemIndex: Self.canvasItemIndex(in: store)"],
              "nothing in the window RECEIVES the command — every button and the "
              + "keystroke post into nothing, and no test that hosts its own "
              + "onKeyWindowCommand can see it. The second token is the mount line "
@@ -274,7 +275,16 @@ final class PromotionCommandTests: XCTestCase {
              + "is 1C-c3's arrival banner, and it is the mount-line shape again one "
              + "slice on: `CanvasClaudeArrivalModifier` is a whole file of its own, "
              + "so every token in it stays present and its own census stays green "
-             + "while the writer is never told that Claude added anything"),
+             + "while the writer is never told that Claude added anything. The "
+             + "SIXTH is 1C-d's item index, and it is the first token here that "
+             + "guards a DEFAULT rather than a call: `CanvasView.itemIndex` and "
+             + "`RegionInspectorPane.itemIndex` both default to `.empty`, which "
+             + "is a real state (a canvas hosted without a window) and therefore "
+             + "compiles and runs — so deleting either argument leaves every "
+             + "canvas test green while every item node on the writer's canvas "
+             + "reads \"No longer in the project.\" over research notes that are "
+             + "sitting in their binder. The default earns its keep against ~70 "
+             + "test hosts; this token is what pays for it"),
             ("Maugham/MaughamApp.swift",
              ["FocusedPromoteButton()", ".maughamPromoteCanvasSelection"],
              "the File-menu item is not IN the menu (or does not post this command), "
@@ -338,6 +348,16 @@ final class PromotionCommandTests: XCTestCase {
                                          "result.notARealConfirmation(for: plan)"]),
             ["result.notARealConfirmation(for: plan)"],
             "the census reports the ABSENT result token and not the present one")
+        // And 1C-d's item index, falsified with a builder that cannot exist. This
+        // is the plant that matters most of the set, because the token it guards
+        // protects a DEFAULT: dropping `itemIndex:` at either call site compiles,
+        // runs, and is invisible to every other test.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: ["itemIndex: Self.canvasItemIndex(in: store)",
+                                         "itemIndex: Self.canvasNotAnItemIndex(in: store)"]),
+            ["itemIndex: Self.canvasNotAnItemIndex(in: store)"],
+            "the census reports the ABSENT item-index token and not the present one")
         // And the piece token. `piece: .none` at the call site compiles and every
         // performer test still passes, while the sheet's whole destination half
         // is back to what shipped before §6.2.

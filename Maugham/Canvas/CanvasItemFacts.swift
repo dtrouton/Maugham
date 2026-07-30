@@ -46,7 +46,7 @@ struct CanvasItemFacts: Equatable, Sendable {
     ///
     /// **The subject is elided deliberately**, and the alternatives were
     /// weighed rather than skipped. This string is drawn as a ONE-LINE card
-    /// label (`CanvasCardMetrics.itemPlaceholderHeight` is one line at
+    /// label (`CanvasCardMetrics.itemLabelOnlyHeight` is one line at
     /// `itemLabelFontSize`) as well as read in the pane, so length is not free:
     /// "What this points at is no longer in the project." truncates on a
     /// default-width card to something less useful than nothing, and "This is
@@ -114,9 +114,8 @@ struct CanvasItemFacts: Equatable, Sendable {
 /// is not a `kind` in the manifest at all but a position in the tree
 /// (`PaletteLookup.paletteCards`, which this file's own `over(research:)` calls
 /// twenty lines down — the name here read `PaletteConvention` for one commit,
-/// which is a *different* enum in the same file with no such member). This is the
-/// union the canvas actually
-/// draws from, which is neither.
+/// which is a *different* enum in the same file with no such member). This is
+/// the union the canvas actually draws from, which is neither.
 enum CanvasItemKind: Equatable, Hashable, Sendable, CaseIterable {
     case researchNote
     case paletteCard
@@ -243,7 +242,10 @@ struct CanvasItemIndex: Equatable, Sendable {
 
     init(entriesByID: [String: Entry]) {
         self.entriesByID = entriesByID
-        self.fingerprint = entriesByID.hashValue
+        // hashvalue-inmemory-ok: a per-process cache key, never written, never
+        // compared across processes, and never part of an id or a filename — see
+        // `fingerprint`'s own "In-memory only" paragraph above.
+        self.fingerprint = entriesByID.hashValue  // hashvalue-inmemory-ok: cache key only
     }
 
     /// No project behind it: every referenced item resolves to `missingTitle`, and
