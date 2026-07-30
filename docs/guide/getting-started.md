@@ -101,4 +101,19 @@ A promoted card wears a **thin stripe down its left edge**, and a promoted regio
 
 **A promoted line is the exception, and it is worth knowing before you press ⌘Z.** A line leaves no stripe — what it produced is a `[[wiki-link]]` inside somebody else's note, and a flag on the line could disagree with the file — so there is nothing on the canvas to take back and **the promotion puts nothing on the undo stack at all**. Press ⌘Z after promoting a line and you will undo whatever you did on the canvas *before* it. To remove the link, open the note and delete the line of text.
 
+#### What Claude can put on the canvas
+
+If you have Claude connected (see [Writing with Claude](claude-desktop.md)), it can **read your canvas** and **add cards to it**. This is the one place Claude puts words on a surface of yours — and it is a scratch surface, on the far side of promoting, so nothing it adds is in your manuscript and nothing gets there without you asking.
+
+The case it is built for: you write on actual paper, photograph it with your phone, and Claude reads the page and puts what is on it onto the canvas as cards.
+
+- **Claude cannot choose where a card goes.** There is no way for it to name a position, a card or a region — the canvas decides. Everything it adds in one go lands together in **one labelled region**, so a batch never arrives scattered across your work, and the region is placed clear of everything you have already put down.
+- **When the words came off a page you photographed, that page goes in the region too**, at the top, above what was read off it. So you can see what Claude read and what it made of it in one place. *For now the page shows as a placeholder card carrying its reference — the picture itself arrives with the rest of the image work.*
+- **Claude's cards are visibly Claude's, three ways.** Your cards sit at a slight angle; **Claude's are perfectly straight**, so a straight card is never yours. They also take a slightly cooler paper, and lines Claude drew a slightly cooler stroke. VoiceOver says *from Claude* on the card, on the region and on the page.
+- **Claude can draw lines between the cards it just added**, but never names one — a line's name is yours to write, or to leave off. And it cannot draw a line to a card of yours.
+- **You are told when a batch arrives**, by a line at the top of the window naming the count and the region. **Show** takes you to Plan, opens the Inspector and brings the region on screen; it fades on its own if you'd rather carry on.
+- **One ⌘Z takes back a whole batch** — the region, the page, every card and every word of it, in one keystroke. It is one arrival, so it is one undo.
+- **From there it is yours, exactly like anything else on the canvas.** Move it, rewrite it, delete it, or **promote** it. There is no queue to approve and nothing to accept: the canvas is scratch, and the marking is what makes leaving it there a real choice rather than a default. A card stays marked as Claude's even after you have rewritten every word of it — the mark says who put it there, which is a fact about what happened.
+- **Promoting is still the only way any of it becomes durable**, on the same terms as your own cards: a note, a palette card, a line in your craft intent, and never without the sheet.
+
 Dragging research onto the canvas is still to come.
