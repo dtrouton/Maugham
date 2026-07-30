@@ -43,7 +43,7 @@ Write:
 - Promote a capture-inbox entry into research — unscoped, or scoped to a chapter/piece
 - Move research items (including whole groups) between shared research, a group, and a collection piece's research folder — link associations update automatically
 - Add text notes and suggested changes to the Annotations pane (non-destructive proposals you review, accept, reject, or undo with ⌘Z)
-- Add cards to your **planning canvas** — the case it is built for is a page you wrote on paper and photographed. Claude cannot choose where a card goes: everything it adds lands together in one labelled region, placed clear of your own work, with the page it read at the top of it. Its cards are drawn perfectly straight where yours lean, so a straight card is never yours, and one ⌘Z takes back a whole batch. See [Getting Started → What Claude can put on the canvas](getting-started.md#what-claude-can-put-on-the-canvas)
+- Add cards to your **planning canvas** — the case it is built for is a page you wrote on paper and photographed. Claude cannot choose where a card goes: everything it adds lands together in one labelled region, placed clear of your own work, with the page it read at the top of it. Its cards are drawn perfectly straight where yours lean, so a card that leans is one of yours, and one ⌘Z takes back a whole batch. See [Getting Started → What Claude can put on the canvas](getting-started.md#what-claude-can-put-on-the-canvas)
 
 Claude doesn't modify your manuscript text directly — proposals appear as annotations you control. See [Annotations & Suggestions](annotations-and-suggestions.md) for how to accept, reject, or undo changes.
 
