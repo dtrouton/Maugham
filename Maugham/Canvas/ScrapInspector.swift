@@ -74,6 +74,21 @@ struct ScrapInspector: View {
                 Text(CanvasRenderer.chipTitle(for: nodeID, in: model.scene,
                                               scraps: model.scraps))
                     .lineLimit(2)
+                // **Whose card this is** — the third fact this pane states, and
+                // the one CLAUDE.md rule 8 asks for on `CanvasNode.author`. The
+                // tint and the 0° lean say it to a writer who is already looking
+                // at the canvas; this is where it is inspectable, beside the words
+                // themselves rather than under "Promotion", because a card being
+                // Claude's is not something that has happened *to* it.
+                //
+                // Nil for the writer's own cards, which is every card on every
+                // canvas made before this slice — see `Origin.sentence`.
+                if let sentence = Self.origin(for: nodeID, in: model.scene,
+                                              title: artifactTitle).sentence {
+                    Text(sentence)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } header: {
                 Text("Card")
             } footer: {
@@ -299,6 +314,115 @@ struct ScrapInspector: View {
             return unoffered(resolved, pieceTitle: pieceTitle, inherited: inherited)
         }
         return inherited ? .inherited(title: title) : .own(title: title)
+    }
+
+    // MARK: - Where the card came from (spec §8A.2)
+
+    /// Whose hand made this card, and — when the canvas can still say so — the
+    /// page its words were read off.
+    ///
+    /// **A third fact, not a fourth wording of either promotion record.** A card
+    /// may be Claude's *and* have produced an artifact *and* have had its words
+    /// folded into a region's; those are three different claims, and §6.3's rule
+    /// against one sentence serving two records applies here twice over. In
+    /// particular this must not read as a promotion: re-promoting a Claude card is
+    /// exactly as available as re-promoting the writer's own, and a line that
+    /// sounded like a mark would say otherwise.
+    ///
+    /// A value rather than an `if` in `body`, for this file's standing reason —
+    /// which arm of a `_ConditionalContent` renders cannot be asserted and a
+    /// `Form`'s contents are not inspectable, so a decision left in `body` is
+    /// unreachable from any test that does not host SwiftUI.
+    /// `PieceAssociation` and `PromotedArtifactSection.Provenance` are the same
+    /// shape for the same reason.
+    enum Origin: Equatable {
+        /// `CanvasNode.author` is nil — the writer's. **The pane says nothing**,
+        /// deliberately: a line reading "Added by you" is chrome stating the
+        /// default, on every card on every canvas made before 1C-c3.
+        case writer
+        /// Claude's, with no source page the canvas can name.
+        case claude
+        /// Claude's, off a research item the card's home region still holds.
+        case claudeReadFrom(title: String)
+
+        /// Nil is not an empty string: it is the difference between a card with
+        /// nothing to declare and a row rendering as blank space.
+        ///
+        /// **One wording for one fact.** "from Claude" is
+        /// `CanvasAccessibility.claudeTerm`, the region a batch lands in is
+        /// `CanvasClaudePlacement.defaultRegionLabel` ("From Claude") and the undo
+        /// step is `CanvasClaudeWrite.undoStepName` ("Add Scraps from Claude") — so
+        /// this reuses those words rather than coining a fifth phrasing. The
+        /// second sentence names the page; two sentences rather than one clause
+        /// because the source is a separate fact and half of these cards do not
+        /// have one.
+        var sentence: String? {
+            switch self {
+            case .writer: return nil
+            case .claude: return "From Claude."
+            case .claudeReadFrom(let title):
+                return "From Claude. Read from “\(title)”."
+            }
+        }
+    }
+
+    /// Resolve the card's origin, and the page behind it.
+    ///
+    /// **`author == .claude`, the predicate `CanvasRenderer.paper(for:)` and
+    /// `CanvasAccessibility` already use** — not `author != nil`, so a card
+    /// explicitly marked `.human` reads as the writer's rather than as a third
+    /// state this pane would have to invent a sentence for.
+    ///
+    /// **The source is the region's item member, and the region records no
+    /// "source" role.** `CanvasClaudePlacement` puts the page Claude read in the
+    /// same region as the cards — created and homed there, adopted if it was
+    /// already loose, or cited if the writer had already given it a home — so all
+    /// three cases are found by asking which of the region's members is an item
+    /// node. It is read from the MEMBERSHIP rather than from a field because there
+    /// is no field: a page-to-cards relationship is not in the data model, and
+    /// inventing one for a sentence would be a schema change for a caption. The
+    /// honest consequence: a writer who later drops a second research item into
+    /// Claude's region can make this name that one instead. The `.sorted()` keeps
+    /// the answer the same twice running when there is more than one candidate —
+    /// `CanvasMembership.homeRegion`'s reason for walking `regions` rather than
+    /// `unorderedRegions`.
+    ///
+    /// **The title is the deferred lookup the pane already holds** — the same one
+    /// the mark and the contribution record resolve through, so a page the writer
+    /// has since deleted falls back to the plain sentence instead of printing an
+    /// id. A `store` is never read from a `body` or from anything a `body` calls.
+    ///
+    /// **What this costs on the frame path, honestly.** This body is what is on
+    /// screen at 60–120 Hz while a writer drags a card (a drag opens with a
+    /// `clickCount: 1` mouse-down that selects it), and this file already accepts
+    /// two `Promotion.piece` walks there on stated terms. What this adds is
+    /// **nothing at all for the writer's own cards** — the author check is one
+    /// dictionary lookup and returns before any walk — and, for a Claude card, one
+    /// more `homeRegion` walk of the same shape as the two already paid plus one
+    /// pass over that one region's members. Nothing here was measured, and this
+    /// file does not use that word without a figure and a date beside it. The gate,
+    /// if it is ever wanted, is `RegionInspector`'s `(sceneRevision, id)` cache;
+    /// `author` is written once at creation and never afterwards, so the key would
+    /// be correct.
+    ///
+    /// Static, so a test drives exactly what the view does.
+    static func origin(for nodeID: CanvasNodeID, in scene: CanvasScene,
+                       title: (String) -> String?) -> Origin {
+        guard scene.node(nodeID)?.author == .claude else { return .writer }
+        guard let homeID = CanvasMembership.homeRegion(of: nodeID, in: scene),
+              let home = scene.region(homeID) else { return .claude }
+        let sources = home.homeMembers.union(home.appearances)
+            .compactMap { member -> String? in
+                guard case .item(let reference) = scene.node(member)?.kind else {
+                    return nil
+                }
+                return reference
+            }
+            .sorted()
+        guard let reference = sources.first, let resolved = title(reference) else {
+            return .claude
+        }
+        return .claudeReadFrom(title: resolved)
     }
 
     /// **`mutateFromInspector`, never `mutate` (tripwire 32).** This Picker is in

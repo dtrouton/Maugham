@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// The third arm of the canvas inspector. Which SwiftUI arm renders cannot be
@@ -596,5 +597,155 @@ final class ScrapInspectorTests: XCTestCase {
         // very mutation it is written to survive.
         XCTAssertFalse(text.contains("Picker(\"NotARealSection\""),
                        "the scan reads the file rather than always answering true")
+    }
+
+    // MARK: - Where the card came from (spec §8A.2)
+
+    /// A card in a Claude region, with the page the words were read off in the
+    /// region beside it — the shape `CanvasClaudePlacement.plan` produces for a
+    /// call carrying `source_item_id`.
+    private func claudeModel(source: String? = nil,
+                             author: AnnotationAuthor.SourceKind? = .claude) -> CanvasModel {
+        let m = CanvasModel()
+        m.attach(projectRoot: root)
+        m.withScene { s in
+            s.insert(CanvasNode(id: self.a, kind: .scrap, origin: .zero,
+                                width: 240, cachedHeight: 80, author: author))
+            s.insertRegion(CanvasRegion(
+                id: self.r1, label: CanvasClaudePlacement.defaultRegionLabel,
+                frame: CGRect(x: 0, y: 0, width: 600, height: 400),
+                homeMembers: [self.a], author: .claude))
+            if let source {
+                let page = CanvasNodeID.item(source)
+                s.insert(CanvasNode(id: page, kind: .item(referenceId: source),
+                                    origin: CGPoint(x: 0, y: 200), width: 240,
+                                    cachedHeight: 40, author: .claude))
+                CanvasMembership.join(page, home: self.r1, in: &s)
+            }
+        }
+        m.setScrapText("The falls at night", for: a)
+        return m
+    }
+
+    /// **CLAUDE.md rule 8, on `CanvasNode.author`.** The tint and the tilt say
+    /// *this is not yours* to a writer who is looking at the canvas; the pane is
+    /// where the fact is inspectable, and a card's pane said nothing about it.
+    func test_aClaudeCardSaysSoInItsInspector() {
+        let m = claudeModel()
+        let origin = ScrapInspector.origin(for: a, in: m.scene, title: artifacts)
+        XCTAssertEqual(origin, .claude)
+        let sentence = origin.sentence ?? ""
+        XCTAssertFalse(sentence.isEmpty,
+                       "a card the writer did not write must say so in its own pane")
+        // **One wording for one fact.** The spoken term is `claudeTerm`, the
+        // region a batch lands in is `defaultRegionLabel`, and the undo step is
+        // `undoStepName`. A fifth phrasing here would make one thing sound like
+        // several.
+        XCTAssertTrue(sentence.lowercased()
+            .contains(CanvasAccessibility.claudeTerm.lowercased()),
+                      "found: \(sentence), which does not contain "
+                      + "\"\(CanvasAccessibility.claudeTerm)\"")
+    }
+
+    /// The source page, named — resolved through the **deferred** `artifactTitle`
+    /// closure the pane already holds, which is the same lookup the promoted mark
+    /// and the contribution record use. A `store` is never read from a `body` or
+    /// from anything a `body` calls.
+    func test_aCardWhoseSourceIsKnownNamesIt() {
+        let m = claudeModel(source: "res-fog")
+        let origin = ScrapInspector.origin(for: a, in: m.scene, title: artifacts)
+        XCTAssertEqual(origin, .claudeReadFrom(title: "Act II fog"))
+        XCTAssertEqual(origin.sentence,
+                       "From Claude. Read from “Act II fog”.")
+    }
+
+    /// The page the writer has since deleted. It falls back to the plain sentence
+    /// rather than printing `res-gone` — the treatment both promotion records
+    /// already get, for the reason `contributionArtifactMissing` records: an id is
+    /// not something the writer can read.
+    func test_aSourcePageTheWriterHasDeletedIsNotNamedByItsId() {
+        let m = claudeModel(source: "res-gone")
+        let origin = ScrapInspector.origin(for: a, in: m.scene, title: artifacts)
+        XCTAssertEqual(origin, .claude)
+        XCTAssertFalse((origin.sentence ?? "").contains("res-gone"),
+                       "found: \(origin.sentence ?? "nil")")
+    }
+
+    /// **Nothing new for the writer's own cards.** `nil` author means the writer
+    /// (`CanvasNode.author`), so this guards against a line reading "Added by
+    /// you" — chrome stating the default, on every card on every canvas made
+    /// before this slice.
+    func test_theWritersOwnCardsSayNothingNew() {
+        let mine = claudeModel(source: "res-fog", author: nil)
+        XCTAssertEqual(ScrapInspector.origin(for: a, in: mine.scene, title: artifacts),
+                       .writer,
+                       "a nil author is the writer, and the source page sitting in "
+                       + "the same region must not make their own card claim to have "
+                       + "been read off it")
+        XCTAssertNil(ScrapInspector.Origin.writer.sentence,
+                     "the writer's own card has no provenance line at all")
+        // The control, so this is about the AUTHOR and not about the fixture: the
+        // same scene with the author restored does say something.
+        let theirs = claudeModel(source: "res-fog")
+        XCTAssertNotNil(ScrapInspector.origin(for: a, in: theirs.scene,
+                                              title: artifacts).sentence)
+    }
+
+    /// A card with no region at all — Claude always lands in one, but an undo, a
+    /// hand-edited sidecar or a later drag can leave one loose. It still says
+    /// whose it is; only the source half goes.
+    func test_aClaudeCardOutsideAnyRegionStillSaysWhoseItIs() {
+        let m = CanvasModel()
+        m.withScene { s in
+            s.insert(CanvasNode(id: self.a, kind: .scrap, origin: .zero,
+                                width: 240, cachedHeight: 80, author: .claude))
+        }
+        XCTAssertEqual(ScrapInspector.origin(for: a, in: m.scene, title: artifacts),
+                       .claude)
+    }
+
+    /// **Three facts, three sentences.** A card can be Claude's, *and* have
+    /// produced an artifact, *and* have had its words folded into a region's — and
+    /// §6.3's rule is that one sentence for two records is the pane inviting the
+    /// rewrite it forbids. The provenance line is a THIRD fact, so it must read
+    /// like neither of the other two, and specifically must not read as a
+    /// promotion: re-promoting a Claude card is as available as re-promoting the
+    /// writer's own.
+    func test_theProvenanceLineIsNotTheMarkOrTheContribution() {
+        let m = claudeModel(source: "res-fog")
+        m.withScene { s in
+            s.setPromotedItem("res-a", for: self.a)
+            s.setContributedItem("res-fog", for: self.a)
+        }
+        let provenance = PromotedArtifactSection.provenance(
+            promotedItemID: m.scene.node(a)?.promotedItemID,
+            contributedToItemID: m.scene.node(a)?.contributedToItemID,
+            title: artifacts)
+        let origin = ScrapInspector.origin(for: a, in: m.scene, title: artifacts)
+
+        // All three are present at once, and none of them is the other two.
+        let sentences = [origin.sentence,
+                         PromotedArtifactSection.Subject.card.became("The falls at night"),
+                         PromotedArtifactSection.wordsAreIn("Act II fog")]
+            .compactMap { $0 }
+        XCTAssertEqual(sentences.count, 3,
+                       "all three facts must have a sentence, or the loop below "
+                       + "passes by having nothing to compare")
+        XCTAssertEqual(Set(sentences).count, 3, "found: \(sentences)")
+        XCTAssertEqual(provenance.artifact,
+                       .promoted(itemID: "res-a", title: "The falls at night"))
+        XCTAssertEqual(provenance.contribution,
+                       .contributed(itemID: "res-fog", title: "Act II fog"))
+
+        // And the provenance line does not borrow either record's words. Both are
+        // checked, because "Became" and "words are in" are the two phrasings a
+        // fourth sentence would drift into.
+        let line = origin.sentence ?? ""
+        XCTAssertFalse(line.contains("Became"), "found: \(line)")
+        XCTAssertFalse(line.lowercased().contains("words are in"), "found: \(line)")
+        XCTAssertFalse(line.lowercased().contains("promot"),
+                       "a provenance line that reads as a promotion is a card "
+                       + "telling the writer it has already been promoted — found: "
+                       + "\(line)")
     }
 }

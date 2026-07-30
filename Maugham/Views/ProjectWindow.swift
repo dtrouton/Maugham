@@ -330,6 +330,16 @@ struct ProjectWindow: View {
             selectedPaletteCardId: $selectedPaletteCardId))
         .modifier(CanvasPromotionModifier(window: window, store: store,
                                           model: canvasModel, binderSegment: binderSegment))
+        // The writer's notice that Claude added cards to their canvas, and the way
+        // to go and look. One line, because this body has no expression budget
+        // (the Release type-check ceiling); the whole of the behaviour is in the
+        // modifier, and THIS LINE is what makes it reachable — deleting it leaves
+        // every token in that file present and every test green.
+        .modifier(CanvasClaudeArrivalModifier(url: url, window: window,
+                                              model: canvasModel,
+                                              persona: $persona,
+                                              binderSegment: $binderSegment,
+                                              documentStore: documentStore))
         .preferredColorScheme(preferredColorScheme)
     }
 
