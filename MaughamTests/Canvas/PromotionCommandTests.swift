@@ -237,14 +237,17 @@ final class PromotionCommandTests: XCTestCase {
              "the line inspector's Promote… button must post the ONE command; a "
              + "closure of its own would be a second path that can drift from the keystroke"),
             ("Maugham/Canvas/ScrapInspector.swift", [".maughamPromoteCanvasSelection",
-                                                     "Self.origin(for: nodeID"],
+                                                     "CanvasAuthorLine.forCard("],
              "the scrap inspector's Promote… button must post the ONE command; a "
              + "closure of its own would be a second path that can drift from the "
-             + "keystroke. The second token is 1C-c3's provenance line: `Origin` and "
-             + "every sentence on it can be fully tested with nothing in `body` "
-             + "reading it, and a card that is Claude's would then say so on the "
-             + "canvas, in VoiceOver and nowhere the writer can inspect — which is "
-             + "CLAUDE.md rule 8 and the previous slice's Critical exactly"),
+             + "keystroke. The second token is 1C-c3's provenance line: "
+             + "`CanvasAuthorLine` and every sentence on it can be fully tested "
+             + "with nothing in `body` reading it, and a card that is Claude's "
+             + "would then say so on the canvas, in VoiceOver and nowhere the "
+             + "writer can inspect — which is CLAUDE.md rule 8 and the previous "
+             + "slice's Critical exactly. `RegionInspector`'s half of the same "
+             + "line is censused in `RegionBindingTests`, beside that arm's own "
+             + "source scans"),
             ("Maugham/Views/ProjectWindow.swift",
              [".onKeyWindowCommand(.maughamPromoteCanvasSelection",
               ".modifier(CanvasPromotionModifier(",
@@ -358,9 +361,9 @@ final class PromotionCommandTests: XCTestCase {
         // are fully testable with nothing in `body` reading them.
         XCTAssertEqual(
             try missingTokens(in: "Maugham/Canvas/ScrapInspector.swift",
-                              required: ["Self.origin(for: nodeID",
-                                         "Self.notARealOrigin(for: nodeID"]),
-            ["Self.notARealOrigin(for: nodeID"],
+                              required: ["CanvasAuthorLine.forCard(",
+                                         "CanvasAuthorLine.forNotARealSubject("]),
+            ["CanvasAuthorLine.forNotARealSubject("],
             "the census reports the ABSENT provenance token and not the present one")
     }
 

@@ -632,7 +632,7 @@ final class ScrapInspectorTests: XCTestCase {
     /// where the fact is inspectable, and a card's pane said nothing about it.
     func test_aClaudeCardSaysSoInItsInspector() {
         let m = claudeModel()
-        let origin = ScrapInspector.origin(for: a, in: m.scene, title: artifacts)
+        let origin = CanvasAuthorLine.forCard(a, in: m.scene, title: artifacts)
         XCTAssertEqual(origin, .claude)
         let sentence = origin.sentence ?? ""
         XCTAssertFalse(sentence.isEmpty,
@@ -653,7 +653,7 @@ final class ScrapInspectorTests: XCTestCase {
     /// from anything a `body` calls.
     func test_aCardWhoseSourceIsKnownNamesIt() {
         let m = claudeModel(source: "res-fog")
-        let origin = ScrapInspector.origin(for: a, in: m.scene, title: artifacts)
+        let origin = CanvasAuthorLine.forCard(a, in: m.scene, title: artifacts)
         XCTAssertEqual(origin, .claudeReadFrom(title: "Act II fog"))
         XCTAssertEqual(origin.sentence,
                        "From Claude. Read from “Act II fog”.")
@@ -665,7 +665,7 @@ final class ScrapInspectorTests: XCTestCase {
     /// not something the writer can read.
     func test_aSourcePageTheWriterHasDeletedIsNotNamedByItsId() {
         let m = claudeModel(source: "res-gone")
-        let origin = ScrapInspector.origin(for: a, in: m.scene, title: artifacts)
+        let origin = CanvasAuthorLine.forCard(a, in: m.scene, title: artifacts)
         XCTAssertEqual(origin, .claude)
         XCTAssertFalse((origin.sentence ?? "").contains("res-gone"),
                        "found: \(origin.sentence ?? "nil")")
@@ -677,17 +677,17 @@ final class ScrapInspectorTests: XCTestCase {
     /// before this slice.
     func test_theWritersOwnCardsSayNothingNew() {
         let mine = claudeModel(source: "res-fog", author: nil)
-        XCTAssertEqual(ScrapInspector.origin(for: a, in: mine.scene, title: artifacts),
+        XCTAssertEqual(CanvasAuthorLine.forCard(a, in: mine.scene, title: artifacts),
                        .writer,
                        "a nil author is the writer, and the source page sitting in "
                        + "the same region must not make their own card claim to have "
                        + "been read off it")
-        XCTAssertNil(ScrapInspector.Origin.writer.sentence,
+        XCTAssertNil(CanvasAuthorLine.writer.sentence,
                      "the writer's own card has no provenance line at all")
         // The control, so this is about the AUTHOR and not about the fixture: the
         // same scene with the author restored does say something.
         let theirs = claudeModel(source: "res-fog")
-        XCTAssertNotNil(ScrapInspector.origin(for: a, in: theirs.scene,
+        XCTAssertNotNil(CanvasAuthorLine.forCard(a, in: theirs.scene,
                                               title: artifacts).sentence)
     }
 
@@ -708,10 +708,10 @@ final class ScrapInspectorTests: XCTestCase {
         }
         // The control is the fixture one test up: the SAME model with one page
         // names it, so this is about the count and not about the scene.
-        XCTAssertEqual(ScrapInspector.origin(for: a, in: claudeModel(source: "res-fog").scene,
+        XCTAssertEqual(CanvasAuthorLine.forCard(a, in: claudeModel(source: "res-fog").scene,
                                              title: artifacts),
                        .claudeReadFrom(title: "Act II fog"))
-        XCTAssertEqual(ScrapInspector.origin(for: a, in: m.scene, title: artifacts),
+        XCTAssertEqual(CanvasAuthorLine.forCard(a, in: m.scene, title: artifacts),
                        .claude,
                        "with two pages in the region there is no source to name")
     }
@@ -725,7 +725,7 @@ final class ScrapInspectorTests: XCTestCase {
             s.insert(CanvasNode(id: self.a, kind: .scrap, origin: .zero,
                                 width: 240, cachedHeight: 80, author: .claude))
         }
-        XCTAssertEqual(ScrapInspector.origin(for: a, in: m.scene, title: artifacts),
+        XCTAssertEqual(CanvasAuthorLine.forCard(a, in: m.scene, title: artifacts),
                        .claude)
     }
 
@@ -746,7 +746,7 @@ final class ScrapInspectorTests: XCTestCase {
             promotedItemID: m.scene.node(a)?.promotedItemID,
             contributedToItemID: m.scene.node(a)?.contributedToItemID,
             title: artifacts)
-        let origin = ScrapInspector.origin(for: a, in: m.scene, title: artifacts)
+        let origin = CanvasAuthorLine.forCard(a, in: m.scene, title: artifacts)
 
         // All three are present at once, and none of them is the other two.
         let sentences = [origin.sentence,

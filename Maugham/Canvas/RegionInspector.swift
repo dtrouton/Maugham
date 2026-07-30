@@ -180,6 +180,22 @@ struct RegionInspector: View {
                 TextField("Name", text: $draftLabel, prompt: Text(CanvasRegion.untitledLabel))
                     .focused($labelFocused)
                     .onSubmit { commitLabel(draftLabel) }
+                // **Whose region this is**, beside its name — the region arm's half
+                // of `CanvasNode.author`'s surface, and it was missing for a round.
+                // A region carries no tint at all (no paper, no ink of its own), so
+                // its 1° lean is the whole of its drawn provenance and a lean is
+                // not something a pane can show; VoiceOver said `claudeTerm` and
+                // the one pane a writer can inspect it in said nothing, which is
+                // CLAUDE.md rule 8 and the previous slice's Critical exactly.
+                //
+                // Above the Piece picker and nowhere near "Promotion": a region
+                // being Claude's is an ATTRIBUTE and not an event, and under that
+                // heading it would start reading as a mark. Nothing at all for the
+                // writer's own regions. **The same row the card arm renders** —
+                // one implementation both arms are handed.
+                CanvasAuthorLineRow(
+                    line: CanvasAuthorLine.forRegion(regionID, in: model.scene,
+                                                     title: artifactTitle))
                 Toggle("Collapsed", isOn: Binding(
                     get: { region?.isCollapsed ?? false },
                     set: { commitCollapsed($0) }))
