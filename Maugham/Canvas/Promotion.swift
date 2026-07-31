@@ -608,7 +608,9 @@ enum Promotion {
     /// were all nil together and the writer met an empty Name field, no
     /// destination, no message and a dead button. An item node offered `[]` and
     /// said nothing at all. Both are answered here, where the sheet already
-    /// looks.
+    /// looks. **Since 1C-d that second one is the REFERENCED item node** — an
+    /// owned picture is offered two targets and blocked by nothing, and the arm
+    /// below says nil for it explicitly rather than by falling through.
     ///
     /// It takes `scraps` for the empty case, which is the one fact about a card
     /// the scene does not hold.
@@ -818,8 +820,16 @@ enum Promotion {
                 wikiLinkWrite: nil, mode: request.mode,
                 paletteKind: request.paletteKind,
                 contributors: bodies.map(\.0), linkAlreadyPresent: false,
-                // A region joins its members' TEXT; the pictures among them are
-                // not carried across, and §6.1's discard notice says so.
+                // A region joins its members' TEXT: `regionBodies` reads the
+                // scrap table, and an owned picture is not in it, so a picture
+                // living in a promoted region contributes nothing and is
+                // recorded as nothing. **Whether a region holding a photograph
+                // should carry it into the palette card it produces is §6's
+                // 2026-07-29 amendment's own open question** ("its case gets
+                // stronger in 1C-d: a palette card is worth making from a region
+                // that holds an image"), and it is a decision about the REGION's
+                // row rather than about this one — left unbuilt rather than
+                // guessed at here.
                 picture: nil)
 
         case .line(let id):

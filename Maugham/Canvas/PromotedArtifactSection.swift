@@ -65,10 +65,12 @@ struct PromotedArtifactSection: View {
     /// nothing failed, and a region promoted to a research note said *Became the
     /// palette card “Act II fog”* over an **Open** button that opened a note.
     ///
-    /// So `became` names no kind for either subject: both arms can now produce
-    /// more than one, and neither is told which. It is deliberately not a
-    /// `switch` with two identical arms — that shape invites a later edit to
-    /// re-divide them, which is exactly how this broke.
+    /// So `became` names no kind for any subject: every arm can now produce more
+    /// than one, and none is told which. It is deliberately not a `switch` with
+    /// identical arms — that shape invites a later edit to re-divide them, which
+    /// is exactly how this broke. (`wordsAreIn` below *is* a switch, and that is
+    /// not an inconsistency: a picture has no words, so those arms genuinely
+    /// differ.)
     ///
     /// `noun` still differs, and that is still correct: the dangling sentence
     /// says which *thing* on the canvas was promoted, which no promotion can

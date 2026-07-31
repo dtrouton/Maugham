@@ -129,7 +129,12 @@ final class PromotionPictureTests: XCTestCase {
         XCTAssertNil(Promotion.blockedReason(for: .scrap(owned), in: scene(),
                                              scraps: [:], artifacts: index()),
                      "so the writer never reads it before Commit")
-        for target in Promotion.targets(for: .scrap(owned), in: scene(), artifacts: index()) {
+        let offered = Promotion.targets(for: .scrap(owned), in: scene(), artifacts: index())
+        XCTAssertFalse(offered.isEmpty,
+                       "the control for the loop below, which would pass over an "
+                       + "empty list — and an empty list is what this whole task "
+                       + "changed")
+        for target in offered {
             XCTAssertFalse([PromotionTarget.researchNote, .paletteCard, .intentStatement]
                             .contains(target),
                            "and never after: the three rows whose `validate` arm "

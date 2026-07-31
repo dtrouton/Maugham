@@ -265,10 +265,10 @@ final class PromotionPicturePerformerTests: XCTestCase {
     /// stack after the promotion, and what is underneath it after one ⌘Z — which
     /// is also what the writer reads in the Edit menu.
     ///
-    /// The gesture is open on purpose: this runs from the right-hand column while
-    /// a focused scrap holds "Edit Scrap", which is tripwire 32's own repro.
-    /// `mutate` here would nest, register nothing, and ride into the writer's
-    /// next sentence.
+    /// No gesture is open here — the step underneath is an ordinary edit, which
+    /// is what makes "exactly one was consumed" readable. The mid-gesture case
+    /// is `test_theMarkIsItsOwnStepWithAScrapGestureOpen` below, and it is the
+    /// one tripwire 32 is actually about.
     func test_oneUndoTakesBackTheWholePicturePromotionInOneStep() async throws {
         let (root, store) = try await makeProject()
         let path = try await ingest(into: store)
@@ -317,6 +317,40 @@ final class PromotionPicturePerformerTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(model.scene.node(owned)).contributedToItemID)
         XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Move Card"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
+    }
+
+    /// **Tripwire 32's own repro, on both picture rows.** The promotion runs from
+    /// the right-hand column while a focused scrap holds "Edit Scrap" open —
+    /// nothing on that side of the window closes it, and the performer has no
+    /// gesture of its own to protect. With `mutate` instead of
+    /// `mutateFromInspector` the write nests, registers **no step at all**, and
+    /// rides into the writer's next sentence, so a ⌘Z aimed at a sentence takes
+    /// the mark with it.
+    ///
+    /// The assertion is the step's NAME again: mid-gesture, a nested write leaves
+    /// "Edit Scrap" on top.
+    func test_theMarkIsItsOwnStepWithAScrapGestureOpen() async throws {
+        let (root, store) = try await makeProject()
+        let card = try await makeFurnishedCard(in: store)
+        let path = try await ingest(into: store, named: "one.png")
+        let other = try await ingest(into: store, named: "two.png")
+        let model = makeModel(at: root, ownedPath: path, secondPath: other)
+        let performer = PromotionPerformer(store: store, model: model)
+        model.undoManager.groupsByEvent = false
+
+        model.beginGesture("Edit Scrap")          // the writer is typing in a card
+        _ = try await performer.perform(try plan(owned, .researchAsset,
+                                                 store: store, model: model))
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Picture"),
+                      "found: \(model.undoManager.undoMenuItemTitle)")
+
+        _ = try await performer.perform(
+            try plan(second, .paletteCardImage, store: store, model: model,
+                     paletteCardID: card.researchItemId))
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Picture"),
+                      "the contribution row takes the same bracket — found: "
+                      + "\(model.undoManager.undoMenuItemTitle)")
+        model.endGesture()
     }
 
     // MARK: - Validate first, write second

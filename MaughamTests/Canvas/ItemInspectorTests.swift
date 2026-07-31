@@ -96,6 +96,11 @@ final class ItemInspectorTests: XCTestCase {
     /// ingested the picture and there is no research item behind it. It gets its
     /// own sentence rather than the deleted reference's: those are two different
     /// facts and one sentence would be wrong for one of them.
+    ///
+    /// **And it must stay true after a promotion** (Task 8): the sentence said
+    /// "There's nothing in Research to open." while the promotion section three
+    /// rows down offered an **Open** onto exactly that. It names the act instead,
+    /// and the assertion below is what keeps the old claim from coming back.
     func test_anOwnedPictureSaysThereIsNothingInResearchToOpen() throws {
         let owned = ItemInspector.openAffordance(for: .owned(path: ownedPath),
                                                  in: index())
@@ -113,6 +118,15 @@ final class ItemInspectorTests: XCTestCase {
         // content with the storage answer.
         XCTAssertFalse(ownedWhy.contains(ownedPath), "found: \(ownedWhy)")
         XCTAssertFalse(ownedWhy.contains("canvas_assets"), "found: \(ownedWhy)")
+        // **And never a claim about what Research holds.** A promoted picture's
+        // own section, three rows down, offers an Open onto the copy it made;
+        // this row asserting there is nothing to open is two sentences on one
+        // screen with one of them false. It is about the CARD.
+        XCTAssertFalse(ownedWhy.lowercased().contains("nothing in research"),
+                       "found: \(ownedWhy)")
+        XCTAssertTrue(ownedWhy.contains("canvas"),
+                      "the control: it still says where the picture lives — "
+                      + "found: \(ownedWhy)")
 
         guard case .explanation(let missingWhy) = ItemInspector
             .openAffordance(for: .project(id: "res-3f2a"), in: index()) else {

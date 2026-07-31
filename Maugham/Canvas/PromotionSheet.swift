@@ -62,6 +62,13 @@ final class PromotionSheetModel: Identifiable {
     var linksAccepted = false
     var paletteKind: PaletteCard.Kind = .other
 
+    /// A palette card the picture can be added to. `Identifiable` for `ForEach`;
+    /// a tuple cannot be one.
+    struct PaletteCardChoice: Identifiable, Equatable {
+        let id: String
+        let title: String
+    }
+
     /// Every palette card the project holds, for `.paletteCardImage`'s picker.
     /// Read off `ArtifactIndex` — which already walked the manifest once when
     /// this sheet opened — rather than from the store, so the whole class stays
@@ -79,12 +86,6 @@ final class PromotionSheetModel: Identifiable {
         }
     }
 
-    /// A palette card the picture can be added to. `Identifiable` for `ForEach`;
-    /// a tuple cannot be one.
-    struct PaletteCardChoice: Identifiable, Equatable {
-        let id: String
-        let title: String
-    }
     /// Changing this after a target is chosen re-derives `preview` in place —
     /// see the `didSet` below. Picking Update must move what "Goes to" shows,
     /// not just what Commit would do.

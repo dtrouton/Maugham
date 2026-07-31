@@ -7,10 +7,12 @@ import SwiftUI
 /// A selected page card drew the selected stroke and the connect dot while the
 /// pane said *"Select something on the canvas."* — recorded in ADR 0026 §10 as a
 /// decision rather than a bug, because every sentence in `ScrapInspector` is
-/// wrong for a reference: "The words live on the card" and "Promoting takes a
-/// copy" describe a scrap, and an item node cannot be promoted at all. So
-/// `RegionInspectorPane`'s `.scrap` ruling stands and this arm is what it was
-/// waiting for.
+/// wrong for an item node: "The words live on the card" describes a scrap, its
+/// Piece picker associates something a photograph does not have, and a reference
+/// cannot be promoted at all. So `RegionInspectorPane`'s `.scrap` ruling stands
+/// and this arm is what it was waiting for. (That last clause read "an item node
+/// cannot be promoted at all" until Task 8, when an *owned* one could — the arm's
+/// copy is what differs, not the verb.)
 ///
 /// **Small on purpose: the title, one act, and the provenance row.** A
 /// *referenced* card is a pointer, so there is nothing here to edit — its title,
@@ -231,7 +233,7 @@ struct ItemInspector: View {
                                in index: CanvasItemIndex) -> OpenAffordance {
         switch reference {
         case .owned:
-            return .explanation(ownedHasNothingToOpen)
+            return .explanation(ownedLivesOnTheCanvas)
         case .project(let id):
             guard index.entry(of: id) != nil else { return .explanation(referenceIsGone) }
             return .open(itemID: id)
@@ -248,8 +250,18 @@ struct ItemInspector: View {
     ///
     /// *Falsification:* if an owned image ever gains a home in the project the
     /// writer can navigate to, this is a link rather than a sentence.
-    static let ownedHasNothingToOpen =
-        "This picture lives on the canvas. There's nothing in Research to open."
+    ///
+    /// **It read "There's nothing in Research to open." until Task 8 made that
+    /// half false on the same screen.** A promoted picture's own section, three
+    /// rows down, says *Became “…”* over an **Open** that goes straight to
+    /// Research — so the pane asserted there was nothing to open directly above
+    /// the button that opens it. What stays true in both states is the fact this
+    /// row is actually about: the *card* is not a research item, and promoting is
+    /// what puts a copy there. (The section below is the one that names the copy;
+    /// this sentence deliberately does not, or the two would drift.)
+    static let ownedLivesOnTheCanvas =
+        "This picture lives on the canvas. Promoting it is what puts a copy in "
+        + "Research."
 
     /// **A dangling reference is not an error state** — the writer deleted the
     /// note, and the card is still theirs. `CanvasItemFacts.missingTitle` has
