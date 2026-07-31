@@ -111,6 +111,27 @@ Typing a scrap is the quickest way to put something on the canvas, and it is not
 
 Anything that is not a picture is refused with a line saying so, rather than landing as a card that can never draw.
 
+**A card that stands for something shows what it is, not a code.** Its real title, a small glyph for what kind of thing it is, and — when it is a picture — the picture. Drag its corner and it grows the way any card does; a photograph keeps its shape as it goes, so nothing is ever squashed to fit. Select one and the Inspector (⌘⌥I) names it and offers **Open in Research**, which takes you to the thing itself.
+
+A photograph the canvas owns is the one that has no research item behind it, so there is nothing to open — the Inspector says so rather than offering a button that would take you to a folder you never chose. What you can do with it is **promote** it, which is the next section.
+
+#### Promoting a picture
+
+A photograph the canvas owns can become durable in either of two ways, and both are the ordinary **Promote…** (⌘⇧↩):
+
+- **A research asset** — the picture is copied into your research, and the card wears the usual stripe to say what it became.
+- **An image on a palette card you already have** — appended to that card's images, alongside whatever is already there. This one leaves no stripe on purpose: the card didn't *become* the palette card, its picture is *in* it, and the Inspector says so in those words. Promote it again and you get a second copy rather than an offer to rewrite somebody's palette card with one photograph.
+
+**A card that stands for research you already have is not promoted at all** — it is already the durable thing, and the sheet says so rather than offering an empty list.
+
+**Promoting a region carries the pictures in it onto the palette card**, and the sheet tells you how many before you commit. A research note is prose, so a region promoted to one is told the pictures are not coming. Re-promoting with **rewrite that one** replaces the words and leaves the card's images alone — otherwise every re-promotion would stack another copy of every photograph onto it. Each picture that went in says *This picture is in “…”* in its own Inspector, exactly as a card whose words went in says *Its words are in “…”* — including a picture that stands for research you already had, which the region copied onto the card and left where it was.
+
+#### Giving the canvas the whole window
+
+**⌘\\** on the canvas folds both side columns away — the binder on the left and the Inspector on the right — and leaves you the surface. Press it again and the binder comes back and the right-hand pane returns to whatever you had it at before. It is the same **⌘\\** that hides the title bar and toolbar everywhere else, and **⌘⇧F** (full-screen focus) turns it on too.
+
+It is never automatic: you want the binder open while you are dragging research and captures onto the canvas, and out of the way once you are thinking. Switch to another mode with the canvas collapsed and the columns come straight back.
+
 #### Sending a capture from the Inbox to the canvas
 
 A note, voice memo or photograph captured on your phone lands in the **Inbox** (⌘⌥B). Until now the only way out of it was promoting it into research, which makes the durable thing *before* you have decided what it is. There is now a shorter road: **Inbox → canvas → research**, with promoting as the second step whenever you are ready for it.
@@ -133,7 +154,7 @@ If you have Claude connected (see [Writing with Claude](claude-desktop.md)), it 
 The case it is built for: you write on actual paper, photograph it with your phone, and Claude reads the page and puts what is on it onto the canvas as cards.
 
 - **Claude cannot choose where a card goes.** There is no way for it to name a position, a card or a region — the canvas decides. Everything it adds in one go lands together in **one labelled region**, so a batch never arrives scattered across your work, and the region is placed clear of everything you have already put down.
-- **When the words came off a page you photographed, that page goes in the region too**, at the top, above what was read off it. So you can see what Claude read and what it made of it in one place. *For now the page shows as a placeholder card carrying its reference — the picture itself arrives with the rest of the image work.*
+- **When the words came off a page you photographed, that page goes in the region too**, at the top, above what was read off it — **showing the photograph itself**, so you can check what Claude read against what it made of it by looking rather than by clicking through.
 - **Claude's cards are visibly Claude's, three ways.** Your cards sit at a slight angle; **Claude's are perfectly straight**, so a card that leans is one of yours. They also take a slightly cooler paper, and lines Claude drew a slightly cooler stroke. VoiceOver says *from Claude* on the card, on the region and on the page. **The page you photographed is the one card that reads across the two signals**: it is straight, because Claude put it there, and it keeps your own paper, because the words on it are yours.
 - **Claude can draw lines between the cards it just added**, but never names one — a line's name is yours to write, or to leave off. And it cannot draw a line to a card of yours.
 - **You are told when a batch arrives**, by a line at the top of the window naming the count and the region. **Show** takes you to Plan, opens the Inspector and brings the region on screen; it fades on its own if you'd rather carry on.

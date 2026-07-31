@@ -424,10 +424,13 @@ final class CanvasCollapseTests: XCTestCase {
 
     // MARK: - The window's state, as a value
 
-    /// The four pieces of `ProjectWindow` state these folds move, so a sequence
-    /// test can carry them together and — crucially — so two update orders can
-    /// be compared **whole**. Comparing them field by field is how an order test
-    /// comes to pass while disagreeing about the field nobody listed.
+    /// The pieces of `ProjectWindow` state these folds move, carried together so
+    /// a sequence test can compare two update orders **whole**. Comparing them
+    /// field by field is how an order test comes to pass while disagreeing about
+    /// the field nobody listed — which is also why this sentence counts nothing:
+    /// it said "the four pieces" over five stored properties, and a prose count
+    /// beside the thing it counts is what this slice measured eleven times.
+    /// Read the fields.
     ///
     /// Both `fold` methods call the production statics; nothing here mirrors a
     /// rule.

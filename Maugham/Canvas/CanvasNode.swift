@@ -26,8 +26,11 @@ public struct CanvasNodeID: Hashable, Codable, Sendable, CustomStringConvertible
     /// page a batch of scraps was read off. Until then nothing in production
     /// called this — the spelling existed for 1C-b, 1C-c and the sidecar codec,
     /// and several comments in this directory rested on "nothing creates item
-    /// nodes yet". They no longer can. 1C-d still owns the writer's own drag-in
-    /// route (spec §8A.1) and the thumbnail that goes with it.
+    /// nodes yet". They no longer can. **1C-d added the writer's own routes**
+    /// (spec §8A.1, §8A.4): `CanvasDrop` for a research row dragged out of the
+    /// binder, and `CanvasCapture` for a capture sent from the Inbox. Both derive
+    /// the id through here; an *owned* node's id is minted instead, for the
+    /// reason on the type above.
     public static func item(_ referenceId: String) -> CanvasNodeID {
         CanvasNodeID("item:\(referenceId)")
     }
@@ -51,10 +54,11 @@ public enum CanvasNodeKind: Equatable, Sendable {
     /// from that picture's shape, and a corner that resizes it. The placeholder
     /// card carrying its reference id — and the dashed border that said
     /// "unfinished" — went with Task 5. It has an inspector arm of its own too
-    /// (`ItemInspector`, Task 7), and both halves of the **drop target**: a
-    /// research drag lands a `.project` reference (Task 10) and a Finder or
-    /// browser drag lands an `.owned` picture (Task 11). What 1C-d has left is
-    /// §8A.4's `inbox → canvas`.
+    /// (`ItemInspector`, Task 7), and every route onto the canvas: a research
+    /// drag lands a `.project` reference (Task 10), a Finder or browser drag
+    /// lands an `.owned` picture (Task 11), and an Inbox capture lands either
+    /// (Task 12, §8A.4). An **owned** node also promotes, to a research asset or
+    /// onto a palette card (Task 8); a referenced one still does not.
     case item(CanvasItemReference)
 
     /// Whether a `promotedItemID` on this node is a fact worth drawing and
