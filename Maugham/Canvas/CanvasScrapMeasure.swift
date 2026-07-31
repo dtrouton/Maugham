@@ -139,7 +139,7 @@ extension CanvasCardMetrics {
     /// with it and `CanvasRenderer` lays the card out against the rects below,
     /// which are derived from the same terms.
     ///
-    /// A genuine function of the WIDTH, which is what makes Task 6's resize safe:
+    /// A genuine function of the WIDTH, which is what makes the card resize safe:
     /// `CanvasScene.setWidth` clears the cached height by design, and the next
     /// measurement puts back a height that follows the new width, exactly as it
     /// does for a scrap.

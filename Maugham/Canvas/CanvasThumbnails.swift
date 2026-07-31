@@ -9,7 +9,7 @@ import ImageIO
 /// count (spec §8A.1). Everywhere else an image appears — a palette card's
 /// swatch, a research note's inline picture — the count is bounded by a list the
 /// writer scrolls. Here it is bounded by nothing, drawn inside a `Canvas` closure
-/// that runs at 60–120 Hz, and the cards it draws on are **resizable** (Task 6),
+/// that runs at 60–120 Hz, and the cards it draws on are **resizable** (1C-d),
 /// so a card's pixel size varies continuously for the length of a drag.
 ///
 /// The failure that combination invites is a 6000×4000 photograph decoding at
@@ -127,8 +127,8 @@ public final class CanvasThumbnails {
     /// every pictured card as the writer zoomed, jittering their heights and
     /// rebuilding the accessibility tree on the zoom path. A photograph inspected
     /// at 6× is therefore softer than the display could show, which is the smaller
-    /// cost and is bounded by Task 6's resize: a card made bigger asks for more
-    /// pixels, because the request follows the card's WIDTH.
+    /// cost and is bounded by the card resize (1C-d): a card made bigger asks for
+    /// more pixels, because the request follows the card's WIDTH.
     nonisolated public static let assumedPixelScale: CGFloat = 2
 
     /// **How far a fresh decode's shape may differ from the memo before the memo

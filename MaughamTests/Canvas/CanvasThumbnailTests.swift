@@ -151,7 +151,7 @@ final class CanvasThumbnailTests: XCTestCase {
 
     /// **The requirement most likely to be got wrong, as an assertion.**
     ///
-    /// Task 6 makes item nodes resizable, so a card's pixel size varies
+    /// Item nodes are resizable (1C-d), so a card's pixel size varies
     /// continuously while the writer drags its corner. A cache keyed on the
     /// card's *exact* current size is a decode on every frame of that drag —
     /// which is the bug, arriving through the mitigation. The chosen shape snaps

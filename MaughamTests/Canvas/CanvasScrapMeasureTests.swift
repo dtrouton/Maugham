@@ -113,7 +113,7 @@ final class CanvasScrapMeasureTests: XCTestCase {
     }
 
     /// **The height is a genuine function of the WIDTH**, which is spec §7A.3's
-    /// rule and is what makes an item node safe to resize (Task 6):
+    /// rule and is what makes an item node safe to resize (1C-d):
     /// `CanvasScene.setWidth` clears the cached height by design, and a
     /// measurement that ignored the width would put back the same number for
     /// every size the writer chose.

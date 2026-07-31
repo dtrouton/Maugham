@@ -732,7 +732,7 @@ struct CanvasView: View {
     /// item node's comes from its picture's aspect ratio plus one line of label
     /// (`CanvasCardMetrics.itemCardHeight(forCardWidth:pictureAspect:)`). Both are
     /// functions of the card's WIDTH, which is the rule §7A.3 already had and is
-    /// what makes Task 6's resize of an item node safe: `CanvasScene.setWidth`
+    /// what makes resizing an item node safe: `CanvasScene.setWidth`
     /// clears the cached height by design, and this pass puts back one that
     /// follows the new width.
     ///
