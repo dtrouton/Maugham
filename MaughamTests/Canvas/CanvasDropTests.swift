@@ -877,4 +877,45 @@ final class CanvasDropTests: XCTestCase {
             CanvasExternalDrop.apply(paths: ok.paths, at: .zero, in: model).count, 1,
             "control: …and lands a card")
     }
+
+    /// **A file drag whose URL will not load is still named as a FILE.**
+    ///
+    /// There is no `lastPathComponent` on that path — the URL is what failed —
+    /// and reaching for the bitmap fallback told the writer *Couldn't add "the
+    /// dropped image"* about a file they had just dragged out of a Finder window
+    /// they were looking at: a sentence describing something that did not
+    /// happen. The provider carries the name whether or not its URL loads.
+    ///
+    /// **Control:** a drag with no suggested name at all still gets the generic
+    /// wording, so this is `suggestedName` being read rather than the fallback
+    /// being removed.
+    func test_aFileDragThatWillNotLoadIsNamedAsAFile() async throws {
+        // Conforms to `public.file-url` — so it is classified as a file drag —
+        // and hands back an NSString, so the URL load returns nil.
+        let broken = NSItemProvider(item: "not-a-url" as NSString,
+                                    typeIdentifier: UTType.fileURL.identifier)
+        broken.suggestedName = "seaside.jpg"
+        let recorder = RecordingIngest()
+
+        let outcome = await CanvasExternalDrop.ingest(providers: [broken],
+                                                      using: recorder.seam)
+
+        XCTAssertTrue(outcome.paths.isEmpty, "precondition: it really did fail")
+        let message = try XCTUnwrap(outcome.message)
+        XCTAssertTrue(message.contains("seaside.jpg"),
+                      "the writer dragged a named file and must read its name. "
+                      + "found: \(message)")
+        XCTAssertFalse(message.contains(CanvasExternalDrop.bitmapName),
+                       "…and must not be told a picture they never dragged "
+                       + "failed. found: \(message)")
+
+        let anonymous = NSItemProvider(item: "not-a-url" as NSString,
+                                       typeIdentifier: UTType.fileURL.identifier)
+        let fallback = await CanvasExternalDrop.ingest(providers: [anonymous],
+                                                       using: recorder.seam)
+        XCTAssertTrue(try XCTUnwrap(fallback.message)
+                        .contains(CanvasExternalDrop.bitmapName),
+                      "control: with no name on offer the generic wording is "
+                      + "still there to fall back to")
+    }
 }

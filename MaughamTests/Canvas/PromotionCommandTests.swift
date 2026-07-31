@@ -219,13 +219,26 @@ final class PromotionCommandTests: XCTestCase {
             .deletingLastPathComponent()   // repo root
     }
 
-    /// Which of `required` are absent from the file at `path`. Shared by the
-    /// census and by its planted-offender companion, so there is exactly one
-    /// implementation to get wrong.
+    /// Which of `required` are absent from the **code** of the file at `path`.
+    /// Shared by the census and by its planted-offender companion, so there is
+    /// exactly one implementation to get wrong.
+    ///
+    /// **Comments do not count, and that is 1C-d Task 11's fix rather than
+    /// tidiness.** This was a raw `text.contains` over the whole file for seven
+    /// entries and sixteen tokens, and the realistic way it goes blind is not
+    /// somebody commenting a call out — it is this repo's house style. Several
+    /// of these files quote call shapes verbatim in their doc comments, and
+    /// `ProjectWindow.swift` grew a five-line comment block directly above a
+    /// censused call in the very task that added the seventh token to it. One
+    /// comment naming a token while the real call goes away leaves every
+    /// assertion here green and the feature unreachable from the writer's
+    /// window — which is the single failure this census exists to catch.
+    /// Measured on the old implementation: block-commenting the `assetIngest:`
+    /// argument out left the census green; deleting it turns it red.
     private func missingTokens(in path: String, required: [String]) throws -> [String] {
         let url = Self.repoRoot.appendingPathComponent(path)
         let text = try String(contentsOf: url, encoding: .utf8)
-        return required.filter { !text.contains($0) }
+        return required.filter { !SourceScan.namesInCode($0, in: text) }
     }
 
     /// The inspector buttons post the SAME command the menu posts, so a writer
@@ -275,7 +288,9 @@ final class PromotionCommandTests: XCTestCase {
              + "learn what a picture produced, no way to open it, and no way to "
              + "discover the artifact had been deleted — which is CLAUDE.md rule "
              + "8 and the region arm's own 1C-c2 omission, one arm over"),
-            ("Maugham/Canvas/CanvasView.swift", [".dropDestination(for: String.self)"],
+            ("Maugham/Canvas/CanvasView.swift", [".dropDestination(for: String.self)",
+                                                 "CanvasExternalDrop.ingest(",
+                                                 "CanvasExternalDrop.apply("],
              "1C-d Task 10's drop target. `CanvasDrop` is a pure decision plus a "
              + "model verb, both fully testable with nothing mounting them — and "
              + "SwiftUI's drop delivery has no seam a test can post a drag session "
@@ -284,7 +299,14 @@ final class PromotionCommandTests: XCTestCase {
              + "`CanvasDropTests` assertion stays green while dragging a research "
              + "item onto the canvas does nothing whatever. That is this "
              + "directory's signature defect — a built-and-unreachable half — and "
-             + "all four historical ones were found by counting production sites"),
+             + "all four historical ones were found by counting production sites. "
+             + "The second and third tokens are 1C-d Task 11's external half, and "
+             + "they guard the layer BELOW the mount: the modifier can be on "
+             + "`body` with a closure that reaches nothing. `CanvasExternalDrop` "
+             + "is exhaustively tested through its own seam, so deleting the two "
+             + "calls in `handleExternalDrop` leaves all seventeen "
+             + "`CanvasDropTests` and both drop-route tripwires green while a "
+             + "photograph dragged from the Finder lands nowhere at all"),
             ("Maugham/Views/ProjectWindow.swift",
              [".onKeyWindowCommand(.maughamPromoteCanvasSelection",
               ".modifier(CanvasPromotionModifier(",
@@ -422,6 +444,38 @@ final class PromotionCommandTests: XCTestCase {
                                          "assetIngest: CanvasNotAnAssetIngest("]),
             ["assetIngest: CanvasNotAnAssetIngest("],
             "the census reports the ABSENT ingest token and not the present one")
+        // And Task 11's two closure tokens: the modifier can be mounted on
+        // `body` with a closure that reaches nothing, which no drop test and no
+        // drop-route tripwire can see.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Canvas/CanvasView.swift",
+                              required: ["CanvasExternalDrop.ingest(",
+                                         "CanvasNotAnExternalDrop.ingest("]),
+            ["CanvasNotAnExternalDrop.ingest("],
+            "the census reports the ABSENT external-drop token and not the present one")
+
+        // **A token surviving in a COMMENT must not satisfy the census**, which
+        // is the blindness this census carried for seven entries and sixteen
+        // tokens. `canvas_assets/` is the perfect probe: `ProjectWindow.swift`
+        // names it in the comment block above the censused ingest argument, and
+        // `TripwireGrepTests.test_theCanvasAssetWellIsDerivedAndNeverSpelledInCode`
+        // guarantees it can never appear in production CODE — so this can only
+        // ever be answered by the comment filter.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: ["canvas_assets/"]),
+            ["canvas_assets/"],
+            "a token present only in a comment satisfied the census. The house "
+            + "style here quotes call shapes verbatim in doc comments, so this "
+            + "is how the instrument goes quiet: one comment naming a token "
+            + "while the real call goes away")
+        XCTAssertTrue(
+            try String(contentsOf: Self.repoRoot
+                .appendingPathComponent("Maugham/Views/ProjectWindow.swift"),
+                       encoding: .utf8).contains("canvas_assets/"),
+            "control: the probe token really IS in that file — otherwise the "
+            + "assertion above is satisfied by a string that appears nowhere at "
+            + "all, and proves nothing about comments")
         // 1C-c3's arrival-banner mount line, falsified the same way. The
         // subscription, the banner and the Show action all live in
         // `CanvasClaudeArrivalModifier.swift`, so its own census stays green with

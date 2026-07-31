@@ -272,9 +272,24 @@ enum CanvasExternalDrop {
         }
     }
 
-    /// A generic name for a drag that carries no filename at all — a browser's
-    /// rendered bitmap. Used only in a failure message.
+    /// The last-resort name for a drag that offers none at all. Used only in a
+    /// failure message.
     static let bitmapName = "the dropped image"
+
+    /// What to call this drag in a message when its own filename is not
+    /// available — the URL failed to load, or there was never a file.
+    ///
+    /// **`suggestedName` first, and this is a fix rather than a flourish.** A
+    /// Finder drag whose file URL fails to load has no `lastPathComponent` to
+    /// report, and naming it `bitmapName` told the writer *Couldn't add "the
+    /// dropped image"* about a **file** they had dragged from a window they were
+    /// looking at — a sentence describing something that did not happen. The
+    /// provider carries the filename in `suggestedName` whether or not its URL
+    /// loads, and a browser drag often carries one too.
+    static func name(of provider: NSItemProvider) -> String {
+        let suggested = provider.suggestedName?.trimmingCharacters(in: .whitespaces) ?? ""
+        return suggested.isEmpty ? bitmapName : suggested
+    }
 
     /// Whether this provider is one the canvas could take. Read **synchronously**
     /// by the drop modifier so a drag carrying neither a file nor an image is
@@ -322,7 +337,7 @@ enum CanvasExternalDrop {
             switch classify(provider) {
             case .fileURL:
                 guard let url = await DropClassification.fileURL(from: provider) else {
-                    outcome.failed.append(bitmapName)
+                    outcome.failed.append(name(of: provider))
                     continue
                 }
                 guard isIngestableImage(url) else {
@@ -334,11 +349,11 @@ enum CanvasExternalDrop {
 
             case .image:
                 guard let image = await DropClassification.image(from: provider) else {
-                    outcome.failed.append(bitmapName)
+                    outcome.failed.append(name(of: provider))
                     continue
                 }
                 do { outcome.paths.append(try await ingest.image(image)) }
-                catch { outcome.failed.append(bitmapName) }
+                catch { outcome.failed.append(name(of: provider)) }
 
             case .ignore:
                 continue

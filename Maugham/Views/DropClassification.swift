@@ -55,7 +55,7 @@ enum DropClassification {
     /// writing its own loader.
     static func fileURL(from provider: NSItemProvider) async -> URL? {
         await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
-            _ = provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
                 switch item {
                 case let url as URL where url.isFileURL:
                     cont.resume(returning: url)

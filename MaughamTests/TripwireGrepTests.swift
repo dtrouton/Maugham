@@ -1838,14 +1838,13 @@ final class TripwireGrepTests: XCTestCase {
     /// Source lines with comments removed, so a verb NAMED in a doc comment is
     /// not counted as a call. Both files in this census discuss the other verb
     /// at length in prose, which is the whole point of them.
+    ///
+    /// `SourceScan`'s, since 1C-d Task 11's fix round put the same filter under
+    /// `PromotionCommandTests`' wiring census — where it had been missing, and
+    /// where its absence was measured. One implementation for every census in
+    /// the suite; this stays as the name the callers here already use.
     private static func codeLines(of text: String) -> [String] {
-        text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { raw in
-            let line = String(raw)
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("//") || trimmed.hasPrefix("*") { return nil }
-            guard let comment = line.range(of: "//") else { return line }
-            return String(line[..<comment.lowerBound])
-        }
+        SourceScan.codeLines(of: text)
     }
 
     /// **A scene change made from another column must use `mutateFromInspector`,
