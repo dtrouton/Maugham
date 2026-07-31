@@ -203,6 +203,13 @@ public final class ProjectStore {
     /// cross-project derivation actually runs. A hit on the cache key leaves
     /// this unchanged.
     internal var _debugTasksRebuildCount: Int = 0
+
+    /// Debug counter for the craft-intent adoption gate (M1A). Increments once
+    /// per `load` that actually SCANS the research tree. A gated-out open leaves
+    /// it at zero — which is the only difference a test can observe between "the
+    /// schema gate held" and "the scan ran and found nothing", and so the only
+    /// way the once-and-never-again contract can be falsified.
+    internal var _debugAdoptionScanCount: Int = 0
     #endif
 
     /// Cache-key struct kept on the class so the extension can read/write it.
@@ -295,6 +302,13 @@ public final class ProjectStore {
         // wired yet, so the stamp's manifest save uses the direct-write path
         // (same as the project-id backfill above).
         await store.healPaletteRolesEagerly()
+        // M1A: adopt legacy craft-intent research notes into the intent
+        // `Statement`, once, gated on the on-disk schema version. Runs AFTER the
+        // role heal above (which is what makes the role-first detection see a
+        // legacy note) and awaited, so the store handed back is already past its
+        // migration. Never throws — a project that cannot be adopted still
+        // opens, with its note untouched (spec §5).
+        await store.adoptLegacyCraftIntentIfNeeded()
         // F5: word counts move OFF the blocking load path. `load` returns as
         // soon as the manifest is ready so the window appears immediately; the
         // per-doc derive sweep (the JSONL-decode cost, ~tens of ms/doc on a
