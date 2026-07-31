@@ -25,6 +25,12 @@ public enum ProjectStoreError: Error, Equatable {
     /// supports. Refused rather than degraded — see ADR 0015.
     case manifestSchemaTooNew(found: Int, supported: Int)
     case structureMissing
+    /// The `(kind, scope)` pair has no row in the statement storage table
+    /// (M1A spec §2.2) — visual language is project-scope only, and a `kind` or
+    /// `scope` written by a newer build (ADR 0015's `.unknown`) is retained and
+    /// ignored, never given a file. Refused rather than redirected to project
+    /// scope: a chapter's intent written into the book's file is a loss.
+    case statementHasNoStorage(kind: String, scope: String)
     case parentNotFound(String)
     case fileSystemError(String)
     case cycle
@@ -49,6 +55,8 @@ extension ProjectStoreError: LocalizedError {
                 + "Update Maugham to open it."
         case .structureMissing:
             return "That item is no longer in the project."
+        case .statementHasNoStorage(let kind, let scope):
+            return "A “\(kind)” statement can’t be kept for “\(scope)”."
         case .parentNotFound(let id):
             return "The destination “\(id)” could not be found."
         case .fileSystemError(let message):
