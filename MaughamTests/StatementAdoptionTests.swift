@@ -44,11 +44,13 @@ final class StatementAdoptionTests: XCTestCase {
     /// produces; the manifest is downgraded to schema 3 at the end, which is the
     /// one thing this build can no longer write.
     private func legacyNovel(
-        named name: String, notes: [LegacyNote]
+        named name: String, notes: [LegacyNote],
+        configure: ((ProjectStore, [ResearchItem]) async throws -> Void)? = nil
     ) async throws -> URL {
         let url = try await ProjectFactory.createNovelProject(named: name, in: temp.url)
         let store = try await ProjectStore.load(from: url)
         await store.wordCountPopulationTask?.value
+        var created: [ResearchItem] = []
         for note in notes {
             let item = try await store.addResearchTextNote(parentId: nil, title: note.title)
             try note.body.write(
@@ -58,7 +60,9 @@ final class StatementAdoptionTests: XCTestCase {
                 try await store.stampRole(itemId: item.id, role: .craftIntent)
             }
             store.mutateResearchItem(id: item.id) { $0.addedAt = note.addedAt }
+            created.append(item)
         }
+        try await configure?(store, created)
         try await store.saveManifest()
         try downgradeManifestToSchema3(at: url)
         return url
@@ -394,6 +398,142 @@ final class StatementAdoptionTests: XCTestCase {
             "the readable note keeps its prose, at its own path")
         XCTAssertEqual(filesMatching("intent", in: url), [],
                        "no orphan statement file for a scope that failed")
+    }
+
+    // MARK: - Scope, when the manifest already recorded one
+
+    /// **The population this migration exists for.** Spec §3's defect is a
+    /// NOVEL's: `craftIntentItem(forPieceId:)` looks up through
+    /// `ResearchScope.pieceResearchPrefix`, which is nil for anything that is
+    /// not a Collection loose piece — so a chapter's intent was created through
+    /// `.sharedPlusLink` into shared `research/` where the lookup never looked,
+    /// and the next call minted a second copy.
+    ///
+    /// `.sharedPlusLink` writes a `linkedResearchIds` record
+    /// (`ResearchScope.swift:57-62`, `ProjectStore+Structure.swift:667`), so
+    /// **the manifest knows which chapter that note belongs to.** Sweeping every
+    /// craft-intent note in `research/` into one project statement would
+    /// concatenate a writer's ten chapter intents into one headingless blob and
+    /// then trash the records that said whose was whose.
+    ///
+    /// The fixture is the shipped seam, in the order that produces the defect.
+    func test_aNovelChaptersLinkedIntentAdoptsToThatChapterAndNotTheBook() async throws {
+        let url = try await ProjectFactory.createNovelProject(
+            named: "ChapterIntent", in: temp.url)
+        let setup = try await ProjectStore.load(from: url)
+        await setup.wordCountPopulationTask?.value
+        let chapter = try XCTUnwrap(setup.manifest.structure.first)
+
+        let bookNote = try await setup.createCraftIntent(forPieceId: nil)
+        let chapterNote = try await setup.createCraftIntent(forPieceId: chapter.id)
+        // The fixture must actually reproduce the defect, or this test proves
+        // nothing about the population it is named for.
+        XCTAssertNotEqual(chapterNote.id, bookNote.id,
+                          "the shipped seam must mint a SECOND note for the chapter")
+        XCTAssertEqual(setup.linkedResearchIds(forDocumentId: chapter.id), [chapterNote.id],
+                       "the manifest records the association adoption must honour")
+        try "The book is about weather.".write(
+            to: url.appendingPathComponent(try XCTUnwrap(bookNote.path)),
+            atomically: true, encoding: .utf8)
+        try "Chapter one is about the flood.".write(
+            to: url.appendingPathComponent(try XCTUnwrap(chapterNote.path)),
+            atomically: true, encoding: .utf8)
+        try await setup.saveManifest()
+        try downgradeManifestToSchema3(at: url)
+
+        let store = try await ProjectStore.load(from: url)
+
+        XCTAssertEqual(store.manifest.statements.count, 2,
+                       "the book's intent and the chapter's are two statements, not one")
+        let chapterStatement = try XCTUnwrap(
+            store.statement(kind: .intent, scope: .document(chapter.id)),
+            "the chapter's intent must adopt to the chapter the manifest named")
+        XCTAssertEqual(chapterStatement.path, "intent/chapter-1.md")
+        let chapterText = try await derivedText(of: chapterStatement, in: url)
+        XCTAssertEqual(chapterText, "Chapter one is about the flood.")
+
+        let bookStatement = try XCTUnwrap(store.statement(kind: .intent, scope: .project))
+        let bookText = try await derivedText(of: bookStatement, in: url)
+        XCTAssertEqual(bookText, "The book is about weather.")
+        XCTAssertFalse(bookText.contains("flood"),
+                       "the chapter's prose must not be merged into the book's")
+    }
+
+    /// Where the ambiguity is real, the fallback stands. A note listed by TWO
+    /// documents names no one document, and guessing between them would put a
+    /// writer's intent under a heading the manifest never claimed.
+    func test_aNoteLinkedToTwoDocumentsFallsBackToTheProject() async throws {
+        var second: StructureItem?
+        let url = try await legacyNovel(named: "AmbiguousLink", notes: [
+            LegacyNote(body: "Whose is this?", addedAt: Date())
+        ]) { store, notes in
+            let first = try XCTUnwrap(store.manifest.structure.first)
+            second = try await store.addStructureItem(
+                parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+            try await store.linkResearch(researchId: notes[0].id, toDocumentId: first.id)
+            try await store.linkResearch(
+                researchId: notes[0].id, toDocumentId: try XCTUnwrap(second).id)
+        }
+
+        let store = try await ProjectStore.load(from: url)
+
+        XCTAssertEqual(store.manifest.statements.count, 1)
+        let statement = try XCTUnwrap(store.statement(kind: .intent, scope: .project),
+                                      "two claimants means no claimant — it is the project's")
+        let text = try await derivedText(of: statement, in: url)
+        XCTAssertEqual(text, "Whose is this?")
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        XCTAssertNil(store.statement(kind: .intent, scope: .document(chapter.id)))
+        XCTAssertNil(store.statement(
+            kind: .intent, scope: .document(try XCTUnwrap(second).id)))
+    }
+
+    // MARK: - Nothing to adopt
+
+    /// An empty note is not intent. Minting a statement for it would swap one
+    /// absence for another and cost the writer a file they never asked for.
+    func test_anEmptyNoteMintsNothingAndIsLeftInPlace() async throws {
+        let url = try await legacyNovel(named: "EmptyIntent", notes: [
+            LegacyNote(body: "   \n\n  \n", addedAt: Date())
+        ])
+
+        let store = try await ProjectStore.load(from: url)
+
+        XCTAssertTrue(store.manifest.statements.isEmpty,
+                      "no prose, no statement")
+        XCTAssertEqual(filesMatching("intent", in: url), [])
+        XCTAssertEqual(
+            TreeWalk.collect(in: store.manifest.research) { $0.role == .craftIntent }.count, 1,
+            "and the note stays where it is — adoption removes nothing it did not adopt")
+        XCTAssertEqual(try onDisk(url).schemaVersion, 4, "still stamped, still once")
+    }
+
+    /// A craft-intent item with **no file** has no prose to adopt, so adoption
+    /// has no business touching it.
+    ///
+    /// It matters because the removal would be *silent and unrecoverable*:
+    /// `trashResearchItemCore` skips the file work for a pathless item and drops
+    /// it from the manifest with no trash entry. The real note beside it adopts
+    /// normally, so this pins the exclusion rather than an absence of work.
+    func test_aPathlessNoteIsNeitherAdoptedNorRemoved() async throws {
+        var pathlessId: String?
+        let url = try await legacyNovel(named: "PathlessIntent", notes: [
+            LegacyNote(body: "Real prose.", addedAt: Date(timeIntervalSince1970: 1_000_000)),
+            LegacyNote(title: "Craft Intent 2", body: "",
+                       addedAt: Date(timeIntervalSince1970: 2_000_000)),
+        ]) { store, notes in
+            pathlessId = notes[1].id
+            store.mutateResearchItem(id: notes[1].id) { $0.path = nil }
+        }
+
+        let store = try await ProjectStore.load(from: url)
+
+        let statement = try XCTUnwrap(store.statement(kind: .intent, scope: .project))
+        let text = try await derivedText(of: statement, in: url)
+        XCTAssertEqual(text, "Real prose.", "the note with a file adopts as usual")
+        XCTAssertNotNil(
+            TreeWalk.collect(in: store.manifest.research) { $0.id == pathlessId }.first,
+            "a pathless item must survive: removing it leaves no trash entry to recover")
     }
 
     // MARK: - Document scope

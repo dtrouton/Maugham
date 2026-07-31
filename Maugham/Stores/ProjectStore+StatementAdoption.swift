@@ -90,19 +90,40 @@ extension ProjectStore {
     /// a preference: a role-bearing note and a filename-bearing one are both
     /// craft intent, and this pass is the last one that will ever look.
     ///
-    /// **Scope is decided by the note's path**, most specific first: a
-    /// Collection loose piece's research folder scopes to that piece; everything
-    /// else — including a note under no recognised prefix at all — scopes to the
-    /// project. That last clause is deliberately generous. The defect in §3 put
-    /// a chapter's intent into shared `research/` where nothing could find it,
-    /// and the honest answer to "we cannot tell whose this was" is to keep it
-    /// where the writer will see it, not to leave it where nothing looks.
+    /// **Scope is read off the manifest, most specific evidence first:**
+    ///
+    /// 1. a Collection loose piece's research folder (containment — the note
+    ///    lives inside the piece);
+    /// 2. **a `linkedResearchIds` record naming exactly one document**;
+    /// 3. otherwise the project.
+    ///
+    /// **Tier 2 is the milestone's headline case, not an edge.** §3's defect is
+    /// a NOVEL's: a chapter's intent routes through `.sharedPlusLink`
+    /// (`ResearchScope.swift:57-62`) into shared `research/`, where the old
+    /// prefix lookup could never find it — but that same route writes a
+    /// `linkedResearchIds` record, so **the manifest knows whose it is**.
+    /// Without this tier a writer with intent on ten chapters would open the new
+    /// pane to one headingless blob, with the records that said whose was whose
+    /// trashed alongside it. Nothing would be destroyed and nothing would be
+    /// right.
+    ///
+    /// Tier 3 remains deliberately generous: a note linked to nothing, or under
+    /// no recognised prefix, goes to the project rather than being left where
+    /// nothing looks. A note listed by TWO documents falls here too — that
+    /// ambiguity is real, and guessing between claimants would file a writer's
+    /// intent under a heading the manifest never claimed.
+    ///
+    /// **A note with no file is not a candidate at all.** It has no prose to
+    /// adopt, and including it would hand it to `deleteResearchItems`, which
+    /// drops a pathless item from the manifest with **no trash entry** — a
+    /// silent, unrecoverable removal in the one seam that must never make one.
     private func legacyCraftIntentByScope() -> [(Statement.Scope, [ResearchItem])] {
         let notes = TreeWalk.collect(in: manifest.research) { item in
-            item.type == .asset && (
-                item.role == .craftIntent
-                || (item.path as NSString?)?.lastPathComponent
-                    == PaletteConvention.craftIntentFileName)
+            item.type == .asset
+                && !(item.path ?? "").isEmpty
+                && (item.role == .craftIntent
+                    || (item.path as NSString?)?.lastPathComponent
+                        == PaletteConvention.craftIntentFileName)
         }
         guard !notes.isEmpty else { return [] }
 
@@ -117,9 +138,14 @@ extension ProjectStore {
         var positionOfScope: [String: Int] = [:]
         for note in notes {
             let path = note.path ?? ""
-            let scope: Statement.Scope = piecePrefixes
-                .first { path.hasPrefix($0.prefix) }
-                .map { .document($0.pieceId) } ?? .project
+            let scope: Statement.Scope
+            if let piece = piecePrefixes.first(where: { path.hasPrefix($0.prefix) }) {
+                scope = .document(piece.pieceId)
+            } else if let linked = documentClaiming(researchId: note.id) {
+                scope = .document(linked)
+            } else {
+                scope = .project
+            }
             if let at = positionOfScope[scope.rawValue] {
                 grouped[at].1.append(note)
             } else {
@@ -128,6 +154,21 @@ extension ProjectStore {
             }
         }
         return grouped.map { ($0.0, Self.oldestFirst($0.1)) }
+    }
+
+    /// The one manuscript document whose `linkedResearchIds` names this note, or
+    /// nil for none — **or for more than one**, where the ambiguity is real and
+    /// the project is the honest answer.
+    ///
+    /// Restricted to `.document` items: `linkResearch` mutates whatever id
+    /// matches and does not check, and `createStatement` refuses a group scope
+    /// anyway — which would fail the whole scope rather than fall back.
+    private func documentClaiming(researchId: String) -> String? {
+        let claimants = TreeWalk.collect(in: manifest.structure) { item in
+            item.type == .document
+                && (item.linkedResearchIds?.contains(researchId) ?? false)
+        }
+        return claimants.count == 1 ? claimants[0].id : nil
     }
 
     /// Oldest first by `addedAt` — the only age a research note records — with
@@ -152,7 +193,9 @@ extension ProjectStore {
     /// leaves the research tree until its words are durably somewhere else.
     private func adopt(notes: [ResearchItem], into scope: Statement.Scope) async throws {
         let bodies = try notes.map { note -> String in
-            guard let path = note.path else { return "" }
+            // Non-empty by construction: `legacyCraftIntentByScope` excludes a
+            // pathless item, because there is nothing in it to adopt.
+            let path = note.path ?? ""
             // adr-0018-ok: sanctioned import read — a legacy craft-intent
             // research note is plain, op-log-free markdown, and this is the one
             // pass that turns it into op-log truth. NOT `try?`: a body this
@@ -184,9 +227,19 @@ extension ProjectStore {
         await doc.close()
 
         // Trashed, not deleted: recoverable from the Trash pane if this pass got
-        // something wrong. Routed through `deleteResearchItems`, which trashes
-        // each file through the typed `DocumentStore` mover (tripwire 14) and
-        // removes the manifest entries in one save.
+        // something wrong. Routed through `deleteResearchItems`, which removes
+        // the manifest entries in one save.
+        //
+        // **At adoption time that trash does NOT run the typed mover's
+        // close-flush-unregister discipline, and it does not need to.**
+        // `documentStore` is wired by `ProjectWindow` only after
+        // `ProjectStore.load` has returned, so `trashResearchItemCore` takes its
+        // `// internal-move:` branch and calls `trashStore.moveToTrash`
+        // directly. That is safe here for the reason that branch already gives —
+        // with no DocumentStore there is no registry to race, no open Document
+        // to close and no debounced save to flush — but it is safe for *that*
+        // reason and not because the discipline ran, and a reader who assumes
+        // otherwise will reason wrongly about this window.
         try await deleteResearchItems(ids: notes.map(\.id))
     }
 
