@@ -414,7 +414,7 @@ struct CanvasView: View {
                 // `.ended`, before any ⌘Z can arrive.
                 //
                 // *** That last sentence is weaker than it reads, and ⌫ is what
-                // found out. *** A press opens "Move Scrap" at `.began` and holds
+                // found out. *** A press opens "Move Card" at `.began` and holds
                 // it until the writer lets go, and the turn after a double-click
                 // has "Edit Scrap" open while this view still holds first
                 // responder — so a KEY can arrive here with a gesture open. It is
@@ -1522,7 +1522,11 @@ struct CanvasView: View {
             // since, and an editor bound to a node that no longer exists is the
             // state `.unenterableNode` already refuses to leave standing.
             if editingNodeID == id { leaveTheOpenScrap() }
-            model.beginGesture("Delete Scrap")
+            // "Card" and not "Scrap": this arm deletes an item node too, and a
+            // writer who removed a photograph read *Undo Delete Scrap*. The noun
+            // is uniform across all three node steps for the reason recorded on
+            // `gestureName`, which is where the argument lives.
+            model.beginGesture("Delete Card")
             model.withScene(persist: false) { $0.remove(id) }
             model.removeScrapText(id)
             model.endGesture()
@@ -1572,10 +1576,32 @@ struct CanvasView: View {
     /// `nil` cannot arrive: the one caller asks only when `isActive`. It has a
     /// name anyway rather than a `!`, because the alternative to a harmless
     /// fallback here is a crash on a surface the writer is dragging.
+    ///
+    /// **The node arms say "Card" and not "Scrap", and the noun is UNIFORM
+    /// rather than routed through the kind** *(1C-d, whole-branch review M2).*
+    /// They said "Scrap" while a scrap was the only node a writer could move or
+    /// resize; 1C-d made an item node a first-class card — it resizes, it has an
+    /// inspector arm, it promotes, and three routes create one — so a writer who
+    /// dragged a **photograph** read *Undo Move Scrap*. That is Task 6's own
+    /// `minimumScrapWidth` → `minimumCardWidth` argument ("it clamps every kind
+    /// now, so the old name is false") arriving on the strings the writer
+    /// actually reads, which is where it matters more than in an identifier.
+    ///
+    /// **Routing the noun through `CanvasNodeKind` was the other option and it is
+    /// the wrong one**: `PromotionSource.noun`'s recorded ruling is that **a card
+    /// is the NODE** the writer clicked and **a picture is the FILE** it holds, so
+    /// "Move Picture" would contradict a distinction this slice took a fix round
+    /// to settle — and it is false anyway of a referenced item node standing for a
+    /// note, a PDF or a recording. One noun that is true of every kind beats three
+    /// that are each true of one.
+    ///
+    /// **`"New Scrap"` deliberately does NOT move** (`handleClick`'s
+    /// `.emptyCanvas` arm): a double-click on bare canvas mints a scrap and can
+    /// mint nothing else, so there the narrower noun is the accurate one.
     private static func gestureName(for kind: CanvasInteraction.Kind?) -> String {
         switch kind {
-        case .movingNode: return "Move Scrap"
-        case .resizingNode: return "Resize Scrap"
+        case .movingNode: return "Move Card"
+        case .resizingNode: return "Resize Card"
         case .movingRegion: return "Move Region"
         case .resizingRegion: return "Resize Region"
         case .drawingRegion: return "New Region"

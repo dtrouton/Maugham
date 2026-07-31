@@ -127,7 +127,7 @@ struct CanvasInteraction {
     /// double-click, so entering a scrap always runs a `begin`/`end` pair with no
     /// `.changed` between them. Without this the canvas cannot tell that apart
     /// from a drag, and every double-click writes the sidecar, rebuilds the
-    /// accessibility tree, and (once Task 15 lands) leaves a "Move Scrap" undo
+    /// accessibility tree, and leaves a "Move Card" undo
     /// step that undoes nothing — which is exactly what the smoke line "press ⌘Z
     /// a third time; it must undo something real or do nothing" is looking for.
     ///

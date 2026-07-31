@@ -289,6 +289,7 @@ final class PromotionCommandTests: XCTestCase {
              + "discover the artifact had been deleted — which is CLAUDE.md rule "
              + "8 and the region arm's own 1C-c2 omission, one arm over"),
             ("Maugham/Canvas/CanvasView.swift", [".dropDestination(for: String.self)",
+                                                 "CanvasDrop.apply(",
                                                  "CanvasExternalDrop.ingest(",
                                                  "CanvasExternalDrop.apply(",
                                                  "CanvasDrop.payload(",
@@ -302,6 +303,22 @@ final class PromotionCommandTests: XCTestCase {
              + "item onto the canvas does nothing whatever. That is this "
              + "directory's signature defect — a built-and-unreachable half — and "
              + "all four historical ones were found by counting production sites. "
+             + "**`CanvasDrop.apply(` is that route's LANDING verb, and it was the "
+             + "one drop layer nothing censused until the whole-branch review "
+             + "found it** — the fourth instance of the layer-below-a-mount shape "
+             + "on this branch, and the only one added by the task that invented "
+             + "the shape's own lesson two tasks later. Delete it from "
+             + "`handleDrop`'s `.create` arm and the build succeeds with NO "
+             + "warning (`node` is still read by the `model.selection` line under "
+             + "it), all twenty-one `CanvasDropTests` stay green because nothing "
+             + "in the repo drives `handleDrop` at all, both drop-route tripwires "
+             + "stay green — and a research row dragged onto the canvas makes no "
+             + "card while the selection points at a node that does not exist, so "
+             + "the right-hand column goes blank over a drag that looked like it "
+             + "worked. Measured 2026-07-31, not argued. **`CanvasDrop.decide(` is "
+             + "deliberately NOT here**: the switch needs its value, so removing "
+             + "it cannot compile, and a token whose absence is a build error is a "
+             + "token this census cannot earn anything by holding. "
              + "`CanvasExternalDrop.ingest(` and `.apply(` are 1C-d Task 11's "
              + "external half, and they guard the layer BELOW the mount: the "
              + "modifier can be on `body` with a closure that reaches nothing. "
@@ -337,6 +354,7 @@ final class PromotionCommandTests: XCTestCase {
               ".modifier(CanvasCollapseModifier(",
               "NavigationSplitView(columnVisibility: $columnVisibility)",
               "Self.releasesCanvasCollapse(",
+              "Self.clearsPaletteStash(",
               "ProjectWindow.applyPaletteSegmentChange("],
              // **Numbered by what each token IS, never by its position in the
              // array above** (1C-d Task 12a, review Important 1). This read
@@ -424,8 +442,18 @@ final class PromotionCommandTests: XCTestCase {
              + "`CanvasCollapseTests` assertion stays green while a writer who "
              + "closed the inspector before collapsing lands in the next "
              + "persona with it closed, which is the exact defect the predicate "
-             + "exists to prevent. `clearsPaletteStash`'s call site has the same "
-             + "gap and no instrument; this one now has one. "
+             + "exists to prevent. **`Self.clearsPaletteStash(` is its "
+             + "NEIGHBOUR three lines up, and it had the identical gap "
+             + "until the 1C-d whole-branch review (M3)** — Task 13 measured "
+             + "the hazard on its own predicate and censused that one, and "
+             + "the sibling it was copied from was left uncovered. Delete "
+             + "those three lines and every test stays green while a writer "
+             + "switching persona out of the Palette lands with the inspector "
+             + "CLOSED: `PaletteSegmentModifier`'s exit arm restores the "
+             + "stashed visibility over the persona switch's unconditional "
+             + "`showInspector = true`, which is the exact ordering hazard the "
+             + "canvas takeover was built to remove, on the surface it was "
+             + "built from. "
              + "`ProjectWindow.applyPaletteSegmentChange(` is the wall's own "
              + "fold, and it is that shape one surface over: the fold is a "
              + "static with its own tests, so deleting the single line that "
@@ -653,6 +681,17 @@ final class PromotionCommandTests: XCTestCase {
             ["Self.releasesNotARealCollapse("],
             "the census reports the ABSENT persona-call-site token and not the "
             + "present one")
+        // And its NEIGHBOUR three lines up, which had the identical gap until the
+        // 1C-d whole-branch review: Task 13 measured the hazard on its own
+        // predicate and censused that one, and left uncovered the sibling it was
+        // copied from.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: ["Self.clearsPaletteStash(",
+                                         "Self.clearsNotARealStash("]),
+            ["Self.clearsNotARealStash("],
+            "the census reports the ABSENT palette-stash-call-site token and not "
+            + "the present one")
         // And the wall's fold, the same shape one surface over: a static with
         // its own tests, called from exactly one line.
         XCTAssertEqual(

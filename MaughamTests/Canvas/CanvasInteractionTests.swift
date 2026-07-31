@@ -362,7 +362,7 @@ final class CanvasInteractionTests: XCTestCase {
     /// ordering). So entering a scrap always runs a `begin`/`end` pair with no
     /// `.changed` in between, and the canvas needs to be able to tell that from a
     /// drag — otherwise every double-click writes the sidecar, rebuilds the
-    /// accessibility tree, and (from Task 15) leaves a "Move Scrap" undo step
+    /// accessibility tree, and leaves a "Move Card" undo step
     /// that undoes nothing.
     ///
     /// `hasMoved` survives `end()` deliberately: the caller reads it either side

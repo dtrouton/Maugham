@@ -2183,7 +2183,7 @@ final class CanvasViewMountingTests: XCTestCase {
                       "Undo is greyed out on a canvas with a move on its stack — the "
                       + "writer's report, exactly: the feature is built, tested and "
                       + "unreachable unless a scrap happens to be focused")
-        XCTAssertTrue(undo.item.title.contains("Move Scrap"),
+        XCTAssertTrue(undo.item.title.contains("Move Card"),
                       "the menu item reads \"\(undo.item.title)\" rather than naming the "
                       + "gesture it will take back — the action never reaches "
                       + "NSWindow, so nothing else retitles it")
@@ -2203,7 +2203,7 @@ final class CanvasViewMountingTests: XCTestCase {
         XCTAssertTrue(redo.isEnabled,
                       "there is nothing to redo straight after an undo, so ⇧⌘Z is "
                       + "greyed out and the writer cannot take the undo back")
-        XCTAssertTrue(redo.item.title.contains("Move Scrap"),
+        XCTAssertTrue(redo.item.title.contains("Move Card"),
                       "the Redo item reads \"\(redo.item.title)\" rather than naming the "
                       + "gesture it will re-apply")
     }
@@ -3255,7 +3255,7 @@ final class CanvasViewMountingTests: XCTestCase {
         XCTAssertTrue(undo.isEnabled,
                       "a delete left nothing on the undo stack, so the stray ⌫ that "
                       + "takes a card away is permanent")
-        XCTAssertTrue(undo.item.title.contains("Delete Scrap"),
+        XCTAssertTrue(undo.item.title.contains("Delete Card"),
                       "the menu item reads \"\(undo.item.title)\" rather than naming "
                       + "what it will take back")
         _ = undo.target.perform(undoSelector, with: undo.item)
@@ -3275,9 +3275,9 @@ final class CanvasViewMountingTests: XCTestCase {
     /// `CanvasUndo.beginGesture` takes NO snapshot when it nests, and
     /// `endGesture` registers nothing until depth reaches zero — so a delete
     /// opened inside an outer gesture disappears into it. Here the outer gesture
-    /// is the "Move Scrap" that `handleDrag(.began)` opens on every press over a
+    /// is the "Move Card" that `handleDrag(.began)` opens on every press over a
     /// card: press and hold, press ⌫, and the card goes while the Edit menu has
-    /// nothing to offer. Release, and it offers **"Undo Move Scrap"** — a move
+    /// nothing to offer. Release, and it offers **"Undo Move Card"** — a move
     /// and a delete collapsed into one step under the wrong name.
     ///
     /// This is the reachable half. The lossy half is the test below.
@@ -3289,7 +3289,7 @@ final class CanvasViewMountingTests: XCTestCase {
         let events = try eventView(in: window)
 
         // Press on the card and DO NOT release: `onClick` selects it and
-        // `onDrag(.began)` opens "Move Scrap" in the same mouse-down.
+        // `onDrag(.began)` opens "Move Card" in the same mouse-down.
         events.applyMouseDown(at: CGPoint(x: 60, y: 40), clickCount: 1)
         XCTAssertTrue(window.makeFirstResponder(events))
         pump()
@@ -4212,7 +4212,7 @@ final class CanvasViewMountingTests: XCTestCase {
 
         let undoSelector = #selector(CanvasEventNSView.undo(_:))
         let undo = try editMenuItem(undoSelector, in: window)
-        XCTAssertTrue(undo.item.title.contains("Delete Scrap"),
+        XCTAssertTrue(undo.item.title.contains("Delete Card"),
                       "the menu item reads \"\(undo.item.title)\" — the line scrub "
                       + "must ride inside the card's own step rather than becoming a "
                       + "second one")
