@@ -719,14 +719,24 @@ struct CanvasView: View {
             rebuildLayouts(bumpsStructuralCounter: false)
         }
         // Another column asking the camera to move — the arrival banner's Show
-        // (1C-c3). `momentum.stop()` above is the precedent for writing `@State`
-        // from inside a model callback; the region is resolved HERE rather than by
-        // the caller because this is the first point past `attach()`, and a caller
-        // in another column may be holding a scene that predates the write (see
+        // (1C-c3), and §8A.4's Send to Canvas (1C-d). `momentum.stop()` above is
+        // the precedent for writing `@State` from inside a model callback; the
+        // target is resolved HERE rather than by the caller because this is the
+        // first point past `attach()`, and a caller in another column may be
+        // holding a scene that predates the write (see
         // `CanvasModel.onRevealRequested`).
-        model.onRevealRequested = { region in
-            guard let frame = model.scene.region(region)?.frame else { return }
-            camera.bring(frame.origin, toViewPoint: CanvasCamera.revealViewPoint)
+        //
+        // A region is brought by its frame's origin and a card by its own, which
+        // is the same point in both cases: the top-left of the thing, put at
+        // `revealViewPoint`.
+        model.onRevealRequested = { target in
+            let origin: CGPoint?
+            switch target {
+            case .region(let id): origin = model.scene.region(id)?.frame.origin
+            case .node(let id): origin = model.scene.node(id)?.origin
+            }
+            guard let origin else { return }
+            camera.bring(origin, toViewPoint: CanvasCamera.revealViewPoint)
         }
         // A test's cache, before the first resolve can miss anything. Production
         // passes nothing and keeps the one `@State` made for it.

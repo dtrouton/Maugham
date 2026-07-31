@@ -161,7 +161,7 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
         model.selection = to.selection
         if to.opensInspector { showInspector = true }
         // **And the camera, or Show shows nothing.**
-        // `CanvasClaudePlacement.regionOrigin` is `occupied.maxX + gutter` over
+        // `CanvasClaudePlacement.looseOrigin` is `occupied.maxX + gutter` over
         // the union of every node and region, so on any non-empty canvas Claude's
         // region is BY CONSTRUCTION outside the bounding box of the writer's own
         // work — and therefore outside their viewport unless they happen to be
@@ -169,7 +169,7 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
         // window may be holding a scene written before the batch landed (see
         // `CanvasModel.onRevealRequested`), and the model parks the request until
         // a canvas is mounted to honour it.
-        model.reveal(arrival.region)
+        model.reveal(.region(arrival.region))
         documentStore?.updateUIState { $0.persona = to.persona }
         self.arrival = nil
     }

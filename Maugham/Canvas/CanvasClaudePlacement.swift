@@ -193,7 +193,7 @@ enum CanvasClaudePlacement {
 
     /// Decide where a validated request lands, without touching the scene.
     static func plan(_ request: Request, in scene: CanvasScene) -> Plan {
-        let origin = regionOrigin(in: scene)
+        let origin = looseOrigin(in: scene)
         let cardX = origin.x + padding
         // The column starts under the chrome bar, or the first card would cover
         // the label. `columnBottom` trails it and only moves when a card is
@@ -359,13 +359,22 @@ enum CanvasClaudePlacement {
 
     // MARK: - Pieces of the decision
 
-    /// The top-left corner of the new region: to the right of the bounding box of
+    /// **Where something nobody aimed goes**: to the right of the bounding box of
     /// everything measured on the canvas, plus the gutter.
     ///
     /// Unmeasured nodes are skipped because they have no geometry to keep off —
     /// they are not drawn either. The union is order-independent, which is what
     /// makes the answer the same twice running.
-    private static func regionOrigin(in scene: CanvasScene) -> CGPoint {
+    ///
+    /// **Named for the answer rather than for its first caller, and internal**,
+    /// because 1C-d Task 12 gave it a second one: §8A.4's *command* route has no
+    /// drop point and takes this same fallback for a bare card
+    /// (`CanvasCapture.Placement.loose`). A second `occupied.maxX + gutter`
+    /// written there would be two answers to "clear of the writer's work" that
+    /// will drift — and the one thing every reader of this rule depends on is that
+    /// it is the same rule, since it is also what
+    /// `CanvasClaudeArrivalModifier.show` moves the camera for.
+    static func looseOrigin(in scene: CanvasScene) -> CGPoint {
         var occupied: CGRect?
         for frame in scene.unorderedNodes.compactMap(\.frame) + scene.regions.map(\.frame) {
             occupied = occupied.map { $0.union(frame) } ?? frame

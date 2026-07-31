@@ -1,6 +1,25 @@
 import AppKit
 import Observation
 
+/// What another column can send the writer's camera to.
+///
+/// **Two cases and not one, because the two things that arrive from outside the
+/// canvas land differently.** Claude's batch is always a labelled region (§8A.2
+/// constraint 2), so 1C-c3's arrival banner names one. §8A.4's *command* route
+/// lands a single loose card and is ruled to be **never in a region**, so it has
+/// no region to name — and both land at `CanvasClaudePlacement.looseOrigin`,
+/// which is by construction outside the writer's viewport, so both need the
+/// camera or the writer is told about something they cannot find.
+///
+/// Deliberately **not** `CanvasSelection`, though it looks like a subset of it:
+/// that type answers *what is selected*, which the canvas draws chrome for and ⌫
+/// acts on, and lines are in it. This one answers *what to look at*, and there is
+/// nothing to look at a line for — its ends are cards that are already somewhere.
+enum CanvasRevealTarget: Equatable {
+    case region(CanvasRegionID)
+    case node(CanvasNodeID)
+}
+
 /// The canvas's state, owned by `ProjectWindow` because two columns read it.
 ///
 /// **What lives here:** the scene, the scrap text, the selection, the sidecar
@@ -160,7 +179,7 @@ final class CanvasModel {
     /// delivery order the correctness argument. The two callbacks above are the
     /// precedent, and `CanvasView` binds all three in one place.
     ///
-    /// **It carries the REGION and not a point**, which is not the obvious
+    /// **It carries an ID and not a point**, which is not the obvious
     /// choice. `CanvasCamera.bring` takes a point, so the caller could resolve
     /// one — and the caller is in another column, where the scene it would read
     /// is exactly the one that can be wrong: `add_canvas_scraps` writes the
@@ -172,7 +191,7 @@ final class CanvasModel {
     ///
     /// **It is the same retain cycle as those two** — see `detach()`, which
     /// clears all three.
-    @ObservationIgnored var onRevealRequested: ((CanvasRegionID) -> Void)?
+    @ObservationIgnored var onRevealRequested: ((CanvasRevealTarget) -> Void)?
 
     /// A reveal asked for while no canvas was on screen, kept until one is.
     ///
@@ -187,24 +206,24 @@ final class CanvasModel {
     ///
     /// A *request*, not camera state: it is consumed once and never read back, and
     /// nothing about where the camera IS lives on this model.
-    @ObservationIgnored private(set) var pendingReveal: CanvasRegionID?
+    @ObservationIgnored private(set) var pendingReveal: CanvasRevealTarget?
 
-    /// Ask the view to bring `region` into sight — now if a canvas is on screen,
+    /// Ask the view to bring `target` into sight — now if a canvas is on screen,
     /// on its next appearance otherwise.
-    func reveal(_ region: CanvasRegionID) {
+    func reveal(_ target: CanvasRevealTarget) {
         guard let onRevealRequested else {
-            pendingReveal = region
+            pendingReveal = target
             return
         }
-        // Cleared, so a mount later in the session does not re-jump to a region
+        // Cleared, so a mount later in the session does not re-jump to something
         // the writer has since panned away from deliberately.
         pendingReveal = nil
-        onRevealRequested(region)
+        onRevealRequested(target)
     }
 
     /// Consume the parked request. `CanvasView.load()` calls this after `attach`,
-    /// which is the first moment the scene is guaranteed to hold the region.
-    func takePendingReveal() -> CanvasRegionID? {
+    /// which is the first moment the scene is guaranteed to hold the target.
+    func takePendingReveal() -> CanvasRevealTarget? {
         defer { pendingReveal = nil }
         return pendingReveal
     }

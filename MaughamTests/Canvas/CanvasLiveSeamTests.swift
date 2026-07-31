@@ -142,14 +142,14 @@ final class CanvasLiveSeamTests: XCTestCase {
     /// a region the writer may have deliberately panned away from.
     func test_aMountedCanvasTakesTheRevealAtOnceAndNothingIsParked() {
         let model = loadedModel()
-        var revealed: [CanvasRegionID] = []
+        var revealed: [CanvasRevealTarget] = []
         model.onRevealRequested = { revealed.append($0) }
 
-        model.reveal(r1)
+        model.reveal(.region(r1))
 
         XCTAssertEqual(revealed.count, 1, "exactly one call, or the read below is "
                        + "off a list this test does not control")
-        XCTAssertEqual(revealed[0], r1)
+        XCTAssertEqual(revealed[0], .region(r1))
         XCTAssertNil(model.pendingReveal)
     }
 
@@ -162,13 +162,13 @@ final class CanvasLiveSeamTests: XCTestCase {
         let model = loadedModel()
         XCTAssertNil(model.onRevealRequested, "precondition: no canvas is mounted")
 
-        model.reveal(r1)
-        XCTAssertEqual(model.pendingReveal, r1,
+        model.reveal(.region(r1))
+        XCTAssertEqual(model.pendingReveal, .region(r1),
                        "dropped here, Show lands the writer on the canvas with the "
                        + "region off screen — which is the whole finding")
 
         // What `CanvasView.load()` does on the next appearance, after `attach`.
-        XCTAssertEqual(model.takePendingReveal(), r1)
+        XCTAssertEqual(model.takePendingReveal(), .region(r1))
         XCTAssertNil(model.pendingReveal, "consumed once, or every mount re-jumps")
         XCTAssertNil(model.takePendingReveal(), "and it stays consumed")
     }
@@ -303,7 +303,7 @@ final class CanvasLiveSeamTests: XCTestCase {
                       "control: the real file binds the reveal hook")
         XCTAssertFalse(
             assigns("onRevealRequested",
-                    in: view.replacingOccurrences(of: "model.onRevealRequested = { region in",
+                    in: view.replacingOccurrences(of: "model.onRevealRequested = { target in",
                                                   with: "// the binding, deleted")),
             "the scan cannot see a binding that is gone — and what is LEFT in that "
             + "copy is the call site, so this is also the arm that proves a caller "
