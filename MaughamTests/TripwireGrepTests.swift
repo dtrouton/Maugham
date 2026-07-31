@@ -1895,7 +1895,8 @@ final class TripwireGrepTests: XCTestCase {
         let census = try canvasBracketCensus(in: sourceDir)
         XCTAssertEqual(
             census,
-            ["CanvasClaudeWrite.swift": [Self.canvasOutsideVerb],
+            ["CanvasCapture.swift": [Self.canvasOutsideVerb],
+             "CanvasClaudeWrite.swift": [Self.canvasOutsideVerb],
              "CanvasDrop.swift": [Self.canvasOutsideVerb],
              "LineInspector.swift": [Self.canvasOutsideVerb],
              "PromotionPerformer.swift": [Self.canvasOutsideVerb],
@@ -1919,6 +1920,12 @@ final class TripwireGrepTests: XCTestCase {
             + "one of its own to protect — so a write from a tool is the same "
             + "case as the inspector's, minus the requirement that anyone be "
             + "touching the app. That is CanvasClaudeWrite.swift above.\n\n"
+            + "CanvasCapture.swift is the same case from a third direction "
+            + "(1C-d, spec §8A.4): a capture sent from the Inbox pane in the "
+            + "other column, or DRAGGED out of it, and neither has a bracket of "
+            + "its own — a drag that begins in a pane never reaches "
+            + "`CanvasView.handleClick`, which is the only thing that runs "
+            + "`commitActiveEdit`.\n\n"
             + "From the canvas itself the answer is the opposite — refuse "
             + "mid-gesture (`deleteSelection`'s `isInGesture` guard), because "
             + "closing the bracket would end one the writer still holds.\n\n"

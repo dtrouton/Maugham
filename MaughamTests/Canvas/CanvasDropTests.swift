@@ -918,4 +918,57 @@ final class CanvasDropTests: XCTestCase {
                       "control: with no name on offer the generic wording is "
                       + "still there to fall back to")
     }
+
+    // MARK: - Which id space arrived (1C-d Task 12, spec §8A.4)
+
+    /// **The canvas is the first drop target in the app that reads TWO id
+    /// spaces**, and an inbox capture's ULID is not tellable apart from a
+    /// research item id. So the inbox row sends a prefixed payload and this is
+    /// where it is destructured — exhaustively, because SwiftUI's drop delivery
+    /// has no seam a test can post a drag session into.
+    func test_aPrefixedPayloadIsACaptureAndABarePayloadIsAnItemID() {
+        XCTAssertEqual(CanvasDrop.payload("inbox:01HXYZ"), .capture(entryID: "01HXYZ"))
+        XCTAssertEqual(CanvasDrop.payload("01HXYZ"), .itemID("01HXYZ"),
+                       "a bare id is what every other draggable in the app sends")
+        XCTAssertEqual(CanvasDrop.payload(""), .itemID(""),
+                       "an empty payload is not a capture — it is refused "
+                       + "downstream by not being in `CanvasItemIndex`")
+        XCTAssertEqual(CanvasDrop.payload("inbox:"), .capture(entryID: ""),
+                       "…and an empty ENTRY id is still routed to the capture "
+                       + "arm, which fails loudly with `entryNotFound` rather "
+                       + "than being looked up in the wrong index")
+    }
+
+    /// The builder and the router are two halves of one spelling, so they are
+    /// asserted against each other rather than against a literal in two places.
+    func test_theRowsPayloadRoundTripsThroughTheRouter() {
+        XCTAssertEqual(CanvasDrop.payload(CanvasDrop.inboxPayload(for: "abc")),
+                       .capture(entryID: "abc"),
+                       "the sender and the receiver disagreeing is silent: the "
+                       + "ULID would be looked up in `CanvasItemIndex`, missed, "
+                       + "and the drag refused with nothing said")
+    }
+
+    /// **The failure the prefix exists to prevent, asserted directly.** Before
+    /// the prefix, a capture id arriving here was indistinguishable from a
+    /// research id — and `decide` refuses what it cannot find in the index, so
+    /// the drag would spring back with nothing said and nothing red.
+    func test_aCapturePayloadIsNeverRoutedToTheItemDecision() throws {
+        let index = CanvasItemIndex(entriesByID: [
+            "01HXYZ": .init(title: "A research note", kind: .researchNote)
+        ])
+        XCTAssertEqual(
+            CanvasDrop.decide(payload: "inbox:01HXYZ", at: .zero,
+                              in: CanvasScene(), index: index),
+            .ignored,
+            "a prefixed payload must never reach the item route, even in the "
+            + "unlucky case where the bare id collides with a research id")
+        XCTAssertNotEqual(
+            CanvasDrop.decide(payload: "01HXYZ", at: .zero,
+                              in: CanvasScene(), index: index),
+            .ignored,
+            "control: the same id WITHOUT the prefix is a live research drop, so "
+            + "the assertion above is about the prefix rather than about an "
+            + "index that resolves nothing")
+    }
 }

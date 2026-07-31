@@ -529,6 +529,54 @@ final class InboxToCanvasTests: XCTestCase {
         XCTAssertNotNil(CanvasStore(projectRoot: f.url).load().scene.node(id))
     }
 
+    // MARK: - Told, and told where
+
+    /// **The command's half of "it may not be silent"** (§8A.4's amendment). Its
+    /// card lands at `looseOrigin`, which on any non-empty canvas is by
+    /// construction outside the writer's viewport — so the send selects it and
+    /// asks the camera for it. With the canvas on screen that happens at once.
+    func test_theCommandsCaptureIsSelectedAndTheCameraIsAskedForIt() async throws {
+        let f = try await openProject("ShowLive")
+        let model = attached(f)
+        var revealed: [CanvasRevealTarget] = []
+        model.onRevealRequested = { revealed.append($0) }
+        try await seed(f, [textEntry("t11", "look at me")])
+        let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "t11" })
+
+        let id = try await f.inbox.sendToCanvas(
+            entry, projectStore: f.store, placement: .loose)
+        CanvasCapture.show(id, in: f.store)
+
+        XCTAssertEqual(model.selection, .node(id),
+                       "selected, so the right-hand column names what just landed")
+        XCTAssertEqual(revealed, [.node(id)],
+                       "and the camera is asked for it — a send that left the "
+                       + "inbox and appeared nowhere the writer is looking is the "
+                       + "failure this route exists to remove")
+    }
+
+    /// **And with the Plan persona closed the request is PARKED**, which is the
+    /// case the command exists for: at the moment it is asked there is no
+    /// `CanvasView` and no hook, so a version that only called the closure would
+    /// drop the reveal exactly when the writer was not already looking.
+    func test_theCommandsRevealIsKeptUntilTheCanvasIsOnScreen() async throws {
+        let f = try await openProject("ShowParked")
+        let model = attached(f)
+        model.detach()
+        XCTAssertNil(model.onRevealRequested, "precondition: no canvas is mounted")
+        try await seed(f, [textEntry("t12", "waiting")])
+        let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "t12" })
+
+        let id = try await f.inbox.sendToCanvas(
+            entry, projectStore: f.store, placement: .loose)
+        CanvasCapture.show(id, in: f.store)
+
+        XCTAssertEqual(model.takePendingReveal(), .node(id),
+                       "dropped here, the writer opens the Plan persona to a "
+                       + "canvas that looks exactly as they left it, with their "
+                       + "capture off to the right of everything")
+    }
+
     // MARK: - Resolving an id (the drag's payload carries one)
 
     func test_aDragPayloadNamingNoLiveCaptureIsRefused() async throws {

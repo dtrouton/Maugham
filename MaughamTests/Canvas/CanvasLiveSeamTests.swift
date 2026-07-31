@@ -241,6 +241,76 @@ final class CanvasLiveSeamTests: XCTestCase {
                        + "exact shape: stored, drawn, listed, and uncreatable")
     }
 
+    // MARK: - The discriminator, spelled once
+
+    /// Every production file whose **code** contains both halves of the
+    /// discriminator. Comments are stripped, because this directory's files
+    /// discuss each other's rules at length in prose — `CanvasCapture`'s own doc
+    /// comment says which pair it must not spell, which is the point of it.
+    private func discriminatorSpellings(
+        in files: [(name: String, source: String)]
+    ) -> [String] {
+        files.filter { file in
+            let code = CanvasSourceCensus.commentsStripped(file.source)
+            return code.contains("liveCanvas") && code.contains("isAttached")
+        }
+        .map(\.name).sorted()
+    }
+
+    /// **`store.liveCanvas` together with `isAttached` appears exactly once.**
+    ///
+    /// `CanvasClaudeWrite.liveModel` is that one place, and its own doc comment is
+    /// why: a read and a write that came to different conclusions about which
+    /// canvas is real would each be correct on their own and wrong together — the
+    /// tool reports ids from the model while the words go to the sidecar, or the
+    /// reverse, and nothing anywhere is red. 1C-d Task 12 is the second writer
+    /// with the same two routes and it **shares** that function rather than
+    /// spelling the pair again, which is a thing a reader can only check by
+    /// counting.
+    ///
+    /// Counted by FILE rather than by call, so a third caller of `liveModel` — the
+    /// whole point of making it internal — does not have to edit this expectation.
+    func test_theLiveCanvasDiscriminatorIsSpelledOnce() throws {
+        XCTAssertEqual(try discriminatorSpellings(in: CanvasSourceCensus.productionFiles()),
+                       ["CanvasClaudeWrite.swift"],
+                       "the two halves of \"which canvas is real\" are written "
+                       + "together in more than one place (or in none). Every "
+                       + "writer that must choose between the attached model and "
+                       + "the sidecar goes through `CanvasClaudeWrite.liveModel`; "
+                       + "a second spelling is a second opinion, and the two "
+                       + "disagreeing is silent in both directions")
+    }
+
+    /// The companion plant, because a census over a token that must be ABSENT is
+    /// the shape that passes while blind. `CanvasCapture` is the real second
+    /// writer, so its real source is the control and the same file with the pair
+    /// written out by hand is the offender — which is exactly the diff a helpful
+    /// tidy-up would produce.
+    func test_theDiscriminatorCensusFiresOnASecondSpelling() throws {
+        let real = try CanvasSourceCensus.source(at: "Maugham/Canvas/CanvasCapture.swift")
+        let claude = try CanvasSourceCensus.source(at: "Maugham/Canvas/CanvasClaudeWrite.swift")
+        let control = [(name: "CanvasClaudeWrite.swift", source: claude),
+                       (name: "CanvasCapture.swift", source: real)]
+        XCTAssertEqual(discriminatorSpellings(in: control), ["CanvasClaudeWrite.swift"],
+                       "control: the real capture route shares the discriminator "
+                       + "rather than spelling it, and its doc comment saying so "
+                       + "does not count as spelling it")
+
+        let planted = real.replacingOccurrences(
+            of: "let model: CanvasModel? = CanvasClaudeWrite.liveModel(of: store)",
+            with: "let model: CanvasModel? = store.liveCanvas.flatMap { $0.isAttached ? $0 : nil }")
+        XCTAssertNotEqual(planted, real,
+                          "the plant patched nothing — a disable experiment that "
+                          + "silently fails to apply reports green against "
+                          + "unmodified code")
+        XCTAssertEqual(
+            discriminatorSpellings(in: [(name: "CanvasClaudeWrite.swift", source: claude),
+                                        (name: "CanvasCapture.swift", source: planted)]),
+            ["CanvasCapture.swift", "CanvasClaudeWrite.swift"],
+            "the census cannot see a second spelling of the discriminator, so it "
+            + "would stay green through exactly the change it exists to catch")
+    }
+
     /// The house self-check (`RegionBindingTests.test_theGateScanFiresOnAPlantedBypass`
     /// and `test_applyExternalTextCensusFiresOnPlantedSecondCallSite` are the
     /// precedents). **A census over a token that is REQUIRED to be present is

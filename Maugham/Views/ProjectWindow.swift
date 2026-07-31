@@ -913,7 +913,17 @@ struct ProjectWindow: View {
                        // decision of its own.
                        assetIngest: CanvasAssetIngest(
                         file: { try await store.ingestCanvasAsset(fileURL: $0) },
-                        image: { try await store.ingestCanvasAsset(image: $0) }))
+                        image: { try await store.ingestCanvasAsset(image: $0) }),
+                       // An inbox row dragged onto the canvas (1C-d Task 12, spec
+                       // §8A.4). The whole act is the store's third promote
+                       // sibling; this is the only production site that hands the
+                       // canvas a way to reach it, so its absence would be a drag
+                       // that springs back with nothing said.
+                       captureDrop: CanvasCaptureDrop(send: { entryID, point in
+                           try await documentStore.inboxStore.sendToCanvas(
+                               entryID: entryID, projectStore: store,
+                               placement: .dropped(at: point))
+                       }))
         case .research:
             if let id = selectedResearchId,
                let item = TreeWalk.find(

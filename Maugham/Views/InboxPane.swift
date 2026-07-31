@@ -27,6 +27,22 @@ struct InboxPane: View {
     @State private var editing: InboxEntry?
     @State private var audio = InboxAudioPlayer()
     @State private var promoteError: String?
+    /// What the last **Send to Canvas** did, shown in the pane until it ages out.
+    ///
+    /// **The command's landing place is off-screen by construction**, so §8A.4's
+    /// amendment rules that it may not be silent: *"a capture that leaves the
+    /// inbox and appears nowhere the writer is looking is the failure this route
+    /// exists to remove."* The other half of telling them is
+    /// `CanvasCapture.show`, which moves the camera to the card — now if the
+    /// canvas is on screen, on its next appearance otherwise.
+    ///
+    /// **In the pane and NOT a fourth transient banner.** Three
+    /// `.overlay(alignment: .top)` banners already share this window and two on
+    /// screen at once draw over each other; Task 11 declined to add a fourth and
+    /// used an `.alert`, and the one-banner-host fix is its own slice. A window
+    /// overlay would also be the wrong place for this one: the writer's eyes are
+    /// on the row they just acted on, which is here.
+    @State private var sentToCanvas: String?
     @State private var showingTrash = false
     @State private var promotePicking: InboxEntry?
     @State private var palettePicking: InboxEntry?
@@ -41,6 +57,10 @@ struct InboxPane: View {
         VStack(spacing: 0) {
             header
             Divider()
+            if let sentToCanvas {
+                sentStrip(sentToCanvas)
+                Divider()
+            }
             if showingTrash {
                 trashList
             } else if store.entries.isEmpty {
@@ -56,6 +76,16 @@ struct InboxPane: View {
         // frame and this outer frame, or the toolbar floats to vertical center.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task { await store.refresh() }
+        // Six seconds, as `CanvasPromotionModifier`'s confirmation gives the
+        // promotion sentence — and restarted by every send, because the value
+        // changes on each one.
+        .animation(.easeInOut(duration: 0.2), value: sentToCanvas)
+        .task(id: sentToCanvas) {
+            guard sentToCanvas != nil else { return }
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled else { return }
+            sentToCanvas = nil
+        }
         .onDisappear { audio.stop() }
         .sheet(item: $editing) { entry in
             // Seed the editor from the entry at sheet-init time (a self-contained
@@ -126,6 +156,21 @@ struct InboxPane: View {
         .padding(.vertical, 8)
     }
 
+    /// **Told, and told where.** The sentence names the capture and the persona
+    /// the canvas lives in, because the card itself lands clear of the writer's
+    /// work — which on any non-empty canvas is outside their viewport.
+    private func sentStrip(_ message: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "checkmark.circle")
+            Text(message).font(.caption)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .transition(.opacity)
+    }
+
     private var emptyState: some View {
         ContentUnavailableView(
             "Nothing in the inbox",
@@ -190,6 +235,18 @@ struct InboxPane: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 2)
+        // **An inbox row is draggable onto the canvas** (spec §8A.4's amendment):
+        // `.inbox` is one of the Plan persona's panes, so the pane can sit in the
+        // right-hand column with the canvas in the centre — the two surfaces on
+        // screen together is what makes a drag the obvious act, and the capture
+        // lands where it is dropped.
+        //
+        // **PREFIXED, unlike every other `.draggable` in the app.** `ResearchRow`
+        // sends `item.id` bare and each existing drop target reads one id space;
+        // the canvas is the first that reads two, and an inbox ULID is not
+        // tellable apart from a research id. Built through `CanvasDrop`, so the
+        // sender and the router cannot disagree about the spelling.
+        .draggable(CanvasDrop.inboxPayload(for: entry.id))
         .contextMenu {
             Button("Promote to Research") { promote(entry, scope: .shared) }
             if let target = activePromoteTarget {
@@ -205,6 +262,11 @@ struct InboxPane: View {
                 }
             }
             Button("Promote to Palette Card…") { palettePicking = entry }
+            // **Beside Promote to Palette, and not redundant with the drag**
+            // (spec §8A.4's amendment): a drag is unreachable from the keyboard,
+            // unreachable to VoiceOver, and unavailable when the writer has the
+            // pane in another persona with no canvas on screen to drop onto.
+            Button("Send to Canvas") { sendToCanvas(entry) }
             if entry.kind == .audio {
                 Button("Edit Transcript…") { editing = entry }
                 // Offer manual (re)transcription for any audio capture except one
@@ -245,6 +307,31 @@ struct InboxPane: View {
             do {
                 try await store.promoteToPaletteCard(
                     entry, projectStore: projectStore, cardId: cardId)
+            } catch { promoteError = error.localizedDescription }
+        }
+    }
+
+    /// **Send to Canvas** (spec §8A.4). `.loose` and never `.dropped`: the command
+    /// has no drop point, so it takes the one stated fallback — clear of the
+    /// writer's existing work, and **never in a region**. Adding a `joinTarget`
+    /// here for symmetry with the drag is that ruling broken, not a tidy-up.
+    ///
+    /// The `Task { do … catch { promoteError = … } }` shape is this file's, and
+    /// the alert it feeds says "Couldn't promote" — which is the right sentence
+    /// for the two refusals this can produce (a capture with nothing in it, and an
+    /// asset that has gone missing), both of them shared with the palette sibling.
+    private func sendToCanvas(_ entry: InboxEntry) {
+        audio.stop()
+        Task {
+            do {
+                let node = try await store.sendToCanvas(
+                    entry, projectStore: projectStore, placement: .loose)
+                // The other half of "told, and told WHERE": select it and move the
+                // camera to it — now if the canvas is on screen, on its next
+                // appearance otherwise.
+                CanvasCapture.show(node, in: projectStore)
+                sentToCanvas = "Sent “\(title(for: entry))” to the canvas. "
+                    + "Open Plan (⌘1) to see it."
             } catch { promoteError = error.localizedDescription }
         }
     }

@@ -314,7 +314,8 @@ final class PromotionCommandTests: XCTestCase {
               "PromotionPiece.resolve(",
               ".modifier(CanvasClaudeArrivalModifier(",
               "itemIndex: Self.canvasItemIndex(in: store)",
-              "assetIngest: CanvasAssetIngest("],
+              "assetIngest: CanvasAssetIngest(",
+              "captureDrop: CanvasCaptureDrop("],
              "nothing in the window RECEIVES the command — every button and the "
              + "keystroke post into nothing, and no test that hosts its own "
              + "onKeyWindowCommand can see it. The second token is the mount line "
@@ -351,7 +352,27 @@ final class PromotionCommandTests: XCTestCase {
              + "argument compiles, runs, keeps every drop test green, and turns "
              + "every photograph the writer drags onto their canvas into "
              + "\"Couldn't add …\". The default is what keeps ~70 test hosts from "
-             + "needing a store"),
+             + "needing a store. The EIGHTH is 1C-d Task 12's capture seam, and "
+             + "it is that shape a third time: `CanvasView.captureDrop` defaults "
+             + "to `.unavailable`, whose closure throws, so dropping this "
+             + "argument compiles, runs, keeps all of `InboxToCanvasTests` green "
+             + "and turns every inbox row dragged onto the canvas into a refusal "
+             + "alert. It is also the only place the window hands the canvas an "
+             + "`InboxStore` at all"),
+            ("Maugham/Views/InboxPane.swift",
+             [".draggable(CanvasDrop.inboxPayload(", "Button(\"Send to Canvas\")"],
+             "1C-d Task 12's two routes out of the inbox (spec §8A.4), and both "
+             + "are pure wiring with everything they reach tested elsewhere. "
+             + "`InboxStore.sendToCanvas` has sixteen tests over three capture "
+             + "kinds and two placements, and every one of them stays green with "
+             + "this row carrying no `.draggable` at all and no command in its "
+             + "menu — which is a capture that can reach the canvas from nowhere "
+             + "the writer can click. The DRAG token names the builder rather "
+             + "than the string: an inbox ULID and a research id are not tellable "
+             + "apart, so the payload must arrive PREFIXED or `CanvasDrop.decide` "
+             + "looks it up in `CanvasItemIndex`, misses, and refuses the drag "
+             + "silently — and a hand-spelled `\"inbox:\" + entry.id` here would "
+             + "be a second spelling of a prefix the router destructures"),
             ("Maugham/MaughamApp.swift",
              ["FocusedPromoteButton()", ".maughamPromoteCanvasSelection"],
              "the File-menu item is not IN the menu (or does not post this command), "
@@ -453,6 +474,22 @@ final class PromotionCommandTests: XCTestCase {
                                          "CanvasNotAnExternalDrop.ingest("]),
             ["CanvasNotAnExternalDrop.ingest("],
             "the census reports the ABSENT external-drop token and not the present one")
+        // And 1C-d Task 12's two, falsified the same way. The seam token guards a
+        // default that throws; the row tokens guard the only two places a capture
+        // can be reached from at all, and both are pure wiring over a store verb
+        // that is exhaustively tested without them.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: ["captureDrop: CanvasCaptureDrop(",
+                                         "captureDrop: CanvasNotACaptureDrop("]),
+            ["captureDrop: CanvasNotACaptureDrop("],
+            "the census reports the ABSENT capture-seam token and not the present one")
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/InboxPane.swift",
+                              required: [".draggable(CanvasDrop.inboxPayload(",
+                                         ".draggable(CanvasDrop.notARealPayload("]),
+            [".draggable(CanvasDrop.notARealPayload("],
+            "the census reports the ABSENT drag token and not the present one")
 
         // **A token surviving in a COMMENT must not satisfy the census**, which
         // is the blindness this census carried for seven entries and sixteen

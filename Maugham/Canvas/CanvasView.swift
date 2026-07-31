@@ -104,6 +104,15 @@ struct CanvasView: View {
     /// The census is in `PromotionCommandTests`.
     var assetIngest: CanvasAssetIngest = .unavailable
 
+    /// An inbox row dropped on the canvas (spec §8A.4), handed in by
+    /// `ProjectWindow` — the whole act is `InboxStore.sendToCanvas`, which this
+    /// view has no store to reach.
+    ///
+    /// Defaulted and censused for `assetIngest`'s reasons, and its `.unavailable`
+    /// throws for the same one: a wiring omission must reach the writer as a
+    /// refusal rather than as a drag that springs back saying nothing.
+    var captureDrop: CanvasCaptureDrop = .unavailable
+
     @State private var camera = CanvasCamera()
     @State private var layouts: [CanvasNodeID: ScrapLayout] = [:]
     @State private var editingNodeID: CanvasNodeID?
@@ -1340,8 +1349,19 @@ struct CanvasView: View {
     ///
     /// Returns whether anything happened, so a payload this canvas has no card for
     /// is declined and the drag springs back rather than reporting success.
+    ///
+    /// **Two id spaces arrive here as of 1C-d Task 12, and `CanvasDrop.payload`
+    /// tells them apart before anything else runs** (spec §8A.4). An inbox
+    /// capture's ULID and a research item id are not tellable apart, so the inbox
+    /// row sends a PREFIXED payload; without the destructuring, `decide` would
+    /// look the ULID up in `CanvasItemIndex`, not find it, and refuse the drag
+    /// with nothing said. See `CanvasDrop`'s own doc comment for why the prefix
+    /// breaks the house's raw-id pattern deliberately.
     private func handleDrop(_ payloads: [String], at viewPoint: CGPoint) -> Bool {
         guard let payload = payloads.first else { return false }
+        if case .capture(let entryID) = CanvasDrop.payload(payload) {
+            return handleCaptureDrop(entryID, at: viewPoint)
+        }
         switch CanvasDrop.decide(payload: payload,
                                  at: camera.contentPoint(fromView: viewPoint),
                                  in: model.scene, index: itemIndex) {
@@ -1376,6 +1396,43 @@ struct CanvasView: View {
             model.selection = .node(node.id)
             return true
         }
+    }
+
+    /// An inbox capture dropped on the canvas (spec §8A.4) — the **third** caller
+    /// of this drop target, beside the research drag and the external file drop.
+    ///
+    /// **This method decides nothing either.** Everything the send does — reading
+    /// the capture, refusing one with nothing in it, ingesting a photograph,
+    /// writing the canvas inside one undo bracket and flipping the entry
+    /// `.promoted` only after all of it has succeeded — is
+    /// `InboxStore.sendToCanvas`, which a test can reach without a window. What is
+    /// left here is the drop point, the selection and the alert.
+    ///
+    /// **The capture lands where it was dropped, and the canvas gains no placement
+    /// rule for it** (§8A.4's amendment). That is the whole reason the drag is the
+    /// primary route: the writer has already said where.
+    ///
+    /// **The camera does NOT move**, unlike the command route's `CanvasCapture.show`
+    /// — the card arrived under the pointer, so a jump would be to somewhere the
+    /// writer is already looking.
+    ///
+    /// The content point is resolved **before** the await, exactly as the external
+    /// drop does it: `camera` can move under a drop that takes a moment (a coast
+    /// finishing, a rewind), and the capture belongs where the writer let go of it.
+    private func handleCaptureDrop(_ entryID: String, at viewPoint: CGPoint) -> Bool {
+        let contentPoint = camera.contentPoint(fromView: viewPoint)
+        Task {
+            do {
+                let id = try await captureDrop.send(entryID, contentPoint)
+                // Selected so the right-hand column shows the capture's own
+                // inspector arm. Outside the bracket: a snapshot carries the scene
+                // and the scrap text, never the selection.
+                model.selection = .node(id)
+            } catch {
+                dropError = error.localizedDescription
+            }
+        }
+        return true
     }
 
     /// A photograph dropped from the Finder or a browser (spec §8A.1).

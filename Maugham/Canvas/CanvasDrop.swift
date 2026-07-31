@@ -31,8 +31,50 @@ import UniformTypeIdentifiers
 /// see `decide`. **A second id space must therefore arrive PREFIXED** — an inbox
 /// entry's ULID and a research id are not tellable apart, and a bare one would be
 /// silently refused by the rule in the paragraph above rather than routed.
+///
+/// **1C-d Task 12 is that second id space, and it arrives prefixed** (spec
+/// §8A.4): an inbox row is draggable onto the canvas and sends
+/// `inbox:<entry id>`, which `payload(_:)` destructures before anything else runs.
+/// This deliberately breaks the house's raw-id pattern for the reason above and
+/// for no other, so the next drop source with an id space of its own should read
+/// that paragraph and do the same rather than discover it.
 @MainActor
 enum CanvasDrop {
+
+    // MARK: - Which id space arrived
+
+    /// The prefix that tells an inbox capture apart from a research item.
+    ///
+    /// Spelled once, and built through `inboxPayload(for:)` at the source, so the
+    /// sending row and the receiving router cannot disagree about it — the failure
+    /// if they did is silent: `decide` would look the ULID up in `CanvasItemIndex`,
+    /// not find it, and refuse the drag with nothing said.
+    static let inboxPayloadPrefix = "inbox:"
+
+    /// What an inbox row sends. `InboxPane`'s `.draggable` is the one caller.
+    static func inboxPayload(for entryID: String) -> String {
+        inboxPayloadPrefix + entryID
+    }
+
+    /// Which id space a dropped string belongs to.
+    ///
+    /// A pure function over the payload, tested exhaustively, because SwiftUI's
+    /// drop delivery has no seam a test can post a drag session into — this
+    /// directory's standing arrangement (see the note above `decide`).
+    enum Payload: Equatable {
+        /// An inbox capture, by entry id. Async: the capture has to be read,
+        /// possibly ingested, and flipped `.promoted`, so it does not go through
+        /// `decide`/`apply` at all.
+        case capture(entryID: String)
+        /// Everything else — a bare id, validated against `CanvasItemIndex` by
+        /// `decide`, which is what disposes of the binder's other id spaces.
+        case itemID(String)
+    }
+
+    static func payload(_ raw: String) -> Payload {
+        guard raw.hasPrefix(inboxPayloadPrefix) else { return .itemID(raw) }
+        return .capture(entryID: String(raw.dropFirst(inboxPayloadPrefix.count)))
+    }
 
     /// What the writer's Edit menu reads after a drop.
     ///
@@ -208,6 +250,31 @@ struct CanvasAssetIngest {
     static var unavailable: CanvasAssetIngest {
         CanvasAssetIngest(file: { _ in throw Unavailable() },
                           image: { _ in throw Unavailable() })
+    }
+}
+
+/// **An inbox capture dropped on the canvas** (spec §8A.4), as a closure the view
+/// can be handed — `CanvasAssetIngest`'s shape, one task on, and for its reasons.
+///
+/// `CanvasView` has ~70 test hosts and neither an `InboxStore` nor a
+/// `ProjectStore`; the whole act is `InboxStore.sendToCanvas`, which is where a
+/// test can reach it without a window. What is left on the view is the drop
+/// point, the selection and the alert.
+///
+/// **`unavailable` throws rather than returning nil**, exactly as its neighbour
+/// does: a default that quietly did nothing is precisely how a wiring omission
+/// goes unnoticed, and the production wiring is censused by name in
+/// `PromotionCommandTests.test_theCanvasWiringCensusNamesEveryProductionSite`.
+@MainActor
+struct CanvasCaptureDrop {
+    /// Land the capture `entryID` names at a **content** point, and report the
+    /// node it made so the view can select it.
+    var send: (_ entryID: String, _ at: CGPoint) async throws -> CanvasNodeID
+
+    struct Unavailable: Error {}
+
+    static var unavailable: CanvasCaptureDrop {
+        CanvasCaptureDrop(send: { _, _ in throw Unavailable() })
     }
 }
 
