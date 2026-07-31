@@ -40,8 +40,21 @@ public enum ListCanvasTool: MCPTool {
         /// already exists in the project; the canvas holds only its position).
         public let kind: String
         /// The research item / palette card an item node points at. Absent for a
-        /// scrap.
+        /// scrap, and absent for an *owned* item node — see `provenance`.
         public let reference_id: String?
+        /// Which kind of item this is: `"project"` for something that already
+        /// exists in the project (`reference_id` names it), `"owned"` for a
+        /// photograph the canvas itself ingested. Absent for a scrap.
+        ///
+        /// **The path is deliberately not here, in this field or any other**
+        /// (1C-d, Task 9's Decision A). Nothing in this catalogue reads a file by
+        /// project-relative path, so a path would dangle in exactly the field a
+        /// reader would most reasonably feed to another tool — the id/path smear
+        /// `CanvasItemReference` exists to prevent. What a reader CAN do with
+        /// this is tell a picture apart from a broken reference: without it, an
+        /// owned node is an `"item"` with no `reference_id`, which is what a
+        /// deleted research item would look like too.
+        public let provenance: String?
         /// A scrap's words. Absent for an item node, and absent for every node
         /// when `include_text` was false — `includes_text` on the result is what
         /// tells the two apart.
@@ -116,8 +129,11 @@ public enum ListCanvasTool: MCPTool {
     public static let description = """
         Read a project's planning canvas: every card, every region and every line, \
         with the marks the inspector shows. A "scrap" is a loose thought whose words \
-        live only on the canvas; an "item" node points at research the canvas never \
-        writes to. `read_from` says which canvas answered — "open_canvas" when the \
+        live only on the canvas; an "item" node is something the canvas shows as \
+        itself, and `provenance` says which sort: "project" for research the canvas \
+        points at and never writes to (`reference_id` names it), or "owned" for a \
+        photograph the canvas ingested, which exists nowhere else in the project and \
+        has no id to read it by. `read_from` says which canvas answered — "open_canvas" when the \
         writer has the Plan persona on screen, in which case the scene is live and \
         may include a sentence they are still typing, or "sidecar" when it was read \
         from disk. `author` is absent on the writer's own cards and lines and reads \
@@ -179,17 +195,20 @@ public enum ListCanvasTool: MCPTool {
                                  includeText: Bool) -> Node {
         let kind: String
         let referenceId: String?
+        let provenance: String?
         let text: String?
         switch node.kind {
         case .scrap:
             kind = "scrap"
             referenceId = nil
+            provenance = nil
             // A scrap with no entry has no words yet, which is not the same as a
             // read that carried none — `includes_text` is what says which.
             text = includeText ? (scraps[node.id] ?? "") : nil
         case .item(.project(let id)):
             kind = "item"
             referenceId = id
+            provenance = "project"
             text = nil
         case .item(.owned):
             // **A project-relative path is not a reference id, so it is not put
@@ -199,19 +218,23 @@ public enum ListCanvasTool: MCPTool {
             // handing it `canvas_assets/photo-….png` would dangle every such
             // call, which is the id/path smear this slice's type exists to stop.
             //
-            // **Unreachable today and deliberately left so**: nothing in
-            // production makes an owned node until 1C-d's ingestion routes land.
-            // What an owned item should say on this wire — a path, a title, or a
-            // field of its own — is a decision for the slice that first creates
-            // one, and it is recorded in Task 1's report rather than guessed here.
+            // **What it says instead is `provenance`** (Task 9's Decision A,
+            // landed by Task 11, which is what first mints an owned node in
+            // production). The path goes nowhere on this wire — not in this
+            // field, not in one of its own. A reader learns that this card is a
+            // picture the canvas owns, which is what distinguishes it from a
+            // reference whose research item has been deleted; it cannot open the
+            // file, and no tool in this catalogue would take a path if it could.
             kind = "item"
             referenceId = nil
+            provenance = "owned"
             text = nil
         }
         return Node(
             id: node.id.raw,
             kind: kind,
             reference_id: referenceId,
+            provenance: provenance,
             text: text,
             x: Double(node.origin.x),
             y: Double(node.origin.y),

@@ -91,6 +91,14 @@ final class CanvasToolsTests: XCTestCase {
         return try JSONDecoder().decode(ListCanvasTool.Result.self, from: json)
     }
 
+    /// The response as it goes over the wire. Decoding hides what a field is
+    /// *called* and hides any field the decoder does not know about — so a test
+    /// asserting that something is absent from the response has to read the bytes.
+    private func rawCall(_ registry: ProjectRegistry, _ projectId: String) async throws -> Data {
+        try await ListCanvasTool.handle(
+            paramsJSON: Data("{\"project_id\":\"\(projectId)\"}".utf8), registry: registry)
+    }
+
     private func reported(_ result: ListCanvasTool.Result,
                           _ id: String) -> ListCanvasTool.Node? {
         result.nodes.first { $0.id == id }
@@ -188,6 +196,72 @@ final class CanvasToolsTests: XCTestCase {
     }
 
     // MARK: - Provenance and the marks
+
+    /// **An item node says which KIND of item it is, and never where the file
+    /// is** (1C-d Task 9's Decision A, landed by Task 11, which is what first
+    /// mints an owned node in production).
+    ///
+    /// A *referenced* item already exists in the project and `reference_id` names
+    /// it; an *owned* one is a photograph the canvas ingested, which exists
+    /// nowhere else. Without the field the two are one undifferentiated `"item"`
+    /// and a reader has no way to learn that a card with no `reference_id` is a
+    /// picture rather than a broken reference.
+    ///
+    /// **The path is deliberately nowhere on the wire, and the absence is the
+    /// decision.** Nothing in the catalogue reads a file by project-relative
+    /// path, so a path would dangle in exactly the field a reader would most
+    /// reasonably feed to another tool — the id/path smear `CanvasItemReference`
+    /// exists to stop. Asserting the presence of the provenance is the easy half;
+    /// this asserts the absence over the whole raw response, which is the half
+    /// that can regress.
+    func test_itSaysWhichKindOfItemANodeIsAndNeverWhereTheFileIs() async throws {
+        let (url, store, registry, id) = try await registeredProject("CanvasProvenance")
+        let model = attached(to: store, at: url)
+        let ownedPath = "canvas_assets/image-20260730-121314.png"
+        model.withScene { scene in
+            scene.insert(node("aaaa"))
+            scene.insert(node("bbbb", kind: .item(.project(id: "res-7")), y: 200))
+            scene.insert(node("cccc", kind: .item(.owned(path: ownedPath)), y: 400))
+        }
+
+        let result = try await call(registry, id)
+
+        let scrap = try XCTUnwrap(reported(result, "aaaa"))
+        XCTAssertNil(scrap.provenance,
+                     "a scrap points at no item at all, so it has no provenance to "
+                     + "report — asserted through an unwrapped subject, because on "
+                     + "an optional chain a nil would also be satisfied by the card "
+                     + "being absent from the response entirely")
+
+        let referenced = try XCTUnwrap(reported(result, "bbbb"))
+        XCTAssertEqual(referenced.provenance, "project")
+        XCTAssertEqual(referenced.reference_id, "res-7")
+
+        let owned = try XCTUnwrap(reported(result, "cccc"))
+        XCTAssertEqual(owned.provenance, "owned",
+                       "an ingested photograph is not a project reference, and a "
+                       + "reader that cannot tell them apart reads a card with no "
+                       + "reference_id as a broken one")
+        XCTAssertNotEqual(owned.provenance, referenced.provenance,
+                          "the two provenances must actually differ — one constant "
+                          + "for both fields would pass every equality above")
+        XCTAssertNil(owned.reference_id,
+                     "a project-relative path is not a reference id, so it does not "
+                     + "go in the field named for one")
+
+        let raw = try await rawCall(registry, id)
+        let text = try XCTUnwrap(String(data: raw, encoding: .utf8))
+        XCTAssertFalse(text.contains(ownedPath),
+                       "the path is on the wire. Nothing in the catalogue reads a "
+                       + "file by project-relative path, so it would dangle in "
+                       + "whichever field a reader fed to another tool")
+        XCTAssertFalse(text.contains("canvas_assets"),
+                       "the well's name is on the wire in some other shape")
+        XCTAssertTrue(text.contains("\"owned\""),
+                      "control: the response really was read (and really does carry "
+                      + "the provenance), so the two absences above are not a "
+                      + "search over an empty string")
+    }
 
     /// **nil means the writer.** `AnnotationAuthor.SourceKind` does have a
     /// `.human` case; what `CanvasNode.author` has no `.human` DEFAULT — the field

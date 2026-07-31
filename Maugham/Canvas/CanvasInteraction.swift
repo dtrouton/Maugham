@@ -465,13 +465,27 @@ struct CanvasInteraction {
     /// `ScrapLayout` may say how tall that is. `CanvasView` measures it in the
     /// same turn, which is why the create path calls `rebuildLayouts()`.
     static func createScrap(at contentPoint: CGPoint, in scene: inout CanvasScene) -> CanvasNodeID {
+        let id = newNodeID(in: scene)
+        scene.insert(CanvasNode(id: id, kind: .scrap, origin: contentPoint,
+                                width: defaultScrapWidth, cachedHeight: nil,
+                                z: scene.topZ + 1))
+        return id
+    }
+
+    /// A node id that is not already in the scene.
+    ///
+    /// Lifted out of `createScrap` when 1C-d Task 11's external drop needed one
+    /// **without** inserting a scrap: a `.owned` item node is minted the same way
+    /// (`CanvasNodeID`'s own doc comment says so), and a fourth hand-rolled
+    /// retry loop would be tripwire 23's lesson in a fourth place. It is minted
+    /// against the LIVE scene, so a batch inserting as it goes cannot collide
+    /// with itself; `CanvasClaudePlacement.newNodeID` keeps its `excluding:`
+    /// twin because it plans a whole batch against a scene it must not touch.
+    static func newNodeID(in scene: CanvasScene) -> CanvasNodeID {
         var id = CanvasNodeID(UUID().uuidString.prefix(8).lowercased())
         while scene.node(id) != nil {
             id = CanvasNodeID(UUID().uuidString.prefix(8).lowercased())
         }
-        scene.insert(CanvasNode(id: id, kind: .scrap, origin: contentPoint,
-                                width: defaultScrapWidth, cachedHeight: nil,
-                                z: scene.topZ + 1))
         return id
     }
 

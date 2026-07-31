@@ -905,7 +905,15 @@ struct ProjectWindow: View {
         case .canvas:
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { store.paletteSwatchHexes() },
-                       itemIndex: Self.canvasItemIndex(in: store))
+                       itemIndex: Self.canvasItemIndex(in: store),
+                       // The canvas's asset well (1C-d Task 11): a photograph
+                       // dropped from the Finder or a browser is ingested into
+                       // `canvas_assets/` here and nowhere else, so every route
+                       // is a caller of the one pair rather than a storage
+                       // decision of its own.
+                       assetIngest: CanvasAssetIngest(
+                        file: { try await store.ingestCanvasAsset(fileURL: $0) },
+                        image: { try await store.ingestCanvasAsset(image: $0) }))
         case .research:
             if let id = selectedResearchId,
                let item = TreeWalk.find(

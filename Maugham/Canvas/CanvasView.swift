@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The Plan persona's centre column.
 ///
@@ -91,6 +92,17 @@ struct CanvasView: View {
     /// — a required token, which is what this directory uses where a default
     /// would otherwise let wiring go missing with nothing red.
     var itemIndex: CanvasItemIndex = .empty
+
+    /// The canvas's asset well, handed in by `ProjectWindow` — the two halves of
+    /// `ProjectStore.ingestCanvasAsset`, which is what gives a photograph dropped
+    /// from the Finder or a browser a home the writer cannot tidy away.
+    ///
+    /// **Defaulted for the reason `itemIndex` is** (~70 test hosts, no store
+    /// between them) and censused for the same one: `.unavailable` is a real
+    /// state that compiles and runs, so dropping the argument at the one
+    /// production call site would refuse every external drop with nothing red.
+    /// The census is in `PromotionCommandTests`.
+    var assetIngest: CanvasAssetIngest = .unavailable
 
     @State private var camera = CanvasCamera()
     @State private var layouts: [CanvasNodeID: ScrapLayout] = [:]
@@ -209,6 +221,16 @@ struct CanvasView: View {
     /// every one of those frames. The elements carry CONTENT frames, so a pan or
     /// a zoom does not invalidate them at all.
     @State private var axElements: [CanvasAXElement] = []
+
+    /// What an external drop could not do, shown in an alert.
+    ///
+    /// **An alert and not a fourth transient banner.** Three
+    /// `.overlay(alignment: .top)` banners already share this window and two on
+    /// screen at once draw over each other; one banner host for the window is the
+    /// honest fix and is its own slice. The inbox's `.alert("Couldn't promote", …)`
+    /// over a `@State` `String?` is the nearest precedent, and `ResearchView`'s
+    /// import alert is the same shape on the same kind of failure.
+    @State private var dropError: String?
 
     /// When the writer last folded a keystroke into the model. A gap wider than
     /// `ScrapUndoBeat.idleSeconds` closes the open "Edit Scrap" gesture, so a
@@ -416,8 +438,28 @@ struct CanvasView: View {
         // `.dropDestination(for: URL.self)`, which silently rejects a browser's
         // rendered-bitmap drag; external drops are their own route through
         // `DropClassification` and are not this modifier's business.
+        //
+        // **The external half is mounted FIRST, i.e. innermost, and the order is
+        // load-bearing.** A Finder drag carries a file URL *and* often a text
+        // representation of its path, and a browser image drag carries a bitmap
+        // *and* the page's URL as text — so both of them also satisfy
+        // `String.self`. Innermost, the typed external target claims them, which
+        // is what a photograph dropped on the canvas is meant to do; the other
+        // way round, the internal router would take the payload, find no research
+        // id in `CanvasItemIndex`, refuse it, and the drag would spring back with
+        // nothing said. A research row's `.draggable(item.id)` carries neither a
+        // file URL nor an image, so it never matches this one and falls through
+        // to the router below.
+        .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, viewPoint in
+            handleExternalDrop(providers, at: viewPoint)
+        }
         .dropDestination(for: String.self) { payloads, location in
             handleDrop(payloads, at: location)
+        }
+        .alert(dropError ?? "",
+               isPresented: Binding(get: { dropError != nil },
+                                    set: { if !$0 { dropError = nil } })) {
+            Button("OK", role: .cancel) {}
         }
         .onAppear { load() }
         // The STRUCTURAL counter, never `revision`.
@@ -1324,6 +1366,42 @@ struct CanvasView: View {
             model.selection = .node(node.id)
             return true
         }
+    }
+
+    /// A photograph dropped from the Finder or a browser (spec §8A.1).
+    ///
+    /// **This method decides nothing either.** Classification is
+    /// `DropClassification`'s — the canvas is its fifth adopter and adds no rule
+    /// of its own — and everything after it is `CanvasExternalDrop`'s, which is
+    /// where a test can reach it. What is left here is the camera, the selection
+    /// and the alert, which are this view's own state.
+    ///
+    /// **The return value is synchronous and the work is not**, which is what the
+    /// modifier's signature requires: `accepts` is a pasteboard question with an
+    /// immediate answer, so a drag carrying neither a file nor an image is
+    /// declined outright and springs back — a refusal the writer can see — while
+    /// the ingestion, which reads and writes files, runs in a `Task`.
+    ///
+    /// The content point is resolved **before** the await: `camera` can move
+    /// under a drop that takes a moment (a coast finishing, a rewind), and the
+    /// photograph belongs where the writer let go of it.
+    private func handleExternalDrop(_ providers: [NSItemProvider],
+                                    at viewPoint: CGPoint) -> Bool {
+        let accepted = providers.filter { CanvasExternalDrop.accepts($0) }
+        guard !accepted.isEmpty else { return false }
+        let contentPoint = camera.contentPoint(fromView: viewPoint)
+        Task {
+            let outcome = await CanvasExternalDrop.ingest(providers: accepted,
+                                                          using: assetIngest)
+            let made = CanvasExternalDrop.apply(paths: outcome.paths,
+                                                at: contentPoint, in: model)
+            // Selected so the right-hand column shows the picture's own inspector
+            // arm. Outside the bracket: a snapshot carries the scene and the
+            // scrap text, never the selection.
+            if let first = made.first { model.selection = .node(first) }
+            dropError = outcome.message
+        }
+        return true
     }
 
     // MARK: - Delete

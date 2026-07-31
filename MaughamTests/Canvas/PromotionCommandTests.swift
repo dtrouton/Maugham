@@ -291,7 +291,8 @@ final class PromotionCommandTests: XCTestCase {
               "result.confirmation(for: plan)",
               "PromotionPiece.resolve(",
               ".modifier(CanvasClaudeArrivalModifier(",
-              "itemIndex: Self.canvasItemIndex(in: store)"],
+              "itemIndex: Self.canvasItemIndex(in: store)",
+              "assetIngest: CanvasAssetIngest("],
              "nothing in the window RECEIVES the command — every button and the "
              + "keystroke post into nothing, and no test that hosts its own "
              + "onKeyWindowCommand can see it. The second token is the mount line "
@@ -321,7 +322,14 @@ final class PromotionCommandTests: XCTestCase {
              + "canvas test green while every item node on the writer's canvas "
              + "reads \"No longer in the project.\" over research notes that are "
              + "sitting in their binder. The default earns its keep against ~70 "
-             + "test hosts; this token is what pays for it"),
+             + "test hosts; this token is what pays for it. The SEVENTH is 1C-d "
+             + "Task 11's ingestion pair, and it is the same defaulted-argument "
+             + "shape one task on: `CanvasView.assetIngest` defaults to "
+             + "`.unavailable`, whose two closures throw — so dropping this "
+             + "argument compiles, runs, keeps every drop test green, and turns "
+             + "every photograph the writer drags onto their canvas into "
+             + "\"Couldn't add …\". The default is what keeps ~70 test hosts from "
+             + "needing a store"),
             ("Maugham/MaughamApp.swift",
              ["FocusedPromoteButton()", ".maughamPromoteCanvasSelection"],
              "the File-menu item is not IN the menu (or does not post this command), "
@@ -404,6 +412,16 @@ final class PromotionCommandTests: XCTestCase {
                                          "PromotionPiece.notARealResolver("]),
             ["PromotionPiece.notARealResolver("],
             "the census reports the ABSENT piece token and not the present one")
+        // And 1C-d Task 11's ingestion pair, falsified with a type that cannot
+        // exist. Same shape as the item index and the same reason it matters:
+        // `assetIngest` defaults to `.unavailable`, so dropping the argument
+        // compiles, runs, and refuses every photograph the writer drags in.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: ["assetIngest: CanvasAssetIngest(",
+                                         "assetIngest: CanvasNotAnAssetIngest("]),
+            ["assetIngest: CanvasNotAnAssetIngest("],
+            "the census reports the ABSENT ingest token and not the present one")
         // 1C-c3's arrival-banner mount line, falsified the same way. The
         // subscription, the banner and the Show action all live in
         // `CanvasClaudeArrivalModifier.swift`, so its own census stays green with

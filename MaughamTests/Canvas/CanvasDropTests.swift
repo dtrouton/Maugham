@@ -1,3 +1,5 @@
+import AppKit
+import UniformTypeIdentifiers
 import XCTest
 @testable import Maugham
 
@@ -480,5 +482,397 @@ final class CanvasDropTests: XCTestCase {
         XCTAssertNil(model.scraps[scrapID],
                      "the writer's own typing is the step underneath, still there "
                      + "to be taken back separately")
+    }
+
+    // MARK: - The external route (1C-d Task 11, spec §8A.1)
+
+    /// A recording stand-in for `ProjectStore.ingestCanvasAsset(fileURL:)` /
+    /// `(image:)`.
+    ///
+    /// **The seam exists so the ROUTING is testable, not so the ingestion is
+    /// faked** — the ingestion itself has its own tests over the real store
+    /// (`CanvasAssetIngestionTests`), and two of the tests below drive the real
+    /// pair. What no other test can see is *which twin a given drag reaches*,
+    /// which is the whole of what this task added around `DropClassification`.
+    @MainActor
+    private final class RecordingIngest {
+        private(set) var files: [URL] = []
+        private(set) var images: [NSImage] = []
+        var failEverything = false
+
+        var seam: CanvasAssetIngest {
+            CanvasAssetIngest(
+                file: { url in
+                    self.files.append(url)
+                    if self.failEverything { throw Failure() }
+                    return "canvas_assets/file-\(self.files.count).png"
+                },
+                image: { image in
+                    self.images.append(image)
+                    if self.failEverything { throw Failure() }
+                    return "canvas_assets/bitmap-\(self.images.count).png"
+                })
+        }
+
+        struct Failure: Error {}
+    }
+
+    /// A Finder drag: a provider carrying a **file URL**.
+    private func fileProvider(_ url: URL) -> NSItemProvider {
+        NSItemProvider(item: url as NSURL, typeIdentifier: UTType.fileURL.identifier)
+    }
+
+    /// A browser drag: a provider carrying a **rendered bitmap and no file URL**.
+    /// This is the drag `.dropDestination(for: URL.self)` silently rejects, which
+    /// is the named failure this route exists to avoid.
+    private func bitmapProvider() -> NSItemProvider {
+        NSItemProvider(object: makeImage())
+    }
+
+    /// A drag carrying neither — a remote-URL-only link drag, near enough.
+    private func strangerProvider() -> NSItemProvider {
+        NSItemProvider(object: "https://example.com/a-page" as NSString)
+    }
+
+    private func makeImage(size: CGFloat = 12) -> NSImage {
+        let image = NSImage(size: NSSize(width: size, height: size))
+        image.lockFocus()
+        NSColor.systemTeal.drawSwatch(in: NSRect(x: 0, y: 0, width: size, height: size))
+        image.unlockFocus()
+        return image
+    }
+
+    /// A real PNG on disk, outside the project — the writer's own file, which the
+    /// canvas must **copy** rather than move.
+    private func writePNG(named name: String) throws -> URL {
+        let url = root.appendingPathComponent(name)
+        let image = makeImage(size: 16)
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:]) else {
+            throw RecordingIngest.Failure()
+        }
+        try png.write(to: url)
+        return url
+    }
+
+    private func writeText(named name: String) throws -> URL {
+        let url = root.appendingPathComponent(name)
+        try "not a photograph".write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    private func attachedModel(at projectRoot: URL) -> CanvasModel {
+        let model = CanvasModel()
+        model.attach(projectRoot: projectRoot)
+        model.undoManager.groupsByEvent = false
+        return model
+    }
+
+    /// **The canvas's USE of the shared classifier, which is the only part of it
+    /// this task wrote.** `DropClassification.action` is tested in
+    /// `PaletteCardEditorTests` and is not re-tested here; what is asked is that
+    /// each answer reaches the right half of the ingestion pair.
+    ///
+    /// The middle row is the one the whole route exists for: a browser drag has no
+    /// file URL, so `.dropDestination(for: URL.self)` rejects it with
+    /// CoreTransferable error 0 — nothing logged, nothing red, nothing on screen.
+    func test_eachDraggedProviderReachesTheHalfOfTheIngestionPairItNeeds() async throws {
+        let png = try writePNG(named: "harbour.png")
+        let recorder = RecordingIngest()
+
+        let outcome = await CanvasExternalDrop.ingest(
+            providers: [fileProvider(png), bitmapProvider(), strangerProvider()],
+            using: recorder.seam)
+
+        XCTAssertEqual(recorder.files, [png],
+                       "a Finder drag carries a file URL and must reach the file "
+                       + "twin, which preserves the name and the extension")
+        XCTAssertEqual(recorder.images.count, 1,
+                       "a browser drag carries a rendered bitmap and no file URL — "
+                       + "it must reach the image twin. Zero here is the failure "
+                       + "this whole route exists to prevent: a drag that appears "
+                       + "to do nothing, with nothing logged and nothing red")
+        XCTAssertEqual(outcome.paths.count, 2,
+                       "two providers were ingestable, and the third — carrying "
+                       + "neither a file URL nor an image — must make nothing")
+        XCTAssertNil(outcome.message,
+                     "a link drag the canvas simply cannot hold is declined by the "
+                     + "drop itself; it is not an error to report")
+    }
+
+    /// **A provider carrying BOTH (the real Finder shape) takes the file route.**
+    /// The on-disk file preserves the original name and extension; re-rendering it
+    /// through the bitmap twin would throw both away and re-encode the picture.
+    ///
+    /// **Control:** the same assertion with the bitmap-only provider, which must
+    /// reach the other twin — without it this passes under a router that always
+    /// calls the file half.
+    func test_aDragCarryingBothAFileUrlAndABitmapTakesTheFile() async throws {
+        let png = try writePNG(named: "both.png")
+        let provider = NSItemProvider(item: png as NSURL,
+                                      typeIdentifier: UTType.fileURL.identifier)
+        provider.registerObject(makeImage(), visibility: .all)
+        XCTAssertTrue(provider.canLoadObject(ofClass: NSImage.self),
+                      "precondition: this fixture really does carry both")
+
+        let recorder = RecordingIngest()
+        _ = await CanvasExternalDrop.ingest(providers: [provider], using: recorder.seam)
+        XCTAssertEqual(recorder.files, [png])
+        XCTAssertTrue(recorder.images.isEmpty)
+
+        let control = RecordingIngest()
+        _ = await CanvasExternalDrop.ingest(providers: [bitmapProvider()],
+                                            using: control.seam)
+        XCTAssertTrue(control.files.isEmpty,
+                      "control: a bitmap-only drag must NOT reach the file twin")
+        XCTAssertEqual(control.images.count, 1)
+    }
+
+    /// **What lands is an OWNED node whose path is project-relative**, driven
+    /// through the real `ProjectStore` pair rather than the recording seam.
+    ///
+    /// All three failure spellings are asserted rather than "it is non-empty":
+    /// `CanvasItemReference.owned(path:)` names a leading `./`, a `file://` URL
+    /// and a Markdown `![](…)` ref as the three ways to get this wrong, and each
+    /// renders nothing while keying the thumbnail cache on a string that differs
+    /// between Macs.
+    func test_anIngestedPhotographIsAnOwnedNodeWithAProjectRelativePath() async throws {
+        let projectURL = try await ProjectFactory.createNovelProject(
+            named: "CanvasExternalDrop", in: root)
+        let store = try await ProjectStore.load(from: projectURL)
+        let model = attachedModel(at: projectURL)
+        let source = try writePNG(named: "the-falls.png")
+
+        let outcome = await CanvasExternalDrop.ingest(
+            providers: [fileProvider(source)],
+            using: CanvasAssetIngest(
+                file: { try await store.ingestCanvasAsset(fileURL: $0) },
+                image: { try await store.ingestCanvasAsset(image: $0) }))
+        let made = CanvasExternalDrop.apply(paths: outcome.paths,
+                                            at: CGPoint(x: 200, y: 150), in: model)
+
+        let id = try XCTUnwrap(made.first, "the drop made a card")
+        let landed = try XCTUnwrap(model.scene.node(id))
+        guard case .item(.owned(let path)) = landed.kind else {
+            return XCTFail("an ingested photograph exists nowhere else in the "
+                           + "project, so it is OWNED — a `.project` reference "
+                           + "would point at a manifest entry that does not exist")
+        }
+        XCTAssertFalse(path.hasPrefix("./"), "leading ./: \(path)")
+        XCTAssertFalse(path.hasPrefix("file://"), "a file URL: \(path)")
+        XCTAssertFalse(path.contains("!["), "a Markdown image ref: \(path)")
+        XCTAssertFalse((path as NSString).isAbsolutePath, "absolute: \(path)")
+        XCTAssertTrue(path.hasPrefix("canvas_assets/"), "outside the well: \(path)")
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: projectURL.appendingPathComponent(path).path),
+            "the path must resolve against the project root — it is the key the "
+            + "thumbnail cache and the renderer both read")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path),
+                      "ingesting COPIES: the source is the writer's own file and "
+                      + "the canvas must not take it away")
+
+        XCTAssertNotEqual(id, CanvasNodeID.item(path),
+                          "an owned node's id is MINTED — a filesystem path in an "
+                          + "identity puts tripwire 22's rename hazard in the one "
+                          + "field nothing may rewrite (`CanvasNodeID`)")
+    }
+
+    /// **A `.txt` dropped on the canvas creates nothing and copies nothing.**
+    ///
+    /// This is a real hole rather than a hypothetical:
+    /// `ImagePasteHandler.saveAndReferenceFile` takes the source extension as
+    /// given and validates nothing, so an unchecked drop would copy the file into
+    /// `canvas_assets/`, mint an owned node, draw the photograph glyph and queue a
+    /// decode that can only fail — and `CanvasThumbnails` **memoises failures**,
+    /// so it is one permanent dead cache entry per mistake.
+    ///
+    /// **Control:** the same drop with a `.png` makes a card and copies a file.
+    /// Without it this passes under a route that ingests nothing at all.
+    func test_aTextFileMakesNoCardAndCopiesNoFileWhileAPngDoesBoth() async throws {
+        let projectURL = try await ProjectFactory.createNovelProject(
+            named: "CanvasDropRefusal", in: root)
+        let store = try await ProjectStore.load(from: projectURL)
+        let model = attachedModel(at: projectURL)
+        let seam = CanvasAssetIngest(
+            file: { try await store.ingestCanvasAsset(fileURL: $0) },
+            image: { try await store.ingestCanvasAsset(image: $0) })
+        let well = projectURL.appendingPathComponent("canvas_assets")
+
+        let refused = await CanvasExternalDrop.ingest(
+            providers: [fileProvider(try writeText(named: "notes.txt"))], using: seam)
+        _ = CanvasExternalDrop.apply(paths: refused.paths,
+                                     at: CGPoint(x: 10, y: 10), in: model)
+
+        XCTAssertTrue(refused.paths.isEmpty, "a text file is not a photograph")
+        XCTAssertTrue(model.scene.unorderedNodes.isEmpty,
+                      "a card drawing the photograph glyph over a decode that can "
+                      + "only fail is worse than a refusal")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: well.path),
+                       "nothing was ingested, so the well was never even made")
+        XCTAssertNotNil(refused.message,
+                        "and the writer is told — a drop that silently does "
+                        + "nothing is indistinguishable from a broken surface")
+
+        // Control, in the same test.
+        let accepted = await CanvasExternalDrop.ingest(
+            providers: [fileProvider(try writePNG(named: "control.png"))], using: seam)
+        _ = CanvasExternalDrop.apply(paths: accepted.paths,
+                                     at: CGPoint(x: 10, y: 10), in: model)
+        XCTAssertEqual(model.scene.unorderedNodes.count, 1,
+                       "control: a PNG through the same route DOES make a card")
+        XCTAssertNil(accepted.message, "control: and says nothing to the writer")
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: well.path).count, 1,
+            "control: exactly the one accepted file is in the well")
+    }
+
+    /// **Every file in a multi-file drop lands, and no card is exactly on
+    /// another.** Cards stacked at one point read as a single card, so a writer
+    /// who dragged four photographs in sees one and assumes three were lost.
+    func test_everyFileInAMultiFileDropLandsAndNoneIsExactlyOnAnother() async throws {
+        let model = attachedModel()
+        let recorder = RecordingIngest()
+        let providers = try (1...3).map { fileProvider(try writePNG(named: "p\($0).png")) }
+
+        let outcome = await CanvasExternalDrop.ingest(providers: providers,
+                                                      using: recorder.seam)
+        let made = CanvasExternalDrop.apply(paths: outcome.paths,
+                                            at: CGPoint(x: 100, y: 100), in: model)
+
+        XCTAssertEqual(made.count, 3, "three files, three cards")
+        XCTAssertEqual(Set(made).count, 3, "three DISTINCT minted ids")
+        let origins = made.compactMap { model.scene.node($0)?.origin }
+        XCTAssertEqual(origins.count, 3)
+        XCTAssertEqual(Set(origins.map { "\($0.x),\($0.y)" }).count, 3,
+                       "two cards at one point read as one card, and the writer "
+                       + "concludes the others were lost")
+    }
+
+    /// **An externally dropped card is born measured and joins by its CENTRE.**
+    ///
+    /// Both halves are the same two failures Task 10's own tests name, arriving
+    /// through a second creation route: an unmeasured node has no `frame`, so it
+    /// is neither drawn nor clickable *and* `joinTarget` returns nil for it — a
+    /// join that silently joins nothing, on every drop, for ever.
+    ///
+    /// **Control:** the card really was measured, so the homelessness assertion
+    /// below cannot pass by there being no centre to test.
+    func test_anExternallyDroppedCardIsMeasuredAndJoinsByItsCentre() async throws {
+        let model = attachedModel()
+        withRegion(model)
+        let recorder = RecordingIngest()
+        let inside = CGPoint(x: 200, y: 150)
+        XCTAssertTrue(regionFrame.contains(centre(ofCardDroppedAt: inside)),
+                      "precondition: this fixture's card centre really is inside")
+
+        let outcome = await CanvasExternalDrop.ingest(
+            providers: [fileProvider(try writePNG(named: "inside.png"))],
+            using: recorder.seam)
+        let id = try XCTUnwrap(
+            CanvasExternalDrop.apply(paths: outcome.paths, at: inside, in: model).first)
+
+        let landed = try XCTUnwrap(model.scene.node(id))
+        XCTAssertEqual(landed.cachedHeight, CanvasCardMetrics.itemLabelOnlyHeight,
+                       "the label-only floor is the honest height until the "
+                       + "photograph decodes — and an unmeasured card is neither "
+                       + "drawn nor clickable, persisted that way")
+        XCTAssertEqual(model.scene.topmostNode(at: CGPoint(x: landed.frame!.midX,
+                                                           y: landed.frame!.midY))?.id,
+                       id, "hit testing drops a node with no frame")
+        XCTAssertEqual(CanvasMembership.homeRegion(of: id, in: model.scene), regionID,
+                       "creation absorbs: a card dropped inside a region lives there")
+
+        // The corner test, refused — the origin is inside and the centre is one
+        // point past the right edge (§4.2's discriminator against Obsidian).
+        let corner = CGPoint(x: 381, y: 150)
+        XCTAssertTrue(regionFrame.contains(corner))
+        XCTAssertFalse(regionFrame.contains(centre(ofCardDroppedAt: corner)))
+        let second = await CanvasExternalDrop.ingest(
+            providers: [fileProvider(try writePNG(named: "corner.png"))],
+            using: recorder.seam)
+        let cornerID = try XCTUnwrap(
+            CanvasExternalDrop.apply(paths: second.paths, at: corner, in: model).first)
+        XCTAssertNil(CanvasMembership.homeRegion(of: cornerID, in: model.scene),
+                     "the centre decides, not the corner")
+        XCTAssertNotNil(model.scene.node(cornerID)?.frame,
+                        "control: it was MEASURED, so it HAD a centre to test — "
+                        + "unmeasured, `joinTarget` is nil for every node on every "
+                        + "canvas and the assertion above is vacuous")
+    }
+
+    /// **An external drop is one named ⌘Z, including while the writer is inside a
+    /// scrap** — the tripwire-32 repro from a sixth direction, and the sharpest
+    /// one yet: the drag begins in the Finder, so nothing on either side of it
+    /// closes the writer's open "Edit Scrap" bracket.
+    func test_anExternalDropIsItsOwnNamedStepEvenInsideAnOpenScrap() async throws {
+        let model = attachedModel()
+        let scrapID = CanvasNodeID("s1")
+        model.mutate("New Scrap") {
+            $0.insert(CanvasNode(id: scrapID, kind: .scrap, origin: .zero,
+                                 width: 240, cachedHeight: 38))
+        }
+        model.beginGesture("Edit Scrap")
+        model.setScrapText("the falls at night", for: scrapID)
+
+        let recorder = RecordingIngest()
+        let outcome = await CanvasExternalDrop.ingest(
+            providers: [fileProvider(try writePNG(named: "mid-sentence.png"))],
+            using: recorder.seam)
+        let id = try XCTUnwrap(
+            CanvasExternalDrop.apply(paths: outcome.paths,
+                                     at: CGPoint(x: 400, y: 400), in: model).first)
+
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains(CanvasDrop.undoStepName),
+                      "the drop registered no step of its own — it nested inside "
+                      + "\"Edit Scrap\" and rides into the writer's next sentence "
+                      + "(tripwire 32). found: " + model.undoManager.undoMenuItemTitle)
+
+        model.endGesture()
+        model.undo.undo()
+        XCTAssertNil(model.scene.node(id), "the first ⌘Z takes back the card")
+        XCTAssertEqual(model.scraps[scrapID], "the falls at night",
+                       "…and leaves the sentence alone")
+    }
+
+    /// **A failed ingest leaves nothing on the canvas and is not silent.**
+    ///
+    /// **Control:** the same drop with a working seam lands a card and says
+    /// nothing — so the message above is the failure's doing rather than a route
+    /// that always complains.
+    func test_aFailedIngestLeavesNothingOnTheCanvasAndSaysSo() async throws {
+        let model = attachedModel()
+        let recorder = RecordingIngest()
+        recorder.failEverything = true
+
+        let failed = await CanvasExternalDrop.ingest(
+            providers: [fileProvider(try writePNG(named: "unwritable.png"))],
+            using: recorder.seam)
+        let made = CanvasExternalDrop.apply(paths: failed.paths,
+                                            at: CGPoint(x: 10, y: 10), in: model)
+
+        XCTAssertTrue(made.isEmpty, "nothing landed")
+        XCTAssertTrue(model.scene.unorderedNodes.isEmpty,
+                      "a card pointing at a file that was never written draws a "
+                      + "broken picture the writer cannot explain")
+        let message = try XCTUnwrap(failed.message,
+                                    "a failed ingest that says nothing is a drag "
+                                    + "that appears to do nothing")
+        XCTAssertTrue(message.contains("unwritable.png"),
+                      "the message names the file the writer dropped, so they know "
+                      + "WHICH of four photographs did not land. found: \(message)")
+        XCTAssertFalse(model.undoManager.canUndo,
+                       "and it left no empty undo step behind")
+
+        let working = RecordingIngest()
+        let ok = await CanvasExternalDrop.ingest(
+            providers: [fileProvider(try writePNG(named: "fine.png"))],
+            using: working.seam)
+        XCTAssertNil(ok.message, "control: a working ingest says nothing")
+        XCTAssertEqual(
+            CanvasExternalDrop.apply(paths: ok.paths, at: .zero, in: model).count, 1,
+            "control: …and lands a card")
     }
 }

@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 /// **What a thing dropped on the canvas means, and how it lands** (spec §8A.1).
 ///
@@ -177,5 +179,233 @@ enum CanvasDrop {
             }
         }
         model.bumpSceneRevision()
+    }
+}
+
+/// The canvas's asset well, as a pair of closures the view can be handed.
+///
+/// **A seam, and it exists for two reasons that both matter.** `CanvasView` has
+/// ~70 test hosts and no `ProjectStore` — handing it the store to reach two
+/// methods would put the whole store on a view whose job is drawing — and the
+/// *routing* (which drag reaches which twin) is the only part of this task that
+/// is not already covered by `CanvasAssetIngestionTests`, so it has to be
+/// drivable without a project on disk.
+///
+/// **`unavailable` throws rather than returning nil, deliberately.** A default
+/// that quietly did nothing is precisely how a wiring omission goes unnoticed;
+/// throwing puts the failure in front of the writer, and the production wiring
+/// is censused by name in
+/// `PromotionCommandTests.test_theCanvasWiringCensusNamesEveryProductionSite`.
+@MainActor
+struct CanvasAssetIngest {
+    /// Copy a file the writer dropped into the well. Extension preserved.
+    var file: (URL) async throws -> String
+    /// Ingest a rendered bitmap (a browser drag) into the well, as PNG.
+    var image: (NSImage) async throws -> String
+
+    struct Unavailable: Error {}
+
+    static var unavailable: CanvasAssetIngest {
+        CanvasAssetIngest(file: { _ in throw Unavailable() },
+                          image: { _ in throw Unavailable() })
+    }
+}
+
+/// **A photograph dropped on the canvas from the Finder or a browser** (spec
+/// §8A.1) — the *external* half of the drop target, beside `CanvasDrop`'s
+/// internal one.
+///
+/// **Owned, because it exists nowhere else in the project.** A research row
+/// dragged out of the binder is a *reference*: the file has a home already and
+/// the canvas holds only its position. A photograph from Pictures or from a web
+/// page has no home here at all, so it is ingested into `canvas_assets/` and the
+/// node holds `CanvasItemReference.owned(path:)`. The id is MINTED — there is
+/// nothing to deduplicate, and a filesystem path in an identity would put
+/// tripwire 22's rename hazard in the one field nothing may rewrite
+/// (`CanvasNodeID`).
+///
+/// **`[.fileURL, .image]` providers, never `.dropDestination(for: URL.self)`.**
+/// A browser image drag carries a *rendered bitmap* and no file URL, so that
+/// modifier rejects it with CoreTransferable error 0: nothing logged, nothing
+/// red, nothing on screen. The canvas is `DropClassification`'s **fifth**
+/// adopter and adds no classification logic of its own — it routes that type's
+/// two answers to the two halves of `ProjectStore.ingestCanvasAsset`, which is
+/// the palette well's shape one surface over. `TripwireGrepTests` censuses the
+/// required token and bans the forbidden one, because SwiftUI's drop delivery
+/// has no seam a test can post a drag session into.
+@MainActor
+enum CanvasExternalDrop {
+
+    /// What one drop did, and what to tell the writer about it.
+    ///
+    /// Refusals and failures are separate because they are separate facts: a
+    /// `.txt` was never something the canvas could hold, while a `.png` that
+    /// threw is something that should have worked.
+    struct Outcome: Equatable {
+        /// Project-relative paths, in drop order, one per file that landed.
+        var paths: [String] = []
+        /// Names the canvas declined — not pictures.
+        var refused: [String] = []
+        /// Names whose ingestion threw.
+        var failed: [String] = []
+
+        /// **What the writer reads, or nil when everything landed.**
+        ///
+        /// A failed drop that says nothing is indistinguishable from a broken
+        /// surface, which is this route's named failure. It NAMES the files,
+        /// because a writer who dragged four photographs in needs to know which
+        /// one did not arrive.
+        var message: String? {
+            var parts: [String] = []
+            if !refused.isEmpty {
+                parts.append("The canvas holds pictures, so \(Self.list(refused)) "
+                             + (refused.count == 1 ? "was" : "were") + " not added.")
+            }
+            if !failed.isEmpty {
+                parts.append("Couldn't add \(Self.list(failed)) to the canvas.")
+            }
+            return parts.isEmpty ? nil : parts.joined(separator: " ")
+        }
+
+        private static func list(_ names: [String]) -> String {
+            names.map { "“\($0)”" }.joined(separator: ", ")
+        }
+    }
+
+    /// A generic name for a drag that carries no filename at all — a browser's
+    /// rendered bitmap. Used only in a failure message.
+    static let bitmapName = "the dropped image"
+
+    /// Whether this provider is one the canvas could take. Read **synchronously**
+    /// by the drop modifier so a drag carrying neither a file nor an image is
+    /// declined outright and springs back, rather than being accepted and then
+    /// silently amounting to nothing.
+    static func accepts(_ provider: NSItemProvider) -> Bool {
+        classify(provider) != .ignore
+    }
+
+    /// Whether the canvas can hold this file.
+    ///
+    /// **Scoped to the canvas on purpose.** The shared saver
+    /// (`ImagePasteHandler.saveAndReferenceFile`) takes `pathExtension` as given
+    /// and validates nothing, so an unchecked drop copies a `.txt` into
+    /// `canvas_assets/`, mints an owned node, draws the photograph glyph and
+    /// queues a decode that can only fail — and `CanvasThumbnails` **memoises
+    /// failures** with no `invalidate`, so it is one permanent dead cache entry
+    /// per mistake. The hole is probably wider than the canvas (research notes
+    /// and palette cards reach the same saver), and widening the shared saver is
+    /// not this task's to do; checking here fixes the surface that is being built.
+    ///
+    /// The file's real type first, its extension second: a file with no extension
+    /// still has a type on disk, and a drag from a sandboxed source may not.
+    static func isIngestableImage(_ url: URL) -> Bool {
+        if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType {
+            return type.conforms(to: .image)
+        }
+        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else {
+            return false
+        }
+        return type.conforms(to: .image)
+    }
+
+    /// Ingest every provider a drop carried, in order.
+    ///
+    /// **Await first, touch the scene second** — which is Swift rather than
+    /// style: `ingestCanvasAsset` is `async throws` and an `inout CanvasScene`
+    /// cannot cross a suspension point. So this returns paths and `apply` makes
+    /// the cards, exactly as `CanvasClaudeWrite` and `PromotionPerformer` split
+    /// for the same reason.
+    static func ingest(providers: [NSItemProvider],
+                       using ingest: CanvasAssetIngest) async -> Outcome {
+        var outcome = Outcome()
+        for provider in providers {
+            switch classify(provider) {
+            case .fileURL:
+                guard let url = await DropClassification.fileURL(from: provider) else {
+                    outcome.failed.append(bitmapName)
+                    continue
+                }
+                guard isIngestableImage(url) else {
+                    outcome.refused.append(url.lastPathComponent)
+                    continue
+                }
+                do { outcome.paths.append(try await ingest.file(url)) }
+                catch { outcome.failed.append(url.lastPathComponent) }
+
+            case .image:
+                guard let image = await DropClassification.image(from: provider) else {
+                    outcome.failed.append(bitmapName)
+                    continue
+                }
+                do { outcome.paths.append(try await ingest.image(image)) }
+                catch { outcome.failed.append(bitmapName) }
+
+            case .ignore:
+                continue
+            }
+        }
+        return outcome
+    }
+
+    /// Land the ingested paths as owned item nodes: **one undo step for the whole
+    /// drop**, each card measured, each joined by its own centre.
+    ///
+    /// **`mutateFromInspector`, carried from Task 10 and for its reason.** What
+    /// tripwire 32 turns on is whether the arriving mutation has a bracket of its
+    /// own to protect, and a drag beginning in the Finder has none — the writer
+    /// can be inside a scrap with "Edit Scrap" open, and *nothing on either side
+    /// of the drag closes it*. Through the inside verbs the drop nests and reaches
+    /// no undo step of its own, so a ⌘Z aimed at a sentence takes the photograph
+    /// with it.
+    ///
+    /// **Born measured at `CanvasCardMetrics.itemLabelOnlyHeight`**, the same
+    /// constant `CanvasDrop.decide` and `CanvasClaudePlacement` write at creation:
+    /// a node with no `cachedHeight` has no `frame`, so it is neither drawn nor
+    /// clickable *and* `joinTarget` returns nil for it — a join that silently
+    /// joins nothing. `CanvasView.rebuildLayouts` refines the height to the
+    /// picture's real shape on the next pass, inside this bracket.
+    ///
+    /// **Several files CASCADE rather than stacking or columning.** Two cards at
+    /// one point read as one card, and the writer concludes the rest were lost.
+    /// A column is the other candidate and is not available here: a column has to
+    /// be laid out against the cards' heights, and an item card's height is its
+    /// photograph's, which has not decoded yet and cannot be waited for while the
+    /// writer holds a mouse button. A cascade at `CanvasClaudePlacement.cardGap`
+    /// stays true whatever the pictures turn out to be.
+    @discardableResult
+    static func apply(paths: [String],
+                      at contentPoint: CGPoint,
+                      in model: CanvasModel) -> [CanvasNodeID] {
+        guard !paths.isEmpty else { return [] }
+        var made: [CanvasNodeID] = []
+        model.mutateFromInspector(CanvasDrop.undoStepName) { scene in
+            for (step, path) in paths.enumerated() {
+                // Minted against the LIVE scene as each card is inserted, so a
+                // batch cannot collide with itself (tripwire 23's lesson).
+                let id = CanvasInteraction.newNodeID(in: scene)
+                let gap = CanvasClaudePlacement.cardGap * CGFloat(step)
+                scene.insert(CanvasNode(
+                    id: id,
+                    kind: .item(.owned(path: path)),
+                    origin: CGPoint(x: contentPoint.x + gap, y: contentPoint.y + gap),
+                    width: CanvasInteraction.defaultScrapWidth,
+                    cachedHeight: CanvasCardMetrics.itemLabelOnlyHeight,
+                    z: scene.topZ + 1))
+                // Tripwire 31: the drop's ONE geometric reading, the existing
+                // spelling, and it reads the node's CENTRE. Creation absorbs.
+                if let home = CanvasInteraction.joinTarget(for: id, in: scene) {
+                    CanvasMembership.join(id, home: home, in: &scene)
+                }
+                made.append(id)
+            }
+        }
+        model.bumpSceneRevision()
+        return made
+    }
+
+    private static func classify(_ provider: NSItemProvider) -> DropAction {
+        DropClassification.action(
+            hasFileURL: provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
+            canLoadImage: provider.canLoadObject(ofClass: NSImage.self))
     }
 }

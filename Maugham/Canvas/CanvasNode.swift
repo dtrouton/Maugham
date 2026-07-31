@@ -51,8 +51,10 @@ public enum CanvasNodeKind: Equatable, Sendable {
     /// from that picture's shape, and a corner that resizes it. The placeholder
     /// card carrying its reference id — and the dashed border that said
     /// "unfinished" — went with Task 5. It has an inspector arm of its own too
-    /// (`ItemInspector`, Task 7). What 1C-d has left is the **drop target** for
-    /// browser drags and §8A.4's `inbox → canvas`.
+    /// (`ItemInspector`, Task 7), and both halves of the **drop target**: a
+    /// research drag lands a `.project` reference (Task 10) and a Finder or
+    /// browser drag lands an `.owned` picture (Task 11). What 1C-d has left is
+    /// §8A.4's `inbox → canvas`.
     case item(CanvasItemReference)
 
     /// Whether a `promotedItemID` on this node is a fact worth drawing and

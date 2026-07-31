@@ -75,7 +75,9 @@ Two new research-adjacent conventions, both plain-edited (no op log, no `¶id` a
 
 ## The canvas's asset well — `ProjectStore+CanvasAssets.swift` (1C-d, 2026-07-30)
 
-`ingestCanvasAsset(image:)` / `ingestCanvasAsset(fileURL:)` are the **one pair** that gives a canvas item node a file of its own, and every 1C-d route — research drag, Finder drop, browser bitmap, inbox promotion — is a *caller* of it rather than a storage decision of its own.
+`ingestCanvasAsset(image:)` / `ingestCanvasAsset(fileURL:)` are the **one pair** that gives a canvas item node a file of its own, and every 1C-d route — Finder drop, browser bitmap, inbox promotion — is a *caller* of it rather than a storage decision of its own. (A *research* drag ingests nothing: that item has a home already and the canvas holds only its position.)
+
+**Both twins have exactly one production caller as of Task 11, and they are the two arms of one drop.** `ProjectWindow` hands `CanvasView` a `CanvasAssetIngest` holding both; `CanvasExternalDrop` routes a Finder drag (a file URL) to the file twin, which preserves the name and extension, and a browser drag (a rendered bitmap, no file URL) to the image twin. Re-rendering the Finder case through the image twin, or writing the browser case to a temp file to reuse the file twin, would each have left the other half of a built pair with no caller — this directory's signature defect, and the twin's own doc comment says the pair was built for both.
 
 - **`canvas_assets/` sits at the PROJECT ROOT, beside `canvas.md`, and is content rather than derived state.** It is deliberately not under `.maugham/`: deleting `.maugham/canvas.json` costs the arrangement and must never cost the photographs. It is the one asset well whose owner is the canvas rather than a research note.
 - **No naming, dedupe or timestamp scheme of its own.** The pair hands `ImagePasteHandler` the canvas's own `canvas.md`, and that saver's existing `<slug>_assets` derivation yields `canvas_assets/` for free. The well's name is therefore **derived and never spelled** in production code — move `canvas.md` and the well follows.

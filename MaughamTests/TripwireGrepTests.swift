@@ -2127,6 +2127,114 @@ final class TripwireGrepTests: XCTestCase {
             + "recorded by the census.")
     }
 
+    // MARK: - The canvas's external drop takes the provider route (1C-d Task 11)
+
+    /// The only route that lands a browser's image drag.
+    private static let providerDropToken = ".onDrop(of: [.fileURL, .image]"
+
+    /// The route that looks equivalent, compiles, reads correctly and **silently
+    /// rejects every browser image drag** — CoreTransferable fails with error 0:
+    /// nothing logged, nothing red, nothing on screen. A browser drags a
+    /// *rendered bitmap* and no file URL, so `URL.self` matches nothing on the
+    /// pasteboard.
+    private static let forbiddenDropToken = "dropDestination(for: URL"
+
+    /// Which files under `Maugham/Canvas/` name a token, comments excluded.
+    private func canvasFilesNaming(_ token: String) throws -> Set<String> {
+        try filesNaming(token, under: sourceDir.appendingPathComponent("Canvas", isDirectory: true))
+    }
+
+    private func filesNaming(_ token: String, under dir: URL) throws -> Set<String> {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var hits: Set<String> = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            if Self.codeLines(of: text).contains(where: { $0.contains(token) }) {
+                hits.insert(url.lastPathComponent)
+            }
+        }
+        return hits
+    }
+
+    /// **Census over a required token plus a ban over a forbidden one**, because
+    /// the failure is not a crash but a gesture that stops working.
+    ///
+    /// The external half of the canvas's drop target has to be `[.fileURL,
+    /// .image]` providers routed through `DropClassification`: a browser image
+    /// drag carries a rendered bitmap rather than a file URL, so a
+    /// `.dropDestination(for: URL.self)` written in its place accepts the Finder
+    /// drag, rejects the browser one, and reports nothing at all about it. That is
+    /// this task's named failure, and no runtime test in this repo can see it —
+    /// SwiftUI's drop delivery has no seam a test can post a drag session into,
+    /// which is why Task 10's mount is censused too.
+    ///
+    /// **Count the set, not this comment.** A second canvas surface that grows a
+    /// file-or-image drop belongs in the expected set with a line saying why.
+    func test_theCanvasExternalDropUsesTheProviderRouteAndNeverAUrlDestination() throws {
+        XCTAssertEqual(try canvasFilesNaming(Self.providerDropToken), ["CanvasView.swift"],
+            "`\(Self.providerDropToken)` is the canvas's external drop target. If it "
+            + "vanished, a photograph dragged from the Finder or a browser now lands "
+            + "nowhere; if a second file grew one, add it here with its reason.")
+
+        XCTAssertTrue(try canvasFilesNaming(Self.forbiddenDropToken).isEmpty,
+            "`\(Self.forbiddenDropToken)` is in Maugham/Canvas/. A browser image drag "
+            + "carries a rendered bitmap and no file URL, so that modifier rejects it "
+            + "with CoreTransferable error 0 — nothing logged, nothing red, nothing on "
+            + "screen. Route through [.fileURL, .image] providers and "
+            + "DropClassification instead.")
+
+        // Control: the scan really is reading a live tree. Task 10's internal
+        // drag uses `String.self` and is expected to be there — if THIS finds
+        // nothing, the two assertions above are a search over an empty directory.
+        XCTAssertEqual(try canvasFilesNaming(".dropDestination(for: String.self)"),
+                       ["CanvasView.swift"],
+            "Control: the internal research drag's modifier should still be found. "
+            + "If it is not, this census is reading nothing.")
+    }
+
+    /// Self-check: both halves fire on planted offenders, and neither counts a
+    /// doc comment. A ban that never matches and a census that reads nothing look
+    /// identical from the outside.
+    func test_theCanvasDropRouteTripwiresFireOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-canvas-drop-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct PlantedCanvas: View {
+            var body: some View {
+                Color.clear
+                    // A doc comment naming .dropDestination(for: URL.self) must NOT count.
+                    .dropDestination(for: URL.self) { urls, _ in true }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("PlantedCanvas.swift"),
+                  atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(try filesNaming(Self.forbiddenDropToken, under: tmp),
+                       ["PlantedCanvas.swift"],
+            "Self-check: the planted URL destination should be caught.")
+        XCTAssertTrue(try filesNaming(Self.providerDropToken, under: tmp).isEmpty,
+            "Self-check: a tree with no provider-route drop should census as empty — "
+            + "which is what the real assertion above would look like if the modifier "
+            + "were deleted from CanvasView.")
+
+        try """
+        // .onDrop(of: [.fileURL, .image], isTargeted: nil) named in a comment.
+        struct CommentOnly: View { var body: some View { Color.clear } }
+        """.write(to: tmp.appendingPathComponent("CommentOnly.swift"),
+                  atomically: true, encoding: .utf8)
+        XCTAssertTrue(try filesNaming(Self.providerDropToken, under: tmp).isEmpty,
+            "Self-check: a comment naming the token must not satisfy the census — "
+            + "otherwise a file that only DISCUSSES the route would pass for one "
+            + "that mounts it.")
+    }
+
     /// A whole-line comment, in either spelling. Shared by the canvas-asset
     /// tripwires, which both guard tokens their own documentation names.
     private static func isCommentLine(_ line: String) -> Bool {
