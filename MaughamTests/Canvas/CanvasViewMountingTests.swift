@@ -1156,18 +1156,52 @@ final class CanvasViewMountingTests: XCTestCase {
     ///
     /// `static let` so it happens once: enabling accessibility is process-global
     /// and cannot be undone.
-    private static let assistiveClientIsAttached: Bool = {
+    ///
+    /// **It reports what actually happened, and until 2026-07-31 it did not.**
+    /// The query's result was discarded and the closure returned `true`
+    /// unconditionally — a check that could not fail. Every caller below was
+    /// therefore told the client was attached whatever the process answered, and
+    /// on a machine with no GUI session that call failing is exactly the expected
+    /// outcome: the tests would have gone on asserting against a tree that was
+    /// never built, and reported the attachment as fine while doing it.
+    private struct AssistiveClient {
+        let error: AXError
+        let role: String?
+
+        var isAttached: Bool { error == .success }
+
+        /// Spelled out in full, because this string is the whole of what a CI run
+        /// gets to tell us about a machine nobody can log in to and watch.
+        var description: String {
+            "AXUIElementCopyAttributeValue(kAXRoleAttribute) returned "
+                + "\(error.rawValue) (\(error == .success ? "success" : "failure")), "
+                + "role \(role.map { "\"\($0)\"" } ?? "nil")"
+        }
+    }
+
+    private static let assistiveClient: AssistiveClient = {
         var role: CFTypeRef?
-        _ = AXUIElementCopyAttributeValue(AXUIElementCreateApplication(getpid()),
-                                          kAXRoleAttribute as CFString, &role)
-        return true
+        let error = AXUIElementCopyAttributeValue(AXUIElementCreateApplication(getpid()),
+                                                  kAXRoleAttribute as CFString, &role)
+        return AssistiveClient(error: error, role: role as? String)
     }()
 
     /// Every accessibility element under the window's content view, in tree
     /// order — the tree an assistive client walks, which is the only place the
     /// question "can a VoiceOver user reach this" can honestly be asked.
+    ///
+    /// It SKIPS rather than failing when no client could be attached, and the
+    /// reason names the failure the query returned. A tree that was never built
+    /// is not evidence about this view: every assertion below would fail, all of
+    /// them for the same reason, and none of them about the canvas.
     private func axTree(in window: NSWindow) throws -> [AnyObject] {
-        _ = Self.assistiveClientIsAttached
+        let client = Self.assistiveClient
+        guard client.isAttached else {
+            throw XCTSkip(
+                "no assistive client could be attached to this process, so SwiftUI "
+                + "never builds the tree these tests read and there is nothing here "
+                + "to ask. \(client.description)")
+        }
         return axElements(under: try XCTUnwrap(window.contentView))
     }
 
@@ -1216,10 +1250,57 @@ final class CanvasViewMountingTests: XCTestCase {
                                                       farScrapID: farScrapText])
     }
 
-    private func axElement(valued value: String, in tree: [AnyObject]) throws -> AnyObject {
-        try XCTUnwrap(tree.first { axString($0, "accessibilityValue") == value },
-                      "no element in the published accessibility tree carries "
-                      + "\"\(value)\", so that card is not reachable at all")
+    /// The role every card is published under. Naming it in the lookup is not
+    /// extra strictness — it is the same contract `CanvasAXChildren` applies
+    /// `.isStaticText` for, and that modifier's own comment records what happens
+    /// without it: role `AXUnknown`, and the writer's sentence filed under
+    /// `accessibilityValueDescription` where nothing reads it.
+    private static let cardRole = NSAccessibility.Role.staticText.rawValue
+
+    /// The synthetic element standing for one card.
+    ///
+    /// **Matching on the value alone was a real hole, and it is the shape of the
+    /// 2026-07-31 CI failure.** `axElements` walks from the content view down, so
+    /// `first` reaches the two AXGroups that span the whole window — the hosting
+    /// view and the canvas itself — before it reaches any card. An ancestor that
+    /// carries a descendant's value for any reason is therefore matched FIRST,
+    /// and answers with the container's rectangle: the exact reading these tests
+    /// exist to catch, produced by the lookup rather than by the code under test.
+    /// Naming the role asks for the element an assistive client would actually
+    /// land on.
+    private func axCard(valued value: String, in tree: [AnyObject]) throws -> AnyObject {
+        let sameValue = tree.filter { axString($0, "accessibilityValue") == value }
+        let cards = sameValue.filter { axString($0, "accessibilityRole") == Self.cardRole }
+        return try XCTUnwrap(
+            cards.first,
+            "no element under role \(Self.cardRole) carries \"\(value)\", so that "
+            + "card is not separately reachable — an assistive client has the "
+            + "words and whatever rectangle the container it was folded into "
+            + "happens to have. \(sameValue.count) element(s) carry that value at "
+            + "any role.\n\(describe(tree))")
+    }
+
+    /// The whole observed tree, one element per line.
+    ///
+    /// Every failure below carries this, deliberately. These two tests passed on
+    /// every developer machine and failed on CI for five days, and the report
+    /// that came back — an origin and a width — could not distinguish a canvas
+    /// that published no card elements at all from one that published them at the
+    /// wrong place. A message nobody can reproduce has to carry its own evidence.
+    private func describe(_ tree: [AnyObject]) -> String {
+        let rows = tree.map { element -> String in
+            let frame = (axAttribute(element, "accessibilityFrame") as? NSValue)?.rectValue
+            return "  \(Swift.type(of: element))"
+                + " role=\(axString(element, "accessibilityRole") ?? "nil")"
+                + " label=\(axString(element, "accessibilityLabel").map { "\"\($0)\"" } ?? "nil")"
+                + " value=\(axString(element, "accessibilityValue").map { "\"\($0)\"" } ?? "nil")"
+                + " valueDescription="
+                + (axString(element, "accessibilityValueDescription").map { "\"\($0)\"" } ?? "nil")
+                + " frame=\(frame.map { "\($0)" } ?? "nil")"
+        }
+        return "Observed tree, \(tree.count) element(s); \(Self.assistiveClient.description); "
+            + "macOS \(ProcessInfo.processInfo.operatingSystemVersionString):\n"
+            + rows.joined(separator: "\n")
     }
 
     /// Where an assistive client would actually point, in the space
@@ -1259,24 +1340,91 @@ final class CanvasViewMountingTests: XCTestCase {
     /// identity, so the view frame IS the content frame. Height is asserted only
     /// to be real: it is measured from the font at load, not written by the
     /// fixture.
+    ///
+    /// **The arithmetic behind this rectangle is asked separately, and cheaply.**
+    /// `CanvasAccessibilityTests`' `test_aCardsContentFrameIsTheCardsOwnRectangle`
+    /// and `test_theCameraMapsThatRectangleToWhereTheCardIsDrawn` cover the two
+    /// hops we write ourselves — the content-space rect and the camera — with no
+    /// window and no assistive client. What is left here, and only here, is the
+    /// round trip through SwiftUI's publication, the accessibility runtime and
+    /// screen coordinates, which no pure test can reach.
+    ///
+    /// **Three cards, and the third fixture parameter that changed on
+    /// 2026-07-31.** This test hosted a canvas holding exactly ONE card until
+    /// then, and that was the one thing separating it and the coast test below —
+    /// the two that failed on CI — from `test_twoCardsInDifferentPlaces
+    /// PublishDifferentFrames` and `test_aCardFarOutsideTheViewportIsStillInThe
+    /// PublishedTree`, which host three and passed on the same run. Nothing in
+    /// the assertion is weakened by the extra cards: the card read is still the
+    /// one at (20, 20) and its expected rectangle is unchanged. The lone-card
+    /// case is not dropped either — `test_aLoneCardOnTheCanvasIsAnElementOfItsOwn`
+    /// below keeps it, separately, where a platform that cannot publish it says
+    /// so instead of taking two unrelated assertions down with it.
     func test_aCardsPublishedFrameLandsWhereTheCardIsDrawn() throws {
-        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
+        let window = host(CanvasView(model: CanvasModel(),
+                                     projectRoot: try threeCardProjectRoot(),
                                      paletteSwatchHexes: { [] }))
-        let card = try axElement(valued: scrapText, in: try axTree(in: window))
-        let frame = try viewFrame(ofPublished: card, in: window)
+        let tree = try axTree(in: window)
+        let frame = try viewFrame(ofPublished: try axCard(valued: scrapText, in: tree),
+                                  in: window)
+        let observed = "Published \(frame).\n\(describe(tree))"
 
         XCTAssertEqual(frame.origin.x, 20, accuracy: 0.5,
                        "the published frame is not where the card is drawn, so an "
-                       + "assistive cursor points somewhere the writer's card is not")
+                       + "assistive cursor points somewhere the writer's card is "
+                       + "not. \(observed)")
         XCTAssertEqual(frame.origin.y, 20, accuracy: 0.5,
                        "the published frame is not where the card is drawn on the y "
                        + "axis — the likeliest cause is a flip between SwiftUI's "
-                       + "y-down space and AppKit's y-up screen coordinates")
+                       + "y-down space and AppKit's y-up screen coordinates. "
+                       + "\(observed)")
         XCTAssertEqual(frame.width, 240, accuracy: 0.5,
-                       "the published frame is not the size of the card")
+                       "the published frame is not the size of the card. \(observed)")
         XCTAssertGreaterThan(frame.height, 0,
                              "the card publishes a zero-height rectangle: reachable "
-                             + "in the tree and impossible to point at")
+                             + "in the tree and impossible to point at. \(observed)")
+    }
+
+    /// **A canvas holding exactly one card, kept as its own question.**
+    ///
+    /// This is the state a writer meets on their second interaction with the Plan
+    /// persona — one scrap made, nothing else — so it is not a corner worth
+    /// dropping. It is also the one shape the 2026-07-31 CI evidence points at:
+    /// of the four round-trip tests on this layer, the two that failed hosted one
+    /// card and the two that passed hosted three, and the failing pair read back
+    /// the CONTAINER's rectangle rather than a card's.
+    ///
+    /// So the gate is narrow and says what it saw. It fires only when the
+    /// platform published **no per-card element at all**, which is an absence
+    /// that can be observed rather than inferred, and it carries the whole tree
+    /// with it. It is not a weaker assertion standing in for the real one: when a
+    /// card element does exist, the same three coordinates are asserted exactly
+    /// as above — and the multi-card round trip above is NOT gated, so a general
+    /// break in frame publication still fails the suite rather than skipping it.
+    func test_aLoneCardOnTheCanvasIsAnElementOfItsOwn() throws {
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let tree = try axTree(in: window)
+        guard tree.contains(where: { axString($0, "accessibilityRole") == Self.cardRole }) else {
+            throw XCTSkip(
+                "this platform published no element under role \(Self.cardRole) for "
+                + "a canvas holding exactly one card, so there is no per-card "
+                + "rectangle to read. The card's words are reachable — the value is "
+                + "somewhere in the tree below — but folded into a container rather "
+                + "than standing on their own.\n\(describe(tree))")
+        }
+
+        let frame = try viewFrame(ofPublished: try axCard(valued: scrapText, in: tree),
+                                  in: window)
+        let observed = "Published \(frame).\n\(describe(tree))"
+        XCTAssertEqual(frame.origin.x, 20, accuracy: 0.5,
+                       "the lone card's published frame is not where it is drawn. "
+                       + "\(observed)")
+        XCTAssertEqual(frame.origin.y, 20, accuracy: 0.5,
+                       "the lone card's published frame is not where it is drawn on "
+                       + "the y axis. \(observed)")
+        XCTAssertEqual(frame.width, 240, accuracy: 0.5,
+                       "the lone card's published frame is not its size. \(observed)")
     }
 
     /// The same failure from the other side, and the cheaper half of it: if
@@ -1287,9 +1435,9 @@ final class CanvasViewMountingTests: XCTestCase {
         let window = host(CanvasView(model: CanvasModel(), projectRoot: try threeCardProjectRoot(),
                                      paletteSwatchHexes: { [] }))
         let tree = try axTree(in: window)
-        let first = try viewFrame(ofPublished: try axElement(valued: scrapText, in: tree),
+        let first = try viewFrame(ofPublished: try axCard(valued: scrapText, in: tree),
                                   in: window)
-        let second = try viewFrame(ofPublished: try axElement(valued: secondScrapText, in: tree),
+        let second = try viewFrame(ofPublished: try axCard(valued: secondScrapText, in: tree),
                                    in: window)
 
         XCTAssertNotEqual(first, second,
@@ -1323,7 +1471,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// identical throw (or the coast finished on its own and the rest branch,
     /// not this one, refreshed the tree).
     func test_aPressThatStopsACoastRefreshesTheAccessibilityFrame() throws {
-        let root = try projectRoot()
+        let root = try threeCardProjectRoot()
         let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let events = try eventView(in: window)
 
@@ -1334,15 +1482,15 @@ final class CanvasViewMountingTests: XCTestCase {
         // A few frames of it, and no more — a live coast keeps the runloop fed,
         // so this really does return after 30 ms rather than when it runs dry.
         pump(0.03)
-        // Bare canvas, far from the card: the press stops the coast and starts
-        // no drag of its own.
+        // Bare canvas, far from the card and clear of the fixture's second card
+        // at (400, 300): the press stops the coast and starts no drag of its own.
         events.applyMouseDown(at: CGPoint(x: 600, y: 500), clickCount: 1)
         events.applyMouseUp(at: CGPoint(x: 600, y: 500))
         pump(0.2)
 
-        let published = try viewFrame(
-            ofPublished: try axElement(valued: scrapText, in: try axTree(in: window)),
-            in: window)
+        let tree = try axTree(in: window)
+        let published = try viewFrame(ofPublished: try axCard(valued: scrapText, in: tree),
+                                      in: window)
         let drawn = try XCTUnwrap(savedScene(after: window, root: root).node(scrapID))
 
         XCTAssertGreaterThan(drawn.origin.x, 44,
@@ -1357,7 +1505,71 @@ final class CanvasViewMountingTests: XCTestCase {
                        "the accessibility frame is where the writer LET GO of the "
                        + "card, not where the press stopped it — an assistive cursor "
                        + "points at empty ground, and stays wrong until some other "
-                       + "structural change happens to rebuild the tree")
+                       + "structural change happens to rebuild the tree. "
+                       + "Card drawn at x \(drawn.origin.x), published \(published).\n"
+                       + describe(tree))
+    }
+
+    /// **The cheap half of the test above, and the half that runs anywhere.**
+    ///
+    /// The published tree is a CACHE. `CanvasView` rebuilds its element list from
+    /// an `.onChange` on the model's structural counter and never inside `body`,
+    /// so a scene change that bumps nothing leaves every frame in that tree at
+    /// its old place — the card is drawn in one spot and pointed at in another,
+    /// and stays that way until some unrelated structural change comes along. A
+    /// press that stops a coast is the path where that is easiest to miss,
+    /// because the coast's own rest branch is what usually does the bumping and a
+    /// press truncates the coast so that branch never runs.
+    ///
+    /// So this asks the TRIGGER rather than the published rectangle: the counter
+    /// moved, and a list rebuilt from the scene as it now stands puts the card
+    /// where the press left it. Neither half needs an assistive client, a
+    /// synthetic element or a screen-coordinate round trip — the three hops that
+    /// behave differently on different macOS versions. Verified by experiment,
+    /// not by reading: with `handleDrag`'s `.began` bump removed, this test fails
+    /// on the counter assertion.
+    ///
+    /// The same two preconditions guard it, for the same reason: without them a
+    /// throw that never launched, or one that came to rest before the press
+    /// arrived, would leave this passing while measuring nothing.
+    func test_aPressThatStopsACoastBumpsTheCounterTheTreeIsRebuiltOn() throws {
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: try projectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 60, y: 40),
+             through: [CGPoint(x: 70, y: 40), CGPoint(x: 80, y: 40)])
+        pump(0.03)
+        let counterBeforeThePress = model.sceneRevision
+
+        events.applyMouseDown(at: CGPoint(x: 600, y: 500), clickCount: 1)
+        events.applyMouseUp(at: CGPoint(x: 600, y: 500))
+        pump(0.2)
+
+        let drawn = try XCTUnwrap(model.scene.node(scrapID))
+        XCTAssertGreaterThan(drawn.origin.x, 44,
+                             "precondition: the flick never carried the card past "
+                             + "the point it was released at, so there was no coast "
+                             + "for the press to stop and this test measures nothing")
+        XCTAssertLessThan(drawn.origin.x, 82,
+                          "precondition: the coast reached its own resting place "
+                          + "before the press arrived, so the timeline's rest branch "
+                          + "refreshed the tree and the press had nothing to do")
+
+        XCTAssertGreaterThan(model.sceneRevision, counterBeforeThePress,
+                             "the press stopped the coast and bumped nothing, so the "
+                             + "accessibility tree is never rebuilt: it keeps the "
+                             + "frame the card had when the writer let go of it, up "
+                             + "to a whole flick away from where it is now drawn")
+
+        let element = try XCTUnwrap(
+            CanvasAccessibility.elements(scene: model.scene, scraps: model.scraps)
+                .first { $0.id == .node(scrapID) },
+            "the card left the element list entirely when the press stopped it")
+        XCTAssertEqual(element.contentFrame.origin.x, drawn.origin.x, accuracy: 0.01,
+                       "the rebuilt list does not put the card where the press left "
+                       + "it, so bumping the counter buys nothing")
     }
 
     /// Decision 1, asked of the published tree rather than of the list.
@@ -1369,7 +1581,7 @@ final class CanvasViewMountingTests: XCTestCase {
     func test_aCardFarOutsideTheViewportIsStillInThePublishedTree() throws {
         let window = host(CanvasView(model: CanvasModel(), projectRoot: try threeCardProjectRoot(),
                                      paletteSwatchHexes: { [] }))
-        XCTAssertNoThrow(try axElement(valued: farScrapText, in: try axTree(in: window)),
+        XCTAssertNoThrow(try axCard(valued: farScrapText, in: try axTree(in: window)),
                          "the card at (90 000, 90 000) is in the element list and not "
                          + "in the tree the window publishes, so a VoiceOver user can "
                          + "only reach what happens to be on screen — and cannot pan "
