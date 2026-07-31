@@ -2241,56 +2241,169 @@ final class TripwireGrepTests: XCTestCase {
             + "that mounts it.")
     }
 
-    // MARK: - The canvas's two drop modifiers have an order (1C-d Task 11, smoke)
+    // MARK: - Where both drop kinds meet, the string one goes first (1C-d Task 11)
+
+    private static let stringDropToken = ".dropDestination(for: String.self)"
 
     /// Where `token` first appears in the **code** of `text`, as an index into
     /// its code lines, or nil if it never does. Comments are excluded because
-    /// both tokens below are discussed at length in the prose above them.
+    /// every file in this census discusses both tokens at length in the prose
+    /// above them.
     private func firstCodeLine(of token: String, in text: String) -> Int? {
         SourceScan.codeLines(of: text).firstIndex { $0.contains(token) }
     }
 
-    /// **`.dropDestination(for: String.self)` must be mounted BEFORE
-    /// `.onDrop(of: [.fileURL, .image])` on `CanvasView.body`, and the other way
-    /// round is a shipped bug rather than a style question.**
+    /// **Every view that mounts BOTH a `String` drop destination and a provider
+    /// `.onDrop` must mount the string one FIRST.** Name the members; a count
+    /// would be a prose count.
     ///
-    /// Written `.onDrop` first, that modifier claims the drag session **on hover,
-    /// before any payload is examined**, and the string destination behind it is
-    /// never offered the drop: a Finder photograph lands correctly while a
-    /// research drag and an inbox drag both do nothing whatever. That is not
-    /// deduced — it is what the 1C-d Task 11 smoke found, with the Inbox's "Send
-    /// to Canvas" *command* still working throughout, which is what identified
-    /// the modifiers rather than the routers.
-    ///
-    /// **This is the only instrument available.** SwiftUI's drop delivery has no
-    /// seam a test can post a drag session into — the reason the defect reached a
-    /// smoke at all — so every `CanvasDropTests` assertion is green under either
-    /// order. A source scan is what can hold a fact the compiler and the suite are
-    /// both blind to.
-    ///
-    /// `ResearchRow.swift` ships this order and accepts both an id drag and a
-    /// browser image drag today. **No general depth rule should be read off
-    /// that**: `ResearchView` and `PaletteCardEditor` mount the provider `.onDrop`
-    /// with no typed destination beside it, so the pairing is what matters, not a
-    /// rule about which kind goes outermost.
-    func test_theCanvasStringDropDestinationIsMountedBeforeTheProviderDrop() throws {
-        let text = try String(contentsOf: sourceDir
-            .appendingPathComponent("Canvas/CanvasView.swift"), encoding: .utf8)
-        let internalDrag = try XCTUnwrap(
-            firstCodeLine(of: ".dropDestination(for: String.self)", in: text),
-            "the internal drag's destination is gone from CanvasView")
-        let external = try XCTUnwrap(
-            firstCodeLine(of: Self.providerDropToken, in: text),
-            "the external drop's provider route is gone from CanvasView")
+    /// - `Maugham/Canvas/CanvasView.swift` — the canvas's internal research drag
+    ///   and its external photograph drop.
+    /// - `Maugham/Views/CollectionResearchPane.swift` — the same pairing **twice**
+    ///   (`sharedSection`, `pieceSection`); this census only sees the first of
+    ///   each token, which is why the swap was made in both.
+    /// - `Maugham/Views/ResearchRow.swift` — has always had it right, and is the
+    ///   only member whose order was ever validated by use.
+    private static let bothDropKinds: Set<String> = [
+        "CanvasView.swift",
+        "CollectionResearchPane.swift",
+        "ResearchRow.swift",
+    ]
 
-        XCTAssertLessThan(internalDrag, external,
-            "The canvas's two drop modifiers are in the order that ships a bug. "
-            + "`.onDrop(of:)` mounted first claims the drag session on hover, "
-            + "before the payload is examined, so the string destination behind it "
-            + "never sees the drop — a Finder photograph lands and a research or "
-            + "inbox drag does nothing at all, silently. Put "
-            + "`.dropDestination(for: String.self)` first, as `ResearchRow` does. "
-            + "Found at code lines \(internalDrag) and \(external).")
+    /// Which files under `dir` name **both** drop tokens in code.
+    private func filesMountingBothDropKinds(under dir: URL) throws -> Set<String> {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var hits: Set<String> = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            if firstCodeLine(of: Self.stringDropToken, in: text) != nil,
+               firstCodeLine(of: Self.providerDropToken, in: text) != nil {
+                hits.insert(url.lastPathComponent)
+            }
+        }
+        return hits
+    }
+
+    /// **`.dropDestination(for: String.self)` must be mounted BEFORE
+    /// `.onDrop(of: [.fileURL, .image])`, and the other way round is a shipped
+    /// bug rather than a style question.**
+    ///
+    /// `.onDrop(of:)` claims a drag session **on hover, before any payload is
+    /// examined**, so a string destination mounted after it is never offered the
+    /// drop. That is not deduced — it is what two smokes found. On the canvas: a
+    /// Finder photograph landed while a research drag and an inbox drag did
+    /// nothing whatever, with the Inbox's "Send to Canvas" *command* working
+    /// throughout, which is what identified the modifiers rather than the
+    /// routers. In a Collection, one task later: *"I can't drag into the space
+    /// between lines but can onto either line"* — the same defect, latent for as
+    /// long as it shipped because every row carries a destination of its own
+    /// nested inside the dead one.
+    ///
+    /// **The evidence lesson, recorded because it was got wrong in this task's
+    /// own review.** When Task 11 looked for precedent, `CollectionResearchPane`
+    /// was read as *supporting* the reversed order — a shipped surface with "an
+    /// observed depth rule". It was a second instance of the same bug. The only
+    /// validated precedent was `ResearchRow`, whose order is exercised every time
+    /// anyone drags anything in the binder. **A shipped surface is not evidence
+    /// that its arrangement is correct when the wrong arrangement fails
+    /// silently** — and this pairing fails silently by construction.
+    ///
+    /// **A census rather than a per-file pin**, because the defect has now shipped
+    /// twice in one codebase and been argued *for* once on false evidence. It is
+    /// also the only instrument available: SwiftUI's drop delivery has no seam a
+    /// test can post a session into — the reason both instances reached a smoke —
+    /// so every other test in the repo is green under either order.
+    ///
+    /// **No general depth rule should be read off this.** `ResearchView` and
+    /// `PaletteCardEditor` mount the provider `.onDrop` with no typed destination
+    /// beside it at all. The *pairing* is what matters, not which kind goes
+    /// outermost.
+    func test_whereBothDropKindsMeetTheStringDestinationIsMountedFirst() throws {
+        XCTAssertEqual(try filesMountingBothDropKinds(under: sourceDir),
+                       Self.bothDropKinds,
+            "The set of views mounting both drop kinds changed. A new one inherits "
+            + "this ordering rule; add it here with its reason, and check the order "
+            + "before you do.")
+
+        for file in Self.bothDropKinds.sorted() {
+            let url = try XCTUnwrap(
+                FileManager.default.enumerator(at: sourceDir, includingPropertiesForKeys: nil)?
+                    .compactMap { $0 as? URL }
+                    .first { $0.lastPathComponent == file },
+                "\(file) is named in the census but is not in the tree")
+            let text = try String(contentsOf: url, encoding: .utf8)
+            // Both tokens must still be there — an ordering check over a token
+            // that is absent is satisfied by nothing at all.
+            XCTAssertNotNil(firstCodeLine(of: Self.stringDropToken, in: text),
+                            "\(file) lost its string drop destination")
+            XCTAssertNotNil(firstCodeLine(of: Self.providerDropToken, in: text),
+                            "\(file) lost its provider drop")
+
+            XCTAssertEqual(reversedDropPairings(in: text), [],
+                "\(file) mounts `.onDrop(of:)` before a string destination in the "
+                + "same chain. That modifier claims the drag session on hover, "
+                + "before the payload is examined, so the destination behind it "
+                + "never sees the drop — an internal drag does nothing at all, "
+                + "silently, while an external one still lands. Both shipped "
+                + "instances of this were found by a writer, not by a test. "
+                + "Offending `.onDrop` at code line(s) "
+                + "\(reversedDropPairings(in: text)).")
+        }
+    }
+
+    /// Code-line indices of every provider `.onDrop` that is followed by a string
+    /// destination **in the same modifier chain**.
+    ///
+    /// **Per chain rather than per file, and that is not fussiness.**
+    /// `CollectionResearchPane` carries the pairing **twice** and also has inner
+    /// destinations on its rows, its headers and its empty states — the first
+    /// string destination in that file sits at the top, before any `.onDrop`, so
+    /// a first-index comparison passes there no matter what the section-level
+    /// chains do. Reversing only the second pairing would have been invisible to
+    /// the check this replaced; caught while writing the disable experiment for
+    /// it.
+    ///
+    /// "Same chain" is same indentation **plus a leading dot**: a modifier's own
+    /// closure body is indented further, and the chain ends either when
+    /// indentation drops below the modifier's own or when a line at that level
+    /// starts something that is not a modifier.
+    ///
+    /// **Both halves of that predicate were measured, and each was wrong on its
+    /// own.** With only the indentation rule the scan walks out of one chain into
+    /// the next sibling view's at the same level and reports a correct chain as
+    /// an offender (this test's two-chain fixture: two offences over one real
+    /// one). With a leading-dot rule alone it stops at the `}` that closes the
+    /// previous modifier's closure — which sits at exactly the chain's own indent
+    /// — so **no multi-line modifier is ever scanned past**, and the real
+    /// reversed pairing in `CollectionResearchPane` went undetected. That second
+    /// one was found by running the disable experiment rather than by reading the
+    /// scanner, which is the whole reason the experiment is not optional.
+    private func reversedDropPairings(in text: String) -> [Int] {
+        let lines = SourceScan.codeLines(of: text)
+        func indent(_ line: String) -> Int { line.prefix { $0 == " " }.count }
+        var offenders: [Int] = []
+        for (i, line) in lines.enumerated() where line.contains(Self.providerDropToken) {
+            let level = indent(line)
+            var j = i + 1
+            while j < lines.count, indent(lines[j]) >= level {
+                if indent(lines[j]) == level {
+                    let trimmed = lines[j].trimmingCharacters(in: .whitespaces)
+                    // `}` closes the previous modifier's closure and the chain
+                    // continues through it; anything else at this level is a new
+                    // expression and the chain is over.
+                    guard trimmed.hasPrefix(".") || trimmed.hasPrefix("}") else { break }
+                    if trimmed.contains(Self.stringDropToken) {
+                        offenders.append(i)
+                        break
+                    }
+                }
+                j += 1
+            }
+        }
+        return offenders
     }
 
     /// Self-check: the order assertion FAILS on the reversed order, and passes on
@@ -2315,31 +2428,96 @@ final class TripwireGrepTests: XCTestCase {
             }
         }
         """
-        let stringToken = ".dropDestination(for: String.self)"
+        XCTAssertEqual(reversedDropPairings(in: good), [],
+            "Self-check: the shipped order should offend nothing.")
+        XCTAssertFalse(reversedDropPairings(in: bad).isEmpty,
+            "Self-check: the reversed order — the one two smokes found broken — "
+            + "must be reported.")
 
-        let goodInternal = try XCTUnwrap(firstCodeLine(of: stringToken, in: good))
-        let goodExternal = try XCTUnwrap(firstCodeLine(of: Self.providerDropToken, in: good))
-        XCTAssertLessThan(goodInternal, goodExternal,
-            "Self-check: the shipped order should satisfy the comparison.")
+        // **The same pair with MULTI-LINE closures, which is the only shape that
+        // exists in production.** The single-line fixtures above cannot see the
+        // scanner's worst failure: the `}` closing a modifier's closure sits at
+        // the chain's own indent, and a scanner that stops there never reaches
+        // the next modifier at all. Measured — the real reversed pairing in
+        // `CollectionResearchPane` was invisible until this shape was covered.
+        let badMultiline = """
+        struct BadMultiline: View {
+            var body: some View {
+                Color.clear
+                .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+                    Task { await importExternal(providers) }
+                    return true
+                }
+                .dropDestination(for: String.self) { ids, _ in
+                    guard !ids.isEmpty else { return false }
+                    return true
+                }
+            }
+        }
+        """
+        XCTAssertFalse(reversedDropPairings(in: badMultiline).isEmpty,
+            "Self-check: the reversed pair with real multi-line closures must be "
+            + "reported. A scanner that treats the closing brace of the first "
+            + "modifier's closure as the end of the chain reports NOTHING here, "
+            + "and is blind to every production instance.")
 
-        let badInternal = try XCTUnwrap(firstCodeLine(of: stringToken, in: bad))
-        let badExternal = try XCTUnwrap(firstCodeLine(of: Self.providerDropToken, in: bad))
-        XCTAssertGreaterThan(badInternal, badExternal,
-            "Self-check: the reversed order — the one the smoke found broken — "
-            + "should fail the comparison the real test makes.")
+        XCTAssertEqual(reversedDropPairings(in: """
+            struct GoodMultiline: View {
+                var body: some View {
+                    Color.clear
+                    .dropDestination(for: String.self) { ids, _ in
+                        guard !ids.isEmpty else { return false }
+                        return true
+                    }
+                    .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+                        Task { await importExternal(providers) }
+                        return true
+                    }
+                }
+            }
+            """), [],
+            "Self-check: the SAME multi-line shape in the right order must offend "
+            + "nothing — or the assertion above is satisfied by a scanner that "
+            + "flags every pairing.")
 
-        // And the third state the comparison cannot see for itself: a file with
-        // only one of the two tokens. The real test unwraps both first, so this
-        // is what those unwraps are for.
-        XCTAssertNil(firstCodeLine(of: stringToken, in: """
+        // **The case that motivated the per-chain scan**: two pairings in one
+        // file, with an unrelated string destination above both. A first-index
+        // comparison passes this happily; only the second chain is reversed.
+        let twoChains = """
+        struct TwoSections: View {
+            var body: some View {
+                VStack {
+                    Text("empty state")
+                        .dropDestination(for: String.self) { _, _ in true }
+                }
+                .dropDestination(for: String.self) { _, _ in true }
+                .onDrop(of: [.fileURL, .image], isTargeted: nil) { _ in true }
+                VStack { Text("second") }
+                .onDrop(of: [.fileURL, .image], isTargeted: nil) { _ in true }
+                .dropDestination(for: String.self) { _, _ in true }
+            }
+        }
+        """
+        XCTAssertEqual(reversedDropPairings(in: twoChains).count, 1,
+            "Self-check: exactly the SECOND chain is reversed and must be reported. "
+            + "The check this replaced compared first occurrences and passed here — "
+            + "which is the shape `CollectionResearchPane` actually has.")
+        let firstString = try XCTUnwrap(firstCodeLine(of: Self.stringDropToken, in: twoChains))
+        let firstProvider = try XCTUnwrap(firstCodeLine(of: Self.providerDropToken, in: twoChains))
+        XCTAssertLessThan(firstString, firstProvider,
+            "Self-check, and the point: by first occurrence this file looks correct.")
+
+        // A file with only one of the two tokens is not this rule's business —
+        // `ResearchView` and `PaletteCardEditor` mount the provider drop alone.
+        XCTAssertEqual(reversedDropPairings(in: """
             struct Half: View {
                 var body: some View {
                     Color.clear.onDrop(of: [.fileURL, .image], isTargeted: nil) { _, _ in true }
                 }
             }
-            """),
-            "Self-check: a missing token must read as nil rather than as an index, "
-            + "or the comparison would silently pass on a canvas with one modifier.")
+            """), [],
+            "Self-check: a provider drop with no string destination after it is "
+            + "not an offence — the pairing is what the rule is about.")
     }
 
     // MARK: - Nothing scanned may be truncated by an unclosed block (1C-d Task 11)
