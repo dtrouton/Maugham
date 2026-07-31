@@ -101,6 +101,31 @@ A promoted card wears a **thin stripe down its left edge**, and a promoted regio
 
 **A promoted line is the exception, and it is worth knowing before you press ⌘Z.** A line leaves no stripe — what it produced is a `[[wiki-link]]` inside somebody else's note, and a flag on the line could disagree with the file — so there is nothing on the canvas to take back and **the promotion puts nothing on the undo stack at all**. Press ⌘Z after promoting a line and you will undo whatever you did on the canvas *before* it. To remove the link, open the note and delete the line of text.
 
+#### Getting things onto the canvas
+
+Typing a scrap is the quickest way to put something on the canvas, and it is not the only one. Three other things can be dropped straight onto it, and each lands exactly where you let go of it.
+
+- **A research note, image or folder from the binder.** Drag a row out of the research tree onto the canvas and it becomes a card showing that item's real title and kind — a *reference*, not a copy: the file stays where it is, and the canvas holds only its position. Drag the same item in twice and the second drop takes you to the card you already have rather than making another. Deleting the card never deletes the item.
+- **A photograph from the Finder, or an image dragged out of a web page.** It is copied into the project — into a `canvas_assets` folder beside `canvas.md` — so the card keeps working after you have tidied up wherever you dragged it from. Drop several at once and they cascade rather than stacking, so you can see there are four.
+- **A capture from your Inbox** — see below.
+
+Anything that is not a picture is refused with a line saying so, rather than landing as a card that can never draw.
+
+#### Sending a capture from the Inbox to the canvas
+
+A note, voice memo or photograph captured on your phone lands in the **Inbox** (⌘⌥B). Until now the only way out of it was promoting it into research, which makes the durable thing *before* you have decided what it is. There is now a shorter road: **Inbox → canvas → research**, with promoting as the second step whenever you are ready for it.
+
+Two ways, and they do the same thing:
+
+- **Drag the row onto the canvas.** In Plan (⌘1) the Inbox can sit in the right-hand column with the canvas in the middle, so the two are on screen together. The capture lands where you drop it — inside a region if you drop it in one.
+- **Right-click the row → Send to Canvas**, which works from the keyboard, with VoiceOver, and from any persona with the canvas nowhere in sight. It has no drop point, so the card is placed **loose, clear of everything you already have** — and never inside a region: you have already decided what the capture is, and a box you did not ask for is one more thing to delete. The pane tells you it went, and the canvas remembers to bring you to the card the next time you open Plan.
+
+A typed note and a voice memo become an ordinary **scrap** carrying their words — the transcript, for a memo — so you can rewrite them, join them to a region, or promote them like anything else. A photograph becomes a **picture card**, copied into the project the same way a Finder drop is.
+
+**The capture leaves the Inbox.** It is one move rather than a copy, and the row is gone from triage afterwards. A voice memo with no transcript yet is refused and stays put: transcribe it first (Edit Transcript…, or Transcribe Again) and send it then. If anything goes wrong part-way, the capture stays in the Inbox and nothing is lost.
+
+**One ⌘Z takes the send back** on the canvas — the card and its words together. The Inbox row does not come back with it.
+
 #### What Claude can put on the canvas
 
 If you have Claude connected (see [Writing with Claude](claude-desktop.md)), it can **read your canvas** and **add cards to it**. This is the one place Claude puts words on a surface of yours — and it is a scratch surface, on the far side of promoting, so nothing it adds is in your manuscript and nothing gets there without you asking.
@@ -116,4 +141,3 @@ The case it is built for: you write on actual paper, photograph it with your pho
 - **From there it is yours, exactly like anything else on the canvas.** Move it, rewrite it, delete it, or **promote** it. There is no queue to approve and nothing to accept: the canvas is scratch, and the marking is what makes leaving it there a real choice rather than a default. A card stays marked as Claude's even after you have rewritten every word of it — the mark says who put it there, which is a fact about what happened.
 - **Promoting is still the only way any of it becomes durable**, on the same terms as your own cards: a note, a palette card, a line in your craft intent, and never without the sheet.
 
-Dragging research onto the canvas is still to come.

@@ -23,6 +23,8 @@ Voice/text/photo captures from the iPhone companion app land in the Mac's captur
 - **Promote to Research for "…"** — the currently active document; only appears when one's open and it's a valid target (a chapter in a novel, or a loose piece in a collection — not a referenced piece; in short-story and screenplay projects any open manuscript document qualifies, and promotion there files into shared research).
 - **Promote to Research for…** — opens a picker to choose any chapter or collection piece.
 
+A capture can also go **straight to the planning canvas** instead — drag the row onto the canvas, or right-click → **Send to Canvas** — which is the shorter road when you don't yet know what the capture is. Promoting from the canvas afterwards makes the research note whenever you're ready for it. See [Getting Started → Sending a capture from the Inbox to the canvas](getting-started.md#sending-a-capture-from-the-inbox-to-the-canvas).
+
 Promoting into a collection piece drops the item straight into that piece's own research folder, where it shows up automatically under **Piece Research** — no separate linking step. Promoting into a novel chapter files it under shared research and links it to that chapter, so it shows up under **Linked** (see [Inspector, Research & Outline](right-pane.md)).
 
 ### Trash & undo
