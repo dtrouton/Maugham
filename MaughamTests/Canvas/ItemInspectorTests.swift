@@ -310,15 +310,22 @@ final class ItemInspectorTests: XCTestCase {
 
     // MARK: - What this arm deliberately does not have
 
-    /// **No Delete button, no Promote button, and no mutation of any kind.**
+    /// **No Delete button and no mutation of any kind — and that survives the
+    /// Promote button Task 8 added.**
     ///
     /// ⌫ remains the only route to deleting a node (`ScrapInspector`'s standing
-    /// note, ADR 0026's consequence), and an item node cannot be promoted at all
-    /// — `Promotion.itemNodeReason` is the sentence, and making an *owned* node
-    /// promotable is Task 8's. This arm writes nothing to the scene, which is why
-    /// tripwire 32's verb is absent rather than misapplied: with no mutation
-    /// there is no bracket to close, and `mutateFromInspector` appearing here
-    /// later means a control arrived that this test never saw.
+    /// note, ADR 0026's consequence). This arm writes nothing to the scene, which
+    /// is why tripwire 32's verb is absent rather than misapplied: with no
+    /// mutation there is no bracket to close, and `mutateFromInspector` appearing
+    /// here later means a control arrived that this test never saw.
+    ///
+    /// **Promote… is not a counter-example to that**, which is the distinction
+    /// worth stating: the button POSTS `.maughamPromoteCanvasSelection` and
+    /// writes nothing, and the scene change belongs to `PromotionPerformer` —
+    /// which is why the tripwire-32 census names that file and not this one. The
+    /// token is now REQUIRED here (see `test_theOwnedArmOffersThePromoteCommand`
+    /// and `PromotionCommandTests`' wiring census), so its absence would be the
+    /// bug rather than the rule.
     func test_theArmMutatesNothing() throws {
         let source = try CanvasSourceCensus.commentsStripped(
             CanvasSourceCensus.source(at: "Maugham/Canvas/ItemInspector.swift"))
@@ -332,13 +339,60 @@ final class ItemInspectorTests: XCTestCase {
                        "⌫ is the only route to deleting a node; a Delete button "
                        + "for symmetry with the region and line arms is a design "
                        + "change wearing a tidy-up's clothes")
-        XCTAssertFalse(source.contains("maughamPromoteCanvasSelection"),
-                       "an item node already exists as itself and cannot be "
-                       + "promoted (Task 8 makes an OWNED one promotable)")
-        // The control: a required token in the same read, so the four absences
-        // above are not a scan that reads nothing.
+        // The control: a required token in the same read, so the absences above
+        // are not a scan that reads nothing.
         XCTAssertTrue(source.contains("onOpenResearchItem("),
-                      "the one act this arm offers")
+                      "the one act this arm offers a reference")
+    }
+
+    // MARK: - What an OWNED picture gets, and a reference does not (Task 8)
+
+    /// **The button posts the ONE command** the File item and ⌘⇧↩ post, so a
+    /// writer who clicks and a writer who presses the keystroke take the same
+    /// path — and it lives in the project window rather than in a sheet, which
+    /// is what makes a `.keyWindow` post arrive at all.
+    func test_theOwnedArmOffersThePromoteCommand() throws {
+        let source = try CanvasSourceCensus.commentsStripped(
+            CanvasSourceCensus.source(at: "Maugham/Canvas/ItemInspector.swift"))
+        XCTAssertTrue(source.contains("maughamPromoteCanvasSelection"),
+                      "an owned picture must be promotable from its own pane")
+        XCTAssertTrue(source.contains("PromotedArtifactSection("),
+                      "and what it produced must be inspectable — a mark nothing "
+                      + "renders is the built-and-unreachable half this directory "
+                      + "has shipped four times")
+    }
+
+    /// **One rule, three spellings, asserted against each other.** The pane's
+    /// gate, `Promotion.targets` and `CanvasPromotionModifier.isPromotable` all
+    /// answer "may this be promoted", and the drift between them is a dead sheet
+    /// in one direction and a greyed-out command in the other.
+    func test_theArmsGateAgreesWithTheTargetsAndTheCommand() {
+        let owned = CanvasItemReference.owned(path: "canvas_assets/p.png")
+        let referenced = CanvasItemReference.project(id: "r-9")
+        var scene = CanvasScene()
+        let ownedID = CanvasNodeID("owned-1")
+        let referencedID = CanvasNodeID.item("r-9")
+        scene.insert(CanvasNode(id: ownedID, kind: .item(owned), origin: .zero,
+                                width: 180, cachedHeight: 200))
+        scene.insert(CanvasNode(id: referencedID, kind: .item(referenced),
+                                origin: CGPoint(x: 400, y: 0), width: 180, cachedHeight: 120))
+        let artifacts = ArtifactIndex(titlesByID: ["r-9": "A note"])
+
+        for (id, reference) in [(ownedID, owned), (referencedID, referenced)] {
+            let offered = !Promotion.targets(for: .scrap(id), in: scene,
+                                             artifacts: artifacts).isEmpty
+            XCTAssertEqual(ItemInspector.promotes(reference), offered,
+                           "the pane and §6's table must agree — \(reference)")
+            XCTAssertEqual(
+                CanvasPromotionModifier.isPromotable(binderSegment: .canvas,
+                                                     selection: .node(id),
+                                                     nodeKind: .item(reference)),
+                offered,
+                "and so must the command's enablement — \(reference)")
+        }
+        XCTAssertTrue(ItemInspector.promotes(owned), "the control: one of the two "
+                      + "is really true, or every equality above holds on false")
+        XCTAssertFalse(ItemInspector.promotes(referenced))
     }
 
     // MARK: - Fixtures

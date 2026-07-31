@@ -31,15 +31,15 @@ final class PromotionCommandTests: XCTestCase {
             binderSegment: .research, selection: .region(CanvasRegionID("r")), nodeKind: nil))
     }
 
-    /// An item node already exists as itself, so `Promotion.targets` offers it
-    /// nothing — but this said yes for every `.node`, so `Promote…` was enabled
-    /// and ⌘⇧↩ opened a sheet that could never commit and (until finding 4) said
-    /// nothing about why.
+    /// A REFERENCED item node already exists as itself, so `Promotion.targets`
+    /// offers it nothing — but this said yes for every `.node`, so `Promote…` was
+    /// enabled and ⌘⇧↩ opened a sheet that could never commit and (until finding
+    /// 4) said nothing about why.
     ///
     /// The control is the line above the refusal: the same selection with a
     /// scrap's kind is promotable, so this is about the KIND and not about the
     /// selection case.
-    func test_anItemNodeIsNotPromotableBecauseItAlreadyExistsAsItself() {
+    func test_aReferencedItemNodeIsNotPromotableBecauseItAlreadyExistsAsItself() {
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
             binderSegment: .canvas, selection: .node(a), nodeKind: .scrap))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
@@ -50,6 +50,22 @@ final class PromotionCommandTests: XCTestCase {
             "a selection naming a node the scene no longer holds resolves to no "
             + "kind, and an enabled command with nothing behind it is the "
             + "condition the flag exists to prevent")
+    }
+
+    /// **And an OWNED one is** (spec §6's 2026-07-30 amendment, Task 8): it
+    /// exists nowhere but the canvas, so the refusal above was never about it,
+    /// and a greyed-out `Promote…` strands the photograph the writer just sent
+    /// there. The kind is what carries the provenance, which is why this reads
+    /// the same argument the refusal above does.
+    func test_anOwnedItemNodeIsPromotable() {
+        XCTAssertTrue(CanvasPromotionModifier.isPromotable(
+            binderSegment: .canvas, selection: .node(a),
+            nodeKind: .item(.owned(path: "canvas_assets/image-20260730-121314.png"))))
+        XCTAssertFalse(CanvasPromotionModifier.isPromotable(
+            binderSegment: .research, selection: .node(a),
+            nodeKind: .item(.owned(path: "canvas_assets/image-20260730-121314.png"))),
+            "the control: the segment guard still runs first — this is not an "
+            + "escape hatch past it")
     }
 
     /// A region and a line carry no node kind, so the kind term must not reach
@@ -248,6 +264,17 @@ final class PromotionCommandTests: XCTestCase {
              + "slice's Critical exactly. `RegionInspector`'s half of the same "
              + "line is censused in `RegionBindingTests`, beside that arm's own "
              + "source scans"),
+            ("Maugham/Canvas/ItemInspector.swift", [".maughamPromoteCanvasSelection",
+                                                    "PromotedArtifactSection("],
+             "the item inspector's Promote… button must post the ONE command; a "
+             + "closure of its own would be a second path that can drift from the "
+             + "keystroke. The second token is 1C-d Task 8's provenance section: "
+             + "an owned picture's mark and its contribution record are written by "
+             + "`PromotionPerformer` and can be fully tested with nothing in this "
+             + "`body` reading them, and the writer would then have no way to "
+             + "learn what a picture produced, no way to open it, and no way to "
+             + "discover the artifact had been deleted — which is CLAUDE.md rule "
+             + "8 and the region arm's own 1C-c2 omission, one arm over"),
             ("Maugham/Views/ProjectWindow.swift",
              [".onKeyWindowCommand(.maughamPromoteCanvasSelection",
               ".modifier(CanvasPromotionModifier(",
@@ -385,6 +412,17 @@ final class PromotionCommandTests: XCTestCase {
                                          "CanvasAuthorLine.forNotARealSubject("]),
             ["CanvasAuthorLine.forNotARealSubject("],
             "the census reports the ABSENT provenance token and not the present one")
+        // And 1C-d Task 8's promotion section in the item arm, falsified the same
+        // way: the section is a whole file of its own, so its own tests stay
+        // green with this line deleted and an owned picture simply never says
+        // what it produced.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Canvas/ItemInspector.swift",
+                              required: ["PromotedArtifactSection(",
+                                         "NotARealArtifactSection("]),
+            ["NotARealArtifactSection("],
+            "the census reports the ABSENT item-arm section token and not the "
+            + "present one")
     }
 
     /// The name must not collide with the collection-piece promotion that

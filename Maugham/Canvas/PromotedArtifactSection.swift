@@ -17,12 +17,16 @@ import SwiftUI
 /// that field — so what decides who mounts it is the FIELD, never a claim about
 /// what a writer may promote.
 ///
-/// An item node (1C-d's fourth arm, `ItemInspector`) mounts none of this either,
-/// and for the other reason: it cannot be promoted at all — it already exists as
-/// itself — so `Promotion.targets` offers nothing and `Promotion.itemNodeReason`
-/// is the sentence. Its node type does carry the field, which a hand-edited
-/// sidecar could fill; the renderer and `CanvasAccessibility` refuse to draw or
-/// speak a mark on one, and this arm does not render one.
+/// **An item node mounts it on ONE of its two provenances** (1C-d: Task 7 built
+/// the arm, Task 8 gave it a promotion). An *owned* picture can produce a
+/// research asset and can be added to a palette card, so it carries both records
+/// and gets this section with `Subject.picture`. A *referenced* one still mounts
+/// none of it, and for the original reason: it already exists as itself, so
+/// `Promotion.targets` offers nothing and `Promotion.itemNodeReason` is the
+/// sentence. Its node type does carry the field, which a hand-edited sidecar
+/// could fill — the renderer and `CanvasAccessibility` refuse to draw or speak a
+/// mark on a reference for that reason, and `ItemInspector` does not render one
+/// either.
 ///
 /// **A stale count is wrong about a number; a wrong reason is what the next
 /// implementer acts on.** That is why the correction is here at length rather
@@ -73,15 +77,76 @@ struct PromotedArtifactSection: View {
     enum Subject {
         case card
         case region
+        /// An **owned** item node — a picture the canvas ingested (1C-d Task 8).
+        /// Never a referenced one: that arm mounts no section at all, because a
+        /// reference cannot be promoted and carries neither record.
+        case picture
 
         var noun: String {
             switch self {
             case .card: return "card"
             case .region: return "region"
+            case .picture: return "picture"
             }
         }
 
         func became(_ title: String) -> String { "Became “\(title)”" }
+
+        /// What a subject's content is *in*, along with whatever else is —
+        /// the contribution record's sentence.
+        ///
+        /// **Visibly different from `became`**, and that is the whole point: one
+        /// produced an artifact, the other's content went into somebody else's.
+        /// One sentence for both would be the pane inviting a rewrite §6.3
+        /// forbids.
+        ///
+        /// **It names no count.** A region's contributors are whoever had text
+        /// at promotion time — sometimes one card — so "along with the others"
+        /// would be false exactly when the region was smallest.
+        ///
+        /// **A picture has no words**, which is why this is a method on the
+        /// subject rather than the one static string it was until 1C-d: a
+        /// photograph appended to a palette card told *Its words are in “Colour:
+        /// October”* is the false-noun class this file's own history is a
+        /// monument to.
+        func wordsAreIn(_ title: String) -> String {
+            switch self {
+            case .card, .region: return "Its words are in “\(title)”"
+            case .picture: return "This picture is in “\(title)”"
+            }
+        }
+
+        /// What Promote… will do from *here*, which is the fact the writer needs
+        /// at the moment they are looking at this line — and the two subjects
+        /// need different warnings because the two acts differ. A card's
+        /// promotion makes something NEW; a picture's makes another COPY on the
+        /// card it names, which is the thing a writer would otherwise discover
+        /// by doing it twice.
+        var contributionCaption: String {
+            switch self {
+            case .card, .region:
+                return "A region's promotion folded this card's text into that. "
+                    + "Promoting this card on its own makes something new — it "
+                    + "never rewrites it."
+            case .picture:
+                return "Promoting this picture onto that card again adds a second "
+                    + "copy — it never replaces what is already there."
+            }
+        }
+
+        /// The dangling record's sentence. It carries no id: an id is not
+        /// something the writer can read, and the mark's own dangling case set
+        /// that precedent.
+        var contributionArtifactMissing: String {
+            switch self {
+            case .card, .region:
+                return "This card's words went into something that is no longer "
+                    + "in the project."
+            case .picture:
+                return "This picture was added to something that is no longer in "
+                    + "the project."
+            }
+        }
     }
 
     /// What a card's words are *in*, along with others' — the **contribution
@@ -174,26 +239,11 @@ struct PromotedArtifactSection: View {
     }
 
     // MARK: - The contribution's own words
-
-    /// **Visibly different from `Subject.became`**, and that is the whole point:
-    /// one produced an artifact, the other's text went into somebody else's. One
-    /// sentence for both would be the pane inviting a rewrite §6.3 forbids.
-    ///
-    /// It names no count. A region's contributors are whoever had text at
-    /// promotion time — sometimes one card — so "along with the others" would be
-    /// false exactly when the region was smallest.
-    static func wordsAreIn(_ title: String) -> String { "Its words are in “\(title)”" }
-
-    /// What Promote… will do from here, which is the fact the writer needs at
-    /// the moment they are looking at this line.
-    static let contributionCaption =
-        "A region's promotion folded this card's text into that. Promoting this "
-        + "card on its own makes something new — it never rewrites it."
-
-    /// The dangling record's sentence. It carries no id: an id is not something
-    /// the writer can read, and the mark's own dangling case set that precedent.
-    static let contributionArtifactMissing =
-        "This card's words went into something that is no longer in the project."
+    //
+    // **All three moved onto `Subject` in 1C-d.** They were statics while every
+    // contributor was a card of text; an owned picture appended to a palette
+    // card carries the same record and none of the three sentences was true of
+    // it. See `Subject.wordsAreIn(_:)`.
 
     var body: some View {
         // **The heading names the TOPIC, not the state.** It read "Promoted"
@@ -224,11 +274,11 @@ struct PromotedArtifactSection: View {
             case .none:
                 EmptyView()
             case .contributed(let itemID, let title):
-                openableLine(Self.wordsAreIn(title), itemID: itemID)
-                Text(Self.contributionCaption)
+                openableLine(subject.wordsAreIn(title), itemID: itemID)
+                Text(subject.contributionCaption)
                     .font(.caption).foregroundStyle(.secondary)
             case .artifactMissing:
-                Text(Self.contributionArtifactMissing)
+                Text(subject.contributionArtifactMissing)
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

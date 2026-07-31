@@ -176,7 +176,7 @@ final class ScrapInspectorTests: XCTestCase {
         XCTAssertFalse(p.saysNotPromotedYet,
                        "something did go somewhere; \"not promoted yet\" is the "
                        + "one sentence that is false here")
-        XCTAssertFalse(PromotedArtifactSection.contributionArtifactMissing
+        XCTAssertFalse(PromotedArtifactSection.Subject.card.contributionArtifactMissing
             .contains("res-gone"),
                        "an id is not a sentence the writer can read")
     }
@@ -186,7 +186,7 @@ final class ScrapInspectorTests: XCTestCase {
     /// somebody else's — and one sentence for both is the pane telling the
     /// writer they can rewrite a joint note.
     func test_theContributionLineDoesNotReadLikeTheOwnMarksLine() {
-        let contributed = PromotedArtifactSection.wordsAreIn("Act II fog")
+        let contributed = PromotedArtifactSection.Subject.card.wordsAreIn("Act II fog")
         let became = PromotedArtifactSection.Subject.card.became("Act II fog")
         XCTAssertNotEqual(contributed, became)
         XCTAssertFalse(contributed.contains("Became"),
@@ -199,7 +199,7 @@ final class ScrapInspectorTests: XCTestCase {
     /// that only contributed: a **new** artifact, never a rewrite. That is the
     /// one smoke step that matters, and the pane is where it is discoverable.
     func test_theContributionCaptionSaysAPromotionFromHereMakesSomethingNew() {
-        let caption = PromotedArtifactSection.contributionCaption
+        let caption = PromotedArtifactSection.Subject.card.contributionCaption
         XCTAssertTrue(caption.lowercased().contains("new"), "found: \(caption)")
         XCTAssertFalse(caption.lowercased().contains("rewrite that one"),
                        "found: \(caption)")
@@ -801,7 +801,7 @@ final class ScrapInspectorTests: XCTestCase {
         // All three are present at once, and none of them is the other two.
         let sentences = [origin.sentence,
                          PromotedArtifactSection.Subject.card.became("The falls at night"),
-                         PromotedArtifactSection.wordsAreIn("Act II fog")]
+                         PromotedArtifactSection.Subject.card.wordsAreIn("Act II fog")]
             .compactMap { $0 }
         XCTAssertEqual(sentences.count, 3,
                        "all three facts must have a sentence, or the loop below "

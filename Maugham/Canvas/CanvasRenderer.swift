@@ -1254,10 +1254,19 @@ enum CanvasRenderer {
 
         // PERMANENT chrome, like the resize triangle below and unlike the connect
         // dot above — it states a durable fact about the card rather than a
-        // passing one about the selection. An item node never gets one: it
-        // already exists as itself, so a mark on one is meaningless, and a
-        // hand-edited sidecar can put the field there.
-        if node.promotedItemID != nil, case .scrap = node.kind {
+        // passing one about the selection.
+        //
+        // **A REFERENCED item node never gets one, an owned one does** (1C-d
+        // Task 8). The refusal's reason was "it already exists as itself, so a
+        // mark on one is meaningless", which is exactly true of a reference and
+        // stopped being true of an owned picture the moment it could produce a
+        // research asset — a hand-edited sidecar can still put the field on a
+        // reference, and that is what this refuses. A picture appended to a
+        // palette card gets no stripe either, and by the same standing rule: that
+        // is a *contribution*, and a second identical stripe for "this went into
+        // that" would say on the canvas the thing §6.3 spends its length
+        // separating.
+        if node.promotedItemID != nil, node.kind.carriesAMark {
             card.drawLayer { inner in
                 inner.clip(to: shape)
                 inner.fill(Path(promotedMarkRect(inCard: frame)),

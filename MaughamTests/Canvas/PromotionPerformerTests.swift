@@ -212,7 +212,7 @@ final class PromotionPerformerTests: XCTestCase {
             destinationDescription: "the existing “T”", discards: [], offeredLinks: [],
             wikiLinkWrite: nil,
             mode: .update(itemID: "res-gone", title: "T"), paletteKind: .other,
-            contributors: [], linkAlreadyPresent: false)
+            contributors: [], linkAlreadyPresent: false, picture: nil)
         do {
             _ = try await PromotionPerformer(store: store, model: model).perform(stale)
             XCTFail("expected a refusal")
@@ -318,7 +318,7 @@ final class PromotionPerformerTests: XCTestCase {
             destinationDescription: "the existing “The falls at night”",
             discards: [], offeredLinks: [], wikiLinkWrite: nil,
             mode: .update(itemID: cardID, title: "The falls at night"),
-            paletteKind: .other, contributors: [], linkAlreadyPresent: false)
+            paletteKind: .other, contributors: [], linkAlreadyPresent: false, picture: nil)
         do {
             _ = try await performer.perform(overwrite)
             XCTFail("expected a refusal")
@@ -372,7 +372,7 @@ final class PromotionPerformerTests: XCTestCase {
             destinationDescription: "the existing “Craft Intent”", discards: [],
             offeredLinks: [], wikiLinkWrite: nil,
             mode: .update(itemID: intent.id, title: "Craft Intent"),
-            paletteKind: .other, contributors: [], linkAlreadyPresent: false)
+            paletteKind: .other, contributors: [], linkAlreadyPresent: false, picture: nil)
         do {
             _ = try await performer.perform(overwrite)
             XCTFail("expected a refusal")
@@ -825,7 +825,7 @@ final class PromotionPerformerTests: XCTestCase {
                 source: .scrap(a), producedKind: .intentStatement, title: "T",
                 body: "Sodium light.", destinationDescription: destination,
                 discards: [], offeredLinks: [], wikiLinkWrite: nil, mode: .new,
-                paletteKind: .other, contributors: [], linkAlreadyPresent: false)
+                paletteKind: .other, contributors: [], linkAlreadyPresent: false, picture: nil)
             let sentence = PromotionResult(createdItemID: "res-1", title: "Craft intent",
                                            writtenLinks: []).confirmation(for: p)
             XCTAssertEqual(sentence, "Added to \(destination).")
@@ -866,7 +866,7 @@ final class PromotionPerformerTests: XCTestCase {
             source: .scrap(a), producedKind: .intentStatement, title: "T", body: "   ",
             destinationDescription: "the project's craft intent", discards: [],
             offeredLinks: [], wikiLinkWrite: nil, mode: .new,
-            paletteKind: .other, contributors: [], linkAlreadyPresent: false)
+            paletteKind: .other, contributors: [], linkAlreadyPresent: false, picture: nil)
         do {
             _ = try await PromotionPerformer(store: store, model: model).perform(empty)
             XCTFail("expected a refusal")
@@ -883,7 +883,7 @@ final class PromotionPerformerTests: XCTestCase {
             source: .scrap(a), producedKind: .researchNote, title: "  ", body: "something",
             destinationDescription: "research/", discards: [], offeredLinks: [],
             wikiLinkWrite: nil, mode: .new, paletteKind: .other,
-            contributors: [], linkAlreadyPresent: false)
+            contributors: [], linkAlreadyPresent: false, picture: nil)
         do {
             _ = try await PromotionPerformer(store: store, model: model).perform(blank)
             XCTFail("expected a refusal")
@@ -902,7 +902,7 @@ final class PromotionPerformerTests: XCTestCase {
             source: .line(l1), producedKind: .wikiLink, title: "T", body: "[[X]]",
             destinationDescription: "the note “T”", discards: [], offeredLinks: [],
             wikiLinkWrite: WikiLinkWrite(intoNode: a, intoItemID: "res-x", linkText: "[[X]]"),
-            mode: .new, paletteKind: .other, contributors: [], linkAlreadyPresent: true)
+            mode: .new, paletteKind: .other, contributors: [], linkAlreadyPresent: true, picture: nil)
         do {
             _ = try await PromotionPerformer(store: store, model: model).perform(already)
             XCTFail("expected a refusal")

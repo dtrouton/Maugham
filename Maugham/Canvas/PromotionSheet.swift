@@ -61,6 +61,30 @@ final class PromotionSheetModel: Identifiable {
     var editedTitle = ""
     var linksAccepted = false
     var paletteKind: PaletteCard.Kind = .other
+
+    /// Every palette card the project holds, for `.paletteCardImage`'s picker.
+    /// Read off `ArtifactIndex` — which already walked the manifest once when
+    /// this sheet opened — rather than from the store, so the whole class stays
+    /// plain values.
+    let paletteCardChoices: [PaletteCardChoice]
+
+    /// Which card an owned picture is appended to. Seeded by `select(_:)` the
+    /// moment that target is chosen, so the writer never meets an empty picker
+    /// over a disabled button — and re-derives the preview in place, exactly as
+    /// `mode` does, because the destination line names the card.
+    var paletteCardID: String? {
+        didSet {
+            guard oldValue != paletteCardID, selectedTarget != nil else { return }
+            preview = Promotion.plan(request(), in: scene)
+        }
+    }
+
+    /// A palette card the picture can be added to. `Identifiable` for `ForEach`;
+    /// a tuple cannot be one.
+    struct PaletteCardChoice: Identifiable, Equatable {
+        let id: String
+        let title: String
+    }
     /// Changing this after a target is chosen re-derives `preview` in place —
     /// see the `didSet` below. Picking Update must move what "Goes to" shows,
     /// not just what Commit would do.
@@ -97,6 +121,8 @@ final class PromotionSheetModel: Identifiable {
         self.piece = piece
         self.readBody = readBody
         self.availableTargets = Promotion.targets(for: source, in: scene, artifacts: artifacts)
+        self.paletteCardChoices = artifacts.paletteCards
+            .map { PaletteCardChoice(id: $0.id, title: $0.title) }
         self.blockedReason = Promotion.blockedReason(for: source, in: scene,
                                                      scraps: scraps, artifacts: artifacts)
         // Resolved here with everything else this class reads once at init, and
@@ -113,11 +139,22 @@ final class PromotionSheetModel: Identifiable {
         // init), rather than re-touching `scene`/`scraps` on every access.
         switch source {
         case .scrap(let id):
+            // **An owned item node reaches this arm since 1C-d**, and it is a
+            // picture rather than a card — so it gets the `.line` arm's shape (a
+            // noun, no title) instead of the card sentence. `CanvasItemFacts`
+            // would answer "Image" for every one of them, which read back as
+            // *The card “Image”*: a false noun wrapped around a word that
+            // identifies nothing. What identifies an owned card is the picture
+            // drawn on it, and the writer is looking at it.
+            if case .item = scene.node(id)?.kind {
+                self.sourceDescription = "This picture"
+                break
+            }
             self.sourceDescription =
-                // `items: .empty` is exact: `PromotionSource.scrap` is a scrap by
-                // construction, so `chipTitle`'s item branch is unreachable from
-                // here — an item node cannot be promoted at all
-                // (`Promotion.itemNodeReason`).
+                // `items: .empty` is exact: every other node that reaches this
+                // line is a `.scrap`, whose `chipTitle` reads its text and never
+                // the index. (The item branch is reachable in principle now — it
+                // simply is not reached, because the case above returns first.)
                 "The card “\(CanvasRenderer.chipTitle(for: id, in: scene, scraps: scraps, items: .empty))”"
         case .region(let id):
             self.sourceDescription =
@@ -141,6 +178,18 @@ final class PromotionSheetModel: Identifiable {
         // mode change without this reset being mistaken for one.
         mode = .new
         destinationBody = nil
+        // Seeded rather than left nil, so the writer meets a picker already
+        // reading a card and a live Promote button — `Promotion.plan` returns
+        // NO plan without one, so an unseeded picker would present a dead sheet
+        // of the kind `blockedReason` exists to prevent. The first card by title
+        // is the default because the list is sorted and a default has to be
+        // stable; every card is one click away.
+        //
+        // Assigned before the `preview` below, and directly rather than through
+        // the `didSet`'s work — the didSet fires, re-derives once, and the
+        // `preview` line then re-derives the same plan; the alternative is a
+        // seeded value the preview does not know about.
+        paletteCardID = target == .paletteCardImage ? paletteCardChoices.first?.id : nil
         if target == .wikiLink, case .line(let id) = source, let line = scene.line(id),
            let itemID = scene.node(line.from)?.promotedItemID {
             destinationBody = readBody(itemID)
@@ -227,6 +276,7 @@ final class PromotionSheetModel: Identifiable {
             paletteKind: paletteKind,
             artifacts: artifacts,
             destinationBody: destinationBody,
+            paletteCardID: paletteCardID,
             piece: piece)
     }
 }
@@ -331,6 +381,17 @@ struct PromotionSheet: View {
                         Text($0.rawValue.capitalized).tag($0)
                     }
                 }
+            }
+            // Which card the picture is added to. Offered only on that row, and
+            // only ever populated — `Promotion.targets` withholds the row from a
+            // project with no palette cards, so this picker cannot be empty.
+            if model.selectedTarget == .paletteCardImage {
+                Picker("Card", selection: $model.paletteCardID) {
+                    ForEach(model.paletteCardChoices) { Text($0.title).tag(Optional($0.id)) }
+                }
+                Text("The picture is copied onto that card. Nothing already on it "
+                     + "is replaced.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if let offers = model.preview?.offeredLinks, !offers.isEmpty {
                 Toggle(isOn: $model.linksAccepted) {

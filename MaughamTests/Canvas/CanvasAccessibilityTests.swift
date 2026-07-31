@@ -134,6 +134,34 @@ final class CanvasAccessibilityTests: XCTestCase {
         XCTAssertEqual(element?.label, "Reference")
     }
 
+    /// **The mark is SPOKEN on the same terms it is drawn** (1C-d Task 8, one
+    /// predicate: `CanvasNodeKind.carriesAMark`). An owned picture that produced
+    /// a research asset says so; a reference carrying the field a hand-edited
+    /// sidecar could put there does not, because nothing about the project's own
+    /// research item made it true.
+    ///
+    /// A promoted picture drawn with a stripe and silent to VoiceOver is exactly
+    /// the drawn/spoken divergence §7A.6 exists to prevent — and the two on this
+    /// surface that ARE deliberate are recorded in `Maugham/Canvas/AREA.md`.
+    func test_anOwnedPicturesMarkIsSpokenAndAReferencesIsNot() throws {
+        var scene = CanvasScene()
+        let owned = CanvasNodeID("owned-1")
+        scene.insert(CanvasNode(id: owned, kind: .item(.owned(path: "canvas_assets/p.png")),
+                                origin: .zero, width: 180, cachedHeight: 200,
+                                promotedItemID: "res-asset"))
+        scene.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
+                                origin: CGPoint(x: 400, y: 0), width: 180,
+                                cachedHeight: 120, promotedItemID: "res-nonsense"))
+        let elements = CanvasAccessibility.elements(scene: scene, scraps: [:])
+
+        let picture = try XCTUnwrap(elements.first { $0.id == .node(owned) }).label
+        XCTAssertTrue(picture.contains(CanvasAccessibility.promotedTerm),
+                      "found: \(picture)")
+        let reference = try XCTUnwrap(elements.first { $0.id == .node(.item("r-9")) }).label
+        XCTAssertFalse(reference.contains(CanvasAccessibility.promotedTerm),
+                       "the control, and the refusal that stands: found \(reference)")
+    }
+
     /// **What an item node READS OUT is its title, and never its reference id**
     /// *(1C-d)*. It was `Item · r-9` — the placeholder label — which was honest
     /// only while the card drew the same string; a card that shows "Notebook

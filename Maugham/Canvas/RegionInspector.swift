@@ -28,9 +28,12 @@ struct RegionInspectorPane: View {
 
     let model: CanvasModel
     let pieces: [RegionInspector.PieceChoice]
-    /// Deferred manifest lookups for the two arms that name an artifact — see
-    /// `PromotedArtifactSection`. Both the card arm and the region arm take
-    /// them: a region's mark had no surface at all for one slice.
+    /// Deferred manifest lookup for the arms that name an artifact — see
+    /// `PromotedArtifactSection`. The card arm and the region arm take it (a
+    /// region's mark had no surface at all for one slice), and **the item arm
+    /// joined them in 1C-d Task 8**, when an owned picture became something that
+    /// can produce one. How many arms is the compiler's answer, not a number to
+    /// keep up to date here.
     let artifactTitle: (String) -> String?
     /// What the writer's binder calls a piece, over the WHOLE structure — the
     /// lookup that tells a piece which is gone from one which is simply not
@@ -69,10 +72,12 @@ struct RegionInspectorPane: View {
             // arrives as a compile error rather than as an empty state.
             //
             // **The `.scrap` ruling stands and this is not a relaxation of it.**
-            // Every sentence in `ScrapInspector` is wrong for a reference — "The
-            // words live on the card" and "Promoting takes a copy" describe a
-            // scrap, and an item node cannot be promoted at all — so an item node
-            // still never reaches it. What changed is where it goes instead.
+            // Every sentence in `ScrapInspector` is wrong for an item node —
+            // "The words live on the card" and its Piece picker describe a
+            // scrap, and a photograph has neither — so an item node still never
+            // reaches it. What changed is where it goes instead. (It said "an
+            // item node cannot be promoted at all" until 1C-d Task 8, when an
+            // owned one could; the arm's own copy is what differs, not the verb.)
             switch node.kind {
             case .scrap:
                 // The SAME offer the region arm gets — already filtered to the
@@ -93,7 +98,7 @@ struct RegionInspectorPane: View {
                 // route from the batch back to the page was the card arm's
                 // `Read from "<title>"` sentence on the scraps read off it.
                 ItemInspector(model: model, nodeID: node.id, reference: reference,
-                              itemIndex: itemIndex,
+                              itemIndex: itemIndex, artifactTitle: artifactTitle,
                               onOpenResearchItem: onOpenResearchItem)
             }
         } else {

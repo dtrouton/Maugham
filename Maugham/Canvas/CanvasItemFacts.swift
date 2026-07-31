@@ -108,9 +108,13 @@ struct CanvasItemFacts: Equatable, Sendable {
 ///
 /// **Not `ArtifactKind`, and not `ResearchItem.AssetKind`.** `ArtifactKind`
 /// (`Promotion.swift`) is a *promotion-target* vocabulary — note / palette card
-/// / craft intent — whose whole job is deciding whether a mark may be
-/// overwritten, and it has no case for a photograph because a promotion never
-/// produces one. `AssetKind` has the photograph and not the palette card, which
+/// / craft intent / research asset — whose whole job is deciding whether a mark
+/// may be overwritten, so it draws no distinction between a photograph, a PDF
+/// and a recording: they are one case, because the question it answers of all
+/// three is the same. (It had no file case at all until 1C-d Task 8, when a
+/// promotion could first produce one; this clause said "a promotion never
+/// produces one", which was true when it was written.) `AssetKind` tells those
+/// three apart and has no case for the palette card, which
 /// is not a `kind` in the manifest at all but a position in the tree
 /// (`PaletteLookup.paletteCards`, which this file's own `over(research:)` calls
 /// twenty lines down — the name here read `PaletteConvention` for one commit,

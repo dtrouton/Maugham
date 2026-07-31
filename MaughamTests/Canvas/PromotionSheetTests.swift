@@ -73,6 +73,80 @@ final class PromotionSheetTests: XCTestCase {
         XCTAssertTrue(model(.region(r1)).sourceDescription.contains("Act II fog"))
     }
 
+    // MARK: - An owned picture (spec §6's 2026-07-30 amendment)
+
+    private let picture = CanvasNodeID("owned-1")
+
+    /// A scene whose owned picture is what the sheet is opened on.
+    private func pictureScene() -> CanvasScene {
+        var s = scene()
+        s.insert(CanvasNode(id: picture,
+                            kind: .item(.owned(path: "canvas_assets/p.png")),
+                            origin: CGPoint(x: 400, y: 0), width: 180, cachedHeight: 200))
+        return s
+    }
+
+    private func pictureModel(cards: Bool = true) -> PromotionSheetModel {
+        var entries: [String: ArtifactIndex.Entry] = [:]
+        if cards {
+            entries["res-card"] = .init(title: "Colour: October", kind: .paletteCard)
+            entries["res-other"] = .init(title: "Zinc", kind: .paletteCard)
+        }
+        return PromotionSheetModel(source: .scrap(picture), scene: pictureScene(),
+                                   scraps: texts,
+                                   artifacts: ArtifactIndex(entriesByID: entries),
+                                   piece: .none, readBody: { _ in nil })
+    }
+
+    /// **"The card “Image”" is what this said**, and it is a false noun wrapped
+    /// around a word that identifies nothing: every owned picture resolves to the
+    /// same title, and what tells one from another is the picture drawn on it.
+    func test_anOwnedPictureIsNamedAsAPictureAndNotAsACard() {
+        XCTAssertEqual(pictureModel().sourceDescription, "This picture")
+        XCTAssertTrue(model(.scrap(a)).sourceDescription.hasPrefix("The card"),
+                      "the control: a scrap is still a card")
+    }
+
+    /// The picker is SEEDED, so the writer never meets an empty control over a
+    /// dead Promote button — `Promotion.plan` returns nothing without a card.
+    func test_choosingThePaletteRowSeedsACardAndCommitsWithoutAName() {
+        let m = pictureModel()
+        m.select(.paletteCardImage)
+        XCTAssertEqual(m.paletteCardID, "res-card", "the first by title")
+        XCTAssertEqual(m.preview?.destinationDescription, "the palette card “Colour: October”")
+        XCTAssertTrue(m.canCommit)
+        XCTAssertNil(m.refusal,
+                     "and no \"This needs a name.\" — an appended image names "
+                     + "nothing, so the sheet does not ask")
+        XCTAssertTrue(m.editedTitle.isEmpty || m.selectedTarget?.namesItsArtifact == false)
+    }
+
+    /// Changing the card moves what "Goes to" says, not only what Commit does —
+    /// `mode`'s rule, on the other picker. A frozen destination is the exact lie
+    /// §6.1 exists to prevent.
+    func test_changingTheCardMovesThePreview() {
+        let m = pictureModel()
+        m.select(.paletteCardImage)
+        m.paletteCardID = "res-other"
+        XCTAssertEqual(m.preview?.destinationDescription, "the palette card “Zinc”")
+        XCTAssertEqual(m.resolvedPlan?.picture?.paletteCardID, "res-other")
+    }
+
+    func test_theResearchRowCarriesNoCardAndStillCommits() {
+        let m = pictureModel()
+        m.select(.researchAsset)
+        XCTAssertNil(m.paletteCardID,
+                     "a card chosen on the other row must not survive into this one")
+        XCTAssertEqual(m.preview?.destinationDescription, "research/")
+        XCTAssertTrue(m.canCommit)
+    }
+
+    func test_aProjectWithNoPaletteCardsIsOfferedOnlyTheResearchRow() {
+        XCTAssertEqual(pictureModel(cards: false).availableTargets, [.researchAsset])
+        XCTAssertEqual(pictureModel().availableTargets, [.researchAsset, .paletteCardImage],
+                       "the control")
+    }
+
     // MARK: - Choosing a target
 
     func test_choosingATargetProducesAPreviewBeforeAnythingIsWritten() {

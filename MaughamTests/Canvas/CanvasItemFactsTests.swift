@@ -118,15 +118,20 @@ final class CanvasItemFactsTests: XCTestCase {
     }
 
     /// **The register is pinned against the precedent itself, not against a
-    /// literal.** `PromotedArtifactSection.contributionArtifactMissing` is the
-    /// existing sentence for a dangling record, and this one is deliberately
-    /// its predicate with the subject elided — so the two are asserted against
-    /// each other, and a rewording of either that leaves them speaking
-    /// differently about the same fact goes red.
+    /// literal.** `PromotedArtifactSection.Subject.contributionArtifactMissing`
+    /// is the existing sentence for a dangling record, and this one is
+    /// deliberately its predicate with the subject elided — so the two are
+    /// asserted against each other, and a rewording of either that leaves them
+    /// speaking differently about the same fact goes red. **Every subject's
+    /// wording, since 1C-d Task 8 gave the picture its own**: they differ in
+    /// their subject and must not differ in this.
     func test_theMissingSentenceIsThePaneSOwnPredicate() {
-        XCTAssertTrue(PromotedArtifactSection.contributionArtifactMissing
-            .lowercased()
-            .hasSuffix(CanvasItemFacts.missingTitle.lowercased()))
+        for subject: PromotedArtifactSection.Subject in [.card, .region, .picture] {
+            XCTAssertTrue(subject.contributionArtifactMissing
+                .lowercased()
+                .hasSuffix(CanvasItemFacts.missingTitle.lowercased()),
+                          "found: \(subject.contributionArtifactMissing)")
+        }
         // A sentence, not a fragment or a label.
         XCTAssertTrue(CanvasItemFacts.missingTitle.hasSuffix("."))
     }

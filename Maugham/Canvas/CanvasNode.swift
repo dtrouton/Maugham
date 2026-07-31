@@ -54,6 +54,32 @@ public enum CanvasNodeKind: Equatable, Sendable {
     /// (`ItemInspector`, Task 7). What 1C-d has left is the **drop target** for
     /// browser drags and §8A.4's `inbox → canvas`.
     case item(CanvasItemReference)
+
+    /// Whether a `promotedItemID` on this node is a fact worth drawing and
+    /// announcing.
+    ///
+    /// **One spelling of the mark's own refusal, read by `CanvasRenderer` and
+    /// `CanvasAccessibility`.** Both refused every item node until 1C-d Task 8,
+    /// on the stated grounds that an item "already exists as itself, so a mark on
+    /// one says nothing true" — exactly right for a *referenced* item, and false
+    /// for an owned picture the moment one could produce a research asset. The
+    /// two surfaces are the drawn and the spoken half of one decision (the
+    /// material's "what is SPOKEN" rule), so they read one predicate rather than
+    /// each testing the kind: the pair has already diverged once, when `paper`'s
+    /// tint refusal and the accessibility label's author term were written as
+    /// though they answered the same question.
+    ///
+    /// It stays false for a reference because a hand-edited sidecar can put the
+    /// field on one, and a stripe there would say something the project's own
+    /// research item has no idea about.
+    public var carriesAMark: Bool {
+        switch self {
+        case .scrap: return true
+        case .item(let reference):
+            if case .owned = reference { return true }
+            return false
+        }
+    }
 }
 
 /// One node. `width` is authoritative; the text reflows to fit and the height

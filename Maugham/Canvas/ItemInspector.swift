@@ -12,22 +12,30 @@ import SwiftUI
 /// `RegionInspectorPane`'s `.scrap` ruling stands and this arm is what it was
 /// waiting for.
 ///
-/// **Small on purpose: the title, one act, and the provenance row.** The card is
-/// a *pointer*, so there is nothing here to edit — its title, its kind and its
-/// picture are the manifest's, and the canvas never writes to them
-/// (`CanvasItemReference.project`). This arm therefore **mutates nothing at
-/// all**, which is why tripwire 32's verb is absent rather than applied: with no
-/// mutation there is no undo bracket to close. Anything added here that *does*
-/// write to the scene must go through `CanvasModel.mutateFromInspector` — the
-/// right-hand column has no gesture of its own to protect and a focused scrap
-/// holds "Edit Scrap" open behind it.
+/// **Small on purpose: the title, one act, and the provenance row.** A
+/// *referenced* card is a pointer, so there is nothing here to edit — its title,
+/// its kind and its picture are the manifest's, and the canvas never writes to
+/// them (`CanvasItemReference.project`). This arm **mutates nothing at all**,
+/// which is why tripwire 32's verb is absent rather than applied: with no
+/// mutation there is no undo bracket to close. That survives Task 8's promote
+/// button, which *posts a command* and writes nothing — the scene change is
+/// `PromotionPerformer`'s, through `mutateFromInspector`, which is why that file
+/// and not this one is in the census. Anything added here that does write to the
+/// scene must go through `CanvasModel.mutateFromInspector` — the right-hand
+/// column has no gesture of its own to protect and a focused scrap holds "Edit
+/// Scrap" open behind it.
 ///
-/// **There is no Delete button and no Promote button**, and neither is an
-/// oversight. ⌫ remains the only route to deleting a node (`ScrapInspector`'s
-/// standing note: adding one for symmetry with the region and line arms is a
-/// design change wearing a tidy-up's clothes), and an item node already exists
-/// as itself — `Promotion.itemNodeReason` is the sentence, and making an *owned*
-/// node promotable is Task 8's.
+/// **There is no Delete button**, and that is not an oversight: ⌫ remains the
+/// only route to deleting a node (`ScrapInspector`'s standing note — adding one
+/// for symmetry with the region and line arms is a design change wearing a
+/// tidy-up's clothes).
+///
+/// **The Promote… button is offered on ONE of the two provenances** (spec §6's
+/// 2026-07-30 amendment, Task 8). A referenced item already exists as itself, so
+/// it still cannot be promoted and `Promotion.itemNodeReason` is still the
+/// sentence; an owned picture exists nowhere but the canvas, and the inbox entry
+/// it arrived from is `.promoted` and gone — refusing it strands the photograph
+/// the writer just sent there.
 struct ItemInspector: View {
 
     let model: CanvasModel
@@ -49,6 +57,20 @@ struct ItemInspector: View {
     /// over a note sitting in the writer's binder, and offer nothing to open, with
     /// nothing red. The compiler asks instead.
     let itemIndex: CanvasItemIndex
+    /// The deferred manifest lookup the other two mark-bearing arms already
+    /// take, and **this arm needs it for the same reason they do**: an owned
+    /// picture can produce a research asset and can be added to a palette card,
+    /// so it carries a mark and a contribution record, and both are ids until
+    /// something resolves them. No default, matching `RegionInspectorPane`'s
+    /// own two — a default is how the section goes missing again with nothing
+    /// red.
+    ///
+    /// **Not `itemIndex` doing double duty.** That index answers "what glyph and
+    /// what picture" over every research item; this answers "what is this
+    /// artifact called" and is the same closure `ScrapInspector` and
+    /// `RegionInspector` are handed, so the three arms cannot come to name one
+    /// artifact three ways.
+    let artifactTitle: (String) -> String?
     /// The pane's existing closure, and **this arm is its third caller** — it was
     /// reached only from the two arms that do not render for an item node, which
     /// is what made a page card a dead end. It has no default on the pane for the
@@ -94,9 +116,67 @@ struct ItemInspector: View {
             }
 
             Section { openControl }
+
+            // **Only an owned picture, and the compiler is not what says so** —
+            // this is a `Bool` on a value rather than a `switch` in `body`,
+            // because a `Form`'s contents are not inspectable and
+            // `_ConditionalContent` is branch-invariant, so a decision left here
+            // is beyond any test that hosts no SwiftUI. `RegionInspector`'s
+            // `CiteAffordance` and `openAffordance` above are the same shape.
+            if Self.promotes(reference) {
+                PromotedArtifactSection(state: provenance, subject: .picture,
+                                        onOpen: onOpenResearchItem)
+                Section {
+                    Button("Promote…") {
+                        // The SAME command the File item and ⌘⇧↩ post — see
+                        // `RegionInspector` for why a closure of our own would be
+                        // a second path that can drift from the keystroke, and
+                        // why posting is safe from this column and not from
+                        // inside a sheet.
+                        MaughamEvent.post(.maughamPromoteCanvasSelection, to: .keyWindow)
+                    }
+                    Text(Self.promoteFooter)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .formStyle(.grouped)
     }
+
+    /// Both records, resolved through the one artifact lookup — `ScrapInspector`'s
+    /// shape and its reason (spec §6.3): the mark says what this picture
+    /// *produced*, the contribution record says which palette card it is *in*,
+    /// and a picture can carry both.
+    ///
+    /// Gated on a non-nil id by `provenance`'s own `flatMap`s, so a picture
+    /// carrying neither — every picture until it is promoted — asks nothing.
+    private var provenance: PromotedArtifactSection.Provenance {
+        let node = model.scene.node(nodeID)
+        return PromotedArtifactSection.provenance(promotedItemID: node?.promotedItemID,
+                                                  contributedToItemID: node?.contributedToItemID,
+                                                  title: artifactTitle)
+    }
+
+    /// Whether this card can be promoted at all — **the provenance, and it is the
+    /// same rule `Promotion.targets` and `CanvasPromotionModifier.isPromotable`
+    /// apply.** Three spellings of one fact is the drift this directory keeps
+    /// paying for, so this one is static and tested against
+    /// `Promotion.targets(for:in:artifacts:)` rather than trusted.
+    static func promotes(_ reference: CanvasItemReference) -> Bool {
+        switch reference {
+        case .owned: return true
+        case .project: return false
+        }
+    }
+
+    /// **It says COPY, twice over**, because both are facts a writer will test:
+    /// the picture stays on the canvas, and the file stays in the project's
+    /// canvas well. `ScrapInspector`'s footer says the same thing about words.
+    static let promoteFooter =
+        "Promoting copies the picture into research, or onto a palette card. It "
+        + "stays here either way, and changing what it made afterwards doesn't "
+        + "change this card."
 
     /// **The same word VoiceOver says** (`CanvasAccessibility.itemKind`), not a
     /// second noun for one primitive. A writer who hears "Reference, from Claude"

@@ -81,6 +81,29 @@ final class PromotionRenderTests: XCTestCase {
             0)
     }
 
+    /// **An OWNED picture that produced a research asset gets the stripe**
+    /// (1C-d Task 8) — the refusal below is about a REFERENCE, and the reason it
+    /// gives ("it already exists as itself") stopped being true of an owned one
+    /// the moment §6's amendment let it promote. A promoted picture with no
+    /// stripe is the writer promoting it again because nothing said they had.
+    func test_anOwnedPictureThatProducedSomethingIsMarked() throws {
+        let id = CanvasNodeID("owned-1")
+        func scene(marked: Bool) -> CanvasScene {
+            var s = CanvasScene()
+            s.insert(CanvasNode(id: id, kind: .item(.owned(path: "canvas_assets/p.png")),
+                                origin: CGPoint(x: 100, y: 100), width: 180,
+                                cachedHeight: 120,
+                                promotedItemID: marked ? "res-asset" : nil))
+            return s
+        }
+        XCTAssertGreaterThan(
+            try render(scene: scene(marked: true), size: size)
+                .differingPixels(from: try render(scene: scene(marked: false), size: size),
+                                 in: CGRect(x: 90, y: 90, width: 40, height: 140)),
+            0,
+            "a writer must be able to see which pictures have produced something")
+    }
+
     func test_anItemNodeGetsNoMarkBecauseItCannotBePromoted() throws {
         var withItem = CanvasScene()
         withItem.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
@@ -94,8 +117,10 @@ final class PromotionRenderTests: XCTestCase {
             try render(scene: withItem, size: size)
                 .differingPixels(from: try render(scene: withoutMark, size: size),
                                  in: CGRect(origin: .zero, size: size)), 0,
-            "an item already exists as itself; a mark on one is meaningless and a "
-            + "hand-edited sidecar can put one there")
+            "a REFERENCED item already exists as itself; a mark on one is "
+            + "meaningless and a hand-edited sidecar can put one there. This is "
+            + "the control for the owned case above: the two differ in the "
+            + "provenance and in nothing else")
     }
 }
 

@@ -380,14 +380,20 @@ enum CanvasAccessibility {
             case .item:
                 elements.append(CanvasAXElement(
                     id: .node(node.id), role: .item,
-                    // `promoted: false` unconditionally, and the author READ —
-                    // and the two are not the same kind of decision.
+                    // The mark is spoken on the same terms it is DRAWN, through
+                    // the one predicate both read (`CanvasNodeKind.carriesAMark`)
+                    // — and the author is read separately, because the two are
+                    // not the same kind of decision.
                     //
-                    // `promoted: false` is closed: an item node already exists as
-                    // itself, so it cannot be promoted and a mark on one says
-                    // nothing true. `CanvasClaudePlacement` sets no
-                    // `promotedItemID`, a hand-edited sidecar can, and
-                    // `CanvasRenderer` refuses the stripe on exactly these terms.
+                    // This was `promoted: false` unconditionally, on the grounds
+                    // that an item node "already exists as itself, so a mark on
+                    // one says nothing true". That is exactly right for a
+                    // *referenced* item — `CanvasClaudePlacement` sets no
+                    // `promotedItemID` and only a hand-edited sidecar can — and it
+                    // stopped being true of an owned picture in 1C-d Task 8, when
+                    // one could produce a research asset of its own. A promoted
+                    // picture silent to VoiceOver while a stripe says so on the
+                    // canvas is this layer's own §7A.6 failure.
                     //
                     // **`fromClaude` deliberately does NOT follow
                     // `CanvasRenderer.paper(for:)`, which refuses to tint an item
@@ -413,7 +419,8 @@ enum CanvasAccessibility {
                     // listener has to keep apart.
                     label: label(itemKind,
                                  fromClaude: node.author == .claude,
-                                 promoted: false,
+                                 promoted: node.promotedItemID != nil
+                                     && node.kind.carriesAMark,
                                  connectedBy: connections[node.id]),
                     // The card's own title, resolved once for the whole scene and
                     // handed here — see the parameter's note above. Unresolved

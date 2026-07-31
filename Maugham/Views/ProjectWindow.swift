@@ -1913,19 +1913,33 @@ struct CanvasPromotionModifier: ViewModifier {
     /// hosts no SwiftUI — and so adding a `CanvasSelection` case makes the
     /// compiler enumerate this decision with everything else.
     ///
-    /// **`nodeKind` is the item-node guard.** An item node already exists as
-    /// itself, so `Promotion.targets` offers it nothing — and this said yes for
-    /// every `.node`, so `Promote…` was enabled and ⌘⇧↩ opened a sheet that
-    /// could never commit. It takes the kind rather than the scene on purpose:
-    /// the whole scene is what this modifier must never read.
+    /// **`nodeKind` is the item-node guard, and since 1C-d it reads the
+    /// PROVENANCE rather than the kind.** A *referenced* item node already
+    /// exists as itself, so `Promotion.targets` offers it nothing — and this
+    /// said yes for every `.node`, so `Promote…` was enabled and ⌘⇧↩ opened a
+    /// sheet that could never commit. An *owned* one is the case that refusal
+    /// was never about (spec §6, 2026-07-30): it exists nowhere but the canvas,
+    /// and refusing it strands the photograph the writer just sent there. It
+    /// takes the kind rather than the scene on purpose: the whole scene is what
+    /// this modifier must never read.
+    ///
+    /// **This and `Promotion.targets` must agree**, or the two halves of one
+    /// decision drift: enabled here and empty there is the dead sheet above,
+    /// disabled here and offered there is a command greyed out over a promotion
+    /// that would work. `PromotionCommandTests` drives both from one table.
     static func isPromotable(binderSegment: BinderSegment,
                              selection: CanvasSelection?,
                              nodeKind: CanvasNodeKind?) -> Bool {
         guard binderSegment == .canvas else { return false }
         switch selection {
         case .node:
-            if case .scrap = nodeKind { return true }
-            return false
+            switch nodeKind {
+            case .scrap: return true
+            case .item(let reference):
+                if case .owned = reference { return true }
+                return false
+            case nil: return false
+            }
         case .region, .line: return true
         case nil: return false
         }
