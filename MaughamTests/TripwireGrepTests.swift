@@ -2234,6 +2234,85 @@ final class TripwireGrepTests: XCTestCase {
             + "that mounts it.")
     }
 
+    // MARK: - Nothing scanned may be truncated by an unclosed block (1C-d Task 11)
+
+    /// Every `.swift` file under `dir` whose `SourceScan` run ends still inside a
+    /// `/* … */` block — meaning some tail of it was invisible to every census
+    /// that reads through that type.
+    private func truncatedFiles(under dir: URL) throws -> Set<String> {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var hits: Set<String> = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            if SourceScan.endsInsideABlock(try String(contentsOf: url, encoding: .utf8)) {
+                hits.insert(url.lastPathComponent)
+            }
+        }
+        return hits
+    }
+
+    /// **A file that opens a `/*` it never closes is invisible from there on, and
+    /// for a FORBIDDEN-token ban that failure is silent.**
+    ///
+    /// The stripper cannot tell a real block comment from `/*` inside a string
+    /// literal or from prose naming a path like `.maugham/sessions/*`, and nine
+    /// files in this repo trip it today for exactly those two reasons — four of
+    /// them on string literals, including this file's own `hasPrefix("/*")`.
+    /// Teaching it to lex Swift strings is the other answer and it is worse: a
+    /// half-lexer with nothing to test it against, guarding a suite of censuses.
+    ///
+    /// **So this is a guard rather than a cleverer stripper**, and it is aimed
+    /// where the failure direction is quiet. A *required*-token census cannot be
+    /// harmed silently — a hidden token reads as missing, which is red. A *ban*
+    /// can: hide the offender and it passes. The only ban that reads through
+    /// `SourceScan` scans `Maugham/Canvas/`, so that tree must hold at **zero**,
+    /// and one `/// … /some/path/*` written above a
+    /// `.dropDestination(for: URL.self)` is all it would take.
+    func test_noScannedFileIsTruncatedByAnUnclosedBlockComment() throws {
+        XCTAssertEqual(try truncatedFiles(under: sourceDir
+                        .appendingPathComponent("Canvas", isDirectory: true)), [],
+            "A file under Maugham/Canvas/ ends its scan inside an unclosed /* — so "
+            + "everything after that point is invisible to "
+            + "test_theCanvasExternalDropUsesTheProviderRouteAndNeverAUrlDestination, "
+            + "whose BAN half would then pass while the offender sits in the hidden "
+            + "tail. The usual cause is prose naming a path that ends in /*, or a "
+            + "string literal containing one. Close it, or reword it.")
+
+        // The whole tree `SourceScan`'s other readers walk. Both censuses over it
+        // are equality-based, so truncation there shows up red rather than quiet
+        // — this is a census with its reasons rather than a ban, and its job is
+        // to make a THIRD arrival a decision somebody takes on purpose.
+        XCTAssertEqual(try truncatedFiles(under: sourceDir),
+                       ["MaughamSidecarPath.swift", "EPUBZipPackager.swift"],
+            "The set of production files invisible past an unclosed /* changed. "
+            + "Both known entries are doc comments naming a path (`.maugham/…/*`, "
+            + "`OEBPS/*`) and neither contains a call any census over this tree "
+            + "looks for. If a new file joins them, check what is in its hidden "
+            + "tail before adding it here.")
+
+        // **Control: the detector fires.** A guard that cannot report a positive
+        // is indistinguishable from one reading an empty tree — which is the
+        // shape this whole round has been about.
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-truncation-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try """
+        /// A doc comment naming .maugham/sessions/* opens a block that never closes.
+        struct Planted { func drop() { _ = "dropDestination(for: URL.self)" } }
+        """.write(to: tmp.appendingPathComponent("Planted.swift"),
+                  atomically: true, encoding: .utf8)
+        XCTAssertEqual(try truncatedFiles(under: tmp), ["Planted.swift"],
+            "Control: a planted unclosed /* should be reported.")
+        XCTAssertTrue(try filesNaming("dropDestination(for: URL", under: tmp).isEmpty,
+            "Control, and the reason this guard exists: the planted file's SECOND "
+            + "line names the forbidden token in code, and the ban cannot see it "
+            + "because the first line hid the rest of the file.")
+    }
+
     /// A whole-line comment, in either spelling. Shared by the canvas-asset
     /// tripwires, which both guard tokens their own documentation names.
     private static func isCommentLine(_ line: String) -> Bool {
