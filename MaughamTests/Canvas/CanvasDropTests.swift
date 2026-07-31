@@ -779,8 +779,10 @@ final class CanvasDropTests: XCTestCase {
                        "the label-only floor is the honest height until the "
                        + "photograph decodes — and an unmeasured card is neither "
                        + "drawn nor clickable, persisted that way")
-        XCTAssertEqual(model.scene.topmostNode(at: CGPoint(x: landed.frame!.midX,
-                                                           y: landed.frame!.midY))?.id,
+        let frame = try XCTUnwrap(landed.frame,
+                                  "an unmeasured node has no frame at all")
+        XCTAssertEqual(model.scene.topmostNode(at: CGPoint(x: frame.midX,
+                                                           y: frame.midY))?.id,
                        id, "hit testing drops a node with no frame")
         XCTAssertEqual(CanvasMembership.homeRegion(of: id, in: model.scene), regionID,
                        "creation absorbs: a card dropped inside a region lives there")
