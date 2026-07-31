@@ -1,11 +1,33 @@
 import SwiftUI
 
 /// What a promoted thing became, and the way to open it — **the one section,
-/// used by both arms that can be promoted: the card's and the region's.**
+/// used by the two arms whose subject carries a MARK: the card's and the
+/// region's.**
 ///
-/// Named rather than counted since 1C-d put a fourth arm in that pane
-/// (`ItemInspector`, which mounts no promotion section at all — an item node
-/// already exists as itself). "Both" was unambiguous while there were two.
+/// **"Carries a mark", not "can be promoted", and the difference is the whole
+/// point of naming them.** This sentence read *"both arms that can be promoted"*
+/// for one commit, and that is false: a **line** is promotable too —
+/// `PromotionSource` has a `.line` case and `LineInspector` mounts the same
+/// `Promote…` button posting the same `.maughamPromoteCanvasSelection`. What a
+/// line has is no `promotedItemID`; `CanvasLine` carries `id`, `from`, `to`,
+/// `label` and `author` and nothing else, because a line promotion writes a
+/// `[[wiki-link]]` into somebody else's note and produces no artifact of its own
+/// to name. Its arm's own caption says so. `promotedItemID` exists on
+/// `CanvasNode` and `CanvasRegion` and nowhere else, and this section renders
+/// that field — so what decides who mounts it is the FIELD, never a claim about
+/// what a writer may promote.
+///
+/// An item node (1C-d's fourth arm, `ItemInspector`) mounts none of this either,
+/// and for the other reason: it cannot be promoted at all — it already exists as
+/// itself — so `Promotion.targets` offers nothing and `Promotion.itemNodeReason`
+/// is the sentence. Its node type does carry the field, which a hand-edited
+/// sidecar could fill; the renderer and `CanvasAccessibility` refuse to draw or
+/// speak a mark on one, and this arm does not render one.
+///
+/// **A stale count is wrong about a number; a wrong reason is what the next
+/// implementer acts on.** That is why the correction is here at length rather
+/// than as a re-worded clause, in the file whose own history below is a monument
+/// to a claim about another file's copy that was believed instead of checked.
 ///
 /// **It lived in `ScrapInspector` for one slice and only cards had it.** A card
 /// and a region gained the same field in 1C-c2, drew the same stripe, and were
