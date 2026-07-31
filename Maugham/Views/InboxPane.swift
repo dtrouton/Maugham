@@ -246,7 +246,17 @@ struct InboxPane: View {
         // the canvas is the first that reads two, and an inbox ULID is not
         // tellable apart from a research id. Built through `CanvasDrop`, so the
         // sender and the router cannot disagree about the spelling.
-        .draggable(CanvasDrop.inboxPayload(for: entry.id))
+        //
+        // **`.contentShape` first, which is `ResearchRow`'s shape and not a
+        // flourish**: without it the draggable area is the drawn glyphs only, so
+        // a row whose title is short would refuse to start a drag from most of
+        // its own width — the row is a `Spacer`-padded `HStack`.
+        .contentShape(Rectangle())
+        .draggable(CanvasDrop.inboxPayload(for: entry.id)) {
+            Text(title(for: entry))
+                .padding(6)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+        }
         .contextMenu {
             Button("Promote to Research") { promote(entry, scope: .shared) }
             if let target = activePromoteTarget {
