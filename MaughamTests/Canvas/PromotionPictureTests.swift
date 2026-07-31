@@ -289,6 +289,24 @@ final class PromotionPictureTests: XCTestCase {
         XCTAssertEqual(index.kind(of: "res-note"), .researchNote,
                        "the control: prose is still prose, or this would refuse "
                        + "every ordinary re-promotion in the app")
+
+        // **And the consequence, chained to it through the REAL index** — the
+        // reason the classification is worth a case at all. A card whose mark
+        // names a picture must not be offered a research-note Update: that arm
+        // renames the backing file and writes plan text over it, which for a
+        // `.png` is the file replaced by a card's prose.
+        var s = scene()
+        s.setPromotedItem("res-img", for: scrap)
+        XCTAssertNil(Promotion.existingArtifact(for: .scrap(scrap), target: .researchNote,
+                                                in: s, artifacts: index))
+        var prose = scene()
+        prose.setPromotedItem("res-note", for: scrap)
+        XCTAssertEqual(Promotion.existingArtifact(for: .scrap(scrap), target: .researchNote,
+                                                  in: prose, artifacts: index),
+                       .update(itemID: "res-note", title: "The falls"),
+                       "the control: a mark naming a real NOTE still offers one, "
+                       + "so the nil above is about the kind and not about the "
+                       + "index being empty")
     }
 
     /// The sheet's picker is built from the index, so it has to answer with the
