@@ -328,6 +328,7 @@ final class PromotionCommandTests: XCTestCase {
               ".modifier(CanvasPromotionModifier(",
               "result.confirmation(for: plan)",
               "PromotionPiece.resolve(",
+              "items: ProjectWindow.canvasItemIndex(in: store)",
               ".modifier(CanvasClaudeArrivalModifier(",
               "itemIndex: Self.canvasItemIndex(in: store)",
               "assetIngest: CanvasAssetIngest(",
@@ -374,7 +375,15 @@ final class PromotionCommandTests: XCTestCase {
              + "argument compiles, runs, keeps all of `InboxToCanvasTests` green "
              + "and turns every inbox row dragged onto the canvas into a refusal "
              + "alert. It is also the only place the window hands the canvas an "
-             + "`InboxStore` at all"),
+             + "`InboxStore` at all. The NINTH is 1C-d Task 12a's item index on "
+             + "the SHEET, and it is the piece token's shape rather than the "
+             + "defaulted-argument one: `PromotionSheetModel.init` has no default "
+             + "for `items`, so the compiler demands a value — but `items: .empty` "
+             + "compiles and runs, and `.empty` is a real state (a canvas hosted "
+             + "without a window), so every REFERENCED picture in a promoted "
+             + "region would then be silently uncopied and unrecorded while every "
+             + "owned one still worked, which is the half-right failure no "
+             + "assertion in `PromotionRegionPictureTests` can see from inside"),
             ("Maugham/Views/InboxPane.swift",
              [".draggable(CanvasDrop.inboxPayload(", "Button(\"Send to Canvas\")"],
              "1C-d Task 12's two routes out of the inbox (spec §8A.4), and both "
@@ -471,6 +480,17 @@ final class PromotionCommandTests: XCTestCase {
                                          "PromotionPiece.notARealResolver("]),
             ["PromotionPiece.notARealResolver("],
             "the census reports the ABSENT piece token and not the present one")
+        // And 1C-d Task 12a's sheet index, falsified with a builder that cannot
+        // exist. It is the piece token's shape: undefaulted on the initialiser,
+        // so `items: .empty` is what a forgetful call site would leave — and a
+        // referenced picture in a promoted region would then be uncopied while
+        // every owned one still worked.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: ["items: ProjectWindow.canvasItemIndex(in: store)",
+                                         "items: ProjectWindow.canvasNotAnIndex(in: store)"]),
+            ["items: ProjectWindow.canvasNotAnIndex(in: store)"],
+            "the census reports the ABSENT sheet-index token and not the present one")
         // And 1C-d Task 11's ingestion pair, falsified with a type that cannot
         // exist. Same shape as the item index and the same reason it matters:
         // `assetIngest` defaults to `.unavailable`, so dropping the argument

@@ -150,8 +150,8 @@ final class PromotionPictureTests: XCTestCase {
             request(.researchAsset,
                     piece: .routed(id: "doc-3", title: "Chapter Three", route: .sharedPlusLink)),
             in: scene()))
-        XCTAssertEqual(plan.picture,
-                       PromotedPicture(node: owned, assetPath: path, paletteCardID: nil))
+        XCTAssertEqual(plan.pictures,
+                       [PromotedPicture(node: owned, assetPath: path, paletteCardID: nil)])
         XCTAssertEqual(plan.destinationDescription, "research/, linked to “Chapter Three”",
                        "the same sentence a research NOTE gets, because it is the "
                        + "same `ResearchScope.route`")
@@ -166,8 +166,9 @@ final class PromotionPictureTests: XCTestCase {
     func test_thePaletteRowPlansTheCardTheWriterChose() throws {
         let plan = try XCTUnwrap(Promotion.plan(
             request(.paletteCardImage, paletteCardID: "res-card"), in: scene()))
-        XCTAssertEqual(plan.picture,
-                       PromotedPicture(node: owned, assetPath: path, paletteCardID: "res-card"))
+        XCTAssertEqual(plan.pictures,
+                       [PromotedPicture(node: owned, assetPath: path,
+                                        paletteCardID: "res-card")])
         XCTAssertEqual(plan.destinationDescription, "the palette card “Colour: October”")
         XCTAssertEqual(plan.title, "Colour: October")
     }

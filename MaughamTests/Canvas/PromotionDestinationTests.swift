@@ -429,6 +429,7 @@ final class PromotionDestinationTests: XCTestCase {
         let m = PromotionSheetModel(source: .scrap(a), scene: model.scene,
                                     scraps: model.scraps,
                                     artifacts: ArtifactIndex(titlesByID: [:]),
+                                    items: .empty,
                                     piece: piece, readBody: { _ in nil })
         m.select(target)
         return m

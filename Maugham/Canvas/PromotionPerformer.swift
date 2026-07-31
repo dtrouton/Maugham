@@ -263,9 +263,6 @@ struct PromotionPerformer {
             // it, and in the wrong noun besides
             // (`PromotionSource.noun`'s own reachability argument).
             let picture = try requirePicture(plan)
-            guard FileManager.default.fileExists(atPath: assetURL(picture).path) else {
-                throw PromotionFailure.pictureIsGone(path: picture.assetPath)
-            }
             if plan.producedKind == .paletteCardImage {
                 // Read back off the live store, not off the plan: the picker was
                 // built from a snapshot taken when the sheet opened, and
@@ -276,6 +273,20 @@ struct PromotionPerformer {
                       store.loadPaletteCards().contains(where: { $0.researchItemId == cardID })
                 else { throw PromotionFailure.paletteCardIsGone }
             }
+        }
+        // **Every file this plan copies, whichever row planned it** — the two
+        // picture rows plan one and a region's palette row plans as many as it
+        // holds (1C-d Task 12a). Hoisted out of the arm above rather than
+        // spelled twice: the well and `research/` are both ordinary folders in
+        // the writer's project, so a node naming a file that is gone is a real
+        // state on every row that copies one, and "validate first, write second"
+        // is what keeps a half-furnished palette card off the wall. `Promotion`
+        // cannot pre-filter these — it is the pure half and touches no disk —
+        // so a refusal here is the only honest answer to a preview that named
+        // the picture.
+        for picture in plan.pictures
+        where !FileManager.default.fileExists(atPath: assetURL(picture).path) {
+            throw PromotionFailure.pictureIsGone(path: picture.assetPath)
         }
         if case .update(let itemID, _) = plan.mode,
            TreeWalk.find(id: itemID, in: store.manifest.research) == nil {
@@ -410,6 +421,25 @@ struct PromotionPerformer {
             researchItemId: itemID, title: plan.title, kind: plan.paletteKind,
             swatches: current.swatches, notes: current.notes,
             imagePaths: current.imagePaths, body: plan.body))
+        // **The pictures in the region, AFTER that write and never before**
+        // (spec §6's 2026-07-29 amendment, built 1C-d Task 12a). The line above
+        // writes the whole card from `current`, which was read before any
+        // append — so appending first and updating second would carry the stale
+        // image list back over the new one and drop every picture this promotion
+        // just added. `addImage` reads the card fresh and appends, so each of
+        // these lands on top of everything already there: the card's own
+        // pictures, and the ones before it in the region's reading order.
+        //
+        // **Append, never replace** — the 1C-c2 Critical's exact shape is a
+        // promotion that rewrites a palette card's backing file and takes its
+        // swatches, kind, sensory notes and image references with it, and ⌘Z
+        // gives back only the mark. `PromotionPicturePerformerTests` and
+        // `PromotionRegionPicturePerformerTests` both assert the card's earlier
+        // images survive rather than assuming it.
+        for picture in plan.pictures {
+            _ = try await store.addImage(toPaletteCard: itemID,
+                                         fileURL: assetURL(picture))
+        }
 
         let title = TreeWalk.find(id: itemID, in: store.manifest.research)?.title ?? plan.title
         mark(itemID, for: plan.source,
@@ -535,8 +565,19 @@ struct PromotionPerformer {
     /// took one action and reads this in the Edit menu.
     private static let pictureStep = "Promote Picture"
 
+    /// The ONE picture the two picture rows promote.
+    ///
+    /// **`first` rather than an assertion that there is exactly one**, and the
+    /// refusal is for an EMPTY list rather than a missing value since 1C-d Task
+    /// 12a widened the field to a list for the region's row. Both of these rows
+    /// are planned by `picturePlan`, which builds a single-element list, so a
+    /// second element here is unreachable and a `count == 1` guard would be a
+    /// rule with no failure behind it. What IS reachable is empty — the node
+    /// stopped being an owned item between the sheet opening and Commit, or a
+    /// caller hand-built the plan — and this refuses rather than reaching into
+    /// the scene for a substitute file.
     private func requirePicture(_ plan: PromotionPlan) throws -> PromotedPicture {
-        guard let picture = plan.picture else { throw PromotionFailure.nothingToCopy }
+        guard let picture = plan.pictures.first else { throw PromotionFailure.nothingToCopy }
         return picture
     }
 
@@ -780,12 +821,26 @@ struct PromotionPerformer {
     /// nothing about a photograph that is demonstrably on that card, which is
     /// §6.3's own false-pane defect in its mild direction.
     ///
-    /// **An item node is skipped because this path can never have stamped one**:
-    /// `contributors` comes from `Promotion.regionBodies`, which reads the scrap
-    /// table, so a record on an item node was written by `recordPicture` and is
-    /// not this promotion's to take back. That is the same reasoning the id scope
-    /// already encodes — do not clear what you did not write — applied to the
-    /// axis the id cannot see.
+    /// **An item node is skipped, and 1C-d Task 12a changed the REASON without
+    /// changing the predicate — which is worth reading before touching either.**
+    /// It was "this path can never have stamped one": `contributors` came from
+    /// `Promotion.regionBodies`, which reads the scrap table and cannot see a
+    /// picture. That is now false — a region's palette promotion carries the
+    /// pictures in it and records them (spec §6.3's 2026-07-31 amendment) — and
+    /// the skip is nevertheless still right, for a stronger reason:
+    ///
+    /// **a picture's contribution is never undone by a rewrite, because the
+    /// image well is append-only for every producer.** `performPaletteCard`'s
+    /// update branch replaces the title, the kind and the BODY and carries
+    /// `current.imagePaths` across untouched; `addImage` appends. So a picture
+    /// that has since left the region still has its image on that card, and a
+    /// card whose words have left really has had them written out of the body.
+    /// The record follows what the artifact still CONTAINS, which is the rule
+    /// this whole function is an expression of — the id scope is the same rule
+    /// on the axis the kind cannot see.
+    ///
+    /// The stamp is deliberately not filtered: an item node in `contributors`
+    /// is a picture this promotion just copied, and it must record that.
     private static func record(_ itemID: String, contributors: [CanvasNodeID],
                                in scene: inout CanvasScene) {
         for node in scene.unorderedNodes

@@ -2038,6 +2038,13 @@ struct CanvasPromotionModifier: ViewModifier {
         sheet = PromotionSheetModel(
             source: source, scene: model.scene, scraps: model.scraps,
             artifacts: ArtifactIndex.over(research: research),
+            // **The canvas's own index, and the SAME builder the canvas is
+            // handed above** (1C-d Task 12a). A region's palette promotion
+            // carries the pictures in it, and a referenced one's file is the
+            // manifest's to know — `ArtifactIndex` deliberately holds no paths.
+            // One walk more, at the site that already walks this manifest twice
+            // for this gesture, rather than a second path index of its own.
+            items: ProjectWindow.canvasItemIndex(in: store),
             // Resolved here with the manifest, once, like the index beside it —
             // the sheet is pure values, and this is the one place the routing
             // table is read for it. The performer resolves it again at Commit,

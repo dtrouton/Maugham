@@ -141,9 +141,44 @@ struct ItemInspector: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            } else if let contribution = Self.referencedContribution(provenance) {
+                // **A reference cannot be promoted and CAN have contributed**
+                // (1C-d Task 12a, spec §6.3's 2026-07-31 amendment). A region's
+                // palette promotion copies the pictures in it onto the card
+                // whatever their provenance, so a research image dragged onto
+                // the canvas ends up genuinely inside that card — and with the
+                // section gated on `promotes` alone, its pane said nothing at
+                // all about it. That is §6.3's own reported defect (*"some think
+                // they weren't"*) arriving on the arm the ruling reached last,
+                // and CLAUDE.md rule 8 is the rule it breaks.
+                //
+                // The MARK half is withheld rather than rendered empty: a
+                // reference produced nothing, and `.notPromoted` beside a
+                // contribution suppresses "Not promoted yet." by
+                // `Provenance.saysNotPromotedYet`'s own rule.
+                PromotedArtifactSection(
+                    state: .init(artifact: .notPromoted, contribution: contribution),
+                    subject: .referencedPicture, onOpen: onOpenResearchItem)
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// The contribution half of a REFERENCED node's provenance, or nil when
+    /// there is nothing to show.
+    ///
+    /// **A value rather than an `if` in `body`**, this arm's standing reason: a
+    /// `Form`'s contents are not inspectable and `_ConditionalContent` is
+    /// branch-invariant, so the decision would otherwise be beyond any test that
+    /// hosts no SwiftUI. `Self.promotes` and `openAffordance` are the same shape.
+    ///
+    /// It answers nil for `.none` — a reference with no record mounts **no
+    /// section**, rather than one saying "Not promoted yet." about a card that
+    /// can never be promoted.
+    static func referencedContribution(
+        _ provenance: PromotedArtifactSection.Provenance
+    ) -> PromotedArtifactSection.ContributionState? {
+        provenance.contribution == .none ? nil : provenance.contribution
     }
 
     /// Both records, resolved through the one artifact lookup — `ScrapInspector`'s

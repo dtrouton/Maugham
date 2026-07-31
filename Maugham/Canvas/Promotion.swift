@@ -209,6 +209,18 @@ enum PromotionMode: Equatable, Hashable, Identifiable {
 enum PromotionDiscard: Equatable, Hashable {
     case lines
     case layout
+    /// The pictures a region holds, on the rows that cannot take them (1C-d
+    /// Task 12a). **Conditional, unlike the two above** — a region's lines and
+    /// layout are always dropped, and its pictures are dropped only where the
+    /// artifact has nowhere to put one: a research note is prose, and a palette
+    /// card being REWRITTEN keeps the image well it already has
+    /// (`PromotionPerformer.performPaletteCard`'s update branch is about the
+    /// prose and nothing else). It is a discard rather than a second notice
+    /// because §6.1 already has one machine for "promotion is allowed to be
+    /// lossy and the writer is told which parts", and a region holding a
+    /// photograph that silently does not travel is exactly what that machine is
+    /// for.
+    case pictures
 }
 
 /// The specifics of an OWNED item node's promotion: which node, which file, and
@@ -232,6 +244,12 @@ struct PromotedPicture: Equatable, Hashable {
     /// The palette card the picture is appended to, for `.paletteCardImage` and
     /// **nil for `.researchAsset`** — which files a copy under `research/` and
     /// has no existing artifact to be appended to.
+    ///
+    /// **Nil on the REGION's palette row too, and for a third reason** (1C-d
+    /// Task 12a): the card that picture is going onto is the one this plan
+    /// produces, which on a `.new` promotion does not exist yet and has no id to
+    /// carry. `PromotionPerformer.performPaletteCard` appends to the card it
+    /// just created or resolved, so the id is never guessed at here.
     let paletteCardID: String?
 }
 
@@ -427,6 +445,26 @@ struct PromotionRequest {
     var scraps: [CanvasNodeID: String]
     var paletteKind: PaletteCard.Kind = .other
     var artifacts: ArtifactIndex
+    /// The index every item node on the canvas resolves through — needed here
+    /// for one question only: **where does a REFERENCED picture's file live?**
+    ///
+    /// A region's palette-card promotion carries the pictures in it, and a
+    /// referenced one exists as a research item whose path only the manifest
+    /// knows (`CanvasItemIndex.Entry.thumbnailPath`). An owned one carries its
+    /// own path in its kind and needs nothing.
+    ///
+    /// **Not `ArtifactIndex`, which is right beside it and deliberately holds no
+    /// paths** — see its doc comment: a path on *that* `Entry` is an invitation
+    /// to resolve a promotion TARGET by filename. Two indexes over one manifest
+    /// is the cost, and `ProjectWindow` already builds both at one site.
+    ///
+    /// **Defaulted to `.empty`, and `PromotionSheetModel.init`'s copy is not** —
+    /// `PromotionPiece`'s split exactly, for its reason. `.empty` is a real
+    /// state (a canvas hosted without a window) and it is what the dozens of
+    /// tests reaching this initialiser genuinely mean; the value that must never
+    /// go missing by accident is the one on the production path, so the sheet
+    /// demands it and `PromotionCommandTests`' census names the argument.
+    var items: CanvasItemIndex = .empty
     /// The destination artifact's body as read from disk when the target was
     /// chosen, for the wiki-link duplicate check. `nil` when not applicable or
     /// not read. **A snapshot** — the performer checks again against the live
@@ -456,6 +494,7 @@ struct PromotionRequest {
          scraps: [CanvasNodeID: String],
          paletteKind: PaletteCard.Kind = .other,
          artifacts: ArtifactIndex,
+         items: CanvasItemIndex = .empty,
          destinationBody: String? = nil,
          paletteCardID: String? = nil,
          piece: PromotionPiece = .none) {
@@ -465,6 +504,7 @@ struct PromotionRequest {
         self.scraps = scraps
         self.paletteKind = paletteKind
         self.artifacts = artifacts
+        self.items = items
         self.destinationBody = destinationBody
         self.paletteCardID = paletteCardID
         self.piece = piece
@@ -535,15 +575,26 @@ struct PromotionPlan: Equatable {
     /// live file.
     let linkAlreadyPresent: Bool
 
-    /// The owned file this promotion copies, on the two rows that have one, and
-    /// nil on the four that do not (spec §6's 2026-07-30 amendment).
+    /// The files this promotion copies, in the order they will be copied, and
+    /// empty on every row that copies none (spec §6's 2026-07-30 amendment for
+    /// the two picture rows; its 2026-07-29 amendment for the region's palette
+    /// row, built in 1C-d Task 12a).
+    ///
+    /// **A LIST rather than an optional plus a list, and that is the shape
+    /// decision this field carries.** It was `PromotedPicture?` while only the
+    /// two picture rows could carry one, and a region can hold several — so the
+    /// alternative on the table was a second field beside this one. Two fields
+    /// for one fact is the smear this file spends its length refusing: every
+    /// reader (`validate`'s file check, the sheet's notice, the performer's
+    /// copy loop) would have to remember to consult both, and the one that
+    /// forgot would be silently right on four rows out of six.
     ///
     /// **No memberwise default, for `contributors`' reason**: every arm of
     /// `plan` names its own value, so a later source cannot silently promote
-    /// nothing by inheriting a nil. `PromotionPerformer.validate` refuses a
-    /// picture row that arrives without one rather than reaching into the scene
-    /// for a substitute.
-    let picture: PromotedPicture?
+    /// nothing by inheriting an empty list. `PromotionPerformer.validate`
+    /// refuses a picture row that arrives EMPTY rather than reaching into the
+    /// scene for a substitute.
+    let pictures: [PromotedPicture]
 }
 
 enum Promotion {
@@ -807,7 +858,7 @@ enum Promotion {
                 // (see `PromotionPlan.contributors`).
                 contributors: [], linkAlreadyPresent: false,
                 // A scrap's words are in `canvas.md`; there is no file to copy.
-                picture: nil)
+                pictures: [])
 
         case .region(let id):
             guard let region = scene.region(id) else { return nil }
@@ -816,13 +867,32 @@ enum Promotion {
             // the same helper, so the preview and the refusal agree about what
             // "empty" means rather than agreeing by coincidence.
             guard !bodies.isEmpty else { return nil }
+            // **The palette card is the one row that can hold a picture** (spec
+            // §6's 2026-07-29 amendment: "a palette card is worth making from a
+            // region that holds an image"). A research note is prose and gains
+            // nothing, and a REWRITE of an existing card keeps the image well it
+            // already has — `performPaletteCard`'s update branch is about the
+            // prose, and appending on every update would stack another copy of
+            // every photograph on the writer's card each time they re-promoted.
+            let held = regionPictures(region, in: scene, items: request.items)
+            let carried = request.target == .paletteCard && !isUpdate(request.mode)
+                ? held : []
+            // Whoever's CONTENT went in, words or picture (spec §6.3's
+            // 2026-07-31 amendment), in the one reading order the body already
+            // uses. A picture the plan does not carry contributed nothing and is
+            // not recorded.
+            let contributed = Set(bodies.map(\.0)).union(carried.map(\.node))
             return PromotionPlan(
                 source: request.source, producedKind: request.target,
                 title: regionTitle(region),
                 body: bodies.map(\.1).joined(separator: "\n\n"),
                 destinationDescription: destination(request),
-                // The spatial work is not carried across, and the writer is told.
-                discards: [.lines, .layout],
+                // The spatial work is not carried across, and the writer is told
+                // — and since 1C-d so are the pictures, on the rows that cannot
+                // take one. `held` rather than `carried`: what is discarded is
+                // what the region HAS and this artifact will not get.
+                discards: carried.isEmpty && !held.isEmpty
+                    ? [.lines, .layout, .pictures] : [.lines, .layout],
                 offeredLinks: bodies.compactMap { nodeID, _ in
                     guard let itemID = resolvedArtifact(of: nodeID, in: scene,
                                                         artifacts: request.artifacts),
@@ -831,18 +901,10 @@ enum Promotion {
                 },
                 wikiLinkWrite: nil, mode: request.mode,
                 paletteKind: request.paletteKind,
-                contributors: bodies.map(\.0), linkAlreadyPresent: false,
-                // A region joins its members' TEXT: `regionBodies` reads the
-                // scrap table, and an owned picture is not in it, so a picture
-                // living in a promoted region contributes nothing and is
-                // recorded as nothing. **Whether a region holding a photograph
-                // should carry it into the palette card it produces is §6's
-                // 2026-07-29 amendment's own open question** ("its case gets
-                // stronger in 1C-d: a palette card is worth making from a region
-                // that holds an image"), and it is a decision about the REGION's
-                // row rather than about this one — left unbuilt rather than
-                // guessed at here.
-                picture: nil)
+                contributors: readingOrder(region.homeMembers, in: scene)
+                    .filter(contributed.contains),
+                linkAlreadyPresent: false,
+                pictures: carried)
 
         case .line(let id):
             guard let line = scene.line(id),
@@ -866,7 +928,7 @@ enum Promotion {
                 contributors: [],
                 linkAlreadyPresent: request.destinationBody?.contains(write.linkText) ?? false,
                 // A line's product is text inside somebody else's note.
-                picture: nil)
+                pictures: [])
         }
     }
 
@@ -935,8 +997,18 @@ enum Promotion {
             // members, and an image well is appended to. Routed through here, the
             // second picture on a card would erase the first one's record.
             contributors: [], linkAlreadyPresent: false,
-            picture: PromotedPicture(node: node, assetPath: assetPath,
-                                     paletteCardID: cardID))
+            pictures: [PromotedPicture(node: node, assetPath: assetPath,
+                                       paletteCardID: cardID)])
+    }
+
+    /// Whether this plan rewrites an artifact rather than making one.
+    ///
+    /// Spelled once because two decisions read it and they must not drift: the
+    /// region's palette row carries pictures on `.new` only, and the discard it
+    /// declares instead is the same condition inverted.
+    private static func isUpdate(_ mode: PromotionMode) -> Bool {
+        if case .update = mode { return true }
+        return false
     }
 
     // MARK: - Pieces
@@ -1036,6 +1108,40 @@ enum Promotion {
         readingOrder(region.homeMembers, in: scene).compactMap { nodeID in
             let t = text(of: nodeID, in: scraps)
             return t.isEmpty ? nil : (nodeID, t)
+        }
+    }
+
+    /// The pictures a region's promotion would carry — **home members, in
+    /// `regionBodies`' reading order, on both provenances** (spec §6's
+    /// 2026-07-29 amendment, built 1C-d Task 12a).
+    ///
+    /// **Home only, and a visitor is not luggage.** That is §4.3's rule for
+    /// dragging applied to destination, and it is already this file's rule for
+    /// the words — a photograph merely *cited* in two regions must not be copied
+    /// into whichever was promoted last.
+    ///
+    /// **Both provenances, and `CanvasItemFacts.resolve` is why there is one
+    /// branch here rather than two.** Its own doc comment states the rule: "one
+    /// entry point for both provenances, so no caller can pick the wrong one".
+    /// An **owned** picture carries its path in its kind and must be carried
+    /// across because it exists nowhere else; a **referenced** one resolves to
+    /// the research item's file through `thumbnailPath`, which is set for a
+    /// picture and nil for everything else — so a note, a PDF, a recording or a
+    /// dangling reference in a region contributes nothing and is skipped by the
+    /// same `nil` that skips an empty scrap above.
+    ///
+    /// This is emphatically **not** a promotion OF the referenced node — §6's
+    /// refusal of that stands, and nothing here produces a second artifact
+    /// beside the one the project already has. The artifact is the region's
+    /// card; the picture is content going into it, exactly as a referenced
+    /// card's text would be if it had any.
+    private static func regionPictures(_ region: CanvasRegion, in scene: CanvasScene,
+                                       items: CanvasItemIndex) -> [PromotedPicture] {
+        readingOrder(region.homeMembers, in: scene).compactMap { nodeID in
+            guard case .item(let reference)? = scene.node(nodeID)?.kind,
+                  let path = CanvasItemFacts.resolve(reference, in: items).thumbnailPath
+            else { return nil }
+            return PromotedPicture(node: nodeID, assetPath: path, paletteCardID: nil)
         }
     }
 

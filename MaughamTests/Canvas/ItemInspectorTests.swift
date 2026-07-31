@@ -409,6 +409,71 @@ final class ItemInspectorTests: XCTestCase {
         XCTAssertFalse(ItemInspector.promotes(referenced))
     }
 
+    // MARK: - What a REFERENCE gets once it has contributed (Task 12a)
+
+    /// **A reference cannot be promoted and CAN have contributed** (spec §6.3's
+    /// 2026-07-31 amendment). A region's palette promotion copies the pictures
+    /// in it onto the card whatever their provenance, so a research image
+    /// dragged onto the canvas really does end up inside that card — and with
+    /// the section gated on `promotes` alone, its pane said nothing at all about
+    /// it. That is §6.3's own reported defect ("some think they weren't") on the
+    /// arm the ruling reached last.
+    func test_aReferenceThatContributedGetsASectionAndOneWithoutGetsNone() {
+        let contributed = PromotedArtifactSection.Provenance(
+            artifact: .notPromoted,
+            contribution: .contributed(itemID: "res-card", title: "Colour: October"))
+        XCTAssertEqual(ItemInspector.referencedContribution(contributed),
+                       .contributed(itemID: "res-card", title: "Colour: October"))
+        XCTAssertEqual(
+            ItemInspector.referencedContribution(
+                .init(artifact: .notPromoted, contribution: .artifactMissing(itemID: "res-x"))),
+            .artifactMissing(itemID: "res-x"),
+            "a dangling record still has something to say — the writer deleted "
+            + "the card, and silence would be the same lie one state over")
+        XCTAssertNil(
+            ItemInspector.referencedContribution(
+                .init(artifact: .notPromoted, contribution: .none)),
+            "and a reference with no record mounts NO section, rather than one "
+            + "reading \"Not promoted yet.\" about a card that can never be promoted")
+    }
+
+    /// **The mark half is withheld and the "Not promoted yet." line with it.**
+    /// A mark on a reference says nothing true — a hand-edited sidecar can put
+    /// the field there, which is why the renderer and `CanvasAccessibility`
+    /// refuse to draw or speak one — so the arm hands `.notPromoted`, and
+    /// `saysNotPromotedYet` is false because the contribution is not `.none`.
+    func test_aContributingReferenceIsNeverToldItWasNotPromotedYet() {
+        let state = PromotedArtifactSection.Provenance(
+            artifact: .notPromoted,
+            contribution: .contributed(itemID: "res-card", title: "Colour: October"))
+        XCTAssertFalse(state.saysNotPromotedYet)
+        XCTAssertTrue(
+            PromotedArtifactSection.Provenance(artifact: .notPromoted, contribution: .none)
+                .saysNotPromotedYet,
+            "the control: that sentence is reachable, so the assertion above is "
+            + "about the contribution suppressing it")
+    }
+
+    /// **The caption is the whole of why this is a subject of its own.** A
+    /// reference has no Promote… button, so `.picture`'s caption — *"Promoting
+    /// this picture onto that card again…"* — names an act this arm does not
+    /// have, which is exactly the failure `pieceIsNotAResearchTarget`'s third
+    /// axis was added to prevent, one pane over.
+    func test_theReferencedPicturesCaptionNamesNoActItsArmDoesNotHave() {
+        let referenced = PromotedArtifactSection.Subject.referencedPicture
+        XCTAssertFalse(referenced.contributionCaption.contains("Promoting"),
+                       "found: \(referenced.contributionCaption)")
+        XCTAssertTrue(PromotedArtifactSection.Subject.picture.contributionCaption
+                        .contains("Promoting"),
+                      "the control, and the reason this is an axis rather than a "
+                      + "rewording: an OWNED picture really can be promoted again "
+                      + "and its caption still says so")
+        XCTAssertEqual(referenced.wordsAreIn("Colour: October"),
+                       PromotedArtifactSection.Subject.picture.wordsAreIn("Colour: October"),
+                       "the sentence that is true of both is the same sentence — "
+                       + "a picture is in that card either way")
+    }
+
     // MARK: - Fixtures
 
     /// The shape `CanvasClaudePlacement.apply` produces: a labelled region

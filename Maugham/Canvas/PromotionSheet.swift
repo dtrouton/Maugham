@@ -25,6 +25,9 @@ final class PromotionSheetModel: Identifiable {
     private let scene: CanvasScene
     private let scraps: [CanvasNodeID: String]
     private let artifacts: ArtifactIndex
+    /// The canvas's own index, for the one question `artifacts` cannot answer:
+    /// where a REFERENCED picture's file lives (`PromotionRequest.items`).
+    private let items: CanvasItemIndex
     /// Where the source's piece association sends this (spec §6.2), resolved
     /// against the live manifest once, when the sheet opened — the same
     /// discipline every other property here follows.
@@ -109,16 +112,25 @@ final class PromotionSheetModel: Identifiable {
     /// `PromotionRequest`'s copy is defaulted because it is reached from dozens
     /// of tests that genuinely mean "no association"; this one is reached from
     /// `CanvasPromotionModifier.begin` and from tests about the piece.
+    ///
+    /// **`items` has none either, for the identical reason and with the
+    /// identical failure** (1C-d Task 12a): `.empty` is a legitimate value — a
+    /// canvas hosted without a window really has no index — so a default here
+    /// would be invisible, and omitting it at the one production call site would
+    /// leave every REFERENCED picture in a promoted region silently uncopied and
+    /// unrecorded, with nothing red.
     init(source: PromotionSource,
          scene: CanvasScene,
          scraps: [CanvasNodeID: String],
          artifacts: ArtifactIndex,
+         items: CanvasItemIndex,
          piece: PromotionPiece,
          readBody: @escaping (String) -> String?) {
         self.source = source
         self.scene = scene
         self.scraps = scraps
         self.artifacts = artifacts
+        self.items = items
         self.piece = piece
         self.readBody = readBody
         self.availableTargets = Promotion.targets(for: source, in: scene, artifacts: artifacts)
@@ -271,8 +283,43 @@ final class PromotionSheetModel: Identifiable {
         var parts: [String] = []
         if discards.contains(.lines) { parts.append("the lines between these cards") }
         if discards.contains(.layout) { parts.append("their layout") }
-        return "Not carried across: " + parts.joined(separator: " and ")
-            + ". The canvas keeps them."
+        if discards.contains(.pictures) { parts.append("the pictures in it") }
+        return "Not carried across: " + Self.list(parts) + ". The canvas keeps them."
+    }
+
+    /// `a`, `a and b`, `a, b and c` — **the third element is why this exists.**
+    /// The two-part case joined on `" and "`, which read correctly for as long
+    /// as there were exactly two discards; 1C-d's third turned it into "the
+    /// lines between these cards and their layout and the pictures in it".
+    private static func list(_ parts: [String]) -> String {
+        guard let last = parts.last else { return "" }
+        guard parts.count > 1 else { return last }
+        return parts.dropLast().joined(separator: ", ") + " and " + last
+    }
+
+    /// What a region's promotion will COPY, said before the writer commits —
+    /// §6.1's "the writer sees what will be produced, and where" applied to the
+    /// half of a palette card that is not prose (1C-d Task 12a).
+    ///
+    /// **The sheet naming joined prose while silently copying three photographs
+    /// fails §6.1 on its own terms**, which is why this is not left to the body
+    /// excerpt. Its opposite — a region whose pictures are NOT carried — is said
+    /// by `discardNotice` through `PromotionDiscard.pictures`, so the two
+    /// directions are one machine each rather than one sentence with a `not` in
+    /// it.
+    ///
+    /// A decision on the model rather than an `if` inside the view, matching
+    /// everything else this sheet branches on: a `Form`'s contents are not
+    /// inspectable.
+    var pictureNotice: String? {
+        guard let plan = preview, plan.producedKind == .paletteCard,
+              !plan.pictures.isEmpty else { return nil }
+        // The `.paletteCardImage` row has a caption of its own naming the card
+        // the writer picked; this one is the region's, where the card is the
+        // thing being produced.
+        return plan.pictures.count == 1
+            ? "Also copies the picture in this region onto the card."
+            : "Also copies the \(plan.pictures.count) pictures in this region onto the card."
     }
 
     /// Both `preview` and `resolvedPlan` build off the same live `mode` now —
@@ -287,6 +334,7 @@ final class PromotionSheetModel: Identifiable {
             scraps: scraps,
             paletteKind: paletteKind,
             artifacts: artifacts,
+            items: items,
             destinationBody: destinationBody,
             paletteCardID: paletteCardID,
             piece: piece)
@@ -412,6 +460,9 @@ struct PromotionSheet: View {
                          + "wiki-link is specific.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+            }
+            if let notice = model.pictureNotice {
+                Text(notice).font(.caption).foregroundStyle(.secondary)
             }
             if let notice = model.discardNotice {
                 Text(notice).font(.caption).foregroundStyle(.secondary)

@@ -36,6 +36,7 @@ final class PromotionSheetTests: XCTestCase {
                        body: @escaping (String) -> String? = { _ in nil }) -> PromotionSheetModel {
         PromotionSheetModel(source: source, scene: scene ?? self.scene(), scraps: texts,
                             artifacts: ArtifactIndex(titlesByID: artifacts),
+                            items: .empty,
                             piece: .none, readBody: body)
     }
 
@@ -95,6 +96,7 @@ final class PromotionSheetTests: XCTestCase {
         return PromotionSheetModel(source: .scrap(picture), scene: pictureScene(),
                                    scraps: texts,
                                    artifacts: ArtifactIndex(entriesByID: entries),
+                                   items: .empty,
                                    piece: .none, readBody: { _ in nil })
     }
 
@@ -120,6 +122,7 @@ final class PromotionSheetTests: XCTestCase {
                             origin: CGPoint(x: 800, y: 0), width: 180, cachedHeight: 120))
         let m = PromotionSheetModel(source: .scrap(referenced), scene: s, scraps: texts,
                                     artifacts: ArtifactIndex(titlesByID: ["r-9": "A note"]),
+                                    items: .empty,
                                     piece: .none, readBody: { _ in nil })
         XCTAssertNotEqual(m.sourceDescription, "This picture",
                           "a reference is not a picture — found: \(m.sourceDescription)")
@@ -149,7 +152,7 @@ final class PromotionSheetTests: XCTestCase {
         m.select(.paletteCardImage)
         m.paletteCardID = "res-other"
         XCTAssertEqual(m.preview?.destinationDescription, "the palette card “Zinc”")
-        XCTAssertEqual(m.resolvedPlan?.picture?.paletteCardID, "res-other")
+        XCTAssertEqual(m.resolvedPlan?.pictures.first?.paletteCardID, "res-other")
     }
 
     func test_theResearchRowCarriesNoCardAndStillCommits() {
@@ -385,6 +388,7 @@ final class PromotionSheetTests: XCTestCase {
         let m = PromotionSheetModel(source: .scrap(a), scene: scene(),
                                     scraps: [a: "   "],
                                     artifacts: ArtifactIndex(titlesByID: [:]),
+                                    items: .empty,
                                     piece: .none, readBody: { _ in nil })
         XCTAssertNotNil(m.blockedReason)
         XCTAssertFalse(m.canCommit)
@@ -413,6 +417,7 @@ final class PromotionSheetTests: XCTestCase {
         let emptyCard = PromotionSheetModel(source: .scrap(a), scene: scene(),
                                             scraps: [a: "   "],
                                             artifacts: ArtifactIndex(titlesByID: [:]),
+                                            items: .empty,
                                             piece: .none, readBody: { _ in nil })
         XCTAssertNotNil(emptyCard.blockedReason, "it is still blocked, and still says why")
         XCTAssertNil(emptyCard.blockedNote,
@@ -425,6 +430,7 @@ final class PromotionSheetTests: XCTestCase {
         let reference = PromotionSheetModel(source: .scrap(.item("r-9")), scene: withItem,
                                             scraps: texts,
                                             artifacts: ArtifactIndex(titlesByID: [:]),
+                                            items: .empty,
                                             piece: .none, readBody: { _ in nil })
         XCTAssertNotNil(reference.blockedReason)
         XCTAssertNil(reference.blockedNote)

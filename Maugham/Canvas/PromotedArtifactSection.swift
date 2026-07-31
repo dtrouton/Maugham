@@ -17,16 +17,22 @@ import SwiftUI
 /// that field — so what decides who mounts it is the FIELD, never a claim about
 /// what a writer may promote.
 ///
-/// **An item node mounts it on ONE of its two provenances** (1C-d: Task 7 built
-/// the arm, Task 8 gave it a promotion). An *owned* picture can produce a
-/// research asset and can be added to a palette card, so it carries both records
-/// and gets this section with `Subject.picture`. A *referenced* one still mounts
-/// none of it, and for the original reason: it already exists as itself, so
+/// **An item node mounts it on both provenances, but not the same halves of
+/// it** (1C-d: Task 7 built the arm, Task 8 gave an owned picture a promotion,
+/// Task 12a gave a referenced one a contribution). An *owned* picture can
+/// produce a research asset and can be added to a palette card, so it carries
+/// both records and gets the whole section with `Subject.picture`. A
+/// *referenced* one still cannot be PROMOTED — it already exists as itself, so
 /// `Promotion.targets` offers nothing and `Promotion.itemNodeReason` is the
-/// sentence. Its node type does carry the field, which a hand-edited sidecar
-/// could fill — the renderer and `CanvasAccessibility` refuse to draw or speak a
-/// mark on a reference for that reason, and `ItemInspector` does not render one
-/// either.
+/// sentence — and its node type carries `promotedItemID` only in the sense that
+/// a hand-edited sidecar could fill it, which is why the renderer and
+/// `CanvasAccessibility` refuse to draw or speak a mark on one. What it *can*
+/// be is a contributor: a region's palette promotion copies the pictures in it
+/// onto the card, whatever their provenance, and §6.3's 2026-07-31 amendment
+/// says every home member whose content went in records that. So `ItemInspector`
+/// mounts this section for a reference **only when there is a record to show**,
+/// with `artifact: .notPromoted` and `Subject.referencedPicture`. A record with
+/// no pane is the false-silence half of the very defect §6.3 exists to remove.
 ///
 /// **A stale count is wrong about a number; a wrong reason is what the next
 /// implementer acts on.** That is why the correction is here at length rather
@@ -80,15 +86,35 @@ struct PromotedArtifactSection: View {
         case card
         case region
         /// An **owned** item node — a picture the canvas ingested (1C-d Task 8).
-        /// Never a referenced one: that arm mounts no section at all, because a
-        /// reference cannot be promoted and carries neither record.
         case picture
+        /// A **referenced** picture — a research image dragged onto the canvas,
+        /// which a region's palette promotion copied onto the card it produced
+        /// (1C-d Task 12a, spec §6.3's 2026-07-31 amendment).
+        ///
+        /// **It is a subject of its own rather than `.picture` sharing the arm,
+        /// and the whole difference is one caption.** A reference cannot be
+        /// promoted — §6's refusal stands, `Promotion.targets` offers it
+        /// nothing, and `ItemInspector` withholds the button — so
+        /// `contributionCaption`'s *"Promoting this picture onto that card
+        /// again…"* names an act this arm does not have, which is precisely the
+        /// failure `pieceIsNotAResearchTarget`'s third axis was added to
+        /// prevent, one pane over.
+        ///
+        /// **`became` is unreachable for it and that is structural, not a
+        /// promise**: `ItemInspector` hands this subject `artifact:
+        /// .notPromoted`, because a mark on a reference says nothing true (a
+        /// hand-edited sidecar can put the field there — the renderer and
+        /// `CanvasAccessibility` refuse to draw or speak one for that reason).
+        /// What a reference genuinely can be is a CONTRIBUTOR: its picture is in
+        /// that card, alongside whatever else is, which is a fact about the
+        /// card's contents rather than a claim about the reference's identity.
+        case referencedPicture
 
         var noun: String {
             switch self {
             case .card: return "card"
             case .region: return "region"
-            case .picture: return "picture"
+            case .picture, .referencedPicture: return "picture"
             }
         }
 
@@ -114,7 +140,7 @@ struct PromotedArtifactSection: View {
         func wordsAreIn(_ title: String) -> String {
             switch self {
             case .card, .region: return "Its words are in “\(title)”"
-            case .picture: return "This picture is in “\(title)”"
+            case .picture, .referencedPicture: return "This picture is in “\(title)”"
             }
         }
 
@@ -133,6 +159,14 @@ struct PromotedArtifactSection: View {
             case .picture:
                 return "Promoting this picture onto that card again adds a second "
                     + "copy — it never replaces what is already there."
+            case .referencedPicture:
+                // **It names no act, because this arm has none.** A reference
+                // cannot be promoted, so the caption says what happened rather
+                // than what pressing something would do — and it says the card
+                // holds a COPY, which is the fact a writer would otherwise test
+                // by deleting one of the two.
+                return "A region's promotion put a copy of this picture on that "
+                    + "card. The card keeps its copy if this one goes."
             }
         }
 
@@ -144,7 +178,7 @@ struct PromotedArtifactSection: View {
             case .card, .region:
                 return "This card's words went into something that is no longer "
                     + "in the project."
-            case .picture:
+            case .picture, .referencedPicture:
                 return "This picture was added to something that is no longer in "
                     + "the project."
             }
@@ -164,8 +198,11 @@ struct PromotedArtifactSection: View {
     /// not record its *cardinality*. So this state has its own type, its own
     /// sentences, and no route into `existingArtifact`.
     ///
-    /// Only a card can be in it. A region promoted to a note is the thing that
-    /// *writes* these records, onto the cards whose text went in.
+    /// A region's promotion is the thing that *writes* these records, onto the
+    /// members whose CONTENT went in — text cards, and since 1C-d Task 12a the
+    /// pictures in it on the palette row, of either provenance (spec §6.3's
+    /// 2026-07-31 amendment). A picture appended to a card on its own row
+    /// carries one too (`PromotionPerformer.recordPicture`).
     enum ContributionState: Equatable {
         case none
         case contributed(itemID: String, title: String)
