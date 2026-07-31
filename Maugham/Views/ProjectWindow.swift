@@ -367,7 +367,8 @@ struct ProjectWindow: View {
             columnVisibility: $columnVisibility,
             showInspector: $showInspector,
             inspectorWasVisibleBeforeCanvasCollapse:
-                $inspectorWasVisibleBeforeCanvasCollapse))
+                $inspectorWasVisibleBeforeCanvasCollapse,
+            inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette))
         .preferredColorScheme(preferredColorScheme)
     }
 
@@ -494,14 +495,11 @@ struct ProjectWindow: View {
 
         func body(content: Content) -> some View {
             content.onChange(of: binderSegment) { old, new in
-                if new == .palette && old != .palette {
-                    inspectorWasVisibleBeforePalette = showInspector
-                    showInspector = false
-                } else if old == .palette && new != .palette {
-                    if let prior = inspectorWasVisibleBeforePalette { showInspector = prior }
-                    inspectorWasVisibleBeforePalette = nil
-                    selectedPaletteCardId = nil
-                }
+                ProjectWindow.applyPaletteSegmentChange(
+                    from: old, to: new,
+                    showInspector: &showInspector,
+                    stash: &inspectorWasVisibleBeforePalette,
+                    selectedPaletteCardId: &selectedPaletteCardId)
             }
         }
     }
@@ -1052,6 +1050,35 @@ struct ProjectWindow: View {
         return projectType == .collection ? .collectionPiece : .segment
     }
 
+    /// The palette wall's own inspector rule, as a fold rather than a closure
+    /// body — behaviour unchanged, extracted so a test can drive it.
+    ///
+    /// **Extracted because it shares an update pass with the canvas collapse.**
+    /// `PaletteSegmentModifier` and `CanvasCollapseModifier` both watch
+    /// `binderSegment`, and Plan's binder offers Palette and Canvas side by side
+    /// (`Persona.plan.binderSegments`), so a **one-click** palette → canvas move
+    /// in focus mode runs both of these in the same pass in an order SwiftUI
+    /// picks. Neither may depend on being first, and the only way to know that
+    /// is to run the pair both ways round — which needs both halves callable.
+    static func applyPaletteSegmentChange(from old: BinderSegment,
+                                          to new: BinderSegment,
+                                          showInspector: inout Bool,
+                                          stash: inout Bool?,
+                                          selectedPaletteCardId: inout String?) {
+        if new == .palette && old != .palette {
+            stash = showInspector
+            showInspector = false
+        } else if old == .palette && new != .palette {
+            // A `nil` stash is a real state and means "someone else has already
+            // taken this memory over" — see `canvasCollapse`'s takeover. It has
+            // always been written as a conditional restore; that is now
+            // load-bearing rather than merely defensive.
+            if let prior = stash { showInspector = prior }
+            stash = nil
+            selectedPaletteCardId = nil
+        }
+    }
+
     // MARK: - ⌘\ collapses to the canvas (spec §8A.3)
 
     /// What `⌘\` must do to the two side columns, as a value.
@@ -1076,7 +1103,11 @@ struct ProjectWindow: View {
         /// leaving can put it back exactly.
         case collapse(columnVisibility: NavigationSplitViewVisibility,
                       showInspector: Bool,
-                      stash: Bool)
+                      stash: Bool,
+                      /// True when the memory being stashed is the PALETTE's,
+                      /// taken over rather than left for its exit arm to
+                      /// restore. See the takeover note on `canvasCollapse`.
+                      takesOverPaletteStash: Bool)
         /// Hand the columns back, restoring the remembered inspector.
         case release(columnVisibility: NavigationSplitViewVisibility,
                      showInspector: Bool)
@@ -1096,16 +1127,38 @@ struct ProjectWindow: View {
     /// already-collapsed canvas answers `.unchanged`, or a second apply in the
     /// same pass would stash the `false` the first one wrote and leave the
     /// inspector hidden for good.
+    ///
+    /// **`paletteStash`, and why a collapse TAKES IT OVER.** Plan's binder
+    /// offers Palette and Canvas side by side, so palette → canvas in focus mode
+    /// is **one click** and needs no persona switch — and it runs
+    /// `PaletteSegmentModifier`'s exit arm and `CanvasCollapseModifier`'s
+    /// collapse **in the same update pass**, in whichever order SwiftUI picks.
+    /// Left alone the two orders disagree, which is tripwire 2 whichever one
+    /// happens to win today:
+    ///
+    /// - palette first — it restores the pre-palette visibility and clears its
+    ///   stash, then the collapse remembers that value. Right.
+    /// - collapse first — it would remember the palette's *forced* `false`, and
+    ///   the exit arm would then reopen the inspector against the collapse,
+    ///   leaving the writer a collapsed canvas with the pane still in it and a
+    ///   memory that closes the pane for good on the way out.
+    ///
+    /// So the collapse takes the palette's memory when one is live —
+    /// `paletteStash ?? showInspector` — and says so, which makes the exit arm's
+    /// conditional restore a no-op. **Both orders now end in the same state**,
+    /// so nothing here depends on which runs first.
     static func canvasCollapse(route: InspectorRoute,
                                isNoChromeOn: Bool,
                                showInspector: Bool,
-                               stash: Bool?) -> CanvasCollapse {
+                               stash: Bool?,
+                               paletteStash: Bool?) -> CanvasCollapse {
         let wantsTheWholeWindow = route == .canvas && isNoChromeOn
         switch (wantsTheWholeWindow, stash) {
         case (true, .none):
             return .collapse(columnVisibility: .doubleColumn,
                              showInspector: false,
-                             stash: showInspector)
+                             stash: paletteStash ?? showInspector,
+                             takesOverPaletteStash: paletteStash != nil)
         case (false, .some(let prior)):
             return .release(columnVisibility: .all, showInspector: prior)
         default:
@@ -1123,10 +1176,12 @@ struct ProjectWindow: View {
     static func applyCanvasCollapse(_ decision: CanvasCollapse,
                                     columnVisibility: inout NavigationSplitViewVisibility,
                                     showInspector: inout Bool,
-                                    stash: inout Bool?) {
+                                    stash: inout Bool?,
+                                    paletteStash: inout Bool?) {
         switch decision {
-        case .collapse(let visibility, let inspector, let stashed):
+        case .collapse(let visibility, let inspector, let stashed, let takesOver):
             stash = stashed
+            if takesOver { paletteStash = nil }
             showInspector = inspector
             columnVisibility = visibility
         case .release(let visibility, let inspector):
@@ -1722,6 +1777,17 @@ private struct FocusPostureModifier: ViewModifier {
 /// territory. This modifier watches the *flag* that handler flips, so there is
 /// still exactly one receiver.
 ///
+/// **`⌘⇧F` is the second entry, and it is INTENDED.** `toggleFullScreen` sets
+/// `isNoChromeOn = true` on the way into full screen, so full-screen focus
+/// collapses the canvas exactly as `⌘\` does. That is the right answer rather
+/// than an accident to guard: full-screen focus is the *stronger* of the two
+/// gestures — it already takes the whole screen — and a version of it that left
+/// the binder and the inspector standing would be the weaker one. Watching the
+/// flag rather than the keystroke is what makes both entries one behaviour; a
+/// guard would have to name `⌘\` specifically and would then need a second
+/// exit rule for the leaving-full-screen path. Both exits already work: the
+/// flag goes off, and the release arm runs.
+///
 /// **Never automatic on entering the persona.** The collapse is a function of
 /// (the canvas is the centre column) AND (the writer asked for focus mode), so
 /// arriving on the canvas with focus mode off does nothing at all — you need the
@@ -1729,11 +1795,19 @@ private struct FocusPostureModifier: ViewModifier {
 /// you want it gone. The palette wall's `PaletteSegmentModifier` does auto-hide
 /// on entry; §8A.3 says in those words that the canvas does not follow it.
 ///
-/// **The interaction worth knowing about:** a writer already in focus mode who
-/// clicks *Show* on Claude's arrival banner lands on a collapsed canvas, so the
-/// inspector `CanvasClaudeArrivalModifier.Destination` deliberately force-opens
-/// closes again in the following pass. The cards themselves are still revealed
-/// and selected by the camera move; `⌘\` brings the naming back.
+/// **The interaction worth knowing about, and it is true of ONE of the two
+/// cases.** `CanvasClaudeArrivalModifier.Destination` force-opens the inspector
+/// so *Show* names what arrived. For a writer in focus mode:
+///
+/// - **arriving from another segment** — `binderSegment` changes, so this
+///   modifier collapses one pass later and that force-open closes again. The
+///   cards are still revealed and selected by the camera move; `⌘\` brings the
+///   naming back.
+/// - **already on the collapsed canvas** — the segment does not change, neither
+///   trigger fires, and the pane stays open beside the collapse. Show works as
+///   written.
+///
+/// So the case that loses the naming pane is the *jump*, not the local reveal.
 private struct CanvasCollapseModifier: ViewModifier {
     let binderSegment: BinderSegment
     let projectType: ProjectType
@@ -1741,6 +1815,9 @@ private struct CanvasCollapseModifier: ViewModifier {
     @Binding var columnVisibility: NavigationSplitViewVisibility
     @Binding var showInspector: Bool
     @Binding var inspectorWasVisibleBeforeCanvasCollapse: Bool?
+    /// The palette wall's stash, read and cleared on a collapse that arrives in
+    /// the same pass as the wall's own exit — see `canvasCollapse`'s takeover.
+    @Binding var inspectorWasVisibleBeforePalette: Bool?
 
     func body(content: Content) -> some View {
         content
@@ -1759,10 +1836,12 @@ private struct CanvasCollapseModifier: ViewModifier {
                 route: route,
                 isNoChromeOn: isNoChromeOn,
                 showInspector: showInspector,
-                stash: inspectorWasVisibleBeforeCanvasCollapse),
+                stash: inspectorWasVisibleBeforeCanvasCollapse,
+                paletteStash: inspectorWasVisibleBeforePalette),
             columnVisibility: &columnVisibility,
             showInspector: &showInspector,
-            stash: &inspectorWasVisibleBeforeCanvasCollapse)
+            stash: &inspectorWasVisibleBeforeCanvasCollapse,
+            paletteStash: &inspectorWasVisibleBeforePalette)
     }
 }
 

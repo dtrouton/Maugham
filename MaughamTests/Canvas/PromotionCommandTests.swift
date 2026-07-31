@@ -335,7 +335,9 @@ final class PromotionCommandTests: XCTestCase {
               "assetIngest: CanvasAssetIngest(",
               "captureDrop: CanvasCaptureDrop(",
               ".modifier(CanvasCollapseModifier(",
-              "NavigationSplitView(columnVisibility: $columnVisibility)"],
+              "NavigationSplitView(columnVisibility: $columnVisibility)",
+              "Self.releasesCanvasCollapse(",
+              "ProjectWindow.applyPaletteSegmentChange("],
              // **Numbered by what each token IS, never by its position in the
              // array above** (1C-d Task 12a, review Important 1). This read
              // "The FIFTH is…", "The SIXTH is…" and so on; Task 12a inserted a
@@ -412,7 +414,25 @@ final class PromotionCommandTests: XCTestCase {
              + "nothing reads — it compiles, `showInspector` still goes false so "
              + "HALF the collapse still happens, and the binder never leaves. A "
              + "half-working focus key is the failure no assertion over the "
-             + "decision can see from inside"),
+             + "decision can see from inside. "
+             + "`Self.releasesCanvasCollapse(` is the persona handler's CALL "
+             + "SITE, and it is the site the whole ordering hazard turns on. "
+             + "The predicate is tested as a pure function and the sequence "
+             + "test hand-drives it — nothing in the tree posts "
+             + "`.maughamSetPersona`, so no test drives the emitter. Delete the "
+             + "`if` block in `PersonaModifier`'s handler and every "
+             + "`CanvasCollapseTests` assertion stays green while a writer who "
+             + "closed the inspector before collapsing lands in the next "
+             + "persona with it closed, which is the exact defect the predicate "
+             + "exists to prevent. `clearsPaletteStash`'s call site has the same "
+             + "gap and no instrument; this one now has one. "
+             + "`ProjectWindow.applyPaletteSegmentChange(` is the wall's own "
+             + "fold, and it is that shape one surface over: the fold is a "
+             + "static with its own tests, so deleting the single line that "
+             + "calls it from `PaletteSegmentModifier` compiles, warns nothing, "
+             + "keeps every assertion over the fold green — and the palette "
+             + "wall silently stops taking the width it was given, while the "
+             + "canvas collapse's takeover starts reading a stash nobody sets"),
             ("Maugham/Views/InboxPane.swift",
              [".draggable(CanvasDrop.inboxPayload(", "Button(\"Send to Canvas\")"],
              "1C-d Task 12's two routes out of the inbox (spec §8A.4), and both "
@@ -622,6 +642,25 @@ final class PromotionCommandTests: XCTestCase {
             "the census reports the ABSENT split-view-binding token and not the "
             + "present one — with the argument gone the modifier still runs and "
             + "the binder never moves")
+        // And the persona handler's call site, falsified with a predicate that
+        // cannot exist. This is the one production site Task 13 added that has
+        // no other instrument at all: the predicate is pure and its sequence
+        // test hand-drives it, and nothing in the tree posts `.maughamSetPersona`.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: ["Self.releasesCanvasCollapse(",
+                                         "Self.releasesNotARealCollapse("]),
+            ["Self.releasesNotARealCollapse("],
+            "the census reports the ABSENT persona-call-site token and not the "
+            + "present one")
+        // And the wall's fold, the same shape one surface over: a static with
+        // its own tests, called from exactly one line.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: ["ProjectWindow.applyPaletteSegmentChange(",
+                                         "ProjectWindow.applyNotARealSegmentChange("]),
+            ["ProjectWindow.applyNotARealSegmentChange("],
+            "the census reports the ABSENT palette-fold token and not the present one")
         // And 1C-c3's provenance line in the card arm: `Origin` and its sentences
         // are fully testable with nothing in `body` reading them.
         XCTAssertEqual(
