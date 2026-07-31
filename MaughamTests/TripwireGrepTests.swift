@@ -2241,6 +2241,107 @@ final class TripwireGrepTests: XCTestCase {
             + "that mounts it.")
     }
 
+    // MARK: - The canvas's two drop modifiers have an order (1C-d Task 11, smoke)
+
+    /// Where `token` first appears in the **code** of `text`, as an index into
+    /// its code lines, or nil if it never does. Comments are excluded because
+    /// both tokens below are discussed at length in the prose above them.
+    private func firstCodeLine(of token: String, in text: String) -> Int? {
+        SourceScan.codeLines(of: text).firstIndex { $0.contains(token) }
+    }
+
+    /// **`.dropDestination(for: String.self)` must be mounted BEFORE
+    /// `.onDrop(of: [.fileURL, .image])` on `CanvasView.body`, and the other way
+    /// round is a shipped bug rather than a style question.**
+    ///
+    /// Written `.onDrop` first, that modifier claims the drag session **on hover,
+    /// before any payload is examined**, and the string destination behind it is
+    /// never offered the drop: a Finder photograph lands correctly while a
+    /// research drag and an inbox drag both do nothing whatever. That is not
+    /// deduced — it is what the 1C-d Task 11 smoke found, with the Inbox's "Send
+    /// to Canvas" *command* still working throughout, which is what identified
+    /// the modifiers rather than the routers.
+    ///
+    /// **This is the only instrument available.** SwiftUI's drop delivery has no
+    /// seam a test can post a drag session into — the reason the defect reached a
+    /// smoke at all — so every `CanvasDropTests` assertion is green under either
+    /// order. A source scan is what can hold a fact the compiler and the suite are
+    /// both blind to.
+    ///
+    /// `ResearchRow.swift` ships this order and accepts both an id drag and a
+    /// browser image drag today. **No general depth rule should be read off
+    /// that**: `ResearchView` and `PaletteCardEditor` mount the provider `.onDrop`
+    /// with no typed destination beside it, so the pairing is what matters, not a
+    /// rule about which kind goes outermost.
+    func test_theCanvasStringDropDestinationIsMountedBeforeTheProviderDrop() throws {
+        let text = try String(contentsOf: sourceDir
+            .appendingPathComponent("Canvas/CanvasView.swift"), encoding: .utf8)
+        let internalDrag = try XCTUnwrap(
+            firstCodeLine(of: ".dropDestination(for: String.self)", in: text),
+            "the internal drag's destination is gone from CanvasView")
+        let external = try XCTUnwrap(
+            firstCodeLine(of: Self.providerDropToken, in: text),
+            "the external drop's provider route is gone from CanvasView")
+
+        XCTAssertLessThan(internalDrag, external,
+            "The canvas's two drop modifiers are in the order that ships a bug. "
+            + "`.onDrop(of:)` mounted first claims the drag session on hover, "
+            + "before the payload is examined, so the string destination behind it "
+            + "never sees the drop — a Finder photograph lands and a research or "
+            + "inbox drag does nothing at all, silently. Put "
+            + "`.dropDestination(for: String.self)` first, as `ResearchRow` does. "
+            + "Found at code lines \(internalDrag) and \(external).")
+    }
+
+    /// Self-check: the order assertion FAILS on the reversed order, and passes on
+    /// the shipped one. A comparison between two indices is exactly the shape that
+    /// reads as green when one of the tokens is never found at all.
+    func test_theDropModifierOrderCheckFailsOnTheReversedOrder() throws {
+        let good = """
+        struct Good: View {
+            var body: some View {
+                Color.clear
+                    .dropDestination(for: String.self) { _, _ in true }
+                    .onDrop(of: [.fileURL, .image], isTargeted: nil) { _, _ in true }
+            }
+        }
+        """
+        let bad = """
+        struct Bad: View {
+            var body: some View {
+                Color.clear
+                    .onDrop(of: [.fileURL, .image], isTargeted: nil) { _, _ in true }
+                    .dropDestination(for: String.self) { _, _ in true }
+            }
+        }
+        """
+        let stringToken = ".dropDestination(for: String.self)"
+
+        let goodInternal = try XCTUnwrap(firstCodeLine(of: stringToken, in: good))
+        let goodExternal = try XCTUnwrap(firstCodeLine(of: Self.providerDropToken, in: good))
+        XCTAssertLessThan(goodInternal, goodExternal,
+            "Self-check: the shipped order should satisfy the comparison.")
+
+        let badInternal = try XCTUnwrap(firstCodeLine(of: stringToken, in: bad))
+        let badExternal = try XCTUnwrap(firstCodeLine(of: Self.providerDropToken, in: bad))
+        XCTAssertGreaterThan(badInternal, badExternal,
+            "Self-check: the reversed order — the one the smoke found broken — "
+            + "should fail the comparison the real test makes.")
+
+        // And the third state the comparison cannot see for itself: a file with
+        // only one of the two tokens. The real test unwraps both first, so this
+        // is what those unwraps are for.
+        XCTAssertNil(firstCodeLine(of: stringToken, in: """
+            struct Half: View {
+                var body: some View {
+                    Color.clear.onDrop(of: [.fileURL, .image], isTargeted: nil) { _, _ in true }
+                }
+            }
+            """),
+            "Self-check: a missing token must read as nil rather than as an index, "
+            + "or the comparison would silently pass on a canvas with one modifier.")
+    }
+
     // MARK: - Nothing scanned may be truncated by an unclosed block (1C-d Task 11)
 
     /// Every `.swift` file under `dir` whose `SourceScan` run ends still inside a
