@@ -2257,9 +2257,11 @@ final class TripwireGrepTests: XCTestCase {
     /// for a FORBIDDEN-token ban that failure is silent.**
     ///
     /// The stripper cannot tell a real block comment from `/*` inside a string
-    /// literal or from prose naming a path like `.maugham/sessions/*`, and nine
-    /// files in this repo trip it today for exactly those two reasons — four of
-    /// them on string literals, including this file's own `hasPrefix("/*")`.
+    /// literal or from prose naming a path like `.maugham/sessions/*`, and files
+    /// in this repo trip it today for both of those reasons — including this
+    /// file's own `hasPrefix("/*")`, and including trees this guard does not
+    /// assert over. **The assertions below are the count**; a figure written here
+    /// would be a prose count inside a safety instrument, guarded by nothing.
     /// Teaching it to lex Swift strings is the other answer and it is worse: a
     /// half-lexer with nothing to test it against, guarding a suite of censuses.
     ///
