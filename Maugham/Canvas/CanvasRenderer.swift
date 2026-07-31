@@ -1220,18 +1220,23 @@ enum CanvasRenderer {
         //    fact about the card — this one produced something — rather than a
         //    passing one about the selection.
         // 3. The RESIZE TRIANGLE below that is this surface's established
-        //    permanent card chrome, and is unconditional *on the selection* —
-        //    but it is drawn on a `.scrap` ONLY, for the same reason the promoted
-        //    stripe is and a different one. Nothing re-measures an item node's
-        //    width, and `CanvasScene.setWidth` clears `cachedHeight` by design,
-        //    so a resize left the card with no frame — not drawn, not clickable,
-        //    persisted that way. **The mark and the target are ONE decision**:
-        //    `CanvasInteraction.begin` takes the corner for `.scrap` only, and
-        //    these two move together or the surface draws an affordance that
-        //    does nothing (or, as it did, one that loses the card).
+        //    permanent card chrome — unconditional on the selection AND on the
+        //    kind. **The mark and the target are ONE decision**:
+        //    `CanvasInteraction.begin` takes the corner of every card, and these
+        //    two move together or the surface draws an affordance that does
+        //    nothing — or resizes with nothing on it to say so.
+        //
+        //    It was a `.scrap`'s alone between 1C-c3 and 1C-d, and that was a fix
+        //    for a missing measurement rather than a ruling: nothing re-measured
+        //    an item node while `CanvasScene.setWidth` cleared `cachedHeight` by
+        //    design, so a resize left the card with no frame — not drawn, not
+        //    clickable, persisted that way. 1C-d measures an item card from its
+        //    picture's aspect ratio, per frame, so the uniform rule is back and
+        //    the stripe above is now the only kind-conditional mark here.
         //
         // Moving any of the three across the SELECTION line is a design change,
-        // not a tidy-up.
+        // not a tidy-up. So is moving the triangle back across the KIND line —
+        // it is the same decision as the corner test in `CanvasInteraction`.
         //
         // All three are drawn inside the card's rotated transform, like
         // everything else here, so they tilt with the card and straighten with
@@ -1261,12 +1266,11 @@ enum CanvasRenderer {
             }
         }
 
-        // PERMANENT chrome like the stripe above — and, like it, a scrap's alone.
-        // See mark 3 in the block above for why an item node gets none.
-        if case .scrap = node.kind {
-            card.fill(resizeHandle(in: frame),
-                      with: .color(Color(nsColor: .separatorColor).opacity(0.8)))
-        }
+        // PERMANENT chrome like the stripe above — and, UNLIKE it, on every kind.
+        // See mark 3 in the block above: this and `CanvasInteraction.begin`'s
+        // corner test are one decision, so a kind test here needs one there.
+        card.fill(resizeHandle(in: frame),
+                  with: .color(Color(nsColor: .separatorColor).opacity(0.8)))
 
         switch node.kind {
         case .scrap:

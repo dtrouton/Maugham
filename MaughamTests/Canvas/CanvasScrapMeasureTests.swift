@@ -103,7 +103,7 @@ final class CanvasScrapMeasureTests: XCTestCase {
     /// gets when there is no photograph at all. If they ever differ, a card jumps
     /// height the instant a decode fails.
     func test_anItemCardWithNoPictureMeasuresToTheFloor() {
-        for width in [CanvasInteraction.minimumScrapWidth, 240, 600] as [CGFloat] {
+        for width in [CanvasInteraction.minimumCardWidth, 240, 600] as [CGFloat] {
             XCTAssertEqual(
                 CanvasCardMetrics.itemCardHeight(forCardWidth: width, pictureAspect: nil),
                 CanvasCardMetrics.itemLabelOnlyHeight,

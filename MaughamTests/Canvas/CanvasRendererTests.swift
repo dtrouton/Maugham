@@ -1088,8 +1088,17 @@ final class CanvasRendererTests: XCTestCase {
     ///
     /// Asserted as pixel equality along the top edge rather than as "no gaps": a
     /// gap test passes for a border that is not drawn at all.
+    ///
+    /// **And the resize mark is drawn on it too, as of 1C-d Task 6.** This test
+    /// asserted the absence of that mark until then, and the inversion is the
+    /// point rather than a casualty: the mark and the target are ONE decision
+    /// (`CanvasInteraction.begin` and `drawCard` move together, or the surface
+    /// draws an affordance that does nothing — or, as it did in 1C-c3, one that
+    /// loses the card). Now that an item node's height genuinely follows its
+    /// width, the honest end state is the uniform rule this surface had before
+    /// the guard: two unconditional marks on every card.
     @MainActor
-    func test_anItemNodeTakesTheSameBorderAsAScrapAndNoResizeMark() throws {
+    func test_anItemNodeTakesTheSameBorderAndResizeMarkAsAScrap() throws {
         let origin = CGPoint(x: 40, y: 90)
         func page(_ kind: CanvasNodeKind) throws -> (Page, CGRect) {
             var node = CanvasNode(id: CanvasNodeID("n1"), kind: kind, origin: origin, width: 240)
@@ -1125,12 +1134,11 @@ final class CanvasRendererTests: XCTestCase {
                           "neither card drew a top border at all, so the equality above "
                           + "compares two blank strips")
 
-        // And NO resize mark, which is the drawn half of the 1C-c3 whole-branch
-        // Critical. The mark and the gesture are one decision — `begin` takes the
-        // corner for `.scrap` only — so a triangle on a page card is an
-        // affordance for a gesture that has been closed. **Task 6 inverts this
-        // deliberately**, once an item node's height genuinely follows its width;
-        // until then it is the card's whole protection.
+        // And the RESIZE MARK, on both. The mark and the gesture are one
+        // decision: `CanvasInteraction.begin` takes the corner of every card, so
+        // a page card drawn without the triangle would be silently resizable with
+        // nothing on it to say so — the same drift as the 1C-c3 Critical, running
+        // the other way.
         //
         // Sampled inside the triangle and ~4 pt clear of the border on both axes,
         // each card against its OWN body pixel, so the two papers cannot decide
@@ -1142,13 +1150,19 @@ final class CanvasRendererTests: XCTestCase {
                           scrap.value(x: Int(body.x), y: Int(body.y)),
                           "precondition: the comparison SCRAP drew no resize mark "
                           + "either, so the assertion below would pass with the mark "
-                          + "drawn on everything")
+                          + "drawn on nothing at all")
+        XCTAssertNotEqual(item.value(x: Int(mark.x), y: Int(mark.y)),
+                          item.value(x: Int(body.x), y: Int(body.y)),
+                          "the page card is drawn with no resize triangle on it, while "
+                          + "CanvasInteraction.begin takes its corner — a card that "
+                          + "resizes with no mark to say so")
+        // ...and the SAME mark, not merely some ink in the corner: both cards are
+        // the same size here, so the triangle's own pixels must agree.
         XCTAssertEqual(item.value(x: Int(mark.x), y: Int(mark.y)),
-                       item.value(x: Int(body.x), y: Int(body.y)),
-                       "the page card is drawn with a resize triangle on it — the "
-                       + "affordance for a gesture that clears cachedHeight on a "
-                       + "node nothing re-measures, which takes the card off the "
-                       + "surface for good")
+                       scrap.value(x: Int(mark.x), y: Int(mark.y)),
+                       "the two kinds ink their corner differently, so the constant "
+                       + "the target is hit-tested from is not the one both are drawn "
+                       + "from")
     }
     /// FINDING 3, pinned. `ScrapLayout`'s ink defaults to `NSColor.labelColor`,
     /// which resolves against whatever appearance is current when the glyphs

@@ -49,7 +49,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// `scrapText` cannot do that job and no assertion should pretend otherwise:
     /// measured through `ScrapLayout`'s own stack at Iowan Old Style 13, "the
     /// falls at night" is 94.62pt wide, so it still sits on ONE line inside the
-    /// 100pt text box of a card at `CanvasInteraction.minimumScrapWidth`. Its
+    /// 100pt text box of a card at `CanvasInteraction.minimumCardWidth`. Its
     /// card is 38pt tall at every width from 240 down to the floor.
     ///
     /// This string, measured the same way: 2 lines and a 54pt card at the
@@ -486,32 +486,35 @@ final class CanvasViewMountingTests: XCTestCase {
                        "the canvas has two scraps where the writer made one")
     }
 
-    /// **A drag on the corner of Claude's source page must not take the page off
-    /// the canvas.**
+    /// **A drag on the corner of Claude's source page RESIZES it — and never
+    /// takes the page off the canvas** *(1C-d Task 6, re-pointed)*.
     ///
-    /// The 1C-c3 whole-branch Critical, driven the way the writer reaches it.
-    /// `add_canvas_scraps(source_item_id:)` puts a dashed page card on the canvas
-    /// — the first item node anything in production has ever made — and until this
-    /// was fixed three facts met on it: `CanvasRenderer.drawCard` drew the resize
-    /// triangle on every card whatever its kind, `CanvasInteraction.begin` took
-    /// the corner for any node with a frame, and `CanvasScene.setWidth` cleared
-    /// `cachedHeight` while nothing on the item path ever refilled it. A node with
-    /// no height has no `frame`, so the card vanished under the cursor on the next
-    /// frame, stayed gone, and `cachedHeight: nil` is what the sidecar persists.
+    /// This test asserted the opposite until 1C-d: that the corner moved the card,
+    /// because the corner was `.scrap`-only. **The guard was a fix for a missing
+    /// measurement pass, not a ruling that item nodes should not resize.** The
+    /// 1C-c3 whole-branch Critical was three facts meeting:
+    /// `CanvasRenderer.drawCard` drew the resize triangle on every card whatever
+    /// its kind, `CanvasInteraction.begin` took the corner for any node with a
+    /// frame, and `CanvasScene.setWidth` cleared `cachedHeight` while **nothing
+    /// on the item path ever refilled it**. A node with no height has no `frame`,
+    /// so the card vanished under the cursor on the next frame, stayed gone, and
+    /// `cachedHeight: nil` is what the sidecar persists.
     ///
-    /// **It must go through `CanvasEventNSView`, not through `setWidth`.** A test
-    /// that calls the setter and asserts the height is nil passes both before and
-    /// after the fix — it is a test of the setter's documented behaviour, which
-    /// was never wrong. The question is whether the *gesture* can reach it, and
-    /// only the delivery path answers that. `CanvasInteractionTests`'
-    /// companion asserts the mode the press opens; this asserts the consequence.
+    /// Task 5 supplied the measurement and this task added the per-frame
+    /// re-derive (`CanvasView.remeasure`'s `.item` arm), so the corner and the
+    /// mark went back to being unconditional. **What is asserted here is the
+    /// safety property the old guard bought, not the old guard**: after a corner
+    /// drag on an item node the card still has a height, is still returned by
+    /// `nodes(intersecting:)`, is still found by `topmostNode(at:)`, and reaches
+    /// disk that way.
     ///
-    /// The drag becomes a MOVE, which is correct and is what the third assertion
-    /// checks: a press anywhere on a card that is not its own resize corner drags
-    /// the card, and an item node has no resize corner. That assertion is also the
-    /// positive control — without it a delivery path that silently dropped the
-    /// whole drag would pass the first two.
-    func test_aCornerDragOnClaudesSourcePageDoesNotTakeItOffTheCanvas() throws {
+    /// **It must go through `CanvasEventNSView`, not through `setWidth`**, and it
+    /// must be read MID-DRAG. `rebuildLayouts` runs at `.ended` and heals a
+    /// missing item height, so a test that only looked after the release passes
+    /// over a gesture that had the card off the surface for its whole length —
+    /// which is exactly how the writer meets it: the card disappears under the
+    /// cursor on the next frame and comes back when they let go.
+    func test_aCornerDragOnClaudesSourcePageResizesItAndStaysOnTheCanvas() throws {
         let reference = "res-notebook-p3"
         let itemID = CanvasNodeID.item(reference)
         var fixture = CanvasScene()
@@ -530,22 +533,37 @@ final class CanvasViewMountingTests: XCTestCase {
                                    "precondition: the page card has no frame before "
                                    + "anything was clicked, so this test would pass "
                                    + "for the wrong reason")
+        let viewport = CGRect(x: 0, y: 0, width: 800, height: 600)
         let handle = CanvasRenderer.resizeHandleSize
         let press = CGPoint(x: before.maxX - handle / 2, y: before.maxY - handle / 2)
-        let released = CGPoint(x: press.x + 60, y: press.y + 25)
-        // Delivered by hand rather than through `drag`, because the assertion
-        // between the samples is the one the writer's eye makes. `rebuildLayouts`
-        // runs at `.ended` and heals a missing item height, so a test that only
-        // looked after the release would pass over a gesture that had the card off
-        // the surface for the whole drag — which is exactly how the writer meets
-        // it: the card disappears under the cursor on the next frame.
+        let released = CGPoint(x: press.x + 60, y: press.y)
+        // Delivered by hand rather than through `drag`, because the assertions
+        // between the samples are the ones the writer's eye makes.
         events.applyMouseDown(at: press, clickCount: 1)
         events.applyMouseDragged(to: released)
-        XCTAssertNotNil(try XCTUnwrap(model.scene.node(itemID)).frame,
+
+        let midDrag = try XCTUnwrap(model.scene.node(itemID),
+                                    "the page card left the scene mid-drag")
+        XCTAssertNotNil(midDrag.frame,
                         "the page card has no frame in the MIDDLE of the drag, so it "
                         + "is neither drawn nor clickable while the writer is holding "
                         + "the mouse down — CanvasScene.setWidth cleared its height "
-                        + "and nothing on the item path refills one per frame")
+                        + "and nothing on the item path refilled one per frame")
+        // A height is not the point; what a height BUYS is a frame, and what a
+        // frame buys is being drawn, hit-tested and culled at all. Both of the
+        // scene's spatial queries drop a node without one, so asserting the
+        // number alone would pass for a re-measure the queries still could not
+        // use — which is the state the Critical persisted to disk.
+        XCTAssertTrue(model.scene.nodes(intersecting: viewport).contains { $0.id == itemID },
+                      "mid-drag the page card is not returned by nodes(intersecting:), "
+                      + "so it is not drawn at all while the writer is resizing it")
+        XCTAssertEqual(model.scene.topmostNode(at: CGPoint(x: 40, y: 40))?.id, itemID,
+                       "mid-drag the page card cannot be clicked")
+        XCTAssertEqual(midDrag.width, before.width + 60,
+                       "the corner drag did not widen the page card: the writer is "
+                       + "dragging a mark CanvasRenderer.drawCard inks and nothing "
+                       + "is following it")
+
         events.applyMouseUp(at: released)
         pump()
 
@@ -554,23 +572,98 @@ final class CanvasViewMountingTests: XCTestCase {
         XCTAssertNotNil(live.frame,
                         "the photographed page has no frame after a drag on its "
                         + "corner: it is not drawn, not clickable and not "
-                        + "recoverable except by an immediate ⌘Z. The corner test "
-                        + "in CanvasInteraction.begin has to be .scrap-only, and "
-                        + "the triangle CanvasRenderer.drawCard invites the writer "
-                        + "to grab has to go with it")
-        XCTAssertEqual(live.width, before.width,
-                       "the page card was resized — an item node's width is not "
-                       + "the writer's to set until 1C-d makes it mean something, "
-                       + "and nothing re-measures one")
-        XCTAssertNotEqual(live.origin, before.origin,
-                          "positive control: the drag never reached the interaction "
-                          + "at all, so the two assertions above measured nothing")
+                        + "recoverable except by an immediate ⌘Z")
+        XCTAssertEqual(live.width, before.width + 60,
+                       "the widened page card snapped back at the end of the gesture")
+        XCTAssertEqual(live.origin, before.origin,
+                       "control: the corner MOVED the card instead of resizing it, "
+                       + "so every width assertion above measured a drag that went "
+                       + "somewhere else")
 
         let saved = try XCTUnwrap(savedScene(after: window, root: root).node(itemID),
                                   "the page card did not survive the save")
         XCTAssertNotNil(saved.frame,
                         "the page card reached disk with no height, so it is gone "
                         + "from the surface across a relaunch too")
+        XCTAssertEqual(saved.width, before.width + 60,
+                       "the writer's resize did not reach the sidecar")
+    }
+
+    /// **A corner drag on a pictured card SCALES the photograph rather than
+    /// distorting it** *(1C-d Task 6)*.
+    ///
+    /// Spec §7A.3's rule arriving on the second content type: width is
+    /// authoritative and the height is derived — a scrap's text reflows, an
+    /// image's height follows its aspect ratio. A resize that let the two move
+    /// independently would make the card lie about the shape of the page it
+    /// reproduces, which is the one thing `CanvasCardMetrics.itemPictureRect`'s
+    /// own doc says an image on this surface may not do (§8A.2).
+    ///
+    /// **The assertion is the RATIO, not two heights.** The picture's box is the
+    /// card's content width over the photograph's aspect ratio, so what must hold
+    /// across the drag is `contentWidth / pictureHeight`, and a test comparing two
+    /// literal heights would go red on any change to the label chrome that this
+    /// test has no opinion about.
+    ///
+    /// Read MID-DRAG for the reason the test above is: `rebuildLayouts` at
+    /// `.ended` would hide a gesture that distorted the card for its whole length.
+    func test_aCornerDragOnAPicturedItemCardKeepsThePhotographsAspectRatio() throws {
+        let path = "canvas_assets/image-20260730-220430.png"
+        let itemID = CanvasNodeID("owned-aspect")
+        var fixture = CanvasScene()
+        fixture.insert(CanvasNode(id: itemID, kind: .item(.owned(path: path)),
+                                  origin: CGPoint(x: 40, y: 40), width: 240,
+                                  cachedHeight: nil))
+        let root = try projectRoot(scene: fixture, scraps: [:])
+        // 400×300 — 4:3, so a squashed card is unmistakable from a scaled one.
+        try writeCanvasFixtureImage(width: 400, height: 300,
+                                    to: root.appendingPathComponent(path))
+
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        pump()
+
+        /// The aspect ratio of the box the picture is drawn in, read back out of
+        /// the card's own height — the number the writer sees.
+        func pictureAspect(of node: CanvasNode) throws -> CGFloat {
+            let height = try XCTUnwrap(node.cachedHeight)
+                - CanvasCardMetrics.itemLabelOnlyHeight
+                - CanvasCardMetrics.itemPictureGap
+            return CanvasCardMetrics.textWidth(forCardWidth: node.width) / height
+        }
+
+        let before = try XCTUnwrap(model.scene.node(itemID))
+        XCTAssertEqual(try pictureAspect(of: before), 4.0 / 3.0, accuracy: 0.02,
+                       "precondition: the photograph had not decoded before the drag "
+                       + "began, so this test would compare two floor heights")
+
+        let frame = try XCTUnwrap(before.frame)
+        let handle = CanvasRenderer.resizeHandleSize
+        let press = CGPoint(x: frame.maxX - handle / 2, y: frame.maxY - handle / 2)
+        events.applyMouseDown(at: press, clickCount: 1)
+        events.applyMouseDragged(to: CGPoint(x: press.x + 120, y: press.y))
+
+        let midDrag = try XCTUnwrap(model.scene.node(itemID))
+        XCTAssertEqual(midDrag.width, before.width + 120,
+                       "control: the drag never widened the card, so the ratio below "
+                       + "is being read off an unchanged card")
+        XCTAssertGreaterThan(try XCTUnwrap(midDrag.cachedHeight),
+                             try XCTUnwrap(before.cachedHeight),
+                             "control: a wider card holding the same 4:3 photograph "
+                             + "must be TALLER — an unchanged height would satisfy no "
+                             + "ratio assertion honestly")
+        XCTAssertEqual(try pictureAspect(of: midDrag), 4.0 / 3.0, accuracy: 0.02,
+                       "the photograph is drawn squashed while the writer resizes its "
+                       + "card: the height did not follow the width through the "
+                       + "picture's own aspect ratio (§7A.3)")
+
+        events.applyMouseUp(at: CGPoint(x: press.x + 120, y: press.y))
+        pump()
+        XCTAssertEqual(try pictureAspect(of: try XCTUnwrap(model.scene.node(itemID))),
+                       4.0 / 3.0, accuracy: 0.02,
+                       "the card settled at a shape its photograph is not")
     }
 
     /// **An item node that arrives with no height is healed, not silently absent.**
@@ -2896,7 +2989,7 @@ final class CanvasViewMountingTests: XCTestCase {
 
         let onDisk = sceneOnDisk(root)
         let card = try XCTUnwrap(onDisk.node(scrapID))
-        XCTAssertEqual(card.width, CanvasInteraction.minimumScrapWidth,
+        XCTAssertEqual(card.width, CanvasInteraction.minimumCardWidth,
                        "precondition: the resize really ran to the floor")
         XCTAssertEqual(card.origin, CGPoint(x: 300, y: 60),
                        "precondition: a resize holds the origin, so the centre "

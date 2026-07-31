@@ -262,7 +262,6 @@ struct CanvasView: View {
     /// next county.
     private static let maximumFrameStep: TimeInterval = 1.0 / 30
 
-
     var body: some View {
         // Read here, not in the closure — see `revision`.
         let drawRevision = revision
@@ -885,39 +884,61 @@ struct CanvasView: View {
         scene.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: node.id)
     }
 
-    /// Re-derive ONE scrap's height from its live layout, for the resize path.
+    /// Re-derive ONE card's height from its current width, for the resize path.
     ///
-    /// This is `rebuildLayouts()`'s reuse branch for a single node, and it is
-    /// deliberately the same two calls in the same order — `setWidth` on the
-    /// layout, then `CanvasScrapMeasure.height(of:)` into the scene — so there is
-    /// one spelling of card geometry. A second measurement path is precisely how
+    /// This is `rebuildLayouts()`'s per-node body for a single node, and it is
+    /// deliberately the same calls in the same order — so there is one spelling
+    /// of card geometry per kind. A second measurement path is precisely how
     /// drawn and edited text end up on different rects (spec §7A.2).
     ///
-    /// A resize never changes the text, so the layout is always the reused one;
-    /// the guard is for an item node or a scrap whose layout has not been built.
+    /// **It measures BOTH kinds as of 1C-d Task 6, and that is the half of the
+    /// resize that is not the gesture.** The corner used to be a `.scrap`'s
+    /// alone, and this function used to say so with a `case .scrap` in its guard;
+    /// the sentence that stood there — "neither of which can be resized" — was
+    /// true for the whole life of the guard and then quietly was not, because
+    /// 1C-c3's `CanvasClaudePlacement` began creating item nodes while the corner
+    /// test had no kind test on it. `setWidth` cleared the height, this guard
+    /// declined to refill it, and the card left the surface for good.
     ///
-    /// **This comment used to say "neither of which can be resized", and that
-    /// sentence was true for the whole life of the guard and then quietly was
-    /// not.** It was true because nothing in production made an item node —
-    /// `CanvasScene.selectionTarget` could return one, the renderer could draw
-    /// one, but no writer or tool could create one. 1C-c3's
-    /// `CanvasClaudePlacement` creates them, and the corner test in
-    /// `CanvasInteraction.begin` had no kind test on it, so an item node COULD be
-    /// resized: `setWidth` cleared its `cachedHeight`, this guard declined to
-    /// refill it, and the card left the surface for good. It is written down
-    /// rather than deleted because a reviewer who came looking was reassured by
-    /// it — the reason a rule is safe has to age with the rule, and on this
-    /// surface that has now failed twice.
+    /// So handing the corner back needs this arm and not only the pass in
+    /// `rebuildLayouts`: the rebuild runs at `.ended`, and a card healed only
+    /// there is off the surface for the whole length of the drag — invisible to
+    /// `topmostNode(at:)`, to `nodes(intersecting:)` and to the renderer while
+    /// the writer holds the mouse down, which is exactly how they meet it.
+    /// `CanvasViewMountingTests.test_aCornerDragOnClaudesSourcePageResizesItAndStaysOnTheCanvas`
+    /// reads the scene BETWEEN the samples for that reason.
+    ///
+    /// **The aspect is read off the presentation resolved by the last rebuild,
+    /// not re-resolved here.** `CanvasItemPresentation.resolve` asks the
+    /// thumbnail cache, and asking RECORDS A MISS — per drag frame that is the
+    /// pending queue growing at 60–120 Hz for a picture whose shape has not
+    /// changed and cannot. What a wider card wants is more PIXELS, and that
+    /// request is the rebuild's at `.ended`. A card whose photograph has not
+    /// decoded yet lands on `itemLabelOnlyHeight`, which is the floor and never
+    /// nil.
+    ///
+    /// A resize never changes a scrap's text, so its layout is always the reused
+    /// one; that guard is for a scrap whose layout has not been built.
     ///
     /// Does NOT touch `revision` or `sceneRevision` — the caller owns both, and
     /// the structural counter must not move per frame.
     private func remeasure(_ id: CanvasNodeID) {
-        guard let node = model.scene.node(id),
-              case .scrap = node.kind,
-              let layout = layouts[id] else { return }
-        layout.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
-        model.withScene(persist: false) {
-            $0.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: id)
+        guard let node = model.scene.node(id) else { return }
+        // A `switch` rather than a `guard … else { return }`, for
+        // `rebuildLayouts`' reason: a third kind is a compiler error here rather
+        // than a card that silently loses its height on the resize path.
+        switch node.kind {
+        case .item:
+            let height = CanvasCardMetrics.itemCardHeight(
+                forCardWidth: node.width,
+                pictureAspect: itemPresentation.item(for: id)?.pictureAspect)
+            model.withScene(persist: false) { $0.setCachedHeight(height, for: id) }
+        case .scrap:
+            guard let layout = layouts[id] else { return }
+            layout.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
+            model.withScene(persist: false) {
+                $0.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: id)
+            }
         }
     }
 
