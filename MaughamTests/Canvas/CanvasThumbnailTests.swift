@@ -316,20 +316,39 @@ final class CanvasThumbnailTests: XCTestCase {
     /// would move a card's height whenever its request crossed a rung, which is
     /// the jitter the memo exists to remove arriving through the back door.
     ///
-    /// **But first-decode-wins is stale the moment the FILE changes**, and Task 6
-    /// is what makes that reachable: **no eviction is needed — a bucket change
-    /// alone is enough.** A different request size is a different cache key and
-    /// therefore a genuinely fresh decode of the new file, while the memo keeps
-    /// the old shape. `GraphicsContext.draw(_:in:)` stretches to the rect it is
-    /// given, so a portrait photograph replaced in place is drawn **squashed into
-    /// a landscape box** — the one thing an image on this surface may not do
-    /// (§8A.2). A resize drag crosses buckets by design, which is why this is
-    /// contained here rather than left as a note.
+    /// **But first-decode-wins is stale the moment the FILE changes**, and the
+    /// resize (1C-d) is what makes that reachable without waiting for an
+    /// eviction: a different request size is a different cache key and therefore
+    /// a genuinely fresh decode of the new file, while the memo keeps the old
+    /// shape. `GraphicsContext.draw(_:in:)` stretches to the rect it is given, so
+    /// a portrait photograph replaced in place would be drawn **squashed into a
+    /// landscape box** — the one thing an image on this surface may not do
+    /// (§8A.2). A resize drag crosses buckets by design.
     ///
-    /// The two halves are asserted together on purpose. A containment written as
-    /// "always record the newest" passes the second half and fails the first.
-    func test_aReshootMovesTheShapeMemoAndARungOfTheLadderDoesNot() async throws {
+    /// **The MEMO is only half of it, and the other half is the PIXELS** *(review
+    /// I1)*. `entries` is keyed by bucket and nothing invalidates it on a file
+    /// change — the only removal is LRU — so moving the memo alone leaves every
+    /// *other* bucket holding the old photograph, ready to be served into a box
+    /// measured from the new shape. That is the same §8A.2 violation running the
+    /// other way, and one resize gesture reaches it: drag the card out (fresh
+    /// decode at the bigger bucket, memo moves, drawn correctly), drag it back in
+    /// (the smaller bucket's stale pixels, in the new shape's box). So the
+    /// reshape branch drops the other buckets too, and the fourth assertion here
+    /// is what says so.
+    ///
+    /// The halves are asserted together on purpose. A containment written as
+    /// "always record the newest" passes the second and fails the first; one that
+    /// moves the memo and leaves the pixels passes the first three and fails the
+    /// fourth; and one that simply cleared the cache would pass all four, which
+    /// is what the untouched second photograph is the control for.
+    func test_aReshootMovesTheShapeMemoAndTheStalePixelsWithIt() async throws {
         let cache = CanvasThumbnails()
+        // A second photograph nobody reshoots — the control for the eviction
+        // below, and the trap this file's own doc names: a cache that dropped
+        // EVERYTHING on every insert would satisfy the fourth assertion perfectly.
+        let untouched = try threeFixtures()[1]
+        _ = try await resolve(untouched, at: 200, with: cache)
+
         _ = try await resolve(Self.photo, at: 200, with: cache)
         let landscape = try XCTUnwrap(cache.aspect(Self.photo, in: root),
                                       "nothing was memo'd by the first decode")
@@ -340,7 +359,7 @@ final class CanvasThumbnailTests: XCTestCase {
         // same photograph a fraction differently, and the memo must not move —
         // this is the jitter the memo exists to remove.
         _ = try await resolve(Self.photo, at: 400, with: cache)
-        XCTAssertEqual(cache.decodeCount, 2,
+        XCTAssertEqual(cache.decodeCount, 3,
                        "control: the second ask did not decode, so nothing had the "
                        + "chance to overwrite the memo and the assertion below is free")
         XCTAssertEqual(try XCTUnwrap(cache.aspect(Self.photo, in: root)), landscape,
@@ -352,12 +371,43 @@ final class CanvasThumbnailTests: XCTestCase {
         // fresh, against a memo that says landscape.
         try Self.writeFixture(width: 900, height: 1800,
                               to: root.appendingPathComponent(Self.photo))
-        _ = try await resolve(Self.photo, at: 900, with: cache)
+        let portrait = try await resolve(Self.photo, at: 900, with: cache)
         XCTAssertEqual(try XCTUnwrap(cache.aspect(Self.photo, in: root)),
                        0.5, accuracy: 0.01,
                        "the shape memo still says the photograph is landscape after "
                        + "the file was replaced with a portrait one, so the card draws "
                        + "it squashed into a box the wrong shape (§8A.2)")
+
+        // **And the pixels at every OTHER bucket went with it.** Ask again at the
+        // bucket the card was drawn at BEFORE the drag — which is where the drag
+        // back in lands — and what comes back must be the photograph that is on
+        // disk now, not the one the memo no longer describes.
+        let backAtTheOldBucket = try await resolve(Self.photo, at: 200, with: cache)
+        XCTAssertEqual(Double(backAtTheOldBucket.width) / Double(backAtTheOldBucket.height),
+                       0.5, accuracy: 0.02,
+                       "the smaller bucket still holds the OLD landscape photograph, and "
+                       + "the card's box is now measured portrait — so dragging the card "
+                       + "back in draws the reshot page squashed, which is the §8A.2 "
+                       + "failure the reshape branch was supposed to remove rather than "
+                       + "relocate")
+
+        // The control that stops "clear the whole cache" passing the assertion
+        // above: a path nobody reshot keeps its pixels and is not re-decoded.
+        let decodesBefore = cache.decodeCount
+        let untouchedImage = try await resolve(untouched, at: 200, with: cache)
+        XCTAssertEqual(cache.decodeCount, decodesBefore,
+                       "the reshape evicted a photograph that did not change — an "
+                       + "always-evicting cache satisfies every assertion above and is "
+                       + "a fresh decode per frame in production")
+
+        // …and the byte accounting followed the eviction. Without the subtraction
+        // `residentBytes` only ever grows, so the byte budget over-evicts for the
+        // rest of the session — silently, and never visible as a wrong picture.
+        XCTAssertEqual(cache.residentBytes,
+                       [portrait, backAtTheOldBucket, untouchedImage]
+                           .reduce(0) { $0 + $1.height * $1.bytesPerRow },
+                       "residentBytes does not match what is actually resident, so the "
+                       + "reshape dropped entries without giving their bytes back")
     }
 
     /// The tolerance itself, as arithmetic rather than as prose: the measured
@@ -375,6 +425,26 @@ final class CanvasThumbnailTests: XCTestCase {
         XCTAssertGreaterThan(reshape, tolerance,
                              "a photograph replaced by one of the opposite orientation "
                              + "is inside the tolerance, so the containment sees nothing")
+
+        // **The margin above depends on which rungs are REACHABLE, and that is a
+        // coupling nothing else records** *(review M1)*. The ladder's rounding
+        // spread stays under 1% for every aspect up to 5.07:1 across
+        // 256/512/1024/2048 — but bring 128 back into reach and it breaks at
+        // **2.54:1**, which is an ordinary photograph, and a reshoot containment
+        // that fires on rounding is the height jitter the memo exists to remove.
+        // 128 is out of reach only because the narrowest card a writer can make
+        // asks for ~200 px, and `minimumCardWidth` is a shared cross-kind constant
+        // a later task could plausibly lower. Neither test above would go red:
+        // both use 3:2, which survives even at 128.
+        XCTAssertGreaterThanOrEqual(
+            CanvasThumbnails.bucket(
+                for: CanvasCardMetrics.textWidth(forCardWidth: CanvasInteraction.minimumCardWidth)
+                    * CanvasThumbnails.assumedPixelScale),
+            256,
+            "the narrowest card on the canvas now reaches bucket 128, where the "
+            + "ladder's own rounding exceeds aspectReshapeTolerance at 2.54:1 — "
+            + "either raise the tolerance with the arithmetic re-done, or keep 128 "
+            + "out of reach")
     }
 
     // MARK: - Helpers

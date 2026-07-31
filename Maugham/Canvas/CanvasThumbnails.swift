@@ -136,22 +136,37 @@ public final class CanvasThumbnails {
     ///
     /// The memo below is first-decode-wins, which is right for the case it was
     /// written for and wrong for one case: the writer replaces the file at a path
-    /// with a picture of a different shape. **No eviction is needed for that to
-    /// bite — a bucket change alone is enough**, because a different request size
-    /// is a different cache key and therefore a genuinely fresh decode of the new
-    /// file. `GraphicsContext.draw(_:in:)` stretches to the rect it is given, so a
-    /// portrait photograph replaced in place would be drawn squashed into a
-    /// landscape box: the one thing an image on this surface may not do (spec
-    /// §8A.2). An item node's resize (1C-d Task 6) is what made crossing a bucket
-    /// an ordinary gesture rather than a rarity.
+    /// with a picture of a different shape. **The writer does not have to wait for
+    /// an eviction for that to bite — a bucket change alone reaches it**, because
+    /// a different request size is a different cache key and therefore a genuinely
+    /// fresh decode of the new file. `GraphicsContext.draw(_:in:)` stretches to
+    /// the rect it is given, so a portrait photograph replaced in place would be
+    /// drawn squashed into a landscape box: the one thing an image on this surface
+    /// may not do (spec §8A.2). An item node's resize (1C-d) is what made crossing
+    /// a bucket an ordinary gesture rather than a rarity.
+    ///
+    /// **Crossing that threshold invalidates the pixels too, and it has to** — see
+    /// `dropOtherBuckets(of:)`. The memo alone was half a fix: `entries` is keyed
+    /// by bucket and nothing else invalidates it on a file change, so moving the
+    /// memo and keeping the pixels relocates the squash into the *other* buckets
+    /// instead of removing it, reachable in one drag out and back.
     ///
     /// **1%, and the two cases it separates are fifty times apart.** The measured
     /// rounding spread across the ladder is ≤0.3% — 256×171 is 1.4971 where
     /// 512×341 is 1.5015 against a source of 1.5 — while a reshoot in the other
     /// orientation is 1.5 → 0.667. So first-decode-wins survives intact for every
     /// case it was written for, and a reshoot is caught.
+    ///
+    /// **The margin depends on which rungs are REACHABLE**, which is a coupling to
+    /// a constant in another file: the spread stays under 1% for every aspect up
+    /// to 5.07:1 across 256/512/1024/2048, and bringing **128** back into reach
+    /// breaks it at 2.54:1 — an ordinary photograph, and a containment firing on
+    /// rounding is the height jitter the memo exists to remove. 128 is out of
+    /// reach only because the narrowest card a writer can make
+    /// (`CanvasInteraction.minimumCardWidth`) asks for ~200 px.
     /// `CanvasThumbnailTests.test_theReshootToleranceSeparatesRoundingFromAReshape`
-    /// re-does that arithmetic rather than trusting this paragraph.
+    /// re-does that arithmetic and holds the coupling, rather than trusting this
+    /// paragraph.
     public static let aspectReshapeTolerance: CGFloat = 0.01
 
     /// The size ladder. Powers of two so the count stays small over the camera's
@@ -370,18 +385,53 @@ public final class CanvasThumbnails {
         // stretches the photograph into it. See `aspectReshapeTolerance` for why
         // 1% separates the ladder's rounding from a reshoot with fifty times to
         // spare.
+        //
+        // **A reshoot invalidates the PIXELS as well as the memo, and the memo
+        // alone was half a fix** *(review I1)*. `entries` is keyed by BUCKET and
+        // nothing else ever invalidates it on a file change — the only removal is
+        // LRU — so moving the memo and leaving the pixels relocates the squash
+        // rather than removing it: every other bucket still holds the old
+        // photograph, ready to be served into a box measured from the new shape.
+        // **One resize gesture reaches it**: drag the card out (fresh decode at
+        // the bigger bucket, memo moves, drawn correctly), then drag it back in,
+        // and the smaller bucket's stale pixels are drawn in the new shape's box.
         if let image, image.height > 0 {
             let shape = ShapeKey(root: key.root, path: key.path)
             let aspect = CGFloat(image.width) / CGFloat(image.height)
             if let memo = aspectsByPath[shape] {
                 if abs(aspect - memo) > memo * Self.aspectReshapeTolerance {
                     aspectsByPath[shape] = aspect
+                    dropOtherBuckets(of: key)
                 }
             } else {
                 aspectsByPath[shape] = aspect
             }
         }
         evictIfNeeded()
+    }
+
+    /// Forget every OTHER bucket's pixels for the photograph `key` names — the
+    /// reshoot path, and the only invalidation in this file that is not LRU.
+    ///
+    /// Narrow on purpose: it drops entries for **this one path in this one
+    /// project** and nothing else, because a cache that dropped more than it had
+    /// evidence about would be a fresh decode per frame wearing a correctness
+    /// fix's name. `test_aReshootMovesTheShapeMemoAndTheStalePixelsWithIt`'s
+    /// untouched second photograph is the control that says so.
+    ///
+    /// **The keys are collected before any removal.** Writing through `entries`
+    /// while iterating it is the kind of thing copy-on-write happens to make safe
+    /// rather than the kind of thing that IS safe — `CanvasScene.remove` says the
+    /// same about its own dictionaries. Nothing is re-queued here: the next
+    /// `resolved` for a dropped bucket misses, and a miss is already a request.
+    private func dropOtherBuckets(of key: Key) {
+        let stale = entries.keys.filter {
+            $0.root == key.root && $0.path == key.path && $0.bucket != key.bucket
+        }
+        for staleKey in stale {
+            residentBytes -= entries[staleKey]?.bytes ?? 0
+            entries.removeValue(forKey: staleKey)
+        }
     }
 
     /// Least-recently-used, over both bounds.

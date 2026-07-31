@@ -311,6 +311,14 @@ final class CanvasLineRenderTests: XCTestCase {
     /// the clamp only bites below a card height of `2 * (resizeHandleSize +
     /// connectHandleSize / 2)`, and a pictured item card is far above it. Fixing
     /// it then would have been a change this task undid.
+    ///
+    /// **The no-overlap assertion below holds by exact TANGENCY, and that is the
+    /// design rather than a near miss.** On the 34 pt floor card the connect
+    /// target runs y 6–20 and the resize square y 20–34: they touch and do not
+    /// intersect, which is precisely what subtracting `resizeHandleSize` reserves.
+    /// It reads as though it has slack; it has none, and it should not. Do not
+    /// "fix" a 1 pt gap into the clamp — that would make the dot's placement stop
+    /// following from the one constant both marks are sized from.
     func test_theConnectDotsReservationIsForAMarkEveryCardNowDraws() throws {
         // Where the clamp begins to bite, as arithmetic: `y` is
         // `min(midY - connectHandleSize / 2, maxY - resizeHandleSize -
