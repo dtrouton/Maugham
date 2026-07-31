@@ -168,7 +168,7 @@ final class InboxToCanvasTests: XCTestCase {
     func test_aVoiceCaptureDroppedOnTheCanvasCarriesItsTranscript() async throws {
         let f = try await openProject("DragVoice")
         let model = attached(f)
-        _ = try seedVoiceAsset(f, name: "v1.m4a")
+        let recording = try seedVoiceAsset(f, name: "v1.m4a")
         try await seed(f, [voiceEntry("v1", transcript: "tram-rattle through the shutters")])
         let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "v1" })
 
@@ -180,6 +180,14 @@ final class InboxToCanvasTests: XCTestCase {
         XCTAssertEqual(model.scraps[id], "tram-rattle through the shutters",
                        "a voice capture becomes a scrap carrying its TRANSCRIPT — "
                        + "the recording itself is not something the canvas can hold")
+        // **The recording SURVIVES**, which is the palette sibling's behaviour and
+        // the one place this route deliberately does not copy-then-remove: what
+        // went to the canvas is the transcript, and the file in `inbox/audio/` is
+        // the only copy of the writer's voice. The photograph test asserts the
+        // opposite for its asset, so the pair says the rule rather than one of
+        // them stating it three times in prose.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: recording.path),
+                      "the send deleted the only copy of the recording")
         await assertResolved(f, "v1")
     }
 
@@ -395,8 +403,9 @@ final class InboxToCanvasTests: XCTestCase {
     /// `entryNotFound`), which is the one mutating step after the picture has been
     /// copied — so this pins the ORDER: copy, write, flip, and only then remove.
     ///
-    /// Disable experiment: move the removal above the flip and the last assertion
-    /// goes red while every happy-path test stays green.
+    /// Disable experiment: move the removal above the flip and the
+    /// original-in-place assertion goes red while every happy-path test — and the
+    /// node-count control below it — stays green.
     func test_aFailedStatusFlipLeavesTheInboxOriginalInPlace() async throws {
         let f = try await openProject("FlipFails")
         let model = attached(f)

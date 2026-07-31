@@ -124,7 +124,7 @@ A typed note and a voice memo become an ordinary **scrap** carrying their words 
 
 **The capture leaves the Inbox.** It is one move rather than a copy, and the row is gone from triage afterwards. A voice memo with no transcript yet is refused and stays put: transcribe it first (Edit Transcript…, or Transcribe Again) and send it then. If anything goes wrong part-way, the capture stays in the Inbox and nothing is lost.
 
-**One ⌘Z takes the send back** on the canvas — the card and its words together. The Inbox row does not come back with it.
+**One ⌘Z takes the send back** — the card and its words together — but only while the canvas is the thing you are looking at. Send from another persona and there is no canvas on screen to undo on; the card is simply there when you next open Plan. Either way the Inbox row does not come back: delete the card and the capture is gone.
 
 #### What Claude can put on the canvas
 

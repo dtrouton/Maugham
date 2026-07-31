@@ -290,7 +290,9 @@ final class PromotionCommandTests: XCTestCase {
              + "8 and the region arm's own 1C-c2 omission, one arm over"),
             ("Maugham/Canvas/CanvasView.swift", [".dropDestination(for: String.self)",
                                                  "CanvasExternalDrop.ingest(",
-                                                 "CanvasExternalDrop.apply("],
+                                                 "CanvasExternalDrop.apply(",
+                                                 "CanvasDrop.payload(",
+                                                 "captureDrop.send("],
              "1C-d Task 10's drop target. `CanvasDrop` is a pure decision plus a "
              + "model verb, both fully testable with nothing mounting them — and "
              + "SwiftUI's drop delivery has no seam a test can post a drag session "
@@ -306,7 +308,21 @@ final class PromotionCommandTests: XCTestCase {
              + "is exhaustively tested through its own seam, so deleting the two "
              + "calls in `handleExternalDrop` leaves all seventeen "
              + "`CanvasDropTests` and both drop-route tripwires green while a "
-             + "photograph dragged from the Finder lands nowhere at all"),
+             + "photograph dragged from the Finder lands nowhere at all. **The "
+             + "fourth and fifth are 1C-d Task 12's, and they are that same layer "
+             + "a third time** — the one this file had already named and which "
+             + "the task that added them nearly skipped. `CanvasDrop.payload(` is "
+             + "the dispatch that tells the canvas's TWO id spaces apart, and "
+             + "`captureDrop.send(` is the only thing that reaches the inbox at "
+             + "all: delete either and the build succeeds (an unused stored "
+             + "property warns nothing), every `InboxToCanvasTests` case, every "
+             + "payload assertion and the window's own `captureDrop:` token stay "
+             + "green — while every inbox row dragged onto the canvas springs "
+             + "back in silence, because `decide` answers `.ignored` for a "
+             + "prefixed payload, which `test_aCapturePayloadIsNeverRoutedTo"
+             + "TheItemDecision` pins on purpose. The drag is the route with no "
+             + "runtime coverage available to it, so this is the only instrument "
+             + "that holds it"),
             ("Maugham/Views/ProjectWindow.swift",
              [".onKeyWindowCommand(.maughamPromoteCanvasSelection",
               ".modifier(CanvasPromotionModifier(",
@@ -363,10 +379,10 @@ final class PromotionCommandTests: XCTestCase {
              [".draggable(CanvasDrop.inboxPayload(", "Button(\"Send to Canvas\")"],
              "1C-d Task 12's two routes out of the inbox (spec §8A.4), and both "
              + "are pure wiring with everything they reach tested elsewhere. "
-             + "`InboxStore.sendToCanvas` has sixteen tests over three capture "
-             + "kinds and two placements, and every one of them stays green with "
-             + "this row carrying no `.draggable` at all and no command in its "
-             + "menu — which is a capture that can reach the canvas from nowhere "
+             + "`InboxStore.sendToCanvas` is covered over three capture kinds "
+             + "and two placements — count `InboxToCanvasTests`, not this "
+             + "sentence — and every one of those cases stays green with this "
+             + "row carrying no `.draggable` at all and no command in its menu — which is a capture that can reach the canvas from nowhere "
              + "the writer can click. The DRAG token names the builder rather "
              + "than the string: an inbox ULID and a research id are not tellable "
              + "apart, so the payload must arrive PREFIXED or `CanvasDrop.decide` "
@@ -474,6 +490,20 @@ final class PromotionCommandTests: XCTestCase {
                                          "CanvasNotAnExternalDrop.ingest("]),
             ["CanvasNotAnExternalDrop.ingest("],
             "the census reports the ABSENT external-drop token and not the present one")
+        // And Task 12's two below-the-mount tokens, falsified the same way. This
+        // is the arm that matters most of the new set: the drag has no runtime
+        // coverage available to it at all, so a census that could not see these
+        // two lines go missing would be the only instrument holding the route,
+        // holding nothing.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Canvas/CanvasView.swift",
+                              required: ["CanvasDrop.payload(",
+                                         "CanvasDrop.notARealClassifier(",
+                                         "captureDrop.send(",
+                                         "captureDrop.notARealSend("]),
+            ["CanvasDrop.notARealClassifier(", "captureDrop.notARealSend("],
+            "the census reports the two ABSENT capture-dispatch tokens and "
+            + "neither of the present ones")
         // And 1C-d Task 12's two, falsified the same way. The seam token guards a
         // default that throws; the row tokens guard the only two places a capture
         // can be reached from at all, and both are pure wiring over a store verb
