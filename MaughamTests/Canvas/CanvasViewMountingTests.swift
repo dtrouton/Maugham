@@ -769,6 +769,89 @@ final class CanvasViewMountingTests: XCTestCase {
                        "the second card's height is not its photograph's shape")
     }
 
+    /// **A canvas holding more photographs than the thumbnail budget can keep
+    /// must SETTLE, not thrash** *(Task 5 re-review, N1)*.
+    ///
+    /// `CanvasItemPresentation.resolve` asks the cache for every item node in the
+    /// scene and `CanvasThumbnails` evicts LRU over a byte budget, so above the
+    /// budget a resolve misses on whatever the last service evicted. For one
+    /// commit the post-service rebuild re-armed the servicing ticket, which made
+    /// that a loop with no exit — resolve → miss → ticket → service → evict →
+    /// resolve — re-decoding the same photographs and rebuilding the whole
+    /// accessibility tree on every turn (tripwire 30's cost, permanently). At the
+    /// shipped 64 MiB budget the line is roughly 85 pictured cards, which is why
+    /// this test is handed a cache rather than reaching the state by volume.
+    ///
+    /// **The instrument is `decodeCount`, and the alternative was measured and
+    /// rejected.** Watching `model.sceneRevision` fail to move looks like the
+    /// obvious test and passes for the wrong reason: this harness stops
+    /// delivering SwiftUI updates once the mount burst is over, so the loop runs
+    /// three turns and then goes quiet on its own. Instrumented, the pre-fix code
+    /// printed `task ran at ticket 1 … 2 … 3` and then stopped, with the counter
+    /// still — green, over a live defect. A decode count is exact: six
+    /// photographs, six decodes, however the runloop behaves.
+    ///
+    /// **The heights are the other half, and they are `CanvasThumbnails`' shape
+    /// memo.** Only about two of these six can be resident at once, so four of
+    /// them are asked about while their pixels are gone. A card must keep the
+    /// height its photograph gave it through that — measuring off residency is
+    /// what gave the loop its motive, and it would make every eviction move the
+    /// writer's layout.
+    @MainActor
+    func test_aCanvasOverTheThumbnailBudgetSettlesInsteadOfLooping() throws {
+        var fixture = CanvasScene()
+        for index in 0..<6 {
+            fixture.insert(CanvasNode(id: CanvasNodeID("owned-\(index)"),
+                                      kind: .item(.owned(path: "canvas_assets/p\(index).png")),
+                                      origin: CGPoint(x: 40 + index * 300, y: 40),
+                                      width: 240, cachedHeight: nil))
+        }
+        let root = try projectRoot(scene: fixture, scraps: [:])
+        for index in 0..<6 {
+            try writeCanvasFixtureImage(
+                width: 400, height: 300,
+                to: root.appendingPathComponent("canvas_assets/p\(index).png"))
+        }
+
+        // Room for about two of the six: a 240 pt card asks for bucket 512 and a
+        // 400×300 photograph decodes to ~480 KB. What matters is that the budget
+        // is crossed, not the exact number it is crossed by.
+        let cache = CanvasThumbnails(byteBudget: 1_200_000)
+        let model = CanvasModel()
+        host(CanvasView(model: model, projectRoot: root, paletteSwatchHexes: { [] },
+                        thumbnailCache: cache))
+        pump()
+
+        let expected = CanvasCardMetrics.itemCardHeight(forCardWidth: 240,
+                                                        pictureAspect: 4.0 / 3.0)
+        for index in 0..<6 {
+            let id = CanvasNodeID("owned-\(index)")
+            let height = try XCTUnwrap(try XCTUnwrap(model.scene.node(id)).cachedHeight)
+            XCTAssertEqual(height, expected, accuracy: 1.5,
+                           "card \(index) is \(height) rather than its photograph's "
+                           + "shape — a card whose thumbnail the budget evicted must "
+                           + "keep the height its photograph gave it, or every "
+                           + "eviction moves the writer's layout")
+        }
+        // Control for the six above: they can only be right if the service really
+        // ran, and this says so in the cache's own terms.
+        XCTAssertGreaterThan(cache.decodeCount, 0,
+                             "nothing ever decoded, so the heights above are not "
+                             + "evidence of anything")
+
+        XCTAssertEqual(cache.decodeCount, 6,
+                       "six photographs cost \(cache.decodeCount) decodes — the "
+                       + "servicing schedule is feeding itself: every service evicts "
+                       + "what the next resolve then asks for again, and each turn "
+                       + "also re-sorts the accessibility tree and copies every "
+                       + "scrap's string")
+
+        // And it stays settled: a second pass over the runloop adds nothing.
+        pump(0.4)
+        XCTAssertEqual(cache.decodeCount, 6,
+                       "the canvas is still decoding with no writer touching it")
+    }
+
     /// **The card must stay on the canvas for the WHOLE of a resize, not just
     /// after the writer lets go.**
     ///

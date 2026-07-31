@@ -155,6 +155,14 @@ public final class CanvasThumbnails {
         let bucket: Int
     }
 
+    /// A photograph's identity for the SHAPE memo — the key above without its
+    /// bucket, because a file's proportions are not a function of how big a
+    /// thumbnail of it was asked for.
+    private struct ShapeKey: Hashable {
+        let root: String
+        let path: String
+    }
+
     /// A decoded thumbnail, or the memo of a decode that could not produce one.
     ///
     /// **The failure is cached too.** Without it a photograph the writer deleted
@@ -168,6 +176,31 @@ public final class CanvasThumbnails {
     }
 
     private var entries: [Key: Entry] = [:]
+
+    /// **What SHAPE each photograph is, remembered for as long as the process
+    /// lives — separately from its pixels, and never evicted.**
+    ///
+    /// An item card's HEIGHT is derived from its picture's aspect ratio, and that
+    /// makes the eviction of a thumbnail a question about geometry unless this
+    /// exists. It did once, and the failure was not subtle: above the byte budget
+    /// a resolve misses on the tail the last service evicted, so the measurement
+    /// pass saw a card lose its picture, re-measured it to the floor, asked for
+    /// the picture again — and the surface entered an unbounded decode loop with
+    /// every card's height rotating through it (Task 5 re-review, N1). **Pixels
+    /// are a cache; a shape is a fact.**
+    ///
+    /// Keyed on the path WITHOUT the bucket, and **first decode wins**. A
+    /// thumbnail's own dimensions differ from the source's by up to a pixel of
+    /// rounding at each rung of the ladder — 256×171 is 1.4971 where 512×341 is
+    /// 1.5015 — so a memo per bucket would move a card's height whenever its
+    /// request crossed a rung, which is the jitter this exists to remove arriving
+    /// through the back door.
+    ///
+    /// Unbounded, deliberately: it is 16 bytes per distinct photograph the
+    /// session has decoded, against a 64 MiB pixel budget. A canvas would need
+    /// millions of images for this to be the thing that hurt.
+    private var aspectsByPath: [ShapeKey: CGFloat] = [:]
+
     private var queue: [Key] = []
     private var clock: UInt64 = 0
     private var isServicing = false
@@ -221,6 +254,18 @@ public final class CanvasThumbnails {
         }
         if !queue.contains(key) { queue.append(key) }
         return nil
+    }
+
+    /// **What shape that photograph is, whether or not its pixels are resident.**
+    /// Also never decodes, and also safe on the frame path — it is the lookup a
+    /// MEASUREMENT asks, and it answers for anything this session has ever
+    /// decoded. Nil until the first successful decode, and nil forever for a file
+    /// that cannot be read.
+    ///
+    /// See `aspectsByPath` for why a card's height must not depend on whether its
+    /// thumbnail is currently resident.
+    public func aspect(_ path: String, in projectRoot: URL) -> CGFloat? {
+        aspectsByPath[ShapeKey(root: projectRoot.standardizedFileURL.path, path: path)]
     }
 
     // MARK: - Off the frame path
@@ -290,6 +335,15 @@ public final class CanvasThumbnails {
         let bytes = image.map { $0.height * $0.bytesPerRow } ?? 0
         entries[key] = Entry(image: image, bytes: bytes, lastUsed: clock)
         residentBytes += bytes
+        // The SHAPE is recorded before the pixels can be evicted, and only once —
+        // first decode wins, so a later request at a different bucket cannot move
+        // a card by a rounding error. A failed decode records nothing.
+        if let image, image.height > 0 {
+            let shape = ShapeKey(root: key.root, path: key.path)
+            if aspectsByPath[shape] == nil {
+                aspectsByPath[shape] = CGFloat(image.width) / CGFloat(image.height)
+            }
+        }
         evictIfNeeded()
     }
 

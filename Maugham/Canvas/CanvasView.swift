@@ -110,7 +110,34 @@ struct CanvasView: View {
     /// A reference type in `@State`, exactly like `layouts` and for the same
     /// reason: it is a cache whose identity has to survive a body pass, and
     /// mutating it does not redraw anything by itself.
+    ///
+    /// **Its byte budget is injectable, and the seam is not a convenience.** The
+    /// behaviour that matters most about this cache — what the surface does when
+    /// a canvas holds more photographs than the budget can keep — is unreachable
+    /// from a test at 64 MiB, which is roughly 85 resident thumbnails at the size
+    /// an item card asks for. N1 (an unbounded decode loop above that line) was
+    /// found by reading and could not be reproduced until this existed.
     @State private var thumbnails = CanvasThumbnails()
+
+    /// The thumbnail cache a test hands in — **the seam, and it is the whole
+    /// cache rather than only its budget.**
+    ///
+    /// Two things about this surface are unreachable from a test without it, and
+    /// N1 was both. What a canvas does when it holds more photographs than the
+    /// budget can keep needs a budget a fixture can cross (64 MiB is roughly 85
+    /// resident thumbnails at the size an item card asks for). And whether the
+    /// servicing schedule feeds itself can only be read off `decodeCount` — the
+    /// instrument every test in `CanvasThumbnailTests` uses, and the only one that
+    /// is exact: the alternative is watching a counter fail to move, which passes
+    /// just as happily when the harness has stopped delivering updates. It does
+    /// stop; that was measured while writing this.
+    ///
+    /// A stored property rather than an initialiser argument for a stated reason:
+    /// a hand-written `init` on a `@MainActor` `View` cannot assign its own
+    /// stored properties from the nonisolated contexts its ~70 callers construct
+    /// it in, and making the initialiser main-actor-isolated moves that problem
+    /// to every one of them.
+    var thumbnailCache: CanvasThumbnails?
 
     /// What every item node in the scene says it is, and the picture to draw on
     /// it — resolved in `rebuildLayouts` and read by the draw pass, the
@@ -234,6 +261,7 @@ struct CanvasView: View {
     /// integrated against a 30-second delta lands the canvas somewhere in the
     /// next county.
     private static let maximumFrameStep: TimeInterval = 1.0 / 30
+
 
     var body: some View {
         // Read here, not in the closure — see `revision`.
@@ -418,7 +446,15 @@ struct CanvasView: View {
             // No guard: the ticket only moves when a resolve missed something, and
             // `servicePending` on an empty queue is a no-op returning false. The
             // one call it costs is the initial mount, at ticket 0.
-            if await thumbnails.servicePending() { rebuildLayouts() }
+            //
+            // **`bumpsThumbnailTicket: false` is what stops this feeding itself**,
+            // and without it the ticket turns a bounded cache into an unbounded
+            // decode loop — see the parameter's own doc. The re-measure still
+            // happens, because a picture that has just landed for the FIRST time
+            // has taught the cache a shape its card was not measured with.
+            if await thumbnails.servicePending() {
+                rebuildLayouts(bumpsThumbnailTicket: false)
+            }
         }
         // MIRRORED, not replaced. The model's counter is bumped by the inspector
         // from the other column; the view's is what the grep-pinned rebuild above
@@ -630,6 +666,9 @@ struct CanvasView: View {
             guard let frame = model.scene.region(region)?.frame else { return }
             camera.bring(frame.origin, toViewPoint: CanvasCamera.revealViewPoint)
         }
+        // A test's cache, before the first resolve can miss anything. Production
+        // passes nothing and keeps the one `@State` made for it.
+        if let thumbnailCache { thumbnails = thumbnailCache }
         wash = CanvasGroundPalette.wash(fromHex: paletteSwatchHexes())
         rebuildLayouts()
         // A reveal asked for while this view was not mounted — which is the
@@ -715,6 +754,40 @@ struct CanvasView: View {
     /// redraw counter: the picture changes the card's *height*, not just its
     /// pixels.
     ///
+    /// **`bumpsThumbnailTicket` is `false` for exactly one caller — the `.task`
+    /// this function's own ticket schedules — and that is the whole of N1's
+    /// structural fix.**
+    ///
+    /// `CanvasItemPresentation.resolve` asks the cache for every item node in the
+    /// scene, and `CanvasThumbnails` evicts LRU over a byte budget: an evicted
+    /// path is a miss, and a miss is re-queued. So a rebuild run straight after a
+    /// service misses on whatever that service's own decodes evicted. Bump the
+    /// ticket there and the surface asks for exactly the work it has just undone,
+    /// for ever: resolve → miss → ticket → service → evict → resolve. Each turn
+    /// also bumps the structural counter, so the accessibility tree sorts the
+    /// scene and copies every scrap's string on a loop — tripwire 30's cost,
+    /// permanently, on a canvas holding more photographs than the budget can keep
+    /// (roughly 85 at the size an item card asks for).
+    ///
+    /// **The count-based schedule hid this by stalling** (the defect fixed one
+    /// commit earlier), which is why it appeared with the ticket and not before.
+    /// Going back to the count is not the answer: it trades an unbounded loop for
+    /// a silent stall on the far more reachable one-bad-file path.
+    ///
+    /// **A signature over the pending SET does not close it either**, and this is
+    /// worth writing down because it is the obvious next idea. Above the budget
+    /// the evicted tail ROTATES: `resolved` refreshes each hit's `lastUsed` in
+    /// iteration order, so servicing one pending set evicts a *different* set, and
+    /// the next pending set differs from the last. A signature bumps on every one
+    /// of them and the thrash runs at full speed; it only ever settles by
+    /// eventually repeating a set, i.e. by stalling — the defect it was meant to
+    /// avoid, arriving a lap later.
+    ///
+    /// What is left behind instead is bounded and honest: a canvas over the budget
+    /// keeps the shapes of all its photographs (`CanvasThumbnails.aspect`), so no
+    /// height moves, and the pixels the budget could not keep come back on the
+    /// next structural change rather than on a loop.
+    ///
     /// `bumpsStructuralCounter` is `false` for a caller whose bump is already
     /// arriving by another route — one that calls `model.bumpSceneRevision()` on
     /// its own line, which the mirror in `body` turns into the view's bump. Every
@@ -729,7 +802,8 @@ struct CanvasView: View {
     /// `CanvasViewMountingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`,
     /// which asks the published accessibility tree whether the deleted card has
     /// left it.
-    private func rebuildLayouts(bumpsStructuralCounter: Bool = true) {
+    private func rebuildLayouts(bumpsStructuralCounter: Bool = true,
+                                bumpsThumbnailTicket: Bool = true) {
         // FIRST, and inside this function rather than beside its callers: every
         // path that changes the scene has to re-ask what its item nodes are, and
         // the measurement below reads the answer. `resolve` decodes nothing — a
@@ -768,7 +842,12 @@ struct CanvasView: View {
         // A resolve that missed something is work for the `.task` in `body`.
         // Written after the measure, and bumped rather than assigned — see
         // `thumbnailServiceTicket` for the stall that a count produced.
-        if thumbnails.pendingCount > 0 { thumbnailServiceTicket += 1 }
+        //
+        // **The caller that must NOT bump is the one this task feeds**: a resolve
+        // run right after a service misses on whatever that service's decodes
+        // evicted, so bumping here would ask for exactly the work that was just
+        // undone, for ever. See `bumpsThumbnailTicket`.
+        if bumpsThumbnailTicket, thumbnails.pendingCount > 0 { thumbnailServiceTicket += 1 }
         // Layouts for nodes that no longer exist would keep their text alive.
         layouts = layouts.filter { model.scene.node($0.key) != nil }
         revision += 1

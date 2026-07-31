@@ -21,24 +21,29 @@ import Foundation
 struct CanvasItemPresentation {
 
     /// One item node's resolved appearance.
+    ///
+    /// **The two fields are independent on purpose, and that is N1's fix.** A
+    /// card can have a shape and no pixels — its thumbnail was decoded earlier
+    /// this session and has since been evicted — and it must keep its height
+    /// through that, drawing an empty picture box rather than collapsing. The
+    /// alternative shipped for one commit and turned the byte budget into an
+    /// unbounded decode loop: see `CanvasThumbnails.aspect(_:in:)`.
     struct Item {
         let facts: CanvasItemFacts
-        /// Nil until the thumbnail lands — `CanvasThumbnails.resolved` never
-        /// decodes, so the first pass after a picture appears on the canvas
-        /// always misses. The card draws its label and nothing else, and its
-        /// height is the floor, until `servicePending()` has run.
+        /// Nil until the thumbnail lands, and nil again if it is later evicted.
+        /// `CanvasThumbnails.resolved` never decodes, so the first pass after a
+        /// picture appears on the canvas always misses. **A miss is a drawing
+        /// question and not a measuring one** — see `pictureAspect`.
         let picture: CGImage?
 
-        /// The picture's width over its height, or nil when there is no picture
-        /// yet. **This is what makes an item card's height a function of its
-        /// width** (spec §7A.3), so it is read off the decoded thumbnail rather
-        /// than stored anywhere: the thumbnail is the same shape as the
-        /// photograph (`CanvasThumbnailTests` pins that), and nothing else in the
-        /// project knows a research image's dimensions without opening it.
-        var pictureAspect: CGFloat? {
-            guard let picture, picture.height > 0 else { return nil }
-            return CGFloat(picture.width) / CGFloat(picture.height)
-        }
+        /// The picture's width over its height — **what makes an item card's
+        /// height a function of its width** (spec §7A.3).
+        ///
+        /// Read from `CanvasThumbnails`' shape memo, which outlives the pixels,
+        /// rather than off `picture` itself. Nothing else in the project knows a
+        /// photograph's dimensions without opening it, so it is still learned by
+        /// decoding — once, and then remembered.
+        let pictureAspect: CGFloat?
     }
 
     private let itemsByNode: [CanvasNodeID: Item]
@@ -77,7 +82,7 @@ struct CanvasItemPresentation {
         for node in scene.unorderedNodes {
             guard case .item(let reference) = node.kind else { continue }
             items[node.id] = Item(facts: CanvasItemFacts.resolve(reference, in: index),
-                                  picture: nil)
+                                  picture: nil, pictureAspect: nil)
         }
         return CanvasItemPresentation(itemsByNode: items)
     }
@@ -111,7 +116,12 @@ struct CanvasItemPresentation {
                                     fitting: CanvasCardMetrics.textWidth(forCardWidth: node.width)
                                         * CanvasThumbnails.assumedPixelScale)
             }
-            items[node.id] = Item(facts: facts, picture: picture)
+            // The shape is asked for separately, and that is not a tidy-up of the
+            // line above: it answers for a photograph whose pixels have been
+            // evicted, which is what keeps a card's height off the cache's
+            // residency (N1).
+            let aspect = facts.thumbnailPath.flatMap { thumbnails.aspect($0, in: projectRoot) }
+            items[node.id] = Item(facts: facts, picture: picture, pictureAspect: aspect)
         }
         return CanvasItemPresentation(itemsByNode: items)
     }

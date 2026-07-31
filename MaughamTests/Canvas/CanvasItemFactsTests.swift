@@ -225,4 +225,48 @@ final class CanvasItemFactsTests: XCTestCase {
         XCTAssertEqual(CanvasItemIndex.over(research: research()).fingerprint,
                        CanvasItemIndex.over(research: tagged).fingerprint)
     }
+
+    /// **Every field the facts read has to be in the join, and nothing checks
+    /// that for free any more** *(Task 5 re-review, D1)*.
+    ///
+    /// The fingerprint was `entriesByID.hashValue`, which covered every field of
+    /// `Entry` whether or not anyone remembered it. It is a hand-rolled join over
+    /// `(id, title, kind, path)` now — the cost of not seeding it — so a fourth
+    /// field on `Entry`, or a dropped term, is a silent hole: the cache would
+    /// serve a stale fact until something else moved the key. Dropping
+    /// `entry.kind.rawValue` from the join today leaves every other test in this
+    /// file green.
+    ///
+    /// The title's term is covered by `test_renamingAnItemMovesTheFingerprint`
+    /// above; these are the other two.
+    func test_aChangeOfKindMovesTheFingerprint() {
+        var converted = research()
+        // The note becomes a photograph — same id, same title, same path.
+        converted[1].kind = .image
+        XCTAssertNotEqual(CanvasItemIndex.over(research: research()).fingerprint,
+                          CanvasItemIndex.over(research: converted).fingerprint,
+                          "the kind is not in the fingerprint's join, so a card would "
+                          + "go on drawing a document glyph over a photograph")
+        // Control: the change really does reach the facts, or the assertion above
+        // is measuring a field the resolver never reads.
+        XCTAssertEqual(CanvasItemFacts
+            .resolve(.project(id: "res-note"),
+                     in: CanvasItemIndex.over(research: converted)).glyph,
+                       CanvasItemKind.image.glyph)
+    }
+
+    /// The thumbnail PATH is the third term, and it is the one whose staleness is
+    /// invisible: a card would go on drawing the picture that used to be there.
+    func test_aChangeOfImagePathMovesTheFingerprint() {
+        var moved = research()
+        moved[2].path = "research/research_assets/gorge-2.jpg"
+        XCTAssertNotEqual(CanvasItemIndex.over(research: research()).fingerprint,
+                          CanvasItemIndex.over(research: moved).fingerprint,
+                          "the thumbnail path is not in the fingerprint's join, so a "
+                          + "card keeps drawing the photograph that used to be at it")
+        XCTAssertEqual(CanvasItemFacts
+            .resolve(.project(id: "res-photo"),
+                     in: CanvasItemIndex.over(research: moved)).thumbnailPath,
+                       "research/research_assets/gorge-2.jpg")
+    }
 }
