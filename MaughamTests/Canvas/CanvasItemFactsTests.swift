@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 import MaughamCore
 @testable import Maugham
@@ -273,5 +274,32 @@ final class CanvasItemFactsTests: XCTestCase {
             .resolve(.project(id: "res-photo"),
                      in: CanvasItemIndex.over(research: moved)).thumbnailPath,
                        "research/research_assets/gorge-2.jpg")
+    }
+
+    /// **Every glyph name has to be a symbol that exists**, and nothing else in
+    /// the tree can see that it does *(Task 5's review, M3)*. `drawItemContent`
+    /// resolves `Image(systemName:)` per card; a typo draws **nothing at all**
+    /// on that one kind, on that one card kind only, and the raster fixtures
+    /// exercise two of the eight names. `CanvasItemKind` is `CaseIterable`
+    /// precisely so this can walk it rather than list them here — a written-down
+    /// list would go stale on the next case, which is the failure this whole
+    /// slice kept meeting in prose.
+    ///
+    /// `missingGlyph` is checked beside them because it is not a case: it is a
+    /// `static let` deliberately kept off the enum, so `allCases` cannot reach it
+    /// and it is exactly as typo-able.
+    func test_everyKindGlyphIsARealSymbol() {
+        for kind in CanvasItemKind.allCases {
+            XCTAssertNotNil(
+                NSImage(systemSymbolName: kind.glyph, accessibilityDescription: nil),
+                "`\(kind.rawValue)` names the SF Symbol \"\(kind.glyph)\", which does "
+                + "not exist — an item card of this kind draws no glyph at all, and "
+                + "only a raster fixture for this exact kind would have seen it")
+        }
+        XCTAssertNotNil(
+            NSImage(systemSymbolName: CanvasItemKind.missingGlyph,
+                    accessibilityDescription: nil),
+            "`missingGlyph` names a symbol that does not exist, so a card pointing "
+            + "at a deleted research item draws its sentence with nothing beside it")
     }
 }
