@@ -147,7 +147,14 @@ final class PromotionSheetModel: Identifiable {
             // *The card “Image”*: a false noun wrapped around a word that
             // identifies nothing. What identifies an owned card is the picture
             // drawn on it, and the writer is looking at it.
-            if case .item = scene.node(id)?.kind {
+            //
+            // **It destructures the PROVENANCE, like every other site that
+            // differs between the two** (review M2/M3). `if case .item` alone
+            // called a referenced research note "This picture" — unreachable,
+            // because `isPromotable` refuses a reference and `ItemInspector`
+            // withholds the button, but this was the one place in the task
+            // testing the kind where the sentence is only true of one half of it.
+            if case .item(.owned) = scene.node(id)?.kind {
                 self.sourceDescription = "This picture"
                 break
             }
@@ -224,7 +231,11 @@ final class PromotionSheetModel: Identifiable {
     /// command will do.
     var pieceRefusal: String? {
         guard let target = selectedTarget else { return nil }
-        return Promotion.pieceFailure(target: target, mode: mode, piece: piece)?
+        return Promotion.pieceFailure(
+            target: target, mode: mode, piece: piece,
+            // Resolved from the scene this sheet was opened over, so the sentence
+            // before Commit and the performer's after it name the same control.
+            canCarryItsOwnPiece: Promotion.canCarryItsOwnPiece(source, in: scene))?
             .errorDescription
     }
 

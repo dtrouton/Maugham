@@ -107,6 +107,26 @@ final class PromotionSheetTests: XCTestCase {
                       "the control: a scrap is still a card")
     }
 
+    /// **The sentence is true of ONE provenance, so it destructures one** (review
+    /// M3). `if case .item` alone described a referenced research note as "This
+    /// picture" — unreachable, since `isPromotable` refuses a reference and
+    /// `ItemInspector` withholds the button, but it was the one site in this task
+    /// testing the KIND where every other site that differs destructures the
+    /// provenance.
+    func test_aReferencedItemIsNotDescribedAsAPicture() {
+        var s = pictureScene()
+        let referenced = CanvasNodeID.item("r-9")
+        s.insert(CanvasNode(id: referenced, kind: .item(.project(id: "r-9")),
+                            origin: CGPoint(x: 800, y: 0), width: 180, cachedHeight: 120))
+        let m = PromotionSheetModel(source: .scrap(referenced), scene: s, scraps: texts,
+                                    artifacts: ArtifactIndex(titlesByID: ["r-9": "A note"]),
+                                    piece: .none, readBody: { _ in nil })
+        XCTAssertNotEqual(m.sourceDescription, "This picture",
+                          "a reference is not a picture — found: \(m.sourceDescription)")
+        XCTAssertEqual(pictureModel().sourceDescription, "This picture",
+                       "the control: the owned one still is")
+    }
+
     /// The picker is SEEDED, so the writer never meets an empty control over a
     /// dead Promote button — `Promotion.plan` returns nothing without a card.
     func test_choosingThePaletteRowSeedsACardAndCommitsWithoutAName() {

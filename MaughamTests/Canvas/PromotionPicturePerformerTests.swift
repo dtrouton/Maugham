@@ -92,9 +92,20 @@ final class PromotionPicturePerformerTests: XCTestCase {
     private func plan(_ node: CanvasNodeID, _ target: PromotionTarget,
                       store: ProjectStore, model: CanvasModel,
                       paletteCardID: String? = nil) throws -> PromotionPlan {
+        try planFor(.scrap(node), target, store: store, model: model,
+                    paletteCardID: paletteCardID)
+    }
+
+    /// The same, for a source that is not a node — the region arm, which the
+    /// two-producers test needs.
+    private func planFor(_ source: PromotionSource, _ target: PromotionTarget,
+                         store: ProjectStore, model: CanvasModel,
+                         mode: PromotionMode = .new,
+                         paletteCardID: String? = nil) throws -> PromotionPlan {
         try XCTUnwrap(Promotion.plan(
-            PromotionRequest(source: .scrap(node), target: target, scraps: model.scraps,
-                             artifacts: index(store), paletteCardID: paletteCardID),
+            PromotionRequest(source: source, target: target, mode: mode,
+                             scraps: model.scraps, artifacts: index(store),
+                             paletteCardID: paletteCardID),
             in: model.scene))
     }
 
@@ -256,6 +267,55 @@ final class PromotionPicturePerformerTests: XCTestCase {
             .first { $0.researchItemId == card.researchItemId })
         XCTAssertEqual(after.imagePaths.count, card.imagePaths.count + 2,
                        "the control: both pictures really landed on the card")
+    }
+
+    /// **A palette card has TWO producers now, and a region's Update must not
+    /// take back a record it never wrote** (review M1). Promote region R to card
+    /// P; promote an owned picture onto P; re-promote R with **Update**. Scoped
+    /// to the artifact id alone, `PromotionPerformer.record`'s clear reached the
+    /// picture — and its image is still in P's well, so the pane went silent
+    /// about a photograph demonstrably on that card. §6.3's own false-pane
+    /// defect, in its mild direction.
+    ///
+    /// The region's own re-stamp is the control: the clear still does its job for
+    /// the producer that owns those records.
+    func test_aRegionsUpdateDoesNotClearAPicturesRecordOnTheSameCard() async throws {
+        let (root, store) = try await makeProject()
+        let path = try await ingest(into: store)
+        let model = makeModel(at: root, ownedPath: path)
+        model.withScene { s in
+            s.insertRegion(CanvasRegion(id: self.r1, label: "Act II fog",
+                                        frame: CGRect(x: 0, y: 0, width: 600, height: 400),
+                                        homeMembers: [self.scrap]))
+        }
+        let performer = PromotionPerformer(store: store, model: model)
+
+        let made = try await performer.perform(
+            try planFor(.region(r1), .paletteCard, store: store, model: model))
+        let cardID = try XCTUnwrap(made.createdItemID)
+        _ = try await performer.perform(
+            try plan(owned, .paletteCardImage, store: store, model: model,
+                     paletteCardID: cardID))
+        XCTAssertEqual(model.scene.node(owned)?.contributedToItemID, cardID,
+                       "the control: the picture really recorded the card before "
+                       + "the Update, or the assertion below holds on nothing")
+
+        let update = try XCTUnwrap(Promotion.existingArtifact(
+            for: .region(r1), target: .paletteCard, in: model.scene,
+            artifacts: index(store)))
+        _ = try await performer.perform(
+            try planFor(.region(r1), .paletteCard, store: store, model: model, mode: update))
+
+        XCTAssertEqual(model.scene.node(owned)?.contributedToItemID, cardID,
+                       "the picture's record survives a producer that never wrote it")
+        XCTAssertEqual(model.scene.node(scrap)?.contributedToItemID, cardID,
+                       "and the region's own member is re-stamped — the clear still "
+                       + "does its job for the records it does own")
+        let after = try XCTUnwrap(store.loadPaletteCards()
+            .first { $0.researchItemId == cardID })
+        XCTAssertEqual(after.imagePaths.count, 1,
+                       "the control that makes the silence a lie: the image really "
+                       + "is still on the card the pane would have stopped naming")
     }
 
     // MARK: - One promotion, one ⌘Z (tripwire 32)

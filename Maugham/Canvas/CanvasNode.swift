@@ -72,6 +72,11 @@ public enum CanvasNodeKind: Equatable, Sendable {
     /// It stays false for a reference because a hand-edited sidecar can put the
     /// field on one, and a stripe there would say something the project's own
     /// research item has no idea about.
+    ///
+    /// **Not `isScrap` below, and the two must not be merged.** This asks whether
+    /// a *mark* on this node means anything; that one asks what the node **is**.
+    /// They answer differently for exactly one kind — an owned picture — which is
+    /// the whole reason both exist.
     public var carriesAMark: Bool {
         switch self {
         case .scrap: return true
@@ -79,6 +84,21 @@ public enum CanvasNodeKind: Equatable, Sendable {
             if case .owned = reference { return true }
             return false
         }
+    }
+
+    /// Whether this node's content is TEXT the canvas holds — the thing a
+    /// region's promotion joins, and the thing a region's contribution record is
+    /// about.
+    ///
+    /// **It exists because a palette card has two producers now** (1C-d Task 8):
+    /// a region rewrites one from its current members, and an owned picture is
+    /// appended to one. `PromotionPerformer.record` clears with it, so a region's
+    /// Update cannot take back a record it never wrote. See that function; the
+    /// pattern `if case .scrap = kind` spelled inline would be the same rule with
+    /// no name and no reason attached to it.
+    public var isScrap: Bool {
+        if case .scrap = self { return true }
+        return false
     }
 }
 

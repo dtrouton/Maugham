@@ -42,6 +42,18 @@ enum PromotionSource: Equatable, Hashable {
     /// `PromotionTests.test_noRefusalAnOwnedNodeCanReachCallsItACard` is the
     /// assertion; if a later slice gives a picture a sentence of its own, this
     /// noun is what has to move first.
+    ///
+    /// **"card" and "picture" are not two words for one thing, and the split is
+    /// worth stating once** (1C-d Task 8, review M4). **A card is the NODE** —
+    /// the thing on the canvas the writer clicked, which is what
+    /// `PromotionFailure.nothingToCopy` ("There is no picture on this card") and
+    /// `ItemInspector.promoteFooter` mean, and what makes those sentences exact
+    /// rather than sloppy: a card holds a picture, and the two can be spoken of
+    /// separately. **A picture is the FILE** — what a promotion copies, which is
+    /// why `PromotionSheetModel.sourceDescription` says *This picture* over a
+    /// sheet whose whole subject is where that file is going. What this noun
+    /// must never do is compose a sentence about an owned node's *words*, which
+    /// is `emptyBody`'s, and that is what the two guards above prevent.
     var noun: String {
         switch self {
         case .scrap: return "card"
@@ -1167,11 +1179,43 @@ enum Promotion {
     /// deleted, or converted to a Collection reference piece. Before it existed
     /// the writer met `ProjectStoreError`'s own sentence, which names an id and
     /// describes the store rather than their situation.
+    ///
+    /// **`canCarryItsOwnPiece` has no default** (1C-d Task 8): both call sites
+    /// resolve it from the scene, because the value that is wrong for a picture
+    /// is `true`, and a defaulted `true` is how the refusal would come to name a
+    /// Piece picker the item arm does not have with nothing red.
     static func pieceFailure(target: PromotionTarget, mode: PromotionMode,
-                             piece: PromotionPiece) -> PromotionFailure? {
+                             piece: PromotionPiece,
+                             canCarryItsOwnPiece: Bool) -> PromotionFailure? {
         guard scopedTargets.contains(target), case .new = mode,
               case .unroutable(_, let title, let inherited) = piece else { return nil }
-        return .pieceIsNotAResearchTarget(title: title, inherited: inherited)
+        return .pieceIsNotAResearchTarget(title: title, inherited: inherited,
+                                          canCarryItsOwnPiece: canCarryItsOwnPiece)
+    }
+
+    /// Whether this source has a Piece picker of its own — **which is a fact
+    /// about the INSPECTOR, asked here so a refusal cannot name a control that is
+    /// not on screen.**
+    ///
+    /// A scrap has one (`ScrapInspector`) and so does a region
+    /// (`RegionInspector`). An **owned item node does not**: there is nothing
+    /// about a photograph to associate, which is why `piece(for:in:)`'s second
+    /// clause is the whole rule for one. A line has no piece at all.
+    ///
+    /// **One rule, two readers** — `PromotionSheetModel.pieceRefusal` and
+    /// `PromotionPerformer.validate` — for `pieceIsInherited`'s reason: a second
+    /// spelling is how the sentence the writer reads before Commit and the one
+    /// they read after come to disagree.
+    static func canCarryItsOwnPiece(_ source: PromotionSource,
+                                    in scene: CanvasScene) -> Bool {
+        switch source {
+        case .scrap(let id):
+            guard let kind = scene.node(id)?.kind else { return false }
+            if case .item = kind { return false }
+            return true
+        case .region: return true
+        case .line: return false
+        }
     }
 
     /// The targets that hand a `ResearchScope` to a creation call — the ones a

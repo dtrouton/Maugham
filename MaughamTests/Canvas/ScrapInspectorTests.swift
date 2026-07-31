@@ -534,7 +534,8 @@ final class ScrapInspectorTests: XCTestCase {
         // The same words the refusal reaches for, so the pane and the sheet tell
         // one story.
         let refusal = PromotionFailure
-            .pieceIsNotAResearchTarget(title: "Elsewhere", inherited: false)
+            .pieceIsNotAResearchTarget(title: "Elsewhere", inherited: false,
+                                       canCarryItsOwnPiece: true)
             .errorDescription ?? ""
         XCTAssertTrue(refusal.contains("keep research of its own"),
                       "found: \(refusal)")

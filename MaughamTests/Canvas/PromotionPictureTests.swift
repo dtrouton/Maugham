@@ -213,14 +213,66 @@ final class PromotionPictureTests: XCTestCase {
     /// route nothing.
     func test_aStalePieceRefusesTheResearchRowAndOnlyThat() {
         let stale = PromotionPiece.unroutable(id: "doc-9", title: "Elsewhere", inherited: true)
-        XCTAssertNotNil(Promotion.pieceFailure(target: .researchAsset, mode: .new, piece: stale))
-        XCTAssertNil(Promotion.pieceFailure(target: .paletteCardImage, mode: .new, piece: stale),
+        XCTAssertNotNil(Promotion.pieceFailure(target: .researchAsset, mode: .new,
+                                               piece: stale, canCarryItsOwnPiece: false))
+        XCTAssertNil(Promotion.pieceFailure(target: .paletteCardImage, mode: .new,
+                                            piece: stale, canCarryItsOwnPiece: false),
                      "an appended image is not routed — the card is where it is")
         let sentence = Promotion.pieceFailure(target: .researchAsset, mode: .new,
-                                              piece: stale)?.errorDescription
+                                              piece: stale, canCarryItsOwnPiece: false)?
+            .errorDescription
         XCTAssertFalse(sentence?.contains("the note") ?? true,
                        "and the sentence must not tell a picture its NOTE has "
                        + "nowhere to go. found: \(sentence ?? "nil")")
+    }
+
+    /// **The FIX half has to name a control the writer can reach** (review M2).
+    /// The inherited sentence offered *"or give this card a piece of its own"* —
+    /// a real act for a scrap, and nothing at all for a picture, whose arm has no
+    /// Piece picker. That is the failure the `inherited` axis was added to
+    /// prevent, arriving one arm over.
+    ///
+    /// Reachable: a picture living in a region whose piece was deleted or
+    /// converted, promoted on the research row.
+    func test_thePictureRefusalNamesOnlyTheControlItsArmHas() throws {
+        let stale = PromotionPiece.unroutable(id: "doc-9", title: "Elsewhere", inherited: true)
+        let forPicture = try XCTUnwrap(
+            Promotion.pieceFailure(target: .researchAsset, mode: .new, piece: stale,
+                                   canCarryItsOwnPiece: false)?.errorDescription)
+        XCTAssertTrue(forPicture.contains("change it there"),
+                      "the act that IS available — the region's own picker — must "
+                      + "still be named, or the writer is stranded. found: \(forPicture)")
+        // **The whole clause, not "of its own"** — the *problem* half legitimately
+        // says "cannot keep research of its own" about the piece, and a substring
+        // that loose fails on a sentence that is correct.
+        XCTAssertFalse(forPicture.contains("give this card a piece of its own"),
+                       "and the act its arm cannot perform must not be. found: \(forPicture)")
+
+        // The control, and the reason this is an axis rather than a rewording: a
+        // SCRAP really can be given a piece of its own, and its sentence still
+        // says so.
+        let forCard = try XCTUnwrap(
+            Promotion.pieceFailure(target: .researchNote, mode: .new, piece: stale,
+                                   canCarryItsOwnPiece: true)?.errorDescription)
+        XCTAssertTrue(forCard.contains("give this card a piece of its own"),
+                      "found: \(forCard)")
+        XCTAssertNotEqual(forCard, forPicture)
+    }
+
+    /// **Which arm has a picker is one rule, asked of the scene** — a second
+    /// spelling is how the sentence before Commit and the one after come to
+    /// disagree, which is `pieceIsInherited`'s own reason for existing.
+    func test_onlyTheArmsWithAPiecePickerSayTheyHaveOne() {
+        let s = scene()
+        XCTAssertTrue(Promotion.canCarryItsOwnPiece(.scrap(scrap), in: s))
+        XCTAssertTrue(Promotion.canCarryItsOwnPiece(.region(r1), in: s))
+        XCTAssertFalse(Promotion.canCarryItsOwnPiece(.scrap(owned), in: s),
+                       "an owned picture's arm has no Piece picker — there is "
+                       + "nothing about a photograph to associate")
+        XCTAssertFalse(Promotion.canCarryItsOwnPiece(.scrap(reference), in: s))
+        XCTAssertFalse(Promotion.canCarryItsOwnPiece(.scrap(CanvasNodeID("ghost")), in: s),
+                       "and a selection the scene no longer holds names no control "
+                       + "at all")
     }
 
     // MARK: - The failure it must not have (§6's amendment, named)

@@ -490,7 +490,10 @@ regions forced into the open — see decision 5.
 
 **One verb, on the current selection.** `Promote…` reads spec §6's table and produces a
 durable artifact: a scrap becomes a research note, a palette card or a craft intent; a
-region becomes a research note or a palette card; a line becomes a `[[wiki-link]]`. A
+region becomes a research note or a palette card; a line becomes a `[[wiki-link]]`; and —
+**since 1C-d, spec §6's 2026-07-30 amendment** — an **owned** item node becomes a research
+asset or an image on an existing palette card, while a **referenced** one still becomes
+nothing at all (it is already the artifact; `Promotion.itemNodeReason` is its sentence). A
 sheet previews what will be written and where before anything is written, and building
 that preview mutates nothing — `Promotion.plan` is a pure function over the scene and
 `test_planningNeverMutatesTheScene` says so. Nothing promotes because it sat somewhere
@@ -517,17 +520,24 @@ is deliberately just the research note and the palette card — a craft intent *
 one document per scope, so "update" there would mean replacing the writer's whole intent
 statement.
 
-**The gesture is a menu command plus a button in each inspector arm, and all four post the
-same command.** File → `Promote…` (⌘⇧↩ — ⌘⇧P is taken by Toggle Research Preview) is
-enabled through a focused value that `CanvasPromotionModifier` publishes, so a command that
-could do nothing is greyed out rather than silently no-op; the region, line and scrap arms
-of the canvas inspector each carry a `Promote…` button posting
-`.maughamPromoteCanvasSelection` to `.keyWindow`. One command, so the button and the
-keystroke cannot drift into behaving differently. This closes spec §10's first open
-question. **A `.keyWindow` post made from inside a sheet or a dialog is dropped** — the
-v0.24.0 "enter does nothing" bug, recorded in `TranslationReviewModifier` — so those three
-buttons are safe precisely because they live in the project window; moving one into a modal
-would break it silently.
+**The gesture is a menu command plus a button in every inspector arm whose subject can be
+promoted, and all of them post the same command.** File → `Promote…` (⌘⇧↩ — ⌘⇧P is taken by
+Toggle Research Preview) is enabled through a focused value that `CanvasPromotionModifier`
+publishes, so a command that could do nothing is greyed out rather than silently no-op; the
+region, line, scrap and — since 1C-d Task 8 — **item** arms of the canvas inspector each
+carry a `Promote…` button posting `.maughamPromoteCanvasSelection` to `.keyWindow`. One
+command, so the button and the keystroke cannot drift into behaving differently. This
+closes spec §10's first open question. **A `.keyWindow` post made from inside a sheet or a
+dialog is dropped** — the v0.24.0 "enter does nothing" bug, recorded in
+`TranslationReviewModifier` — so those buttons are safe precisely because they live in the
+project window; moving one into a modal would break it silently.
+
+**How many arms and how many posting sites is a census's answer, not this paragraph's.**
+This read "a button in each inspector arm, and **all four** post the same command … the
+**region, line and scrap** arms" — four sites over three named arms, correct when 1C-c2
+wrote it and false one slice later, when Task 7 added a fourth arm and Task 8 gave it a
+button. `PromotionCommandTests.test_theCanvasWiringCensusNamesEveryProductionSite` is the
+count that is checked; **count its array rather than any sentence here.**
 
 **What ⌘Z takes back is the MARK — and, since 1C-c2b, every contribution record written with
 it — but never the artifact.** The canvas's undo is a scene-scoped snapshot stack by design
@@ -933,6 +943,22 @@ never chose — the same failure `ownedTitle` records for the title. Nothing her
 scene, so decision 5's two verbs are absent rather than misapplied. A **dangling** reference
 remains a fact and not an error state, in `contributionArtifactMissing`'s register and carrying
 no id. What is still open at 1C-d is the drag-in route and §8A.4's inbox arrow, not the pane.
+
+**Amendment, 2026-07-31 (1C-d Task 8): an OWNED node promotes, so the arm gained a button —
+and "nothing here mutates the scene" survives that.** The `Promote…` button *posts*
+`.maughamPromoteCanvasSelection`, exactly as the other three arms do; the scene change is
+`PromotionPerformer`'s, through `mutateFromInspector`, which is why decision 5's census
+names that file and not this one. The sentence above was written one task before the button
+landed, which is the drift this section now guards against by pointing at a census rather
+than counting. **The arm's `.scrap` ruling is untouched again**: what changed is that the
+item arm now has something to offer on ONE of its two provenances. It also gained the
+`PromotedArtifactSection` the two mark-bearing arms already had — an owned picture can
+produce a research asset and can be added to a palette card, so it carries both records, and
+a mark nothing renders is the built-and-unreachable half this directory has shipped four
+times. **And one sentence in this very arm went false the moment the button arrived**: the
+owned node's *"There's nothing in Research to open."* stood three rows above an **Open**
+onto exactly that, so it names the act instead — see spec §6's 2026-07-30 amendment for the
+row, and `Maugham/Canvas/AREA.md` for the rest.
 
 Constitution principles this decision answers to: **must-not #1, *no AI-authored manuscript
 text*** — the canvas is the planning plane, `add_canvas_scraps` cannot reach a manuscript,

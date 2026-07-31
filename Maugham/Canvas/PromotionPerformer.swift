@@ -75,13 +75,22 @@ enum PromotionFailure: LocalizedError, Equatable {
     /// under: the piece is gone (title nil), or it is a Collection reference
     /// piece, which keeps its research in its own project.
     ///
-    /// **Two axes, because four different acts fix it.** The title says what went
-    /// wrong; `inherited` says *whose* association it is, and that is the term
-    /// that stops the sentence pointing at a control the writer cannot use — a
-    /// card that lives in a region whose piece was deleted carries nothing
-    /// itself, so "clear the association" names a Picker already reading None
-    /// while the stale field sits on the region.
-    case pieceIsNotAResearchTarget(title: String?, inherited: Bool)
+    /// **Three axes, because the fix half has to name a control that exists.**
+    /// The title says what went wrong; `inherited` says *whose* association it
+    /// is — a card that lives in a region whose piece was deleted carries nothing
+    /// itself, so "clear the association" would name a Picker already reading
+    /// None while the stale field sits on the region.
+    ///
+    /// **`canCarryItsOwnPiece` is the third, and it is the same rule failing one
+    /// arm over** (1C-d Task 8, review M2). The inherited half offered *"or give
+    /// this card a piece of its own"*, which is a real act for a scrap and names
+    /// **nothing at all** for an owned picture: `ItemInspector` has no Piece
+    /// picker, because there is nothing about a photograph to associate. Reached
+    /// by promoting a picture whose home region's piece has since been deleted or
+    /// converted. `Promotion.canCarryItsOwnPiece(_:in:)` is the one rule and both
+    /// callers ask it.
+    case pieceIsNotAResearchTarget(title: String?, inherited: Bool,
+                                   canCarryItsOwnPiece: Bool)
     /// A picture row whose plan carries no `PromotedPicture` — the node stopped
     /// being an owned item between the sheet opening and Commit, or a caller
     /// hand-built the plan. It refuses rather than reaching into the scene for a
@@ -111,17 +120,26 @@ enum PromotionFailure: LocalizedError, Equatable {
         case .unreadableFile(let path):
             return "Maugham could not read what is already in \(path), so it did not "
                 + "write over it."
-        case .pieceIsNotAResearchTarget(let title, let inherited):
-            // Composed from two halves rather than written out four times: what
-            // is wrong, then the act that fixes it. The second half is the one
-            // that has to be right — a refusal naming a control the writer
-            // cannot use leaves them stuck at it.
+        case .pieceIsNotAResearchTarget(let title, let inherited, let canCarryItsOwnPiece):
+            // Composed from halves rather than written out six times: what is
+            // wrong, then the act that fixes it. The second half is the one that
+            // has to be right — a refusal naming a control the writer cannot use
+            // leaves them stuck at it.
             let problem = title.map { "“\($0)” cannot keep research of its own" }
                 ?? "The piece this is associated with is no longer in the project"
-            let fix = inherited
-                ? "That piece comes from the region this card lives in — change "
+            let fix: String
+            switch (inherited, canCarryItsOwnPiece) {
+            case (true, true):
+                fix = "That piece comes from the region this card lives in — change "
                     + "it there, or give this card a piece of its own."
-                : "Pick another piece in the inspector, or clear the association."
+            case (true, false):
+                // An owned picture: the region's picker is the ONLY control, and
+                // offering a second one it does not have is what this axis exists
+                // to prevent.
+                fix = "That piece comes from the region this lives in — change it there."
+            case (false, _):
+                fix = "Pick another piece in the inspector, or clear the association."
+            }
             // **"it" rather than "the note", since 1C-d.** This sentence is
             // reached by a research ASSET as well now (`Promotion.scopedTargets`),
             // and a picture told its *note* has nowhere to go is a refusal
@@ -274,7 +292,8 @@ struct PromotionPerformer {
         // been past the flush.
         if let failure = Promotion.pieceFailure(
             target: plan.producedKind, mode: plan.mode,
-            piece: PromotionPiece.resolve(for: plan.source, in: model.scene, store: store)) {
+            piece: PromotionPiece.resolve(for: plan.source, in: model.scene, store: store),
+            canCarryItsOwnPiece: Promotion.canCarryItsOwnPiece(plan.source, in: model.scene)) {
             throw failure
         }
     }
@@ -751,9 +770,26 @@ struct PromotionPerformer {
     /// what keeps the record meaning what it says. Not reachable from the UI
     /// today: `existingArtifact` offers an Update off `promotedItemID` alone
     /// (§6.3), so a scrap can only rewrite an artifact it produced itself.
+    /// **The clear is scoped to the artifact AND to what this path can have
+    /// written** (1C-d Task 8, review M1). A palette card now has two producers
+    /// with different semantics: a region rewrites one from its current members,
+    /// and a picture is *appended* to one. Scoped to the id alone, the sequence
+    /// is reachable and silent — promote region R to card P, promote an owned
+    /// picture onto P, then re-promote R with **Update**, and the picture's
+    /// record is cleared while its image is still in P's well. The pane then says
+    /// nothing about a photograph that is demonstrably on that card, which is
+    /// §6.3's own false-pane defect in its mild direction.
+    ///
+    /// **An item node is skipped because this path can never have stamped one**:
+    /// `contributors` comes from `Promotion.regionBodies`, which reads the scrap
+    /// table, so a record on an item node was written by `recordPicture` and is
+    /// not this promotion's to take back. That is the same reasoning the id scope
+    /// already encodes — do not clear what you did not write — applied to the
+    /// axis the id cannot see.
     private static func record(_ itemID: String, contributors: [CanvasNodeID],
                                in scene: inout CanvasScene) {
-        for node in scene.unorderedNodes where node.contributedToItemID == itemID {
+        for node in scene.unorderedNodes
+        where node.contributedToItemID == itemID && node.kind.isScrap {
             scene.setContributedItem(nil, for: node.id)
         }
         for node in contributors { scene.setContributedItem(itemID, for: node) }
