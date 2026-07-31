@@ -2107,7 +2107,7 @@ final class CanvasViewMountingTests: XCTestCase {
 
     /// The Edit menu item for `selector`, resolved and validated the way AppKit
     /// does — including letting the validator rewrite the item's `title`, which
-    /// is how "Undo" becomes "Undo Move Scrap".
+    /// is how "Undo" becomes "Undo Move Card".
     private func editMenuItem(_ selector: Selector,
                               in window: NSWindow) throws -> (item: NSMenuItem,
                                                               target: NSObject,
