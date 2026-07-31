@@ -238,8 +238,9 @@ struct RegionInspector: View {
                 // Above the Piece picker and nowhere near "Promotion": a region
                 // being Claude's is an ATTRIBUTE and not an event, and under that
                 // heading it would start reading as a mark. Nothing at all for the
-                // writer's own regions. **The same row the card arm renders** —
-                // one implementation both arms are handed.
+                // writer's own regions. **The same row the other arms render** —
+                // one implementation every arm is handed, and how many there are
+                // is the census's answer rather than this comment's.
                 CanvasAuthorLineRow(
                     line: CanvasAuthorLine.forRegion(regionID, in: model.scene,
                                                      title: artifactTitle))

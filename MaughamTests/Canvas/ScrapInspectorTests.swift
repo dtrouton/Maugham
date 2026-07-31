@@ -305,14 +305,22 @@ final class ScrapInspectorTests: XCTestCase {
     /// between an honest pane and one telling the writer to promote something
     /// that already exists as itself.
     ///
-    /// **The ruling is unchanged and its SHAPE is stronger since 1C-d Task 7.**
+    /// **The ruling is unchanged and its SHAPE moved since 1C-d Task 7.**
     /// It was `case .scrap = node.kind` with every other kind falling through to
     /// the empty state — right about the scrap and silent about everything else,
     /// which is exactly how a selected page card came to be told to select
-    /// something (ADR 0026 §10). It is a `switch` on the kind now, so the card arm
-    /// is still reachable only from `.scrap` *and* no kind can reach the empty
-    /// state without a compile error. `ItemInspectorTests` owns the other arm's
-    /// half.
+    /// something (ADR 0026 §10). It is a `switch` on the kind now, so no kind can
+    /// reach the empty state without a compile error. `ItemInspectorTests` owns
+    /// the other arm's half.
+    ///
+    /// **What the `switch` took away, and what puts it back.** In the old form the
+    /// kind and the arm were one *branch condition*, so the token's presence
+    /// implied the card arm rendered for a scrap and nothing else. Three
+    /// independent presence checks do not imply that — `ScrapInspector(` moved
+    /// under `case .item` would compile and stay green — so the last assertion
+    /// reads the `.scrap` arm's BODY, bounded by the next case. (The other
+    /// direction is the compiler's: `ItemInspector` needs a
+    /// `CanvasItemReference`, which only the `.item` binding produces.)
     func test_thePaneRoutesOnlyAScrapToTheCardArm() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -326,12 +334,40 @@ final class ScrapInspectorTests: XCTestCase {
                       + "whose whole copy assumes a scrap")
         XCTAssertTrue(text.contains("case .scrap:"),
                       "and the card arm is the `.scrap` arm of it")
+
+        // The association itself, not two tokens that happen to share a file.
+        let scrapArm = try XCTUnwrap(armBody(after: "case .scrap:",
+                                             upTo: "case .item(", in: text))
+        XCTAssertTrue(scrapArm.contains("ScrapInspector("),
+                      "the card arm must be built INSIDE the `.scrap` arm — the "
+                      + "old branch-condition form made that structural, and three "
+                      + "independent presence checks do not")
+        // The control, and it is what makes the assertion above discriminate: the
+        // bounded body is a fraction of the file rather than all of it, so a
+        // `ScrapInspector(` under a different case would fall outside it.
+        XCTAssertLessThan(scrapArm.count, text.count / 4,
+                          "the bound found nothing to stop at, so the “arm” is most "
+                          + "of the file and the assertion above cannot fail")
+
         // The companion: prove the scan reports an absent token rather than
         // always answering true. A census over a REQUIRED token is exactly the
         // shape that passes while blind, and the plant names a spelling that
         // cannot exist in production.
         XCTAssertFalse(text.contains("case .notARealKind:"),
                        "the scan reads the file rather than always answering true")
+        XCTAssertFalse(scrapArm.contains("ItemInspector("),
+                       "and the bounded body really is bounded — the item arm is "
+                       + "outside it")
+    }
+
+    /// The source between a `case` label and the next one, so an assertion can be
+    /// made about one arm rather than about the file that contains it.
+    private func armBody(after label: String, upTo next: String,
+                         in source: String) -> String? {
+        guard let start = source.range(of: label),
+              let end = source.range(of: next, range: start.upperBound..<source.endIndex)
+        else { return nil }
+        return String(source[start.upperBound..<end.lowerBound])
     }
 
     // MARK: - The piece association (spec §6.2)

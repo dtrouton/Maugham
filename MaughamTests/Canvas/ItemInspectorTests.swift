@@ -73,15 +73,23 @@ final class ItemInspectorTests: XCTestCase {
     /// **It carries no id**, which is `PromotedArtifactSection.contributionArtifactMissing`'s
     /// precedent held to: an id is not something the writer can read.
     func test_aReferenceTheWriterDeletedOffersNothingAndPrintsNoID() throws {
-        let affordance = ItemInspector.openAffordance(for: .project(id: "res-3f2a"),
+        let deleted = "res-3f2a"
+        let affordance = ItemInspector.openAffordance(for: .project(id: deleted),
                                                       in: index())
         guard case .explanation(let why) = affordance else {
             return XCTFail("a deleted reference has nothing to open, found: \(affordance)")
         }
-        XCTAssertFalse(why.contains("res-3f2a"), "found: \(why)")
-        // Control: the sentence is not empty, or the assertion above passes by
-        // having nothing in it.
+        XCTAssertFalse(why.contains(deleted), "found: \(why)")
+        // **Two controls, because the assertion above is a negative and this file
+        // does not ship one without a positive beside it.** The first says the
+        // sentence exists at all — an empty string contains nothing and passes
+        // every `contains` check. The second says the CHECK discriminates: run it
+        // against the sentence a naive implementation writes (the placeholder
+        // label this whole line of work replaced, `Item · <id>`) and it fires.
+        // Without it, `contains` could be blind and the test would not know.
         XCTAssertFalse(why.isEmpty)
+        XCTAssertTrue("Item · \(deleted)".contains(deleted),
+                      "control: the predicate finds an id when there is one to find")
     }
 
     /// **Open in Research is meaningless for an OWNED node** — the canvas

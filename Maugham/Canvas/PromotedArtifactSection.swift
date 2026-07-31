@@ -1,7 +1,11 @@
 import SwiftUI
 
 /// What a promoted thing became, and the way to open it — **the one section,
-/// used by both inspector arms.**
+/// used by both arms that can be promoted: the card's and the region's.**
+///
+/// Named rather than counted since 1C-d put a fourth arm in that pane
+/// (`ItemInspector`, which mounts no promotion section at all — an item node
+/// already exists as itself). "Both" was unambiguous while there were two.
 ///
 /// **It lived in `ScrapInspector` for one slice and only cards had it.** A card
 /// and a region gained the same field in 1C-c2, drew the same stripe, and were
@@ -13,7 +17,7 @@ import SwiftUI
 /// states the rule that indicted the omission — CLAUDE.md rule 8 asks every new
 /// data type for a surface that can inspect and act on it — and this is the
 /// previous slice's Delete-button asymmetry recurring, so the fix is one
-/// implementation both arms are handed rather than a second copy.
+/// implementation those two arms are handed rather than a second copy.
 struct PromotedArtifactSection: View {
 
     /// What the thing has produced, if anything. Lifted out of the view so the

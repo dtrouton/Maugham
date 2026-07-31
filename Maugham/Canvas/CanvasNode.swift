@@ -46,9 +46,13 @@ public enum CanvasNodeKind: Equatable, Sendable {
     /// doc comment carries why that distinction is nested here rather than
     /// standing beside `.scrap` as a third kind.
     ///
-    /// An item node still draws as a PLACEHOLDER card carrying its reference id.
-    /// 1C-d's later tasks add the drop target, the real title, the kind glyph
-    /// and the thumbnail.
+    /// **It draws as itself as of 1C-d**: the real title and kind glyph
+    /// (`CanvasItemFacts`), the photograph when there is one, a height measured
+    /// from that picture's shape, and a corner that resizes it. The placeholder
+    /// card carrying its reference id — and the dashed border that said
+    /// "unfinished" — went with Task 5. It has an inspector arm of its own too
+    /// (`ItemInspector`, Task 7). What 1C-d has left is the **drop target** for
+    /// browser drags and §8A.4's `inbox → canvas`.
     case item(CanvasItemReference)
 }
 

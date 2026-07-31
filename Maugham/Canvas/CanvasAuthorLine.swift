@@ -1,7 +1,15 @@
 import SwiftUI
 
 /// Whose hand made a thing on the canvas, in the inspector — **the one
-/// implementation both arms are handed** (spec §8A.2, 1C-c3).
+/// implementation every arm is handed** (spec §8A.2, 1C-c3; a third arm since
+/// 1C-d Task 7).
+///
+/// **Count the census, never a sentence here.**
+/// `RegionBindingTests.test_everyInspectorArmRendersTheOneAuthorLine` discovers
+/// its file list from `Maugham/Canvas/`, so it cannot go out of date; a number
+/// written into this comment can, and in this project one did — a "four files"
+/// claim over a five-entry array survived three review passes. Each resolver
+/// below says which subject it is for; that is the list.
 ///
 /// **It began as `ScrapInspector.Origin` and only cards had it.** A card and a
 /// region are both drawn straight when Claude made them, both announced with
@@ -9,19 +17,24 @@ import SwiftUI
 /// round only the card's pane said so, which is CLAUDE.md rule 8 failing for the
 /// other half of exactly the same field. `PromotedArtifactSection`'s doc comment
 /// records the previous slice's version of this defect and the ruling it produced:
-/// the fix is one implementation both arms are handed, never a second copy. That
-/// is what this file is; a parallel resolver on the region arm would be a second
-/// spelling of the wording *and* of the one-source rule below.
+/// the fix is one implementation every arm is handed, never a second copy. That
+/// is what this file is; a parallel resolver on any arm would be a second
+/// spelling of the wording *and* of the one-source rule below. **An item node
+/// joined in 1C-d and is the proof the rule holds under widening**: it needed a
+/// different *answer* (a page must not say it was read from itself), so it got a
+/// third resolver here rather than a sentence of its own over there.
 ///
 /// **It is not `PromotedArtifactSection`, and must not move inside it.** A thing
 /// being Claude's is an ATTRIBUTE, not an event: under a promotion heading the
 /// sentence starts reading as a mark, and a mark is what
-/// `Promotion.existingArtifact` reads to offer **Rewrite**. Both arms render this
-/// beside the thing's own name instead — the card's words, the region's label.
+/// `Promotion.existingArtifact` reads to offer **Rewrite**. Every arm renders this
+/// beside the thing's own name instead — the card's words, the region's label, the
+/// item node's title.
 ///
 /// ---
 ///
-/// **What this costs on the frame path, honestly — for BOTH arms.**
+/// **What this costs on the frame path, honestly — for the two resolvers that
+/// WALK, `forCard` and `forRegion`.**
 ///
 /// This paragraph travelled with the resolver when it was
 /// `ScrapInspector.Origin`, and the extraction that made it shared dropped it,
@@ -29,7 +42,13 @@ import SwiftUI
 /// It is restored here because it is the disclosure on which the card arm's
 /// review accepted the cost, and it now has to cover a second caller.
 ///
-/// Both inspector bodies read `model.scene`. That is ONE stored property on an
+/// **`forItem` is deliberately outside it and that is not an omission**: it is one
+/// dictionary lookup on both branches, because an item node has no source page to
+/// resolve (see `forItem`). Widening this disclosure to cover it would say
+/// something false about the cheapest of the three. The scope here is the two that
+/// walk, and it is named rather than counted for the reason the class doc gives.
+///
+/// Both walking arms' bodies read `model.scene`. That is ONE stored property on an
 /// `@Observable` model, and every drag frame, every coast frame and every
 /// straighten frame writes it (`withScene(persist: false)`), so a `body` reading
 /// it re-evaluates at 60–120 Hz for the length of every drag — and a drag opens
@@ -188,14 +207,15 @@ enum CanvasAuthorLine: Equatable {
     }
 }
 
-/// The one row both inspector arms render for it, so the two cannot drift into
-/// styling one fact two ways — `PromotedArtifactSection` is the precedent for
-/// sharing the rendering as well as the decision.
+/// The one row every inspector arm renders for it, so they cannot drift into
+/// styling one fact several ways — `PromotedArtifactSection` is the precedent for
+/// sharing the rendering as well as the decision. (Which arms, and how many, is
+/// the census's answer and not this comment's: see the class doc above.)
 ///
 /// It renders nothing for the writer's own things. Which arm of a
 /// `_ConditionalContent` renders cannot be asserted and a `Form`'s contents are
 /// not inspectable, which is why the decision is `CanvasAuthorLine` — a value a
-/// test can drive — rather than an `if` written twice inside two bodies.
+/// test can drive — rather than an `if` written once inside each body.
 struct CanvasAuthorLineRow: View {
 
     let line: CanvasAuthorLine
