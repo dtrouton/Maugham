@@ -13,13 +13,17 @@ import SwiftUI
 /// path — one column over. **`selectedLine` joined it in 1C-c1 and is resolved
 /// in the same place, for the same reason.**
 ///
-/// **Three arms, resolved through the model's two resolvers rather than by
+/// **Four arms, resolved through the model's three resolvers rather than by
 /// switching on `selection` directly.** A selection is an id and the scene is
 /// what says whether it still names anything — `selectedRegion` and
 /// `selectedLine` both answer nil for a stale one, so a switch on the raw case
 /// would need an else of its own on every arm to say the same thing.
 /// **`selectedNode` joined them in 1C-c2** — a card's dedicated arm,
-/// `ScrapInspector`.
+/// `ScrapInspector` — and **1C-d Task 7 split that branch by KIND**, giving an
+/// item node `ItemInspector` instead of the empty state. Arm order cannot be
+/// wrong: `selection` is one enum, so region, line and node are mutually
+/// exclusive by construction, and the two node kinds are a `switch` the compiler
+/// keeps exhaustive.
 struct RegionInspectorPane: View {
 
     let model: CanvasModel
@@ -51,41 +55,47 @@ struct RegionInspectorPane: View {
                             itemIndex: itemIndex)
         } else if let line = model.selectedLine {
             LineInspector(model: model, lineID: line.id)
-        } else if let node = model.selectedNode, case .scrap = node.kind {
-            // 1C-c2's arm. A card used to land in the empty state below, which
-            // was right while a scrap had nothing to say about itself — the
-            // promoted mark is what changed that.
+        } else if let node = model.selectedNode {
+            // **Every node kind names its own arm, and the compiler is what says
+            // so.** This was `case .scrap = node.kind` with everything else
+            // falling through to the empty state below — the right ruling and the
+            // wrong shape for it, because the fall-through is silent. 1C-c3 began
+            // minting item nodes (`CanvasClaudePlacement`, on every
+            // `add_canvas_scraps` that names a source) and the consequence
+            // shipped: a writer could click the page card, watch it draw itself
+            // selected, and be told to select something. It was recorded as an
+            // accepted limit in ADR 0026 §10 rather than papered over, and 1C-d
+            // Task 7 is the arm it was waiting for. A `switch` means the next kind
+            // arrives as a compile error rather than as an empty state.
             //
-            // **The `.scrap` guard is not decoration**, and what it does is now a
-            // RULING rather than a technicality. Every sentence in that arm is
-            // wrong for a reference: "The words live on the card" and "Promoting
-            // takes a copy" describe a scrap, and an item node cannot be promoted
-            // at all. So an item node falls to the empty state below.
-            //
-            // This comment used to open "Nothing creates item nodes yet (1C-d
-            // owns the drag-in route)", and **1C-c3 falsified that**:
-            // `CanvasClaudePlacement` mints one on every `add_canvas_scraps` that
-            // names a source. The claim was load-bearing in exactly one
-            // direction — it is why "falls to the empty state" cost nothing — and
-            // the consequence now ships: a writer can click the dashed page card,
-            // watch it draw itself selected, and be told to select something. It
-            // is recorded as an accepted limit in ADR 0026 §10 and in AREA.md's
-            // "Not built" list rather than papered over here, because the fix is
-            // an arm with the reference's title, an **Open in Research** button
-            // and the provenance row — 1C-d's, alongside the thumbnail and the
-            // drag-in route, and not a comment's to invent.
-            //
-            // There is no click-through either: a double-click on an item node
-            // resolves `.unenterableNode` and does nothing, and
-            // `onOpenResearchItem` is reached only from the two arms above. The
-            // card arm's `Read from "<title>"` sentence, on the scraps read off
-            // the page, is the recovery path that does ship.
-            // The SAME offer the region arm gets — already filtered to the pieces
-            // a promotion can be routed to, so the two pickers cannot disagree
-            // about what a writer may choose.
-            ScrapInspector(model: model, nodeID: node.id, pieces: pieces,
-                           artifactTitle: artifactTitle, pieceTitle: pieceTitle,
-                           onOpenResearchItem: onOpenResearchItem)
+            // **The `.scrap` ruling stands and this is not a relaxation of it.**
+            // Every sentence in `ScrapInspector` is wrong for a reference — "The
+            // words live on the card" and "Promoting takes a copy" describe a
+            // scrap, and an item node cannot be promoted at all — so an item node
+            // still never reaches it. What changed is where it goes instead.
+            switch node.kind {
+            case .scrap:
+                // The SAME offer the region arm gets — already filtered to the
+                // pieces a promotion can be routed to, so the two pickers cannot
+                // disagree about what a writer may choose.
+                ScrapInspector(model: model, nodeID: node.id, pieces: pieces,
+                               artifactTitle: artifactTitle, pieceTitle: pieceTitle,
+                               onOpenResearchItem: onOpenResearchItem)
+            case .item(let reference):
+                // Destructured here rather than inside the arm:
+                // `CanvasItemReference`'s doc comment asks exactly that of the
+                // sites that genuinely differ between the two provenances, and
+                // this is the site that chooses the pane.
+                //
+                // **`onOpenResearchItem`'s third caller**, and the one that ends
+                // the dead end: a double-click on an item node resolves
+                // `.unenterableNode` and does nothing, so until this arm the only
+                // route from the batch back to the page was the card arm's
+                // `Read from "<title>"` sentence on the scraps read off it.
+                ItemInspector(model: model, nodeID: node.id, reference: reference,
+                              itemIndex: itemIndex,
+                              onOpenResearchItem: onOpenResearchItem)
+            }
         } else {
             // Tripwire 15: the full-frame chain is required, and so is the
             // enclosing stack's top alignment — `DetailPaneToggle` supplies the

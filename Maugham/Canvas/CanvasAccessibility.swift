@@ -102,6 +102,14 @@ enum CanvasAccessibility {
     /// assistive client reads aloud.
     static let regionKind = "Region"
 
+    /// What an item node announces itself as, before its title — and **since
+    /// 1C-d Task 7 also the heading of its inspector arm** (`ItemInspector.header`).
+    /// A constant for `regionKind`'s reason plus one of its own: the pane and the
+    /// spoken label are two surfaces naming one primitive, and a writer who hears
+    /// "Reference, from Claude" and reads a pane headed "Item" has met two names
+    /// for the card in front of them.
+    static let itemKind = "Reference"
+
     /// Cards within this many points of each other vertically read as one row.
     ///
     /// Internal rather than private so the reading-order tests can express their
@@ -403,7 +411,7 @@ enum CanvasAccessibility {
                     // second wording for that distinction was rejected — see
                     // `claudeTerm`. One phrase every primitive uses beats two the
                     // listener has to keep apart.
-                    label: label("Reference",
+                    label: label(itemKind,
                                  fromClaude: node.author == .claude,
                                  promoted: false,
                                  connectedBy: connections[node.id]),

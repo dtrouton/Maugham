@@ -54,13 +54,16 @@ final class ScrapInspectorTests: XCTestCase {
         XCTAssertNil(m.selectedNode)
     }
 
-    /// An item node has no arm of its own until 1C-d, and it must not take the
-    /// card's: every sentence in `ScrapInspector` is wrong for a reference —
-    /// "The words live on the card", "Promoting takes a copy" — and an item node
-    /// cannot be promoted at all. The pane routed every `selectedNode` there.
+    /// An item node must not take the card's arm: every sentence in
+    /// `ScrapInspector` is wrong for a reference — "The words live on the card",
+    /// "Promoting takes a copy" — and an item node cannot be promoted at all. The
+    /// pane routed every `selectedNode` there.
     ///
-    /// `selectedNode` itself still resolves; the guard is the `case .scrap` in
-    /// `RegionInspectorPane`, and this is the fact that guard reads.
+    /// `selectedNode` itself still resolves; the discriminator is the `case
+    /// .scrap` arm of `RegionInspectorPane`'s kind switch, and this is the fact
+    /// that switch reads. (Since 1C-d Task 7 the other arm is `ItemInspector`
+    /// rather than the empty state — this test is unchanged by that, which is the
+    /// point of it.)
     func test_anItemNodeIsResolvedAndIsNotAScrap() {
         let m = CanvasModel()
         let ref = CanvasNodeID.item("r-9")
@@ -298,9 +301,18 @@ final class ScrapInspectorTests: XCTestCase {
     /// is branch-invariant — but the line's PRESENCE can be, and a deletion is
     /// what would remove it. Every sentence in `ScrapInspector` is wrong for a
     /// reference ("The words live on the card", "Promoting takes a copy") and an
-    /// item node cannot be promoted at all, so the guard is the difference
-    /// between an honest empty state and a pane telling the writer to promote
-    /// something that already exists as itself.
+    /// item node cannot be promoted at all, so the routing is the difference
+    /// between an honest pane and one telling the writer to promote something
+    /// that already exists as itself.
+    ///
+    /// **The ruling is unchanged and its SHAPE is stronger since 1C-d Task 7.**
+    /// It was `case .scrap = node.kind` with every other kind falling through to
+    /// the empty state — right about the scrap and silent about everything else,
+    /// which is exactly how a selected page card came to be told to select
+    /// something (ADR 0026 §10). It is a `switch` on the kind now, so the card arm
+    /// is still reachable only from `.scrap` *and* no kind can reach the empty
+    /// state without a compile error. `ItemInspectorTests` owns the other arm's
+    /// half.
     func test_thePaneRoutesOnlyAScrapToTheCardArm() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -308,15 +320,17 @@ final class ScrapInspectorTests: XCTestCase {
         let text = try String(
             contentsOf: root.appendingPathComponent("Maugham/Canvas/RegionInspector.swift"),
             encoding: .utf8)
-        XCTAssertTrue(text.contains("case .scrap = node.kind"),
-                      "RegionInspectorPane must guard the selectedNode branch on the "
+        XCTAssertTrue(text.contains("switch node.kind {"),
+                      "RegionInspectorPane must route the selectedNode branch on the "
                       + "node's KIND — without it every node reaches ScrapInspector, "
                       + "whose whole copy assumes a scrap")
+        XCTAssertTrue(text.contains("case .scrap:"),
+                      "and the card arm is the `.scrap` arm of it")
         // The companion: prove the scan reports an absent token rather than
         // always answering true. A census over a REQUIRED token is exactly the
         // shape that passes while blind, and the plant names a spelling that
         // cannot exist in production.
-        XCTAssertFalse(text.contains("case .notARealKind = node.kind"),
+        XCTAssertFalse(text.contains("case .notARealKind:"),
                        "the scan reads the file rather than always answering true")
     }
 

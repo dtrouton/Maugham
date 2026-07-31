@@ -116,6 +116,30 @@ enum CanvasAuthorLine: Equatable {
         return read(from: region, in: scene, title: title)
     }
 
+    /// An item node: the same author predicate again, and **deliberately no
+    /// source page** (1C-d Task 7).
+    ///
+    /// `CanvasClaudePlacement` writes `author: .claude` on every page it creates,
+    /// so a photographed page leans at exactly 0° and `CanvasAccessibility` says
+    /// "Reference, from Claude" aloud — a fact with a drawn signal, a spoken term
+    /// and, until this arm, no inspectable surface, which is CLAUDE.md rule 8 and
+    /// this file's own history twice over.
+    ///
+    /// **It does not route to `forCard`, and that is the whole reason it exists.**
+    /// `read(from:)` finds a source by asking which of the home region's members
+    /// is an item node — and for the page card that member *is* the page. Through
+    /// `forCard`, the source page's pane would read *From Claude. Read from “The
+    /// falls at night”.* over the card that IS "The falls at night". So this arm
+    /// answers `.claude` and nothing more, which is also why it takes no `title`
+    /// closure: with no page to name there is nothing to look up.
+    ///
+    /// It costs one dictionary lookup, on both branches — no walk, no `TreeWalk`.
+    /// The disclosure above covers the two arms that do walk.
+    static func forItem(_ nodeID: CanvasNodeID, in scene: CanvasScene) -> CanvasAuthorLine {
+        guard scene.node(nodeID)?.author == .claude else { return .writer }
+        return .claude
+    }
+
     /// **The source is the region's item member, and the region records no
     /// "source" role.** `CanvasClaudePlacement` puts the page Claude read in the
     /// same region as the cards — created and homed there, adopted if it was
