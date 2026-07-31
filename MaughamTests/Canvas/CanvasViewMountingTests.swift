@@ -1280,6 +1280,33 @@ final class CanvasViewMountingTests: XCTestCase {
             + "any role.\n\(describe(tree))")
     }
 
+    /// The element standing for the canvas itself — the container every card is
+    /// published inside, and the rectangle a folded card comes back carrying.
+    ///
+    /// Found by its LABEL rather than by its position in the walk: the walk's
+    /// first element is the `NSHostingView`, which is SwiftUI's wrapper rather
+    /// than anything this view declared, and on the platform where the fold was
+    /// measured all three elements report the same rect anyway. Asking for the
+    /// one carrying `CanvasAccessibility.canvasLabel` names the container this
+    /// view actually built.
+    private func axCanvas(in tree: [AnyObject]) throws -> AnyObject {
+        try XCTUnwrap(
+            tree.first { axString($0, "accessibilityLabel") == CanvasAccessibility.canvasLabel },
+            "the canvas itself is not in the published tree, so there is no "
+            + "container to compare a card against.\n\(describe(tree))")
+    }
+
+    /// Whether two published rectangles are the same rectangle.
+    ///
+    /// A tolerance rather than `==` because both sides arrive through two
+    /// coordinate conversions. Half a point is far below what this is asked to
+    /// tell apart — a card is 240 × 60 and the canvas it sits on is 800 × 600 —
+    /// so it cannot call a correctly published card its own container.
+    private func isSameRect(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) < 0.5 && abs(a.minY - b.minY) < 0.5
+            && abs(a.width - b.width) < 0.5 && abs(a.height - b.height) < 0.5
+    }
+
     /// The whole observed tree, one element per line.
     ///
     /// Every failure below carries this, deliberately. These two tests passed on
@@ -1385,38 +1412,56 @@ final class CanvasViewMountingTests: XCTestCase {
                              + "in the tree and impossible to point at. \(observed)")
     }
 
-    /// **A canvas holding exactly one card, kept as its own question.**
+    /// **A canvas holding exactly one card, kept as its own question — and the
+    /// one place a MEASURED platform limitation lives.**
     ///
     /// This is the state a writer meets on their second interaction with the Plan
-    /// persona — one scrap made, nothing else — so it is not a corner worth
-    /// dropping. It is also the one shape the 2026-07-31 CI evidence points at:
-    /// of the four round-trip tests on this layer, the two that failed hosted one
-    /// card and the two that passed hosted three, and the failing pair read back
-    /// the CONTAINER's rectangle rather than a card's.
+    /// persona: one scrap made, nothing else. It is not a corner worth dropping,
+    /// and it is the shape the 2026-07-31 CI evidence landed on.
     ///
-    /// So the gate is narrow and says what it saw. It fires only when the
-    /// platform published **no per-card element at all**, which is an absence
-    /// that can be observed rather than inferred, and it carries the whole tree
-    /// with it. It is not a weaker assertion standing in for the real one: when a
-    /// card element does exist, the same three coordinates are asserted exactly
-    /// as above — and the multi-card round trip above is NOT gated, so a general
-    /// break in frame publication still fails the suite rather than skipping it.
+    /// **What macOS 15.7.7 (build 24G720) does, measured on the runner.** When
+    /// `.accessibilityChildren` produces exactly ONE synthetic child, that child
+    /// is given its CONTAINER's rectangle. The element itself is right — role
+    /// `AXStaticText`, label "Scrap", the writer's sentence in
+    /// `accessibilityValue` — and the hosting view, the canvas group and the card
+    /// all report the same `(0, 0, 800, 600)` for a card drawn at (20, 20) 240
+    /// wide. macOS 26.5 (build 25F84) publishes `(20, 20, 240, 38)` for the same
+    /// canvas, and macOS 15.7.7 publishes distinct, correct frames the moment
+    /// there are three cards. So it is a fold of a LONE child, not a broken frame
+    /// path, and it is Apple's publication rather than ours. See AREA.md.
+    ///
+    /// **The gate is the observation, deliberately, and never `#available`.** A
+    /// version check asserts a belief about which systems are affected and we
+    /// have measured exactly one; this predicate is the fold itself, so the test
+    /// starts running again on its own if Apple fixes it, and it catches the same
+    /// behaviour wherever else it appears. **It is not unfalsifiable**: the
+    /// multi-card round trip above is ungated and asserts a published width of
+    /// 240 against a container 800 wide, which is this predicate exercised in its
+    /// false direction on every run.
+    ///
+    /// Nothing in production works around the fold — see AREA.md for why a
+    /// synthetic second element would be a product change made to satisfy an
+    /// older OS.
     func test_aLoneCardOnTheCanvasIsAnElementOfItsOwn() throws {
         let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                                      paletteSwatchHexes: { [] }))
         let tree = try axTree(in: window)
-        guard tree.contains(where: { axString($0, "accessibilityRole") == Self.cardRole }) else {
-            throw XCTSkip(
-                "this platform published no element under role \(Self.cardRole) for "
-                + "a canvas holding exactly one card, so there is no per-card "
-                + "rectangle to read. The card's words are reachable — the value is "
-                + "somewhere in the tree below — but folded into a container rather "
-                + "than standing on their own.\n\(describe(tree))")
-        }
-
+        let container = try viewFrame(ofPublished: try axCanvas(in: tree), in: window)
         let frame = try viewFrame(ofPublished: try axCard(valued: scrapText, in: tree),
                                   in: window)
-        let observed = "Published \(frame).\n\(describe(tree))"
+        let observed = "Published \(frame), container \(container).\n\(describe(tree))"
+
+        guard !isSameRect(frame, container) else {
+            throw XCTSkip(
+                "this platform folded the lone card into its container: the card's "
+                + "element is published correctly in every other respect and carries "
+                + "the CANVAS's rectangle rather than its own, so an assistive cursor "
+                + "over a canvas holding exactly one card gets the whole canvas. "
+                + "Measured on macOS 15.7.7 (24G720); macOS 26.5 publishes the card's "
+                + "own rectangle, and this same platform publishes distinct frames "
+                + "for three cards. \(observed)")
+        }
+
         XCTAssertEqual(frame.origin.x, 20, accuracy: 0.5,
                        "the lone card's published frame is not where it is drawn. "
                        + "\(observed)")
