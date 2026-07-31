@@ -275,6 +275,16 @@ final class PromotionCommandTests: XCTestCase {
              + "learn what a picture produced, no way to open it, and no way to "
              + "discover the artifact had been deleted — which is CLAUDE.md rule "
              + "8 and the region arm's own 1C-c2 omission, one arm over"),
+            ("Maugham/Canvas/CanvasView.swift", [".dropDestination(for: String.self)"],
+             "1C-d Task 10's drop target. `CanvasDrop` is a pure decision plus a "
+             + "model verb, both fully testable with nothing mounting them — and "
+             + "SwiftUI's drop delivery has no seam a test can post a drag session "
+             + "into, so no runtime test in this repo can see whether the modifier "
+             + "is on `CanvasView.body` at all. Delete this one line and every "
+             + "`CanvasDropTests` assertion stays green while dragging a research "
+             + "item onto the canvas does nothing whatever. That is this "
+             + "directory's signature defect — a built-and-unreachable half — and "
+             + "all four historical ones were found by counting production sites"),
             ("Maugham/Views/ProjectWindow.swift",
              [".onKeyWindowCommand(.maughamPromoteCanvasSelection",
               ".modifier(CanvasPromotionModifier(",
@@ -423,6 +433,18 @@ final class PromotionCommandTests: XCTestCase {
             ["NotARealArtifactSection("],
             "the census reports the ABSENT item-arm section token and not the "
             + "present one")
+        // And 1C-d Task 10's drop mount, falsified with a payload type that
+        // cannot be the production spelling. This plant is the closest of the set
+        // to something real — `.dropDestination(for: URL.self)` is a genuine
+        // modifier — so it names a type that does not exist rather than one a
+        // mistaken implementer might reach for, which is the rule the earlier
+        // `.maughamPromotePiece` plant broke.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Canvas/CanvasView.swift",
+                              required: [".dropDestination(for: String.self)",
+                                         ".dropDestination(for: NotARealPayload.self)"]),
+            [".dropDestination(for: NotARealPayload.self)"],
+            "the census reports the ABSENT drop-mount token and not the present one")
     }
 
     /// The name must not collide with the collection-piece promotion that

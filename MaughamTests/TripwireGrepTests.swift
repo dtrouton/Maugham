@@ -1882,11 +1882,22 @@ final class TripwireGrepTests: XCTestCase {
     /// the window entirely. The inspector entries at least require the writer's
     /// hand to be in the window; this one needs nothing but a message on a socket
     /// while the writer types.
+    ///
+    /// 1C-d added the sixth, `CanvasDrop`, and it is the entry most likely to be
+    /// argued out of this list by its delivery site: a research row dropped on the
+    /// canvas *is* delivered to `CanvasView`. The site is not what this census
+    /// turns on — a bracket **of its own** is. A drag that starts in the binder
+    /// never reaches `CanvasView.handleClick`, which is the only caller of
+    /// `commitActiveEdit`, so double-click bare canvas, type, then drag a research
+    /// row in without touching the canvas again and the drop lands at depth 1 with
+    /// nothing on either side able to close the writer's "Edit Scrap". That is the
+    /// inspector's case exactly, arriving through a gesture instead of a button.
     func test_theCanvasUndoBracketIsReachedFromAnotherColumnByOneVerbOnly() throws {
         let census = try canvasBracketCensus(in: sourceDir)
         XCTAssertEqual(
             census,
             ["CanvasClaudeWrite.swift": [Self.canvasOutsideVerb],
+             "CanvasDrop.swift": [Self.canvasOutsideVerb],
              "LineInspector.swift": [Self.canvasOutsideVerb],
              "PromotionPerformer.swift": [Self.canvasOutsideVerb],
              "RegionInspector.swift": [Self.canvasOutsideVerb],

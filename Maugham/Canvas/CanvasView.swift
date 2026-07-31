@@ -398,6 +398,27 @@ struct CanvasView: View {
             mountedEditor
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Spec §8A.1: the research tree sits beside the canvas in the Plan
+        // persona, and a row dragged out of it lands here as a card.
+        //
+        // **Mounted AFTER the frame above, deliberately.** The drop `location`
+        // arrives in the modified view's own space, and the modified view here is
+        // the filled rect — which is also exactly the rect `CanvasEventNSView`
+        // occupies, and that view is `isFlipped`. So one point means the same
+        // thing to a drop as it does to a click, and `contentPoint(fromView:)` is
+        // the one inverse transform either of them goes through. Attached to the
+        // bare `ZStack` instead, the drop space is whatever the stack sized itself
+        // to before filling, which is not a rect anything else on this surface
+        // measures against.
+        //
+        // `for: String.self` is the app's established internal-drag pattern, the
+        // other end of `ResearchRow`'s `.draggable(item.id)`. **Not**
+        // `.dropDestination(for: URL.self)`, which silently rejects a browser's
+        // rendered-bitmap drag; external drops are their own route through
+        // `DropClassification` and are not this modifier's business.
+        .dropDestination(for: String.self) { payloads, location in
+            handleDrop(payloads, at: location)
+        }
         .onAppear { load() }
         // The STRUCTURAL counter, never `revision`.
         //
@@ -1240,6 +1261,69 @@ struct CanvasView: View {
         editingNodeID = nil
         caretIndex = nil
         straighten.focus(nil)
+    }
+
+    // MARK: - Drops
+
+    /// A research row dropped on the canvas (spec §8A.1).
+    ///
+    /// **This method decides nothing.** `CanvasDrop.decide` is a pure function
+    /// over the payload, the scene and the item index, and `CanvasDrop.apply` owns
+    /// the undo bracket and the membership — because SwiftUI's drop delivery has
+    /// no seam a test can post into, so what a drop *means* has to be answerable
+    /// somewhere a test can reach exhaustively. What is left here is the camera
+    /// (a view's own state) and the selection, and that this modifier is mounted
+    /// at all is pinned by a census rather than by a test.
+    ///
+    /// **The first payload only, which is the house pattern rather than a
+    /// shortcut.** `ResearchRow`'s own `.dropDestination` takes `ids.first`, and
+    /// every `.draggable(id)` source in the app sends exactly one — the research
+    /// tree's multi-selection is expanded by the *receiver* (`ResearchView`'s
+    /// `ResearchSelectionSync.expandedDragIds`) rather than travelling in the
+    /// payload, and this receiver deliberately does not expand it: the canvas
+    /// cannot see the binder's selection, and inventing a rule from it would be a
+    /// second answer to "what did the writer drag". A batch that really does
+    /// arrive as several payloads is the external file drop, which is its own
+    /// modifier with its own arrangement rule.
+    ///
+    /// Returns whether anything happened, so a payload this canvas has no card for
+    /// is declined and the drag springs back rather than reporting success.
+    private func handleDrop(_ payloads: [String], at viewPoint: CGPoint) -> Bool {
+        guard let payload = payloads.first else { return false }
+        switch CanvasDrop.decide(payload: payload,
+                                 at: camera.contentPoint(fromView: viewPoint),
+                                 in: model.scene, index: itemIndex) {
+        case .ignored:
+            return false
+
+        case .reveal(let id):
+            // The item is already here. Say so by SHOWING it — a drop that
+            // silently did nothing is indistinguishable from a broken surface,
+            // which is this task's named failure. The card is not moved: that
+            // would be a geometry-driven change to something the writer placed.
+            //
+            // The camera moves even when the card was already on screen, and that
+            // is a real cost rather than an oversight: this view has no viewport
+            // outside the `Canvas` closure (no `GeometryReader`, by design), so
+            // "is it visible already" is not a question it can ask.
+            guard let node = model.scene.node(id) else { return false }
+            model.selection = .node(id)
+            camera.bring(node.origin, toViewPoint: CanvasCamera.revealViewPoint)
+            // The selection is read inside the draw closure, where a model value
+            // is not in SwiftUI's dependency graph — `handleClick`'s single-click
+            // arm bumps for the same reason. `revision` and never `sceneRevision`:
+            // nothing structural happened.
+            revision += 1
+            return true
+
+        case .create(let node):
+            CanvasDrop.apply(node, in: model)
+            // Selected, so the right-hand column shows the reference's own arm and
+            // the writer can see what landed. Outside the bracket: a snapshot
+            // carries the scene and the scrap text, never the selection.
+            model.selection = .node(node.id)
+            return true
+        }
     }
 
     // MARK: - Delete
