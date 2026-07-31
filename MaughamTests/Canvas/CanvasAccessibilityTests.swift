@@ -303,6 +303,93 @@ final class CanvasAccessibilityTests: XCTestCase {
                        "an assistive client points at VIEW coordinates")
     }
 
+    // MARK: - Where, not just what — the half of it that needs no window
+
+    /// **The frame an assistive client points at, asked where nothing can be
+    /// unavailable.**
+    ///
+    /// A published frame is the end of a pipeline with six hops: the scene, the
+    /// content-space rect this file builds, the camera, SwiftUI's publication of
+    /// it, the accessibility runtime, and the screen coordinates that come back.
+    /// The last three need a hosted window and an attached assistive client, and
+    /// `CanvasViewMountingTests` owns them — they are also the hops that behave
+    /// differently on different macOS versions, which is what split this coverage
+    /// in two on 2026-07-31.
+    ///
+    /// **The first two hops hold every mistake we can make ourselves**, and they
+    /// are pure arithmetic over a struct. So they are asked here, of a card whose
+    /// numbers can discriminate: a y that differs from its x (an axis swap is
+    /// caught), and neither of them zero.
+    ///
+    /// That last part is the whole reason these tests exist beside
+    /// `test_elementsAreCameraIndependentAndResolveThroughTheCamera` rather than
+    /// inside it. That test reads `s1`, which sits at the content ORIGIN, and
+    /// (0, 0) is the one point a negated y leaves exactly where it was.
+    ///
+    /// **The shape of the flip decides whether it can see one, and that was
+    /// settled by experiment rather than by reading.** Negate the CONTENT y on
+    /// its way into the camera — `viewPoint(fromContent:)` handed
+    /// `-contentFrame.origin.y`, which is the mistake a y-down/y-up confusion
+    /// actually makes — and that test stays GREEN while these go red, because
+    /// −0 is 0. Negate the view y the camera has already produced and all of
+    /// them fail, because the pan has made it non-zero by then. Only the second
+    /// of those two was ever covered.
+    private func offOriginScene() -> CanvasScene {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: CanvasNodeID("s1"), kind: .scrap,
+                                origin: CGPoint(x: 20, y: 90), width: 240,
+                                cachedHeight: 60))
+        return scene
+    }
+
+    private func offOriginElement() throws -> CanvasAXElement {
+        try XCTUnwrap(CanvasAccessibility.elements(scene: offOriginScene(),
+                                                   scraps: [CanvasNodeID("s1"): "the falls at night"])
+            .first { $0.id == .node(CanvasNodeID("s1")) })
+    }
+
+    /// Hop one: the rect the element carries is the card's own rectangle, in the
+    /// scene's own coordinates — origin from the node, width from the node,
+    /// height from what measuring it produced.
+    func test_aCardsContentFrameIsTheCardsOwnRectangle() throws {
+        XCTAssertEqual(try offOriginElement().contentFrame,
+                       CGRect(x: 20, y: 90, width: 240, height: 60),
+                       "the element's rect is not the card's — an assistive client "
+                       + "is pointed somewhere the writer's card is not, and no "
+                       + "camera downstream can put it back")
+    }
+
+    /// Hop two: the camera maps that rect to where the card is drawn.
+    ///
+    /// Pan and zoom are both non-identity and the two axes differ, so the
+    /// expected rect is wrong under every neighbouring mistake: a negated y
+    /// reads −150, a camera never applied reads (20, 90, 240, 60), a pan applied
+    /// without the zoom reads (70, 120), and a swapped pair reads (140, 160).
+    func test_theCameraMapsThatRectangleToWhereTheCardIsDrawn() throws {
+        var camera = CanvasCamera()
+        camera.zoom = 2
+        camera.pan = CGPoint(x: 50, y: 30)
+        XCTAssertEqual(try offOriginElement().viewFrame(in: camera),
+                       CGRect(x: 90, y: 210, width: 480, height: 120),
+                       "the element does not resolve to where the card is drawn — "
+                       + "on the y axis the likeliest cause is a flip between "
+                       + "SwiftUI's y-down space and AppKit's y-up screen "
+                       + "coordinates, and on the size it is a zoom left off")
+    }
+
+    /// The control for both of the above: at rest the two spaces coincide, so a
+    /// camera that has not moved must change nothing at all. Without this, an
+    /// implementation that applied some constant offset would satisfy neither
+    /// test above by accident and this one says which of them is the fixture and
+    /// which is the arithmetic.
+    func test_aCameraAtRestLeavesTheCardWhereTheSceneHasIt() throws {
+        let element = try offOriginElement()
+        XCTAssertEqual(element.viewFrame(in: CanvasCamera()), element.contentFrame,
+                       "an untouched camera moved the card: view and content "
+                       + "coordinates are the same space until the writer pans or "
+                       + "zooms, so every frame on a fresh canvas is already wrong")
+    }
+
     func test_anUnmeasuredNodeIsStillReachable() {
         var scene = CanvasScene()
         scene.insert(CanvasNode(id: CanvasNodeID("new"), kind: .scrap,

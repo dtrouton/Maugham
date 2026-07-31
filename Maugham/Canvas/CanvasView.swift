@@ -1727,7 +1727,9 @@ struct CanvasView: View {
             // unconditional bump covered by accident, which is why it arrived
             // with the guard that removed it.
             // `CanvasViewMountingTests.test_aPressThatStopsACoastRefreshesTheAccessibilityFrame`
-            // reads 40 against a card drawn at 64 without it.
+            // reads 40 against a card drawn at 64 without it — and its cheap
+            // half, `…BumpsTheCounterTheTreeIsRebuiltOn`, catches the same
+            // removal without needing an assistive client to be attached.
             let wasCoasting = !momentum.isAtRest
             momentum.stop()
             if wasCoasting { model.bumpSceneRevision() }
