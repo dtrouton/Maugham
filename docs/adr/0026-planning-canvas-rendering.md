@@ -916,6 +916,24 @@ was fixed in the fix wave is only the record: the comment in `RegionInspector.sw
 justified the empty state with "nothing creates item nodes yet" said something this branch had
 made false.
 
+**Amendment, 2026-07-31 (1C-d Task 7): the arm is built, and the `.scrap` ruling stands.**
+`ItemInspector` is exactly what the paragraph above specified — the reference's title and kind
+glyph, `CanvasAuthorLine`'s provenance row, and **Open in Research** — and it changed nothing
+about why the card arm refuses a reference. Three decisions are worth carrying here rather than
+leaving in the file. **The pane routes by KIND in a `switch`** now, not a `case .scrap` guard
+with everything else falling through: the ruling was right and the *shape* was what let a
+selected page card reach the empty state in silence, so the next node kind is a compile error
+instead. **Whether the reference still resolves is asked of `CanvasItemIndex`, never read back
+out of `CanvasItemFacts.missingTitle`** — Task 4 deliberately left that type at three facts and
+named this caller, and the comparison would have withheld the button from a real note titled
+"No longer in the project."; no fourth field was owed. **An OWNED node gets a sentence and not a
+Reveal in Finder**: its file was ingested under a minted name with the writer's own filename
+discarded, so revealing it answers a question about content with a clock reading in a folder they
+never chose — the same failure `ownedTitle` records for the title. Nothing here mutates the
+scene, so decision 5's two verbs are absent rather than misapplied. A **dangling** reference
+remains a fact and not an error state, in `contributionArtifactMissing`'s register and carrying
+no id. What is still open at 1C-d is the drag-in route and §8A.4's inbox arrow, not the pane.
+
 Constitution principles this decision answers to: **must-not #1, *no AI-authored manuscript
 text*** — the canvas is the planning plane, `add_canvas_scraps` cannot reach a manuscript,
 and its corollary on reproduction is answered by making the placement unexpressible rather
@@ -999,8 +1017,10 @@ carried by the material and the lean the surface already had, not by a badge.
   `CanvasView` and `ResearchNoteEditor` are two branches of the same centre-column switch,
   so the writer cannot have both on screen — and it is the same class as `AddNoteTool`'s,
   which is why it is recorded here with that one rather than solved locally.
-- **Left to later slices** *(updated 2026-07-30)*: item nodes' real appearance, drops and
-  images, and `inbox → canvas` — all 1C-d, all of spec §8A. Lines and promotion were on this
+- **Left to later slices** *(updated 2026-07-31)*: drops and images, and `inbox → canvas` —
+  1C-d, spec §8A. Item nodes' real appearance was on this list and 1C-d's Tasks 4–6 built it
+  (title, kind glyph, photograph, measurement, resize); their **inspector arm** was decision
+  10's own recorded limit and Task 7 built that (see the amendment there). Lines and promotion were on this
   list and 1C-c1 and 1C-c2 built them (decision 9); regions, `CanvasModel` and deleting a
   scrap were on it and 1C-b built all three; **the MCP canvas surface was on it and 1C-c3
   built it (decision 10)** — §8A.2's Claude write path is no longer "designed and unbuilt",
