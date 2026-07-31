@@ -333,7 +333,9 @@ final class PromotionCommandTests: XCTestCase {
               ".modifier(CanvasClaudeArrivalModifier(",
               "itemIndex: Self.canvasItemIndex(in: store)",
               "assetIngest: CanvasAssetIngest(",
-              "captureDrop: CanvasCaptureDrop("],
+              "captureDrop: CanvasCaptureDrop(",
+              ".modifier(CanvasCollapseModifier(",
+              "NavigationSplitView(columnVisibility: $columnVisibility)"],
              // **Numbered by what each token IS, never by its position in the
              // array above** (1C-d Task 12a, review Important 1). This read
              // "The FIFTH is…", "The SIXTH is…" and so on; Task 12a inserted a
@@ -395,7 +397,22 @@ final class PromotionCommandTests: XCTestCase {
              + "too, so dropping it keeps all of `InboxToCanvasTests` green and "
              + "turns every inbox row dragged onto the canvas into a refusal "
              + "alert. It is also the only place the window hands the canvas an "
-             + "`InboxStore` at all"),
+             + "`InboxStore` at all. "
+             + "`.modifier(CanvasCollapseModifier(` is 1C-d Task 13's mount "
+             + "line, and it is the mount-line shape a third time: the modifier "
+             + "is a struct in THIS file, so deleting the one line that puts it "
+             + "on `ProjectWindow.body` leaves every token in it present, every "
+             + "`CanvasCollapseTests` assertion green — they are all over a pure "
+             + "function — and `⌘\\` on the canvas moving no column at all. "
+             + "`NavigationSplitView(columnVisibility: $columnVisibility)` is "
+             + "the layer BELOW that mount, and it is the one this window has no "
+             + "other instrument for: with the argument dropped the split view "
+             + "manages its own visibility, the modifier still runs, still folds "
+             + "the decision and still writes `.doubleColumn` into a `@State` "
+             + "nothing reads — it compiles, `showInspector` still goes false so "
+             + "HALF the collapse still happens, and the binder never leaves. A "
+             + "half-working focus key is the failure no assertion over the "
+             + "decision can see from inside"),
             ("Maugham/Views/InboxPane.swift",
              [".draggable(CanvasDrop.inboxPayload(", "Button(\"Send to Canvas\")"],
              "1C-d Task 12's two routes out of the inbox (spec §8A.4), and both "
@@ -585,6 +602,26 @@ final class PromotionCommandTests: XCTestCase {
                                          ".modifier(CanvasNotAnArrivalModifier("]),
             [".modifier(CanvasNotAnArrivalModifier("],
             "the census reports the ABSENT arrival-mount token and not the present one")
+        // And 1C-d Task 13's collapse mount, falsified the same way. Everything
+        // it reaches is a pure function on `ProjectWindow`, so its whole suite
+        // stays green with this line deleted and ⌘\ on the canvas moves nothing.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: [".modifier(CanvasCollapseModifier(",
+                                         ".modifier(CanvasNotACollapseModifier("]),
+            [".modifier(CanvasNotACollapseModifier("],
+            "the census reports the ABSENT collapse-mount token and not the present one")
+        // And the layer below it: the split view's own binding, which is what
+        // turns a `@State` the modifier writes into a column that actually
+        // moves. Falsified with a binding name that cannot exist.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: ["NavigationSplitView(columnVisibility: $columnVisibility)",
+                                         "NavigationSplitView(columnVisibility: $notARealVisibility)"]),
+            ["NavigationSplitView(columnVisibility: $notARealVisibility)"],
+            "the census reports the ABSENT split-view-binding token and not the "
+            + "present one — with the argument gone the modifier still runs and "
+            + "the binder never moves")
         // And 1C-c3's provenance line in the card arm: `Origin` and its sentences
         // are fully testable with nothing in `body` reading them.
         XCTAssertEqual(

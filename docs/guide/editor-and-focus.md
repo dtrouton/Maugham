@@ -14,7 +14,7 @@ Open **Settings** (⌘,):
 
 Maugham is built for focused writing sessions. The chrome gets out of your way.
 
-- **⌘\\ — Toggle focus mode.** Hides the title bar and toolbar; just text and gutters.
+- **⌘\\ — Toggle focus mode.** Hides the title bar and toolbar; just text and gutters. On the planning canvas it also collapses both side columns, giving the canvas the whole window; press it again to bring the binder and the right-hand pane back exactly as they were. It never moves a column anywhere else.
 - **⌘⇧F — Toggle full-screen focus.** Enters full-screen with no chrome.
 - **Typewriter scrolling** (Settings → Editor → Focus) — keeps the active line at the vertical center of the viewport as you type.
 - **Sentence focus** — only the current sentence is full color; the rest dims. Forces you forward.
