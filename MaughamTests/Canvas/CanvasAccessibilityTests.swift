@@ -22,7 +22,7 @@ final class CanvasAccessibilityTests: XCTestCase {
         s.insert(scrapNode("s1", x: 0, y: 0))
         s.insert(scrapNode("s2", x: 400, y: 8))       // same band as s1, to its right
         s.insert(scrapNode("s3", x: 0, y: 400))
-        s.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+        s.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                             origin: CGPoint(x: 400, y: 400), width: 180, cachedHeight: 120))
         s.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("s1"),
                                 to: CanvasNodeID("s2"), label: "because"))
@@ -131,7 +131,62 @@ final class CanvasAccessibilityTests: XCTestCase {
         let element = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps)
             .first { $0.id == .node(.item("r-9")) }
         XCTAssertEqual(element?.role, .item)
-        XCTAssertTrue(element?.value.contains("r-9") == true)
+        XCTAssertEqual(element?.label, "Reference")
+    }
+
+    /// **The mark is SPOKEN on the same terms it is drawn** (1C-d Task 8, one
+    /// predicate: `CanvasNodeKind.carriesAMark`). An owned picture that produced
+    /// a research asset says so; a reference carrying the field a hand-edited
+    /// sidecar could put there does not, because nothing about the project's own
+    /// research item made it true.
+    ///
+    /// A promoted picture drawn with a stripe and silent to VoiceOver is exactly
+    /// the drawn/spoken divergence §7A.6 exists to prevent — and the two on this
+    /// surface that ARE deliberate are recorded in `Maugham/Canvas/AREA.md`.
+    func test_anOwnedPicturesMarkIsSpokenAndAReferencesIsNot() throws {
+        var scene = CanvasScene()
+        let owned = CanvasNodeID("owned-1")
+        scene.insert(CanvasNode(id: owned, kind: .item(.owned(path: "canvas_assets/p.png")),
+                                origin: .zero, width: 180, cachedHeight: 200,
+                                promotedItemID: "res-asset"))
+        scene.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
+                                origin: CGPoint(x: 400, y: 0), width: 180,
+                                cachedHeight: 120, promotedItemID: "res-nonsense"))
+        let elements = CanvasAccessibility.elements(scene: scene, scraps: [:])
+
+        let picture = try XCTUnwrap(elements.first { $0.id == .node(owned) }).label
+        XCTAssertTrue(picture.contains(CanvasAccessibility.promotedTerm),
+                      "found: \(picture)")
+        let reference = try XCTUnwrap(elements.first { $0.id == .node(.item("r-9")) }).label
+        XCTAssertFalse(reference.contains(CanvasAccessibility.promotedTerm),
+                       "the control, and the refusal that stands: found \(reference)")
+    }
+
+    /// **What an item node READS OUT is its title, and never its reference id**
+    /// *(1C-d)*. It was `Item · r-9` — the placeholder label — which was honest
+    /// only while the card drew the same string; a card that shows "Notebook
+    /// page 3" over an element that says `Item · r-9` is a drawn/spoken
+    /// divergence nobody decided, and the two on this surface that ARE decided
+    /// are recorded as such in `Maugham/Canvas/AREA.md`.
+    ///
+    /// The id assertion is the one that matters and it is written as an absence,
+    /// with the title equality beside it as the control: "does not contain the
+    /// id" is satisfied by an empty string, and an element that says nothing is
+    /// the §7A.6 failure this whole layer exists to prevent.
+    func test_anItemNodeReadsOutItsTitleRatherThanItsReferenceId() throws {
+        let scene = sampleScene()
+        let index = CanvasItemIndex(entriesByID: [
+            "r-9": .init(title: "Notebook page 3", kind: .researchNote)])
+        let element = try XCTUnwrap(
+            CanvasAccessibility.elements(scene: scene, scraps: scraps,
+                                         items: .facts(in: scene, index: index))
+                .first { $0.id == .node(.item("r-9")) })
+
+        XCTAssertEqual(element.value, "Notebook page 3")
+        XCTAssertFalse(element.value.contains("r-9"),
+                       "an item node still reads out its reference id — a code is not "
+                       + "something a listener can act on, and the card beside it "
+                       + "draws a title")
     }
 
     // MARK: - Regions (§7A.6 — a primitive the writer can see and the VoiceOver
@@ -596,7 +651,7 @@ final class CanvasAccessibilityTests: XCTestCase {
     /// mentions promotion at all.
     func test_anItemNodeWithAHandEditedMarkIsNotAnnouncedAsPromoted() {
         var s = CanvasScene()
-        s.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+        s.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                             origin: .zero, width: 180, cachedHeight: 120,
                             promotedItemID: "res-nonsense"))
         s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap,
@@ -744,9 +799,9 @@ final class CanvasAccessibilityTests: XCTestCase {
     /// every reference carries.
     func test_anItemNodePlacedByClaudeSaysSoEvenThoughItsWordsAreTheWritersOwn() throws {
         var s = CanvasScene()
-        s.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+        s.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                             origin: .zero, width: 180, cachedHeight: 120, author: .claude))
-        s.insert(CanvasNode(id: .item("r-4"), kind: .item(referenceId: "r-4"),
+        s.insert(CanvasNode(id: .item("r-4"), kind: .item(.project(id: "r-4")),
                             origin: CGPoint(x: 0, y: 400), width: 180, cachedHeight: 120))
         let elements = CanvasAccessibility.elements(scene: s, scraps: [:])
         let claudes = try XCTUnwrap(elements.first { $0.id == .node(.item("r-9")) },

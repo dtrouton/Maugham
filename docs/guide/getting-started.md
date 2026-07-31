@@ -101,6 +101,52 @@ A promoted card wears a **thin stripe down its left edge**, and a promoted regio
 
 **A promoted line is the exception, and it is worth knowing before you press ⌘Z.** A line leaves no stripe — what it produced is a `[[wiki-link]]` inside somebody else's note, and a flag on the line could disagree with the file — so there is nothing on the canvas to take back and **the promotion puts nothing on the undo stack at all**. Press ⌘Z after promoting a line and you will undo whatever you did on the canvas *before* it. To remove the link, open the note and delete the line of text.
 
+#### Getting things onto the canvas
+
+Typing a scrap is the quickest way to put something on the canvas, and it is not the only one. Three other things can be dropped straight onto it, and each lands exactly where you let go of it.
+
+- **A research note, image or folder from the binder.** Drag a row out of the research tree onto the canvas and it becomes a card showing that item's real title and kind — a *reference*, not a copy: the file stays where it is, and the canvas holds only its position. Drag the same item in twice and the second drop takes you to the card you already have rather than making another. Deleting the card never deletes the item.
+- **A photograph from the Finder, or an image dragged out of a web page.** It is copied into the project — into a `canvas_assets` folder beside `canvas.md` — so the card keeps working after you have tidied up wherever you dragged it from. Drop several at once and they cascade rather than stacking, so you can see there are four.
+- **A capture from your Inbox** — see below.
+
+Anything that is not a picture is refused with a line saying so, rather than landing as a card that can never draw.
+
+**A card that stands for something shows what it is, not a code.** Its real title, a small glyph for what kind of thing it is, and — when it is a picture — the picture. Drag its corner and it grows the way any card does; a photograph keeps its shape as it goes, so nothing is ever squashed to fit. Select one and the Inspector (⌘⌥I) names it and offers **Open in Research**, which takes you to the thing itself.
+
+A photograph the canvas owns is the one that has no research item behind it, so there is nothing to open — the Inspector says so rather than offering a button that would take you to a folder you never chose. What you can do with it is **promote** it, which is the next section.
+
+#### Promoting a picture
+
+A photograph the canvas owns can become durable in either of two ways, and both are the ordinary **Promote…** (⌘⇧↩):
+
+- **A research asset** — the picture is copied into your research, and the card wears the usual stripe to say what it became.
+- **An image on a palette card you already have** — appended to that card's images, alongside whatever is already there. This one leaves no stripe on purpose: the card didn't *become* the palette card, its picture is *in* it, and the Inspector says so in those words. Promote it again and you get a second copy rather than an offer to rewrite somebody's palette card with one photograph.
+
+**A card that stands for research you already have is not promoted at all** — it is already the durable thing, and the sheet says so rather than offering an empty list.
+
+**Promoting a region carries the pictures in it onto the palette card**, and the sheet tells you how many before you commit. A research note is prose, so a region promoted to one is told the pictures are not coming. Re-promoting with **rewrite that one** replaces the words and leaves the card's images alone — otherwise every re-promotion would stack another copy of every photograph onto it. Each picture that went in says *This picture is in “…”* in its own Inspector, exactly as a card whose words went in says *Its words are in “…”* — including a picture that stands for research you already had, which the region copied onto the card and left where it was.
+
+#### Giving the canvas the whole window
+
+**⌘\\** on the canvas folds both side columns away — the binder on the left and the Inspector on the right — and leaves you the surface. Press it again and the binder comes back and the right-hand pane returns to whatever you had it at before. It is the same **⌘\\** that hides the title bar and toolbar everywhere else, and **⌘⇧F** (full-screen focus) turns it on too.
+
+It is never automatic: you want the binder open while you are dragging research and captures onto the canvas, and out of the way once you are thinking. Switch to another mode with the canvas collapsed and the columns come straight back.
+
+#### Sending a capture from the Inbox to the canvas
+
+A note, voice memo or photograph captured on your phone lands in the **Inbox** (⌘⌥B). Until now the only way out of it was promoting it into research, which makes the durable thing *before* you have decided what it is. There is now a shorter road: **Inbox → canvas → research**, with promoting as the second step whenever you are ready for it.
+
+Two ways, and they do the same thing:
+
+- **Drag the row onto the canvas.** In Plan (⌘1) the Inbox can sit in the right-hand column with the canvas in the middle, so the two are on screen together. The capture lands where you drop it — inside a region if you drop it in one.
+- **Right-click the row → Send to Canvas**, which works from the keyboard, with VoiceOver, and from any persona with the canvas nowhere in sight. It has no drop point, so the card is placed **loose, clear of everything you already have** — and never inside a region: you have already decided what the capture is, and a box you did not ask for is one more thing to delete. The pane tells you it went, and the canvas remembers to bring you to the card the next time you open Plan.
+
+A typed note and a voice memo become an ordinary **scrap** carrying their words — the transcript, for a memo — so you can rewrite them, join them to a region, or promote them like anything else. A photograph becomes a **picture card**, copied into the project the same way a Finder drop is.
+
+**The capture leaves the Inbox.** It is one move rather than a copy, and the row is gone from triage afterwards. A voice memo with no transcript yet is refused and stays put: transcribe it first (Edit Transcript…, or Transcribe Again) and send it then. If anything goes wrong part-way, the capture stays in the Inbox and nothing is lost.
+
+**One ⌘Z takes the send back** — the card and its words together — but only while the canvas is the thing you are looking at. Send from another persona and there is no canvas on screen to undo on; the card is simply there when you next open Plan. Either way the Inbox row does not come back: delete the card and the capture is gone.
+
 #### What Claude can put on the canvas
 
 If you have Claude connected (see [Writing with Claude](claude-desktop.md)), it can **read your canvas** and **add cards to it**. This is the one place Claude puts words on a surface of yours — and it is a scratch surface, on the far side of promoting, so nothing it adds is in your manuscript and nothing gets there without you asking.
@@ -108,7 +154,7 @@ If you have Claude connected (see [Writing with Claude](claude-desktop.md)), it 
 The case it is built for: you write on actual paper, photograph it with your phone, and Claude reads the page and puts what is on it onto the canvas as cards.
 
 - **Claude cannot choose where a card goes.** There is no way for it to name a position, a card or a region — the canvas decides. Everything it adds in one go lands together in **one labelled region**, so a batch never arrives scattered across your work, and the region is placed clear of everything you have already put down.
-- **When the words came off a page you photographed, that page goes in the region too**, at the top, above what was read off it. So you can see what Claude read and what it made of it in one place. *For now the page shows as a placeholder card carrying its reference — the picture itself arrives with the rest of the image work.*
+- **When the words came off a page you photographed, that page goes in the region too**, at the top, above what was read off it — **showing the photograph itself**, so you can check what Claude read against what it made of it by looking rather than by clicking through.
 - **Claude's cards are visibly Claude's, three ways.** Your cards sit at a slight angle; **Claude's are perfectly straight**, so a card that leans is one of yours. They also take a slightly cooler paper, and lines Claude drew a slightly cooler stroke. VoiceOver says *from Claude* on the card, on the region and on the page. **The page you photographed is the one card that reads across the two signals**: it is straight, because Claude put it there, and it keeps your own paper, because the words on it are yours.
 - **Claude can draw lines between the cards it just added**, but never names one — a line's name is yours to write, or to leave off. And it cannot draw a line to a card of yours.
 - **You are told when a batch arrives**, by a line at the top of the window naming the count and the region. **Show** takes you to Plan, opens the Inspector and brings the region on screen; it fades on its own if you'd rather carry on.
@@ -116,4 +162,3 @@ The case it is built for: you write on actual paper, photograph it with your pho
 - **From there it is yours, exactly like anything else on the canvas.** Move it, rewrite it, delete it, or **promote** it. There is no queue to approve and nothing to accept: the canvas is scratch, and the marking is what makes leaving it there a real choice rather than a default. A card stays marked as Claude's even after you have rewritten every word of it — the mark says who put it there, which is a fact about what happened.
 - **Promoting is still the only way any of it becomes durable**, on the same terms as your own cards: a note, a palette card, a line in your craft intent, and never without the sheet.
 
-Dragging research onto the canvas is still to come.

@@ -20,8 +20,8 @@ The ones you'll use most:
 | `⌘⌥F` | Find in project |
 | `⌘⌥A` | Show Annotations pane |
 | `⌘⌥Z` | Restore last deleted item |
-| `⌘\\` | Toggle focus mode |
-| `⌘⇧F` | Toggle full-screen focus |
+| `⌘\\` | Toggle focus mode (on the canvas, also collapses both side columns) |
+| `⌘⇧F` | Toggle full-screen focus (turns focus mode on, so the canvas collapses too) |
 | `⌘1` | Plan mode |
 | `⌘2` | Author mode |
 | `⌘3` | Review mode |

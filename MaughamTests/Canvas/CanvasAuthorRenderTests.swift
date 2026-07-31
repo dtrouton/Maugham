@@ -155,7 +155,7 @@ final class CanvasAuthorRenderTests: XCTestCase {
                   scrapAuthor: AnnotationAuthor.SourceKind?,
                   scheme: ColorScheme) throws -> CanvasPage {
             var s = CanvasScene()
-            s.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+            s.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                                 origin: CGPoint(x: 100, y: 100), width: 180,
                                 cachedHeight: 120, author: itemAuthor))
             s.insert(CanvasNode(id: a, kind: .scrap, origin: CGPoint(x: 100, y: 400),
@@ -187,7 +187,7 @@ final class CanvasAuthorRenderTests: XCTestCase {
         // …and the other half of the divergence: Claude PLACED the page, so the
         // page is drawn square. This is the assertion that stops the exemption
         // above being "read" as `author` never reaching an item node at all.
-        let placed = CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+        let placed = CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                                 origin: .zero, width: 180, cachedHeight: 120,
                                 author: .claude)
         XCTAssertEqual(CanvasRenderer.seededRotation(for: placed).degrees, 0, accuracy: 0,

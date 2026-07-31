@@ -549,11 +549,23 @@ final class CanvasRendererTests: XCTestCase {
         XCTAssertEqual(zs, [1, 3, 5])
     }
 
-    /// 1C-a draws item nodes as placeholders; 1C-d gives them titles and
-    /// thumbnails (spec §8A.1). The label must name the reference so a writer
-    /// looking at a canvas from a newer build can tell what is on it.
-    func test_itemPlaceholderLabelNamesItsReference() {
-        XCTAssertTrue(CanvasRenderer.placeholderLabel(forReference: "r-9").contains("r-9"))
+    /// **An item node's label names the THING and never its reference id.**
+    ///
+    /// `CanvasRenderer.placeholderLabel` was the 1C-a spelling — `Item · res-3f2a`
+    /// — and it is gone: a code is not something the writer can read, and §8A.2's
+    /// corollary asks that a photographed page and the scraps read off it be
+    /// comparable by looking. What draws the label now is `CanvasItemFacts`, so
+    /// this asserts the property the old function's test asserted, at the place
+    /// that decides it.
+    func test_anItemNodesLabelIsATitleAndNeverAReferenceId() {
+        let index = CanvasItemIndex(entriesByID: [
+            "r-9": .init(title: "Notebook page 3", kind: .researchNote)])
+        XCTAssertEqual(CanvasItemFacts.resolve(.project(id: "r-9"), in: index).title,
+                       "Notebook page 3")
+        // Deleted, which is the arm that used to have nowhere to go but the id.
+        XCTAssertFalse(CanvasItemFacts.resolve(.project(id: "r-8"), in: index).title.contains("r-8"),
+                       "a reference to something the writer deleted still prints its id "
+                       + "on the card")
     }
 
     /// Spike requirement 3: draw at the window's true backingScaleFactor ×
@@ -753,7 +765,7 @@ final class CanvasRendererTests: XCTestCase {
         let page = try Self.render(size: viewSize) { cx in
             CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                 layouts: [node.id: layout],
-                                scraps: [:], selection: nil,
+                                scraps: [:], items: .empty, selection: nil,
                                 visibleEditorNodeID: nil,
                                 straighten: CanvasFocusStraighten(),
                                 pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -816,7 +828,7 @@ final class CanvasRendererTests: XCTestCase {
             let page = try Self.render(size: viewSize) { cx in
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [id: layout],
-                                    scraps: [:], selection: nil,
+                                    scraps: [:], items: .empty, selection: nil,
                                     visibleEditorNodeID: visibleEditor,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -847,7 +859,7 @@ final class CanvasRendererTests: XCTestCase {
             try Self.render(size: viewSize) { cx in
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [id: layout],
-                                    scraps: [:], selection: nil,
+                                    scraps: [:], items: .empty, selection: nil,
                                     visibleEditorNodeID: id,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -875,23 +887,218 @@ final class CanvasRendererTests: XCTestCase {
                           "the card's resize mark is missing from the focused card")
     }
 
-    /// Item placeholders are 1C-a's ONLY delivered behaviour for item nodes
-    /// (1C-d resolves the real title, kind glyph and thumbnail), and until this
-    /// test the whole `case .item` draw path could have been deleted with every
-    /// other test in this file still green: `placeholderLabel` was unit-tested
-    /// but never shown to be DRAWN, and the dashed stroke that distinguishes a
-    /// placeholder from a real scrap was not exercised at all. 1C-d rewrites
-    /// exactly this code.
+    // MARK: - What an item node shows (1C-d)
+
+    /// **The card says what it IS, and that is spec §8A.2's reproduction
+    /// corollary being paid rather than promised.** Until 1C-d an item node drew
+    /// a dashed card carrying `Item · res-3f2a`, so the page a batch of scraps
+    /// was read off and the scraps themselves could not be compared by looking —
+    /// the writer had to click through to find out what the reference was. ADR
+    /// 0026 §10 records that as "structural here, visible at 1C-d".
     ///
-    /// The border is asserted against a `.scrap` card at the SAME geometry
-    /// rather than against absolute values, because what makes a placeholder
-    /// read as unfinished is the contrast with a finished card: the dash leaves
-    /// gaps a solid stroke does not (columns LIGHTER than the scrap's edge) and
-    /// its 1 pt line is heavier where it does land (columns DARKER). A solid
-    /// item stroke would be uniformly darker and produce no lighter columns at
-    /// all.
+    /// The title is asserted DIFFERENTIALLY, against the identical scene with no
+    /// facts resolved: what only a resolved title can produce is ink where the
+    /// label goes. Asserting "there is ink" alone would be satisfied by the
+    /// card's own chrome.
     @MainActor
-    func test_anItemNodeDrawsAPlaceholderCardWithADashedBorder() throws {
+    func test_anItemNodeDrawsItsTitleWhereTheMeasurementPutIt() throws {
+        let id = CanvasNodeID.item("res-notebook")
+        var node = CanvasNode(id: id, kind: .item(.project(id: "res-notebook")),
+                              origin: CGPoint(x: 40, y: 90), width: 240)
+        node.cachedHeight = CanvasCardMetrics.itemLabelOnlyHeight
+        var scene = CanvasScene()
+        scene.insert(node)
+        let frame = try XCTUnwrap(node.frame)
+        let viewSize = CGSize(width: 360, height: 285)
+        let index = CanvasItemIndex(entriesByID: [
+            "res-notebook": .init(title: "Notebook page 3", kind: .researchNote)])
+        let items = CanvasItemPresentation.facts(in: scene, index: index)
+
+        func page(_ items: CanvasItemPresentation) throws -> Page {
+            try Self.render(size: viewSize) { cx in
+                CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
+                                    layouts: [:],
+                                    scraps: [:], items: items, selection: nil,
+                                    visibleEditorNodeID: nil,
+                                    straighten: CanvasFocusStraighten(),
+                                    pendingRegionDraw: nil, pendingLine: nil, into: &cx)
+            }
+        }
+        let resolved = try page(items)
+        let unresolved = try page(.empty)
+
+        let body = Int(frame.minY)..<Int(frame.maxY)
+        let band = Self.textColumns(inCard: frame)
+        XCTAssertGreaterThan(resolved.inkPixels(rows: body, columns: band), 20,
+                             "an item node drew no title — nothing on the canvas says "
+                             + "what the card points at, and §8A.2's corollary asks "
+                             + "that a reproduction and its source be comparable by "
+                             + "LOOKING")
+        XCTAssertEqual(unresolved.inkPixels(rows: body, columns: band), 0,
+                       "a card whose facts have not resolved drew something in its "
+                       + "label band — the placeholder id coming back through the "
+                       + "unresolved path is exactly what this slice removed")
+
+        // The title sits on the row the measurement reserved for it: the label
+        // line's own top, one inset above the card's bottom edge. Bounded rather
+        // than pinned with a tolerance — the gap between a text origin and the
+        // first inked row is the font's ascent slack, so any tolerance wide
+        // enough to survive a font metric change also swallows the 10 pt inset.
+        //
+        // Read in the TITLE's columns rather than the whole text band, which is
+        // the difference between measuring the title and measuring the glyph
+        // beside it: a resolved SF Symbol fills its fitted box to the edge and
+        // antialiases a pixel past it, so the glyph's first inked row is the
+        // reserved one minus a rounding artifact and says nothing about layout.
+        let titleStart = Int(CanvasCardMetrics.itemTitleOrigin(inCard: frame).x)
+        let titleBand = titleStart..<Int(frame.maxX - CanvasCardMetrics.inset)
+        let labelTop = CGFloat(try XCTUnwrap(resolved.inkRows(0..<Int(viewSize.height),
+                                                              columns: titleBand).first))
+        let reserved = CanvasCardMetrics.itemGlyphBox(inCard: frame).minY
+        XCTAssertGreaterThanOrEqual(labelTop, reserved,
+                                    "the title is inked ABOVE the row the card was "
+                                    + "measured for, so the drawn card and the measured "
+                                    + "one are on different rects (§7A.2's failure on "
+                                    + "the other content type)")
+        XCTAssertLessThan(labelTop, reserved + CanvasCardMetrics.itemLabelLineHeight,
+                          "the title is inked below its own line")
+    }
+
+    /// **The photograph itself, which is the whole of the corollary.** Two
+    /// renders of one scene differing in exactly one fact — whether the item
+    /// node's thumbnail has been decoded — must differ inside the rect the
+    /// picture is drawn in, and nowhere outside the card.
+    ///
+    /// The presentation is resolved through the REAL two-verb split (ask, miss,
+    /// service, ask again), so a renderer that drew nothing and a cache that
+    /// never decoded are both visible here.
+    @MainActor
+    func test_anItemNodeWithAPictureDrawsIt() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("canvas-item-render-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let path = "canvas_assets/image-20260730-220430.png"
+        try writeCanvasFixtureImage(width: 400, height: 300,
+                                    to: root.appendingPathComponent(path))
+
+        let id = CanvasNodeID("owned-1")
+        var node = CanvasNode(id: id, kind: .item(.owned(path: path)),
+                              origin: CGPoint(x: 40, y: 40), width: 240)
+        node.cachedHeight = CanvasCardMetrics.itemCardHeight(forCardWidth: 240,
+                                                             pictureAspect: 4.0 / 3.0)
+        var scene = CanvasScene()
+        scene.insert(node)
+        let frame = try XCTUnwrap(node.frame)
+        let viewSize = CGSize(width: 360, height: 40 + frame.height + 60)
+
+        let pictured = await resolvedItemPresentation(scene: scene, index: .empty,
+                                                      projectRoot: root)
+        XCTAssertEqual(pictured.picturedCount, 1,
+                       "precondition: the fixture never decoded, so the comparison "
+                       + "below is between two identical pages")
+
+        func page(_ items: CanvasItemPresentation) throws -> Page {
+            try Self.render(size: viewSize) { cx in
+                CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
+                                    layouts: [:],
+                                    scraps: [:], items: items, selection: nil,
+                                    visibleEditorNodeID: nil,
+                                    straighten: CanvasFocusStraighten(),
+                                    pendingRegionDraw: nil, pendingLine: nil, into: &cx)
+            }
+        }
+        let withPicture = try page(pictured)
+        // The same card, same size, same title — only the picture is missing.
+        let withoutPicture = try page(
+            CanvasItemPresentation.facts(in: scene, index: .empty))
+
+        let pictureRect = CanvasCardMetrics.itemPictureRect(inCard: frame, aspect: 4.0 / 3.0)
+        let changed = withPicture.differingPixels(from: withoutPicture, in: pictureRect)
+        XCTAssertGreaterThan(changed, Int(pictureRect.width * pictureRect.height) / 2,
+                             "the photograph is not drawn on its card: \(changed) of "
+                             + "\(Int(pictureRect.width * pictureRect.height)) pixels in "
+                             + "the picture's own rect changed when it resolved. §8A.2's "
+                             + "corollary asks that the page and what was read off it be "
+                             + "checkable side by side")
+
+        // Nothing outside the card moved — a control that says the count above is
+        // the picture and not a page-wide difference.
+        XCTAssertEqual(
+            withPicture.differingPixels(from: withoutPicture,
+                                        in: CGRect(x: 0, y: 0,
+                                                   width: viewSize.width, height: frame.minY - 6)),
+            0,
+            "the picture inked the ground above its card")
+    }
+
+    /// **The kind glyph is the one the FACTS name.** Two renders differing only
+    /// in the resolved kind must differ inside the glyph's own box — without this
+    /// the glyph could be drawn from a constant, or not drawn at all, with the
+    /// title fixture above still green.
+    @MainActor
+    func test_theKindGlyphIsTheOneTheFactsName() throws {
+        let id = CanvasNodeID.item("res-thing")
+        var node = CanvasNode(id: id, kind: .item(.project(id: "res-thing")),
+                              origin: CGPoint(x: 40, y: 90), width: 240)
+        node.cachedHeight = CanvasCardMetrics.itemLabelOnlyHeight
+        var scene = CanvasScene()
+        scene.insert(node)
+        let frame = try XCTUnwrap(node.frame)
+        let viewSize = CGSize(width: 360, height: 285)
+
+        func page(_ kind: CanvasItemKind) throws -> Page {
+            // Same title in both, so any difference is the glyph.
+            let index = CanvasItemIndex(entriesByID: [
+                "res-thing": .init(title: "The same words", kind: kind)])
+            let items = CanvasItemPresentation.facts(in: scene, index: index)
+            return try Self.render(size: viewSize) { cx in
+                CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
+                                    layouts: [:],
+                                    scraps: [:], items: items, selection: nil,
+                                    visibleEditorNodeID: nil,
+                                    straighten: CanvasFocusStraighten(),
+                                    pendingRegionDraw: nil, pendingLine: nil, into: &cx)
+            }
+        }
+        let note = try page(.researchNote)
+        let image = try page(.image)
+
+        let box = CanvasCardMetrics.itemGlyphBox(inCard: frame)
+        XCTAssertGreaterThan(note.differingPixels(from: image, in: box), 8,
+                             "a research note and a photograph draw the same glyph — "
+                             + "\(CanvasItemKind.researchNote.glyph) against "
+                             + "\(CanvasItemKind.image.glyph) — so the card does not say "
+                             + "what kind of thing it points at")
+        // Control: the two pages are otherwise identical, so the count above is
+        // the glyph rather than a page that differs everywhere.
+        XCTAssertEqual(note.differingPixels(from: image,
+                                            in: CGRect(x: frame.minX, y: frame.minY,
+                                                       width: frame.width,
+                                                       height: CanvasCardMetrics.inset)),
+                       0,
+                       "the two pages differ above the label line as well, so the glyph "
+                       + "assertion is measuring something else")
+    }
+
+    /// **The dashed border is gone, and the item card takes the SAME border a
+    /// scrap does.** The dashes said "unfinished", which was the honest thing to
+    /// say while the only content was a reference id; a card that shows a title, a
+    /// kind glyph and a photograph and still draws itself as a sketch would
+    /// contradict its own content.
+    ///
+    /// Asserted as pixel equality along the top edge rather than as "no gaps": a
+    /// gap test passes for a border that is not drawn at all.
+    ///
+    /// **And the resize mark is drawn on it too, as of 1C-d Task 6.** This test
+    /// asserted the absence of that mark until then, and the inversion is the
+    /// point rather than a casualty: the mark and the target are ONE decision
+    /// (`CanvasInteraction.begin` and `drawCard` move together, or the surface
+    /// draws an affordance that does nothing — or, as it did in 1C-c3, one that
+    /// loses the card). Now that an item node's height genuinely follows its
+    /// width, the honest end state is the uniform rule this surface had before
+    /// the guard: two unconditional marks on every card.
+    @MainActor
+    func test_anItemNodeTakesTheSameBorderAndResizeMarkAsAScrap() throws {
         let origin = CGPoint(x: 40, y: 90)
         func page(_ kind: CanvasNodeKind) throws -> (Page, CGRect) {
             var node = CanvasNode(id: CanvasNodeID("n1"), kind: kind, origin: origin, width: 240)
@@ -903,82 +1110,60 @@ final class CanvasRendererTests: XCTestCase {
             return (try Self.render(size: viewSize) { cx in
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [:],
-                                    scraps: [:], selection: nil,
+                                    scraps: [:], items: .empty, selection: nil,
                                     visibleEditorNodeID: nil,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
             }, frame)
         }
-        let (item, frame) = try page(.item(referenceId: "r-9"))
+        let (item, frame) = try page(.item(.project(id: "r-9")))
         let (scrap, _) = try page(.scrap)
 
-        // The label is drawn, inside the card, near the text origin. A scrap
-        // with no layout draws no text at all, so this ink can only be the
-        // placeholder.
-        let body = Int(frame.minY)..<Int(frame.maxY)
-        let band = Self.textColumns(inCard: frame)
-        XCTAssertGreaterThan(item.inkPixels(rows: body, columns: band), 20,
-                             "an item node drew no placeholder label — nothing on the "
-                             + "canvas says what the card points at")
-        XCTAssertEqual(scrap.inkPixels(rows: body, columns: band), 0,
-                       "the comparison card must be blank, or the border check below "
-                       + "is measuring text")
-        // Bounded rather than pinned with a tolerance: the gap between a text
-        // origin and the first inked row is the font's own ascent slack, ~3 pt
-        // here, so any tolerance wide enough to survive a font metric change is
-        // also wide enough to swallow the card's 10 pt inset — an `accuracy: 8`
-        // version of this line passed with the label drawn at `frame.origin`.
-        let labelTop = CGFloat(try XCTUnwrap(item.inkRows(0..<285, columns: band).first))
-        let textOrigin = CanvasCardMetrics.textOrigin(inCard: frame).y
-        XCTAssertGreaterThanOrEqual(labelTop, textOrigin,
-                                    "the placeholder label is inked above the card's text "
-                                    + "origin — it must start where 1C-d will put the real "
-                                    + "title, or the placeholder and the thing replacing it "
-                                    + "sit on different rects")
-        XCTAssertLessThan(labelTop, textOrigin + 20,
-                          "the placeholder label has drifted down the card")
-
-        // The dashed border, against the solid one at the same geometry.
         let edge = Int(frame.minY) - 2...Int(frame.minY) + 2
         func topEdge(_ p: Page) -> [Int] {
             (Int(frame.minX) + 6..<Int(frame.maxX) - 6).map { x in
                 edge.map { Int(p.value(x: x, y: $0)) }.min() ?? 0
             }
         }
-        let pairs = Array(zip(topEdge(item), topEdge(scrap)))
-        XCTAssertGreaterThan(pairs.count { $0 > $1 + 3 }, 40,
-                             "the item card's top border has no gaps — a placeholder "
-                             + "must read as unfinished, and a solid stroke is what a "
-                             + "finished scrap gets")
-        XCTAssertGreaterThan(pairs.count { $0 + 3 < $1 }, 40,
-                             "the item card's border is nowhere heavier than a scrap's, "
-                             + "so it is not being stroked at all")
+        let itemEdge = topEdge(item), scrapEdge = topEdge(scrap)
+        XCTAssertEqual(itemEdge, scrapEdge,
+                       "an item node's border is not a scrap's — the dashes that said "
+                       + "\"placeholder\" belong to a card that no longer exists")
+        // Control: both are genuinely a border rather than both being nothing.
+        XCTAssertLessThan(try XCTUnwrap(itemEdge.min()), Int(item.paper) - 8,
+                          "neither card drew a top border at all, so the equality above "
+                          + "compares two blank strips")
 
-        // And NO resize mark, which is the drawn half of the 1C-c3 whole-branch
-        // Critical. The mark and the gesture are one decision — `begin` takes the
-        // corner for `.scrap` only — so a triangle on a page card is an
-        // affordance for a gesture that has been closed, and it is the one piece
-        // of chrome that invited the drag which took the card off the canvas.
+        // And the RESIZE MARK, on both. The mark and the gesture are one
+        // decision: `CanvasInteraction.begin` takes the corner of every card, so
+        // a page card drawn without the triangle would be silently resizable with
+        // nothing on it to say so — the same drift as the 1C-c3 Critical, running
+        // the other way.
         //
         // Sampled inside the triangle and ~4 pt clear of the border on both axes,
         // each card against its OWN body pixel, so the two papers cannot decide
         // the answer.
         let mark = CGPoint(x: frame.maxX - CanvasRenderer.resizeHandleSize / 3,
                            y: frame.maxY - CanvasRenderer.resizeHandleSize / 3)
-        let body2 = CGPoint(x: frame.midX, y: frame.midY)
+        let body = CGPoint(x: frame.midX, y: frame.midY)
         XCTAssertNotEqual(scrap.value(x: Int(mark.x), y: Int(mark.y)),
-                          scrap.value(x: Int(body2.x), y: Int(body2.y)),
+                          scrap.value(x: Int(body.x), y: Int(body.y)),
                           "precondition: the comparison SCRAP drew no resize mark "
                           + "either, so the assertion below would pass with the mark "
-                          + "drawn on everything")
+                          + "drawn on nothing at all")
+        XCTAssertNotEqual(item.value(x: Int(mark.x), y: Int(mark.y)),
+                          item.value(x: Int(body.x), y: Int(body.y)),
+                          "the page card is drawn with no resize triangle on it, while "
+                          + "CanvasInteraction.begin takes its corner — a card that "
+                          + "resizes with no mark to say so")
+        // ...and the SAME mark, not merely some ink in the corner: both cards are
+        // the same size here, so the triangle's own pixels must agree.
         XCTAssertEqual(item.value(x: Int(mark.x), y: Int(mark.y)),
-                       item.value(x: Int(body2.x), y: Int(body2.y)),
-                       "the page card is drawn with a resize triangle on it — the "
-                       + "affordance for a gesture that clears cachedHeight on a "
-                       + "node nothing re-measures, which takes the card off the "
-                       + "surface for good")
+                       scrap.value(x: Int(mark.x), y: Int(mark.y)),
+                       "the two kinds ink their corner differently, so the constant "
+                       + "the target is hit-tested from is not the one both are drawn "
+                       + "from")
     }
-
     /// FINDING 3, pinned. `ScrapLayout`'s ink defaults to `NSColor.labelColor`,
     /// which resolves against whatever appearance is current when the glyphs
     /// rasterise. That default is right ONLY because the paper under it is

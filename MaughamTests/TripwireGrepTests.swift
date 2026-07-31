@@ -1838,14 +1838,13 @@ final class TripwireGrepTests: XCTestCase {
     /// Source lines with comments removed, so a verb NAMED in a doc comment is
     /// not counted as a call. Both files in this census discuss the other verb
     /// at length in prose, which is the whole point of them.
+    ///
+    /// `SourceScan`'s, since 1C-d Task 11's fix round put the same filter under
+    /// `PromotionCommandTests`' wiring census — where it had been missing, and
+    /// where its absence was measured. One implementation for every census in
+    /// the suite; this stays as the name the callers here already use.
     private static func codeLines(of text: String) -> [String] {
-        text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { raw in
-            let line = String(raw)
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("//") || trimmed.hasPrefix("*") { return nil }
-            guard let comment = line.range(of: "//") else { return line }
-            return String(line[..<comment.lowerBound])
-        }
+        SourceScan.codeLines(of: text)
     }
 
     /// **A scene change made from another column must use `mutateFromInspector`,
@@ -1882,11 +1881,23 @@ final class TripwireGrepTests: XCTestCase {
     /// the window entirely. The inspector entries at least require the writer's
     /// hand to be in the window; this one needs nothing but a message on a socket
     /// while the writer types.
+    ///
+    /// 1C-d added the sixth, `CanvasDrop`, and it is the entry most likely to be
+    /// argued out of this list by its delivery site: a research row dropped on the
+    /// canvas *is* delivered to `CanvasView`. The site is not what this census
+    /// turns on — a bracket **of its own** is. A drag that starts in the binder
+    /// never reaches `CanvasView.handleClick`, which is the only caller of
+    /// `commitActiveEdit`, so double-click bare canvas, type, then drag a research
+    /// row in without touching the canvas again and the drop lands at depth 1 with
+    /// nothing on either side able to close the writer's "Edit Scrap". That is the
+    /// inspector's case exactly, arriving through a gesture instead of a button.
     func test_theCanvasUndoBracketIsReachedFromAnotherColumnByOneVerbOnly() throws {
         let census = try canvasBracketCensus(in: sourceDir)
         XCTAssertEqual(
             census,
-            ["CanvasClaudeWrite.swift": [Self.canvasOutsideVerb],
+            ["CanvasCapture.swift": [Self.canvasOutsideVerb],
+             "CanvasClaudeWrite.swift": [Self.canvasOutsideVerb],
+             "CanvasDrop.swift": [Self.canvasOutsideVerb],
              "LineInspector.swift": [Self.canvasOutsideVerb],
              "PromotionPerformer.swift": [Self.canvasOutsideVerb],
              "RegionInspector.swift": [Self.canvasOutsideVerb],
@@ -1909,6 +1920,12 @@ final class TripwireGrepTests: XCTestCase {
             + "one of its own to protect — so a write from a tool is the same "
             + "case as the inspector's, minus the requirement that anyone be "
             + "touching the app. That is CanvasClaudeWrite.swift above.\n\n"
+            + "CanvasCapture.swift is the same case from a third direction "
+            + "(1C-d, spec §8A.4): a capture sent from the Inbox pane in the "
+            + "other column, or DRAGGED out of it, and neither has a bracket of "
+            + "its own — a drag that begins in a pane never reaches "
+            + "`CanvasView.handleClick`, which is the only thing that runs "
+            + "`commitActiveEdit`.\n\n"
             + "From the canvas itself the answer is the opposite — refuse "
             + "mid-gesture (`deleteSelection`'s `isInGesture` guard), because "
             + "closing the bracket would end one the writer still holds.\n\n"
@@ -1991,5 +2008,603 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: `TreeWalk.mutate(` is a static call on another type and "
             + "must not be swept in — even though this file names CanvasModel, "
             + "which is the only pre-filter.")
+    }
+
+    // MARK: - The canvas's asset well has exactly one writer (1C-d Task 2)
+
+    /// The shared image saver. Three seams own a `<slug>_assets/` well and so
+    /// may call it; a fourth caller is a fourth answer to "where does a dropped
+    /// image live", which is the decision this seam exists to make once.
+    private static let imageSaverCall = "ImagePasteHandler.saveAndReference"
+
+    /// **Count the set, not this comment.** Each entry is a seam that owns a
+    /// well of its own:
+    ///
+    /// - `ProjectStore+Palette.swift` — a palette card's images.
+    /// - `ResearchNoteEditor.swift` — an image pasted into a research note.
+    /// - `ProjectStore+CanvasAssets.swift` — the canvas's ingestion pair.
+    ///
+    /// 1C-d's drop, browser-bitmap and inbox routes are all *callers* of the
+    /// third; none of them is a fourth entry here.
+    private static let imageSaverCallers: Set<String> = [
+        "ProjectStore+Palette.swift",
+        "ResearchNoteEditor.swift",
+        "ProjectStore+CanvasAssets.swift",
+    ]
+
+    /// Which production files call the shared saver, comments excluded.
+    private func imageSaverCallSites(in dir: URL) throws -> Set<String> {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var callers: Set<String> = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            guard url.lastPathComponent != "ImagePasteHandler.swift" else { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            if Self.codeLines(of: text).contains(where: { $0.contains(Self.imageSaverCall) }) {
+                callers.insert(url.lastPathComponent)
+            }
+        }
+        return callers
+    }
+
+    /// **Census, not a ban.** An equality against a non-empty expected set is
+    /// its own control: a pattern that matched nothing would fail here rather
+    /// than pass quietly, which is the failure mode a bare `isEmpty` census has.
+    ///
+    /// The defect it exists for is the one 1C-d's remaining tasks are each one
+    /// keystroke away from. Task 10 (research drag), Task 11 (Finder and
+    /// browser drops) and Task 12 (inbox → canvas) all need an image on disk,
+    /// and the two-line palette call above is the obvious thing to copy. Copied,
+    /// it puts the photograph in a second place — and "where an ingested image
+    /// lives" then has as many answers as there are routes, none of which the
+    /// writer can see until a project is moved and half the cards are blank.
+    func test_theSharedImageSaverIsCalledFromTheSeamsThatOwnAWell() throws {
+        XCTAssertEqual(try imageSaverCallSites(in: sourceDir), Self.imageSaverCallers,
+            "The set of files calling \(Self.imageSaverCall) changed. If this is a "
+            + "canvas route (a drop, a browser bitmap, an inbox promotion), call "
+            + "ProjectStore.ingestCanvasAsset(image:)/(fileURL:) instead — the canvas "
+            + "decides where its images land in ONE place, and every route is a "
+            + "caller of that pair. If it is genuinely a new seam with a well of its "
+            + "own, add it to imageSaverCallers with a line saying which well.")
+    }
+
+    /// The well's name is **derived**, never spelled: `ImagePasteHandler`
+    /// builds `<slug>_assets` from `canvas.md`'s own filename, so
+    /// `canvas_assets/` falls out of `CanvasStore.scrapsRelativePath` with no
+    /// literal anywhere in production code. A hand-built
+    /// `appendingPathComponent("canvas_assets")` is the reach-around that
+    /// bypasses the pair without ever naming it — and it would keep working
+    /// right up until `canvas.md` moves, at which point the well and the file
+    /// it belongs to part company silently.
+    func test_theCanvasAssetWellIsDerivedAndNeverSpelledInCode() throws {
+        let offenders = try grepSwift(
+            in: sourceDir,
+            patterns: ["canvas_assets"],
+            excludeLine: { Self.isCommentLine($0) }
+        )
+        XCTAssertTrue(offenders.isEmpty,
+            "`canvas_assets` is spelled in production code. The well's name is derived "
+            + "from CanvasStore.scrapsRelativePath by ImagePasteHandler; build a path "
+            + "into it by calling ProjectStore.ingestCanvasAsset instead. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+
+        // Control: the SAME grep without the comment exclusion finds the doc
+        // comments that discuss the well. Without this, a typo in the pattern
+        // would leave the assertion above passing on a tree it never read.
+        XCTAssertFalse(try grepSwift(in: sourceDir, patterns: ["canvas_assets"]).isEmpty,
+            "Control: the pattern should still match the doc comments that name the "
+            + "well (CanvasItemReference, CanvasNode, CanvasRenderer). If it matches "
+            + "nothing at all, the tripwire above is reading an empty tree.")
+    }
+
+    /// Self-check: both halves FIRE on planted offenders. A ban that never
+    /// matches and a census that reads nothing look identical from the outside.
+    func test_canvasAssetWellTripwiresFireOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-canvas-assets-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct CanvasDropTarget {
+            /// A doc comment naming canvas_assets/ must NOT count.
+            func drop(_ image: NSImage, in projectURL: URL) throws {
+                let well = projectURL.appendingPathComponent("canvas_assets")
+                _ = try ImagePasteHandler.saveAndReference(
+                    image: image, forNoteAt: "canvas.md", in: projectURL)
+                _ = well
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("CanvasDropTarget.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let literalOffenders = try grepSwift(
+            in: tmp, patterns: ["canvas_assets"], excludeLine: { Self.isCommentLine($0) })
+        XCTAssertEqual(literalOffenders.count, 1,
+            "Self-check: exactly the hand-built path should be caught — the doc "
+            + "comment above it must not be. Offenders:\n"
+            + literalOffenders.joined(separator: "\n"))
+
+        XCTAssertEqual(try imageSaverCallSites(in: tmp), ["CanvasDropTarget.swift"],
+            "Self-check: a planted fourth caller of the shared saver should be "
+            + "recorded by the census.")
+    }
+
+    // MARK: - The canvas's external drop takes the provider route (1C-d Task 11)
+
+    /// The only route that lands a browser's image drag.
+    private static let providerDropToken = ".onDrop(of: [.fileURL, .image]"
+
+    /// The route that looks equivalent, compiles, reads correctly and **silently
+    /// rejects every browser image drag** — CoreTransferable fails with error 0:
+    /// nothing logged, nothing red, nothing on screen. A browser drags a
+    /// *rendered bitmap* and no file URL, so `URL.self` matches nothing on the
+    /// pasteboard.
+    private static let forbiddenDropToken = "dropDestination(for: URL"
+
+    /// Which files under `Maugham/Canvas/` name a token, comments excluded.
+    private func canvasFilesNaming(_ token: String) throws -> Set<String> {
+        try filesNaming(token, under: sourceDir.appendingPathComponent("Canvas", isDirectory: true))
+    }
+
+    private func filesNaming(_ token: String, under dir: URL) throws -> Set<String> {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var hits: Set<String> = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            if Self.codeLines(of: text).contains(where: { $0.contains(token) }) {
+                hits.insert(url.lastPathComponent)
+            }
+        }
+        return hits
+    }
+
+    /// **Census over a required token plus a ban over a forbidden one**, because
+    /// the failure is not a crash but a gesture that stops working.
+    ///
+    /// The external half of the canvas's drop target has to be `[.fileURL,
+    /// .image]` providers routed through `DropClassification`: a browser image
+    /// drag carries a rendered bitmap rather than a file URL, so a
+    /// `.dropDestination(for: URL.self)` written in its place accepts the Finder
+    /// drag, rejects the browser one, and reports nothing at all about it. That is
+    /// this task's named failure, and no runtime test in this repo can see it —
+    /// SwiftUI's drop delivery has no seam a test can post a drag session into,
+    /// which is why Task 10's mount is censused too.
+    ///
+    /// **Count the set, not this comment.** A second canvas surface that grows a
+    /// file-or-image drop belongs in the expected set with a line saying why.
+    func test_theCanvasExternalDropUsesTheProviderRouteAndNeverAUrlDestination() throws {
+        XCTAssertEqual(try canvasFilesNaming(Self.providerDropToken), ["CanvasView.swift"],
+            "`\(Self.providerDropToken)` is the canvas's external drop target. If it "
+            + "vanished, a photograph dragged from the Finder or a browser now lands "
+            + "nowhere; if a second file grew one, add it here with its reason.")
+
+        XCTAssertTrue(try canvasFilesNaming(Self.forbiddenDropToken).isEmpty,
+            "`\(Self.forbiddenDropToken)` is in Maugham/Canvas/. A browser image drag "
+            + "carries a rendered bitmap and no file URL, so that modifier rejects it "
+            + "with CoreTransferable error 0 — nothing logged, nothing red, nothing on "
+            + "screen. Route through [.fileURL, .image] providers and "
+            + "DropClassification instead.")
+
+        // Control: the scan really is reading a live tree. Task 10's internal
+        // drag uses `String.self` and is expected to be there — if THIS finds
+        // nothing, the two assertions above are a search over an empty directory.
+        XCTAssertEqual(try canvasFilesNaming(".dropDestination(for: String.self)"),
+                       ["CanvasView.swift"],
+            "Control: the internal research drag's modifier should still be found. "
+            + "If it is not, this census is reading nothing.")
+    }
+
+    /// Self-check: both halves fire on planted offenders, and neither counts a
+    /// doc comment. A ban that never matches and a census that reads nothing look
+    /// identical from the outside.
+    func test_theCanvasDropRouteTripwiresFireOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-canvas-drop-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct PlantedCanvas: View {
+            var body: some View {
+                Color.clear
+                    // A doc comment naming .dropDestination(for: URL.self) must NOT count.
+                    .dropDestination(for: URL.self) { urls, _ in true }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("PlantedCanvas.swift"),
+                  atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(try filesNaming(Self.forbiddenDropToken, under: tmp),
+                       ["PlantedCanvas.swift"],
+            "Self-check: the planted URL destination should be caught.")
+        XCTAssertTrue(try filesNaming(Self.providerDropToken, under: tmp).isEmpty,
+            "Self-check: a tree with no provider-route drop should census as empty — "
+            + "which is what the real assertion above would look like if the modifier "
+            + "were deleted from CanvasView.")
+
+        try """
+        // .onDrop(of: [.fileURL, .image], isTargeted: nil) named in a comment.
+        struct CommentOnly: View { var body: some View { Color.clear } }
+        """.write(to: tmp.appendingPathComponent("CommentOnly.swift"),
+                  atomically: true, encoding: .utf8)
+        XCTAssertTrue(try filesNaming(Self.providerDropToken, under: tmp).isEmpty,
+            "Self-check: a comment naming the token must not satisfy the census — "
+            + "otherwise a file that only DISCUSSES the route would pass for one "
+            + "that mounts it.")
+    }
+
+    // MARK: - Where both drop kinds meet, the string one goes first (1C-d Task 11)
+
+    private static let stringDropToken = ".dropDestination(for: String.self)"
+
+    /// Where `token` first appears in the **code** of `text`, as an index into
+    /// its code lines, or nil if it never does. Comments are excluded because
+    /// every file in this census discusses both tokens at length in the prose
+    /// above them.
+    private func firstCodeLine(of token: String, in text: String) -> Int? {
+        SourceScan.codeLines(of: text).firstIndex { $0.contains(token) }
+    }
+
+    /// **Every view that mounts BOTH a `String` drop destination and a provider
+    /// `.onDrop` must mount the string one FIRST.** Name the members; a count
+    /// would be a prose count.
+    ///
+    /// - `Maugham/Canvas/CanvasView.swift` — the canvas's internal research drag
+    ///   and its external photograph drop.
+    /// - `Maugham/Views/CollectionResearchPane.swift` — the same pairing **twice**
+    ///   (`sharedSection`, `pieceSection`); this census only sees the first of
+    ///   each token, which is why the swap was made in both.
+    /// - `Maugham/Views/ResearchRow.swift` — has always had it right, and is the
+    ///   only member whose order was ever validated by use.
+    private static let bothDropKinds: Set<String> = [
+        "CanvasView.swift",
+        "CollectionResearchPane.swift",
+        "ResearchRow.swift",
+    ]
+
+    /// Which files under `dir` name **both** drop tokens in code.
+    private func filesMountingBothDropKinds(under dir: URL) throws -> Set<String> {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var hits: Set<String> = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            if firstCodeLine(of: Self.stringDropToken, in: text) != nil,
+               firstCodeLine(of: Self.providerDropToken, in: text) != nil {
+                hits.insert(url.lastPathComponent)
+            }
+        }
+        return hits
+    }
+
+    /// **`.dropDestination(for: String.self)` must be mounted BEFORE
+    /// `.onDrop(of: [.fileURL, .image])`, and the other way round is a shipped
+    /// bug rather than a style question.**
+    ///
+    /// `.onDrop(of:)` claims a drag session **on hover, before any payload is
+    /// examined**, so a string destination mounted after it is never offered the
+    /// drop. That is not deduced — it is what two smokes found. On the canvas: a
+    /// Finder photograph landed while a research drag and an inbox drag did
+    /// nothing whatever, with the Inbox's "Send to Canvas" *command* working
+    /// throughout, which is what identified the modifiers rather than the
+    /// routers. In a Collection, one task later: *"I can't drag into the space
+    /// between lines but can onto either line"* — the same defect, latent for as
+    /// long as it shipped because every row carries a destination of its own
+    /// nested inside the dead one.
+    ///
+    /// **The evidence lesson, recorded because it was got wrong in this task's
+    /// own review.** When Task 11 looked for precedent, `CollectionResearchPane`
+    /// was read as *supporting* the reversed order — a shipped surface with "an
+    /// observed depth rule". It was a second instance of the same bug. The only
+    /// validated precedent was `ResearchRow`, whose order is exercised every time
+    /// anyone drags anything in the binder. **A shipped surface is not evidence
+    /// that its arrangement is correct when the wrong arrangement fails
+    /// silently** — and this pairing fails silently by construction.
+    ///
+    /// **A census rather than a per-file pin**, because the defect has now shipped
+    /// twice in one codebase and been argued *for* once on false evidence. It is
+    /// also the only instrument available: SwiftUI's drop delivery has no seam a
+    /// test can post a session into — the reason both instances reached a smoke —
+    /// so every other test in the repo is green under either order.
+    ///
+    /// **No general depth rule should be read off this.** `ResearchView` and
+    /// `PaletteCardEditor` mount the provider `.onDrop` with no typed destination
+    /// beside it at all. The *pairing* is what matters, not which kind goes
+    /// outermost.
+    func test_whereBothDropKindsMeetTheStringDestinationIsMountedFirst() throws {
+        XCTAssertEqual(try filesMountingBothDropKinds(under: sourceDir),
+                       Self.bothDropKinds,
+            "The set of views mounting both drop kinds changed. A new one inherits "
+            + "this ordering rule; add it here with its reason, and check the order "
+            + "before you do.")
+
+        for file in Self.bothDropKinds.sorted() {
+            let url = try XCTUnwrap(
+                FileManager.default.enumerator(at: sourceDir, includingPropertiesForKeys: nil)?
+                    .compactMap { $0 as? URL }
+                    .first { $0.lastPathComponent == file },
+                "\(file) is named in the census but is not in the tree")
+            let text = try String(contentsOf: url, encoding: .utf8)
+            // Both tokens must still be there — an ordering check over a token
+            // that is absent is satisfied by nothing at all.
+            XCTAssertNotNil(firstCodeLine(of: Self.stringDropToken, in: text),
+                            "\(file) lost its string drop destination")
+            XCTAssertNotNil(firstCodeLine(of: Self.providerDropToken, in: text),
+                            "\(file) lost its provider drop")
+
+            XCTAssertEqual(reversedDropPairings(in: text), [],
+                "\(file) mounts `.onDrop(of:)` before a string destination in the "
+                + "same chain. That modifier claims the drag session on hover, "
+                + "before the payload is examined, so the destination behind it "
+                + "never sees the drop — an internal drag does nothing at all, "
+                + "silently, while an external one still lands. Both shipped "
+                + "instances of this were found by a writer, not by a test. "
+                + "Offending `.onDrop` at code line(s) "
+                + "\(reversedDropPairings(in: text)).")
+        }
+    }
+
+    /// Code-line indices of every provider `.onDrop` that is followed by a string
+    /// destination **in the same modifier chain**.
+    ///
+    /// **Per chain rather than per file, and that is not fussiness.**
+    /// `CollectionResearchPane` carries the pairing **twice** and also has inner
+    /// destinations on its rows, its headers and its empty states — the first
+    /// string destination in that file sits at the top, before any `.onDrop`, so
+    /// a first-index comparison passes there no matter what the section-level
+    /// chains do. Reversing only the second pairing would have been invisible to
+    /// the check this replaced; caught while writing the disable experiment for
+    /// it.
+    ///
+    /// "Same chain" is same indentation **plus a leading dot**: a modifier's own
+    /// closure body is indented further, and the chain ends either when
+    /// indentation drops below the modifier's own or when a line at that level
+    /// starts something that is not a modifier.
+    ///
+    /// **Both halves of that predicate were measured, and each was wrong on its
+    /// own.** With only the indentation rule the scan walks out of one chain into
+    /// the next sibling view's at the same level and reports a correct chain as
+    /// an offender (this test's two-chain fixture: two offences over one real
+    /// one). With a leading-dot rule alone it stops at the `}` that closes the
+    /// previous modifier's closure — which sits at exactly the chain's own indent
+    /// — so **no multi-line modifier is ever scanned past**, and the real
+    /// reversed pairing in `CollectionResearchPane` went undetected. That second
+    /// one was found by running the disable experiment rather than by reading the
+    /// scanner, which is the whole reason the experiment is not optional.
+    private func reversedDropPairings(in text: String) -> [Int] {
+        let lines = SourceScan.codeLines(of: text)
+        func indent(_ line: String) -> Int { line.prefix { $0 == " " }.count }
+        var offenders: [Int] = []
+        for (i, line) in lines.enumerated() where line.contains(Self.providerDropToken) {
+            let level = indent(line)
+            var j = i + 1
+            while j < lines.count, indent(lines[j]) >= level {
+                if indent(lines[j]) == level {
+                    let trimmed = lines[j].trimmingCharacters(in: .whitespaces)
+                    // `}` closes the previous modifier's closure and the chain
+                    // continues through it; anything else at this level is a new
+                    // expression and the chain is over.
+                    guard trimmed.hasPrefix(".") || trimmed.hasPrefix("}") else { break }
+                    if trimmed.contains(Self.stringDropToken) {
+                        offenders.append(i)
+                        break
+                    }
+                }
+                j += 1
+            }
+        }
+        return offenders
+    }
+
+    /// Self-check: the order assertion FAILS on the reversed order, and passes on
+    /// the shipped one. A comparison between two indices is exactly the shape that
+    /// reads as green when one of the tokens is never found at all.
+    func test_theDropModifierOrderCheckFailsOnTheReversedOrder() throws {
+        let good = """
+        struct Good: View {
+            var body: some View {
+                Color.clear
+                    .dropDestination(for: String.self) { _, _ in true }
+                    .onDrop(of: [.fileURL, .image], isTargeted: nil) { _, _ in true }
+            }
+        }
+        """
+        let bad = """
+        struct Bad: View {
+            var body: some View {
+                Color.clear
+                    .onDrop(of: [.fileURL, .image], isTargeted: nil) { _, _ in true }
+                    .dropDestination(for: String.self) { _, _ in true }
+            }
+        }
+        """
+        XCTAssertEqual(reversedDropPairings(in: good), [],
+            "Self-check: the shipped order should offend nothing.")
+        XCTAssertFalse(reversedDropPairings(in: bad).isEmpty,
+            "Self-check: the reversed order — the one two smokes found broken — "
+            + "must be reported.")
+
+        // **The same pair with MULTI-LINE closures, which is the only shape that
+        // exists in production.** The single-line fixtures above cannot see the
+        // scanner's worst failure: the `}` closing a modifier's closure sits at
+        // the chain's own indent, and a scanner that stops there never reaches
+        // the next modifier at all. Measured — the real reversed pairing in
+        // `CollectionResearchPane` was invisible until this shape was covered.
+        let badMultiline = """
+        struct BadMultiline: View {
+            var body: some View {
+                Color.clear
+                .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+                    Task { await importExternal(providers) }
+                    return true
+                }
+                .dropDestination(for: String.self) { ids, _ in
+                    guard !ids.isEmpty else { return false }
+                    return true
+                }
+            }
+        }
+        """
+        XCTAssertFalse(reversedDropPairings(in: badMultiline).isEmpty,
+            "Self-check: the reversed pair with real multi-line closures must be "
+            + "reported. A scanner that treats the closing brace of the first "
+            + "modifier's closure as the end of the chain reports NOTHING here, "
+            + "and is blind to every production instance.")
+
+        XCTAssertEqual(reversedDropPairings(in: """
+            struct GoodMultiline: View {
+                var body: some View {
+                    Color.clear
+                    .dropDestination(for: String.self) { ids, _ in
+                        guard !ids.isEmpty else { return false }
+                        return true
+                    }
+                    .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+                        Task { await importExternal(providers) }
+                        return true
+                    }
+                }
+            }
+            """), [],
+            "Self-check: the SAME multi-line shape in the right order must offend "
+            + "nothing — or the assertion above is satisfied by a scanner that "
+            + "flags every pairing.")
+
+        // **The case that motivated the per-chain scan**: two pairings in one
+        // file, with an unrelated string destination above both. A first-index
+        // comparison passes this happily; only the second chain is reversed.
+        let twoChains = """
+        struct TwoSections: View {
+            var body: some View {
+                VStack {
+                    Text("empty state")
+                        .dropDestination(for: String.self) { _, _ in true }
+                }
+                .dropDestination(for: String.self) { _, _ in true }
+                .onDrop(of: [.fileURL, .image], isTargeted: nil) { _ in true }
+                VStack { Text("second") }
+                .onDrop(of: [.fileURL, .image], isTargeted: nil) { _ in true }
+                .dropDestination(for: String.self) { _, _ in true }
+            }
+        }
+        """
+        XCTAssertEqual(reversedDropPairings(in: twoChains).count, 1,
+            "Self-check: exactly the SECOND chain is reversed and must be reported. "
+            + "The check this replaced compared first occurrences and passed here — "
+            + "which is the shape `CollectionResearchPane` actually has.")
+        let firstString = try XCTUnwrap(firstCodeLine(of: Self.stringDropToken, in: twoChains))
+        let firstProvider = try XCTUnwrap(firstCodeLine(of: Self.providerDropToken, in: twoChains))
+        XCTAssertLessThan(firstString, firstProvider,
+            "Self-check, and the point: by first occurrence this file looks correct.")
+
+        // A file with only one of the two tokens is not this rule's business —
+        // `ResearchView` and `PaletteCardEditor` mount the provider drop alone.
+        XCTAssertEqual(reversedDropPairings(in: """
+            struct Half: View {
+                var body: some View {
+                    Color.clear.onDrop(of: [.fileURL, .image], isTargeted: nil) { _, _ in true }
+                }
+            }
+            """), [],
+            "Self-check: a provider drop with no string destination after it is "
+            + "not an offence — the pairing is what the rule is about.")
+    }
+
+    // MARK: - Nothing scanned may be truncated by an unclosed block (1C-d Task 11)
+
+    /// Every `.swift` file under `dir` whose `SourceScan` run ends still inside a
+    /// `/* … */` block — meaning some tail of it was invisible to every census
+    /// that reads through that type.
+    private func truncatedFiles(under dir: URL) throws -> Set<String> {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var hits: Set<String> = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            if SourceScan.endsInsideABlock(try String(contentsOf: url, encoding: .utf8)) {
+                hits.insert(url.lastPathComponent)
+            }
+        }
+        return hits
+    }
+
+    /// **A file that opens a `/*` it never closes is invisible from there on, and
+    /// for a FORBIDDEN-token ban that failure is silent.**
+    ///
+    /// The stripper cannot tell a real block comment from `/*` inside a string
+    /// literal or from prose naming a path like `.maugham/sessions/*`, and files
+    /// in this repo trip it today for both of those reasons — including this
+    /// file's own `hasPrefix("/*")`, and including trees this guard does not
+    /// assert over. **The assertions below are the count**; a figure written here
+    /// would be a prose count inside a safety instrument, guarded by nothing.
+    /// Teaching it to lex Swift strings is the other answer and it is worse: a
+    /// half-lexer with nothing to test it against, guarding a suite of censuses.
+    ///
+    /// **So this is a guard rather than a cleverer stripper**, and it is aimed
+    /// where the failure direction is quiet. A *required*-token census cannot be
+    /// harmed silently — a hidden token reads as missing, which is red. A *ban*
+    /// can: hide the offender and it passes. The only ban that reads through
+    /// `SourceScan` scans `Maugham/Canvas/`, so that tree must hold at **zero**,
+    /// and one `/// … /some/path/*` written above a
+    /// `.dropDestination(for: URL.self)` is all it would take.
+    func test_noScannedFileIsTruncatedByAnUnclosedBlockComment() throws {
+        XCTAssertEqual(try truncatedFiles(under: sourceDir
+                        .appendingPathComponent("Canvas", isDirectory: true)), [],
+            "A file under Maugham/Canvas/ ends its scan inside an unclosed /* — so "
+            + "everything after that point is invisible to "
+            + "test_theCanvasExternalDropUsesTheProviderRouteAndNeverAUrlDestination, "
+            + "whose BAN half would then pass while the offender sits in the hidden "
+            + "tail. The usual cause is prose naming a path that ends in /*, or a "
+            + "string literal containing one. Close it, or reword it.")
+
+        // The whole tree `SourceScan`'s other readers walk. Both censuses over it
+        // are equality-based, so truncation there shows up red rather than quiet
+        // — this is a census with its reasons rather than a ban, and its job is
+        // to make a THIRD arrival a decision somebody takes on purpose.
+        XCTAssertEqual(try truncatedFiles(under: sourceDir),
+                       ["MaughamSidecarPath.swift", "EPUBZipPackager.swift"],
+            "The set of production files invisible past an unclosed /* changed. "
+            + "Both known entries are doc comments naming a path (`.maugham/…/*`, "
+            + "`OEBPS/*`) and neither contains a call any census over this tree "
+            + "looks for. If a new file joins them, check what is in its hidden "
+            + "tail before adding it here.")
+
+        // **Control: the detector fires.** A guard that cannot report a positive
+        // is indistinguishable from one reading an empty tree — which is the
+        // shape this whole round has been about.
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-truncation-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try """
+        /// A doc comment naming .maugham/sessions/* opens a block that never closes.
+        struct Planted { func drop() { _ = "dropDestination(for: URL.self)" } }
+        """.write(to: tmp.appendingPathComponent("Planted.swift"),
+                  atomically: true, encoding: .utf8)
+        XCTAssertEqual(try truncatedFiles(under: tmp), ["Planted.swift"],
+            "Control: a planted unclosed /* should be reported.")
+        XCTAssertTrue(try filesNaming("dropDestination(for: URL", under: tmp).isEmpty,
+            "Control, and the reason this guard exists: the planted file's SECOND "
+            + "line names the forbidden token in code, and the ban cannot see it "
+            + "because the first line hid the rest of the file.")
+    }
+
+    /// A whole-line comment, in either spelling. Shared by the canvas-asset
+    /// tripwires, which both guard tokens their own documentation names.
+    private static func isCommentLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//") || trimmed.hasPrefix("/*") || trimmed.hasPrefix("*")
     }
 }

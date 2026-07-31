@@ -43,6 +43,13 @@ struct PromotionResult: Equatable {
         case .paletteCard: return "Promoted to the palette card “\(title)”." + links
         case .intentStatement: return "Added to \(plan.destinationDescription)."
         case .wikiLink: return "Wrote the link into the note “\(title)”."
+        // **Both say "a copy", because that is the fact a writer will test.**
+        // The picture stays on the canvas and the original file stays in
+        // `canvas_assets/` (§6.1's ruling 1) — a sentence reading "Moved" or
+        // "Filed" would describe the variant this design rejected.
+        case .researchAsset: return "Copied the picture into research as “\(title)”."
+        case .paletteCardImage:
+            return "Added a copy of the picture to the palette card “\(title)”."
         }
     }
 }
@@ -68,13 +75,50 @@ enum PromotionFailure: LocalizedError, Equatable {
     /// under: the piece is gone (title nil), or it is a Collection reference
     /// piece, which keeps its research in its own project.
     ///
-    /// **Two axes, because four different acts fix it.** The title says what went
-    /// wrong; `inherited` says *whose* association it is, and that is the term
-    /// that stops the sentence pointing at a control the writer cannot use — a
-    /// card that lives in a region whose piece was deleted carries nothing
-    /// itself, so "clear the association" names a Picker already reading None
-    /// while the stale field sits on the region.
-    case pieceIsNotAResearchTarget(title: String?, inherited: Bool)
+    /// **Three axes, because the fix half has to name a control that exists.**
+    /// The title says what went wrong; `inherited` says *whose* association it
+    /// is — a card that lives in a region whose piece was deleted carries nothing
+    /// itself, so "clear the association" would name a Picker already reading
+    /// None while the stale field sits on the region.
+    ///
+    /// **`canCarryItsOwnPiece` is the third, and it is the same rule failing one
+    /// arm over** (1C-d Task 8, review M2). The inherited half offered *"or give
+    /// this card a piece of its own"*, which is a real act for a scrap and names
+    /// **nothing at all** for an owned picture: `ItemInspector` has no Piece
+    /// picker, because there is nothing about a photograph to associate. Reached
+    /// by promoting a picture whose home region's piece has since been deleted or
+    /// converted. `Promotion.canCarryItsOwnPiece(_:in:)` is the one rule and both
+    /// callers ask it.
+    case pieceIsNotAResearchTarget(title: String?, inherited: Bool,
+                                   canCarryItsOwnPiece: Bool)
+    /// A picture row whose plan carries no `PromotedPicture` — the node stopped
+    /// being an owned item between the sheet opening and Commit, or a caller
+    /// hand-built the plan. It refuses rather than reaching into the scene for a
+    /// substitute file.
+    case nothingToCopy
+    /// A file named by the plan is not on disk. Reachable: the well is content
+    /// the writer can delete, and `canvas_assets/` and `research/` are ordinary
+    /// folders in their project.
+    ///
+    /// **It carries its SOURCE, and that is `emptyBody`'s axis arriving for
+    /// `emptyBody`'s reason** (1C-d Task 12a, review Minor 1). The sentence read
+    /// "The picture this **card** shows…" and became reachable from a REGION in
+    /// the same task — where the writer selected a region, has not selected any
+    /// card, and the only identifier the sentence offers is a minted path that
+    /// `CanvasItemFacts.ownedTitle` argues at length is "the clock reading at the
+    /// moment they dropped it" rather than the writer's word for the picture. So
+    /// it pointed at an unidentifiable card with a filename this codebase has
+    /// already ruled meaningless.
+    ///
+    /// That is the class this area has now fixed three times: `emptyBody` gained
+    /// `PromotionSource.noun` for "There is nothing in this **card** to promote"
+    /// said over a region, `pieceIsNotAResearchTarget` gained its third axis for
+    /// "a refusal may only name a control that is on the arm the writer is
+    /// looking at", and this is the same rule on the same file's other sentence.
+    case pictureIsGone(path: String, source: PromotionSource)
+    /// The chosen palette card is no longer in the project. The picker was built
+    /// from a snapshot taken when the sheet opened.
+    case paletteCardIsGone
 
     var errorDescription: String? {
         switch self {
@@ -92,18 +136,59 @@ enum PromotionFailure: LocalizedError, Equatable {
         case .unreadableFile(let path):
             return "Maugham could not read what is already in \(path), so it did not "
                 + "write over it."
-        case .pieceIsNotAResearchTarget(let title, let inherited):
-            // Composed from two halves rather than written out four times: what
-            // is wrong, then the act that fixes it. The second half is the one
-            // that has to be right — a refusal naming a control the writer
-            // cannot use leaves them stuck at it.
+        case .pieceIsNotAResearchTarget(let title, let inherited, let canCarryItsOwnPiece):
+            // Composed from halves rather than written out six times: what is
+            // wrong, then the act that fixes it. The second half is the one that
+            // has to be right — a refusal naming a control the writer cannot use
+            // leaves them stuck at it.
             let problem = title.map { "“\($0)” cannot keep research of its own" }
                 ?? "The piece this is associated with is no longer in the project"
-            let fix = inherited
-                ? "That piece comes from the region this card lives in — change "
+            let fix: String
+            switch (inherited, canCarryItsOwnPiece) {
+            case (true, true):
+                fix = "That piece comes from the region this card lives in — change "
                     + "it there, or give this card a piece of its own."
-                : "Pick another piece in the inspector, or clear the association."
-            return problem + ", so the note has nowhere to go. " + fix
+            case (true, false):
+                // An owned picture: the region's picker is the ONLY control, and
+                // offering a second one it does not have is what this axis exists
+                // to prevent.
+                fix = "That piece comes from the region this lives in — change it there."
+            case (false, _):
+                fix = "Pick another piece in the inspector, or clear the association."
+            }
+            // **"it" rather than "the note", since 1C-d.** This sentence is
+            // reached by a research ASSET as well now (`Promotion.scopedTargets`),
+            // and a picture told its *note* has nowhere to go is a refusal
+            // describing something the writer is not doing.
+            return problem + ", so there is nowhere to file it. " + fix
+        case .nothingToCopy:
+            return "There is no picture on this card to promote."
+        case .pictureIsGone(let path, let source):
+            // The SUBJECT differs by source and the rest of the sentence does
+            // not — `pieceIsNotAResearchTarget`'s halves, one failure over.
+            let subject: String
+            switch source {
+            case .scrap:
+                // A card the writer selected and is looking at, which is what
+                // makes "this card" exact rather than sloppy: a card holds a
+                // picture, and the two can be spoken of separately
+                // (`PromotionSource.noun`'s ruling).
+                subject = "The picture this card shows"
+            case .region:
+                // They selected a region and no card, so no card is "this" one.
+                subject = "A picture in this region"
+            case .line:
+                // **Unreachable, and neutral rather than borrowing either
+                // noun**: a line's plan carries no pictures, and a later row
+                // that could reach this must not silently inherit a subject
+                // that is wrong for it.
+                subject = "A picture this would copy"
+            }
+            return subject + " is no longer in the project (\(path)), so there "
+                + "is nothing to copy."
+        case .paletteCardIsGone:
+            return "That palette card is no longer in the project, so the picture "
+                + "has nowhere to go."
         }
     }
 }
@@ -181,12 +266,38 @@ struct PromotionPerformer {
         case .paletteCard: return try await performPaletteCard(plan)
         case .intentStatement: return try await performCraftIntent(plan)
         case .wikiLink: return try await performWikiLink(plan)
+        case .researchAsset: return try await performResearchAsset(plan)
+        case .paletteCardImage: return try await performPaletteCardImage(plan)
         }
     }
 
     // MARK: - Validation
 
     private func validate(_ plan: PromotionPlan) throws {
+        // **Every file this plan copies, whichever row planned it** — the two
+        // picture rows plan one and a region's palette row plans as many as it
+        // holds (1C-d Task 12a). One spelling rather than one per arm: the well
+        // and `research/` are both ordinary folders in the writer's project, so
+        // a node naming a file that is gone is a real state on every row that
+        // copies one, and "validate first, write second" is what keeps a
+        // half-furnished palette card off the wall. `Promotion` cannot
+        // pre-filter these — it is the pure half and touches no disk — so a
+        // refusal here is the only honest answer to a preview that named the
+        // picture.
+        //
+        // **Above the switch, and that position is the refusal ORDER** (review
+        // Minor 3). Below it, a `.paletteCardImage` plan whose file and whose
+        // card had both gone met `paletteCardIsGone` first — so the writer
+        // picked another card and met `pictureIsGone` on the next attempt, two
+        // round trips for one dead promotion. A missing file kills the promotion
+        // whatever card is chosen; a missing card does not. The more fundamental
+        // refusal goes first, and `test_aPromotionWhosePictureAndCardAreBothGone
+        // NamesThePictureFirst` pins it so the next hoist is a decision.
+        for picture in plan.pictures
+        where !FileManager.default.fileExists(atPath: assetURL(picture).path) {
+            throw PromotionFailure.pictureIsGone(path: picture.assetPath,
+                                                 source: plan.source)
+        }
         switch plan.producedKind {
         case .researchNote, .paletteCard:
             guard !plan.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -204,6 +315,24 @@ struct PromotionPerformer {
         case .wikiLink:
             guard plan.wikiLinkWrite != nil else { throw PromotionFailure.missingWikiLinkWrite }
             guard !plan.linkAlreadyPresent else { throw PromotionFailure.linkAlreadyPresent }
+        case .researchAsset, .paletteCardImage:
+            // **A FILE rather than a body, and that is why these are their own
+            // arms.** A picture has no prose: routed through the arm above, every
+            // owned promotion would refuse with `emptyBody` — "There is nothing
+            // in this card to promote." — for the one thing that is not true of
+            // it, and in the wrong noun besides
+            // (`PromotionSource.noun`'s own reachability argument).
+            let picture = try requirePicture(plan)
+            if plan.producedKind == .paletteCardImage {
+                // Read back off the live store, not off the plan: the picker was
+                // built from a snapshot taken when the sheet opened, and
+                // `addImage` would otherwise throw `structureMissing` — a
+                // store-shaped sentence naming nothing the writer can act on —
+                // AFTER the flush.
+                guard let cardID = picture.paletteCardID,
+                      store.loadPaletteCards().contains(where: { $0.researchItemId == cardID })
+                else { throw PromotionFailure.paletteCardIsGone }
+            }
         }
         if case .update(let itemID, _) = plan.mode,
            TreeWalk.find(id: itemID, in: store.manifest.research) == nil {
@@ -220,7 +349,8 @@ struct PromotionPerformer {
         // been past the flush.
         if let failure = Promotion.pieceFailure(
             target: plan.producedKind, mode: plan.mode,
-            piece: PromotionPiece.resolve(for: plan.source, in: model.scene, store: store)) {
+            piece: PromotionPiece.resolve(for: plan.source, in: model.scene, store: store),
+            canCarryItsOwnPiece: Promotion.canCarryItsOwnPiece(plan.source, in: model.scene)) {
             throw failure
         }
     }
@@ -242,6 +372,14 @@ struct PromotionPerformer {
         case .craftIntent:
             throw PromotionFailure.artifactIsADifferentKind(itemID: itemID,
                                                             found: "the project's craft intent")
+        case .researchAsset:
+            // Not reachable from the UI — nothing offers an Update against a
+            // picture's mark — and the cheapest possible insurance against the
+            // one thing below this line: `updateResearchItem` renames the backing
+            // file and `writeBody` writes over it, which for an asset means a
+            // `.png` renamed to a card's first line with prose inside it.
+            throw PromotionFailure.artifactIsADifferentKind(itemID: itemID,
+                                                            found: "a picture")
         }
     }
 
@@ -329,6 +467,25 @@ struct PromotionPerformer {
             researchItemId: itemID, title: plan.title, kind: plan.paletteKind,
             swatches: current.swatches, notes: current.notes,
             imagePaths: current.imagePaths, body: plan.body))
+        // **The pictures in the region, AFTER that write and never before**
+        // (spec §6's 2026-07-29 amendment, built 1C-d Task 12a). The line above
+        // writes the whole card from `current`, which was read before any
+        // append — so appending first and updating second would carry the stale
+        // image list back over the new one and drop every picture this promotion
+        // just added. `addImage` reads the card fresh and appends, so each of
+        // these lands on top of everything already there: the card's own
+        // pictures, and the ones before it in the region's reading order.
+        //
+        // **Append, never replace** — the 1C-c2 Critical's exact shape is a
+        // promotion that rewrites a palette card's backing file and takes its
+        // swatches, kind, sensory notes and image references with it, and ⌘Z
+        // gives back only the mark. `PromotionPicturePerformerTests` and
+        // `PromotionRegionPicturePerformerTests` both assert the card's earlier
+        // images survive rather than assuming it.
+        for picture in plan.pictures {
+            _ = try await store.addImage(toPaletteCard: itemID,
+                                         fileURL: assetURL(picture))
+        }
 
         let title = TreeWalk.find(id: itemID, in: store.manifest.research)?.title ?? plan.title
         mark(itemID, for: plan.source,
@@ -387,6 +544,112 @@ struct PromotionPerformer {
         // No mark: a line's artifact is text inside somebody else's note, and a
         // flag on the line could disagree with the file.
         return PromotionResult(createdItemID: link.intoItemID, title: item.title, writtenLinks: [])
+    }
+
+    // MARK: - The picture (spec §6's 2026-07-30 amendment)
+
+    /// File a COPY of the owned picture in `research/`.
+    ///
+    /// **A copy, and the node stays owned** (§6.1's ruling 1). Nothing here
+    /// touches `canvas_assets/` or the node's kind: `createResearchAsset` copies
+    /// through `DocumentStore.executeCopy`, so the canvas keeps its picture and
+    /// research gets one of its own — exactly as promoting a scrap leaves the
+    /// card's words on the canvas. Handing the file over instead would make this
+    /// the one verb on the surface that moves, and a writer who promoted and
+    /// then pressed ⌘Z would be relying on a file move to reverse.
+    ///
+    /// **The scope is `Promotion.piece`'s, unchanged.** `createResearchAsset` and
+    /// `createResearchNote` are two arms of the same `ResearchScope.route`, so a
+    /// picture in a region bound to a chapter is filed the way a note from that
+    /// region would be — including the `linkResearch` record on a novel, which
+    /// the router writes itself.
+    private func performResearchAsset(_ plan: PromotionPlan) async throws -> PromotionResult {
+        let picture = try requirePicture(plan)
+        let item = try await store.createResearchAsset(scope: scope(for: plan.source),
+                                                       fromURL: assetURL(picture))
+        // The MARK, because this promotion produced an artifact of its own —
+        // "I am this thing" is true of it, which is what `promotedItemID` means.
+        mark(item.id, for: plan.source, named: Self.pictureStep,
+             contributors: plan.contributors)
+        return PromotionResult(createdItemID: item.id, title: item.title, writtenLinks: [])
+    }
+
+    /// Append a COPY of the owned picture to an existing palette card's image
+    /// well.
+    ///
+    /// **It records a CONTRIBUTION and never the mark, and that is the whole of
+    /// this method's design** (spec §6.3's rule, arriving on a new row).
+    /// `promotedItemID` means *"I am this artifact"* and
+    /// `Promotion.existingArtifact` reads it — only it — to offer **Rewrite**.
+    /// A picture stamped with the palette card's id would therefore offer, on
+    /// the second promotion, to rewrite a card holding swatches, sensory notes
+    /// and other images with one photograph: the 1C-c2 Critical exactly, and the
+    /// failure §6's amendment names. What is true is that the picture is *in*
+    /// that card, alongside whatever else is, which is what the contribution
+    /// record says.
+    ///
+    /// **The flush is not optional**, for `performPaletteCard`'s reason: the
+    /// palette seam does not flush, and a queued 750 ms save for this card — the
+    /// writer was editing it in the research pane a moment ago — would otherwise
+    /// fire after the append and restore the pre-append image list.
+    private func performPaletteCardImage(_ plan: PromotionPlan) async throws -> PromotionResult {
+        let picture = try requirePicture(plan)
+        guard let cardID = picture.paletteCardID else { throw PromotionFailure.paletteCardIsGone }
+        try? await store.documentStore?.flushPendingSave()
+        // `addImage(toPaletteCard:fileURL:)` — the ingestion pair §3.1's
+        // amendment names, and the same call `InboxStore.promoteToPaletteCard`
+        // makes for a photograph one hop earlier. It copies into the card's
+        // `<slug>_assets/`, appends the path, and preserves everything else on
+        // the card; the canvas is a caller here, never a storage decision.
+        let card = try await store.addImage(toPaletteCard: cardID,
+                                            fileURL: assetURL(picture))
+        recordPicture(in: cardID, on: picture.node)
+        return PromotionResult(createdItemID: cardID, title: card.title, writtenLinks: [])
+    }
+
+    /// The undo step both picture rows register. One name, because the writer
+    /// took one action and reads this in the Edit menu.
+    private static let pictureStep = "Promote Picture"
+
+    /// The ONE picture the two picture rows promote.
+    ///
+    /// **`first` rather than an assertion that there is exactly one**, and the
+    /// refusal is for an EMPTY list rather than a missing value since 1C-d Task
+    /// 12a widened the field to a list for the region's row. Both of these rows
+    /// are planned by `picturePlan`, which builds a single-element list, so a
+    /// second element here is unreachable and a `count == 1` guard would be a
+    /// rule with no failure behind it. What IS reachable is empty — the node
+    /// stopped being an owned item between the sheet opening and Commit, or a
+    /// caller hand-built the plan — and this refuses rather than reaching into
+    /// the scene for a substitute file.
+    private func requirePicture(_ plan: PromotionPlan) throws -> PromotedPicture {
+        guard let picture = plan.pictures.first else { throw PromotionFailure.nothingToCopy }
+        return picture
+    }
+
+    /// The owned file, absolute. The stored path is project-relative and stays
+    /// that way — see `CanvasItemReference.owned(path:)` for what an absolute one
+    /// costs — so this is the one place it is resolved against the project.
+    private func assetURL(_ picture: PromotedPicture) -> URL {
+        store.url.appendingPathComponent(picture.assetPath)
+    }
+
+    /// **Stamp WITHOUT clearing, and that is the difference from `record`.**
+    /// A region's note is rewritten from its current members, so that path
+    /// clears every record naming the artifact before it stamps; an image well
+    /// is APPENDED to, and the card's earlier pictures are still in it. Routing
+    /// this through `record` would make the second picture promoted onto a card
+    /// erase the first one's record — a false sentence in a pane, which is the
+    /// bug §6.3 exists to remove.
+    ///
+    /// One `mutateFromInspector` bracket, so one ⌘Z takes the record back
+    /// (tripwire 32; the bracket cannot be `mutate`, and this can run while a
+    /// focused scrap holds "Edit Scrap" open).
+    private func recordPicture(in cardID: String, on node: CanvasNodeID) {
+        model.mutateFromInspector(Self.pictureStep) {
+            $0.setContributedItem(cardID, for: node)
+        }
+        model.bumpSceneRevision()
     }
 
     // MARK: - The offer (§6.1: may suggest, must never impose)
@@ -594,9 +857,40 @@ struct PromotionPerformer {
     /// what keeps the record meaning what it says. Not reachable from the UI
     /// today: `existingArtifact` offers an Update off `promotedItemID` alone
     /// (§6.3), so a scrap can only rewrite an artifact it produced itself.
+    /// **The clear is scoped to the artifact AND to what this path can have
+    /// written** (1C-d Task 8, review M1). A palette card now has two producers
+    /// with different semantics: a region rewrites one from its current members,
+    /// and a picture is *appended* to one. Scoped to the id alone, the sequence
+    /// is reachable and silent — promote region R to card P, promote an owned
+    /// picture onto P, then re-promote R with **Update**, and the picture's
+    /// record is cleared while its image is still in P's well. The pane then says
+    /// nothing about a photograph that is demonstrably on that card, which is
+    /// §6.3's own false-pane defect in its mild direction.
+    ///
+    /// **An item node is skipped, and 1C-d Task 12a changed the REASON without
+    /// changing the predicate — which is worth reading before touching either.**
+    /// It was "this path can never have stamped one": `contributors` came from
+    /// `Promotion.regionBodies`, which reads the scrap table and cannot see a
+    /// picture. That is now false — a region's palette promotion carries the
+    /// pictures in it and records them (spec §6.3's 2026-07-31 amendment) — and
+    /// the skip is nevertheless still right, for a stronger reason:
+    ///
+    /// **a picture's contribution is never undone by a rewrite, because the
+    /// image well is append-only for every producer.** `performPaletteCard`'s
+    /// update branch replaces the title, the kind and the BODY and carries
+    /// `current.imagePaths` across untouched; `addImage` appends. So a picture
+    /// that has since left the region still has its image on that card, and a
+    /// card whose words have left really has had them written out of the body.
+    /// The record follows what the artifact still CONTAINS, which is the rule
+    /// this whole function is an expression of — the id scope is the same rule
+    /// on the axis the kind cannot see.
+    ///
+    /// The stamp is deliberately not filtered: an item node in `contributors`
+    /// is a picture this promotion just copied, and it must record that.
     private static func record(_ itemID: String, contributors: [CanvasNodeID],
                                in scene: inout CanvasScene) {
-        for node in scene.unorderedNodes where node.contributedToItemID == itemID {
+        for node in scene.unorderedNodes
+        where node.contributedToItemID == itemID && node.kind.isScrap {
             scene.setContributedItem(nil, for: node.id)
         }
         for node in contributors { scene.setContributedItem(itemID, for: node) }

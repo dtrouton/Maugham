@@ -302,6 +302,66 @@ final class CanvasLineRenderTests: XCTestCase {
                       + "writer has to hunt for it")
     }
 
+    /// **`connectHandleRect` reserves room for the resize triangle on EVERY card,
+    /// and as of 1C-d Task 6 every card draws one** — so the subtraction is now
+    /// correct rather than merely harmless.
+    ///
+    /// It was recorded as a cosmetic wrong in 1C-c3 and left alone by Task 5 on
+    /// the strength of two measurements, which this re-does rather than quotes:
+    /// the clamp only bites below a card height of `2 * (resizeHandleSize +
+    /// connectHandleSize / 2)`, and a pictured item card is far above it. Fixing
+    /// it then would have been a change this task undid.
+    ///
+    /// **The no-overlap assertion below holds by exact TANGENCY, and that is the
+    /// design rather than a near miss.** On the 34 pt floor card the connect
+    /// target runs y 6–20 and the resize square y 20–34: they touch and do not
+    /// intersect, which is precisely what subtracting `resizeHandleSize` reserves.
+    /// It reads as though it has slack; it has none, and it should not. Do not
+    /// "fix" a 1 pt gap into the clamp — that would make the dot's placement stop
+    /// following from the one constant both marks are sized from.
+    func test_theConnectDotsReservationIsForAMarkEveryCardNowDraws() throws {
+        // Where the clamp begins to bite, as arithmetic: `y` is
+        // `min(midY - connectHandleSize / 2, maxY - resizeHandleSize -
+        // connectHandleSize)`, and the two are equal at this height.
+        let clampBitesBelow = 2 * (CanvasRenderer.resizeHandleSize
+                                   + CanvasRenderer.connectHandleSize / 2)
+        XCTAssertEqual(clampBitesBelow, 42, "the calibrated figure in Maugham/Canvas/AREA.md")
+
+        // A pictured item card — the ordinary one. A 4:3 photograph on a card at
+        // the default width, measured through the same function the canvas uses.
+        let pictured = CanvasCardMetrics.itemCardHeight(
+            forCardWidth: CanvasInteraction.defaultScrapWidth, pictureAspect: 4.0 / 3.0)
+        XCTAssertGreaterThan(pictured, clampBitesBelow,
+                             "a pictured item card is short enough for the clamp to "
+                             + "move its connect dot, which is not what AREA.md's "
+                             + "measurement says (\(pictured) pt)")
+        let picturedCard = CGRect(x: 0, y: 0, width: 240, height: pictured)
+        XCTAssertEqual(CanvasRenderer.connectHandleRect(inCard: picturedCard).midY,
+                       picturedCard.midY, accuracy: 0.001,
+                       "the clamp bit on a pictured item card")
+
+        // A label-only item card — the floor, and the one the clamp does move.
+        // What has to hold there is not that the dot is centred but that it is on
+        // the card and clear of the resize square the card now draws.
+        let floorCard = CGRect(x: 0, y: 0, width: 240,
+                               height: CanvasCardMetrics.itemLabelOnlyHeight)
+        XCTAssertLessThan(floorCard.height, clampBitesBelow,
+                          "control: the floor card is tall enough to escape the clamp, "
+                          + "so the assertions below are not exercising it")
+        let handle = CanvasRenderer.connectHandleRect(inCard: floorCard)
+        XCTAssertFalse(handle.isEmpty,
+                       "the floor-height item card lost its connect target entirely")
+        XCTAssertTrue(floorCard.contains(handle),
+                      "the clamp pushed the connect target off a floor-height item card")
+        XCTAssertFalse(handle.intersects(CGRect(x: floorCard.maxX - CanvasRenderer.resizeHandleSize,
+                                                y: floorCard.maxY - CanvasRenderer.resizeHandleSize,
+                                                width: CanvasRenderer.resizeHandleSize,
+                                                height: CanvasRenderer.resizeHandleSize)),
+                       "the connect target overlaps the resize square on a floor-height "
+                       + "item card — and that square is now a live target with a mark "
+                       + "on it, so one gesture takes the other's clicks")
+    }
+
     /// The target may be larger than the mark, and should be — the reason
     /// `CanvasInteractionTests.test_theUnmarkedHalfOfTheCornerSquareStillResizes`
     /// exists. A target slightly larger than its ink forgives a near miss, where

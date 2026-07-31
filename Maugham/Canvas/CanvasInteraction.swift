@@ -6,7 +6,15 @@ import QuartzCore
 struct CanvasInteraction {
 
     /// Narrower than this and a scrap wraps to one word per line.
-    static let minimumScrapWidth: CGFloat = 120
+    ///
+    /// **It bounds every card kind, and the number's origin is still a scrap's.**
+    /// An item node became resizable in 1C-d Task 6 and takes this clamp rather
+    /// than one of its own — the clamp is a single line in `update`'s `.resizing`
+    /// arm and never had a kind test on it. A second minimum for the second kind
+    /// would be a rule invented for a card that does not need one: a photograph
+    /// at 40 pt is as unreadable as a scrap wrapped to one word.
+    /// (Called `minimumScrapWidth` until the corner stopped being a scrap's.)
+    static let minimumCardWidth: CGFloat = 120
     static let defaultScrapWidth: CGFloat = 240
 
     /// How old the last drag sample may be and still count as a throw.
@@ -119,7 +127,7 @@ struct CanvasInteraction {
     /// double-click, so entering a scrap always runs a `begin`/`end` pair with no
     /// `.changed` between them. Without this the canvas cannot tell that apart
     /// from a drag, and every double-click writes the sidecar, rebuilds the
-    /// accessibility tree, and (once Task 15 lands) leaves a "Move Scrap" undo
+    /// accessibility tree, and leaves a "Move Card" undo
     /// step that undoes nothing — which is exactly what the smoke line "press ⌘Z
     /// a third time; it must undo something real or do nothing" is looking for.
     ///
@@ -192,18 +200,18 @@ struct CanvasInteraction {
         return (origin, current)
     }
 
-    /// A press inside a **scrap's** bottom-right corner square starts a resize;
-    /// anywhere else starts a move, and on an **item** node every press does —
-    /// the corner is a scrap's affordance and nothing else's.
+    /// A press inside a **card's** bottom-right corner square starts a resize;
+    /// anywhere else on the card starts a move. Every kind, no kind test.
     ///
-    /// This sentence read "the card's corner" for the whole life of the guard,
-    /// and it was true then: nothing in production made an item node, so every
-    /// card on the surface was a scrap. `CanvasClaudePlacement` (1C-c3)
-    /// falsified it by putting Claude's page card on the canvas, and the corner
-    /// drag the ungated guard let through took that card OFF the surface. The
-    /// full chain — `setWidth` clearing `cachedHeight`, no measure pass for an
-    /// item's width, no height therefore no frame — is at the kind test itself,
-    /// below, where someone changing the condition will meet it.
+    /// This sentence read "a **scrap's** corner" between 1C-c3 and 1C-d, and the
+    /// reason it did is worth carrying rather than deleting: nothing in
+    /// production made an item node until `CanvasClaudePlacement` put Claude's
+    /// page card on the canvas, and the ungated corner drag then took that card
+    /// OFF the surface — `setWidth` clears `cachedHeight`, nothing re-measured an
+    /// item node, and a node with no height has no frame. 1C-d gave an item node
+    /// a real measurement pass, so the uniform rule is back. The whole chain is
+    /// at the corner test itself, below, where someone changing the condition
+    /// will meet it.
     ///
     /// The square's side is
     /// `CanvasRenderer.resizeHandleSize`, the same constant the mark is drawn
@@ -275,23 +283,30 @@ struct CanvasInteraction {
                                     current: contentPoint)
                 return
             }
-            // The corner is a SCRAP's affordance and nothing else's, and the mark
-            // says so: `CanvasRenderer.drawCard` draws the triangle on a `.scrap`
-            // only. The two are one decision and must move together.
+            // The corner belongs to EVERY card, and the mark says so:
+            // `CanvasRenderer.drawCard` inks the triangle unconditionally. **The
+            // two are one decision and must move together** — widen one and the
+            // surface either resizes with no mark or inks a mark that does
+            // nothing.
             //
-            // Without the kind test this gesture DELETED an item node from the
-            // surface. `CanvasScene.setWidth` clears `cachedHeight` by design —
-            // the next measure pass refills it — and there is no measure pass for
-            // an item node's *width*: `CanvasView.rebuildLayouts` now heals a
-            // missing height to `itemPlaceholderHeight`, but only when it runs,
-            // and a node with no height has no `frame`, so mid-drag the card is
-            // invisible to `topmostNode(at:)`, to `nodes(intersecting:)` and to
-            // the renderer at once. `cachedHeight: nil` is also what the sidecar
-            // persists. An item node's width is not the writer's to set until
-            // 1C-d makes it mean something.
+            // **This condition was `.scrap`-only between 1C-c3 and 1C-d, and
+            // reading it as a ruling about item nodes would be a mistake.** It
+            // was a fix for a missing measurement pass. `CanvasScene.setWidth`
+            // clears `cachedHeight` by design — the next measure pass refills it
+            // — and when the guard was written there was no measure pass for an
+            // item node at all, so mid-drag the card was invisible to
+            // `topmostNode(at:)`, to `nodes(intersecting:)` and to the renderer
+            // at once, and `cachedHeight: nil` is what the sidecar persists. One
+            // drag took Claude's photographed page off the canvas for good.
+            //
+            // 1C-d supplied the pass: `CanvasView.rebuildLayouts` measures an
+            // item card from its picture's aspect ratio, floored at
+            // `CanvasCardMetrics.itemLabelOnlyHeight`, and `CanvasView.remeasure`
+            // re-derives it PER FRAME for both kinds — which is the half that
+            // matters here, because a heal that only ran at `.ended` would leave
+            // the card off the surface for the whole length of the gesture.
             let handle = CanvasRenderer.resizeHandleSize
-            if case .scrap = node.kind,
-               contentPoint.x >= frame.maxX - handle, contentPoint.y >= frame.maxY - handle {
+            if contentPoint.x >= frame.maxX - handle, contentPoint.y >= frame.maxY - handle {
                 beginResize(node.id, at: contentPoint, in: scene)
             } else {
                 mode = .moving(node.id, grabOffset: CGSize(width: contentPoint.x - node.origin.x,
@@ -358,7 +373,7 @@ struct CanvasInteraction {
             // derived. `setWidth` clears the cached height for exactly that
             // reason — `CanvasView.rebuildLayouts()` refills it when the gesture
             // ends.
-            scene.setWidth(max(Self.minimumScrapWidth, startWidth + (contentPoint.x - startX)),
+            scene.setWidth(max(Self.minimumCardWidth, startWidth + (contentPoint.x - startX)),
                            for: id)
         case .movingRegion(let id, let grab, let residents):
             // §4.1: the region and its residents travel together, by the SAME
@@ -450,13 +465,27 @@ struct CanvasInteraction {
     /// `ScrapLayout` may say how tall that is. `CanvasView` measures it in the
     /// same turn, which is why the create path calls `rebuildLayouts()`.
     static func createScrap(at contentPoint: CGPoint, in scene: inout CanvasScene) -> CanvasNodeID {
+        let id = newNodeID(in: scene)
+        scene.insert(CanvasNode(id: id, kind: .scrap, origin: contentPoint,
+                                width: defaultScrapWidth, cachedHeight: nil,
+                                z: scene.topZ + 1))
+        return id
+    }
+
+    /// A node id that is not already in the scene.
+    ///
+    /// Lifted out of `createScrap` when 1C-d Task 11's external drop needed one
+    /// **without** inserting a scrap: a `.owned` item node is minted the same way
+    /// (`CanvasNodeID`'s own doc comment says so), and a fourth hand-rolled
+    /// retry loop would be tripwire 23's lesson in a fourth place. It is minted
+    /// against the LIVE scene, so a batch inserting as it goes cannot collide
+    /// with itself; `CanvasClaudePlacement.newNodeID` keeps its `excluding:`
+    /// twin because it plans a whole batch against a scene it must not touch.
+    static func newNodeID(in scene: CanvasScene) -> CanvasNodeID {
         var id = CanvasNodeID(UUID().uuidString.prefix(8).lowercased())
         while scene.node(id) != nil {
             id = CanvasNodeID(UUID().uuidString.prefix(8).lowercased())
         }
-        scene.insert(CanvasNode(id: id, kind: .scrap, origin: contentPoint,
-                                width: defaultScrapWidth, cachedHeight: nil,
-                                z: scene.topZ + 1))
         return id
     }
 

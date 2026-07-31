@@ -11,7 +11,10 @@ import UniformTypeIdentifiers
 enum DropAction: Equatable { case fileURL, image, ignore }
 
 /// Shared drop classification + loading for every external-drop zone (the palette
-/// image well and the three Research zones). Browser image drags carry rendered
+/// image well, the three Research zones and — as of 1C-d Task 11 — the planning
+/// canvas, which is the fifth adopter and adds no classification logic of its
+/// own; it routes the two answers to the two halves of
+/// `ProjectStore.ingestCanvasAsset`). Browser image drags carry rendered
 /// bitmap data rather than a file URL, so `.dropDestination(for: URL.self)` silently
 /// rejects them (CoreTransferable error 0); routing through `[.fileURL, .image]`
 /// providers and this classifier is what makes them land. The canonical fix landed
@@ -35,7 +38,7 @@ enum DropClassification {
                 hasFileURL: provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
                 canLoadImage: provider.canLoadObject(ofClass: NSImage.self)) {
             case .fileURL:
-                if let url = await loadFileURL(provider: provider) { urls.append(url) }
+                if let url = await fileURL(from: provider) { urls.append(url) }
             case .image:
                 if let url = await loadImageAsTempFile(provider: provider) { urls.append(url) }
             case .ignore:
@@ -45,9 +48,14 @@ enum DropClassification {
         return urls
     }
 
-    private static func loadFileURL(provider: NSItemProvider) async -> URL? {
+    /// The file URL a Finder drag carries, or nil. Handed out beside
+    /// `fileURLs(from:)` so a zone that does **not** want everything funnelled
+    /// through a temp file — the canvas, whose ingestion pair takes a URL on one
+    /// side and an `NSImage` on the other — can take the two halves apart without
+    /// writing its own loader.
+    static func fileURL(from provider: NSItemProvider) async -> URL? {
         await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
-            _ = provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
                 switch item {
                 case let url as URL where url.isFileURL:
                     cont.resume(returning: url)
@@ -61,26 +69,37 @@ enum DropClassification {
         }
     }
 
-    private static func loadImageAsTempFile(provider: NSItemProvider) async -> URL? {
-        await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
+    /// The rendered bitmap a browser drag carries, or nil.
+    ///
+    /// **The one loader, rather than a fourth hand-rolled
+    /// `loadObject(ofClass: NSImage.self)`.** Three existed when the canvas needed
+    /// one (here, `ResearchView`, `PaletteCardEditor`), and the canvas's browser
+    /// branch hands the image straight to `ProjectStore.ingestCanvasAsset(image:)`
+    /// rather than to a temp file, so it needs the image and not the URL below.
+    static func image(from provider: NSItemProvider) async -> NSImage? {
+        await withCheckedContinuation { (cont: CheckedContinuation<NSImage?, Never>) in
             _ = provider.loadObject(ofClass: NSImage.self) { obj, _ in
-                guard let img = obj as? NSImage,
-                      let data = img.tiffRepresentation,
-                      let bmp = NSBitmapImageRep(data: data),
-                      let pngData = bmp.representation(using: .png, properties: [:]) else {
-                    cont.resume(returning: nil); return
-                }
-                let iso = ISO8601DateFormatter().string(from: Date())
-                    .replacingOccurrences(of: ":", with: "-")
-                let tmpURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("dropped-\(iso).png")
-                do {
-                    try pngData.write(to: tmpURL)
-                    cont.resume(returning: tmpURL)
-                } catch {
-                    cont.resume(returning: nil)
-                }
+                cont.resume(returning: obj as? NSImage)
             }
+        }
+    }
+
+    private static func loadImageAsTempFile(provider: NSItemProvider) async -> URL? {
+        guard let img = await image(from: provider),
+              let data = img.tiffRepresentation,
+              let bmp = NSBitmapImageRep(data: data),
+              let pngData = bmp.representation(using: .png, properties: [:]) else {
+            return nil
+        }
+        let iso = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let tmpURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dropped-\(iso).png")
+        do {
+            try pngData.write(to: tmpURL)
+            return tmpURL
+        } catch {
+            return nil
         }
     }
 }

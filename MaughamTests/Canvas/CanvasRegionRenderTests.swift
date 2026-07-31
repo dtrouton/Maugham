@@ -125,10 +125,10 @@ final class CanvasRegionRenderTests: XCTestCase {
     func test_aChipCarriesTheFirstLineOfTheScrapItStandsFor() {
         var s = scene()
         CanvasMembership.addAppearance(b, to: r1, in: &s)
-        let title = CanvasRenderer.chipTitle(for: b, in: s,
-                                             scraps: [b: "the falls at night\nand the lit bridge"])
+        let title = CanvasRenderer.chipTitle(
+            for: b, in: s, scraps: [b: "the falls at night\nand the lit bridge"], items: .empty)
         XCTAssertEqual(title, "the falls at night")
-        XCTAssertEqual(CanvasRenderer.chipTitle(for: b, in: s, scraps: [:]),
+        XCTAssertEqual(CanvasRenderer.chipTitle(for: b, in: s, scraps: [:], items: .empty),
                        CanvasAccessibility.emptyScrapValue,
                        "a blank chip is indistinguishable from a rendering bug")
     }
@@ -140,7 +140,8 @@ final class CanvasRegionRenderTests: XCTestCase {
         var s = scene()
         CanvasMembership.addAppearance(b, to: r1, in: &s)
         XCTAssertEqual(CanvasRenderer.chipTitle(for: b, in: s,
-                                                scraps: [b: "   \n\t\nthe falls at night"]),
+                                                scraps: [b: "   \n\t\nthe falls at night"],
+                                                items: .empty),
                        "the falls at night")
     }
 

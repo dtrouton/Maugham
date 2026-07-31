@@ -40,6 +40,16 @@ struct ProjectWindow: View {
     /// leaving restores it exactly (spec: no stuck-hidden inspector). `nil` when
     /// not in palette. Owned by `PaletteSegmentModifier`.
     @State private var inspectorWasVisibleBeforePalette: Bool?
+    /// The inspector's visibility captured when `⌘\` gave the canvas the whole
+    /// window (spec §8A.3), so leaving restores it exactly. `nil` when the
+    /// canvas is not collapsed — which is also how `canvasCollapse` knows a
+    /// collapse is already in force. Owned by `CanvasCollapseModifier`, dropped
+    /// by `PersonaModifier`.
+    @State private var inspectorWasVisibleBeforeCanvasCollapse: Bool?
+    /// The split view's own column visibility. `.automatic` until something
+    /// collapses to the canvas, so a window that never uses `⌘\` on the canvas
+    /// behaves exactly as it did before there was a binding here.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var binderSegment: BinderSegment = .manuscript
     @State private var activeSheet: ProjectActiveSheet?
     @State private var showInspector: Bool = true
@@ -90,7 +100,7 @@ struct ProjectWindow: View {
     var body: some View {
         Group {
             if let store, let documentStore {
-                NavigationSplitView {
+                NavigationSplitView(columnVisibility: $columnVisibility) {
                     binderColumn(store: store)
                         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
                 } content: {
@@ -295,6 +305,9 @@ struct ProjectWindow: View {
                                   binderSegment: $binderSegment,
                                   showInspector: $showInspector,
                                   inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette,
+                                  inspectorWasVisibleBeforeCanvasCollapse:
+                                    $inspectorWasVisibleBeforeCanvasCollapse,
+                                  columnVisibility: $columnVisibility,
                                   window: window,
                                   documentStore: documentStore,
                                   projectType: store?.manifest.type ?? .novel))
@@ -341,6 +354,21 @@ struct ProjectWindow: View {
                                               binderSegment: $binderSegment,
                                               showInspector: $showInspector,
                                               documentStore: documentStore))
+        // ⌘\ on the canvas collapses both side columns (spec §8A.3). One line,
+        // because this body has no expression budget (the Release type-check
+        // ceiling); the whole of the behaviour is in the modifier, and THIS LINE
+        // is what makes it reachable — delete it and every token in the modifier
+        // is still present, every decision test still green, and ⌘\ on the
+        // canvas moves nothing.
+        .modifier(CanvasCollapseModifier(
+            binderSegment: binderSegment,
+            projectType: store?.manifest.type ?? .novel,
+            isNoChromeOn: isNoChromeOn,
+            columnVisibility: $columnVisibility,
+            showInspector: $showInspector,
+            inspectorWasVisibleBeforeCanvasCollapse:
+                $inspectorWasVisibleBeforeCanvasCollapse,
+            inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette))
         .preferredColorScheme(preferredColorScheme)
     }
 
@@ -467,14 +495,11 @@ struct ProjectWindow: View {
 
         func body(content: Content) -> some View {
             content.onChange(of: binderSegment) { old, new in
-                if new == .palette && old != .palette {
-                    inspectorWasVisibleBeforePalette = showInspector
-                    showInspector = false
-                } else if old == .palette && new != .palette {
-                    if let prior = inspectorWasVisibleBeforePalette { showInspector = prior }
-                    inspectorWasVisibleBeforePalette = nil
-                    selectedPaletteCardId = nil
-                }
+                ProjectWindow.applyPaletteSegmentChange(
+                    from: old, to: new,
+                    showInspector: &showInspector,
+                    stash: &inspectorWasVisibleBeforePalette,
+                    selectedPaletteCardId: &selectedPaletteCardId)
             }
         }
     }
@@ -904,7 +929,26 @@ struct ProjectWindow: View {
             )
         case .canvas:
             CanvasView(model: canvasModel, projectRoot: store.url,
-                       paletteSwatchHexes: { store.paletteSwatchHexes() })
+                       paletteSwatchHexes: { store.paletteSwatchHexes() },
+                       itemIndex: Self.canvasItemIndex(in: store),
+                       // The canvas's asset well (1C-d Task 11): a photograph
+                       // dropped from the Finder or a browser is ingested into
+                       // `canvas_assets/` here and nowhere else, so every route
+                       // is a caller of the one pair rather than a storage
+                       // decision of its own.
+                       assetIngest: CanvasAssetIngest(
+                        file: { try await store.ingestCanvasAsset(fileURL: $0) },
+                        image: { try await store.ingestCanvasAsset(image: $0) }),
+                       // An inbox row dragged onto the canvas (1C-d Task 12, spec
+                       // §8A.4). The whole act is the store's third promote
+                       // sibling; this is the only production site that hands the
+                       // canvas a way to reach it, so its absence would be a drag
+                       // that springs back with nothing said.
+                       captureDrop: CanvasCaptureDrop(send: { entryID, point in
+                           try await documentStore.inboxStore.sendToCanvas(
+                               entryID: entryID, projectStore: store,
+                               placement: .dropped(at: point))
+                       }))
         case .research:
             if let id = selectedResearchId,
                let item = TreeWalk.find(
@@ -1004,6 +1048,149 @@ struct ProjectWindow: View {
                                projectType: ProjectType) -> InspectorRoute {
         if binderSegment == .canvas { return .canvas }
         return projectType == .collection ? .collectionPiece : .segment
+    }
+
+    /// The palette wall's own inspector rule, as a fold rather than a closure
+    /// body — behaviour unchanged, extracted so a test can drive it.
+    ///
+    /// **Extracted because it shares an update pass with the canvas collapse.**
+    /// `PaletteSegmentModifier` and `CanvasCollapseModifier` both watch
+    /// `binderSegment`, and Plan's binder offers Palette and Canvas side by side
+    /// (`Persona.plan.binderSegments`), so a **one-click** palette → canvas move
+    /// in focus mode runs both of these in the same pass in an order SwiftUI
+    /// picks. Neither may depend on being first, and the only way to know that
+    /// is to run the pair both ways round — which needs both halves callable.
+    static func applyPaletteSegmentChange(from old: BinderSegment,
+                                          to new: BinderSegment,
+                                          showInspector: inout Bool,
+                                          stash: inout Bool?,
+                                          selectedPaletteCardId: inout String?) {
+        if new == .palette && old != .palette {
+            stash = showInspector
+            showInspector = false
+        } else if old == .palette && new != .palette {
+            // A `nil` stash is a real state and means "someone else has already
+            // taken this memory over" — see `canvasCollapse`'s takeover. It has
+            // always been written as a conditional restore; that is now
+            // load-bearing rather than merely defensive.
+            if let prior = stash { showInspector = prior }
+            stash = nil
+            selectedPaletteCardId = nil
+        }
+    }
+
+    // MARK: - ⌘\ collapses to the canvas (spec §8A.3)
+
+    /// What `⌘\` must do to the two side columns, as a value.
+    ///
+    /// **`.doubleColumn`, and the case that looks right is the one that breaks
+    /// it.** The canvas is the CONTENT (middle) column — `CanvasView` is inside
+    /// `contentColumn` — so `.detailOnly`, which reads as "everything else
+    /// away", hides the canvas itself: a focus key that blanks the thing it is
+    /// focusing. `.doubleColumn` hides the SIDEBAR and keeps content + detail,
+    /// and `detailColumn` already renders nothing when `showInspector` is false,
+    /// so the pair is what leaves the canvas the whole window. The visibility
+    /// travels in the payload rather than being implied by the case name
+    /// precisely so a test has to name the enum case it expects — "not `.all`"
+    /// is satisfied by the trap.
+    ///
+    /// **`.unchanged` is a real answer, and the one the control rests on.** `⌘\`
+    /// in the editor must move no column at all, so the off-canvas arm writes
+    /// nothing whatever — not even `.all` over a sidebar the writer dragged shut
+    /// by hand.
+    enum CanvasCollapse: Equatable {
+        /// Give the canvas the window, remembering the inspector's visibility so
+        /// leaving can put it back exactly.
+        case collapse(columnVisibility: NavigationSplitViewVisibility,
+                      showInspector: Bool,
+                      stash: Bool,
+                      /// True when the memory being stashed is the PALETTE's,
+                      /// taken over rather than left for its exit arm to
+                      /// restore. See the takeover note on `canvasCollapse`.
+                      takesOverPaletteStash: Bool)
+        /// Hand the columns back, restoring the remembered inspector.
+        case release(columnVisibility: NavigationSplitViewVisibility,
+                     showInspector: Bool)
+        /// Touch nothing.
+        case unchanged
+    }
+
+    /// Pure and named, so the decision can be asked over the whole product of
+    /// its inputs rather than the one path a plan happened to name — the shape
+    /// that found both of this window's routing bugs (see `inspectorRoute`).
+    ///
+    /// **`route` rather than a second "is the canvas showing" test.** The canvas
+    /// check already lives above the project-type split, in one place, and
+    /// spelling it again here is how two paths came to disagree once already.
+    ///
+    /// The stash is both the memory and the "am I already collapsed" flag: an
+    /// already-collapsed canvas answers `.unchanged`, or a second apply in the
+    /// same pass would stash the `false` the first one wrote and leave the
+    /// inspector hidden for good.
+    ///
+    /// **`paletteStash`, and why a collapse TAKES IT OVER.** Plan's binder
+    /// offers Palette and Canvas side by side, so palette → canvas in focus mode
+    /// is **one click** and needs no persona switch — and it runs
+    /// `PaletteSegmentModifier`'s exit arm and `CanvasCollapseModifier`'s
+    /// collapse **in the same update pass**, in whichever order SwiftUI picks.
+    /// Left alone the two orders disagree, which is tripwire 2 whichever one
+    /// happens to win today:
+    ///
+    /// - palette first — it restores the pre-palette visibility and clears its
+    ///   stash, then the collapse remembers that value. Right.
+    /// - collapse first — it would remember the palette's *forced* `false`, and
+    ///   the exit arm would then reopen the inspector against the collapse,
+    ///   leaving the writer a collapsed canvas with the pane still in it and a
+    ///   memory that closes the pane for good on the way out.
+    ///
+    /// So the collapse takes the palette's memory when one is live —
+    /// `paletteStash ?? showInspector` — and says so, which makes the exit arm's
+    /// conditional restore a no-op. **Both orders now end in the same state**,
+    /// so nothing here depends on which runs first.
+    static func canvasCollapse(route: InspectorRoute,
+                               isNoChromeOn: Bool,
+                               showInspector: Bool,
+                               stash: Bool?,
+                               paletteStash: Bool?) -> CanvasCollapse {
+        let wantsTheWholeWindow = route == .canvas && isNoChromeOn
+        switch (wantsTheWholeWindow, stash) {
+        case (true, .none):
+            return .collapse(columnVisibility: .doubleColumn,
+                             showInspector: false,
+                             stash: paletteStash ?? showInspector,
+                             takesOverPaletteStash: paletteStash != nil)
+        case (false, .some(let prior)):
+            return .release(columnVisibility: .all, showInspector: prior)
+        default:
+            return .unchanged
+        }
+    }
+
+    /// Folding the decision into the window's state.
+    ///
+    /// Static and `inout` rather than inline in the modifier so the sequence
+    /// test — collapse, persona switch, come back, which is three SwiftUI passes
+    /// — drives the SAME fold the window does. A test that mirrored the fold
+    /// would have gone green over the palette bug this whole shape exists to
+    /// avoid.
+    static func applyCanvasCollapse(_ decision: CanvasCollapse,
+                                    columnVisibility: inout NavigationSplitViewVisibility,
+                                    showInspector: inout Bool,
+                                    stash: inout Bool?,
+                                    paletteStash: inout Bool?) {
+        switch decision {
+        case .collapse(let visibility, let inspector, let stashed, let takesOver):
+            stash = stashed
+            if takesOver { paletteStash = nil }
+            showInspector = inspector
+            columnVisibility = visibility
+        case .release(let visibility, let inspector):
+            stash = nil
+            showInspector = inspector
+            columnVisibility = visibility
+        case .unchanged:
+            break
+        }
     }
 
     enum EditorRoute: Equatable {
@@ -1170,7 +1357,11 @@ struct ProjectWindow: View {
                 TreeWalk.collect(in: store.manifest.structure,
                                  where: { $0.id == id }).first?.title
             },
-            onOpenResearchItem: openResearchItem)
+            onOpenResearchItem: openResearchItem,
+            // A region's member list names item nodes too — a Claude region holds
+            // the page its scraps were read off — so the pane resolves a title
+            // through the same index the canvas draws from (1C-d).
+            itemIndex: Self.canvasItemIndex(in: store))
     }
 
     /// The pieces both canvas pickers offer — the region's and, since 1C-c2a, the
@@ -1196,6 +1387,24 @@ struct ProjectWindow: View {
     static func pieceChoices(in store: ProjectStore) -> [RegionInspector.PieceChoice] {
         store.researchScopeTargets()
             .map { RegionInspector.PieceChoice(id: $0.id, title: $0.title) }
+    }
+
+    /// What every item node on the canvas resolves its title, kind glyph and
+    /// thumbnail path through (1C-d, spec §8A.1).
+    ///
+    /// **Built HERE, beside `pieceChoices`, and on exactly its terms.** This body
+    /// reads `store.manifest`, so it re-evaluates when the manifest changes and
+    /// not otherwise; it does **not** read `canvasModel.scene`, so it is not on
+    /// the canvas's drag loop. Building it inside `CanvasView` instead would put
+    /// one walk of the whole research tree on a body that re-evaluates every drag,
+    /// coast and straighten frame — tripwire 4's per-row manifest walk arriving on
+    /// the frame path, which is what made a binder click O(N²) in 3d.
+    ///
+    /// The second index over one manifest, the first being `ArtifactIndex`; the
+    /// two are not one because they answer different questions, and
+    /// `CanvasItemIndex`'s own doc comment carries why.
+    static func canvasItemIndex(in store: ProjectStore) -> CanvasItemIndex {
+        CanvasItemIndex.over(research: store.manifest.research)
     }
 
     /// Navigate to a research item in the right pane: switch to Research and
@@ -1559,6 +1768,83 @@ private struct FocusPostureModifier: ViewModifier {
     }
 }
 
+/// `⌘\` on the canvas additionally collapses both side columns (spec §8A.3),
+/// leaving the writer the canvas and nothing else.
+///
+/// **No second subscription.** `⌘\` posts `.maughamToggleNoChrome` once, to
+/// `.keyWindow`, and `FocusPostureModifier` above already receives it; a second
+/// `.onKeyWindowCommand` for the same name in the same window is tripwire 21's
+/// territory. This modifier watches the *flag* that handler flips, so there is
+/// still exactly one receiver.
+///
+/// **`⌘⇧F` is the second entry, and it is INTENDED.** `toggleFullScreen` sets
+/// `isNoChromeOn = true` on the way into full screen, so full-screen focus
+/// collapses the canvas exactly as `⌘\` does. That is the right answer rather
+/// than an accident to guard: full-screen focus is the *stronger* of the two
+/// gestures — it already takes the whole screen — and a version of it that left
+/// the binder and the inspector standing would be the weaker one. Watching the
+/// flag rather than the keystroke is what makes both entries one behaviour; a
+/// guard would have to name `⌘\` specifically and would then need a second
+/// exit rule for the leaving-full-screen path. Both exits already work: the
+/// flag goes off, and the release arm runs.
+///
+/// **Never automatic on entering the persona.** The collapse is a function of
+/// (the canvas is the centre column) AND (the writer asked for focus mode), so
+/// arriving on the canvas with focus mode off does nothing at all — you need the
+/// binder open to drag research and captures onto the canvas, and only *then* do
+/// you want it gone. The palette wall's `PaletteSegmentModifier` does auto-hide
+/// on entry; §8A.3 says in those words that the canvas does not follow it.
+///
+/// **The interaction worth knowing about, and it is true of ONE of the two
+/// cases.** `CanvasClaudeArrivalModifier.Destination` force-opens the inspector
+/// so *Show* names what arrived. For a writer in focus mode:
+///
+/// - **arriving from another segment** — `binderSegment` changes, so this
+///   modifier collapses one pass later and that force-open closes again. The
+///   cards are still revealed and selected by the camera move; `⌘\` brings the
+///   naming back.
+/// - **already on the collapsed canvas** — the segment does not change, neither
+///   trigger fires, and the pane stays open beside the collapse. Show works as
+///   written.
+///
+/// So the case that loses the naming pane is the *jump*, not the local reveal.
+private struct CanvasCollapseModifier: ViewModifier {
+    let binderSegment: BinderSegment
+    let projectType: ProjectType
+    let isNoChromeOn: Bool
+    @Binding var columnVisibility: NavigationSplitViewVisibility
+    @Binding var showInspector: Bool
+    @Binding var inspectorWasVisibleBeforeCanvasCollapse: Bool?
+    /// The palette wall's stash, read and cleared on a collapse that arrives in
+    /// the same pass as the wall's own exit — see `canvasCollapse`'s takeover.
+    @Binding var inspectorWasVisibleBeforePalette: Bool?
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: isNoChromeOn) { _, _ in apply() }
+            .onChange(of: binderSegment) { _, _ in apply() }
+    }
+
+    /// Both triggers fold the same decision, and the decision is idempotent —
+    /// they fire together on a project reopen that restores focus mode *and* the
+    /// canvas from `UIState`, and the second one must not stash over the first.
+    private func apply() {
+        let route = ProjectWindow.inspectorRoute(binderSegment: binderSegment,
+                                                 projectType: projectType)
+        ProjectWindow.applyCanvasCollapse(
+            ProjectWindow.canvasCollapse(
+                route: route,
+                isNoChromeOn: isNoChromeOn,
+                showInspector: showInspector,
+                stash: inspectorWasVisibleBeforeCanvasCollapse,
+                paletteStash: inspectorWasVisibleBeforePalette),
+            columnVisibility: &columnVisibility,
+            showInspector: &showInspector,
+            stash: &inspectorWasVisibleBeforeCanvasCollapse,
+            paletteStash: &inspectorWasVisibleBeforePalette)
+    }
+}
+
 /// Persona switching. Extracted so ProjectWindow.body's modifier chain gains
 /// exactly one expression — the chain is at the SwiftUI type-checker ceiling
 /// and three sibling modifiers exist because inlining broke the Release build.
@@ -1570,6 +1856,13 @@ struct PersonaModifier: ViewModifier {
     /// `PaletteSegmentModifier`'s pre-palette visibility stash. Written here
     /// only to DROP it — see `clearsPaletteStash(from:to:)`.
     @Binding var inspectorWasVisibleBeforePalette: Bool?
+    /// `CanvasCollapseModifier`'s pre-collapse visibility stash. Written here
+    /// only to DROP it — see `releasesCanvasCollapse(from:to:stash:)`.
+    @Binding var inspectorWasVisibleBeforeCanvasCollapse: Bool?
+    /// The split view's column visibility, handed back here in the SAME pass as
+    /// the stash is dropped. Dropping the stash alone would leave the sidebar
+    /// hidden in a persona that has no canvas to justify it.
+    @Binding var columnVisibility: NavigationSplitViewVisibility
     let window: NSWindow?
     let documentStore: DocumentStore?
     /// Decides the binder's document home — a screenplay has no Manuscript
@@ -1640,7 +1933,39 @@ struct PersonaModifier: ViewModifier {
     /// on SwiftUI pass ordering, which is the fragility tripwire 2 is about.
     static func clearsPaletteStash(from current: BinderSegment,
                                    to next: BinderSegment) -> Bool {
-        current == .palette && next != .palette
+        leaves(.palette, from: current, to: next)
+    }
+
+    /// True when a persona change moves the binder OFF the canvas *while a
+    /// `⌘\` collapse is in force* — the case where `CanvasCollapseModifier`'s
+    /// stash must be dropped and the sidebar handed back, here, synchronously.
+    ///
+    /// **The same ordering hazard as the palette's, one surface over.** That
+    /// modifier's `.onChange(of: binderSegment)` fires in a LATER update pass
+    /// than this handler, so its release arm would restore the stashed
+    /// visibility *over* the `showInspector = true` below — a writer who had
+    /// closed the inspector before collapsing would land in the new persona with
+    /// it closed, unlike every other persona-switch path. Doing both halves here
+    /// rather than deferring the force-open by a pass is what makes that arm a
+    /// no-op instead of a race, which is the fragility tripwire 2 is about.
+    ///
+    /// **Guarded on the stash rather than on the segment alone**, so a persona
+    /// switch off an *uncollapsed* canvas reopens nothing: the writer may have
+    /// dragged the sidebar shut themselves, and this is not the code that gets to
+    /// undo that.
+    static func releasesCanvasCollapse(from current: BinderSegment,
+                                       to next: BinderSegment,
+                                       stash: Bool?) -> Bool {
+        stash != nil && leaves(.canvas, from: current, to: next)
+    }
+
+    /// The shape both stashes share: a segment change that LEAVES a surface
+    /// which had temporarily taken the inspector's column. One spelling, because
+    /// two spellings of one rule is how the second one comes to differ.
+    private static func leaves(_ surface: BinderSegment,
+                               from current: BinderSegment,
+                               to next: BinderSegment) -> Bool {
+        current == surface && next != surface
     }
 
     func body(content: Content) -> some View {
@@ -1663,6 +1988,12 @@ struct PersonaModifier: ViewModifier {
                     memory: documentStore?.uiState.personaMemory ?? .empty)
                 if Self.clearsPaletteStash(from: binderSegment, to: change.binderSegment) {
                     inspectorWasVisibleBeforePalette = nil
+                }
+                if Self.releasesCanvasCollapse(
+                    from: binderSegment, to: change.binderSegment,
+                    stash: inspectorWasVisibleBeforeCanvasCollapse) {
+                    inspectorWasVisibleBeforeCanvasCollapse = nil
+                    columnVisibility = .all
                 }
                 persona = change.persona
                 detailSegment = change.segment
@@ -1890,19 +2221,33 @@ struct CanvasPromotionModifier: ViewModifier {
     /// hosts no SwiftUI — and so adding a `CanvasSelection` case makes the
     /// compiler enumerate this decision with everything else.
     ///
-    /// **`nodeKind` is the item-node guard.** An item node already exists as
-    /// itself, so `Promotion.targets` offers it nothing — and this said yes for
-    /// every `.node`, so `Promote…` was enabled and ⌘⇧↩ opened a sheet that
-    /// could never commit. It takes the kind rather than the scene on purpose:
-    /// the whole scene is what this modifier must never read.
+    /// **`nodeKind` is the item-node guard, and since 1C-d it reads the
+    /// PROVENANCE rather than the kind.** A *referenced* item node already
+    /// exists as itself, so `Promotion.targets` offers it nothing — and this
+    /// said yes for every `.node`, so `Promote…` was enabled and ⌘⇧↩ opened a
+    /// sheet that could never commit. An *owned* one is the case that refusal
+    /// was never about (spec §6, 2026-07-30): it exists nowhere but the canvas,
+    /// and refusing it strands the photograph the writer just sent there. It
+    /// takes the kind rather than the scene on purpose: the whole scene is what
+    /// this modifier must never read.
+    ///
+    /// **This and `Promotion.targets` must agree**, or the two halves of one
+    /// decision drift: enabled here and empty there is the dead sheet above,
+    /// disabled here and offered there is a command greyed out over a promotion
+    /// that would work. `PromotionCommandTests` drives both from one table.
     static func isPromotable(binderSegment: BinderSegment,
                              selection: CanvasSelection?,
                              nodeKind: CanvasNodeKind?) -> Bool {
         guard binderSegment == .canvas else { return false }
         switch selection {
         case .node:
-            if case .scrap = nodeKind { return true }
-            return false
+            switch nodeKind {
+            case .scrap: return true
+            case .item(let reference):
+                if case .owned = reference { return true }
+                return false
+            case nil: return false
+            }
         case .region, .line: return true
         case nil: return false
         }
@@ -1983,6 +2328,13 @@ struct CanvasPromotionModifier: ViewModifier {
         sheet = PromotionSheetModel(
             source: source, scene: model.scene, scraps: model.scraps,
             artifacts: ArtifactIndex.over(research: research),
+            // **The canvas's own index, and the SAME builder the canvas is
+            // handed above** (1C-d Task 12a). A region's palette promotion
+            // carries the pictures in it, and a referenced one's file is the
+            // manifest's to know — `ArtifactIndex` deliberately holds no paths.
+            // One walk more, at the site that already walks this manifest twice
+            // for this gesture, rather than a second path index of its own.
+            items: ProjectWindow.canvasItemIndex(in: store),
             // Resolved here with the manifest, once, like the index beside it —
             // the sheet is pure values, and this is the one place the routing
             // table is read for it. The performer resolves it again at Commit,

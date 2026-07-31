@@ -1,7 +1,15 @@
 import SwiftUI
 
 /// Whose hand made a thing on the canvas, in the inspector — **the one
-/// implementation both arms are handed** (spec §8A.2, 1C-c3).
+/// implementation every arm is handed** (spec §8A.2, 1C-c3; a third arm since
+/// 1C-d Task 7).
+///
+/// **Count the census, never a sentence here.**
+/// `RegionBindingTests.test_everyInspectorArmRendersTheOneAuthorLine` discovers
+/// its file list from `Maugham/Canvas/`, so it cannot go out of date; a number
+/// written into this comment can, and in this project one did — a "four files"
+/// claim over a five-entry array survived three review passes. Each resolver
+/// below says which subject it is for; that is the list.
 ///
 /// **It began as `ScrapInspector.Origin` and only cards had it.** A card and a
 /// region are both drawn straight when Claude made them, both announced with
@@ -9,19 +17,24 @@ import SwiftUI
 /// round only the card's pane said so, which is CLAUDE.md rule 8 failing for the
 /// other half of exactly the same field. `PromotedArtifactSection`'s doc comment
 /// records the previous slice's version of this defect and the ruling it produced:
-/// the fix is one implementation both arms are handed, never a second copy. That
-/// is what this file is; a parallel resolver on the region arm would be a second
-/// spelling of the wording *and* of the one-source rule below.
+/// the fix is one implementation every arm is handed, never a second copy. That
+/// is what this file is; a parallel resolver on any arm would be a second
+/// spelling of the wording *and* of the one-source rule below. **An item node
+/// joined in 1C-d and is the proof the rule holds under widening**: it needed a
+/// different *answer* (a page must not say it was read from itself), so it got a
+/// third resolver here rather than a sentence of its own over there.
 ///
 /// **It is not `PromotedArtifactSection`, and must not move inside it.** A thing
 /// being Claude's is an ATTRIBUTE, not an event: under a promotion heading the
 /// sentence starts reading as a mark, and a mark is what
-/// `Promotion.existingArtifact` reads to offer **Rewrite**. Both arms render this
-/// beside the thing's own name instead — the card's words, the region's label.
+/// `Promotion.existingArtifact` reads to offer **Rewrite**. Every arm renders this
+/// beside the thing's own name instead — the card's words, the region's label, the
+/// item node's title.
 ///
 /// ---
 ///
-/// **What this costs on the frame path, honestly — for BOTH arms.**
+/// **What this costs on the frame path, honestly — for the two resolvers that
+/// WALK, `forCard` and `forRegion`.**
 ///
 /// This paragraph travelled with the resolver when it was
 /// `ScrapInspector.Origin`, and the extraction that made it shared dropped it,
@@ -29,7 +42,13 @@ import SwiftUI
 /// It is restored here because it is the disclosure on which the card arm's
 /// review accepted the cost, and it now has to cover a second caller.
 ///
-/// Both inspector bodies read `model.scene`. That is ONE stored property on an
+/// **`forItem` is deliberately outside it and that is not an omission**: it is one
+/// dictionary lookup on both branches, because an item node has no source page to
+/// resolve (see `forItem`). Widening this disclosure to cover it would say
+/// something false about the cheapest of the three. The scope here is the two that
+/// walk, and it is named rather than counted for the reason the class doc gives.
+///
+/// Both walking arms' bodies read `model.scene`. That is ONE stored property on an
 /// `@Observable` model, and every drag frame, every coast frame and every
 /// straighten frame writes it (`withScene(persist: false)`), so a `body` reading
 /// it re-evaluates at 60–120 Hz for the length of every drag — and a drag opens
@@ -116,6 +135,30 @@ enum CanvasAuthorLine: Equatable {
         return read(from: region, in: scene, title: title)
     }
 
+    /// An item node: the same author predicate again, and **deliberately no
+    /// source page** (1C-d Task 7).
+    ///
+    /// `CanvasClaudePlacement` writes `author: .claude` on every page it creates,
+    /// so a photographed page leans at exactly 0° and `CanvasAccessibility` says
+    /// "Reference, from Claude" aloud — a fact with a drawn signal, a spoken term
+    /// and, until this arm, no inspectable surface, which is CLAUDE.md rule 8 and
+    /// this file's own history twice over.
+    ///
+    /// **It does not route to `forCard`, and that is the whole reason it exists.**
+    /// `read(from:)` finds a source by asking which of the home region's members
+    /// is an item node — and for the page card that member *is* the page. Through
+    /// `forCard`, the source page's pane would read *From Claude. Read from “The
+    /// falls at night”.* over the card that IS "The falls at night". So this arm
+    /// answers `.claude` and nothing more, which is also why it takes no `title`
+    /// closure: with no page to name there is nothing to look up.
+    ///
+    /// It costs one dictionary lookup, on both branches — no walk, no `TreeWalk`.
+    /// The disclosure above covers the two arms that do walk.
+    static func forItem(_ nodeID: CanvasNodeID, in scene: CanvasScene) -> CanvasAuthorLine {
+        guard scene.node(nodeID)?.author == .claude else { return .writer }
+        return .claude
+    }
+
     /// **The source is the region's item member, and the region records no
     /// "source" role.** `CanvasClaudePlacement` puts the page Claude read in the
     /// same region as the cards — created and homed there, adopted if it was
@@ -139,6 +182,14 @@ enum CanvasAuthorLine: Equatable {
     /// writer has since deleted falls back to the plain sentence instead of
     /// printing an id. A `store` is never read from a `body` or from anything a
     /// `body` calls.
+    ///
+    /// **An OWNED item is not a source here, and dropping it is the honest
+    /// answer rather than a gap** (1C-d Task 1). `title` is a lookup into the
+    /// project manifest, and an owned image has no manifest entry and never will
+    /// — `CanvasItemReference.owned` carries a path, which is the one thing this
+    /// caption must not print. The count below then falls to zero and the line
+    /// says the plain sentence, which is what it already does for a page the
+    /// writer has since deleted.
     private static func read(from region: CanvasRegion, in scene: CanvasScene,
                              title: (String) -> String?) -> CanvasAuthorLine {
         let sources = region.homeMembers.union(region.appearances)
@@ -146,21 +197,25 @@ enum CanvasAuthorLine: Equatable {
                 guard case .item(let reference) = scene.node(member)?.kind else {
                     return nil
                 }
-                return reference
+                switch reference {
+                case .project(let id): return id
+                case .owned: return nil
+                }
             }
         guard sources.count == 1, let resolved = title(sources[0]) else { return .claude }
         return .claudeReadFrom(title: resolved)
     }
 }
 
-/// The one row both inspector arms render for it, so the two cannot drift into
-/// styling one fact two ways — `PromotedArtifactSection` is the precedent for
-/// sharing the rendering as well as the decision.
+/// The one row every inspector arm renders for it, so they cannot drift into
+/// styling one fact several ways — `PromotedArtifactSection` is the precedent for
+/// sharing the rendering as well as the decision. (Which arms, and how many, is
+/// the census's answer and not this comment's: see the class doc above.)
 ///
 /// It renders nothing for the writer's own things. Which arm of a
 /// `_ConditionalContent` renders cannot be asserted and a `Form`'s contents are
 /// not inspectable, which is why the decision is `CanvasAuthorLine` — a value a
-/// test can drive — rather than an `if` written twice inside two bodies.
+/// test can drive — rather than an `if` written once inside each body.
 struct CanvasAuthorLineRow: View {
 
     let line: CanvasAuthorLine

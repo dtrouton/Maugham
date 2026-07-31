@@ -732,11 +732,19 @@ enum CanvasRenderer {
     /// `omittingEmptySubsequences` drops `""` but not `"   "`, so a scrap that
     /// opens with an indented blank line would take that line, trim it to
     /// nothing, and announce itself as empty while carrying text.
+    ///
+    /// **An item node's chip says what the CARD says**, which since 1C-d is its
+    /// resolved title rather than its reference id — one fact, one wording, in the
+    /// two places a writer can meet the same node. A chip for an item whose facts
+    /// have not resolved says nothing at all rather than falling back to an id: a
+    /// blank moment is a state the surface is already in for its card, and a code
+    /// is not something the writer can read.
     static func chipTitle(for id: CanvasNodeID,
                           in scene: CanvasScene,
-                          scraps: [CanvasNodeID: String]) -> String {
-        if case .item(let reference)? = scene.node(id)?.kind {
-            return placeholderLabel(forReference: reference)
+                          scraps: [CanvasNodeID: String],
+                          items: CanvasItemPresentation) -> String {
+        if case .item? = scene.node(id)?.kind {
+            return items.item(for: id)?.facts.title ?? ""
         }
         let line = (scraps[id] ?? "")
             .split(separator: "\n", omittingEmptySubsequences: false)
@@ -752,12 +760,6 @@ enum CanvasRenderer {
     static func collapsedSummary(for id: CanvasRegionID, in scene: CanvasScene) -> String {
         let n = CanvasMembership.residents(of: id, in: scene).count
         return n == 1 ? "1 card" : "\(n) cards"
-    }
-
-    /// 1C-a draws item nodes as placeholders. 1C-d resolves the real title,
-    /// kind glyph and thumbnail (spec §8A.1) — do not do it here.
-    static func placeholderLabel(forReference referenceId: String) -> String {
-        "Item · \(referenceId)"
     }
 
     /// Whether this pass draws a node's own text, or leaves it to the editor.
@@ -830,6 +832,7 @@ enum CanvasRenderer {
                      viewSize: CGSize,
                      layouts: [CanvasNodeID: ScrapLayout],
                      scraps: [CanvasNodeID: String],
+                     items: CanvasItemPresentation,
                      selection: CanvasSelection?,
                      visibleEditorNodeID: CanvasNodeID?,
                      straighten: CanvasFocusStraighten,
@@ -856,6 +859,7 @@ enum CanvasRenderer {
             let ownText = drawsOwnText(node.id, visibleEditorNodeID: visibleEditorNodeID)
             drawCard(node, frame: frame,
                      layout: ownText ? layouts[node.id] : nil,
+                     item: items.item(for: node.id),
                      angle: drawnAngle(for: node, straighten: straighten),
                      isSelected: selection == .node(node.id),
                      on: cx)
@@ -863,7 +867,9 @@ enum CanvasRenderer {
 
         for tether in tethers(in: scene, regions: regions) { drawTether(tether, on: cx) }
         for chip in appearanceChips(in: scene, regions: regions) {
-            drawChip(chip, title: chipTitle(for: chip.node, in: scene, scraps: scraps), on: cx)
+            drawChip(chip,
+                     title: chipTitle(for: chip.node, in: scene, scraps: scraps, items: items),
+                     on: cx)
         }
 
         if let pendingRegionDraw { drawSweep(pendingRegionDraw, on: cx) }
@@ -1161,6 +1167,7 @@ enum CanvasRenderer {
     private static func drawCard(_ node: CanvasNode,
                                  frame: CGRect,
                                  layout: ScrapLayout?,
+                                 item: CanvasItemPresentation.Item?,
                                  angle: Angle,
                                  isSelected: Bool,
                                  on cx: GraphicsContext) {
@@ -1189,17 +1196,17 @@ enum CanvasRenderer {
         }
         card.fill(shape, with: .color(Color(nsColor: paper)))
 
-        switch node.kind {
-        case .scrap:
-            card.stroke(shape, with: .color(Color(nsColor: .separatorColor)), lineWidth: 0.5)
-        case .item:
-            // A placeholder reads as unfinished on purpose — 1C-d fills it in.
-            card.stroke(shape, with: .color(Color(nsColor: .separatorColor)),
-                        style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-        }
+        // ONE border for both kinds since 1C-d, and the dashes are gone with the
+        // placeholder they belonged to. An item node drew a dashed 1 pt stroke to
+        // say "unfinished" while the only thing on it was a reference id; it now
+        // shows a title, a kind glyph and — when there is one — the picture
+        // itself, so what it is is legible from its content and a border saying
+        // "not really a card" would contradict it. Spec §8A.2's reproduction
+        // corollary is the reason this had to become a real card: a photographed
+        // page and the scraps read off it have to be comparable **by looking**.
+        card.stroke(shape, with: .color(Color(nsColor: .separatorColor)), lineWidth: 0.5)
 
-        // Drawn OVER the kind's own border rather than replacing it, so a
-        // selected item node keeps the dashes that say it is a placeholder.
+        // Drawn OVER the kind's own border rather than replacing it.
         //
         // The three marks below sit adjacent and two of them mean the OPPOSITE
         // of the third, so read the conditions and not the order.
@@ -1213,18 +1220,23 @@ enum CanvasRenderer {
         //    fact about the card — this one produced something — rather than a
         //    passing one about the selection.
         // 3. The RESIZE TRIANGLE below that is this surface's established
-        //    permanent card chrome, and is unconditional *on the selection* —
-        //    but it is drawn on a `.scrap` ONLY, for the same reason the promoted
-        //    stripe is and a different one. Nothing re-measures an item node's
-        //    width, and `CanvasScene.setWidth` clears `cachedHeight` by design,
-        //    so a resize left the card with no frame — not drawn, not clickable,
-        //    persisted that way. **The mark and the target are ONE decision**:
-        //    `CanvasInteraction.begin` takes the corner for `.scrap` only, and
-        //    these two move together or the surface draws an affordance that
-        //    does nothing (or, as it did, one that loses the card).
+        //    permanent card chrome — unconditional on the selection AND on the
+        //    kind. **The mark and the target are ONE decision**:
+        //    `CanvasInteraction.begin` takes the corner of every card, and these
+        //    two move together or the surface draws an affordance that does
+        //    nothing — or resizes with nothing on it to say so.
+        //
+        //    It was a `.scrap`'s alone between 1C-c3 and 1C-d, and that was a fix
+        //    for a missing measurement rather than a ruling: nothing re-measured
+        //    an item node while `CanvasScene.setWidth` cleared `cachedHeight` by
+        //    design, so a resize left the card with no frame — not drawn, not
+        //    clickable, persisted that way. 1C-d measures an item card from its
+        //    picture's aspect ratio, per frame, so the uniform rule is back and
+        //    the stripe above is now the only kind-conditional mark here.
         //
         // Moving any of the three across the SELECTION line is a design change,
-        // not a tidy-up.
+        // not a tidy-up. So is moving the triangle back across the KIND line —
+        // it is the same decision as the corner test in `CanvasInteraction`.
         //
         // All three are drawn inside the card's rotated transform, like
         // everything else here, so they tilt with the card and straighten with
@@ -1242,10 +1254,19 @@ enum CanvasRenderer {
 
         // PERMANENT chrome, like the resize triangle below and unlike the connect
         // dot above — it states a durable fact about the card rather than a
-        // passing one about the selection. An item node never gets one: it
-        // already exists as itself, so a mark on one is meaningless, and a
-        // hand-edited sidecar can put the field there.
-        if node.promotedItemID != nil, case .scrap = node.kind {
+        // passing one about the selection.
+        //
+        // **A REFERENCED item node never gets one, an owned one does** (1C-d
+        // Task 8). The refusal's reason was "it already exists as itself, so a
+        // mark on one is meaningless", which is exactly true of a reference and
+        // stopped being true of an owned picture the moment it could produce a
+        // research asset — a hand-edited sidecar can still put the field on a
+        // reference, and that is what this refuses. A picture appended to a
+        // palette card gets no stripe either, and by the same standing rule: that
+        // is a *contribution*, and a second identical stripe for "this went into
+        // that" would say on the canvas the thing §6.3 spends its length
+        // separating.
+        if node.promotedItemID != nil, node.kind.carriesAMark {
             card.drawLayer { inner in
                 inner.clip(to: shape)
                 inner.fill(Path(promotedMarkRect(inCard: frame)),
@@ -1254,12 +1275,11 @@ enum CanvasRenderer {
             }
         }
 
-        // PERMANENT chrome like the stripe above — and, like it, a scrap's alone.
-        // See mark 3 in the block above for why an item node gets none.
-        if case .scrap = node.kind {
-            card.fill(resizeHandle(in: frame),
-                      with: .color(Color(nsColor: .separatorColor).opacity(0.8)))
-        }
+        // PERMANENT chrome like the stripe above — and, UNLIKE it, on every kind.
+        // See mark 3 in the block above: this and `CanvasInteraction.begin`'s
+        // corner test are one decision, so a kind test here needs one there.
+        card.fill(resizeHandle(in: frame),
+                  with: .color(Color(nsColor: .separatorColor).opacity(0.8)))
 
         switch node.kind {
         case .scrap:
@@ -1275,16 +1295,63 @@ enum CanvasRenderer {
                     cg.restoreGState()
                 }
             }
-        case .item(let referenceId):
-            // The size is a shared constant because
-            // `CanvasCardMetrics.itemPlaceholderHeight` is DERIVED from a line of
-            // it: draw the label larger than the card was measured for and the
-            // placeholder clips the only thing on it.
-            var text = card.resolve(
-                Text(placeholderLabel(forReference: referenceId))
-                    .font(.system(size: CanvasCardMetrics.itemLabelFontSize)))
-            text.shading = .color(Color(nsColor: .secondaryLabelColor))
-            card.draw(text, at: CanvasCardMetrics.textOrigin(inCard: frame), anchor: .topLeading)
+        case .item:
+            drawItemContent(item, inCard: frame, clippedTo: shape, on: card)
+        }
+    }
+
+    /// What an item node shows: the picture at the top when one has arrived, and
+    /// under it a line of kind glyph and title (spec §8A.1).
+    ///
+    /// **A nil `item` draws the card and nothing on it, and that is a real state
+    /// rather than a guard.** `CanvasThumbnails.resolved` never decodes, so the
+    /// pass that first asks for a photograph always misses it; the card is drawn,
+    /// measured to `CanvasCardMetrics.itemLabelOnlyHeight` and clickable through
+    /// that window, and the picture arrives when `servicePending()` has run. A
+    /// fallback label reading the reference id would be the placeholder coming
+    /// back through the error path.
+    ///
+    /// **Everything is laid out from `CanvasCardMetrics`**, which is also what
+    /// `CanvasView.rebuildLayouts` measured the card with — so the picture's rect
+    /// and the card's height are two readings of one arithmetic rather than two
+    /// arithmetics that happen to agree (`Maugham/Canvas/AREA.md`, "Card metrics
+    /// live in `CanvasCardMetrics`, and nowhere else").
+    ///
+    /// The label takes `secondaryLabelColor` rather than the card's own ink,
+    /// because it is a caption for a thing that exists elsewhere and not the
+    /// writer's words — the same reading `drawChip` takes of the same question.
+    private static func drawItemContent(_ item: CanvasItemPresentation.Item?,
+                                        inCard frame: CGRect,
+                                        clippedTo shape: Path,
+                                        on card: GraphicsContext) {
+        guard let item else { return }
+
+        if let picture = item.picture, let aspect = item.pictureAspect {
+            let rect = CanvasCardMetrics.itemPictureRect(inCard: frame, aspect: aspect)
+            card.drawLayer { inner in
+                // Clipped to the CARD, so a card being drawn at the floor height
+                // while its picture decodes never leaks pixels onto the ground.
+                inner.clip(to: shape)
+                inner.draw(Image(decorative: picture, scale: 1), in: rect)
+            }
+        }
+
+        // Resolved for its natural SIZE, then fitted: an SF Symbol is not square,
+        // and drawing one into a square box stretches every glyph that is not.
+        let glyph = card.resolve(Image(systemName: item.facts.glyph))
+        card.draw(glyph,
+                  in: CanvasCardMetrics.fit(glyph.size,
+                                            in: CanvasCardMetrics.itemGlyphBox(inCard: frame)))
+
+        var title = card.resolve(
+            Text(item.facts.title).font(.system(size: CanvasCardMetrics.itemLabelFontSize)))
+        title.shading = .color(Color(nsColor: .secondaryLabelColor))
+        card.drawLayer { inner in
+            // A title longer than the card is truncated by the card's own edge
+            // rather than running onto the ground beside it.
+            inner.clip(to: shape)
+            inner.draw(title, at: CanvasCardMetrics.itemTitleOrigin(inCard: frame),
+                       anchor: .topLeading)
         }
     }
 

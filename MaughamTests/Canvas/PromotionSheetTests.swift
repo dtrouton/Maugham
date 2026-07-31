@@ -36,6 +36,7 @@ final class PromotionSheetTests: XCTestCase {
                        body: @escaping (String) -> String? = { _ in nil }) -> PromotionSheetModel {
         PromotionSheetModel(source: source, scene: scene ?? self.scene(), scraps: texts,
                             artifacts: ArtifactIndex(titlesByID: artifacts),
+                            items: .empty,
                             piece: .none, readBody: body)
     }
 
@@ -71,6 +72,102 @@ final class PromotionSheetTests: XCTestCase {
     func test_theSourceIsNamedSoTheWriterKnowsWhatTheyInvokedItOn() {
         XCTAssertTrue(model(.scrap(a)).sourceDescription.contains("The falls"))
         XCTAssertTrue(model(.region(r1)).sourceDescription.contains("Act II fog"))
+    }
+
+    // MARK: - An owned picture (spec §6's 2026-07-30 amendment)
+
+    private let picture = CanvasNodeID("owned-1")
+
+    /// A scene whose owned picture is what the sheet is opened on.
+    private func pictureScene() -> CanvasScene {
+        var s = scene()
+        s.insert(CanvasNode(id: picture,
+                            kind: .item(.owned(path: "canvas_assets/p.png")),
+                            origin: CGPoint(x: 400, y: 0), width: 180, cachedHeight: 200))
+        return s
+    }
+
+    private func pictureModel(cards: Bool = true) -> PromotionSheetModel {
+        var entries: [String: ArtifactIndex.Entry] = [:]
+        if cards {
+            entries["res-card"] = .init(title: "Colour: October", kind: .paletteCard)
+            entries["res-other"] = .init(title: "Zinc", kind: .paletteCard)
+        }
+        return PromotionSheetModel(source: .scrap(picture), scene: pictureScene(),
+                                   scraps: texts,
+                                   artifacts: ArtifactIndex(entriesByID: entries),
+                                   items: .empty,
+                                   piece: .none, readBody: { _ in nil })
+    }
+
+    /// **"The card “Image”" is what this said**, and it is a false noun wrapped
+    /// around a word that identifies nothing: every owned picture resolves to the
+    /// same title, and what tells one from another is the picture drawn on it.
+    func test_anOwnedPictureIsNamedAsAPictureAndNotAsACard() {
+        XCTAssertEqual(pictureModel().sourceDescription, "This picture")
+        XCTAssertTrue(model(.scrap(a)).sourceDescription.hasPrefix("The card"),
+                      "the control: a scrap is still a card")
+    }
+
+    /// **The sentence is true of ONE provenance, so it destructures one** (review
+    /// M3). `if case .item` alone described a referenced research note as "This
+    /// picture" — unreachable, since `isPromotable` refuses a reference and
+    /// `ItemInspector` withholds the button, but it was the one site in this task
+    /// testing the KIND where every other site that differs destructures the
+    /// provenance.
+    func test_aReferencedItemIsNotDescribedAsAPicture() {
+        var s = pictureScene()
+        let referenced = CanvasNodeID.item("r-9")
+        s.insert(CanvasNode(id: referenced, kind: .item(.project(id: "r-9")),
+                            origin: CGPoint(x: 800, y: 0), width: 180, cachedHeight: 120))
+        let m = PromotionSheetModel(source: .scrap(referenced), scene: s, scraps: texts,
+                                    artifacts: ArtifactIndex(titlesByID: ["r-9": "A note"]),
+                                    items: .empty,
+                                    piece: .none, readBody: { _ in nil })
+        XCTAssertNotEqual(m.sourceDescription, "This picture",
+                          "a reference is not a picture — found: \(m.sourceDescription)")
+        XCTAssertEqual(pictureModel().sourceDescription, "This picture",
+                       "the control: the owned one still is")
+    }
+
+    /// The picker is SEEDED, so the writer never meets an empty control over a
+    /// dead Promote button — `Promotion.plan` returns nothing without a card.
+    func test_choosingThePaletteRowSeedsACardAndCommitsWithoutAName() {
+        let m = pictureModel()
+        m.select(.paletteCardImage)
+        XCTAssertEqual(m.paletteCardID, "res-card", "the first by title")
+        XCTAssertEqual(m.preview?.destinationDescription, "the palette card “Colour: October”")
+        XCTAssertTrue(m.canCommit)
+        XCTAssertNil(m.refusal,
+                     "and no \"This needs a name.\" — an appended image names "
+                     + "nothing, so the sheet does not ask")
+        XCTAssertTrue(m.editedTitle.isEmpty || m.selectedTarget?.namesItsArtifact == false)
+    }
+
+    /// Changing the card moves what "Goes to" says, not only what Commit does —
+    /// `mode`'s rule, on the other picker. A frozen destination is the exact lie
+    /// §6.1 exists to prevent.
+    func test_changingTheCardMovesThePreview() {
+        let m = pictureModel()
+        m.select(.paletteCardImage)
+        m.paletteCardID = "res-other"
+        XCTAssertEqual(m.preview?.destinationDescription, "the palette card “Zinc”")
+        XCTAssertEqual(m.resolvedPlan?.pictures.first?.paletteCardID, "res-other")
+    }
+
+    func test_theResearchRowCarriesNoCardAndStillCommits() {
+        let m = pictureModel()
+        m.select(.researchAsset)
+        XCTAssertNil(m.paletteCardID,
+                     "a card chosen on the other row must not survive into this one")
+        XCTAssertEqual(m.preview?.destinationDescription, "research/")
+        XCTAssertTrue(m.canCommit)
+    }
+
+    func test_aProjectWithNoPaletteCardsIsOfferedOnlyTheResearchRow() {
+        XCTAssertEqual(pictureModel(cards: false).availableTargets, [.researchAsset])
+        XCTAssertEqual(pictureModel().availableTargets, [.researchAsset, .paletteCardImage],
+                       "the control")
     }
 
     // MARK: - Choosing a target
@@ -291,6 +388,7 @@ final class PromotionSheetTests: XCTestCase {
         let m = PromotionSheetModel(source: .scrap(a), scene: scene(),
                                     scraps: [a: "   "],
                                     artifacts: ArtifactIndex(titlesByID: [:]),
+                                    items: .empty,
                                     piece: .none, readBody: { _ in nil })
         XCTAssertNotNil(m.blockedReason)
         XCTAssertFalse(m.canCommit)
@@ -319,18 +417,20 @@ final class PromotionSheetTests: XCTestCase {
         let emptyCard = PromotionSheetModel(source: .scrap(a), scene: scene(),
                                             scraps: [a: "   "],
                                             artifacts: ArtifactIndex(titlesByID: [:]),
+                                            items: .empty,
                                             piece: .none, readBody: { _ in nil })
         XCTAssertNotNil(emptyCard.blockedReason, "it is still blocked, and still says why")
         XCTAssertNil(emptyCard.blockedNote,
                      "an empty card has nothing to do with the wiki-link precedence")
 
         var withItem = scene()
-        withItem.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+        withItem.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                                    origin: CGPoint(x: 800, y: 0), width: 180,
                                    cachedHeight: 120))
         let reference = PromotionSheetModel(source: .scrap(.item("r-9")), scene: withItem,
                                             scraps: texts,
                                             artifacts: ArtifactIndex(titlesByID: [:]),
+                                            items: .empty,
                                             piece: .none, readBody: { _ in nil })
         XCTAssertNotNil(reference.blockedReason)
         XCTAssertNil(reference.blockedNote)

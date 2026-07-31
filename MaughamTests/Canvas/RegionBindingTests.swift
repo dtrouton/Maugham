@@ -1008,7 +1008,7 @@ final class RegionBindingTests: XCTestCase {
                 homeMembers: [self.a], author: author))
             if let source {
                 let page = CanvasNodeID.item(source)
-                s.insert(CanvasNode(id: page, kind: .item(referenceId: source),
+                s.insert(CanvasNode(id: page, kind: .item(.project(id: source)),
                                     origin: CGPoint(x: 0, y: 200), width: 240,
                                     cachedHeight: 40, author: .claude))
                 CanvasMembership.join(page, home: self.r1, in: &s)
@@ -1059,7 +1059,7 @@ final class RegionBindingTests: XCTestCase {
         let m = claudeRegionModel(source: "res-fog")
         m.withScene { s in
             let second = CanvasNodeID.item("res-a")
-            s.insert(CanvasNode(id: second, kind: .item(referenceId: "res-a"),
+            s.insert(CanvasNode(id: second, kind: .item(.project(id: "res-a")),
                                 origin: CGPoint(x: 300, y: 200), width: 240,
                                 cachedHeight: 40))
             CanvasMembership.join(second, home: self.r1, in: &s)
@@ -1143,7 +1143,8 @@ final class RegionBindingTests: XCTestCase {
                        + "\(provenance)")
     }
 
-    /// **The census: both arms render the ONE row, and neither builds its own.**
+    /// **Every arm that can carry the fact renders the ONE row, and none builds
+    /// its own.**
     ///
     /// Which arm of a `_ConditionalContent` renders cannot be asserted and a
     /// `Form`'s contents are not inspectable, so what is pinned is that each arm
@@ -1151,11 +1152,43 @@ final class RegionBindingTests: XCTestCase {
     /// for a round — the same shape as `PromotedArtifactSection`, which only the
     /// card arm mounted for a whole slice — and a second resolver on this side
     /// would be a second spelling of both the wording and the one-source rule.
-    func test_bothInspectorArmsRenderTheOneAuthorLine() throws {
-        for (file, token) in [("Maugham/Canvas/ScrapInspector.swift",
-                               "CanvasAuthorLine.forCard("),
-                              ("Maugham/Canvas/RegionInspector.swift",
-                               "CanvasAuthorLine.forRegion(")] {
+    ///
+    /// **Three arms as of 1C-d Task 7**, `ItemInspector` being the newest: a page
+    /// `CanvasClaudePlacement` created is drawn at 0° and announced with
+    /// `claudeTerm`, so it carries the same field with the same two signals and
+    /// needs the same surface.
+    ///
+    /// **The file list is DISCOVERED, not written down**, which is what makes this
+    /// fail when the set grows as well as when it empties. A literal array is the
+    /// shape that goes quietly out of date — a prose count one directory over
+    /// survived three review passes over a list that said something else — and the
+    /// failure it cannot see is precisely the one this exists for: a *new* arm that
+    /// does not render the row. Every `*Inspector.swift` in this directory is
+    /// either in the table below or on the exemption list beside it, with a reason.
+    ///
+    /// A LINE is exempt and must not be added: its author is spoken inside
+    /// `connectionPhrase` and it has no name of its own for a row to sit beside —
+    /// which is also what makes `LineInspector` the planted-offender companion at
+    /// the bottom.
+    func test_everyInspectorArmRendersTheOneAuthorLine() throws {
+        let arms = ["ScrapInspector.swift": "CanvasAuthorLine.forCard(",
+                    "RegionInspector.swift": "CanvasAuthorLine.forRegion(",
+                    "ItemInspector.swift": "CanvasAuthorLine.forItem("]
+        let exempt = ["LineInspector.swift"]
+
+        let directory = CanvasSourceCensus.repoRoot.appendingPathComponent("Maugham/Canvas")
+        let discovered = try FileManager.default
+            .contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasSuffix("Inspector.swift") }
+            .sorted()
+        XCTAssertEqual(discovered, (Array(arms.keys) + exempt).sorted(),
+                       "an inspector arm was added or removed and this census was "
+                       + "not told. Every arm that can carry `author` renders the "
+                       + "ONE row (`CanvasAuthorLineRow`); one that cannot goes on "
+                       + "the exemption list with its reason. Found: \(discovered)")
+
+        for (name, token) in arms {
+            let file = "Maugham/Canvas/\(name)"
             let text = CanvasSourceCensus.commentsStripped(
                 try CanvasSourceCensus.source(at: file))
             XCTAssertTrue(text.contains("CanvasAuthorLineRow("),

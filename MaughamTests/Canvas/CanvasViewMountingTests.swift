@@ -49,7 +49,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// `scrapText` cannot do that job and no assertion should pretend otherwise:
     /// measured through `ScrapLayout`'s own stack at Iowan Old Style 13, "the
     /// falls at night" is 94.62pt wide, so it still sits on ONE line inside the
-    /// 100pt text box of a card at `CanvasInteraction.minimumScrapWidth`. Its
+    /// 100pt text box of a card at `CanvasInteraction.minimumCardWidth`. Its
     /// card is 38pt tall at every width from 240 down to the floor.
     ///
     /// This string, measured the same way: 2 lines and a 54pt card at the
@@ -486,38 +486,41 @@ final class CanvasViewMountingTests: XCTestCase {
                        "the canvas has two scraps where the writer made one")
     }
 
-    /// **A drag on the corner of Claude's source page must not take the page off
-    /// the canvas.**
+    /// **A drag on the corner of Claude's source page RESIZES it — and never
+    /// takes the page off the canvas** *(1C-d Task 6, re-pointed)*.
     ///
-    /// The 1C-c3 whole-branch Critical, driven the way the writer reaches it.
-    /// `add_canvas_scraps(source_item_id:)` puts a dashed page card on the canvas
-    /// — the first item node anything in production has ever made — and until this
-    /// was fixed three facts met on it: `CanvasRenderer.drawCard` drew the resize
-    /// triangle on every card whatever its kind, `CanvasInteraction.begin` took
-    /// the corner for any node with a frame, and `CanvasScene.setWidth` cleared
-    /// `cachedHeight` while nothing on the item path ever refilled it. A node with
-    /// no height has no `frame`, so the card vanished under the cursor on the next
-    /// frame, stayed gone, and `cachedHeight: nil` is what the sidecar persists.
+    /// This test asserted the opposite until 1C-d: that the corner moved the card,
+    /// because the corner was `.scrap`-only. **The guard was a fix for a missing
+    /// measurement pass, not a ruling that item nodes should not resize.** The
+    /// 1C-c3 whole-branch Critical was three facts meeting:
+    /// `CanvasRenderer.drawCard` drew the resize triangle on every card whatever
+    /// its kind, `CanvasInteraction.begin` took the corner for any node with a
+    /// frame, and `CanvasScene.setWidth` cleared `cachedHeight` while **nothing
+    /// on the item path ever refilled it**. A node with no height has no `frame`,
+    /// so the card vanished under the cursor on the next frame, stayed gone, and
+    /// `cachedHeight: nil` is what the sidecar persists.
     ///
-    /// **It must go through `CanvasEventNSView`, not through `setWidth`.** A test
-    /// that calls the setter and asserts the height is nil passes both before and
-    /// after the fix — it is a test of the setter's documented behaviour, which
-    /// was never wrong. The question is whether the *gesture* can reach it, and
-    /// only the delivery path answers that. `CanvasInteractionTests`'
-    /// companion asserts the mode the press opens; this asserts the consequence.
+    /// Task 5 supplied the measurement and this task added the per-frame
+    /// re-derive (`CanvasView.remeasure`'s `.item` arm), so the corner and the
+    /// mark went back to being unconditional. **What is asserted here is the
+    /// safety property the old guard bought, not the old guard**: after a corner
+    /// drag on an item node the card still has a height, is still returned by
+    /// `nodes(intersecting:)`, is still found by `topmostNode(at:)`, and reaches
+    /// disk that way.
     ///
-    /// The drag becomes a MOVE, which is correct and is what the third assertion
-    /// checks: a press anywhere on a card that is not its own resize corner drags
-    /// the card, and an item node has no resize corner. That assertion is also the
-    /// positive control — without it a delivery path that silently dropped the
-    /// whole drag would pass the first two.
-    func test_aCornerDragOnClaudesSourcePageDoesNotTakeItOffTheCanvas() throws {
+    /// **It must go through `CanvasEventNSView`, not through `setWidth`**, and it
+    /// must be read MID-DRAG. `rebuildLayouts` runs at `.ended` and heals a
+    /// missing item height, so a test that only looked after the release passes
+    /// over a gesture that had the card off the surface for its whole length —
+    /// which is exactly how the writer meets it: the card disappears under the
+    /// cursor on the next frame and comes back when they let go.
+    func test_aCornerDragOnClaudesSourcePageResizesItAndStaysOnTheCanvas() throws {
         let reference = "res-notebook-p3"
         let itemID = CanvasNodeID.item(reference)
         var fixture = CanvasScene()
-        fixture.insert(CanvasNode(id: itemID, kind: .item(referenceId: reference),
+        fixture.insert(CanvasNode(id: itemID, kind: .item(.project(id: reference)),
                                   origin: CGPoint(x: 20, y: 20), width: 240,
-                                  cachedHeight: CanvasCardMetrics.itemPlaceholderHeight,
+                                  cachedHeight: CanvasCardMetrics.itemLabelOnlyHeight,
                                   author: .claude))
         let root = try projectRoot(scene: fixture, scraps: [:])
         let model = CanvasModel()
@@ -530,22 +533,37 @@ final class CanvasViewMountingTests: XCTestCase {
                                    "precondition: the page card has no frame before "
                                    + "anything was clicked, so this test would pass "
                                    + "for the wrong reason")
+        let viewport = CGRect(x: 0, y: 0, width: 800, height: 600)
         let handle = CanvasRenderer.resizeHandleSize
         let press = CGPoint(x: before.maxX - handle / 2, y: before.maxY - handle / 2)
-        let released = CGPoint(x: press.x + 60, y: press.y + 25)
-        // Delivered by hand rather than through `drag`, because the assertion
-        // between the samples is the one the writer's eye makes. `rebuildLayouts`
-        // runs at `.ended` and heals a missing item height, so a test that only
-        // looked after the release would pass over a gesture that had the card off
-        // the surface for the whole drag — which is exactly how the writer meets
-        // it: the card disappears under the cursor on the next frame.
+        let released = CGPoint(x: press.x + 60, y: press.y)
+        // Delivered by hand rather than through `drag`, because the assertions
+        // between the samples are the ones the writer's eye makes.
         events.applyMouseDown(at: press, clickCount: 1)
         events.applyMouseDragged(to: released)
-        XCTAssertNotNil(try XCTUnwrap(model.scene.node(itemID)).frame,
+
+        let midDrag = try XCTUnwrap(model.scene.node(itemID),
+                                    "the page card left the scene mid-drag")
+        XCTAssertNotNil(midDrag.frame,
                         "the page card has no frame in the MIDDLE of the drag, so it "
                         + "is neither drawn nor clickable while the writer is holding "
                         + "the mouse down — CanvasScene.setWidth cleared its height "
-                        + "and nothing on the item path refills one per frame")
+                        + "and nothing on the item path refilled one per frame")
+        // A height is not the point; what a height BUYS is a frame, and what a
+        // frame buys is being drawn, hit-tested and culled at all. Both of the
+        // scene's spatial queries drop a node without one, so asserting the
+        // number alone would pass for a re-measure the queries still could not
+        // use — which is the state the Critical persisted to disk.
+        XCTAssertTrue(model.scene.nodes(intersecting: viewport).contains { $0.id == itemID },
+                      "mid-drag the page card is not returned by nodes(intersecting:), "
+                      + "so it is not drawn at all while the writer is resizing it")
+        XCTAssertEqual(model.scene.topmostNode(at: CGPoint(x: 40, y: 40))?.id, itemID,
+                       "mid-drag the page card cannot be clicked")
+        XCTAssertEqual(midDrag.width, before.width + 60,
+                       "the corner drag did not widen the page card: the writer is "
+                       + "dragging a mark CanvasRenderer.drawCard inks and nothing "
+                       + "is following it")
+
         events.applyMouseUp(at: released)
         pump()
 
@@ -554,23 +572,98 @@ final class CanvasViewMountingTests: XCTestCase {
         XCTAssertNotNil(live.frame,
                         "the photographed page has no frame after a drag on its "
                         + "corner: it is not drawn, not clickable and not "
-                        + "recoverable except by an immediate ⌘Z. The corner test "
-                        + "in CanvasInteraction.begin has to be .scrap-only, and "
-                        + "the triangle CanvasRenderer.drawCard invites the writer "
-                        + "to grab has to go with it")
-        XCTAssertEqual(live.width, before.width,
-                       "the page card was resized — an item node's width is not "
-                       + "the writer's to set until 1C-d makes it mean something, "
-                       + "and nothing re-measures one")
-        XCTAssertNotEqual(live.origin, before.origin,
-                          "positive control: the drag never reached the interaction "
-                          + "at all, so the two assertions above measured nothing")
+                        + "recoverable except by an immediate ⌘Z")
+        XCTAssertEqual(live.width, before.width + 60,
+                       "the widened page card snapped back at the end of the gesture")
+        XCTAssertEqual(live.origin, before.origin,
+                       "control: the corner MOVED the card instead of resizing it, "
+                       + "so every width assertion above measured a drag that went "
+                       + "somewhere else")
 
         let saved = try XCTUnwrap(savedScene(after: window, root: root).node(itemID),
                                   "the page card did not survive the save")
         XCTAssertNotNil(saved.frame,
                         "the page card reached disk with no height, so it is gone "
                         + "from the surface across a relaunch too")
+        XCTAssertEqual(saved.width, before.width + 60,
+                       "the writer's resize did not reach the sidecar")
+    }
+
+    /// **A corner drag on a pictured card SCALES the photograph rather than
+    /// distorting it** *(1C-d Task 6)*.
+    ///
+    /// Spec §7A.3's rule arriving on the second content type: width is
+    /// authoritative and the height is derived — a scrap's text reflows, an
+    /// image's height follows its aspect ratio. A resize that let the two move
+    /// independently would make the card lie about the shape of the page it
+    /// reproduces, which is the one thing `CanvasCardMetrics.itemPictureRect`'s
+    /// own doc says an image on this surface may not do (§8A.2).
+    ///
+    /// **The assertion is the RATIO, not two heights.** The picture's box is the
+    /// card's content width over the photograph's aspect ratio, so what must hold
+    /// across the drag is `contentWidth / pictureHeight`, and a test comparing two
+    /// literal heights would go red on any change to the label chrome that this
+    /// test has no opinion about.
+    ///
+    /// Read MID-DRAG for the reason the test above is: `rebuildLayouts` at
+    /// `.ended` would hide a gesture that distorted the card for its whole length.
+    func test_aCornerDragOnAPicturedItemCardKeepsThePhotographsAspectRatio() throws {
+        let path = "canvas_assets/image-20260730-220430.png"
+        let itemID = CanvasNodeID("owned-aspect")
+        var fixture = CanvasScene()
+        fixture.insert(CanvasNode(id: itemID, kind: .item(.owned(path: path)),
+                                  origin: CGPoint(x: 40, y: 40), width: 240,
+                                  cachedHeight: nil))
+        let root = try projectRoot(scene: fixture, scraps: [:])
+        // 400×300 — 4:3, so a squashed card is unmistakable from a scaled one.
+        try writeCanvasFixtureImage(width: 400, height: 300,
+                                    to: root.appendingPathComponent(path))
+
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        pump()
+
+        /// The aspect ratio of the box the picture is drawn in, read back out of
+        /// the card's own height — the number the writer sees.
+        func pictureAspect(of node: CanvasNode) throws -> CGFloat {
+            let height = try XCTUnwrap(node.cachedHeight)
+                - CanvasCardMetrics.itemLabelOnlyHeight
+                - CanvasCardMetrics.itemPictureGap
+            return CanvasCardMetrics.textWidth(forCardWidth: node.width) / height
+        }
+
+        let before = try XCTUnwrap(model.scene.node(itemID))
+        XCTAssertEqual(try pictureAspect(of: before), 4.0 / 3.0, accuracy: 0.02,
+                       "precondition: the photograph had not decoded before the drag "
+                       + "began, so this test would compare two floor heights")
+
+        let frame = try XCTUnwrap(before.frame)
+        let handle = CanvasRenderer.resizeHandleSize
+        let press = CGPoint(x: frame.maxX - handle / 2, y: frame.maxY - handle / 2)
+        events.applyMouseDown(at: press, clickCount: 1)
+        events.applyMouseDragged(to: CGPoint(x: press.x + 120, y: press.y))
+
+        let midDrag = try XCTUnwrap(model.scene.node(itemID))
+        XCTAssertEqual(midDrag.width, before.width + 120,
+                       "control: the drag never widened the card, so the ratio below "
+                       + "is being read off an unchanged card")
+        XCTAssertGreaterThan(try XCTUnwrap(midDrag.cachedHeight),
+                             try XCTUnwrap(before.cachedHeight),
+                             "control: a wider card holding the same 4:3 photograph "
+                             + "must be TALLER — an unchanged height would satisfy no "
+                             + "ratio assertion honestly")
+        XCTAssertEqual(try pictureAspect(of: midDrag), 4.0 / 3.0, accuracy: 0.02,
+                       "the photograph is drawn squashed while the writer resizes its "
+                       + "card: the height did not follow the width through the "
+                       + "picture's own aspect ratio (§7A.3)")
+
+        events.applyMouseUp(at: CGPoint(x: press.x + 120, y: press.y))
+        pump()
+        XCTAssertEqual(try pictureAspect(of: try XCTUnwrap(model.scene.node(itemID))),
+                       4.0 / 3.0, accuracy: 0.02,
+                       "the card settled at a shape its photograph is not")
     }
 
     /// **An item node that arrives with no height is healed, not silently absent.**
@@ -579,7 +672,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// record — a hand-edited sidecar can hand us an item node with no
     /// `cachedHeight`, and a node with no height has no `frame`, so it is neither
     /// drawn nor clickable. `rebuildLayouts` now writes
-    /// `CanvasCardMetrics.itemPlaceholderHeight` for one, which is the half of the
+    /// `CanvasCardMetrics.itemLabelOnlyHeight` for one, which is the half of the
     /// Critical's fix that does not depend on the gesture being guarded.
     ///
     /// The fixture is written through `CanvasStore`, so it cannot drift from the
@@ -588,7 +681,7 @@ final class CanvasViewMountingTests: XCTestCase {
         let reference = "res-notebook-p9"
         let itemID = CanvasNodeID.item(reference)
         var fixture = CanvasScene()
-        fixture.insert(CanvasNode(id: itemID, kind: .item(referenceId: reference),
+        fixture.insert(CanvasNode(id: itemID, kind: .item(.project(id: reference)),
                                   origin: CGPoint(x: 40, y: 40), width: 240,
                                   cachedHeight: nil, author: .claude))
         let root = try projectRoot(scene: fixture, scraps: [:])
@@ -601,10 +694,255 @@ final class CanvasViewMountingTests: XCTestCase {
         pump()
 
         XCTAssertEqual(try XCTUnwrap(model.scene.node(itemID)).cachedHeight,
-                       CanvasCardMetrics.itemPlaceholderHeight,
+                       CanvasCardMetrics.itemLabelOnlyHeight,
                        "an item node with no height stayed unmeasured after a load, "
                        + "so the writer's canvas is missing a card that is in the "
                        + "sidecar, in the accessibility tree and in list_canvas")
+
+        // …and the height is not the point. **What a height BUYS is a frame**,
+        // and what a frame buys is being drawn, hit-tested and culled at all: a
+        // node with no `cachedHeight` is dropped by both of the scene's own
+        // spatial queries. Asserting the number alone would pass for a heal that
+        // wrote a height the queries still could not use, which is exactly the
+        // state the 1C-c3 Critical persisted to disk.
+        let viewport = CGRect(x: 0, y: 0, width: 800, height: 600)
+        XCTAssertTrue(model.scene.nodes(intersecting: viewport).contains { $0.id == itemID },
+                      "the healed page card is not returned by nodes(intersecting:), "
+                      + "so it is neither drawn nor culled — it is simply not on the "
+                      + "canvas")
+        XCTAssertEqual(model.scene.topmostNode(at: CGPoint(x: 60, y: 60))?.id, itemID,
+                       "the healed page card cannot be clicked")
+    }
+
+    /// **A photograph arrives after the frame that asked for it, and the card
+    /// grows to hold it.**
+    ///
+    /// This is the whole of Task 5's off-frame-path contract, driven through the
+    /// real view rather than through the cache. `CanvasThumbnails.resolved` never
+    /// decodes — it records a miss — so the first measurement of an owned item
+    /// node lands on the floor. Something in the view has to notice, service the
+    /// queue and RE-MEASURE, and none of those three is visible to a test that
+    /// drives `CanvasThumbnails` directly: a view that never scheduled
+    /// `servicePending()` would leave every photograph on the canvas a blank
+    /// card, and one that serviced it but only bumped the redraw counter would
+    /// leave every one of them the wrong height.
+    ///
+    /// The floor assertion is the control: without it a card that was measured
+    /// with a picture from the start would pass the growth assertion for free.
+    func test_anOwnedItemNodesCardGrowsWhenItsPhotographHasDecoded() throws {
+        let path = "canvas_assets/image-20260730-220430.png"
+        let itemID = CanvasNodeID("owned-1")
+        var fixture = CanvasScene()
+        fixture.insert(CanvasNode(id: itemID, kind: .item(.owned(path: path)),
+                                  origin: CGPoint(x: 40, y: 40), width: 240,
+                                  cachedHeight: nil))
+        let root = try projectRoot(scene: fixture, scraps: [:])
+        // 400×300 — a landscape photograph, so a card holding it is unmistakably
+        // taller than one holding a line of label.
+        try writeCanvasFixtureImage(width: 400, height: 300,
+                                    to: root.appendingPathComponent(path))
+
+        let model = CanvasModel()
+        host(CanvasView(model: model, projectRoot: root, paletteSwatchHexes: { [] }))
+        pump()
+
+        let height = try XCTUnwrap(try XCTUnwrap(model.scene.node(itemID)).cachedHeight)
+        XCTAssertGreaterThan(height, CanvasCardMetrics.itemLabelOnlyHeight,
+                             "the card is still at the floor height after the photograph "
+                             + "had time to decode: either nothing scheduled "
+                             + "servicePending(), or it ran and nothing re-measured. A "
+                             + "canvas of blank cards is what the writer sees either way")
+        XCTAssertEqual(height,
+                       CanvasCardMetrics.itemCardHeight(forCardWidth: 240,
+                                                        pictureAspect: 4.0 / 3.0),
+                       accuracy: 1.5,
+                       "the card's height is not the one its photograph's shape asks "
+                       + "for — measured \(height) against the 4:3 fixture")
+
+        // …and the new height is a fact about the SCENE rather than about one
+        // frame: a point that is inside the card only because the photograph made
+        // it taller now hits it. A re-measure that reached the renderer and not
+        // the scene would leave a card drawn larger than it can be clicked.
+        XCTAssertEqual(
+            model.scene.topmostNode(
+                at: CGPoint(x: 60, y: 40 + CanvasCardMetrics.itemLabelOnlyHeight + 20))?.id,
+            itemID,
+            "the grown card cannot be clicked where it is drawn")
+
+        // **Nothing is asserted about the sidecar here, deliberately.** A height
+        // is DERIVED (§7A.3) and this pass runs on every load, so the sidecar's
+        // copy is an optimisation and not the record: a decode landing does not
+        // queue a save, and it should not — opening a canvas would then dirty its
+        // own file, and the next launch re-measures from the floor to the same
+        // number anyway. What must never persist is a NIL height, and the heal is
+        // what closes that (`test_anItemNodeThatArrivesWithNoHeightIsHealedOnLoad`).
+    }
+
+    /// **A photograph that fails to decode must not take the NEXT one down with
+    /// it** *(Task 5 review, Important 1)*.
+    ///
+    /// The servicing schedule is a `.task(id:)`, and for one commit the id was the
+    /// pending COUNT. `rebuildLayouts` is its only writer and it runs after a
+    /// service only when `servicePending()` reports that something landed — so a
+    /// decode that FAILS drains the queue, reports false, and leaves the count
+    /// frozen. The next miss that happened to produce the same count then moved no
+    /// id, scheduled nothing, and **the second photograph never decoded for the
+    /// rest of the session**, silently, at the floor height.
+    ///
+    /// It is the error path of the exact failure this task exists to prevent, and
+    /// it is the path `CanvasThumbnails`' own `Entry` doc anticipates ("a
+    /// photograph the writer deleted from the Finder"). Every other test in the
+    /// slice uses one good picture and cannot see it.
+    ///
+    /// The second card arrives through `mutateFromInspector` — the ordinary
+    /// other-column route, which is how a card gets added to a canvas the writer
+    /// is looking at — so the rebuild really is the one production takes.
+    ///
+    /// **The control is the same test with the first photograph READABLE**
+    /// (`test_aSecondPhotographDecodesAfterAReadableFirstOne` below): without it,
+    /// a delivery path that never added the second node at all would satisfy every
+    /// assertion here by leaving a card that was never measured.
+    func test_aFailedDecodeDoesNotStallTheNextPhotograph() throws {
+        try assertTheSecondPhotographDecodes(firstImageIsReadable: false)
+    }
+
+    /// The control for the test above. If this one ever fails, that one is
+    /// measuring the delivery route rather than the failed decode.
+    func test_aSecondPhotographDecodesAfterAReadableFirstOne() throws {
+        try assertTheSecondPhotographDecodes(firstImageIsReadable: true)
+    }
+
+    /// Two owned item nodes, the second added while the canvas is on screen. The
+    /// first one's file is written or not, which is the only difference.
+    private func assertTheSecondPhotographDecodes(firstImageIsReadable: Bool) throws {
+        let firstPath = "canvas_assets/image-20260731-000001.png"
+        let secondPath = "canvas_assets/image-20260731-000002.png"
+        let firstID = CanvasNodeID("owned-1"), secondID = CanvasNodeID("owned-2")
+
+        var fixture = CanvasScene()
+        fixture.insert(CanvasNode(id: firstID, kind: .item(.owned(path: firstPath)),
+                                  origin: CGPoint(x: 40, y: 40), width: 240,
+                                  cachedHeight: nil))
+        let root = try projectRoot(scene: fixture, scraps: [:])
+        if firstImageIsReadable {
+            try writeCanvasFixtureImage(width: 400, height: 300,
+                                        to: root.appendingPathComponent(firstPath))
+        }
+
+        let model = CanvasModel()
+        host(CanvasView(model: model, projectRoot: root, paletteSwatchHexes: { [] }))
+        pump()
+        XCTAssertEqual(try XCTUnwrap(model.scene.node(firstID)).cachedHeight
+                           == CanvasCardMetrics.itemLabelOnlyHeight,
+                       !firstImageIsReadable,
+                       "precondition: the first card is at the floor exactly when its "
+                       + "photograph was unreadable, so the two arms of this test "
+                       + "differ in the thing they claim to")
+
+        // The second photograph is written BEFORE the node arrives, so the only
+        // question this asks is whether the servicing schedule woke up.
+        try writeCanvasFixtureImage(width: 400, height: 300,
+                                    to: root.appendingPathComponent(secondPath))
+        model.mutateFromInspector("Add Card") { scene in
+            scene.insert(CanvasNode(id: secondID, kind: .item(.owned(path: secondPath)),
+                                    origin: CGPoint(x: 400, y: 40), width: 240,
+                                    cachedHeight: nil))
+        }
+        pump()
+
+        let height = try XCTUnwrap(try XCTUnwrap(model.scene.node(secondID)).cachedHeight)
+        XCTAssertGreaterThan(height, CanvasCardMetrics.itemLabelOnlyHeight,
+                             "the second photograph never decoded (height \(height)) — "
+                             + "the servicing schedule stalled, and every photograph "
+                             + "dropped on this canvas from here on is a blank card")
+        XCTAssertEqual(height,
+                       CanvasCardMetrics.itemCardHeight(forCardWidth: 240,
+                                                        pictureAspect: 4.0 / 3.0),
+                       accuracy: 1.5,
+                       "the second card's height is not its photograph's shape")
+    }
+
+    /// **A canvas holding more photographs than the thumbnail budget can keep
+    /// must SETTLE, not thrash** *(Task 5 re-review, N1)*.
+    ///
+    /// `CanvasItemPresentation.resolve` asks the cache for every item node in the
+    /// scene and `CanvasThumbnails` evicts LRU over a byte budget, so above the
+    /// budget a resolve misses on whatever the last service evicted. For one
+    /// commit the post-service rebuild re-armed the servicing ticket, which made
+    /// that a loop with no exit — resolve → miss → ticket → service → evict →
+    /// resolve — re-decoding the same photographs and rebuilding the whole
+    /// accessibility tree on every turn (tripwire 30's cost, permanently). At the
+    /// shipped 64 MiB budget the line is roughly 85 pictured cards, which is why
+    /// this test is handed a cache rather than reaching the state by volume.
+    ///
+    /// **The instrument is `decodeCount`, and the alternative was measured and
+    /// rejected.** Watching `model.sceneRevision` fail to move looks like the
+    /// obvious test and passes for the wrong reason: this harness stops
+    /// delivering SwiftUI updates once the mount burst is over, so the loop runs
+    /// three turns and then goes quiet on its own. Instrumented, the pre-fix code
+    /// printed `task ran at ticket 1 … 2 … 3` and then stopped, with the counter
+    /// still — green, over a live defect. A decode count is exact: six
+    /// photographs, six decodes, however the runloop behaves.
+    ///
+    /// **The heights are the other half, and they are `CanvasThumbnails`' shape
+    /// memo.** Only about two of these six can be resident at once, so four of
+    /// them are asked about while their pixels are gone. A card must keep the
+    /// height its photograph gave it through that — measuring off residency is
+    /// what gave the loop its motive, and it would make every eviction move the
+    /// writer's layout.
+    @MainActor
+    func test_aCanvasOverTheThumbnailBudgetSettlesInsteadOfLooping() throws {
+        var fixture = CanvasScene()
+        for index in 0..<6 {
+            fixture.insert(CanvasNode(id: CanvasNodeID("owned-\(index)"),
+                                      kind: .item(.owned(path: "canvas_assets/p\(index).png")),
+                                      origin: CGPoint(x: 40 + index * 300, y: 40),
+                                      width: 240, cachedHeight: nil))
+        }
+        let root = try projectRoot(scene: fixture, scraps: [:])
+        for index in 0..<6 {
+            try writeCanvasFixtureImage(
+                width: 400, height: 300,
+                to: root.appendingPathComponent("canvas_assets/p\(index).png"))
+        }
+
+        // Room for about two of the six: a 240 pt card asks for bucket 512 and a
+        // 400×300 photograph decodes to ~480 KB. What matters is that the budget
+        // is crossed, not the exact number it is crossed by.
+        let cache = CanvasThumbnails(byteBudget: 1_200_000)
+        let model = CanvasModel()
+        host(CanvasView(model: model, projectRoot: root, paletteSwatchHexes: { [] },
+                        thumbnailCache: cache))
+        pump()
+
+        let expected = CanvasCardMetrics.itemCardHeight(forCardWidth: 240,
+                                                        pictureAspect: 4.0 / 3.0)
+        for index in 0..<6 {
+            let id = CanvasNodeID("owned-\(index)")
+            let height = try XCTUnwrap(try XCTUnwrap(model.scene.node(id)).cachedHeight)
+            XCTAssertEqual(height, expected, accuracy: 1.5,
+                           "card \(index) is \(height) rather than its photograph's "
+                           + "shape — a card whose thumbnail the budget evicted must "
+                           + "keep the height its photograph gave it, or every "
+                           + "eviction moves the writer's layout")
+        }
+        // Control for the six above: they can only be right if the service really
+        // ran, and this says so in the cache's own terms.
+        XCTAssertGreaterThan(cache.decodeCount, 0,
+                             "nothing ever decoded, so the heights above are not "
+                             + "evidence of anything")
+
+        XCTAssertEqual(cache.decodeCount, 6,
+                       "six photographs cost \(cache.decodeCount) decodes — the "
+                       + "servicing schedule is feeding itself: every service evicts "
+                       + "what the next resolve then asks for again, and each turn "
+                       + "also re-sorts the accessibility tree and copies every "
+                       + "scrap's string")
+
+        // And it stays settled: a second pass over the runloop adds nothing.
+        pump(0.4)
+        XCTAssertEqual(cache.decodeCount, 6,
+                       "the canvas is still decoding with no writer touching it")
     }
 
     /// **The card must stay on the canvas for the WHOLE of a resize, not just
@@ -1769,7 +2107,7 @@ final class CanvasViewMountingTests: XCTestCase {
 
     /// The Edit menu item for `selector`, resolved and validated the way AppKit
     /// does — including letting the validator rewrite the item's `title`, which
-    /// is how "Undo" becomes "Undo Move Scrap".
+    /// is how "Undo" becomes "Undo Move Card".
     private func editMenuItem(_ selector: Selector,
                               in window: NSWindow) throws -> (item: NSMenuItem,
                                                               target: NSObject,
@@ -1845,7 +2183,7 @@ final class CanvasViewMountingTests: XCTestCase {
                       "Undo is greyed out on a canvas with a move on its stack — the "
                       + "writer's report, exactly: the feature is built, tested and "
                       + "unreachable unless a scrap happens to be focused")
-        XCTAssertTrue(undo.item.title.contains("Move Scrap"),
+        XCTAssertTrue(undo.item.title.contains("Move Card"),
                       "the menu item reads \"\(undo.item.title)\" rather than naming the "
                       + "gesture it will take back — the action never reaches "
                       + "NSWindow, so nothing else retitles it")
@@ -1865,7 +2203,7 @@ final class CanvasViewMountingTests: XCTestCase {
         XCTAssertTrue(redo.isEnabled,
                       "there is nothing to redo straight after an undo, so ⇧⌘Z is "
                       + "greyed out and the writer cannot take the undo back")
-        XCTAssertTrue(redo.item.title.contains("Move Scrap"),
+        XCTAssertTrue(redo.item.title.contains("Move Card"),
                       "the Redo item reads \"\(redo.item.title)\" rather than naming the "
                       + "gesture it will re-apply")
     }
@@ -2651,7 +2989,7 @@ final class CanvasViewMountingTests: XCTestCase {
 
         let onDisk = sceneOnDisk(root)
         let card = try XCTUnwrap(onDisk.node(scrapID))
-        XCTAssertEqual(card.width, CanvasInteraction.minimumScrapWidth,
+        XCTAssertEqual(card.width, CanvasInteraction.minimumCardWidth,
                        "precondition: the resize really ran to the floor")
         XCTAssertEqual(card.origin, CGPoint(x: 300, y: 60),
                        "precondition: a resize holds the origin, so the centre "
@@ -2917,7 +3255,7 @@ final class CanvasViewMountingTests: XCTestCase {
         XCTAssertTrue(undo.isEnabled,
                       "a delete left nothing on the undo stack, so the stray ⌫ that "
                       + "takes a card away is permanent")
-        XCTAssertTrue(undo.item.title.contains("Delete Scrap"),
+        XCTAssertTrue(undo.item.title.contains("Delete Card"),
                       "the menu item reads \"\(undo.item.title)\" rather than naming "
                       + "what it will take back")
         _ = undo.target.perform(undoSelector, with: undo.item)
@@ -2937,9 +3275,9 @@ final class CanvasViewMountingTests: XCTestCase {
     /// `CanvasUndo.beginGesture` takes NO snapshot when it nests, and
     /// `endGesture` registers nothing until depth reaches zero — so a delete
     /// opened inside an outer gesture disappears into it. Here the outer gesture
-    /// is the "Move Scrap" that `handleDrag(.began)` opens on every press over a
+    /// is the "Move Card" that `handleDrag(.began)` opens on every press over a
     /// card: press and hold, press ⌫, and the card goes while the Edit menu has
-    /// nothing to offer. Release, and it offers **"Undo Move Scrap"** — a move
+    /// nothing to offer. Release, and it offers **"Undo Move Card"** — a move
     /// and a delete collapsed into one step under the wrong name.
     ///
     /// This is the reachable half. The lossy half is the test below.
@@ -2951,7 +3289,7 @@ final class CanvasViewMountingTests: XCTestCase {
         let events = try eventView(in: window)
 
         // Press on the card and DO NOT release: `onClick` selects it and
-        // `onDrag(.began)` opens "Move Scrap" in the same mouse-down.
+        // `onDrag(.began)` opens "Move Card" in the same mouse-down.
         events.applyMouseDown(at: CGPoint(x: 60, y: 40), clickCount: 1)
         XCTAssertTrue(window.makeFirstResponder(events))
         pump()
@@ -3874,7 +4212,7 @@ final class CanvasViewMountingTests: XCTestCase {
 
         let undoSelector = #selector(CanvasEventNSView.undo(_:))
         let undo = try editMenuItem(undoSelector, in: window)
-        XCTAssertTrue(undo.item.title.contains("Delete Scrap"),
+        XCTAssertTrue(undo.item.title.contains("Delete Card"),
                       "the menu item reads \"\(undo.item.title)\" — the line scrub "
                       + "must ride inside the card's own step rather than becoming a "
                       + "second one")

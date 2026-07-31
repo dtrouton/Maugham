@@ -54,18 +54,21 @@ final class ScrapInspectorTests: XCTestCase {
         XCTAssertNil(m.selectedNode)
     }
 
-    /// An item node has no arm of its own until 1C-d, and it must not take the
-    /// card's: every sentence in `ScrapInspector` is wrong for a reference —
-    /// "The words live on the card", "Promoting takes a copy" — and an item node
-    /// cannot be promoted at all. The pane routed every `selectedNode` there.
+    /// An item node must not take the card's arm: every sentence in
+    /// `ScrapInspector` is wrong for a reference — "The words live on the card",
+    /// "Promoting takes a copy" — and an item node cannot be promoted at all. The
+    /// pane routed every `selectedNode` there.
     ///
-    /// `selectedNode` itself still resolves; the guard is the `case .scrap` in
-    /// `RegionInspectorPane`, and this is the fact that guard reads.
+    /// `selectedNode` itself still resolves; the discriminator is the `case
+    /// .scrap` arm of `RegionInspectorPane`'s kind switch, and this is the fact
+    /// that switch reads. (Since 1C-d Task 7 the other arm is `ItemInspector`
+    /// rather than the empty state — this test is unchanged by that, which is the
+    /// point of it.)
     func test_anItemNodeIsResolvedAndIsNotAScrap() {
         let m = CanvasModel()
         let ref = CanvasNodeID.item("r-9")
         m.withScene { s in
-            s.insert(CanvasNode(id: ref, kind: .item(referenceId: "r-9"),
+            s.insert(CanvasNode(id: ref, kind: .item(.project(id: "r-9")),
                                 origin: .zero, width: 180, cachedHeight: 120))
         }
         m.selection = .node(ref)
@@ -173,7 +176,7 @@ final class ScrapInspectorTests: XCTestCase {
         XCTAssertFalse(p.saysNotPromotedYet,
                        "something did go somewhere; \"not promoted yet\" is the "
                        + "one sentence that is false here")
-        XCTAssertFalse(PromotedArtifactSection.contributionArtifactMissing
+        XCTAssertFalse(PromotedArtifactSection.Subject.card.contributionArtifactMissing
             .contains("res-gone"),
                        "an id is not a sentence the writer can read")
     }
@@ -183,7 +186,7 @@ final class ScrapInspectorTests: XCTestCase {
     /// somebody else's — and one sentence for both is the pane telling the
     /// writer they can rewrite a joint note.
     func test_theContributionLineDoesNotReadLikeTheOwnMarksLine() {
-        let contributed = PromotedArtifactSection.wordsAreIn("Act II fog")
+        let contributed = PromotedArtifactSection.Subject.card.wordsAreIn("Act II fog")
         let became = PromotedArtifactSection.Subject.card.became("Act II fog")
         XCTAssertNotEqual(contributed, became)
         XCTAssertFalse(contributed.contains("Became"),
@@ -196,7 +199,7 @@ final class ScrapInspectorTests: XCTestCase {
     /// that only contributed: a **new** artifact, never a rewrite. That is the
     /// one smoke step that matters, and the pane is where it is discoverable.
     func test_theContributionCaptionSaysAPromotionFromHereMakesSomethingNew() {
-        let caption = PromotedArtifactSection.contributionCaption
+        let caption = PromotedArtifactSection.Subject.card.contributionCaption
         XCTAssertTrue(caption.lowercased().contains("new"), "found: \(caption)")
         XCTAssertFalse(caption.lowercased().contains("rewrite that one"),
                        "found: \(caption)")
@@ -298,9 +301,26 @@ final class ScrapInspectorTests: XCTestCase {
     /// is branch-invariant — but the line's PRESENCE can be, and a deletion is
     /// what would remove it. Every sentence in `ScrapInspector` is wrong for a
     /// reference ("The words live on the card", "Promoting takes a copy") and an
-    /// item node cannot be promoted at all, so the guard is the difference
-    /// between an honest empty state and a pane telling the writer to promote
-    /// something that already exists as itself.
+    /// item node cannot be promoted at all, so the routing is the difference
+    /// between an honest pane and one telling the writer to promote something
+    /// that already exists as itself.
+    ///
+    /// **The ruling is unchanged and its SHAPE moved since 1C-d Task 7.**
+    /// It was `case .scrap = node.kind` with every other kind falling through to
+    /// the empty state — right about the scrap and silent about everything else,
+    /// which is exactly how a selected page card came to be told to select
+    /// something (ADR 0026 §10). It is a `switch` on the kind now, so no kind can
+    /// reach the empty state without a compile error. `ItemInspectorTests` owns
+    /// the other arm's half.
+    ///
+    /// **What the `switch` took away, and what puts it back.** In the old form the
+    /// kind and the arm were one *branch condition*, so the token's presence
+    /// implied the card arm rendered for a scrap and nothing else. Three
+    /// independent presence checks do not imply that — `ScrapInspector(` moved
+    /// under `case .item` would compile and stay green — so the last assertion
+    /// reads the `.scrap` arm's BODY, bounded by the next case. (The other
+    /// direction is the compiler's: `ItemInspector` needs a
+    /// `CanvasItemReference`, which only the `.item` binding produces.)
     func test_thePaneRoutesOnlyAScrapToTheCardArm() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -308,16 +328,46 @@ final class ScrapInspectorTests: XCTestCase {
         let text = try String(
             contentsOf: root.appendingPathComponent("Maugham/Canvas/RegionInspector.swift"),
             encoding: .utf8)
-        XCTAssertTrue(text.contains("case .scrap = node.kind"),
-                      "RegionInspectorPane must guard the selectedNode branch on the "
+        XCTAssertTrue(text.contains("switch node.kind {"),
+                      "RegionInspectorPane must route the selectedNode branch on the "
                       + "node's KIND — without it every node reaches ScrapInspector, "
                       + "whose whole copy assumes a scrap")
+        XCTAssertTrue(text.contains("case .scrap:"),
+                      "and the card arm is the `.scrap` arm of it")
+
+        // The association itself, not two tokens that happen to share a file.
+        let scrapArm = try XCTUnwrap(armBody(after: "case .scrap:",
+                                             upTo: "case .item(", in: text))
+        XCTAssertTrue(scrapArm.contains("ScrapInspector("),
+                      "the card arm must be built INSIDE the `.scrap` arm — the "
+                      + "old branch-condition form made that structural, and three "
+                      + "independent presence checks do not")
+        // The control, and it is what makes the assertion above discriminate: the
+        // bounded body is a fraction of the file rather than all of it, so a
+        // `ScrapInspector(` under a different case would fall outside it.
+        XCTAssertLessThan(scrapArm.count, text.count / 4,
+                          "the bound found nothing to stop at, so the “arm” is most "
+                          + "of the file and the assertion above cannot fail")
+
         // The companion: prove the scan reports an absent token rather than
         // always answering true. A census over a REQUIRED token is exactly the
         // shape that passes while blind, and the plant names a spelling that
         // cannot exist in production.
-        XCTAssertFalse(text.contains("case .notARealKind = node.kind"),
+        XCTAssertFalse(text.contains("case .notARealKind:"),
                        "the scan reads the file rather than always answering true")
+        XCTAssertFalse(scrapArm.contains("ItemInspector("),
+                       "and the bounded body really is bounded — the item arm is "
+                       + "outside it")
+    }
+
+    /// The source between a `case` label and the next one, so an assertion can be
+    /// made about one arm rather than about the file that contains it.
+    private func armBody(after label: String, upTo next: String,
+                         in source: String) -> String? {
+        guard let start = source.range(of: label),
+              let end = source.range(of: next, range: start.upperBound..<source.endIndex)
+        else { return nil }
+        return String(source[start.upperBound..<end.lowerBound])
     }
 
     // MARK: - The piece association (spec §6.2)
@@ -484,7 +534,8 @@ final class ScrapInspectorTests: XCTestCase {
         // The same words the refusal reaches for, so the pane and the sheet tell
         // one story.
         let refusal = PromotionFailure
-            .pieceIsNotAResearchTarget(title: "Elsewhere", inherited: false)
+            .pieceIsNotAResearchTarget(title: "Elsewhere", inherited: false,
+                                       canCarryItsOwnPiece: true)
             .errorDescription ?? ""
         XCTAssertTrue(refusal.contains("keep research of its own"),
                       "found: \(refusal)")
@@ -617,7 +668,7 @@ final class ScrapInspectorTests: XCTestCase {
                 homeMembers: [self.a], author: .claude))
             if let source {
                 let page = CanvasNodeID.item(source)
-                s.insert(CanvasNode(id: page, kind: .item(referenceId: source),
+                s.insert(CanvasNode(id: page, kind: .item(.project(id: source)),
                                     origin: CGPoint(x: 0, y: 200), width: 240,
                                     cachedHeight: 40, author: .claude))
                 CanvasMembership.join(page, home: self.r1, in: &s)
@@ -701,7 +752,7 @@ final class ScrapInspectorTests: XCTestCase {
         let m = claudeModel(source: "res-fog")
         m.withScene { s in
             let second = CanvasNodeID.item("res-a")
-            s.insert(CanvasNode(id: second, kind: .item(referenceId: "res-a"),
+            s.insert(CanvasNode(id: second, kind: .item(.project(id: "res-a")),
                                 origin: CGPoint(x: 300, y: 200), width: 240,
                                 cachedHeight: 40))
             CanvasMembership.join(second, home: self.r1, in: &s)
@@ -751,7 +802,7 @@ final class ScrapInspectorTests: XCTestCase {
         // All three are present at once, and none of them is the other two.
         let sentences = [origin.sentence,
                          PromotedArtifactSection.Subject.card.became("The falls at night"),
-                         PromotedArtifactSection.wordsAreIn("Act II fog")]
+                         PromotedArtifactSection.Subject.card.wordsAreIn("Act II fog")]
             .compactMap { $0 }
         XCTAssertEqual(sentences.count, 3,
                        "all three facts must have a sentence, or the loop below "

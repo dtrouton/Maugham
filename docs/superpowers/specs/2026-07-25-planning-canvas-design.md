@@ -213,6 +213,12 @@ A **palette card** is not routed: the wall is project-level and a card must live
 
 ---
 
+> **Amendment, 2026-07-31 (Denver, deriving 1C-d Task 12a).** **A picture reports its promotion exactly as a text scrap does.** His words: *"they should report their promotion in the same way as the text scraps."*
+>
+> §6.3 below defines the record over *"the home members whose text actually went in"*, read from `Promotion.regionBodies` — which reads the scrap table and **structurally cannot see a picture**. So on the rules as first written, a region holding a photograph promotes to a palette card, the picture goes into that card, and the picture's own node records **nothing** — its inspector saying *"Not promoted yet"* while its picture sits in the artifact. That is word for word the failure this section was written to answer (*"not all the scraps know they were promoted, some think they weren't — all did turn up in the research note though"*), arriving through the one door the original ruling did not cover.
+>
+> **The record therefore covers any home member whose CONTENT went in — words or picture.** Everything else in §6.3 is unchanged and still binding: it is `contributedToItemID` and **never** the mark, it has **no route into `Promotion.existingArtifact`**, it is recorded at promotion time and never derived from live membership, and it is an inspector fact that is neither drawn nor announced. The distinction the section spends its length making is between *this produced that* and *this went into that* — and a picture that went in is on the second side of it, exactly as a paragraph is.
+
 ### 6.3 What a promotion records on the cards it consumed
 
 *Added 2026-07-29 (Denver, after the 1C-c2a smoke).* Promoting a region produced the note and told the region so — and left every card whose words are now in that note reporting **"Not promoted yet"** in its own inspector. The writer's report: *"not all the scraps know they were promoted, some think they weren't — all did turn up in the research note though."* The cards that did say promoted were the ones promoted individually earlier, carrying their own mark. Two truths on one screen, and the screen was lying.

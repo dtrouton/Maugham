@@ -133,7 +133,15 @@ enum CanvasClaudeWrite {
     /// The live canvas, or nil — the one place the discriminator is spelled, so the
     /// read and the write cannot come to different conclusions about which canvas
     /// is real.
-    private static func liveModel(of store: ProjectStore) -> CanvasModel? {
+    ///
+    /// **Internal rather than private, for one caller and under a census.**
+    /// `CanvasCapture` (1C-d Task 12, spec §8A.4) is the second writer with two
+    /// routes into the same pair of canvases, and a second `store.liveCanvas,
+    /// model.isAttached` written there would be exactly the divergence this
+    /// function exists to prevent. That the pair appears in production **once** is
+    /// held by `CanvasLiveSeamTests.test_theLiveCanvasDiscriminatorIsSpelledOnce`,
+    /// with a planted-offender companion — not by this comment.
+    static func liveModel(of store: ProjectStore) -> CanvasModel? {
         guard let model = store.liveCanvas, model.isAttached else { return nil }
         return model
     }

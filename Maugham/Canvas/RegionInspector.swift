@@ -13,20 +13,27 @@ import SwiftUI
 /// path — one column over. **`selectedLine` joined it in 1C-c1 and is resolved
 /// in the same place, for the same reason.**
 ///
-/// **Three arms, resolved through the model's two resolvers rather than by
+/// **Four arms, resolved through the model's three resolvers rather than by
 /// switching on `selection` directly.** A selection is an id and the scene is
 /// what says whether it still names anything — `selectedRegion` and
 /// `selectedLine` both answer nil for a stale one, so a switch on the raw case
 /// would need an else of its own on every arm to say the same thing.
 /// **`selectedNode` joined them in 1C-c2** — a card's dedicated arm,
-/// `ScrapInspector`.
+/// `ScrapInspector` — and **1C-d Task 7 split that branch by KIND**, giving an
+/// item node `ItemInspector` instead of the empty state. Arm order cannot be
+/// wrong: `selection` is one enum, so region, line and node are mutually
+/// exclusive by construction, and the two node kinds are a `switch` the compiler
+/// keeps exhaustive.
 struct RegionInspectorPane: View {
 
     let model: CanvasModel
     let pieces: [RegionInspector.PieceChoice]
-    /// Deferred manifest lookups for the two arms that name an artifact — see
-    /// `PromotedArtifactSection`. Both the card arm and the region arm take
-    /// them: a region's mark had no surface at all for one slice.
+    /// Deferred manifest lookup for the arms that name an artifact — see
+    /// `PromotedArtifactSection`. The card arm and the region arm take it (a
+    /// region's mark had no surface at all for one slice), and **the item arm
+    /// joined them in 1C-d Task 8**, when an owned picture became something that
+    /// can produce one. How many arms is the compiler's answer, not a number to
+    /// keep up to date here.
     let artifactTitle: (String) -> String?
     /// What the writer's binder calls a piece, over the WHOLE structure — the
     /// lookup that tells a piece which is gone from one which is simply not
@@ -34,49 +41,66 @@ struct RegionInspectorPane: View {
     /// `ScrapInspector.association`.
     let pieceTitle: (String) -> String?
     let onOpenResearchItem: (String) -> Void
+    /// What an item MEMBER of a region is called (1C-d). A Claude region holds
+    /// the page its scraps were read off, so a region's member list really does
+    /// contain item nodes, and a row is a title rather than a card.
+    ///
+    /// Defaulted for the same reason `CanvasView`'s is, and censused in the same
+    /// place: `ProjectWindow` is the one production caller and it names
+    /// `Self.canvasItemIndex(in: store)` for both.
+    var itemIndex: CanvasItemIndex = .empty
 
     var body: some View {
         if let region = model.selectedRegion {
             RegionInspector(model: model, regionID: region.id, pieces: pieces,
                             artifactTitle: artifactTitle, pieceTitle: pieceTitle,
-                            onOpenResearchItem: onOpenResearchItem)
+                            onOpenResearchItem: onOpenResearchItem,
+                            itemIndex: itemIndex)
         } else if let line = model.selectedLine {
             LineInspector(model: model, lineID: line.id)
-        } else if let node = model.selectedNode, case .scrap = node.kind {
-            // 1C-c2's arm. A card used to land in the empty state below, which
-            // was right while a scrap had nothing to say about itself — the
-            // promoted mark is what changed that.
+        } else if let node = model.selectedNode {
+            // **Every node kind names its own arm, and the compiler is what says
+            // so.** This was `case .scrap = node.kind` with everything else
+            // falling through to the empty state below — the right ruling and the
+            // wrong shape for it, because the fall-through is silent. 1C-c3 began
+            // minting item nodes (`CanvasClaudePlacement`, on every
+            // `add_canvas_scraps` that names a source) and the consequence
+            // shipped: a writer could click the page card, watch it draw itself
+            // selected, and be told to select something. It was recorded as an
+            // accepted limit in ADR 0026 §10 rather than papered over, and 1C-d
+            // Task 7 is the arm it was waiting for. A `switch` means the next kind
+            // arrives as a compile error rather than as an empty state.
             //
-            // **The `.scrap` guard is not decoration**, and what it does is now a
-            // RULING rather than a technicality. Every sentence in that arm is
-            // wrong for a reference: "The words live on the card" and "Promoting
-            // takes a copy" describe a scrap, and an item node cannot be promoted
-            // at all. So an item node falls to the empty state below.
-            //
-            // This comment used to open "Nothing creates item nodes yet (1C-d
-            // owns the drag-in route)", and **1C-c3 falsified that**:
-            // `CanvasClaudePlacement` mints one on every `add_canvas_scraps` that
-            // names a source. The claim was load-bearing in exactly one
-            // direction — it is why "falls to the empty state" cost nothing — and
-            // the consequence now ships: a writer can click the dashed page card,
-            // watch it draw itself selected, and be told to select something. It
-            // is recorded as an accepted limit in ADR 0026 §10 and in AREA.md's
-            // "Not built" list rather than papered over here, because the fix is
-            // an arm with the reference's title, an **Open in Research** button
-            // and the provenance row — 1C-d's, alongside the thumbnail and the
-            // drag-in route, and not a comment's to invent.
-            //
-            // There is no click-through either: a double-click on an item node
-            // resolves `.unenterableNode` and does nothing, and
-            // `onOpenResearchItem` is reached only from the two arms above. The
-            // card arm's `Read from "<title>"` sentence, on the scraps read off
-            // the page, is the recovery path that does ship.
-            // The SAME offer the region arm gets — already filtered to the pieces
-            // a promotion can be routed to, so the two pickers cannot disagree
-            // about what a writer may choose.
-            ScrapInspector(model: model, nodeID: node.id, pieces: pieces,
-                           artifactTitle: artifactTitle, pieceTitle: pieceTitle,
-                           onOpenResearchItem: onOpenResearchItem)
+            // **The `.scrap` ruling stands and this is not a relaxation of it.**
+            // Every sentence in `ScrapInspector` is wrong for an item node —
+            // "The words live on the card" and its Piece picker describe a
+            // scrap, and a photograph has neither — so an item node still never
+            // reaches it. What changed is where it goes instead. (It said "an
+            // item node cannot be promoted at all" until 1C-d Task 8, when an
+            // owned one could; the arm's own copy is what differs, not the verb.)
+            switch node.kind {
+            case .scrap:
+                // The SAME offer the region arm gets — already filtered to the
+                // pieces a promotion can be routed to, so the two pickers cannot
+                // disagree about what a writer may choose.
+                ScrapInspector(model: model, nodeID: node.id, pieces: pieces,
+                               artifactTitle: artifactTitle, pieceTitle: pieceTitle,
+                               onOpenResearchItem: onOpenResearchItem)
+            case .item(let reference):
+                // Destructured here rather than inside the arm:
+                // `CanvasItemReference`'s doc comment asks exactly that of the
+                // sites that genuinely differ between the two provenances, and
+                // this is the site that chooses the pane.
+                //
+                // **`onOpenResearchItem`'s third caller**, and the one that ends
+                // the dead end: a double-click on an item node resolves
+                // `.unenterableNode` and does nothing, so until this arm the only
+                // route from the batch back to the page was the card arm's
+                // `Read from "<title>"` sentence on the scraps read off it.
+                ItemInspector(model: model, nodeID: node.id, reference: reference,
+                              itemIndex: itemIndex, artifactTitle: artifactTitle,
+                              onOpenResearchItem: onOpenResearchItem)
+            }
         } else {
             // Tripwire 15: the full-frame chain is required, and so is the
             // enclosing stack's top alignment — `DetailPaneToggle` supplies the
@@ -158,6 +182,17 @@ struct RegionInspector: View {
     /// stops the pane calling a piece in the writer's binder "missing".
     let pieceTitle: (String) -> String?
     let onOpenResearchItem: (String) -> Void
+    /// See `RegionInspectorPane.itemIndex`. **Its fingerprint is the third term
+    /// of `currentRowsKey`**, and the first draft of this comment left it out and
+    /// called that "the same narrow staleness the key already accepts" — which
+    /// was not true. Everything else the key gates (scrap text, membership, the
+    /// node set) changes *with the scene*, so `model.sceneRevision` catches it; an
+    /// item member's title is the first input to these rows that comes from
+    /// outside the scene, so leaving it out is a new KIND of staleness rather than
+    /// a new degree of one. And the canvas beside this pane refreshes on the same
+    /// fingerprint, so the two surfaces would visibly disagree about what a card
+    /// is called after a rename with the region still selected.
+    var itemIndex: CanvasItemIndex = .empty
 
     /// What the writer has typed but not yet committed. Local, so one rename is
     /// one undo step rather than one per keystroke.
@@ -208,8 +243,9 @@ struct RegionInspector: View {
                 // Above the Piece picker and nowhere near "Promotion": a region
                 // being Claude's is an ATTRIBUTE and not an event, and under that
                 // heading it would start reading as a mark. Nothing at all for the
-                // writer's own regions. **The same row the card arm renders** —
-                // one implementation both arms are handed.
+                // writer's own regions. **The same row the other arms render** —
+                // one implementation every arm is handed, and how many there are
+                // is the census's answer rather than this comment's.
                 CanvasAuthorLineRow(
                     line: CanvasAuthorLine.forRegion(regionID, in: model.scene,
                                                      title: artifactTitle))
@@ -507,12 +543,21 @@ struct RegionInspector: View {
     /// the other two over the same scene, and a second cache with a second key
     /// is how a control comes to offer a card that is already listed above it.
     struct MemberRows: Equatable {
-        /// What the rows are keyed on. Both terms are needed: `revision` alone
-        /// misses a change of selected region (selection is not structural),
-        /// `region` alone misses a drop.
+        /// What the rows are keyed on. All three terms are needed: `revision`
+        /// alone misses a change of selected region (selection is not
+        /// structural), `region` alone misses a drop, and **without
+        /// `itemFingerprint` a rename of the research note an item member points
+        /// at leaves this list naming the old title while the canvas beside it
+        /// draws the new one** — the manifest is the one input to these rows that
+        /// the scene's own counter cannot see (1C-d).
+        ///
+        /// The third term is a 16-char hex string rather than an `Int`, which is
+        /// the whole of its cost: this is compared once per body pass, beside a
+        /// walk of the region's members.
         struct Key: Equatable {
             let revision: Int
             let region: CanvasRegionID
+            let itemFingerprint: String
         }
 
         var key: Key?
@@ -525,7 +570,8 @@ struct RegionInspector: View {
     /// What the rows would be keyed on right now. Read in `body`, which is what
     /// registers `sceneRevision` as a dependency.
     var currentRowsKey: MemberRows.Key {
-        MemberRows.Key(revision: model.sceneRevision, region: regionID)
+        MemberRows.Key(revision: model.sceneRevision, region: regionID,
+                       itemFingerprint: itemIndex.fingerprint)
     }
 
     /// Rebuild the member lists — **but only if the key has moved.**
@@ -589,11 +635,17 @@ struct RegionInspector: View {
     /// iteration order deciding the list — a different order on every launch.
     /// Same discipline as `CanvasScene.isBehind`.
     private func rows(_ ids: Set<CanvasNodeID>) -> [Row] {
-        ids
+        // Resolved once per list rather than per row — this walks the scene, and
+        // `rows` is called for the residents, the visitors and the whole
+        // cite-a-card offer. Every caller is already behind `currentRowsKey`, so
+        // this is on the structural path and not on the drag loop.
+        let itemFacts = CanvasItemPresentation.facts(in: model.scene, index: itemIndex)
+        return ids
             .filter { model.scene.node($0) != nil }
             .map { Row(node: $0,
                        title: CanvasRenderer.chipTitle(for: $0, in: model.scene,
-                                                       scraps: model.scraps)) }
+                                                       scraps: model.scraps,
+                                                       items: itemFacts)) }
             .sorted { a, b in
                 let order = a.title.localizedStandardCompare(b.title)
                 if order != .orderedSame { return order == .orderedAscending }

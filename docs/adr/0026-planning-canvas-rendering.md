@@ -320,7 +320,7 @@ for the duration of the visit. **Known divergence, open for the smoke:** the syn
 stays in the tree beside it and is stale for the visit, so a client walking mid-visit meets
 the same card twice with two different strings. It refreshes on leaving.
 
-### 7. 1C-a ships scraps only; item nodes are placeholders and belong to 1C-d
+### 7. 1C-a ships scraps only; item nodes are placeholders and belong to 1C-d *(discharged 2026-07-31 — see the amendment at the end)*
 
 An item node renders as a placeholder card carrying its reference id — dashed border,
 `Item · <refId>`. `CanvasNodeKind.item(referenceId:)` and the `CanvasNodeID.item(_:)`
@@ -369,12 +369,36 @@ for symmetry with the region and line arms would be a design change wearing a ti
 clothes. An Edit-menu Delete item reaches outside `Maugham/Canvas/` and still wants
 deciding whole.
 
-**What 1C-d owes:** the drop target; `DropClassification` for browser image drags (which
+**What 1C-d owed:** the drop target; `DropClassification` for browser image drags (which
 carry rendered bitmaps rather than file URLs, so `.dropDestination(for: URL.self)` silently
 rejects them); the real title, kind glyph and thumbnail; a `CGImageSource` downsampling
 path; and a bounded image cache **keyed by path, not id** (tripwire 22). The canvas is the
 first surface in Maugham with an unbounded image count, and no image cache or real
-downsampling exists anywhere in the app today.
+downsampling existed anywhere in the app when that was written.
+
+**Amendment, 2026-07-31 (1C-d): the placeholder is gone and this decision is discharged.**
+Everything the paragraph above owed is built, and one thing it did not anticipate is built
+with it. **An item node has two provenances** (spec §3.1's 2026-07-30 amendment): *referenced*
+— a research item or palette card the project already holds, whose file the canvas never
+touches — and *owned*, a photograph ingested into `canvas_assets/` at the project root
+because it exists nowhere else. The distinction is **storage, not drawing**; both draw the
+same way, and `referenceId`/`ownedPath` are two disjoint sidecar fields at schema 8. An item
+node now draws its real title, its kind glyph and its photograph, is measured from that
+picture's aspect ratio, resizes like any other card, and has its own inspector arm
+(amendments under decision 10). **Four routes put one there** — a research row dragged out of
+the binder, a Finder file or a browser bitmap, an Inbox capture by drag or by command for all
+three capture kinds (spec §8A.4), and Claude's `add_canvas_scraps`, which predates them — and
+every one of them is a *caller* of one ingestion pair rather than a storage decision of its
+own. An **owned** node promotes (decision 9's fourth row) and a referenced one still does not.
+
+Two things are deliberately not built and are decisions rather than omissions. **Claude cannot
+see an owned picture's pixels**: `list_canvas` reports a node's `provenance` and never its
+path, because nothing in the tool catalogue reads a file by project-relative path, so a path
+would dangle in exactly the field a reader would most reasonably feed to another tool. The
+missing piece is an image response keyed on a canvas node id — a new read tool and a new
+response shape. And **a region holding only pictures is still refused as "empty"**, with a
+sentence that is false of it; closing that is three per-target changes rather than one, and is
+open with the writer. Both are recorded under decision 9 and in `Maugham/Canvas/AREA.md`.
 
 ### 8. Region membership is stored, and no *transition* changes it *(added 2026-07-28, plan 1C-b; amended the same day — see below)*
 
@@ -490,7 +514,10 @@ regions forced into the open — see decision 5.
 
 **One verb, on the current selection.** `Promote…` reads spec §6's table and produces a
 durable artifact: a scrap becomes a research note, a palette card or a craft intent; a
-region becomes a research note or a palette card; a line becomes a `[[wiki-link]]`. A
+region becomes a research note or a palette card; a line becomes a `[[wiki-link]]`; and —
+**since 1C-d, spec §6's 2026-07-30 amendment** — an **owned** item node becomes a research
+asset or an image on an existing palette card, while a **referenced** one still becomes
+nothing at all (it is already the artifact; `Promotion.itemNodeReason` is its sentence). A
 sheet previews what will be written and where before anything is written, and building
 that preview mutates nothing — `Promotion.plan` is a pure function over the scene and
 `test_planningNeverMutatesTheScene` says so. Nothing promotes because it sat somewhere
@@ -517,17 +544,30 @@ is deliberately just the research note and the palette card — a craft intent *
 one document per scope, so "update" there would mean replacing the writer's whole intent
 statement.
 
-**The gesture is a menu command plus a button in each inspector arm, and all four post the
-same command.** File → `Promote…` (⌘⇧↩ — ⌘⇧P is taken by Toggle Research Preview) is
-enabled through a focused value that `CanvasPromotionModifier` publishes, so a command that
-could do nothing is greyed out rather than silently no-op; the region, line and scrap arms
-of the canvas inspector each carry a `Promote…` button posting
-`.maughamPromoteCanvasSelection` to `.keyWindow`. One command, so the button and the
-keystroke cannot drift into behaving differently. This closes spec §10's first open
-question. **A `.keyWindow` post made from inside a sheet or a dialog is dropped** — the
-v0.24.0 "enter does nothing" bug, recorded in `TranslationReviewModifier` — so those three
-buttons are safe precisely because they live in the project window; moving one into a modal
-would break it silently.
+**The gesture is a menu command plus a button in every inspector arm whose subject can be
+promoted, and all of them post the same command.** File → `Promote…` (⌘⇧↩ — ⌘⇧P is taken by
+Toggle Research Preview) is enabled through a focused value that `CanvasPromotionModifier`
+publishes, so a command that could do nothing is greyed out rather than silently no-op; the
+region, line, scrap and — since 1C-d Task 8 — **item** arms of the canvas inspector each
+carry a `Promote…` button posting `.maughamPromoteCanvasSelection` to `.keyWindow`. One
+command, so the button and the keystroke cannot drift into behaving differently. This
+closes spec §10's first open question. **A `.keyWindow` post made from inside a sheet or a
+dialog is dropped** — the v0.24.0 "enter does nothing" bug, recorded in
+`TranslationReviewModifier` — so those buttons are safe precisely because they live in the
+project window; moving one into a modal would break it silently.
+
+**How many arms and how many posting sites is not this paragraph's answer, and it is not
+quite the census's either.** This read "a button in each inspector arm, and **all four** post
+the same command … the **region, line and scrap** arms" — four sites over three named arms,
+correct when 1C-c2 wrote it and false one slice later, when Task 7 added a fourth arm and
+Task 8 gave it a button. The instrument is
+`PromotionCommandTests.test_theCanvasWiringCensusNamesEveryProductionSite`, and **be precise
+about what it is a census OF**: every production site of the promotion *wiring* — the posting
+arms, the menu poster in `MaughamApp`, and `ProjectWindow` as the receiver and mount point —
+so counting its rows answers neither "how many arms" nor "how many post". *(That distinction
+is this paragraph's own third revision: the second one pointed at the census as the answer to
+both questions and was wrong about one of them.)* **Read the array's names**; each carries the
+reason it is there.
 
 **What ⌘Z takes back is the MARK — and, since 1C-c2b, every contribution record written with
 it — but never the artifact.** The canvas's undo is a scene-scoped snapshot stack by design
@@ -598,7 +638,8 @@ intended reader was 1A's reference rail, which is unbuilt: measured 2026-07-29,
 `RegionBinding`, the field and the picker are untouched. **A region produces a research
 note** in its place — a cluster of text scraps is a note, in the region's own reading order,
 with §6.1's offer to link each promoted member to it. The palette card stays on the row and
-its case gets stronger in 1C-d, when a region can hold an image.
+its case got stronger in 1C-d, which is when a region could first hold an image — see the
+fourth-row amendment below.
 
 **The same field is now on a card too, and a promotion's piece resolves by PRECEDENCE.**
 `CanvasNode.boundPieceID` mirrors the region's, and `Promotion.piece(for:in:)` is the one
@@ -734,6 +775,52 @@ it drawn owes it its own visual language.
 `PromotionPerformer.mark`'s existing `mutateFromInspector` bracket, and the inspector change
 reads the scene without mutating it.
 
+> **Amendment, 2026-07-31 (1C-d): a region carries the pictures in it, and "content" in §6.3
+> means words *or* picture.** Spec §6's 2026-07-29 amendment said the palette card's case on
+> the region row "gets stronger in 1C-d, when a region can hold an image"; it can now, and
+> until this the promotion made a card of joined prose with the photographs left behind.
+
+**The PALETTE CARD row only, and on a `.new` promotion only.** A research note is prose. An
+**update** copies no picture again, which is `performPaletteCard`'s own standing rule
+arriving on a new field — its update branch replaces the title, the kind and the body and
+leaves the image well alone, because a card the writer has since given swatches and images
+must not lose them to an update that was always about the prose. Appending on every update
+would stack another copy of every photograph in the region onto the card each time.
+**Home members only, on both provenances** (§4.3's rule for dragging, applied to
+destination: a visitor is not luggage) — an *owned* picture carries its path in its kind, and
+a *referenced* one resolves through the item index, so a note, a PDF, a recording or a
+dangling reference in the region is skipped by the same absence that skips an empty scrap.
+**This is not a promotion OF the referenced node**: §6's refusal of that stands, nothing here
+produces a second artifact beside the one the project already has, and the picture is content
+going into the region's card. Both rows say what they do through the two machines §6.1 already
+has — a positive notice on the row that carries, a declared discard on the rows that cannot.
+
+**And §6.3's contribution record follows the picture, which is the writer's own ruling
+rather than a widening chosen here.** Denver, 2026-07-31: *"they should report their
+promotion in the same way as the text scraps."* The record was read from `Promotion.regionBodies`,
+which reads the scrap table and **structurally cannot see a picture**, so a photograph went
+into the card while its own node recorded nothing and its pane said *"Not promoted yet"* —
+word for word the failure §6.3 was written to answer, arriving through the one door the
+original ruling did not cover. Everything else in §6.3 is unchanged and binding:
+`contributedToItemID` and never the mark, no route into `existingArtifact`, recorded at
+promotion time, neither drawn nor announced. A **referenced** picture that contributed
+therefore gets a pane of its own — a record no surface renders is the false-silence half of
+the same defect (CLAUDE.md rule 8).
+
+**Open, and it is the writer's call rather than this ADR's: a region holding ONLY pictures is
+still refused as empty**, with the sentence *"There is nothing in this region to promote."*
+over a photograph. That is `emptyBody`-over-a-region — a class this area has already fixed
+once — recurring with the right noun and a false claim. It is **not** a dead sheet and not a
+disabled button with no reason: `blockedReason` answers before `plan` is consulted and the
+sheet branches on it, so the writer gets the sentence and no target picker. Closing it is
+**three per-target changes, not one** — `blockedReason` taking the selected target (it takes
+none today and is asked once, when the sheet opens, so it cannot say "empty for a note, fine
+for a card"); `plan`'s region-arm emptiness guard becoming per-target; and `validate`'s
+`emptyBody` guard admitting a picture-only card, on an arm shared with the research note. That
+is a decision about what "empty" means per row, so it is recorded rather than guessed, and the
+behaviour is pinned by an assertion rather than by prose, three prose descriptions of it
+having been written and the first two both wrong.
+
 Constitution principles this decision answers to: **must #1, *the words are safe*** — the
 performer validates before it writes, flushes the 750 ms autosave before every body write,
 and refuses an unreadable destination rather than appending to an empty string and writing
@@ -866,9 +953,9 @@ item node the shared term covers a placement rather than an authorship.
 
 #### The rest, and the honest limit
 
-**Tripwire 32 gains a fifth census entry, and its repro is the sharpest of the five.**
-`CanvasClaudeWrite.swift` writes the scene from outside the canvas, so it uses
-`mutateFromInspector`; the other four need the writer to be touching the app, and this one
+**Tripwire 32's census gains `CanvasClaudeWrite.swift`, and its repro is the sharpest in the
+array.** That file writes the scene from outside the canvas, so it uses
+`mutateFromInspector`; every other entry needs the writer to be touching the app, and this one
 needs **no gesture at all** — an `add_canvas_scraps` call arriving while the writer sits
 inside a scrap with "Edit Scrap" held open. Nothing on either side of the window closes their
 bracket, and the caller has none of its own to protect. Nested, the whole batch registers no
@@ -884,14 +971,19 @@ the camera* — the last is not polish: `CanvasClaudePlacement` places Claude's 
 `occupied.maxX + gutter`, so it is **by construction** outside the bounding box of the
 writer's own work and a Show that only selected it would show them nothing.
 
-**The honest limit: the corollary is STRUCTURAL here and VISIBLE at 1C-d.** The photographed
-page is a member of the region, is announced, and draws as a **dashed placeholder card
-carrying its reference id** — item nodes get their real title, kind glyph and thumbnail in
-1C-d. So the source and the reproduction are tied together in the model and in the
-accessibility tree, and what the writer *sees* of the source is an id until that slice.
-**Do not write down that the corollary is satisfied.** Two related consequences are on the
-smoke list rather than fixed: whether the placeholder is enough to make the region legible,
-and that a second batch off a page already on the canvas leaves that page where it sits,
+**The honest limit at 1C-c3: the corollary was STRUCTURAL here and became VISIBLE at 1C-d.**
+The photographed page is a member of the region and is announced, and for one slice it drew
+as a **dashed placeholder card carrying its reference id** — so the source and the
+reproduction were tied together in the model and in the accessibility tree, and what the
+writer *saw* of the source was a code. **1C-d paid it** (2026-07-31): an item node draws its
+real title, its kind glyph and the photograph itself, at a height measured from that
+picture's own shape, pinned by a raster fixture rather than by a claim — two renders of one
+scene differing only in whether the thumbnail has decoded, counted inside the picture's own
+rect. The sentence is kept rather than deleted because the *reason it was written* is the
+thing worth remembering: a confident fabrication in a reproduction channel wears the writer's
+own voice, so the page and the scraps read off it have to be comparable **by looking**. One
+related consequence is still on the smoke list rather than fixed: a second batch off a page
+already on the canvas leaves that page where it sits,
 because moving it would be the forbidden geometry→membership transition (decision 8) — and if
 where they put it is a *collapsed* region, the page is hidden with the rest of that region's
 residents while Claude's new region still lists it.
@@ -915,6 +1007,55 @@ in `Maugham/Canvas/AREA.md`'s "Not built" list because that is where the next sl
 was fixed in the fix wave is only the record: the comment in `RegionInspector.swift` that
 justified the empty state with "nothing creates item nodes yet" said something this branch had
 made false.
+
+**Amendment, 2026-07-31 (1C-d Task 7): the arm is built, and the `.scrap` ruling stands.**
+`ItemInspector` is exactly what the paragraph above specified — the reference's title and kind
+glyph, `CanvasAuthorLine`'s provenance row, and **Open in Research** — and it changed nothing
+about why the card arm refuses a reference. Three decisions are worth carrying here rather than
+leaving in the file. **The pane routes by KIND in a `switch`** now, not a `case .scrap` guard
+with everything else falling through: the ruling was right and the *shape* was what let a
+selected page card reach the empty state in silence, so the next node kind is a compile error
+instead. **Whether the reference still resolves is asked of `CanvasItemIndex`, never read back
+out of `CanvasItemFacts.missingTitle`** — Task 4 deliberately left that type at three facts and
+named this caller, and the comparison would have withheld the button from a real note titled
+"No longer in the project."; no fourth field was owed. **An OWNED node gets a sentence and not a
+Reveal in Finder**: its file was ingested under a minted name with the writer's own filename
+discarded, so revealing it answers a question about content with a clock reading in a folder they
+never chose — the same failure `ownedTitle` records for the title. Nothing here mutates the
+scene, so decision 5's two verbs are absent rather than misapplied. A **dangling** reference
+remains a fact and not an error state, in `contributionArtifactMissing`'s register and carrying
+no id. What was still open when this was written — the drag-in route and §8A.4's inbox arrow —
+1C-d's Tasks 10 to 12 then built; the pane was never the gap.
+
+**Amendment, 2026-07-31 (1C-d Task 8): an OWNED node promotes, so the arm gained a button —
+and "nothing here mutates the scene" survives that.** The `Promote…` button *posts*
+`.maughamPromoteCanvasSelection`, exactly as the other three arms do; the scene change is
+`PromotionPerformer`'s, through `mutateFromInspector`, which is why decision 5's census
+names that file and not this one. The sentence above was written one task before the button
+landed, which is the drift this section now guards against by pointing at a census rather
+than counting. **The arm's `.scrap` ruling is untouched again**: what changed is that the
+item arm now has something to offer on ONE of its two provenances. It also gained the
+`PromotedArtifactSection` the two mark-bearing arms already had — an owned picture can
+produce a research asset and can be added to a palette card, so it carries both records, and
+a mark nothing renders is the built-and-unreachable half this directory has shipped four
+times. **And one sentence in this very arm went false the moment the button arrived**: the
+owned node's *"There's nothing in Research to open."* stood three rows above an **Open**
+onto exactly that, so it names the act instead — see spec §6's 2026-07-30 amendment for the
+row, and `Maugham/Canvas/AREA.md` for the rest.
+
+**Amendment, 2026-07-31 (1C-d Task 11): `list_canvas` says which sort of item node a card
+is, and deliberately not where its file lives.** Once the canvas could own a photograph, an
+`"item"` with a null `reference_id` meant two different things — a picture the canvas owns,
+and a reference whose research item the writer has deleted — and Claude could see a card it
+could not identify. So `Node` gains **one optional field**, `provenance`: `"project"` for
+research the canvas points at and never writes to, `"owned"` for a photograph it ingested.
+**The path is not on the wire, and that is the argued half.** A read's job here is identity —
+this decision already licenses `list_canvas` to report geometry, being a read — and nothing
+in the tool catalogue reads a file by project-relative path, so a path would dangle in
+exactly the field a reader would most reasonably feed to another tool: worse than silence.
+It is a widening of an existing read, so **the tool count does not move**. The stated edge is
+recorded under decision 7: Claude still cannot see the picture's pixels, and closing that
+wants a new read tool with an image response keyed on a canvas node id.
 
 Constitution principles this decision answers to: **must-not #1, *no AI-authored manuscript
 text*** — the canvas is the planning plane, `add_canvas_scraps` cannot reach a manuscript,
@@ -947,14 +1088,12 @@ carried by the material and the lean the surface already had, not by a badge.
 - **Eight tripwires (25–32)** and `Maugham/Canvas/AREA.md`. They exist because almost every
   defect behind them is invisible to a subview count, a geometry assertion or a green
   suite — 30 and 32 were each found by a review rather than by a test, and 32 was reached
-  three times in one slice before it was written down. **Tripwire 32's census is five
-  entries as of 1C-c3** — count the array in `TripwireGrepTests`, not this sentence:
-  `LineInspector.swift`, `RegionInspector.swift`, `PromotionPerformer.swift`, which writes
-  the promoted mark from outside the canvas and can run while a focused scrap holds "Edit
-  Scrap" open, `ScrapInspector.swift`, whose Piece picker sets an association from the
-  same column through the same open bracket, and `CanvasClaudeWrite.swift` (decision 10),
-  whose repro needs no gesture at all — an MCP call arriving while the writer is inside a
-  scrap.
+  three times in one slice before it was written down. **Tripwire 32's census names files,
+  and this sentence numbers none of them** — count the array in `TripwireGrepTests`, which is
+  the only checked list; every prose count of it written into this repo has been stale within
+  a slice, and CLAUDE.md's tripwire cell is the one place the names are kept current.
+  `CanvasClaudeWrite.swift` (decision 10) is the entry worth knowing about here, because its
+  repro needs no gesture at all — an MCP call arriving while the writer is inside a scrap.
 - **Hit testing is on the unrotated rect**, so there is a mismatch band of `r·θ` — ~2.2 pt
   at the corner of a default 240×80 card at the calibrated 1.0° tilt, and ~6 pt at the
   corner of a 500 × 500 region since 1C-c3 gave regions a lean. It sits exactly where
@@ -999,8 +1138,17 @@ carried by the material and the lean the surface already had, not by a badge.
   `CanvasView` and `ResearchNoteEditor` are two branches of the same centre-column switch,
   so the writer cannot have both on screen — and it is the same class as `AddNoteTool`'s,
   which is why it is recorded here with that one rather than solved locally.
-- **Left to later slices** *(updated 2026-07-30)*: item nodes' real appearance, drops and
-  images, and `inbox → canvas` — all 1C-d, all of spec §8A. Lines and promotion were on this
+- **Nothing in §8A is left to a later slice** *(updated 2026-07-31, 1C-d complete)*. Item
+  nodes' real appearance was on this list and 1C-d's Tasks 4–6 built it (title, kind glyph,
+  photograph, measurement, resize); their **inspector arm** was decision 10's own recorded
+  limit and Task 7 built that (see the amendment there); an **owned** node promotes (Task 8,
+  decision 9); the **drop target** is built on both halves — a research row and an external
+  photograph — as is **`inbox → canvas`** for all three capture kinds by drag and by command,
+  and **`⌘\`** gives the canvas the window (spec §8A.1, §8A.3, §8A.4; decision 7's discharge
+  amendment). Two things §8A touched are deliberately open and recorded as decisions rather
+  than gaps: **Claude cannot see an owned picture's pixels** (decision 7), and **a region
+  holding only pictures is refused as empty** with a sentence that is false of it (decision
+  9). Lines and promotion were on this
   list and 1C-c1 and 1C-c2 built them (decision 9); regions, `CanvasModel` and deleting a
   scrap were on it and 1C-b built all three; **the MCP canvas surface was on it and 1C-c3
   built it (decision 10)** — §8A.2's Claude write path is no longer "designed and unbuilt",

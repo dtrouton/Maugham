@@ -316,6 +316,104 @@ final class InboxStore {
         return result
     }
 
+    /// Send a capture straight to the planning canvas (spec §8A.4) — the **third
+    /// sibling** of `promoteToResearch` and `promoteToPaletteCard`, and
+    /// deliberately not a new spelling of them.
+    ///
+    /// **The pipeline is `inbox → canvas → research`, and this is the first
+    /// arrow.** Promotion (§6) has been the second one since 1C-c2. Requiring a
+    /// capture be promoted to research *before* it can be thought about builds the
+    /// durable artifact first and does the thinking afterwards, which inverts what
+    /// the canvas is for. Inbox → research stays exactly as it is and stays
+    /// appropriate; it simply stops being the only road onto the canvas.
+    ///
+    /// **All three kinds, or it does not ship** (§8A.4's own ruling). `.text` and
+    /// `.audio` become a **scrap** carrying the inline text or the transcript —
+    /// words into `canvas.md`, keyed by the new node's id, exactly as a typed
+    /// scrap's are. `.image` becomes an **owned** item node: the picture is
+    /// ingested into `canvas_assets/` through the one ingestion pair, because the
+    /// inbox is a queue the writer *clears* and a node pointing into one dangles
+    /// the day they tidy up.
+    ///
+    /// **A capture with nothing in it is refused and stays `.new`**, exactly as
+    /// `promoteToPaletteCard` refuses one: a blank card plus a `.promoted` entry is
+    /// the capture lost, and the writer can transcribe and retry.
+    ///
+    /// **The ordering is `promoteToPaletteCard`'s, and it is chosen rather than
+    /// inherited by coincidence.** The two existing siblings order it differently
+    /// — `promoteToResearch` removes the source asset *before* its flip, while the
+    /// palette one copies, flips, and only then removes — and §8A.4's sentence
+    /// ("flip to `.promoted` only after every mutating step has succeeded") is the
+    /// palette one's. So: ingest (a copy, never a move), write the canvas, flip,
+    /// and remove the inbox original last. A flip that fails then leaves the
+    /// original in place and a retry re-copies — a recoverable duplicate, never a
+    /// capture stranded `.new` with its asset already gone, which is a permanent
+    /// `assetMissing` on every retry.
+    ///
+    /// **An audio capture's recording is NOT removed**, which the palette sibling
+    /// also does and for the same reason: what went to the canvas is the
+    /// transcript, and the recording in `inbox/audio/` is the only copy of the
+    /// writer's voice. Removing it would delete something nothing else holds.
+    @discardableResult
+    func sendToCanvas(
+        _ entry: InboxEntry, projectStore: ProjectStore,
+        placement: CanvasCapture.Placement
+    ) async throws -> CanvasNodeID {
+        let content: CanvasCapture.Content
+        // Set only for `.image`: see the ordering note above.
+        var originalToRemove: URL?
+        switch entry.kind {
+        case .text:
+            let text = (entry.inlineText ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { throw InboxError.nothingToPromote(entry.id) }
+            // Trimmed at the ends and NOT flattened, unlike the palette sibling: a
+            // `SensoryNote` is one line of prose and a scrap is not — paragraph
+            // structure is exactly what a captured note has and what the canvas
+            // can hold.
+            content = .words(text)
+        case .audio:
+            let text = (entry.transcript ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { throw InboxError.nothingToPromote(entry.id) }
+            content = .words(text)
+        case .image:
+            guard let asset = assetURL(for: entry),
+                  FileManager.default.fileExists(atPath: asset.path) else {
+                throw InboxError.assetMissing(entry.sourceFilename ?? entry.id)
+            }
+            // A COPY into the canvas's own well; the inbox original goes below,
+            // after the flip commits.
+            content = .picture(path: try await projectStore.ingestCanvasAsset(fileURL: asset))
+            originalToRemove = asset
+        }
+        let node = CanvasCapture.send(content, placement,
+                                      store: projectStore, projectRoot: projectStore.url)
+        // Throwing flip (S8's lesson, one sibling over): the card is already on the
+        // canvas, so a swallowed status-write failure would leave the entry `.new`
+        // and a retry would land a second card.
+        try await updateStatusThrowing(id: entry.id, to: .promoted)
+        if let originalToRemove { try? FileManager.default.removeItem(at: originalToRemove) }
+        return node
+    }
+
+    /// Id-taking twin, for the caller that has only an id: the canvas drop, whose
+    /// payload is `inbox:<id>` (`CanvasDrop`) and never a whole entry.
+    ///
+    /// Throws `entryNotFound` rather than silently doing nothing, so a drag of a
+    /// row that has been resolved on another device since the pane last refreshed
+    /// tells the writer instead of springing back with nothing said.
+    @discardableResult
+    func sendToCanvas(
+        entryID: String, projectStore: ProjectStore,
+        placement: CanvasCapture.Placement
+    ) async throws -> CanvasNodeID {
+        guard let entry = entries.first(where: { $0.id == entryID }) else {
+            throw InboxError.entryNotFound(entryID)
+        }
+        return try await sendToCanvas(entry, projectStore: projectStore, placement: placement)
+    }
+
     /// Load the card, append `note`, and persist via the palette seam. Throws
     /// `ProjectStoreError.structureMissing` for an unknown `cardId` (the same
     /// failure the seam's `updatePaletteCard` raises), so a bad target can't

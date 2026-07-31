@@ -102,6 +102,14 @@ enum CanvasAccessibility {
     /// assistive client reads aloud.
     static let regionKind = "Region"
 
+    /// What an item node announces itself as, before its title — and **since
+    /// 1C-d Task 7 also the heading of its inspector arm** (`ItemInspector.header`).
+    /// A constant for `regionKind`'s reason plus one of its own: the pane and the
+    /// spoken label are two surfaces naming one primitive, and a writer who hears
+    /// "Reference, from Claude" and reads a pane headed "Item" has met two names
+    /// for the card in front of them.
+    static let itemKind = "Reference"
+
     /// Cards within this many points of each other vertically read as one row.
     ///
     /// Internal rather than private so the reading-order tests can express their
@@ -272,8 +280,21 @@ enum CanvasAccessibility {
     /// two so the tests assert what ships.
     static let collapsedTerm = "collapsed"
 
+    /// `items` is what the item arm SAYS, and it is the same value the draw pass
+    /// is handed (1C-d). Before it, an item node's spoken value was
+    /// `Item · res-3f2a` — the placeholder label — which was right only while the
+    /// card drew the same string. A card that shows a title over an element that
+    /// reads out an id is a drawn/spoken divergence nobody decided, and this
+    /// directory has two deliberate ones whose whole value is that they were.
+    ///
+    /// It defaults to `.empty` because the call sites that pass one are few and
+    /// the ones that do not are tests; the production wiring is censused as a
+    /// required token in `CanvasView.swift` rather than left to a compiler that
+    /// cannot see a default going missing
+    /// (`CanvasCompositionTests.test_theViewHandsItsResolvedItemFactsToBothConsumers`).
     static func elements(scene: CanvasScene,
-                         scraps: [CanvasNodeID: String]) -> [CanvasAXElement] {
+                         scraps: [CanvasNodeID: String],
+                         items: CanvasItemPresentation = .empty) -> [CanvasAXElement] {
         let connections = connections(in: scene)
         // Regions first into the list, but the ORDER is decided by `rowOrdered`
         // over everything together — a region's frame starts at or above-left of
@@ -356,17 +377,23 @@ enum CanvasAccessibility {
                                  connectedBy: connections[node.id]),
                     value: text.isEmpty ? emptyScrapValue : text,
                     contentFrame: frame))
-            case .item(let referenceId):
+            case .item:
                 elements.append(CanvasAXElement(
                     id: .node(node.id), role: .item,
-                    // `promoted: false` unconditionally, and the author READ —
-                    // and the two are not the same kind of decision.
+                    // The mark is spoken on the same terms it is DRAWN, through
+                    // the one predicate both read (`CanvasNodeKind.carriesAMark`)
+                    // — and the author is read separately, because the two are
+                    // not the same kind of decision.
                     //
-                    // `promoted: false` is closed: an item node already exists as
-                    // itself, so it cannot be promoted and a mark on one says
-                    // nothing true. `CanvasClaudePlacement` sets no
-                    // `promotedItemID`, a hand-edited sidecar can, and
-                    // `CanvasRenderer` refuses the stripe on exactly these terms.
+                    // This was `promoted: false` unconditionally, on the grounds
+                    // that an item node "already exists as itself, so a mark on
+                    // one says nothing true". That is exactly right for a
+                    // *referenced* item — `CanvasClaudePlacement` sets no
+                    // `promotedItemID` and only a hand-edited sidecar can — and it
+                    // stopped being true of an owned picture in 1C-d Task 8, when
+                    // one could produce a research asset of its own. A promoted
+                    // picture silent to VoiceOver while a stripe says so on the
+                    // canvas is this layer's own §7A.6 failure.
                     //
                     // **`fromClaude` deliberately does NOT follow
                     // `CanvasRenderer.paper(for:)`, which refuses to tint an item
@@ -390,11 +417,17 @@ enum CanvasAccessibility {
                     // second wording for that distinction was rejected — see
                     // `claudeTerm`. One phrase every primitive uses beats two the
                     // listener has to keep apart.
-                    label: label("Reference",
+                    label: label(itemKind,
                                  fromClaude: node.author == .claude,
-                                 promoted: false,
+                                 promoted: node.promotedItemID != nil
+                                     && node.kind.carriesAMark,
                                  connectedBy: connections[node.id]),
-                    value: CanvasRenderer.placeholderLabel(forReference: referenceId),
+                    // The card's own title, resolved once for the whole scene and
+                    // handed here — see the parameter's note above. Unresolved
+                    // facts read as the empty string rather than as an id: the
+                    // card is drawing nothing in that window either, and the two
+                    // channels agree by reading one value.
+                    value: items.item(for: node.id)?.facts.title ?? "",
                     contentFrame: frame))
             }
         }

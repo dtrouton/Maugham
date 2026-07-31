@@ -209,6 +209,38 @@ final class CanvasCompositionTests: XCTestCase {
                       + "built is dead code")
     }
 
+    /// **The resolved item facts reach BOTH consumers, and a default is why this
+    /// has to be a census** *(1C-d)*.
+    ///
+    /// `CanvasRenderer.draw` and `CanvasAccessibility.elements` both take the
+    /// presentation this view resolves, so the card a writer looks at and the
+    /// sentence a VoiceOver user hears name the same thing. `elements` takes it
+    /// with a `.empty` DEFAULT — the call sites are twenty tests and one line of
+    /// production — and `.empty` is a legitimate value rather than a sentinel, so
+    /// dropping the argument compiles, runs, and leaves every item node on the
+    /// canvas announced as an empty string while it draws a title. Nothing but a
+    /// source scan can see that.
+    ///
+    /// It is written against the whole file rather than `body` because the two
+    /// call sites are in different scopes — one inside the `Canvas` closure, one
+    /// in an `.onChange` — and what is being asserted is that neither is missing,
+    /// not where they sit.
+    func test_theViewHandsItsResolvedItemFactsToBothConsumers() throws {
+        let src = codeOnly(try canvasViewSource())
+        XCTAssertTrue(src.contains("items: itemPresentation"),
+                      "the draw pass is not handed the resolved item facts, so every "
+                      + "item node on the canvas draws an empty card — the "
+                      + "placeholder's failure arriving through a default")
+        XCTAssertTrue(src.contains("CanvasAccessibility.elements(scene: model.scene, scraps: model.scraps,"),
+                      "the accessibility tree is built without the item facts, so a "
+                      + "card that draws \"Notebook page 3\" is announced as nothing "
+                      + "at all — a drawn/spoken divergence nobody decided")
+        XCTAssertEqual(src.components(separatedBy: "items: itemPresentation").count - 1, 2,
+                       "the two consumers must BOTH be handed the same resolved value: "
+                       + "two resolutions, or one consumer reading a different one, is "
+                       + "how the drawn card and the spoken card come to disagree")
+    }
+
     /// A CENSUS, not an allow-list: exactly one place in `Maugham/Canvas/` puts
     /// anything on the canvas's undo stack, and it is `CanvasUndo.register`.
     ///

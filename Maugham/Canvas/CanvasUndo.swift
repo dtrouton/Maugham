@@ -316,7 +316,7 @@ final class CanvasUndo {
     /// undo, so the redo is one step too.
     ///
     /// `name` is carried through and re-applied rather than left to
-    /// `UndoManager`, so ⇧⌘Z reads "Redo Move Scrap" and the step keeps its name
+    /// `UndoManager`, so ⇧⌘Z reads "Redo Move Card" and the step keeps its name
     /// however many times the writer cycles it.
     private func register(_ snapshot: Snapshot, name: String) {
         // The canvas's manager has `groupsByEvent` off (see `CanvasView`), and

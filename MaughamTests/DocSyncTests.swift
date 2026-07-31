@@ -236,6 +236,11 @@ final class DocSyncTests: XCTestCase {
     static let calibrationSourceFiles = [
         "Maugham/Canvas/CanvasMaterial.swift",
         "Maugham/Canvas/CanvasNode.swift",
+        // 1C-d put an item card's geometry here — the gaps around a photograph
+        // and its caption, and the clamp on a pathological aspect ratio. They are
+        // `CanvasCardMetrics`' members like `inset`, and they live in this file
+        // rather than beside it because measuring a line of text needs `NSFont`.
+        "Maugham/Canvas/CanvasScrapMeasure.swift",
     ]
 
     /// One quoted figure: the constant's name and the value as the doc writes it.
@@ -279,7 +284,7 @@ final class DocSyncTests: XCTestCase {
     /// Every `static let NAME` in `source` whose value is a numeric literal or an
     /// `NSColor(srgbRed:green:blue:alpha:)` triple, as the same shape.
     ///
-    /// Anything else — a derived value like `itemPlaceholderHeight`, a system
+    /// Anything else — a derived value like `itemLabelOnlyHeight`, a system
     /// colour like `.textBackgroundColor`, an array — is simply absent, so a doc
     /// pair naming one fails as "no such figure" rather than passing blind.
     static func declaredFigures(in source: String) -> [String: [Double]] {

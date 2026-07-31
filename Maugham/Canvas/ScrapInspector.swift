@@ -71,8 +71,15 @@ struct ScrapInspector: View {
     var body: some View {
         Form {
             Section {
+                // `items: .empty` is exact rather than lazy: this arm renders for
+                // a `.scrap` and nothing else (`RegionInspectorPane`'s own guard
+                // — an item node's every sentence here would be wrong for a
+                // reference), so the item branch of `chipTitle` is unreachable
+                // from this call and a resolved presentation would be a value
+                // threaded through the window for no reader. Task 7's item-node
+                // arm is where a reference's title gets a pane.
                 Text(CanvasRenderer.chipTitle(for: nodeID, in: model.scene,
-                                              scraps: model.scraps))
+                                              scraps: model.scraps, items: .empty))
                     .lineLimit(2)
                 // **Whose card this is** — the third fact this pane states, and
                 // the one CLAUDE.md rule 8 asks for on `CanvasNode.author`. The
@@ -82,11 +89,13 @@ struct ScrapInspector: View {
                 // Claude's is not something that has happened *to* it.
                 //
                 // Nothing at all for the writer's own cards, which is every card
-                // on every canvas made before this slice. **The same row the
-                // region arm renders** — `CanvasAuthorLine` is one implementation
-                // both arms are handed, for the reason `PromotedArtifactSection`
-                // is: this line lived here alone for one round, which is the same
-                // rule failing for the other half of the same field.
+                // on every canvas made before this slice. **The same row the other
+                // arms render** — `CanvasAuthorLine` is one implementation every
+                // arm is handed, for the reason `PromotedArtifactSection` is: this
+                // line lived here alone for one round, which is the same rule
+                // failing for the other half of the same field. (How many arms is
+                // the census's answer — it discovers them — and not a number to
+                // keep up to date here.)
                 CanvasAuthorLineRow(
                     line: CanvasAuthorLine.forCard(nodeID, in: model.scene,
                                                    title: artifactTitle))
@@ -324,8 +333,11 @@ struct ScrapInspector: View {
     // a Claude REGION's pane said nothing about being Claude's: the same field, the
     // same drawn signal, the same spoken term, and a surface for one half of it.
     // The frame-path cost is stated in that file's class doc, under "What this
-    // costs on the frame path, honestly" — which covers both arms. **That pointer
-    // was false for one commit**: the extraction dropped the paragraph and left
+    // costs on the frame path, honestly" — which covers the two resolvers that
+    // WALK, this one and the region's. (`forItem`, 1C-d's, is one dictionary
+    // lookup and is deliberately outside that disclosure rather than missing from
+    // it.) **That pointer was false for one commit**: the extraction dropped the
+    // paragraph and left
     // this sentence aimed at nothing, which is how a disclosure a review relied on
     // stops holding without anything going red. What is worth repeating here is
     // that it costs **nothing at all for the writer's own cards**, because the

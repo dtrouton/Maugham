@@ -66,7 +66,7 @@ final class CanvasInteractionTests: XCTestCase {
         i.beginResize(CanvasNodeID("s1"), at: CGPoint(x: 340, y: 140), in: scene)
         i.update(to: CGPoint(x: 0, y: 140), in: &scene)
         XCTAssertGreaterThanOrEqual(scene.node(CanvasNodeID("s1"))!.width,
-                                    CanvasInteraction.minimumScrapWidth)
+                                    CanvasInteraction.minimumCardWidth)
     }
 
     /// The corner target the state machine hit-tests takes its size from the
@@ -131,34 +131,76 @@ final class CanvasInteractionTests: XCTestCase {
         XCTAssertTrue(atTheCorner.isResizing)
     }
 
-    /// The same corner square, on an ITEM node, opens a MOVE.
+    /// The same corner square, on an ITEM node, opens a RESIZE — the uniform rule
+    /// this surface had before 1C-c3, restored now that every card kind is
+    /// measured (1C-d Task 6).
     ///
-    /// The state-machine half of the 1C-c3 whole-branch Critical.
-    /// `CanvasViewMountingTests.test_aCornerDragOnClaudesSourcePageDoesNotTakeItOffTheCanvas`
-    /// asserts the consequence through the real delivery path; this asserts the
-    /// decision, and the two together are why the fix is a kind test on the corner
-    /// branch rather than a repair further down.
+    /// **This test is the inversion of `test_theCornerOfAnItemNodeMovesItRatherThanResizingIt`
+    /// and not its deletion**, and what it asserts is the same thing the old one
+    /// protected, from the other side. The kind test existed because
+    /// `CanvasScene.setWidth` clears `cachedHeight` by design and **nothing
+    /// re-measured an item node**: a node with no height has no `frame`, and a
+    /// node with no frame is dropped by `CanvasScene.nodes(intersecting:)` and
+    /// `topmostNode(at:)` alike — not drawn, not clickable, and persisted that
+    /// way through a save. Task 5 supplied the measurement
+    /// (`CanvasCardMetrics.itemCardHeight(forCardWidth:pictureAspect:)`, floored
+    /// at `itemLabelOnlyHeight`) and this task added the per-frame re-derive in
+    /// `CanvasView.remeasure`, so a cleared height is refilled exactly as a
+    /// scrap's is.
     ///
-    /// `.moving` and not `.idle` matters: a card whose corner did nothing at all
-    /// would be a dead 14pt square on every page card, and a press on a card is a
-    /// drag of that card everywhere else on this surface.
-    func test_theCornerOfAnItemNodeMovesItRatherThanResizingIt() {
+    /// **The safety property is asserted through the real delivery path** by
+    /// `CanvasViewMountingTests.test_aCornerDragOnClaudesSourcePageResizesItAndStaysOnTheCanvas`,
+    /// mid-drag. This is the state-machine half: the decision, with no view.
+    ///
+    /// The condition was REMOVED rather than widened to `.item`. Every kind
+    /// measures now, so the honest end state is one unconditional rule and not a
+    /// second condition — which is also what lets `CanvasRenderer.drawCard` go
+    /// back to inking the triangle on every card.
+    func test_theCornerOfAnItemNodeResizesItLikeAnyOtherCard() {
         var scene = CanvasScene()
         scene.insert(CanvasNode(id: CanvasNodeID.item("res-p3"),
-                                kind: .item(referenceId: "res-p3"),
+                                kind: .item(.project(id: "res-p3")),
                                 origin: CGPoint(x: 100, y: 100), width: 240,
                                 cachedHeight: 33, author: .claude))
         // Card is (100,100) 240x33, so the corner square is (326,119)–(340,133).
         var i = CanvasInteraction()
         i.begin(at: CGPoint(x: 334, y: 127), in: scene, connecting: false)
-        XCTAssertFalse(i.isResizing,
-                       "an item node's corner opened a resize: CanvasScene.setWidth "
-                       + "clears cachedHeight, nothing re-measures an item node's "
-                       + "width, and a node with no height has no frame — the card "
-                       + "leaves the surface and the sidecar keeps it that way")
-        XCTAssertEqual(i.kind, .movingNode,
-                       "the corner of a page card is dead rather than draggable — "
-                       + "everywhere else on this surface a press on a card moves it")
+        XCTAssertTrue(i.isResizing,
+                      "the corner of a page card still moves it: the mark "
+                      + "CanvasRenderer.drawCard draws there now invites a gesture "
+                      + "the state machine does not offer")
+        i.update(to: CGPoint(x: 394, y: 127), in: &scene)
+        XCTAssertEqual(scene.node(CanvasNodeID.item("res-p3"))?.width, 300,
+                       "the drag reached the resize arm but the width did not follow "
+                       + "the pointer")
+        // Control: the card was RESIZED and not dragged. A `.moving` arm would
+        // have moved the origin by the same 60 pt and left the width alone.
+        XCTAssertEqual(scene.node(CanvasNodeID.item("res-p3"))?.origin,
+                       CGPoint(x: 100, y: 100),
+                       "a resize must not also move the card")
+    }
+
+    /// An item node's width is clamped by the SAME rule a scrap's is, and the
+    /// clamp is one line in `CanvasInteraction.update` that never had a kind test
+    /// on it — so this asserts that no second rule was invented for the kind that
+    /// just gained the gesture.
+    ///
+    /// The floor is a scrap's wrapping in origin (`minimumCardWidth`'s doc), and
+    /// an item card inherits it rather than getting a number of its own: a page
+    /// card at 40 pt would be a photograph the writer cannot see either.
+    func test_anItemNodeIsClampedToTheSameMinimumWidthAsAScrap() {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: CanvasNodeID.item("res-p3"),
+                                kind: .item(.project(id: "res-p3")),
+                                origin: CGPoint(x: 100, y: 100), width: 240,
+                                cachedHeight: 33, author: .claude))
+        var i = CanvasInteraction()
+        i.beginResize(CanvasNodeID.item("res-p3"), at: CGPoint(x: 334, y: 127), in: scene)
+        i.update(to: CGPoint(x: 0, y: 127), in: &scene)
+        XCTAssertEqual(scene.node(CanvasNodeID.item("res-p3"))?.width,
+                       CanvasInteraction.minimumCardWidth,
+                       "an item node was dragged below the minimum card width — the "
+                       + "clamp in CanvasInteraction.update is one rule for every kind")
     }
 
     func test_newScrapLandsAtTheClickAndOnTop() {
@@ -176,7 +218,7 @@ final class CanvasInteractionTests: XCTestCase {
         // the wrong size with the suite still green.
         XCTAssertEqual(n?.width, CanvasInteraction.defaultScrapWidth)
         XCTAssertGreaterThan(CanvasInteraction.defaultScrapWidth,
-                             CanvasInteraction.minimumScrapWidth,
+                             CanvasInteraction.minimumCardWidth,
                              "a default equal to the minimum opens every new scrap "
                              + "at the narrowest width the surface allows, which is "
                              + "also the one width the writer cannot narrow")
@@ -320,7 +362,7 @@ final class CanvasInteractionTests: XCTestCase {
     /// ordering). So entering a scrap always runs a `begin`/`end` pair with no
     /// `.changed` in between, and the canvas needs to be able to tell that from a
     /// drag — otherwise every double-click writes the sidecar, rebuilds the
-    /// accessibility tree, and (from Task 15) leaves a "Move Scrap" undo step
+    /// accessibility tree, and leaves a "Move Card" undo step
     /// that undoes nothing.
     ///
     /// `hasMoved` survives `end()` deliberately: the caller reads it either side

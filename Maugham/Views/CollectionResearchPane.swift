@@ -102,13 +102,23 @@ struct CollectionResearchPane: View {
                 sectionDropHandler(ids: ids, scope: .shared)
             }
         }
-        .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
-            Task { await importExternal(providers, scope: .shared) }
-            return true
-        }
+        // **The string destination FIRST, the provider drop after it** — the
+        // order the 1C-d Task 11 smoke settled on the canvas, and this pane was
+        // the second instance of the same defect. `.onDrop(of:)` claims a drag
+        // session on hover, before any payload is examined, so mounted first it
+        // left this section-level destination dead: dropping a research row into
+        // the space BETWEEN rows did nothing at all, silently, because
+        // `importExternal` returns true unconditionally and the id it was handed
+        // classifies as `.ignore`. Dropping onto a row went on working
+        // throughout, which is what kept it hidden — every row carries a
+        // destination of its own, nested inside this one.
         .dropDestination(for: String.self) { ids, _ in
             guard !ids.isEmpty else { return false }
             Task { await moveToSection(ids: ids, scope: .shared) }
+            return true
+        }
+        .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+            Task { await importExternal(providers, scope: .shared) }
             return true
         }
     }
@@ -145,13 +155,16 @@ struct CollectionResearchPane: View {
                 sectionDropHandler(ids: ids, scope: .piece(piece.id))
             }
         }
-        .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
-            Task { await importExternal(providers, scope: .piece(piece.id)) }
-            return true
-        }
+        // See `sharedSection`: string destination first, provider drop after.
+        // Both sections shipped the reversed order and both had the same dead
+        // section-level target.
         .dropDestination(for: String.self) { ids, _ in
             guard !ids.isEmpty else { return false }
             Task { await moveToSection(ids: ids, scope: .piece(piece.id)) }
+            return true
+        }
+        .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+            Task { await importExternal(providers, scope: .piece(piece.id)) }
             return true
         }
     }

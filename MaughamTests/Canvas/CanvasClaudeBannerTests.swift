@@ -215,7 +215,7 @@ final class CanvasClaudeBannerTests: XCTestCase {
     }
 
     /// **And the camera moves, or Show shows nothing.**
-    /// `CanvasClaudePlacement.regionOrigin` is `occupied.maxX + gutter` over the
+    /// `CanvasClaudePlacement.looseOrigin` is `occupied.maxX + gutter` over the
     /// union of every node and region, so Claude's region is BY CONSTRUCTION
     /// outside the bounding box of the writer's own work — off screen unless they
     /// happen to be panned hard right. This is the seam: `show` hands the model the
@@ -226,15 +226,15 @@ final class CanvasClaudeBannerTests: XCTestCase {
     /// yet — Show switches the persona and asks in the same act.
     func test_showAsksTheCanvasToBringTheRegionIntoSight() {
         let model = CanvasModel()
-        var revealed: [CanvasRegionID] = []
+        var revealed: [CanvasRevealTarget] = []
         model.onRevealRequested = { revealed.append($0) }
 
-        model.reveal(r1)
+        model.reveal(.region(r1))
 
         XCTAssertEqual(revealed.count, 1,
                        "exactly one request, or the read below is off a list this "
                        + "test does not control")
-        XCTAssertEqual(revealed[0], r1)
+        XCTAssertEqual(revealed[0], .region(r1))
     }
 
     /// The census that pins the line above into `show`, since a `ViewModifier`'s

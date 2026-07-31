@@ -111,7 +111,7 @@ final class CanvasSceneTests: XCTestCase {
 
     func test_itemAndScrapWithTheSameRawStringDoNotCollide() {
         var scene = CanvasScene()
-        scene.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+        scene.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
                                 origin: .zero, width: 180))
         scene.insert(CanvasNode(id: CanvasNodeID("r-9"), kind: .scrap,
                                 origin: .zero, width: 240))

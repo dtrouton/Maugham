@@ -118,7 +118,7 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// above is that the action never reaches `NSWindow` — so left alone the item
     /// keeps whatever the nib gave it and every canvas step reads a bare "Undo".
     /// `CanvasUndo` names every gesture through `setActionName`, so
-    /// `undoMenuItemTitle` reads "Undo Move Scrap" here without this file knowing
+    /// `undoMenuItemTitle` reads "Undo Move Card" here without this file knowing
     /// any of those names, and it already reads a plain "Undo" on an empty stack.
     ///
     /// Guarded on `NSMenuItem` rather than assumed: the protocol is

@@ -351,7 +351,8 @@ final class PromotionDestinationTests: XCTestCase {
     func test_aStalePieceRefusesANewNoteAndNamesThePiece() throws {
         let failure = try XCTUnwrap(Promotion.pieceFailure(
             target: .researchNote, mode: .new,
-            piece: .unroutable(id: "ref-1", title: "Elsewhere", inherited: false)))
+            piece: .unroutable(id: "ref-1", title: "Elsewhere", inherited: false),
+            canCarryItsOwnPiece: true))
         let sentence = try XCTUnwrap(failure.errorDescription)
         XCTAssertTrue(sentence.contains("“Elsewhere”"), "found: \(sentence)")
         XCTAssertTrue(sentence.contains("clear the association"),
@@ -361,7 +362,8 @@ final class PromotionDestinationTests: XCTestCase {
     func test_aDeletedPieceRefusesWithADifferentSentence() throws {
         let sentence = try XCTUnwrap(Promotion.pieceFailure(
             target: .researchNote, mode: .new,
-            piece: .unroutable(id: "gone-9", title: nil, inherited: false))?.errorDescription)
+            piece: .unroutable(id: "gone-9", title: nil, inherited: false),
+            canCarryItsOwnPiece: true)?.errorDescription)
         XCTAssertTrue(sentence.contains("no longer in the project"), "found: \(sentence)")
         XCTAssertTrue(sentence.contains("clear the association"), "found: \(sentence)")
     }
@@ -378,8 +380,8 @@ final class PromotionDestinationTests: XCTestCase {
         for title in [nil, "Elsewhere"] {
             let sentence = try XCTUnwrap(Promotion.pieceFailure(
                 target: .researchNote, mode: .new,
-                piece: .unroutable(id: "gone-9", title: title,
-                                   inherited: true))?.errorDescription)
+                piece: .unroutable(id: "gone-9", title: title, inherited: true),
+                canCarryItsOwnPiece: true)?.errorDescription)
             XCTAssertTrue(sentence.contains("the region this card lives in"),
                           "found: \(sentence)")
             XCTAssertFalse(sentence.contains("clear the association"),
@@ -392,14 +394,18 @@ final class PromotionDestinationTests: XCTestCase {
     /// pass the two assertions above and block promotions §6.2 says must work.
     func test_onlyANewResearchNoteIsRefusedByAStaleAssociation() {
         let stale = PromotionPiece.unroutable(id: "ref-1", title: "Elsewhere", inherited: false)
-        XCTAssertNil(Promotion.pieceFailure(target: .paletteCard, mode: .new, piece: stale),
+        XCTAssertNil(Promotion.pieceFailure(target: .paletteCard, mode: .new, piece: stale,
+                                            canCarryItsOwnPiece: true),
                      "the wall is project-level; the card is created and simply "
                      + "takes no link")
-        XCTAssertNil(Promotion.pieceFailure(target: .intentStatement, mode: .new, piece: stale),
+        XCTAssertNil(Promotion.pieceFailure(target: .intentStatement, mode: .new, piece: stale,
+                                            canCarryItsOwnPiece: true),
                      "the intent falls back to project scope by design")
-        XCTAssertNil(Promotion.pieceFailure(target: .wikiLink, mode: .new, piece: stale))
+        XCTAssertNil(Promotion.pieceFailure(target: .wikiLink, mode: .new, piece: stale,
+                                            canCarryItsOwnPiece: false))
         XCTAssertNil(Promotion.pieceFailure(
-            target: .researchNote, mode: .update(itemID: "res-1", title: "T"), piece: stale),
+            target: .researchNote, mode: .update(itemID: "res-1", title: "T"), piece: stale,
+            canCarryItsOwnPiece: true),
                      "an update does not route at all — the artifact already exists "
                      + "where it exists")
     }
@@ -408,9 +414,11 @@ final class PromotionDestinationTests: XCTestCase {
         for route in [PromotionPiece.Route.ownResearch, .sharedPlusLink, .sharedOnly] {
             XCTAssertNil(Promotion.pieceFailure(
                 target: .researchNote, mode: .new,
-                piece: .routed(id: "p", title: "Story A", route: route)))
+                piece: .routed(id: "p", title: "Story A", route: route),
+                canCarryItsOwnPiece: true))
         }
-        XCTAssertNil(Promotion.pieceFailure(target: .researchNote, mode: .new, piece: .none))
+        XCTAssertNil(Promotion.pieceFailure(target: .researchNote, mode: .new, piece: .none,
+                                            canCarryItsOwnPiece: true))
     }
 
     // MARK: - The sheet says it before Commit
@@ -421,6 +429,7 @@ final class PromotionDestinationTests: XCTestCase {
         let m = PromotionSheetModel(source: .scrap(a), scene: model.scene,
                                     scraps: model.scraps,
                                     artifacts: ArtifactIndex(titlesByID: [:]),
+                                    items: .empty,
                                     piece: piece, readBody: { _ in nil })
         m.select(target)
         return m
@@ -443,7 +452,8 @@ final class PromotionDestinationTests: XCTestCase {
         let m = sheet(.unroutable(id: "ref-1", title: "Elsewhere", inherited: false))
         XCTAssertFalse(m.canCommit)
         XCTAssertEqual(m.refusal,
-                       PromotionFailure.pieceIsNotAResearchTarget(title: "Elsewhere", inherited: false)
+                       PromotionFailure.pieceIsNotAResearchTarget(title: "Elsewhere", inherited: false,
+                                                       canCarryItsOwnPiece: true)
                         .errorDescription)
         // The control: the same card with a routable piece commits, so this is
         // about the association and not about the fixture.
@@ -480,7 +490,8 @@ final class PromotionDestinationTests: XCTestCase {
             _ = try await PromotionPerformer(store: store, model: model).perform(plan)
             XCTFail("expected a refusal")
         } catch let failure as PromotionFailure {
-            XCTAssertEqual(failure, .pieceIsNotAResearchTarget(title: "Elsewhere", inherited: false))
+            XCTAssertEqual(failure, .pieceIsNotAResearchTarget(title: "Elsewhere", inherited: false,
+                                                               canCarryItsOwnPiece: true))
         }
         XCTAssertTrue(store.manifest.research.isEmpty,
                       "validate first, write second — a half-created artifact is "

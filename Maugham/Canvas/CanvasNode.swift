@@ -1,9 +1,19 @@
 import Foundation
 import MaughamCore
 
-/// Stable identity for a canvas node. A scrap's id is minted here; an item
-/// node's id is derived from the thing it points at, so the same research
+/// Stable identity for a canvas node. A scrap's id is minted; a *referenced*
+/// item node's id is derived from the thing it points at, so the same research
 /// note can never appear twice on the canvas by accident.
+///
+/// **An OWNED item node's id is minted too, and that is not an oversight**
+/// (1C-d, `CanvasItemReference.owned`). There is nothing to deduplicate — each
+/// ingestion writes its own file under `canvas_assets/` — and a filesystem path
+/// does not belong in an identity: it would put the whole of tripwire 22's
+/// rename hazard into the one field nothing may rewrite. Whoever creates one
+/// mints it the way every other id on this surface is minted
+/// (`CanvasInteraction.createScrap`'s retry-against-the-scene loop, or
+/// `CanvasClaudePlacement.newNodeID` when a whole batch is planned against a
+/// scene it must not touch). There is no sixth spelling.
 public struct CanvasNodeID: Hashable, Codable, Sendable, CustomStringConvertible {
     public let raw: String
     public init(_ raw: String) { self.raw = raw }
@@ -16,8 +26,11 @@ public struct CanvasNodeID: Hashable, Codable, Sendable, CustomStringConvertible
     /// page a batch of scraps was read off. Until then nothing in production
     /// called this — the spelling existed for 1C-b, 1C-c and the sidecar codec,
     /// and several comments in this directory rested on "nothing creates item
-    /// nodes yet". They no longer can. 1C-d still owns the writer's own drag-in
-    /// route (spec §8A.1) and the thumbnail that goes with it.
+    /// nodes yet". They no longer can. **1C-d added the writer's own routes**
+    /// (spec §8A.1, §8A.4): `CanvasDrop` for a research row dragged out of the
+    /// binder, and `CanvasCapture` for a capture sent from the Inbox. Both derive
+    /// the id through here; an *owned* node's id is minted instead, for the
+    /// reason on the type above.
     public static func item(_ referenceId: String) -> CanvasNodeID {
         CanvasNodeID("item:\(referenceId)")
     }
@@ -30,13 +43,69 @@ public enum CanvasNodeKind: Equatable, Sendable {
     /// A loose thought typed straight onto the canvas. Text lives in
     /// `canvas.md`, keyed by the node id. This is the ONLY kind 1C-a creates.
     case scrap
-    /// Something that already exists in the project. `referenceId` is the
-    /// research item id / palette card id. The canvas NEVER writes to it.
+    /// Something the canvas shows as itself rather than as words: a research
+    /// item or palette card that already exists in the project, or a photograph
+    /// the canvas ingested and owns. `CanvasItemReference` is which, and its own
+    /// doc comment carries why that distinction is nested here rather than
+    /// standing beside `.scrap` as a third kind.
     ///
-    /// In 1C-a an item node draws as a PLACEHOLDER card carrying its reference
-    /// id. 1C-d adds the drop target, the real title, the kind glyph and the
-    /// thumbnail path. Do not build any of that here.
-    case item(referenceId: String)
+    /// **It draws as itself as of 1C-d**: the real title and kind glyph
+    /// (`CanvasItemFacts`), the photograph when there is one, a height measured
+    /// from that picture's shape, and a corner that resizes it. The placeholder
+    /// card carrying its reference id — and the dashed border that said
+    /// "unfinished" — went with Task 5. It has an inspector arm of its own too
+    /// (`ItemInspector`, Task 7), and every route onto the canvas: a research
+    /// drag lands a `.project` reference (Task 10), a Finder or browser drag
+    /// lands an `.owned` picture (Task 11), and an Inbox capture lands either
+    /// (Task 12, §8A.4). An **owned** node also promotes, to a research asset or
+    /// onto a palette card (Task 8); a referenced one still does not.
+    case item(CanvasItemReference)
+
+    /// Whether a `promotedItemID` on this node is a fact worth drawing and
+    /// announcing.
+    ///
+    /// **One spelling of the mark's own refusal, read by `CanvasRenderer` and
+    /// `CanvasAccessibility`.** Both refused every item node until 1C-d Task 8,
+    /// on the stated grounds that an item "already exists as itself, so a mark on
+    /// one says nothing true" — exactly right for a *referenced* item, and false
+    /// for an owned picture the moment one could produce a research asset. The
+    /// two surfaces are the drawn and the spoken half of one decision (the
+    /// material's "what is SPOKEN" rule), so they read one predicate rather than
+    /// each testing the kind: the pair has already diverged once, when `paper`'s
+    /// tint refusal and the accessibility label's author term were written as
+    /// though they answered the same question.
+    ///
+    /// It stays false for a reference because a hand-edited sidecar can put the
+    /// field on one, and a stripe there would say something the project's own
+    /// research item has no idea about.
+    ///
+    /// **Not `isScrap` below, and the two must not be merged.** This asks whether
+    /// a *mark* on this node means anything; that one asks what the node **is**.
+    /// They answer differently for exactly one kind — an owned picture — which is
+    /// the whole reason both exist.
+    public var carriesAMark: Bool {
+        switch self {
+        case .scrap: return true
+        case .item(let reference):
+            if case .owned = reference { return true }
+            return false
+        }
+    }
+
+    /// Whether this node's content is TEXT the canvas holds — the thing a
+    /// region's promotion joins, and the thing a region's contribution record is
+    /// about.
+    ///
+    /// **It exists because a palette card has two producers now** (1C-d Task 8):
+    /// a region rewrites one from its current members, and an owned picture is
+    /// appended to one. `PromotionPerformer.record` clears with it, so a region's
+    /// Update cannot take back a record it never wrote. See that function; the
+    /// pattern `if case .scrap = kind` spelled inline would be the same rule with
+    /// no name and no reason attached to it.
+    public var isScrap: Bool {
+        if case .scrap = self { return true }
+        return false
+    }
 }
 
 /// One node. `width` is authoritative; the text reflows to fit and the height
@@ -160,18 +229,20 @@ public enum CanvasCardMetrics {
     /// runs away.
     public static let minimumTextWidth: CGFloat = 40
 
-    /// The size `CanvasRenderer` draws an item node's placeholder label at, and
-    /// the size `itemPlaceholderHeight` measures a line of it with. **One
-    /// constant because those two must agree**: the height is derived from the
-    /// label, so a renderer that drew it a point larger would clip the only
-    /// thing on the card, and nothing about a placeholder that is one point
-    /// short looks like a broken measurement.
+    /// The size `CanvasRenderer` draws an item node's title at, and the size
+    /// `itemLabelLineHeight` measures a line of it with. **One constant because
+    /// those two must agree**: the card's height is derived from that line, so a
+    /// renderer that drew it a point larger would clip the only thing on a card
+    /// with no picture, and nothing about a card that is one point short looks
+    /// like a broken measurement.
     public static let itemLabelFontSize: CGFloat = 11
 
-    /// `itemPlaceholderHeight` lives in `CanvasScrapMeasure.swift` — one line of
-    /// `itemLabelFontSize` needs `NSFont`, and the model types in this directory
-    /// are deliberately Foundation-only. It is still a member of this type,
-    /// because this is where a card's geometry is looked up.
+    /// The rest of an item card's geometry — `itemLabelLineHeight`,
+    /// `itemLabelOnlyHeight` (the floor), the gaps, and the rects the picture and
+    /// the label are drawn in — lives in `CanvasScrapMeasure.swift`, because
+    /// measuring a line of text needs `NSFont` and the model types in this
+    /// directory are deliberately Foundation-only. They are still members of this
+    /// type, because this is where a card's geometry is looked up.
 
     public static func textWidth(forCardWidth width: CGFloat) -> CGFloat {
         max(minimumTextWidth, width - inset * 2)
