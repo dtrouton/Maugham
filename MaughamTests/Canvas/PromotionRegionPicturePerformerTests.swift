@@ -341,7 +341,8 @@ final class PromotionRegionPicturePerformerTests: XCTestCase {
             _ = try await PromotionPerformer(store: store, model: model).perform(request)
             XCTFail("a missing picture must refuse")
         } catch {
-            XCTAssertEqual(error as? PromotionFailure, .pictureIsGone(path: path))
+            XCTAssertEqual(error as? PromotionFailure,
+                           .pictureIsGone(path: path, source: .region(r1)))
         }
         XCTAssertTrue(store.loadPaletteCards().isEmpty, "and made no card")
         XCTAssertNil(try XCTUnwrap(model.scene.region(r1)).promotedItemID,
@@ -349,6 +350,37 @@ final class PromotionRegionPicturePerformerTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(model.scene.node(topCard)).contributedToItemID,
                      "and recorded nothing on the members whose words would "
                      + "otherwise have gone in")
+    }
+
+    /// **The refusal names something the writer is looking at** (review Minor 1).
+    /// This sentence said *"The picture this **card** shows…"* and became
+    /// reachable from a REGION in this task, where no card is selected and the
+    /// only identifier it offers is a minted path `CanvasItemFacts.ownedTitle`
+    /// argues is a clock reading. `emptyBody` gained `PromotionSource.noun` for
+    /// exactly this, one sentence over in the same file.
+    func test_aRegionsMissingPictureIsNotDescribedAsACardTheWriterDidNotSelect() async throws {
+        let (root, store) = try await makeProject()
+        let path = try await ingest(into: store, named: "one.png")
+        let model = makeModel(at: root, pictures: [(owned, path)])
+        let request = try plan(store, model)
+        try FileManager.default.removeItem(at: root.appendingPathComponent(path))
+
+        do {
+            _ = try await PromotionPerformer(store: store, model: model).perform(request)
+            XCTFail("a missing picture must refuse")
+        } catch {
+            let sentence = (error as? PromotionFailure)?.errorDescription
+            XCTAssertEqual(sentence,
+                           "A picture in this region is no longer in the project "
+                           + "(\(path)), so there is nothing to copy.")
+        }
+        // The control, and the reason this is an axis rather than a rewording: a
+        // CARD source really is a card the writer selected and is looking at, and
+        // its sentence still says so.
+        XCTAssertEqual(
+            PromotionFailure.pictureIsGone(path: path, source: .scrap(owned)).errorDescription,
+            "The picture this card shows is no longer in the project "
+            + "(\(path)), so there is nothing to copy.")
     }
 
     // MARK: - The control

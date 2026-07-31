@@ -430,7 +430,8 @@ final class PromotionPicturePerformerTests: XCTestCase {
             _ = try await PromotionPerformer(store: store, model: model).perform(request)
             XCTFail("a missing picture must refuse")
         } catch {
-            XCTAssertEqual(error as? PromotionFailure, .pictureIsGone(path: path))
+            XCTAssertEqual(error as? PromotionFailure,
+                           .pictureIsGone(path: path, source: .scrap(owned)))
         }
         XCTAssertTrue(store.manifest.research.isEmpty, "and created nothing")
         XCTAssertNil(try XCTUnwrap(model.scene.node(owned)).promotedItemID, "and marked nothing")
@@ -452,6 +453,53 @@ final class PromotionPicturePerformerTests: XCTestCase {
             XCTAssertEqual(error as? PromotionFailure, .paletteCardIsGone)
         }
         XCTAssertNil(try XCTUnwrap(model.scene.node(owned)).contributedToItemID)
+    }
+
+    /// **Which refusal comes first when BOTH are true** (1C-d Task 12a, review
+    /// Minor 3). A missing file kills the promotion whatever card is chosen; a
+    /// missing card does not. Told about the card first, the writer picks
+    /// another one and meets the picture refusal on the next attempt — two round
+    /// trips for one dead promotion.
+    ///
+    /// Unpinned until now, which is how hoisting the file check out of the arm
+    /// silently swapped the two. The order is `validate`'s statement order and
+    /// nothing else, so this is the assertion that makes the next hoist a
+    /// decision.
+    func test_aPromotionWhosePictureAndCardAreBothGoneNamesThePictureFirst() async throws {
+        let (root, store) = try await makeProject()
+        let card = try await makeFurnishedCard(in: store)
+        let first = try await ingest(into: store, named: "one.png")
+        let other = try await ingest(into: store, named: "two.png")
+        let model = makeModel(at: root, ownedPath: first, secondPath: other)
+        // **Both plans are built while the card still exists**, because a plan is
+        // a SNAPSHOT — `Promotion.targets` withholds the palette row from a
+        // project with no palette cards, so a plan built after the deletion is
+        // nil and there is no refusal to order.
+        let bothGone = try plan(owned, .paletteCardImage, store: store, model: model,
+                                paletteCardID: card.researchItemId)
+        let cardOnly = try plan(second, .paletteCardImage, store: store, model: model,
+                                paletteCardID: card.researchItemId)
+        try FileManager.default.removeItem(at: root.appendingPathComponent(first))
+        try await store.deleteResearchItem(id: card.researchItemId)
+
+        do {
+            _ = try await PromotionPerformer(store: store, model: model).perform(bothGone)
+            XCTFail("both gone must refuse")
+        } catch {
+            XCTAssertEqual(error as? PromotionFailure,
+                           .pictureIsGone(path: first, source: .scrap(owned)),
+                           "the more fundamental refusal goes first")
+        }
+        // The control: the same deleted card, with its picture still on disk,
+        // still refuses with the CARD's sentence — so the assertion above is
+        // about the order and not about `paletteCardIsGone` having stopped
+        // working.
+        do {
+            _ = try await PromotionPerformer(store: store, model: model).perform(cardOnly)
+            XCTFail("a deleted card must refuse")
+        } catch {
+            XCTAssertEqual(error as? PromotionFailure, .paletteCardIsGone)
+        }
     }
 
     /// The confirmation is what tells the writer anything happened at all — and

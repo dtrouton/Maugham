@@ -96,10 +96,26 @@ enum PromotionFailure: LocalizedError, Equatable {
     /// hand-built the plan. It refuses rather than reaching into the scene for a
     /// substitute file.
     case nothingToCopy
-    /// The owned file named by the plan is not on disk. Reachable: the well is
-    /// content the writer can delete, and `canvas_assets/` is an ordinary folder
-    /// in their project.
-    case pictureIsGone(path: String)
+    /// A file named by the plan is not on disk. Reachable: the well is content
+    /// the writer can delete, and `canvas_assets/` and `research/` are ordinary
+    /// folders in their project.
+    ///
+    /// **It carries its SOURCE, and that is `emptyBody`'s axis arriving for
+    /// `emptyBody`'s reason** (1C-d Task 12a, review Minor 1). The sentence read
+    /// "The picture this **card** shows…" and became reachable from a REGION in
+    /// the same task — where the writer selected a region, has not selected any
+    /// card, and the only identifier the sentence offers is a minted path that
+    /// `CanvasItemFacts.ownedTitle` argues at length is "the clock reading at the
+    /// moment they dropped it" rather than the writer's word for the picture. So
+    /// it pointed at an unidentifiable card with a filename this codebase has
+    /// already ruled meaningless.
+    ///
+    /// That is the class this area has now fixed three times: `emptyBody` gained
+    /// `PromotionSource.noun` for "There is nothing in this **card** to promote"
+    /// said over a region, `pieceIsNotAResearchTarget` gained its third axis for
+    /// "a refusal may only name a control that is on the arm the writer is
+    /// looking at", and this is the same rule on the same file's other sentence.
+    case pictureIsGone(path: String, source: PromotionSource)
     /// The chosen palette card is no longer in the project. The picker was built
     /// from a snapshot taken when the sheet opened.
     case paletteCardIsGone
@@ -147,9 +163,29 @@ enum PromotionFailure: LocalizedError, Equatable {
             return problem + ", so there is nowhere to file it. " + fix
         case .nothingToCopy:
             return "There is no picture on this card to promote."
-        case .pictureIsGone(let path):
-            return "The picture this card shows is no longer in the project "
-                + "(\(path)), so there is nothing to copy."
+        case .pictureIsGone(let path, let source):
+            // The SUBJECT differs by source and the rest of the sentence does
+            // not — `pieceIsNotAResearchTarget`'s halves, one failure over.
+            let subject: String
+            switch source {
+            case .scrap:
+                // A card the writer selected and is looking at, which is what
+                // makes "this card" exact rather than sloppy: a card holds a
+                // picture, and the two can be spoken of separately
+                // (`PromotionSource.noun`'s ruling).
+                subject = "The picture this card shows"
+            case .region:
+                // They selected a region and no card, so no card is "this" one.
+                subject = "A picture in this region"
+            case .line:
+                // **Unreachable, and neutral rather than borrowing either
+                // noun**: a line's plan carries no pictures, and a later row
+                // that could reach this must not silently inherit a subject
+                // that is wrong for it.
+                subject = "A picture this would copy"
+            }
+            return subject + " is no longer in the project (\(path)), so there "
+                + "is nothing to copy."
         case .paletteCardIsGone:
             return "That palette card is no longer in the project, so the picture "
                 + "has nowhere to go."
@@ -238,6 +274,30 @@ struct PromotionPerformer {
     // MARK: - Validation
 
     private func validate(_ plan: PromotionPlan) throws {
+        // **Every file this plan copies, whichever row planned it** — the two
+        // picture rows plan one and a region's palette row plans as many as it
+        // holds (1C-d Task 12a). One spelling rather than one per arm: the well
+        // and `research/` are both ordinary folders in the writer's project, so
+        // a node naming a file that is gone is a real state on every row that
+        // copies one, and "validate first, write second" is what keeps a
+        // half-furnished palette card off the wall. `Promotion` cannot
+        // pre-filter these — it is the pure half and touches no disk — so a
+        // refusal here is the only honest answer to a preview that named the
+        // picture.
+        //
+        // **Above the switch, and that position is the refusal ORDER** (review
+        // Minor 3). Below it, a `.paletteCardImage` plan whose file and whose
+        // card had both gone met `paletteCardIsGone` first — so the writer
+        // picked another card and met `pictureIsGone` on the next attempt, two
+        // round trips for one dead promotion. A missing file kills the promotion
+        // whatever card is chosen; a missing card does not. The more fundamental
+        // refusal goes first, and `test_aPromotionWhosePictureAndCardAreBothGone
+        // NamesThePictureFirst` pins it so the next hoist is a decision.
+        for picture in plan.pictures
+        where !FileManager.default.fileExists(atPath: assetURL(picture).path) {
+            throw PromotionFailure.pictureIsGone(path: picture.assetPath,
+                                                 source: plan.source)
+        }
         switch plan.producedKind {
         case .researchNote, .paletteCard:
             guard !plan.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -273,20 +333,6 @@ struct PromotionPerformer {
                       store.loadPaletteCards().contains(where: { $0.researchItemId == cardID })
                 else { throw PromotionFailure.paletteCardIsGone }
             }
-        }
-        // **Every file this plan copies, whichever row planned it** — the two
-        // picture rows plan one and a region's palette row plans as many as it
-        // holds (1C-d Task 12a). Hoisted out of the arm above rather than
-        // spelled twice: the well and `research/` are both ordinary folders in
-        // the writer's project, so a node naming a file that is gone is a real
-        // state on every row that copies one, and "validate first, write second"
-        // is what keeps a half-furnished palette card off the wall. `Promotion`
-        // cannot pre-filter these — it is the pure half and touches no disk —
-        // so a refusal here is the only honest answer to a preview that named
-        // the picture.
-        for picture in plan.pictures
-        where !FileManager.default.fileExists(atPath: assetURL(picture).path) {
-            throw PromotionFailure.pictureIsGone(path: picture.assetPath)
         }
         if case .update(let itemID, _) = plan.mode,
            TreeWalk.find(id: itemID, in: store.manifest.research) == nil {

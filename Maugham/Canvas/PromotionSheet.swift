@@ -279,12 +279,26 @@ final class PromotionSheetModel: Identifiable {
     /// §6.1: promotion is allowed to be lossy — and the writer is told which
     /// parts are dropped, before committing rather than after.
     var discardNotice: String? {
-        guard let discards = preview?.discards, !discards.isEmpty else { return nil }
+        guard let plan = preview, !plan.discards.isEmpty else { return nil }
         var parts: [String] = []
-        if discards.contains(.lines) { parts.append("the lines between these cards") }
-        if discards.contains(.layout) { parts.append("their layout") }
-        if discards.contains(.pictures) { parts.append("the pictures in it") }
-        return "Not carried across: " + Self.list(parts) + ". The canvas keeps them."
+        if plan.discards.contains(.lines) { parts.append("the lines between these cards") }
+        if plan.discards.contains(.layout) { parts.append("their layout") }
+        if plan.discards.contains(.pictures) { parts.append("the pictures in it") }
+        var notice = "Not carried across: " + Self.list(parts) + ". The canvas keeps them."
+        // **"Not carried across … the pictures in it" reads as a THREAT over a
+        // card that already holds copies of them** (1C-d Task 12a, review Minor
+        // 2). It is true of the act — this rewrite copies none — and a writer
+        // re-promoting a region whose pictures went onto that card on the first
+        // promotion can read it as the card about to lose them, which is the one
+        // thing a rewrite is careful not to do (`performPaletteCard` carries
+        // `current.imagePaths` across untouched). The positive fact was stated
+        // nowhere in the sheet; it is stated here, on the one row where the
+        // ambiguity exists.
+        if plan.discards.contains(.pictures), plan.producedKind == .paletteCard,
+           case .update = plan.mode {
+            notice += " The card keeps the images it already has."
+        }
+        return notice
     }
 
     /// `a`, `a and b`, `a, b and c` — **the third element is why this exists.**

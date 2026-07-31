@@ -308,4 +308,83 @@ final class PromotionRegionPictureTests: XCTestCase {
                        + "third clause joined on \" and \" would have read \"…and "
                        + "their layout and the pictures in it\"")
     }
+
+    // MARK: - The stated gap, pinned rather than described
+
+    /// **A region holding ONLY pictures is still "empty", and this asserts what
+    /// the writer actually meets** — recorded rather than closed, because
+    /// closing it is a decision about what "empty" means per row and Denver has
+    /// not made it.
+    ///
+    /// **The behaviour is a refusal with a FALSE reason, and it is not the dead
+    /// sheet** (fix round 1: both the report and the review had the mechanism
+    /// wrong, in different directions, and this test is why it is now asserted
+    /// instead of argued). `Promotion.blockedReason` answers **before** `plan` is
+    /// ever consulted and `PromotionSheet.body` branches on it, so the writer
+    /// gets the sentence and no target picker — never the reason-less disabled
+    /// button. The sentence is *"There is nothing in this region to promote."*
+    /// said over a photograph.
+    ///
+    /// Closing it needs three per-target changes, and this test names the first:
+    /// `blockedReason` takes no target and is called once when the sheet opens,
+    /// so it cannot say "empty for a note, fine for a card".
+    func test_aRegionHoldingOnlyPicturesIsRefusedWithASentenceThatIsNotTrueOfIt() throws {
+        var pictureOnly = scene()
+        pictureOnly.remove(topCard)
+        pictureOnly.remove(lowCard)
+        let why = Promotion.blockedReason(for: .region(r1), in: pictureOnly,
+                                          scraps: [:], artifacts: artifacts())
+        XCTAssertEqual(why, "There is nothing in this region to promote.",
+                       "the recorded gap: a refusal whose sentence is false of "
+                       + "the region the writer is looking at")
+        XCTAssertNil(Promotion.plan(
+            PromotionRequest(source: .region(r1), target: .paletteCard, scraps: [:],
+                             artifacts: artifacts(), items: items()),
+            in: pictureOnly),
+                     "and no plan on the row that COULD hold a picture — the "
+                     + "emptiness guard runs before the target is dispatched on")
+
+        let m = PromotionSheetModel(source: .region(r1), scene: pictureOnly, scraps: [:],
+                                    artifacts: artifacts(), items: items(),
+                                    piece: .none, readBody: { _ in nil })
+        XCTAssertEqual(m.blockedReason, why,
+                       "which is what the sheet shows INSTEAD of the target "
+                       + "picker — so this is a wrong reason and not the "
+                       + "reason-less dead sheet")
+        XCTAssertFalse(m.canCommit)
+
+        // The control: the same region, with its text cards back, is not blocked
+        // — so the refusal above is about the emptiness rule and not about
+        // something else in this scene.
+        XCTAssertNil(Promotion.blockedReason(for: .region(r1), in: scene(),
+                                             scraps: texts, artifacts: artifacts()))
+    }
+
+    /// **"Not carried across … the pictures in it" reads as a threat over a card
+    /// that already holds them** (review Minor 2). It is true of the *act* — a
+    /// rewrite copies none — and a writer re-promoting a region whose pictures
+    /// went onto that card on the first promotion can read it as the card about
+    /// to lose them, which is the one thing a rewrite is careful not to do. The
+    /// positive fact was stated nowhere in the sheet.
+    func test_aRewriteSaysTheCardKeepsTheImagesItAlreadyHas() throws {
+        let m = PromotionSheetModel(
+            source: .region(r1), scene: scene(), scraps: texts,
+            artifacts: artifacts(["res-card": .init(title: "Act II fog",
+                                                    kind: .paletteCard)]),
+            items: items(), piece: .none, readBody: { _ in nil })
+        m.select(.paletteCard)
+        m.mode = .update(itemID: "res-card", title: "Act II fog")
+        let notice = try XCTUnwrap(m.discardNotice)
+        XCTAssertTrue(notice.hasSuffix("The card keeps the images it already has."),
+                      "found: \(notice)")
+
+        // Two controls, because the clause must appear on exactly one row.
+        m.mode = .new
+        XCTAssertEqual(try XCTUnwrap(m.discardNotice).contains("keeps the images"), false,
+                       "a NEW card is not keeping anything — it is being made")
+        XCTAssertFalse(try XCTUnwrap(sheet(.researchNote).discardNotice)
+                        .contains("keeps the images"),
+                       "and a research note has no image well to reassure "
+                       + "anybody about")
+    }
 }
