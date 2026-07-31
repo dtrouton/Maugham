@@ -131,6 +131,29 @@ public final class CanvasThumbnails {
     /// pixels, because the request follows the card's WIDTH.
     nonisolated public static let assumedPixelScale: CGFloat = 2
 
+    /// **How far a fresh decode's shape may differ from the memo before the memo
+    /// is a lie about a different photograph.**
+    ///
+    /// The memo below is first-decode-wins, which is right for the case it was
+    /// written for and wrong for one case: the writer replaces the file at a path
+    /// with a picture of a different shape. **No eviction is needed for that to
+    /// bite — a bucket change alone is enough**, because a different request size
+    /// is a different cache key and therefore a genuinely fresh decode of the new
+    /// file. `GraphicsContext.draw(_:in:)` stretches to the rect it is given, so a
+    /// portrait photograph replaced in place would be drawn squashed into a
+    /// landscape box: the one thing an image on this surface may not do (spec
+    /// §8A.2). An item node's resize (1C-d Task 6) is what made crossing a bucket
+    /// an ordinary gesture rather than a rarity.
+    ///
+    /// **1%, and the two cases it separates are fifty times apart.** The measured
+    /// rounding spread across the ladder is ≤0.3% — 256×171 is 1.4971 where
+    /// 512×341 is 1.5015 against a source of 1.5 — while a reshoot in the other
+    /// orientation is 1.5 → 0.667. So first-decode-wins survives intact for every
+    /// case it was written for, and a reshoot is caught.
+    /// `CanvasThumbnailTests.test_theReshootToleranceSeparatesRoundingFromAReshape`
+    /// re-does that arithmetic rather than trusting this paragraph.
+    public static let aspectReshapeTolerance: CGFloat = 0.01
+
     /// The size ladder. Powers of two so the count stays small over the camera's
     /// two-decade zoom range, and the top entry doubles as the clamp: no single
     /// decode may exceed it, which is the other half of the byte budget's
@@ -335,13 +358,27 @@ public final class CanvasThumbnails {
         let bytes = image.map { $0.height * $0.bytesPerRow } ?? 0
         entries[key] = Entry(image: image, bytes: bytes, lastUsed: clock)
         residentBytes += bytes
-        // The SHAPE is recorded before the pixels can be evicted, and only once —
-        // first decode wins, so a later request at a different bucket cannot move
-        // a card by a rounding error. A failed decode records nothing.
+        // The SHAPE is recorded before the pixels can be evicted, and first decode
+        // wins — so a later request at a different bucket cannot move a card by a
+        // rounding error. A failed decode records nothing.
+        //
+        // **Except when the FILE changed shape**, which first-decode-wins alone
+        // cannot see: the writer replaces the picture at a path with one of a
+        // different orientation, a later request crosses a bucket, and that fresh
+        // decode of the new file meets a memo describing the old one. The card is
+        // then measured to the wrong shape and `GraphicsContext.draw(_:in:)`
+        // stretches the photograph into it. See `aspectReshapeTolerance` for why
+        // 1% separates the ladder's rounding from a reshoot with fifty times to
+        // spare.
         if let image, image.height > 0 {
             let shape = ShapeKey(root: key.root, path: key.path)
-            if aspectsByPath[shape] == nil {
-                aspectsByPath[shape] = CGFloat(image.width) / CGFloat(image.height)
+            let aspect = CGFloat(image.width) / CGFloat(image.height)
+            if let memo = aspectsByPath[shape] {
+                if abs(aspect - memo) > memo * Self.aspectReshapeTolerance {
+                    aspectsByPath[shape] = aspect
+                }
+            } else {
+                aspectsByPath[shape] = aspect
             }
         }
         evictIfNeeded()

@@ -305,6 +305,78 @@ final class CanvasThumbnailTests: XCTestCase {
                              + "— it is the first project's thumbnail")
     }
 
+    // MARK: - The shape memo, and the reshoot that must not be missed
+
+    /// **A photograph replaced in place is re-measured; a rung of the ladder is
+    /// not** *(Task 5 re-review, folded in by Task 6)*.
+    ///
+    /// `aspectsByPath` is first-decode-wins, and it has to be: a thumbnail's own
+    /// dimensions differ from its source's by up to a pixel of rounding at each
+    /// rung — 256×171 is 1.4971 where 512×341 is 1.5015 — so a memo per bucket
+    /// would move a card's height whenever its request crossed a rung, which is
+    /// the jitter the memo exists to remove arriving through the back door.
+    ///
+    /// **But first-decode-wins is stale the moment the FILE changes**, and Task 6
+    /// is what makes that reachable: **no eviction is needed — a bucket change
+    /// alone is enough.** A different request size is a different cache key and
+    /// therefore a genuinely fresh decode of the new file, while the memo keeps
+    /// the old shape. `GraphicsContext.draw(_:in:)` stretches to the rect it is
+    /// given, so a portrait photograph replaced in place is drawn **squashed into
+    /// a landscape box** — the one thing an image on this surface may not do
+    /// (§8A.2). A resize drag crosses buckets by design, which is why this is
+    /// contained here rather than left as a note.
+    ///
+    /// The two halves are asserted together on purpose. A containment written as
+    /// "always record the newest" passes the second half and fails the first.
+    func test_aReshootMovesTheShapeMemoAndARungOfTheLadderDoesNot() async throws {
+        let cache = CanvasThumbnails()
+        _ = try await resolve(Self.photo, at: 200, with: cache)
+        let landscape = try XCTUnwrap(cache.aspect(Self.photo, in: root),
+                                      "nothing was memo'd by the first decode")
+        XCTAssertEqual(landscape, 3.0 / 2.0, accuracy: 0.01,
+                       "precondition: the 2400×1600 fixture did not memo as 3:2")
+
+        // Cross a rung with the SAME file. A fresh decode at 512 measures the
+        // same photograph a fraction differently, and the memo must not move —
+        // this is the jitter the memo exists to remove.
+        _ = try await resolve(Self.photo, at: 400, with: cache)
+        XCTAssertEqual(cache.decodeCount, 2,
+                       "control: the second ask did not decode, so nothing had the "
+                       + "chance to overwrite the memo and the assertion below is free")
+        XCTAssertEqual(try XCTUnwrap(cache.aspect(Self.photo, in: root)), landscape,
+                       "a rung of the bucket ladder moved the shape memo, so every "
+                       + "pictured card's height jitters as the writer resizes it")
+
+        // Now the writer replaces the picture with a portrait one and the card is
+        // resized, which crosses a rung: a genuinely different photograph, decoded
+        // fresh, against a memo that says landscape.
+        try Self.writeFixture(width: 900, height: 1800,
+                              to: root.appendingPathComponent(Self.photo))
+        _ = try await resolve(Self.photo, at: 900, with: cache)
+        XCTAssertEqual(try XCTUnwrap(cache.aspect(Self.photo, in: root)),
+                       0.5, accuracy: 0.01,
+                       "the shape memo still says the photograph is landscape after "
+                       + "the file was replaced with a portrait one, so the card draws "
+                       + "it squashed into a box the wrong shape (§8A.2)")
+    }
+
+    /// The tolerance itself, as arithmetic rather than as prose: the measured
+    /// rounding spread across the ladder is far inside it and a reshoot is far
+    /// outside, so the two cases cannot be confused by a number chosen badly.
+    func test_theReshootToleranceSeparatesRoundingFromAReshape() {
+        let tolerance = CanvasThumbnails.aspectReshapeTolerance
+        // The measured spread at 3:2 across two rungs — 256×171 against 512×341.
+        let spread = abs((256.0 / 171.0) - (512.0 / 341.0)) / (512.0 / 341.0)
+        XCTAssertLessThan(spread, tolerance,
+                          "the bucket ladder's own rounding is outside the tolerance, "
+                          + "so crossing a rung re-memos and every card's height moves")
+        // A 3:2 page reshot in portrait.
+        let reshape = abs((3.0 / 2.0) - (2.0 / 3.0)) / (2.0 / 3.0)
+        XCTAssertGreaterThan(reshape, tolerance,
+                             "a photograph replaced by one of the opposite orientation "
+                             + "is inside the tolerance, so the containment sees nothing")
+    }
+
     // MARK: - Helpers
 
     /// The full loop a card goes through: miss on the frame path, service off
