@@ -267,6 +267,25 @@ struct StatementEditorHost: View {
     private func reconcile() async {
         let key = scopeKey
         guard resolvedScope != key else { return }
+        // **Cleared before the first suspension, and this line is load-bearing.**
+        // Everything below can exit early — a cancelled task, a load that fails —
+        // and every one of those exits happens AFTER the outgoing `Document` has
+        // been closed and released. A marker left naming the outgoing scope is
+        // then a lie that survives: `.task(id:)` restarts when the writer returns
+        // to that scope, the guard above sees a match and does nothing, and
+        // `shouldMount` says yes over an emptied target. The pane shows the
+        // writer's existing intent as EMPTY, and the first keystroke mints
+        // `carryingDraft: true` over it — one character replacing the lot
+        // (`test_aFailedScopeChangeDoesNotLeaveTheOldScopeLookingResolved`,
+        // which reproduced exactly that before this line existed). The two
+        // cancellation exits reach the same place holding another scope's
+        // `Document`, or one `close()` has already husked.
+        //
+        // Safe against the mint (the C1 fix this could most easily undo):
+        // `reconcile` runs on first appear, where this is already nil, and on a
+        // SCOPE change, where the editor must come down anyway. The mint changes
+        // no scope, so it never re-enters here — instrumented and confirmed.
+        resolvedScope = nil
         if let prior = target.document {
             await prior.close()
         }

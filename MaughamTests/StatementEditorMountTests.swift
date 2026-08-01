@@ -280,6 +280,88 @@ final class StatementEditorMountTests: XCTestCase {
                      + "keystroke")
     }
 
+    /// A scope change that does not complete must not leave the OLD scope
+    /// looking resolved.
+    ///
+    /// `reconcile` closes and releases the outgoing `Document` before it can
+    /// know whether the incoming one will load. If it then exits early — a
+    /// failed load, or a cancellation because the writer moved again — the
+    /// marker still names the outgoing scope, and `.task(id:)`'s own
+    /// `guard resolvedScope != key` makes the returning task a no-op. The pane
+    /// mounts anyway, over a target that has been emptied.
+    ///
+    /// **The worst outcome needs no race at all**, and this test drives it: one
+    /// failed load and a switch back, after which the editor shows the writer's
+    /// existing intent as EMPTY — and the first keystroke calls `mintAndBind`,
+    /// which find-or-creates (returning the statement that already exists) and
+    /// binds `carryingDraft: true`, replacing the whole intent with that one
+    /// character. The two cancellation exits reach the same state by a narrower
+    /// door: a mounted editor over another scope's `Document`, or over one that
+    /// `close()` has already husked.
+    func test_aFailedScopeChangeDoesNotLeaveTheOldScopeLookingResolved() async throws {
+        let fixture = try await fixture(named: "StaleResolvedScope")
+        let docId = fixture.documentItemId
+        let prose = "the chapter is about the weather"
+
+        // A — the chapter's intent, with prose already in its op log.
+        let chapterIntent = try await fixture.store.createStatement(
+            kind: .intent, scope: .document(docId))
+        let seeded = try await Document.load(
+            url: fixture.projectURL.appendingPathComponent(chapterIntent.path),
+            device: "seed", session: "seed", presenter: nil)
+        seeded.setFullText(prose)
+        try await seeded.flushBurstNow()
+        await seeded.close()
+
+        // B — the project's intent, a file with content and NO op log, so
+        // loading it BOOTSTRAPS, and bootstrapping is a write.
+        let projectIntent = try await fixture.store.createStatement(
+            kind: .intent, scope: .project)
+        try Data(prose.utf8).write(
+            to: fixture.projectURL.appendingPathComponent(projectIntent.path))
+
+        let window = await fixture.hostWithASettableSelection(
+            kind: .intent, activeDocumentId: docId)
+        let onA = try fixture.textView(in: window)
+        await fixture.pumpUntil(deadline: 5) { !onA.string.isEmpty }
+        XCTAssertEqual(onA.string, prose,
+                       "the pane never showed the chapter's existing intent, so "
+                       + "this test has not reached the state it is about")
+
+        // Make B's load fail: an unwritable op-log directory turns its
+        // bootstrap append into a throw.
+        let opsDirectory = fixture.projectURL.appendingPathComponent(".maugham/ops")
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o500], ofItemAtPath: opsDirectory.path)
+        await fixture.selectDocument(nil)
+        await fixture.waitOut(0.4)
+        XCTAssertNil(fixture.firstTextView(in: window),
+                     "a scope whose Document failed to load must show no editor — "
+                     + "an editable surface over content that never arrived is how "
+                     + "an empty draft overwrites a statement")
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700], ofItemAtPath: opsDirectory.path)
+
+        // Back to the chapter. The marker must not still be claiming it.
+        await fixture.selectDocument(docId)
+        let backOnA = try fixture.textView(in: window)
+        await fixture.pumpUntil(deadline: 5) { !backOnA.string.isEmpty }
+        XCTAssertEqual(backOnA.string, prose,
+                       "returning to the chapter showed an EMPTY editor over its "
+                       + "existing intent — the failed scope change left the old "
+                       + "scope marked resolved while its Document was released, "
+                       + "so the returning reconcile early-returned and repaired "
+                       + "nothing")
+
+        // …and the next keystroke adds to the prose rather than replacing it.
+        await fixture.type("!", into: backOnA)
+        try await fixture.settle(window, expectingOpsFor: chapterIntent.id)
+        XCTAssertTrue(
+            fixture.derivedText(forDocId: chapterIntent.id).hasPrefix(prose),
+            "one keystroke replaced the writer's whole intent: "
+            + "\"\(fixture.derivedText(forDocId: chapterIntent.id))\"")
+    }
+
     // MARK: - A rename does not orphan a statement (tripwire 22)
 
     /// Renaming the document a statement is about must not move, re-derive or
