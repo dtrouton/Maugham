@@ -112,7 +112,11 @@ extension ProjectStore {
     /// **The lock is only over the OPENING** — the pane releases as soon as it
     /// has registered, so a writer that queues behind it finds the registry
     /// populated and takes the live-`Document` path instead of loading at all.
-    /// That is why the transient arm re-asks the registry once it is inside.
+    /// That is why everyone who waits re-asks once it is inside, each its own
+    /// question: the transient arm re-asks the REGISTRY (`appendToStatement`),
+    /// and the pane re-asks its own text box (`StatementEditorHost.gateArrival`,
+    /// which is what keeps its mint and its `reconcile` from binding one
+    /// statement twice). Waiting alone is a delay; the re-ask is the fix.
     ///
     /// `defer { unlockStatementOpen(id) }` at every call site. There is no
     /// suspension between the check and the claim below, so two callers arriving

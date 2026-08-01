@@ -677,6 +677,101 @@ final class StatementEditorMountTests: XCTestCase {
                        + "on that path to stop it")
     }
 
+    /// The other half of that same door: the writer comes BACK.
+    ///
+    /// `loadMayBind` refuses a mint whose pane has moved ON — and **both of its
+    /// signals are true when the pane returns to the scope the mint is for**.
+    /// Nothing cancels a mint, and the destination it named matches the one the
+    /// pane wants again. So the mint binds, `reconcile`'s own load binds, and
+    /// the first `Document` is dropped from the box **unclosed**: two live
+    /// `Document`s on one statement's file, each with its own `PendingBuffer`,
+    /// which is what `ProjectStore.lockStatementOpen` exists to prevent. It is
+    /// the defect one level below the superseded-load one above — that was the
+    /// wrong scope's document, this is two of the right scope's.
+    ///
+    /// **The interleaving is the test's, not the runloop's.** Three openers
+    /// queue on the production gate in a known order — the mint, this test, and
+    /// then the pane's `reconcile` — so the test holds the path at exactly the
+    /// instant the mint has bound and the reconcile has not yet loaded, and
+    /// asserts that the second load never displaces the first. Without the
+    /// middle waiter the only window is one `Document.load` wide and can be
+    /// observed only by polling.
+    func test_aMintAndAReturningPaneDoNotBothBindTheSameStatement() async throws {
+        let fixture = try await fixture(named: "MintAndReturn")
+        let docId = fixture.documentItemId
+        let prose = "the book is about a house"
+
+        // The pane resolves the project scope as empty…
+        let window = await fixture.hostWithASettableSelection(
+            kind: .intent, activeDocumentId: nil)
+        let onProject = try fixture.textView(in: window)
+
+        // …and only then does the project's intent come into existence, with
+        // prose in it — `StatementTextTarget.bind`'s out-of-band creator.
+        // Nothing re-runs `reconcile`, so the pane stays unbound and the first
+        // keystroke find-or-creates its way to THIS statement.
+        let projectIntent = try await fixture.store.createStatement(
+            kind: .intent, scope: .project)
+        let seeded = try await Document.load(
+            url: fixture.projectURL.appendingPathComponent(projectIntent.path),
+            device: "seed", session: "seed", presenter: nil)
+        seeded.setFullText(prose)
+        try await seeded.flushBurstNow()
+        await seeded.close()
+
+        // Park the mint's load on the production gate.
+        await fixture.store.lockStatementOpen(projectIntent.id)
+        await fixture.type("x", into: onProject)
+        await fixture.waitOut(0.3)
+        XCTAssertNil(fixture.store.openStatementDocument(id: projectIntent.id),
+                     "the mint's load got past the gate this test is holding, so "
+                     + "the wedge did not work and nothing below is evidence")
+
+        // Queued behind the mint and ahead of everything the pane does next.
+        let between = Task { @MainActor in
+            await fixture.store.lockStatementOpen(projectIntent.id)
+        }
+        await fixture.waitOut(0.2)
+
+        // The writer visits the chapter (no intent, so it resolves
+        // synchronously) and comes back. `reconcile` finds the statement that
+        // now exists and starts a load of its own, which queues behind us.
+        await fixture.selectDocument(docId)
+        await fixture.selectDocument(nil)
+
+        // Released: the mint takes the path, binds and registers; we take it
+        // next; the returning pane's load is still queued.
+        fixture.store.unlockStatementOpen(projectIntent.id)
+        await between.value
+        let bound = fixture.store.openStatementDocument(id: projectIntent.id)
+        let queuedBehindUs = fixture.store.statementOpenWaiters[projectIntent.id]?.count ?? 0
+        // Before any assertion, so a failing one cannot leave the pane's load
+        // parked on a gate nobody will open.
+        fixture.store.unlockStatementOpen(projectIntent.id)
+        await fixture.waitOut(0.6)
+
+        XCTAssertEqual(queuedBehindUs, 1,
+                       "the returning pane's load was not queued behind this "
+                       + "test, so the interleaving this test is about never "
+                       + "happened and nothing below is evidence")
+        let first = try XCTUnwrap(bound,
+                                  "the mint bound nothing, so there is no first "
+                                  + "`Document` for a second one to displace")
+        XCTAssertTrue(fixture.store.openStatementDocument(id: projectIntent.id) === first,
+                      "the returning pane opened a SECOND `Document` on a path "
+                      + "that already had a live one — same scope, so no "
+                      + "cancellation and no mismatched destination refuses it")
+        XCTAssertFalse(first.isClosed,
+                       "and nothing closed the one it displaced: its "
+                       + "`PendingBuffer` is still live on the writer's file, "
+                       + "which is the loss the open gate exists to prevent")
+        XCTAssertEqual(try fixture.textView(in: window).string, prose,
+                       "the pane never came back off its placeholder, or came "
+                       + "back empty over the writer's prose — a load that "
+                       + "declines to open a second `Document` must still leave "
+                       + "the scope resolved")
+    }
+
     /// The rule itself, over the whole product of its inputs — the file's own
     /// idiom (`shouldMount`, `showsPictureWell`), so the refusal is asserted
     /// deterministically rather than only through the two races above.
@@ -709,5 +804,46 @@ final class StatementEditorMountTests: XCTestCase {
             StatementEditorHost.loadMayBind(
                 loadedScope: mine, paneWants: other, cancelled: true),
             "both signals wrong and it bound regardless")
+    }
+
+    /// And the refusal on the OTHER side of the load, over its own inputs.
+    func test_aLoadHoldingTheGateReAsksWhatIsAlreadyInTheBox() {
+        XCTAssertEqual(
+            StatementEditorHost.gateArrival(liveStatementID: nil, loading: "stmt-1"),
+            .load,
+            "an empty box refused a load, so the pane would never bind at all")
+        XCTAssertEqual(
+            StatementEditorHost.gateArrival(liveStatementID: "stmt-1", loading: "stmt-1"),
+            .alreadyBound,
+            "a load opened a second `Document` on a statement the box already "
+            + "holds live — the mint-and-return race")
+        XCTAssertEqual(
+            StatementEditorHost.gateArrival(liveStatementID: "stmt-2", loading: "stmt-1"),
+            .refuse,
+            "a load displaced ANOTHER statement's live `Document` rather than "
+            + "leaving the pane where it is")
+    }
+
+    /// A husk in the box is not a live `Document`, and must not be mistaken for
+    /// one: `.onDisappear` closes without releasing, so the box outlives what it
+    /// holds. Answering `.alreadyBound` over a closed `Document` would mount the
+    /// pane on a surface whose every keystroke no-ops.
+    func test_theBoxAnswersForALiveDocumentOnly() async throws {
+        let fixture = try await fixture(named: "BoxLiveness")
+        let statement = try await fixture.store.createStatement(
+            kind: .intent, scope: .project)
+        let document = try await Document.load(
+            url: fixture.projectURL.appendingPathComponent(statement.path),
+            device: "seed", session: "seed", presenter: nil)
+
+        let target = StatementTextTarget()
+        XCTAssertNil(target.liveStatementID, "an empty box named a statement")
+        target.bind(document, id: statement.id, carryingDraft: false)
+        XCTAssertEqual(target.liveStatementID, statement.id)
+
+        await document.close()
+        XCTAssertNil(target.liveStatementID,
+                     "a closed `Document` still read as the live one, so a load "
+                     + "would decline to replace a husk")
     }
 }

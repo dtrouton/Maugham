@@ -58,6 +58,22 @@ final class StatementTextTarget {
     /// the pre-mint draft before that.
     var text: String { document?.displayText ?? draft }
 
+    /// The statement whose **live** `Document` this box holds, or nil.
+    ///
+    /// The question a load re-asks after taking the open gate — see
+    /// `StatementEditorHost.gateArrival`. Live rather than merely present,
+    /// because the invariant is about two `Document`s writing one path: a
+    /// closed one is husked and weightless (`setFullText` no-ops on it), so a
+    /// box holding one is a box a load may fill.
+    ///
+    /// It can answer with `statementID` because `document` and `statementID`
+    /// are set and cleared as a PAIR — `bind` takes both, `release()` drops
+    /// both, and there is no third writer of either.
+    var liveStatementID: String? {
+        guard let document, !document.isClosed else { return nil }
+        return statementID
+    }
+
     /// The sanctioned binding shape, and the only mutation path
     /// (`EditorHost.swift:13-15`): `Document.setFullText` writes `displayText`
     /// exactly once at the end, which is what keeps the milestone-1e
@@ -248,6 +264,55 @@ struct StatementEditorHost: View {
     /// it.
     static func loadMayBind(loadedScope: String, paneWants: String?, cancelled: Bool) -> Bool {
         !cancelled && paneWants == loadedScope
+    }
+
+    /// What a load finds when it re-asks the box **after** taking the
+    /// statement's open gate.
+    enum GateArrival: Equatable {
+        /// Nothing live is in the box. Load, and bind as planned.
+        case load
+        /// This statement's own `Document` is already in the box. There is
+        /// nothing to load: the caller's destination is already there, and a
+        /// second `Document` on that path is the defect.
+        case alreadyBound
+        /// Some other statement's live `Document` is in the box. Not ours to
+        /// displace.
+        case refuse
+    }
+
+    /// Whether a load that now holds the open gate should still open a
+    /// `Document` (M1A residual 1).
+    ///
+    /// **`loadMayBind` is not enough, because the two loads can agree.** The
+    /// mint's load is uncancellable and names the scope it was started for; the
+    /// pane's `reconcile` names the scope it is going to. A writer who types
+    /// into an undeclared scope, leaves, and comes BACK gives both of them the
+    /// same true answer — no cancellation, and a destination that matches — so
+    /// both bind, and the first `Document` is dropped from the box **unclosed**:
+    /// two live `Document`s on one path, each with its own `PendingBuffer`,
+    /// which is the paragraph loss `ProjectStore.lockStatementOpen` exists to
+    /// prevent. It is the same family as the superseded-load defect one level
+    /// down — that one was the WRONG scope's document, this one is two of the
+    /// right scope's.
+    ///
+    /// **Re-asked after the gate, which is what makes it a fix rather than a
+    /// delay** — `ProjectStore.appendToStatement`'s transient arm is the
+    /// discipline being copied. `bind` and `noteStatementDocumentOpened` both
+    /// happen inside the gate, so whoever arrives second sees the first's
+    /// answer; asked BEFORE the gate the question is the same one the pane
+    /// already asked and is no more current for being repeated.
+    ///
+    /// It asks the BOX rather than the registry, and that distinction is
+    /// load-bearing: the registry is store-wide and a live `Document` in it may
+    /// belong to somebody else entirely, and `.alreadyBound` claims the caller
+    /// can mount over what is there. Only the pane's own box can honour that.
+    ///
+    /// Static and pure like `shouldMount` and `loadMayBind`, so the rule is
+    /// asserted over the product of its inputs rather than only through the
+    /// race that reaches it.
+    static func gateArrival(liveStatementID: String?, loading id: String) -> GateArrival {
+        guard let liveStatementID else { return .load }
+        return liveStatementID == id ? .alreadyBound : .refuse
     }
 
     private var canMount: Bool {
@@ -506,6 +571,13 @@ struct StatementEditorHost: View {
     /// why neither signal covers both. A refused `Document` is CLOSED here: it
     /// was never registered, nothing else holds it strongly, and one left to
     /// deallocate unclosed strands its pending buffer.
+    ///
+    /// **Two refusals, asking different questions on either side of the load.**
+    /// `gateArrival`, before it, asks whether this statement is already in the
+    /// box — a load that goes ahead there ends with two live `Document`s on one
+    /// path even though both loads wanted the same scope, so `loadMayBind`
+    /// cannot see it (`gateArrival`). `loadMayBind`, after it, asks whether the
+    /// pane still wants this scope at all.
     @discardableResult
     private func load(_ statement: Statement, carryingDraft: Bool,
                       for wanted: String) async -> Bool {
@@ -516,6 +588,23 @@ struct StatementEditorHost: View {
         // so this is released as soon as the registry can answer for us.
         await store.lockStatementOpen(statement.id)
         defer { store.unlockStatementOpen(statement.id) }
+        // **Asked AGAIN now that the gate is ours**, because waiting for it is
+        // a suspension like any other and the box may have been filled while we
+        // queued — by this host's OTHER load, which is the only other thing that
+        // can fill it. See `gateArrival`: `alreadyBound` is a success with
+        // nothing to do (the caller's destination is already there), and it is
+        // returned rather than loaded because a second `Document` on this path
+        // is the whole defect.
+        //
+        // No draft can be stranded by returning here: `bind` empties `draft`,
+        // and `write` stops feeding it the moment the box holds a `Document`,
+        // so a box that is full has an empty draft by construction.
+        switch Self.gateArrival(liveStatementID: target.liveStatementID,
+                                loading: statement.id) {
+        case .load: break
+        case .alreadyBound: return true
+        case .refuse: return false
+        }
         do {
             let document = try await Document.load(
                 url: store.url.appendingPathComponent(statement.path),
