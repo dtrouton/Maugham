@@ -223,9 +223,27 @@ extension ProjectStore {
         // offers a `Document` on its way to being a husk — `StatementEditorHost`'s
         // own ordering. The close is also what RENDERS the `.md` the new project
         // bootstraps from, so it must happen before the file is staged.
-        if let carriedIntent, let live = openStatementDocument(id: carriedIntent.id) {
-            forgetStatementDocument(id: carriedIntent.id)
-            await live.close()
+        //
+        // **Both halves of the seam, not just the registry.** `lockStatementOpen`
+        // exists for exactly this read: `Document.load` is `async` and constructs
+        // a fresh instance per call, so a pane that is midway through opening
+        // this statement answers the registry with nil and then registers a live
+        // `Document` on a path we are about to move. Inside the gate that case is
+        // closed — the pane finishes, registers and releases, and the re-asked
+        // registry hands us its `Document` to close. `ProjectStore+Statements.swift`
+        // says "the same rule binds the next one"; this is the next one.
+        //
+        // What the gate does NOT close is the reverse ordering: a pane whose load
+        // begins after we release re-materialises from the op log left behind and
+        // recreates the file at the old path. That is the piece's own manuscript's
+        // window too, and it costs a stray file rather than the writer's words.
+        if let carriedIntent {
+            await lockStatementOpen(carriedIntent.id)
+            defer { unlockStatementOpen(carriedIntent.id) }
+            if let live = openStatementDocument(id: carriedIntent.id) {
+                forgetStatementDocument(id: carriedIntent.id)
+                await live.close()
+            }
         }
 
         // 2. Stage the new project under a sibling .maugham-staging-* folder.

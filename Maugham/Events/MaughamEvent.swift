@@ -58,9 +58,12 @@ enum MaughamEvent {
     /// `PersonaModifier`, so a rename cannot silently make the post a no-op.
     static let personaKey = "persona"
 
-    /// Payload key for `.maughamSetDetailSegment`. One spelling shared by the
-    /// View menu's eleven items, the inspector's Intent affordance (M1A) and
-    /// `ProjectWindow`'s receiver — same reason as `personaKey`.
+    /// Payload key for `.maughamSetDetailSegment`. One spelling shared by every
+    /// `postSegment(_:)` call in `MaughamApp`'s View menu, the inspector's Intent
+    /// affordance (M1A) and `ProjectWindow`'s receiver — same reason as
+    /// `personaKey`. (`PersonaKeyspaceTests` is what holds the menu to one item
+    /// per `DetailSegment`; a number written here would be a count over a list,
+    /// and the comment this replaced said "nine".)
     static let detailSegmentKey = "segment"
 
     /// Payload keys for `.maughamCanvasNodesAdded`. Constants for the reason

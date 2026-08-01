@@ -15,10 +15,14 @@ import MaughamCore
 /// other wrote — the writer's promoted paragraph is written back out by the next
 /// burst.
 ///
-/// **There are exactly two openers and this file holds each of them to the gate**,
-/// because a gate one side ignores is not a gate. Both tests drive the real
-/// production path and take the lock by hand, so the interleaving is a fact of
-/// the test rather than a race it hopes to win.
+/// **Everything that takes the gate is held to it here**, because a gate one
+/// side ignores is not a gate — count the tests below rather than reading a
+/// number in this comment. Today that is the two OPENERS (the pane and
+/// `PromotionPerformer`) plus, since M1A Task 8, `promotePieceToProject`, which
+/// takes it to *close* a statement's `Document` before moving its file out of
+/// the project. Every one drives the real production path and takes the lock by
+/// hand, so the interleaving is a fact of the test rather than a race it hopes
+/// to win.
 @MainActor
 final class StatementOpenGateTests: XCTestCase {
 
@@ -149,6 +153,51 @@ final class StatementOpenGateTests: XCTestCase {
                         "and it binds once the path is free — the control, without "
                         + "which a pane that never mounted would pass the assertion "
                         + "above")
+    }
+
+    // MARK: - The Collection promotion (M1A Task 8)
+
+    /// Promoting a loose piece MOVES its intent statement's file out of the
+    /// project, so it must not run while somebody is opening that statement: a
+    /// pane midway through `Document.load` answers the registry with nil, then
+    /// registers a live `Document` on a path that is no longer there.
+    ///
+    /// Falsified by removing `lockStatementOpen`/`unlockStatementOpen` from
+    /// `promotePieceToProject`: the move happens while the gate is held, so the
+    /// first assertion goes red.
+    func test_aPiecePromotionWaitsWhileSomebodyIsOpeningTheIntentItWillMove() async throws {
+        let temp = try TempDirectory()
+        defer { temp.cleanup() }
+        let collection = try await ProjectFactory.createCollectionProject(
+            named: "GatedPromote", in: temp.url)
+        let store = try await ProjectStore.load(from: collection)
+        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let statement = try await store.createStatement(
+            kind: .intent, scope: .document(piece.id))
+        let intentURL = collection.appendingPathComponent(statement.path)
+        let destination = temp.url.appendingPathComponent("Gated Story A")
+
+        await store.lockStatementOpen(statement.id)
+        let promotion = Task { @MainActor in
+            try await store.promotePieceToProject(
+                pieceId: piece.id, destination: destination)
+        }
+        await fixture.waitOut(0.5)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: intentURL.path),
+                      "the promotion moved the intent file while another opener "
+                      + "held the path — a pane finishing its load lands on a "
+                      + "file that is gone")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path),
+                       "and it got as far as producing the new project")
+
+        store.unlockStatementOpen(statement.id)
+        _ = try await promotion.value
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: intentURL.path),
+                       "and releasing the gate lets it through — a gate that "
+                       + "never opens would pass the assertions above for the "
+                       + "wrong reason")
     }
 
     // MARK: - The gate itself
