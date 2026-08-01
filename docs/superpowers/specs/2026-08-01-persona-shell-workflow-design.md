@@ -224,6 +224,27 @@ Outline leaves every persona: the tree shows structure and Plan now builds it,
 and `OutlinePane` is read-only — it renders and sets the selection, but has no
 create, move or delete, so it cannot be the structure surface Plan needs.
 
+> **Amendment, 2026-08-01 — this section states its content twice and the two
+> disagree; the delta list above is the normative one.** Found by slice 1's
+> implementer while transcribing the matrix into
+> `PersonaPaneRegistryTests`, which is the test that has to pick one.
+>
+> The three-column **table** omits cells the **"Leaving, by persona"** list keeps:
+> it drops **palette from Plan**, and it drops **visual language from Review**
+> (neither posture row carries it). The list says Plan loses only outline and
+> tasks, and says outright that *"Review keeps its members but splits them across
+> the two postures"* — which the table contradicts directly. Nothing anywhere in
+> this document argues for removing either pane, so the table is a summary that
+> lost cells, not a narrower claim.
+>
+> Read the table as illustrative and the delta list as binding. **Inspector is not
+> one of these discrepancies** — its absence from the table is §5.1 working as
+> intended, and it leaves at slice 4 rather than now.
+>
+> This does not touch slice 1, whose four moves are the same under either
+> reading. It is **slice 6** that has to be right about Review's visual language,
+> and slice 6 should confirm this with Denver rather than inherit it.
+
 **`.inspector` leaves every persona, but not by being deleted** — it dissolves,
 and its sections go where they are used (§5.1). Publish loses it only once the
 Publishing section has become Publish's own pane; until then, removing it deletes
