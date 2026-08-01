@@ -48,14 +48,16 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// `docs/superpowers/specs/2026-07-25-mode-based-ux-redesign-design.md`
     /// §6.3, transcribed. Both `●` (primary) and `○` (available) mean the
     /// segment belongs to that persona; `—` means absent. Only segments that
-    /// have a `DetailSegment` case today — Diagnostics, References, Intent,
-    /// Visual language and Editions belong to later milestones and are listed
-    /// as reserved in `Persona.panes`.
+    /// have a `DetailSegment` case today — Diagnostics, References and Editions
+    /// belong to later milestones and are listed as reserved in
+    /// `Persona.panes`. Intent and Visual language joined in M1A.
     private static let designMatrix: [Persona: Set<DetailSegment>] = [
-        .plan: [.inspector, .research, .outline, .tasks, .inbox, .palette],
-        .author: [.inspector, .research, .outline, .tasks, .palette],
-        .review: [.inspector, .outline, .history, .tasks, .palette, .translation, .annotations],
-        .publish: [.translation]
+        .plan: [.inspector, .research, .outline, .tasks, .inbox, .palette,
+                .intent, .visualLanguage],
+        .author: [.inspector, .research, .outline, .tasks, .palette, .intent],
+        .review: [.inspector, .outline, .history, .tasks, .palette, .translation,
+                  .annotations, .intent, .visualLanguage],
+        .publish: [.translation, .visualLanguage, .intent]
     ]
 
     /// Deviations from §6.3 that the registry takes on purpose, each argued at

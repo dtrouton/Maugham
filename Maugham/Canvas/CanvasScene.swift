@@ -120,6 +120,50 @@ public struct CanvasScene: Equatable, Sendable {
         byID[id]?.contributedToItemID = itemID
     }
 
+    /// Point every mark naming `oldID` at `newID` instead, and say how many
+    /// moved (M1A adoption; whole-branch review, I4).
+    ///
+    /// **The artifact is the same object under a new id, so the mark follows
+    /// it.** Adoption moves a legacy craft-intent research note's prose into a
+    /// `Statement` and trashes the note, which takes its manifest entry with it —
+    /// so a card promoted to craft intent under 1C-c2 is left naming an id
+    /// `ArtifactIndex.over` can no longer resolve, and every reader of that mark
+    /// then says something false: `PromotedArtifactSection` renders
+    /// `.artifactMissing`, telling the writer their intent was deleted over
+    /// prose sitting in the new pane, and `Promotion.hasDanglingMark` answers
+    /// true, so a line promotion between two such cards is refused with "Promote
+    /// that card again first" for something that worked.
+    ///
+    /// Both fields, because both name an artifact and both have a reader that
+    /// goes wrong: `promotedItemID` is *"I am this artifact"*, `contributedToItemID`
+    /// is *"my words went into it"* (spec §6.3), and clearing rather than
+    /// re-pointing either would make a promoted card look and sound un-promoted
+    /// — the trap `ArtifactIndex.over` already names.
+    ///
+    /// Pure and counted so the caller can decide whether a write is needed at
+    /// all, and so the rule can be asserted over a scene rather than through a
+    /// migration.
+    @discardableResult
+    public mutating func repointMarks(from oldID: String, to newID: String) -> Int {
+        guard oldID != newID else { return 0 }
+        var moved = 0
+        for (id, node) in byID {
+            if node.promotedItemID == oldID {
+                byID[id]?.promotedItemID = newID
+                moved += 1
+            }
+            if node.contributedToItemID == oldID {
+                byID[id]?.contributedToItemID = newID
+                moved += 1
+            }
+        }
+        for (id, region) in regionsByID where region.promotedItemID == oldID {
+            regionsByID[id]?.promotedItemID = newID
+            moved += 1
+        }
+        return moved
+    }
+
     /// Highest node whose measured frame contains `point`, in content
     /// coordinates. Front-most wins.
     ///

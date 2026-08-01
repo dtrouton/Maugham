@@ -139,7 +139,7 @@ final class DocSyncTests: XCTestCase {
         // it — the very failure mode this repoint exists to avoid. Assert a
         // floor, not equality: MaughamApp.swift also carries non-pane ⌘⌥
         // bindings (⌘⌥0 inspector column, ⌘⌥F find in project, ⌘⌥Z restore),
-        // so the count is more than the nine panes. ⌘⌥⇧R does not match: its
+        // so the count exceeds `DetailSegment.allCases`. ⌘⌥⇧R does not match: its
         // modifier list is [.command, .option, .shift].
         XCTAssertGreaterThanOrEqual(tokens.count, DetailSegment.allCases.count,
                                     "extracted \(tokens.count) ⌘⌥ shortcuts — expected at least "
@@ -183,10 +183,34 @@ final class DocSyncTests: XCTestCase {
     }
 
     /// Case-insensitive substring check: each case name's raw spelling
-    /// (e.g. "inbox") must appear somewhere in the doc text (e.g. "Inbox").
+    /// (e.g. "inbox") must appear somewhere in the doc text (e.g. "Inbox") —
+    /// **or**, for a camelCase name, its spelled-out form ("visualLanguage" →
+    /// "visual language").
+    ///
+    /// The second spelling exists because `right-pane.md` is the writer's help,
+    /// not a symbol index. Every case was one word until M1A, so the raw-name
+    /// check had never met a multi-word one; requiring the literal
+    /// `visualLanguage` in user-facing prose would document the identifier
+    /// rather than the pane. The guard's job — a segment that ships with no
+    /// mention at all goes red — is unchanged, and
+    /// `test_segmentMentionCheckWouldFireOnPlantedOffender` still proves it.
     static func missingCaseMentions(_ names: [String], in docText: String) -> [String] {
         let lowered = docText.lowercased()
-        return names.filter { !lowered.contains($0.lowercased()) }
+        return names.filter { name in
+            !lowered.contains(name.lowercased())
+                && !lowered.contains(spelledOut(name))
+        }
+    }
+
+    /// "visualLanguage" → "visual language"; a single-word name is unchanged,
+    /// so this can never make a one-word case easier to satisfy.
+    static func spelledOut(_ camelCase: String) -> String {
+        var out = ""
+        for character in camelCase {
+            if character.isUppercase, !out.isEmpty { out.append(" ") }
+            out.append(Character(character.lowercased()))
+        }
+        return out
     }
 
     func test_detailSegmentCasesDocumentedInRightPaneMd() throws {
@@ -215,10 +239,34 @@ final class DocSyncTests: XCTestCase {
         XCTAssertTrue(caseNames.contains("inbox"),
             "Self-check precondition: DetailSegment should still have an `inbox` case.")
 
-        let doctoredDoc = "The right column has modes: Inspector, Research, Outline, Tasks, Annotations, History, Palette, Translation."
+        let doctoredDoc = "The right column has modes: Inspector, Research, Outline, "
+            + "Tasks, Annotations, History, Palette, Translation, Intent, Visual Language."
         let missing = Self.missingCaseMentions(caseNames, in: doctoredDoc)
         XCTAssertEqual(missing, ["inbox"],
             "Self-check expected exactly the omitted \"inbox\" case to be reported missing. Got: \(missing).")
+    }
+
+    /// Self-check for the spelled-out alternative: a multi-word case is
+    /// satisfied by its prose spelling and by nothing weaker. Without the third
+    /// assertion the relaxation could be a wall — "visual" alone must not pass,
+    /// or a doc that merely says "visual" documents nothing.
+    func test_spelledOutCaseNamesSatisfyTheMentionCheckAndNothingLessDoes() {
+        XCTAssertEqual(Self.spelledOut("visualLanguage"), "visual language")
+        XCTAssertEqual(Self.spelledOut("inbox"), "inbox",
+                       "a one-word case must be unchanged, or this relaxation "
+                       + "would weaken every existing check")
+
+        XCTAssertEqual(
+            Self.missingCaseMentions(["visualLanguage"], in: "a **Visual Language** mode"),
+            [], "the prose spelling should satisfy the check")
+        XCTAssertEqual(
+            Self.missingCaseMentions(["visualLanguage"], in: "a `visualLanguage` case"),
+            [], "the raw identifier should still satisfy the check")
+        XCTAssertEqual(
+            Self.missingCaseMentions(["visualLanguage"], in: "the visual mode, and language"),
+            ["visualLanguage"],
+            "neither half on its own may satisfy the check — that would make the "
+            + "guard unfalsifiable for any compound name")
     }
 
     // MARK: - Test 4: the canvas's calibration figures (1C-c3 whole-branch review)

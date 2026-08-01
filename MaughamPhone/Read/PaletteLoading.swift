@@ -15,22 +15,29 @@ enum PaletteLoading {
         PaletteLookup.paletteCards(in: research)
     }
 
-    /// Filters the palette group's descendants AND the craft-intent asset out of
-    /// the ordinary Research leaves. They get their own `Section("Palette")` and
-    /// Craft-Intent row, so leaving them in Research duplicates them (the
-    /// pre-existing bug this task fixes — palette cards were flattened into the
-    /// Research section). Ordinary research passes through untouched.
+    /// Filters the palette group's descendants — and the legacy craft-intent
+    /// note when that note is what the Craft Intent row shows — out of the
+    /// ordinary Research leaves. They get their own `Section("Palette")`, so
+    /// leaving them in Research duplicates them (the pre-existing bug the
+    /// palette task fixed — palette cards were flattened into the Research
+    /// section). Ordinary research passes through untouched.
+    ///
+    /// **The intent exclusion follows the ROW, not the note's existence** (M1A
+    /// Task 11). An adopted project draws the statement, and its legacy note —
+    /// left behind by an adoption that could not read it, or written since —
+    /// is then on screen nowhere else, so hiding it here would cost the writer
+    /// a research row for nothing. `statements` is taken rather than a resolved
+    /// row so there is one decision, made once, in `StatementLoading.intentRow`.
     static func excludingPalette(
-        _ leaves: [ResearchItem], research: [ResearchItem]
+        _ leaves: [ResearchItem], research: [ResearchItem], statements: [Statement]
     ) -> [ResearchItem] {
         var excluded = Set<String>()
         if let group = PaletteLookup.paletteGroup(in: research) {
             excluded.formUnion(TreeWalk.collectIds(in: group.children ?? []))
         }
-        // Craft Intent is project-scope only (per spec) — the same prefix the
-        // binder's Craft-Intent row uses.
-        if let intent = PaletteLookup.craftIntentItem(in: research, researchPrefix: "research") {
-            excluded.insert(intent.id)
+        if case .legacyNote(let id)? = StatementLoading.intentRow(
+            statements: statements, research: research)?.origin {
+            excluded.insert(id)
         }
         return leaves.filter { !excluded.contains($0.id) }
     }

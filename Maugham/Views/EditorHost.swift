@@ -2,6 +2,26 @@ import SwiftUI
 import MaughamCore
 import Foundation
 
+/// Which load of `EditorHost`'s `Document` is the current one.
+///
+/// A reference type so `EditorHost` can claim a generation and read it back
+/// after a suspension without a `@State` write invalidating the body on every
+/// document switch. See `EditorHost.loads`.
+@MainActor
+final class EditorHostLoadGeneration {
+    private var current = 0
+    /// Claim the next generation, superseding every load already in flight.
+    func claim() -> Int {
+        current += 1
+        return current
+    }
+    /// Whether the load that claimed `generation` is still the wanted one.
+    func isCurrent(_ generation: Int) -> Bool { generation == current }
+    /// Supersede every in-flight load without starting one — the teardown case,
+    /// where a bind would leave a registered `Document` nothing is left to close.
+    func abandon() { current += 1 }
+}
+
 /// Hosts the EditorSurface for a single selected document.
 /// Picks the WritingMode by file extension. As of Stage 2 of the
 /// document-first-class refactor (T10), the editor binds to a per-document
@@ -52,6 +72,28 @@ struct EditorHost: View {
     /// previously-bound Document from the DocumentStore registry when the
     /// editor switches away.
     @State private var priorLoadedPath: String?
+    /// Which load this host most recently STARTED (whole-branch review, M1A).
+    ///
+    /// **Not observable state, and deliberately not `@State` of its own**
+    /// (tripwire 6): a plain box, mutated without invalidating the body, holding
+    /// one `Int`. `loadDocumentIfNeeded` is reached from two `.onChange`s firing
+    /// unstructured `Task`s that nothing cancels and from a `.task` that is
+    /// cancelled, and nothing between `Document.load`'s suspension and the
+    /// assignments below asked whether the load was still the wanted one. A
+    /// superseded load then overwrote `document`/`loadedItemId`/`priorLoadedPath`
+    /// with the document the writer had already clicked away from: the body's
+    /// `loadedItemId == item.id` guard keeps that off the binding (so no
+    /// keystroke is lost — this is where it differs from the statement pane's
+    /// C1), but the pane sticks on "Loading…" until the writer clicks elsewhere,
+    /// and the correct `Document` is left registered and never closed.
+    ///
+    /// A generation rather than a named destination because the destination
+    /// alone does not settle it: both `.onChange`s fire on one selection change,
+    /// so two loads of the SAME path are in flight and a destination check would
+    /// let both bind, leaving two `Document`s on one path each with its own
+    /// `PendingBuffer`. Only "a newer load has started since mine" refuses that,
+    /// and it is correct whichever of the two returns first.
+    @State private var loads = EditorHostLoadGeneration()
 
     /// The derived translated surface shown in read-only translation review
     /// (Task 11), or nil when the editor shows the source manuscript. This is
@@ -234,6 +276,9 @@ struct EditorHost: View {
             document = nil
             loadedItemId = nil
             priorLoadedPath = nil
+            // And nothing in flight may bind into a host that has gone: it
+            // would register a Document this teardown has already passed.
+            loads.abandon()
         }
         // The inspector/goal-indicator metrics mirror now lives entirely in the
         // EditorCoordinator (spec §7): it delivers precomputed `EditorMetrics`
@@ -481,6 +526,9 @@ struct EditorHost: View {
                   itemId: item.id, path: path,
                   loadedItemId: loadedItemId, loadedPath: priorLoadedPath)
         else { return }
+        // Claimed BEFORE the first suspension: everything from here on may be
+        // superseded, and only the newest claim may write the markers below.
+        let generation = loads.claim()
         // The outgoing doc's pending metrics mirror is cancelled inside the
         // coordinator's own teardown/attach now (a doc switch makes a fresh
         // EditorSurface via `.id(path)`, whose coordinator's `attach` cancels
@@ -499,6 +547,14 @@ struct EditorHost: View {
                 device: Self.deviceId,
                 session: Self.sessionId,
                 presenter: documentStore.presenter)
+            // Superseded while we were in file I/O — the writer clicked on, or
+            // this view went away. Never register it and never write the
+            // markers; close it, or it deallocates with a pending buffer and
+            // the load that IS wanted is the one left looking stale.
+            guard loads.isCurrent(generation) else {
+                await doc.close()
+                return
+            }
             documentStore.register(document: doc, for: path)
             document = doc
             loadedItemId = item.id
@@ -507,6 +563,10 @@ struct EditorHost: View {
             // EditorSurface's coordinator `attach` (immediate, non-debounced) —
             // no EditorHost-side mirror call.
         } catch {
+            // A superseded failure must not overwrite the markers either: doing
+            // so unbinds a document that loaded perfectly well and leaves the
+            // editor on "Loading…" for a file that is open.
+            guard loads.isCurrent(generation) else { return }
             document = nil
             loadedItemId = item.id
             priorLoadedPath = nil

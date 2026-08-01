@@ -126,8 +126,9 @@ public enum FindReferencesTool: MCPTool {
         "Find back-references to a document or research item. The `target` " +
         "can be an id (returned by get_outline / list_research) or a title " +
         "(case-insensitive match). Returns [[wiki link]] matches in manuscript " +
-        "text AND research note bodies (a link written into a research note, " +
-        "e.g. by canvas promotion, is included) + research-link backrefs. " +
+        "text, research note bodies (a link written into a research note, " +
+        "e.g. by canvas promotion, is included) AND statements (craft intent, " +
+        "visual language) + research-link backrefs. " +
         "Piece-owned research returns its owning piece as a piece_research " +
         "backref. When a piece both links to and owns the same research " +
         "item, the explicit link masks the containment backref " +
@@ -217,6 +218,34 @@ public enum FindReferencesTool: MCPTool {
                     if seenFromIds.insert(item.id).inserted {
                         refs.append(Reference(from_id: item.id, from_title: item.title,
                                               kind: "wiki"))
+                    }
+                    break
+                }
+            }
+
+            // And the same widening again for statements, because M1A moved the
+            // writer's intent into one. A link that lived in a craft-intent
+            // research note WAS found here; adoption carries the body across
+            // verbatim, so without this loop the migration silently costs the
+            // answer to "what points at this".
+            //
+            // ADR 0018: `statementText(of:)` derives — a statement is a
+            // `Document` and its `.md` is output.
+            let documentTitles = Dictionary(
+                TreeWalk.collect(in: store.manifest.structure, where: { _ in true })
+                    .map { ($0.id, $0.title) },
+                uniquingKeysWith: { _, later in later })
+            for statement in store.manifest.statements {
+                guard statement.id != resolvedId else { continue }
+                let text = store.statementText(of: statement)
+                guard !text.isEmpty else { continue }
+                for title in titles where text.contains("[[\(title)]]") {
+                    if seenFromIds.insert(statement.id).inserted {
+                        refs.append(Reference(
+                            from_id: statement.id,
+                            from_title: ArtifactIndex.statementTitle(
+                                statement, documentTitle: { documentTitles[$0] }),
+                            kind: "wiki"))
                     }
                     break
                 }

@@ -729,6 +729,44 @@ final class CanvasDropTests: XCTestCase {
             "control: exactly the one accepted file is in the well")
     }
 
+    /// **The canvas refuses a `.txt` in its OWN WORDS, and that is why its check
+    /// survives the saver's** (M1A Task 12).
+    ///
+    /// `ImagePasteHandler.saveAndReferenceFile` now validates, so
+    /// `ingestCanvasAsset(fileURL:)` would throw for a text file even with
+    /// nothing upstream — which makes the call to `isIngestableImage` look
+    /// redundant. It is not. A throw lands in `outcome.failed`, whose sentence is
+    /// *"Couldn't add “notes.txt” to the canvas."* — the sentence for a `.png`
+    /// that should have worked and didn't, which tells a writer their surface is
+    /// broken when in fact they dropped the wrong file. The check ahead of the
+    /// call is what keeps the two facts separate; `Outcome` splits `refused` from
+    /// `failed` for exactly this reason.
+    ///
+    /// **Control, in the same test:** a genuinely failing ingest still reaches
+    /// `failed`, so this is not passing under a route that calls everything a
+    /// refusal.
+    func test_theCanvasDropStillRefusesItInItsOwnWords() async throws {
+        let seam = CanvasAssetIngest(
+            file: { _ in throw ImagePasteHandler.ImagePasteError.encodingFailed },
+            image: { _ in throw ImagePasteHandler.ImagePasteError.encodingFailed })
+
+        let outcome = await CanvasExternalDrop.ingest(
+            providers: [fileProvider(try writeText(named: "notes.txt"))], using: seam)
+
+        XCTAssertEqual(outcome.refused, ["notes.txt"],
+                       "refused, not failed — the writer dropped the wrong thing")
+        XCTAssertTrue(outcome.failed.isEmpty)
+        let message = try XCTUnwrap(outcome.message)
+        XCTAssertTrue(message.contains("The canvas holds pictures"),
+                      "the canvas's own sentence, not a thrown error's: \(message)")
+
+        // Control: an ingest that really throws must still be a FAILURE.
+        let broken = await CanvasExternalDrop.ingest(
+            providers: [fileProvider(try writePNG(named: "fine.png"))], using: seam)
+        XCTAssertEqual(broken.failed, ["fine.png"])
+        XCTAssertTrue(broken.refused.isEmpty)
+    }
+
     /// **Every file in a multi-file drop lands, and no card is exactly on
     /// another.** Cards stacked at one point read as a single card, so a writer
     /// who dragged four photographs in sees one and assumes three were lost.

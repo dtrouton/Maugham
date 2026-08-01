@@ -34,6 +34,14 @@ struct PaletteCardEditor: View {
     @State private var newSwatchColor: Color = .gray
     @State private var newNoteText = ""
     @State private var isDropTargeted = false
+    /// Why the last drop did not land, or nil.
+    ///
+    /// **Cleared in `seed()`, and that is not housekeeping.** This view is NOT
+    /// keyed on `cardId` — `ProjectWindow` mounts it without `.id()` and it
+    /// reseeds through `.task(id: cardId)` — so `@State` survives a card switch.
+    /// A refusal left behind is then a sentence about a file the writer dropped
+    /// on a different card, sitting under a well it was never about.
+    @State private var dropMessage: String?
 
     // MARK: - Tested surface (pure hex helpers)
 
@@ -185,6 +193,12 @@ struct PaletteCardEditor: View {
                 }
             }
             dropZone
+            if let dropMessage {
+                Text(dropMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -361,15 +375,23 @@ struct PaletteCardEditor: View {
                     hasFileURL: provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
                     canLoadImage: provider.canLoadObject(ofClass: NSImage.self)) {
                 case .fileURL:
-                    if let url = await loadFileURL(provider: provider),
-                       let updated = try? await store.addImage(toPaletteCard: cardId, fileURL: url) {
-                        mergeImagePaths(from: updated)
+                    // **`do`/`catch` rather than `try?`, because the saver can
+                    // now refuse** (M1A Task 12). This well had no check of any
+                    // kind: a `.txt` was copied into `<slug>_assets/`, appended
+                    // to `imagePaths` and drawn as a grey photo placeholder. The
+                    // refusal is only half a fix if it arrives at a `try?` — that
+                    // is the same silence one layer down.
+                    guard let url = await loadFileURL(provider: provider) else { continue }
+                    do {
+                        mergeImagePaths(
+                            from: try await store.addImage(toPaletteCard: cardId, fileURL: url))
+                        dropMessage = nil
+                    } catch {
+                        dropMessage = ImagePasteHandler.failureMessage(for: error)
                     }
                 case .image:
-                    if let image = await loadImage(provider: provider),
-                       let updated = try? await store.addImage(toPaletteCard: cardId, image: image) {
-                        mergeImagePaths(from: updated)
-                    }
+                    guard let image = await loadImage(provider: provider) else { continue }
+                    await add(image)
                 case .ignore:
                     continue
                 }
@@ -381,10 +403,22 @@ struct PaletteCardEditor: View {
     /// path (a click never has to land in the well first).
     private func pasteFromClipboard() {
         guard let image = NSImage(pasteboard: .general) else { return }
-        Task {
-            if let updated = try? await store.addImage(toPaletteCard: cardId, image: image) {
-                mergeImagePaths(from: updated)
-            }
+        Task { await add(image) }
+    }
+
+    /// Put a pasted or dropped bitmap on the card, or say why it did not land.
+    ///
+    /// **The bitmap arms speak too**, and that is consistency rather than scope:
+    /// the file arm beside them now reports a refusal, and one arm that goes
+    /// quiet next to one that does not is worse than either alone. A bitmap
+    /// cannot be *refused* — it is already an image — so what this reports is
+    /// always the generic sentence, which is the honest one.
+    private func add(_ image: NSImage) async {
+        do {
+            mergeImagePaths(from: try await store.addImage(toPaletteCard: cardId, image: image))
+            dropMessage = nil
+        } catch {
+            dropMessage = ImagePasteHandler.failureMessage(for: error)
         }
     }
 
@@ -408,9 +442,7 @@ struct PaletteCardEditor: View {
         Task {
             for provider in providers where provider.canLoadObject(ofClass: NSImage.self) {
                 guard let image = await loadImage(provider: provider) else { continue }
-                if let updated = try? await store.addImage(toPaletteCard: cardId, image: image) {
-                    mergeImagePaths(from: updated)
-                }
+                await add(image)
             }
         }
     }
@@ -437,6 +469,9 @@ struct PaletteCardEditor: View {
         let card = store.loadPaletteCards().first { $0.researchItemId == cardId }
         draft = card
         baselineTitle = card?.title
+        // See `dropMessage`: this view is reused across cards, so a refusal that
+        // is not cleared here follows the writer to the next one.
+        dropMessage = nil
     }
 
     private func loadThumbnails() {

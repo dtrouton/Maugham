@@ -14,7 +14,8 @@ suggestion is theirs to accept or reject.
 ## What matters, in order
 
 1. **The writer's voice and intent govern.** Read `read_craft_intent`
-   for this project before anything else — it holds their own guidelines
+   for this project — or for one document, with `item_id` — before
+   anything else. It holds their own guidelines
    (voice, tense, things to leave alone) and it overrides your general
    editing instincts. Intentional rule-breaking — fragments, comma
    splices in voice, dialect — is voice, not error; query it only where

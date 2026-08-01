@@ -113,7 +113,9 @@ final class PromotionPieceRoutingTests: XCTestCase {
         Promotion.plan(
             PromotionRequest(source: source, target: target, mode: mode,
                              scraps: model.scraps, paletteKind: kind,
-                             artifacts: ArtifactIndex.over(research: store.manifest.research)),
+                             artifacts: ArtifactIndex.over(research: store.manifest.research,
+                                                           statements: store.manifest.statements,
+                                                           structure: store.manifest.structure)),
             in: model.scene)!
     }
 
@@ -132,8 +134,14 @@ final class PromotionPieceRoutingTests: XCTestCase {
         return item
     }
 
-    private func craftIntents(in store: ProjectStore) -> [ResearchItem] {
-        TreeWalk.collect(in: store.manifest.research, where: { $0.role == .craftIntent })
+    /// What a statement SAYS, read off its op log — never off the `.md`, which
+    /// is derived from these ops (tripwire 20).
+    private func statementText(_ statement: Statement, in root: URL) -> String {
+        let state = Deriver.deriveWithSequenceFallback(
+            ops: OpLogStore.loadSyncMerged(forDocId: statement.id, in: root))
+        return state.sequence
+            .compactMap { state.paragraphs[$0] }
+            .joined(separator: "\n\n")
     }
 
     private func text(of item: ResearchItem, in root: URL) throws -> String {
@@ -271,7 +279,9 @@ final class PromotionPieceRoutingTests: XCTestCase {
         model.setScrapText("The falls at night\n\nAnd the ponchos.", for: a)
         let existing = try XCTUnwrap(Promotion.existingArtifact(
             for: .scrap(a), target: .researchNote, in: model.scene,
-            artifacts: ArtifactIndex.over(research: store.manifest.research)))
+            artifacts: ArtifactIndex.over(research: store.manifest.research,
+                                          statements: store.manifest.statements,
+                                          structure: store.manifest.structure)))
         let second = try await performer.perform(
             plan(.scrap(a), .researchNote, store: store, model: model, mode: existing))
 
@@ -283,17 +293,19 @@ final class PromotionPieceRoutingTests: XCTestCase {
         XCTAssertTrue(try text(of: item, in: root).contains("And the ponchos."))
     }
 
-    // MARK: - Craft intent: the piece only where the routing is .pieceFolder
+    // MARK: - The intent statement: every routed piece scopes to its own document
 
-    /// **The guard, stated as its consequence.** `craftIntentItem(forPieceId:)`
-    /// finds an existing intent doc by the piece's research PREFIX, and
-    /// `pieceResearchPrefix` is nil for a novel chapter — so an intent doc created
-    /// under `.document("ch-1")` (shared + linked) could never be found again, and
-    /// every promotion after the first would mint another one.
+    /// **The guard's grave** (M1A). This test used to assert the OPPOSITE — that
+    /// two novel-chapter scraps share the PROJECT's intent — and its stated
+    /// reason was that `craftIntentItem(forPieceId:)` locates an intent doc by
+    /// the piece's research PATH PREFIX, which a novel chapter has none of. A
+    /// statement is found by SCOPE in the manifest, so that reason is now false
+    /// and the narrowing goes with it: a chapter's intent is the chapter's, and
+    /// two cards bound to it share one statement.
     ///
-    /// Falsified by the disable experiment: pass the piece unconditionally and
-    /// this goes red with two docs.
-    func test_twoNovelChapterScrapsPromotedToIntentFindTheSameOneIntentDoc() async throws {
+    /// Falsified by restoring the `.pieceFolder`-only rule: the scope becomes
+    /// `.project` and both unwraps below die.
+    func test_twoNovelChapterScrapsShareThatChaptersOwnIntent() async throws {
         let (root, store) = try await makeProject(type: .novel)
         let model = makeModel(at: root)
         model.withScene {
@@ -306,23 +318,27 @@ final class PromotionPieceRoutingTests: XCTestCase {
         _ = try await performer.perform(
             plan(.scrap(b), .intentStatement, store: store, model: model))
 
-        XCTAssertEqual(craftIntents(in: store).count, 1,
-                       "an intent doc is a singleton per scope; a second one is the "
-                       + "writer's intent statement silently split in two")
-        let intent = try XCTUnwrap(store.craftIntentItem(forPieceId: nil))
-        let body = try text(of: intent, in: root)
-        XCTAssertTrue(body.contains("Sodium light on the spray."))
-        XCTAssertTrue(body.contains("She knows the river."))
+        XCTAssertEqual(store.manifest.statements.count, 1,
+                       "a statement is a singleton per scope; a second one is the "
+                       + "writer's intent silently split in two")
+        let statement = try XCTUnwrap(
+            store.statement(kind: .intent, scope: .document("ch-1")),
+            "the chapter's own intent — found: "
+            + store.manifest.statements.map(\.scope.rawValue).description)
+        let body = statementText(statement, in: root)
+        XCTAssertTrue(body.contains("Sodium light on the spray."), "found: \(body)")
+        XCTAssertTrue(body.contains("She knows the river."), "found: \(body)")
+        XCTAssertNil(store.statement(kind: .intent, scope: .project),
+                     "and the BOOK's intent was not the one written to")
         XCTAssertEqual(store.linkedResearchIds(forDocumentId: "ch-1"), [],
-                       "the intent takes the scope and NEVER the link: linking the "
-                       + "project's intent to one chapter misrepresents what it is")
+                       "the intent takes the scope and NEVER the link: linking a "
+                       + "statement to a chapter misrepresents what it is")
     }
 
-    /// The control for that guard, and the case that proves it narrowed the rule
-    /// rather than deleting it: a Collection loose piece DOES route to
-    /// `.pieceFolder`, so its intent doc belongs in the piece — and a second
-    /// promotion finds it there.
-    func test_twoCollectionPieceScrapsShareOneIntentDocInsideThePiece() async throws {
+    /// The Collection loose piece, which routed to `.pieceFolder` and was the
+    /// ONE case the old rule allowed. It still scopes to its own piece — the
+    /// rule widened rather than moved.
+    func test_twoCollectionPieceScrapsShareThatPiecesOwnIntent() async throws {
         let (root, store, piece) = try await makeCollection()
         let model = makeModel(at: root)
         model.withScene {
@@ -335,17 +351,33 @@ final class PromotionPieceRoutingTests: XCTestCase {
         _ = try await performer.perform(
             plan(.scrap(b), .intentStatement, store: store, model: model))
 
-        XCTAssertEqual(craftIntents(in: store).count, 1)
-        let intent = try XCTUnwrap(store.craftIntentItem(forPieceId: piece.id))
-        let prefix = try XCTUnwrap(ProjectStore.pieceResearchPrefix(for: piece))
-        XCTAssertTrue(intent.path?.hasPrefix(prefix) == true,
-                      "expected the piece's own intent doc under \(prefix); got: "
-                      + (intent.path ?? "nil"))
-        let body = try text(of: intent, in: root)
-        XCTAssertTrue(body.contains("Sodium light on the spray."))
-        XCTAssertTrue(body.contains("She knows the river."))
-        XCTAssertNil(store.craftIntentItem(forPieceId: nil),
+        XCTAssertEqual(store.manifest.statements.count, 1)
+        let statement = try XCTUnwrap(
+            store.statement(kind: .intent, scope: .document(piece.id)))
+        let body = statementText(statement, in: root)
+        XCTAssertTrue(body.contains("Sodium light on the spray."), "found: \(body)")
+        XCTAssertTrue(body.contains("She knows the river."), "found: \(body)")
+        XCTAssertNil(store.statement(kind: .intent, scope: .project),
                      "and the PROJECT's intent was not the one written to")
+    }
+
+    /// A piece the router REFUSES — a Collection reference piece, whose research
+    /// lives in its own project — falls back to the project's intent rather than
+    /// throwing a store-shaped error at the writer. That fallback is the one part
+    /// of the old rule that survives, and `Promotion.pieceFailure` says so: the
+    /// intent is deliberately not a scoped target.
+    func test_aPieceTheRouterRefusesFallsBackToTheProjectsIntent() async throws {
+        let (root, store) = try await makeProject(type: .novel)
+        let model = makeModel(at: root)
+        model.withScene { $0.setBoundPiece("gone-1", for: a) }
+        _ = try await PromotionPerformer(store: store, model: model)
+            .perform(plan(.scrap(a), .intentStatement, store: store, model: model))
+
+        let statement = try XCTUnwrap(store.statement(kind: .intent, scope: .project),
+                                      "a stale association must not cost the writer "
+                                      + "the promotion")
+        XCTAssertTrue(statementText(statement, in: root)
+                        .contains("Sodium light on the spray."))
     }
 
     // MARK: - A palette card is never routed

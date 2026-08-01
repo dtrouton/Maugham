@@ -642,6 +642,55 @@ final class RegionBindingTests: XCTestCase {
                        + "cites rather than joins.")
     }
 
+    /// **The same check, on the projection this file spends its first section
+    /// testing** — and until M1A Task 10 it came back EMPTY. Six tests above
+    /// pin two rules (residents only, unioned across regions) that no production
+    /// code had ever asked for, while `list_canvas` shipped `bound_piece_id`,
+    /// `home_node_ids` and `appearance_node_ids` raw. That is worse than an
+    /// unused function: a reader derives the piece's context from the fields it
+    /// can see, gets `home ∪ appearances`, and nothing anywhere says otherwise.
+    ///
+    /// - `CanvasTools.swift` — `list_canvas` reports the projection as
+    ///   `piece_references`, so the two rules are on the wire rather than in a
+    ///   doc comment nothing reads. It CALLS the function rather than deriving
+    ///   the rule a second time, which is tripwire 19's reasoning one layer down.
+    ///
+    /// The reference rail is **M2's** (umbrella spec §10 — the intent strip,
+    /// pinned references and the assistant column), so a `RegionInspector` or
+    /// `Persona` entry appearing here is a `.references` segment consumed early
+    /// and needs its own argument, not a line in this list.
+    func test_theProjectionHasAProductionCaller() throws {
+        let files = try CanvasSourceCensus.productionFiles()
+        let callers = files
+            .filter { $0.name != "RegionBinding.swift" }
+            .filter {
+                CanvasSourceCensus.commentsStripped($0.source)
+                    .contains("RegionBinding.references(")
+            }
+            .map(\.name)
+            .sorted()
+        XCTAssertEqual(callers, ["CanvasTools.swift"],
+                       "if this is ever empty again, the two rules below §4.4 are "
+                       + "reachable only from this file and every other reader "
+                       + "re-derives them wrongly. If it grows, the new caller is a "
+                       + "deliberate edit here — and it gets a line in this test's "
+                       + "doc comment saying what it consumes the projection for.")
+
+        // The companion. `CanvasScene.remove`'s doc comment names this function
+        // in prose, so a scan that under-stripped would count it as a caller and
+        // a scan that read nothing at all would report the same empty list as a
+        // genuinely dormant projection.
+        let scene = try XCTUnwrap(files.first { $0.name == "CanvasScene.swift" })
+        XCTAssertTrue(scene.source.contains("RegionBinding.references("),
+                      "the corpus is not being read — this file discusses the "
+                      + "projection by name")
+        XCTAssertFalse(
+            CanvasSourceCensus.commentsStripped(scene.source)
+                .contains("RegionBinding.references("),
+            "…and a mention in a doc comment is not a call, or every file in this "
+            + "directory that discusses the projection counts as one")
+    }
+
     func test_theInspectorListsResidentsAndVisitorsSeparately() {
         let m = model()
         m.withScene {

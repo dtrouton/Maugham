@@ -366,30 +366,6 @@ enum CanvasExternalDrop {
         classify(provider) != .ignore
     }
 
-    /// Whether the canvas can hold this file.
-    ///
-    /// **Scoped to the canvas on purpose.** The shared saver
-    /// (`ImagePasteHandler.saveAndReferenceFile`) takes `pathExtension` as given
-    /// and validates nothing, so an unchecked drop copies a `.txt` into
-    /// `canvas_assets/`, mints an owned node, draws the photograph glyph and
-    /// queues a decode that can only fail — and `CanvasThumbnails` **memoises
-    /// failures** with no `invalidate`, so it is one permanent dead cache entry
-    /// per mistake. The hole is probably wider than the canvas (research notes
-    /// and palette cards reach the same saver), and widening the shared saver is
-    /// not this task's to do; checking here fixes the surface that is being built.
-    ///
-    /// The file's real type first, its extension second: a file with no extension
-    /// still has a type on disk, and a drag from a sandboxed source may not.
-    static func isIngestableImage(_ url: URL) -> Bool {
-        if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType {
-            return type.conforms(to: .image)
-        }
-        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else {
-            return false
-        }
-        return type.conforms(to: .image)
-    }
-
     /// Ingest every provider a drop carried, in order.
     ///
     /// **Await first, touch the scene second** — which is Swift rather than
@@ -407,7 +383,19 @@ enum CanvasExternalDrop {
                     outcome.failed.append(name(of: provider))
                     continue
                 }
-                guard isIngestableImage(url) else {
+                // **Kept after the saver learned to validate, and the reason is
+                // the message rather than the copy** (M1A Task 12).
+                // `ingestCanvasAsset(fileURL:)` would now throw for a `.txt`
+                // with nothing here at all — but a throw lands in
+                // `outcome.failed`, whose sentence is *"Couldn't add “notes.txt”
+                // to the canvas."*: the sentence for a picture that should have
+                // worked and didn't, which tells a writer their surface is
+                // broken when in fact they dropped the wrong file. `refused` and
+                // `failed` are separate because they are separate facts, and
+                // only the check ahead of the call can tell them apart.
+                // Defence in depth, not redundancy; see
+                // `CanvasDropTests.test_theCanvasDropStillRefusesItInItsOwnWords`.
+                guard ImagePasteHandler.isIngestableImage(url) else {
                     outcome.refused.append(url.lastPathComponent)
                     continue
                 }

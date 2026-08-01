@@ -25,6 +25,12 @@ public enum ProjectStoreError: Error, Equatable {
     /// supports. Refused rather than degraded — see ADR 0015.
     case manifestSchemaTooNew(found: Int, supported: Int)
     case structureMissing
+    /// The `(kind, scope)` pair has no row in the statement storage table
+    /// (M1A spec §2.2) — visual language is project-scope only, and a `kind` or
+    /// `scope` written by a newer build (ADR 0015's `.unknown`) is retained and
+    /// ignored, never given a file. Refused rather than redirected to project
+    /// scope: a chapter's intent written into the book's file is a loss.
+    case statementHasNoStorage(kind: String, scope: String)
     case parentNotFound(String)
     case fileSystemError(String)
     case cycle
@@ -49,6 +55,8 @@ extension ProjectStoreError: LocalizedError {
                 + "Update Maugham to open it."
         case .structureMissing:
             return "That item is no longer in the project."
+        case .statementHasNoStorage(let kind, let scope):
+            return "A “\(kind)” statement can’t be kept for “\(scope)”."
         case .parentNotFound(let id):
             return "The destination “\(id)” could not be found."
         case .fileSystemError(let message):
@@ -93,6 +101,31 @@ public final class ProjectStore {
     /// `CanvasModel.isAttached`, whose doc comment spells out what a write into
     /// an unattached one costs.
     weak var liveCanvas: CanvasModel?
+
+    /// The `Document`s that statement panes currently have open, by statement id
+    /// (M1A). Implementation lives in `ProjectStore+Statements.swift`; the
+    /// storage must sit on the class body because `@Observable` extensions
+    /// cannot synthesize it.
+    ///
+    /// **This registry exists because a statement is deliberately in NO other
+    /// one.** `StatementEditorHost` does not register its `Document` with
+    /// `DocumentStore` — that would put it in `allOpenDocuments()`, which the
+    /// project Tasks aggregation iterates (spec §8) — so
+    /// `DocumentStore.document(forDocId:)` cannot find an open statement, and
+    /// anything else that wanted to write into one would open a SECOND
+    /// `Document` on the same path, each with its own `PendingBuffer` writing
+    /// the same file. `@ObservationIgnored` because it is a lifecycle handle,
+    /// never a rendered dependency.
+    @ObservationIgnored internal var openStatementDocuments: [String: OpenStatementDocument] = [:]
+
+    /// The statements somebody is currently OPENING a `Document` for, and whoever
+    /// is queued behind them. The registry above answers for a `Document` that is
+    /// already open; these two cover the window in which one is being opened,
+    /// which is a suspension (`await Document.load`) that both openers have and
+    /// neither can see. See `lockStatementOpen(_:)`.
+    @ObservationIgnored internal var statementOpensInFlight: Set<String> = []
+    @ObservationIgnored internal var statementOpenWaiters:
+        [String: [CheckedContinuation<Void, Never>]] = [:]
 
     /// Per-project cache fronting `DerivedManuscript` for CLOSED docs (F5).
     /// Owned here — not on `DocumentStore` — because every adopter (search,
@@ -195,6 +228,25 @@ public final class ProjectStore {
     /// cross-project derivation actually runs. A hit on the cache key leaves
     /// this unchanged.
     internal var _debugTasksRebuildCount: Int = 0
+
+    /// Debug counter for the craft-intent adoption gate (M1A). Increments once
+    /// per `load` that actually SCANS the research tree. A gated-out open leaves
+    /// it at zero — which is the only difference a test can observe between "the
+    /// schema gate held" and "the scan ran and found nothing", and so the only
+    /// way the once-and-never-again contract can be falsified.
+    internal var _debugAdoptionScanCount: Int = 0
+
+    /// What a failed promotion's rollback could NOT put back (M1A Task 13),
+    /// one entry per staged path left in the staging tree. Empty is the normal
+    /// state, including after a rollback that succeeded.
+    ///
+    /// The compensation reports through `projectStoreLog` because the writer
+    /// must see why the promotion failed, not why its cleanup did — and a log
+    /// line is not assertable, so "it was not silent" would be untestable
+    /// without this. Mirrors `_debugAdoptionScanCount`: the only observable
+    /// difference between "nothing was stranded" and "something was stranded
+    /// quietly".
+    internal var _debugPromotionStrandedMoveBacks: [String] = []
     #endif
 
     /// Cache-key struct kept on the class so the extension can read/write it.
@@ -287,6 +339,13 @@ public final class ProjectStore {
         // wired yet, so the stamp's manifest save uses the direct-write path
         // (same as the project-id backfill above).
         await store.healPaletteRolesEagerly()
+        // M1A: adopt legacy craft-intent research notes into the intent
+        // `Statement`, once, gated on the on-disk schema version. Runs AFTER the
+        // role heal above (which is what makes the role-first detection see a
+        // legacy note) and awaited, so the store handed back is already past its
+        // migration. Never throws — a project that cannot be adopted still
+        // opens, with its note untouched (spec §5).
+        await store.adoptLegacyCraftIntentIfNeeded()
         // F5: word counts move OFF the blocking load path. `load` returns as
         // soon as the manifest is ready so the window appears immediately; the
         // per-doc derive sweep (the JSONL-decode cost, ~tens of ms/doc on a

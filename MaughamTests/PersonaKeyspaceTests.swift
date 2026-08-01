@@ -32,7 +32,7 @@ final class PersonaKeyspaceTests: XCTestCase {
     }
 
     func test_everyDetailSegmentHasAMenuShortcut() throws {
-        // The nine menu items post via a shared `postSegment(_:)` helper
+        // The menu items post via a shared `postSegment(_:)` helper
         // (one spelling of the payload so they can't drift apart), so the
         // literal `"segment": "<rawValue>"` string only exists once, inside
         // that helper — the per-segment guard here checks the call site

@@ -355,10 +355,19 @@ move.
 **The References pane stays in M2.** The umbrella spec's §10 assigns *"the intent
 strip, pinned references and the assistant column"* to M2 explicitly. The claim
 that the rail is 1A's work comes from `RegionBinding.swift:7` — *"Produced here,
-consumed in 1A"* — written in 1C-b, and that same comment cites **§4.4, which
-does not exist**: §4 stops at 4.3 and the sentence it quotes is §8's. Both the
-citation and the milestone claim are corrected in this slice. The `.references`
-segment reserved in `Persona.swift:80` stays reserved.
+consumed in 1A"* — written in 1C-b, and it is corrected in this slice. The
+`.references` segment reserved in `Persona.swift` stays reserved.
+
+> **Correction, Task 10.** This paragraph also said the comment *"cites §4.4,
+> which does not exist: §4 stops at 4.3 and the sentence it quotes is §8's."*
+> **That is false and was not implemented.** §4 stops at 4.3 in the *umbrella*
+> design; the § belongs to the **planning-canvas** design, whose §4.4 is
+> *"Regions bind to pieces — this is the bridge"* — the section the comment
+> paraphrases, and the one that quotes the sentence from umbrella §8 and
+> attributes it. Every bare § in `Maugham/Canvas/` is the canvas spec's, by that
+> area's long-standing convention. The citation was right; only the milestone
+> claim was wrong. `RegionBinding.swift`'s comment now names the spec explicitly
+> so the check is not repeated.
 
 ---
 
@@ -437,8 +446,16 @@ Anything not on this list is a claim to be checked, not a fact.
 - `performCraftIntent` documents the resulting split-intent defect —
   `PromotionPerformer.swift:498-512`.
 - `RegionBinding.references(forPiece:)` has zero production callers —
-  `RegionBinding.swift:35`; its doc comment cites a non-existent §4.4 and claims
-  1A consumes it — `:3-11`.
+  `RegionBinding.swift:35`; its doc comment claims 1A consumes it — `:3-11`.
+  **Corrected 2026-08-01 (Task 10):** this entry also said the comment "cites a
+  non-existent §4.4". That was wrong, and wrong in the way this list exists to
+  prevent — it was checked against the umbrella spec, but a bare `§` in
+  `Maugham/Canvas/` refers to the **planning-canvas** design, whose §4.4 is real,
+  is titled for this bridge, and quotes the umbrella §8 sentence while saying so.
+  The milestone half of the claim stands and was corrected in the code: umbrella
+  §10 assigns pinned references to M2, and what 1A gave the projection is a
+  *reader*, not a rail. The disambiguation now lives in `RegionBinding.swift`
+  itself, because two readers made the same mistake three weeks apart.
 - `list_canvas` reports `bound_piece_id` on nodes and regions —
   `CanvasTools.swift:73, 96`.
 - `Persona.panes` reserves `.intent` and `.visualLanguage` —

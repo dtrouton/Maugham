@@ -127,7 +127,20 @@ final class GuideMarkdownViewTests: XCTestCase {
         XCTAssertEqual(tables.count, 1, "expected exactly one table in reference.md")
         let (header, rows) = try XCTUnwrap(tables.first)
         XCTAssertEqual(header, ["Shortcut", "Action"], "reference.md's shortcut table now has real header text (audit C-item follow-up)")
-        XCTAssertEqual(rows.count, 29, "one row per documented shortcut")
+        // One row per `| … | … |` line under the header, DERIVED rather than
+        // written down: this was the literal 29, and every shortcut a milestone
+        // adds moved it — which makes the assertion a chore rather than a check.
+        // What it is actually for is that the parser reads the whole table and
+        // drops nothing, so count the source and compare.
+        let pipeRows = md.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("|") && $0.hasSuffix("|") }
+            .filter { !$0.contains("---") }
+            .count - 1   // the header row
+        XCTAssertGreaterThan(pipeRows, 20,
+                             "the row counter is reading nothing, so the comparison "
+                             + "below would pass on an empty parse")
+        XCTAssertEqual(rows.count, pipeRows, "one row per documented shortcut")
         XCTAssertEqual(rows.first, ["`⌘N`", "New project"])
         XCTAssertTrue(rows.contains(["`⌘/`", "Syntax + keyboard reference"]))
     }

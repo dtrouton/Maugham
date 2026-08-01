@@ -403,6 +403,25 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// no heavy text-view graph and does nothing on any residual callback.
     private(set) var isDetached = false
 
+    /// Whether this coordinator answers the window's MANUSCRIPT commands —
+    /// **every observer this class's `init` registers**, which is what makes the
+    /// gating complete rather than a list someone remembered: they all resolve
+    /// their scope through `receiverContext(.keyWindow)`, which is where this is
+    /// read. Today that is `maughamNavigateToScene`, `maughamFindMatchSelected`,
+    /// `maughamNavigateToParagraph`, `maughamNavigateToAnnotation`,
+    /// `maughamToggleReviewMode`, `maughamEnterTranslationReview` and
+    /// `maughamExitTranslationReview` — count the `MaughamEvent.observe` calls
+    /// rather than this sentence.
+    ///
+    /// True for every editor that IS the window's manuscript surface, which is
+    /// every one there has ever been. M1A's statement panes are the first case
+    /// of a SECOND `EditorSurface` alive in the same window at the same time,
+    /// and every one of those commands is about the document in the centre
+    /// column: without this the intent pane flips into review chrome on ⌘⌥R,
+    /// moves its caret when the writer clicks a scene in the navigator, and
+    /// goes read-only when the manuscript enters translation review.
+    var respondsToWindowCommands: Bool = true
+
     /// Origin project id (`ProjectIdentifier.id(for:)`) stamped onto every
     /// `.maughamScriptDidUpdate` post so receivers can scope it to their own
     /// window (Channel A). Set by `EditorSurface` from `EditorHost`; nil for
@@ -674,7 +693,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// path deterministically — the negative-path zombie tests alone can't
     /// distinguish correct scoping from a context that always returns nil.
     func receiverContext(_ kind: EventReceiverContext.Kind) -> EventReceiverContext? {
-        guard !isDetached, let tv = textView else { return nil }
+        guard !isDetached, respondsToWindowCommands, let tv = textView else { return nil }
         return .forWindow(tv.window, kind: kind)
     }
 

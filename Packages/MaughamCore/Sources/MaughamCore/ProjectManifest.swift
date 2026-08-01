@@ -26,7 +26,10 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// this, so the lossy `.unknown` path is only ever reached for a *same-version*
     /// file carrying an unexpected value — which only stays safe as long as every
     /// genuinely-new case is accompanied by a bump here.
-    public static let currentSchemaVersion = 3
+    ///
+    /// 3 → 4 (M1A, the spine): the `statements` section. See its doc comment for
+    /// why an additive, absent-tolerant section still needs the bump.
+    public static let currentSchemaVersion = 4
 
     /// The filename used by every Maugham project for its manifest.
     /// Both the Mac app and the iOS companion look for this name in a
@@ -71,6 +74,24 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     public var modified: Date
     public var structure: [StructureItem]
     public var research: [ResearchItem]
+
+    /// The registry of `Statement`s — the writer's intent and the book's visual
+    /// language — alongside `structure` and `research`. New in M1A (schema 4).
+    ///
+    /// Non-optional, defaulting to `[]` in both the memberwise init and
+    /// `init(from:)`, so a schema-3 manifest (which has no such key) still
+    /// opens.
+    ///
+    /// **Why the bump is not ceremony**, since the next person will ask: this
+    /// section is purely additive and decodes as absent-tolerant, so an older
+    /// build would read the project *happily* — and then re-save the manifest
+    /// **without the section**, destroying the registry that points at the
+    /// writer's intent files while leaving the files themselves orphaned on
+    /// disk. Nothing in the additive shape protects against that;
+    /// `decodeGuardingSchema` does, by refusing the file outright. That is also
+    /// what makes M1A a paired Mac + phone release.
+    public var statements: [Statement]
+
     public var targets: ProjectTargets?
 
     /// Per-project typography override. When non-nil, takes precedence over
@@ -129,6 +150,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         modified: Date,
         structure: [StructureItem],
         research: [ResearchItem],
+        statements: [Statement] = [],
         targets: ProjectTargets? = nil,
         typography: TypographySettings? = nil,
         showElementGutter: Bool? = nil
@@ -142,8 +164,38 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.modified = modified
         self.structure = structure
         self.research = research
+        self.statements = statements
         self.targets = targets
         self.typography = typography
         self.showElementGutter = showElementGutter
+    }
+
+    /// Hand-written because `statements` is non-optional and absent from every
+    /// schema-3 manifest: the synthesized decoder would throw `keyNotFound` and
+    /// make every pre-M1A project unopenable. This is ADR 0015's
+    /// `decodeIfPresent`-with-a-default shape (`TypographySettings.init(from:)`
+    /// is the in-codebase template), applied to the one field that needs it —
+    /// every other field keeps exactly the strictness it had.
+    ///
+    /// `CodingKeys` is still synthesized (from `encode(to:)`), deliberately: an
+    /// explicit list would let a future property be silently omitted from the
+    /// *encode* side. The trade is that a future property with a default value
+    /// would be silently skipped here — a new property without one fails to
+    /// compile, which is the case worth catching.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        self.id = try c.decodeIfPresent(String.self, forKey: .id)
+        self.type = try c.decode(ProjectType.self, forKey: .type)
+        self.title = try c.decode(String.self, forKey: .title)
+        self.author = try c.decode(String.self, forKey: .author)
+        self.created = try c.decode(Date.self, forKey: .created)
+        self.modified = try c.decode(Date.self, forKey: .modified)
+        self.structure = try c.decode([StructureItem].self, forKey: .structure)
+        self.research = try c.decode([ResearchItem].self, forKey: .research)
+        self.statements = try c.decodeIfPresent([Statement].self, forKey: .statements) ?? []
+        self.targets = try c.decodeIfPresent(ProjectTargets.self, forKey: .targets)
+        self.typography = try c.decodeIfPresent(TypographySettings.self, forKey: .typography)
+        self.showElementGutter = try c.decodeIfPresent(Bool.self, forKey: .showElementGutter)
     }
 }

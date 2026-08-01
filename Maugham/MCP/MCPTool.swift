@@ -80,6 +80,7 @@ public enum MCPToolCatalog {
         PromoteInboxEntryTool.self,
         ListMaughamToolsTool.self,
         ReadCraftIntentTool.self,
+        ReadVisualLanguageTool.self,
         ListPaletteCardsTool.self,
         ReadPaletteCardTool.self,
         GetHelpTool.self,

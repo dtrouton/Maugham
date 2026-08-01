@@ -62,8 +62,17 @@ public extension Persona {
     /// is the persona's default.
     ///
     /// THIS IS THE EXTENSION POINT. A milestone adding a right-pane surface
-    /// adds its `DetailSegment` case and one entry here — it does not touch
-    /// `DetailPaneToggle`, the shortcut table, or `ProjectWindow`.
+    /// adds its `DetailSegment` case and one entry here, and does not touch
+    /// `ProjectWindow` or the picker at all.
+    ///
+    /// Two files it DOES touch, corrected in M1A after this comment claimed
+    /// otherwise and the compiler disagreed: `DetailPaneToggle.segmentContent`
+    /// is exhaustive over `DetailSegment` with no `default`, so the new case
+    /// needs its content arm there (which is the point — a `default` would let
+    /// a segment ship reachable and rendering the wrong pane); and the pane's
+    /// `⌘⌥` shortcut is one `Button` in `MaughamApp`'s View menu, which is the
+    /// sole dispatch path for all of them (`DocSyncTests` guards it against
+    /// `docs/guide/reference.md`).
     ///
     /// The registry is the design's pane × persona matrix (§6.3 of
     /// `docs/superpowers/specs/2026-07-25-mode-based-ux-redesign-design.md`)
@@ -77,17 +86,23 @@ public extension Persona {
     /// `.inspector`, which §6.3 gives it as `—`.
     ///
     /// Reserved for later milestones of this redesign: `.diagnostics` →
-    /// author; `.references` → author, review; `.intent` → plan, author,
-    /// review, publish; `.visualLanguage` → plan, review, publish;
-    /// `.editions` → publish.
+    /// author; `.references` → author, review; `.editions` → publish.
+    /// (`.intent` and `.visualLanguage` were reserved here too and are consumed
+    /// as of M1A — their §6.3 cells are below.)
     var panes: [DetailSegment] {
         switch self {
         case .plan:
             // Primaries first, then the ○ cells: Tasks is planning-adjacent
             // (what the writer intends to do next), Inspector is metadata.
-            return [.research, .outline, .palette, .inbox, .tasks, .inspector]
+            // Intent and Visual Language are both ● here — planning is where a
+            // book's aim and its look are decided.
+            return [.research, .outline, .palette, .inbox,
+                    .intent, .visualLanguage, .tasks, .inspector]
         case .author:
-            return [.inspector, .outline, .research, .tasks, .palette]
+            // Intent is ○: the chapter's aim is worth a glance while drafting,
+            // but Author leads with the document itself. Visual language is —
+            // for Author, and stays absent.
+            return [.inspector, .outline, .research, .tasks, .palette, .intent]
         case .review:
             // Order follows the review workflow: adjudicate notes, see what
             // changed, check the translated edition, then the supporting
@@ -95,15 +110,23 @@ public extension Persona {
             // persona matrix (§6.3) — reviewing a translated edition IS a
             // review activity, and `ProjectWindow` force-sets
             // `detailSegment = .translation` on entering translation review.
-            return [.annotations, .history, .translation, .inspector, .outline, .tasks, .palette]
+            //
+            // Intent is ● here for the reason the milestone exists: review's
+            // job is to compare a draft against the intent you started with, so
+            // it sits with the notes and the diff rather than among the lenses.
+            // Visual language is ○.
+            return [.annotations, .history, .intent, .translation,
+                    .inspector, .outline, .tasks, .palette, .visualLanguage]
         case .publish:
             // Thin until M1D gives Publishing its own surfaces (editions,
-            // config, visual language). Translation is genuinely its work
-            // today. DELIBERATE DEVIATION from §6.3, which marks Inspector
-            // `—` for Publish: without it the picker is a single button,
-            // which reads as broken chrome rather than a choice. Drop it
-            // when Publish gains its own surfaces.
-            return [.translation, .inspector]
+            // config). Visual language arrives here in M1A — §6.3 marks it ●
+            // for Publish, and Publish's column is where "how the book looks"
+            // is read. Translation is genuinely its work today; Intent is ○.
+            // DELIBERATE DEVIATION from §6.3, which marks Inspector `—` for
+            // Publish: without it the picker was a single button, which reads
+            // as broken chrome rather than a choice. Drop it when Publish
+            // gains its own surfaces.
+            return [.translation, .visualLanguage, .inspector, .intent]
         }
     }
 

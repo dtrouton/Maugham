@@ -316,10 +316,23 @@ internal func resolveDocId(for url: URL) throws -> String {
             if let data = try? Data(contentsOf: manifestURL) {  // adr-0018-ok: project manifest JSON read, not manuscript
                 let dec = ProjectManifest.makeDecoder()
                 if let manifest = try? dec.decode(
-                    ProjectManifest.self, from: data),
-                   let item = findItemByPath(
-                    relativePath, in: manifest.structure) {
-                    return item.id
+                    ProjectManifest.self, from: data) {
+                    if let item = findItemByPath(
+                        relativePath, in: manifest.structure) {
+                        return item.id
+                    }
+                    // Statements (M1A) are ordinary Documents with ordinary op
+                    // logs, so they need the same manifest-borne identity a
+                    // manuscript has: `intent.md` renamed to
+                    // `intent/weather.md` must keep every op ever written into
+                    // it (tripwire 22). Structure is consulted FIRST — a path
+                    // registered in both resolves as the manuscript, whose id
+                    // predates this and is what its on-disk log was written
+                    // against.
+                    if let statement = manifest.statements.first(
+                        where: { $0.path == relativePath }) {
+                        return statement.id
+                    }
                 }
             }
             // Found the manifest but couldn't decode or match. Stop walking;

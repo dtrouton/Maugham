@@ -11,6 +11,12 @@ public enum DetailSegment: String, Codable, Equatable, Sendable, CaseIterable {
     case inbox      // iphone-companion: triage captures from MaughamPhone
     case palette    // sensory-palette: write against a palette card (⌘⌥P)
     case translation // translation-layer: source text + translator queries (⌘⌥L)
+    // M1A spine: the writer's intent and the book's visual language are one
+    // op-logged artifact (`Statement`) in two kinds. Two cases rather than one
+    // because they are different objects that happen to look alike — see
+    // `Statement.Kind`.
+    case intent          // m1a-spine: what you're going for (⌘⌥N)
+    case visualLanguage  // m1a-spine: how the book looks (⌘⌥V)
 }
 
 // MARK: - Presentation
@@ -32,6 +38,8 @@ public extension DetailSegment {
         case .inbox: return "tray"
         case .palette: return "paintpalette"
         case .translation: return "character.book.closed"
+        case .intent: return "target"
+        case .visualLanguage: return "photo.on.rectangle.angled"
         }
     }
 
@@ -46,6 +54,8 @@ public extension DetailSegment {
         case .inbox: return "Inbox — triage captures from MaughamPhone (⌘⌥B)"
         case .palette: return "Palette Card (⌘⌥P)"
         case .translation: return "Translation — source text and translator queries (⌘⌥L)"
+        case .intent: return "Intent — what you're going for, here or across the project (⌘⌥N)"
+        case .visualLanguage: return "Visual Language — how the book looks (⌘⌥V)"
         }
     }
 }

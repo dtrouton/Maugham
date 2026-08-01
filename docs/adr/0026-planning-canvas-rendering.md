@@ -498,7 +498,16 @@ where a promotion from that region, or from a card that lives in it, lands (§6.
 decision 9's 2026-07-29 amendment). "Residents only, never appearances" is the same
 sentence on the destination side, and it is load-bearing there for a sharper reason: a card
 cited in two regions bound to different pieces would otherwise take whichever was touched
-last.
+last. **Amended 2026-08-01 (M1A Task 10):** the rail is still unwritten, and it is **M2's**
+— umbrella §10 assigns the intent strip, pinned references and the assistant column there,
+so "consumed in 1A" was wrong about the milestone from the day it was written. What 1A gave
+the binding is a *reader* rather than a rail: `list_canvas` reports
+`RegionBinding.references(forPiece:in:)` as `piece_references`, ending the zero-production-
+caller state measured on 2026-07-29. **This is why the projection had to reach the wire and
+not just the tool's raw fields**: `bound_piece_id`, `home_node_ids` and `appearance_node_ids`
+have shipped since 1C-c3, so a reader derives a piece's context as `home ∪ appearances` and
+picks up precisely the visitor this decision refuses. The rule was in Swift and nowhere a
+reader could see it, which is worse than an unused function.
 
 Constitution principles this decision answers to: **must #1, *the words are safe*** — the
 schema step and the delete path are both judged on what they do to `canvas.md`, not to the

@@ -10,12 +10,15 @@ struct BinderView: View {
     let recents: RecentsTracker
 
     /// Research items that the reader can actually open (text documents with a
-    /// path), with palette-group descendants and the craft-intent doc removed —
-    /// those get their own Palette section, so leaving them here would duplicate
+    /// path), with palette-group descendants removed — and the legacy
+    /// craft-intent note too, when that note is what the Craft Intent row shows.
+    /// Those get their own Palette section, so leaving them here would duplicate
     /// them. Computed once — not in a row body (tripwire 4).
     private var readableResearch: [ResearchItem] {
         let leaves = TreeWalk.leaves(in: project.manifest.research).filter(ReadIcons.isReadableResearch)
-        return PaletteLoading.excludingPalette(leaves, research: project.manifest.research)
+        return PaletteLoading.excludingPalette(
+            leaves, research: project.manifest.research,
+            statements: project.manifest.statements)
     }
 
     /// The palette group's cards, in wall order. Empty when there's no palette.
@@ -23,9 +26,12 @@ struct BinderView: View {
         PaletteLoading.paletteCards(in: project.manifest.research)
     }
 
-    /// The project-scope craft-intent doc, if present (per spec: project scope only).
-    private var craftIntent: ResearchItem? {
-        PaletteLookup.craftIntentItem(in: project.manifest.research, researchPrefix: "research")
+    /// The project's intent, if it has one — its `Statement` where the Mac has
+    /// adopted one, else the legacy craft-intent research note (per spec §6.2:
+    /// project scope only, and read-only; see `StatementLoading`).
+    private var craftIntent: StatementLoading.IntentRow? {
+        StatementLoading.intentRow(
+            statements: project.manifest.statements, research: project.manifest.research)
     }
 
     /// The Palette section shows only when there's something in it — an empty
@@ -101,11 +107,13 @@ struct BinderView: View {
                         }
                     }
                     if let intent = craftIntent {
-                        // Craft Intent is a plain-markdown doc — the existing
-                        // document reader renders it directly.
+                        // Intent is plain markdown either way — the existing
+                        // document reader renders it directly. A statement's
+                        // path is the PROJECT ROOT's (`intent.md`); a legacy
+                        // note's is under `research/`.
                         NavigationLink {
                             DocumentReaderView(
-                                docURL: project.url.appendingPathComponent(intent.path ?? ""),
+                                docURL: project.url.appendingPathComponent(intent.relativePath),
                                 title: intent.title,
                                 projectId: project.id,
                                 downloads: downloads,

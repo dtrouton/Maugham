@@ -405,6 +405,143 @@ final class CanvasToolsTests: XCTestCase {
         XCTAssertEqual(empty.appearance_node_ids, [])
     }
 
+    // MARK: - The reference projection
+
+    /// The node ids reported for a piece, or nil when no region binds to it.
+    private func references(_ result: ListCanvasTool.Result,
+                            _ piece: String) -> [String]? {
+        result.piece_references.first { $0.piece_id == piece }?.node_ids
+    }
+
+    /// A region bound to a piece, holding what it is given.
+    private func boundRegion(_ id: String,
+                             toPiece piece: String?,
+                             home: [String] = [],
+                             citing: [String] = []) -> CanvasRegion {
+        CanvasRegion(id: CanvasRegionID(id), label: id,
+                     frame: CGRect(x: 0, y: 0, width: 900, height: 900),
+                     homeMembers: Set(home.map(CanvasNodeID.init)),
+                     appearances: Set(citing.map(CanvasNodeID.init)),
+                     boundPieceID: piece)
+    }
+
+    /// **Residents only, and this is the whole point of reporting the projection
+    /// at all** (§4.4 of the planning-canvas design). `bound_piece_id`,
+    /// `home_node_ids` and `appearance_node_ids` have all been on the wire since
+    /// 1C-c3, and nothing on it said which to use — so a reader deriving a
+    /// piece's context from `home ∪ appearances` includes the visitor, and two
+    /// regions citing one card each claim it as their piece's.
+    ///
+    /// This is what falsifies that derivation: the card is genuinely cited here
+    /// (asserted, so the test is not about a card the region never mentions) and
+    /// it is still not one of the piece's references.
+    func test_aVisitingCardIsNotOneOfThePiecesReferences() async throws {
+        let (url, store, registry, id) = try await registeredProject("Visiting")
+        let model = attached(to: store, at: url)
+        model.withScene { scene in
+            scene.insert(node("aaaa"))
+            scene.insert(node("bbbb", y: 200))
+            scene.insertRegion(boundRegion("r1", toPiece: "piece-3",
+                                           home: ["aaaa"], citing: ["bbbb"]))
+        }
+
+        let result = try await call(registry, id)
+
+        let region = try XCTUnwrap(result.regions.first)
+        XCTAssertEqual(region.home_node_ids, ["aaaa"])
+        XCTAssertEqual(region.appearance_node_ids, ["bbbb"],
+                       "precondition: the visitor really is cited in this region, "
+                       + "or the assertion below is about a card the region never "
+                       + "mentions and the derivation it falsifies never had it "
+                       + "either")
+
+        XCTAssertEqual(references(result, "piece-3"), ["aaaa"],
+                       "a card merely VISITING a bound region is cited, not owned. "
+                       + "Derived from home ∪ appearances this reads "
+                       + "[\"aaaa\", \"bbbb\"] — which is exactly the derivation a "
+                       + "reader makes when the rule lives only in Swift")
+    }
+
+    /// **Unioned across regions**, the projection's second rule and the other
+    /// one a reader cannot guess: more than one region may bind to the same
+    /// piece, and each contributes what lives in it.
+    ///
+    /// The third region is the control. Without it a projection that simply
+    /// pooled every resident on the canvas under every bound piece would pass.
+    func test_twoRegionsBoundToOnePieceUnionTheirReferences() async throws {
+        let (url, store, registry, id) = try await registeredProject("Union")
+        let model = attached(to: store, at: url)
+        model.withScene { scene in
+            scene.insert(node("aaaa"))
+            scene.insert(node("bbbb", y: 200))
+            scene.insert(node("cccc", y: 400))
+            scene.insertRegion(boundRegion("r1", toPiece: "piece-3", home: ["aaaa"]))
+            scene.insertRegion(boundRegion("r2", toPiece: "piece-3", home: ["bbbb"]))
+            scene.insertRegion(boundRegion("r3", toPiece: "piece-9", home: ["cccc"]))
+        }
+
+        let result = try await call(registry, id)
+
+        XCTAssertEqual(references(result, "piece-3"), ["aaaa", "bbbb"],
+                       "the writer clustered one piece's thinking in two places, "
+                       + "and both are its context")
+        XCTAssertEqual(references(result, "piece-9"), ["cccc"],
+                       "the control: the union is per piece and not over the whole "
+                       + "canvas — pooled, this would be all three cards")
+    }
+
+    /// **The control, and it can fail.** A card carries a piece association of
+    /// its own (§6.2 — where a promotion *from* that card lands), which is a
+    /// different relationship from a region's binding and is not a reference.
+    /// Keyed off every `bound_piece_id` on the wire rather than off the regions'
+    /// bindings, this response would carry a `piece-7` entry for a piece no
+    /// region has been drawn around.
+    func test_aPieceWithNoBoundRegionReportsNoReferences() async throws {
+        let (url, store, registry, id) = try await registeredProject("Unbound")
+        let model = attached(to: store, at: url)
+        model.withScene { scene in
+            scene.insert(node("aaaa", piece: "piece-7"))
+            scene.insert(node("bbbb", y: 200))
+            scene.insertRegion(boundRegion("r1", toPiece: "piece-3", home: ["bbbb"]))
+        }
+
+        let result = try await call(registry, id)
+
+        let loose = try XCTUnwrap(reported(result, "aaaa"))
+        XCTAssertEqual(loose.bound_piece_id, "piece-7",
+                       "precondition: the card really does carry an association of "
+                       + "its own, or there is nothing here to wrongly promote into "
+                       + "a reference")
+        XCTAssertNil(references(result, "piece-7"),
+                     "a card's own association says where a promotion from it "
+                     + "lands; it does not make that card its own piece's context. "
+                     + "Only a region's binding does (§4.4)")
+        XCTAssertEqual(references(result, "piece-3"), ["bbbb"],
+                       "the control: a piece some region IS bound to is reported, "
+                       + "so the nil above is a rule and not an empty projection")
+    }
+
+    /// A region bound to a piece the writer has not filled yet is a different
+    /// fact from a piece nobody bound at all — the first is work in progress and
+    /// the second is a piece with no plan on this canvas. So the key set is
+    /// exactly the pieces some region binds to, and an empty list says so.
+    func test_aBoundRegionWithNothingInItReportsAnEmptyList() async throws {
+        let (url, store, registry, id) = try await registeredProject("BoundEmpty")
+        let model = attached(to: store, at: url)
+        model.withScene { scene in
+            scene.insert(node("aaaa"))
+            scene.insertRegion(boundRegion("r1", toPiece: "piece-3"))
+        }
+
+        let result = try await call(registry, id)
+
+        XCTAssertEqual(references(result, "piece-3"), [],
+                       "bound and empty, which the writer can act on")
+        XCTAssertNil(references(result, "piece-9"),
+                     "and never bound, which they cannot — reported the same way, "
+                     + "the two are one sentence")
+    }
+
     // MARK: - Absence and failure
 
     func test_anUnknownProjectFailsLoudly() async throws {

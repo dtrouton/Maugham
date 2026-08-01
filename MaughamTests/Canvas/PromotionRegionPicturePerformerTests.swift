@@ -123,7 +123,9 @@ final class PromotionRegionPicturePerformerTests: XCTestCase {
         try XCTUnwrap(Promotion.plan(
             PromotionRequest(source: .region(r1), target: target, mode: mode,
                              scraps: model.scraps,
-                             artifacts: ArtifactIndex.over(research: store.manifest.research),
+                             artifacts: ArtifactIndex.over(research: store.manifest.research,
+                                                           statements: store.manifest.statements,
+                                                           structure: store.manifest.structure),
                              // The same builder `ProjectWindow` hands the sheet.
                              items: CanvasItemIndex.over(research: store.manifest.research)),
             in: model.scene))
@@ -223,7 +225,9 @@ final class PromotionRegionPicturePerformerTests: XCTestCase {
         model.setScrapText("The falls at night, again.", for: topCard)
         let update = try XCTUnwrap(Promotion.existingArtifact(
             for: .region(r1), target: .paletteCard, in: model.scene,
-            artifacts: ArtifactIndex.over(research: store.manifest.research)))
+            artifacts: ArtifactIndex.over(research: store.manifest.research,
+                                          statements: store.manifest.statements,
+                                          structure: store.manifest.structure)))
         _ = try await performer.perform(try plan(store, model, mode: update))
 
         let after = try card(store, cardID)
@@ -268,7 +272,9 @@ final class PromotionRegionPicturePerformerTests: XCTestCase {
         for node in [owned, reference] {
             XCTAssertNil(Promotion.existingArtifact(
                 for: .scrap(node), target: .paletteCard, in: model.scene,
-                artifacts: ArtifactIndex.over(research: store.manifest.research)),
+                artifacts: ArtifactIndex.over(research: store.manifest.research,
+                                              statements: store.manifest.statements,
+                                              structure: store.manifest.structure)),
                          "which is the assertion that matters: nothing offers an "
                          + "Update against a contributor — \(node)")
         }

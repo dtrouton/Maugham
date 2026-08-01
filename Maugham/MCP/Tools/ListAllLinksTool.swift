@@ -5,17 +5,19 @@ import MaughamCore
 /// from a manuscript document OR a research note to (a) a linked research
 /// item, (b) a wiki-link target that resolves to another doc or research
 /// item, or (c) an unresolved wiki target (text mentions [[X]] but no item
-/// with title X exists). Wiki-link scanning covers both manuscript documents
-/// and research note bodies — canvas promotion writes `[[…]]` into research
-/// notes, never into manuscript documents.
+/// with title X exists). Wiki-link scanning covers manuscript documents,
+/// research note bodies — canvas promotion writes `[[…]]` into research notes,
+/// never into manuscript documents — and statements, which is where M1A moved
+/// the writer's craft intent.
 public enum ListAllLinksTool: MCPTool {
     public static let method = "list_all_links"
     public static let description =
         "Return the full reference graph as edges: every manuscript document's " +
         "linked-research and [[wiki-link]] targets, plus collection pieces' " +
         "own (folder-scoped) research. Wiki-link scanning also covers research " +
-        "note bodies, so a link written into a research note (e.g. by canvas " +
-        "promotion) is included too. Each edge has from_id/from_title, " +
+        "note bodies and statements (craft intent, visual language), so a link " +
+        "written into a research note (e.g. by canvas promotion) or into the " +
+        "writer's intent is included too. Each edge has from_id/from_title, " +
         "to_id (null for unresolved wiki targets) / to_title, and kind " +
         "('linked_research' / 'piece_research' / 'wiki' / 'wiki_unresolved')."
     public static let inputSchemaJSON =
@@ -143,6 +145,37 @@ public enum ListAllLinksTool: MCPTool {
                 edges.append(Edge(
                     from_id: item.id,
                     from_title: item.title,
+                    to_id: hit?.id,
+                    to_title: hit?.title ?? token,
+                    kind: hit == nil ? "wiki_unresolved" : "wiki"))
+            }
+        }
+
+        // Wiki edges FROM statements. **M1A moved the writer's intent out of a
+        // research note and into a `Statement`**, and adoption carries a legacy
+        // note's body across verbatim — so without this loop the milestone
+        // silently took links this tool used to report *out* of the graph, in
+        // the same pass that moved the prose. That is the one thing a migration
+        // may not do.
+        //
+        // ADR 0018: a statement IS a `Document`, so its text is derived and
+        // never read off the `.md`. `statementText(of:)` is the single spelling
+        // of that choice for every statement reader, and its live arm is fresher
+        // than the op log by a burst window.
+        let statementDocumentTitles = Dictionary(
+            TreeWalk.collect(in: store.manifest.structure, where: { _ in true })
+                .map { ($0.id, $0.title) },
+            uniquingKeysWith: { _, later in later })
+        for statement in store.manifest.statements {
+            let text = store.statementText(of: statement)
+            guard !text.isEmpty else { continue }
+            let fromTitle = ArtifactIndex.statementTitle(
+                statement, documentTitle: { statementDocumentTitles[$0] })
+            for token in Self.wikiTokens(in: text) {
+                let hit = titleIndex[token.lowercased()]
+                edges.append(Edge(
+                    from_id: statement.id,
+                    from_title: fromTitle,
                     to_id: hit?.id,
                     to_title: hit?.title ?? token,
                     kind: hit == nil ? "wiki_unresolved" : "wiki"))

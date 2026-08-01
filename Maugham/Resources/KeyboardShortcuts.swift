@@ -44,6 +44,8 @@ public enum KeyboardShortcuts {
             Entry(label: "Inbox pane", shortcut: "⌘⌥B"),
             Entry(label: "Palette pane", shortcut: "⌘⌥P"),
             Entry(label: "Translation pane", shortcut: "⌘⌥L"),
+            Entry(label: "Intent pane", shortcut: "⌘⌥N"),
+            Entry(label: "Visual Language pane", shortcut: "⌘⌥V"),
             Entry(label: "Toggle inspector column", shortcut: "⌘⌥0"),
         ]),
         Category(category: "Help", items: [

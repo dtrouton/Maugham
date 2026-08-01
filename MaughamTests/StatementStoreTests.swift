@@ -1,0 +1,235 @@
+import XCTest
+@testable import Maugham
+import MaughamCore
+
+/// The statement store seam (M1A Task 3): a statement is found by SCOPE in the
+/// manifest, and find-or-create mints one when none exists.
+@MainActor
+final class StatementStoreTests: XCTestCase {
+    var temp: TempDirectory!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        temp = try TempDirectory()
+    }
+
+    override func tearDown() async throws {
+        temp = nil
+        try await super.tearDown()
+    }
+
+    // MARK: - Helpers
+
+    /// A loaded novel project with its async load work settled, so a test that
+    /// asserts "nothing changed on disk" isn't racing `load`'s own tail.
+    private func loadedNovel(named name: String) async throws -> (URL, ProjectStore) {
+        let url = try await ProjectFactory.createNovelProject(named: name, in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        await store.wordCountPopulationTask?.value
+        return (url, store)
+    }
+
+    /// A file's bytes AND its modification date.
+    ///
+    /// **Bytes alone are not enough to prove nothing was written.** The
+    /// manifest's `modified` field round-trips through whole-second ISO8601, so
+    /// a lookup that stamps and re-saves within the same second as the load
+    /// produces a byte-identical file — a real write that a byte comparison
+    /// calls unchanged. The mtime sees it.
+    private struct FileState: Equatable {
+        var bytes: Data
+        var modified: Date?
+    }
+
+    /// Every file under the project, keyed by project-relative path. Both sides
+    /// resolve symlinks, or `/var` vs `/private/var` leaves every key absolute
+    /// and the relative-path assertions below silently match nothing.
+    private func snapshot(of projectURL: URL) throws -> [String: FileState] {
+        var out: [String: FileState] = [:]
+        let fm = FileManager.default
+        let root = projectURL.resolvingSymlinksInPath().path
+        let keys: [URLResourceKey] = [.isRegularFileKey, .contentModificationDateKey]
+        guard let walk = fm.enumerator(at: projectURL, includingPropertiesForKeys: keys)
+        else { return out }
+        for case let fileURL as URL in walk {
+            let values = try? fileURL.resourceValues(forKeys: Set(keys))
+            guard values?.isRegularFile == true else { continue }
+            let path = fileURL.resolvingSymlinksInPath().path
+            guard path.hasPrefix(root + "/") else { continue }
+            out[String(path.dropFirst(root.count + 1))] = FileState(
+                bytes: try Data(contentsOf: fileURL), modified: values?.contentModificationDate)
+        }
+        return out
+    }
+
+    // MARK: - Idempotency
+
+    func test_creatingTwiceForOneScopeReturnsTheSameStatement() async throws {
+        let (url, store) = try await loadedNovel(named: "IdempotentIntent")
+
+        let first = try await store.createStatement(kind: .intent, scope: .project)
+        XCTAssertEqual(first.path, "intent.md")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent("intent.md").path))
+
+        let second = try await store.createStatement(kind: .intent, scope: .project)
+        XCTAssertEqual(second.id, first.id, "find-or-create must find before it creates")
+        XCTAssertEqual(second.path, first.path)
+        XCTAssertEqual(store.manifest.statements.count, 1,
+                       "a second call must not register a second statement")
+
+        // …and no second file for it to have registered.
+        let intentFiles = try snapshot(of: url).keys.filter { $0.hasPrefix("intent") }.sorted()
+        XCTAssertEqual(intentFiles, ["intent.md"])
+    }
+
+    // MARK: - The defect's grave
+
+    /// The live defect this seam kills: `craftIntentItem(forPieceId:)` looked an
+    /// intent doc up by the piece's research PATH PREFIX, and
+    /// `ResearchScope.pieceResearchPrefix` opens `guard piece.pieceKind == .loose`
+    /// — so for a NOVEL CHAPTER the lookup returned nil while creation went ahead,
+    /// and the next call minted a second copy of the writer's intent.
+    ///
+    /// A statement is found by `scope`, in the manifest. There is no prefix, so
+    /// there is nothing to be nil.
+    func test_aNovelChapterGetsItsOwnIntent() async throws {
+        let (_, store) = try await loadedNovel(named: "ChapterIntent")
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+
+        let created = try await store.createStatement(
+            kind: .intent, scope: .document(chapter.id))
+        XCTAssertEqual(created.path, "intent/chapter-1.md")
+
+        let found = store.statement(kind: .intent, scope: .document(chapter.id))
+        XCTAssertEqual(found?.id, created.id,
+                       "a novel chapter's intent must be findable — this is the defect's grave")
+
+        // Scope discriminates: the book's intent is a different statement, and
+        // the chapter's must not answer for it.
+        XCTAssertNil(store.statement(kind: .intent, scope: .project),
+                     "the chapter's intent must not be returned as the project's")
+        let project = try await store.createStatement(kind: .intent, scope: .project)
+        XCTAssertNotEqual(project.id, created.id)
+        XCTAssertEqual(project.path, "intent.md")
+        XCTAssertEqual(store.manifest.statements.count, 2)
+    }
+
+    // MARK: - Absence is free
+
+    func test_lookupOfAnUndeclaredScopeMintsNothing() async throws {
+        let (url, store) = try await loadedNovel(named: "AbsentIntent")
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+
+        let before = try snapshot(of: url)
+
+        XCTAssertNil(store.statement(kind: .intent, scope: .project))
+        XCTAssertNil(store.statement(kind: .intent, scope: .document(chapter.id)))
+        XCTAssertNil(store.statement(kind: .visualLanguage, scope: .project))
+        XCTAssertTrue(store.manifest.statements.isEmpty)
+
+        // Give a fire-and-forget stamp/heal Task (the shape `craftIntentItem`
+        // uses) time to land, so a lookup that secretly writes is caught.
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        let after = try snapshot(of: url)
+        let touched = Set(before.keys).union(after.keys)
+            .filter { before[$0] != after[$0] }.sorted()
+        XCTAssertEqual(touched, [],
+                       "absence must cost nothing on disk — no mint, no stamp, no save")
+    }
+
+    // MARK: - An unknown scope is refused, not redirected
+
+    func test_anUnknownDocumentScopeThrows() async throws {
+        let (_, store) = try await loadedNovel(named: "UnknownScope")
+
+        // The lookup is absence-is-valid: nil, no throw, nothing minted.
+        XCTAssertNil(store.statement(kind: .intent, scope: .document("doc-nope")))
+
+        do {
+            let made = try await store.createStatement(
+                kind: .intent, scope: .document("doc-nope"))
+            XCTFail("expected a throw; got a statement at \(made.path)")
+        } catch {
+            // Expected. What must NOT happen is a silent fall back to project
+            // scope, which would put a chapter's intent in the book's file.
+        }
+        XCTAssertTrue(store.manifest.statements.isEmpty,
+                      "a refused scope registers nothing")
+        XCTAssertNil(store.statement(kind: .intent, scope: .project),
+                     "an unknown document scope must not become the project's")
+    }
+
+    /// A group id is *in* the structure but is not a manuscript document, so it
+    /// is refused by the same rule.
+    func test_aGroupScopeThrows() async throws {
+        let (_, store) = try await loadedNovel(named: "GroupScope")
+        let group = try await store.addStructureItem(
+            parentId: nil, title: "Part One", kind: .group)
+
+        do {
+            _ = try await store.createStatement(kind: .intent, scope: .document(group.id))
+            XCTFail("expected a throw for a manuscript GROUP")
+        } catch {
+            // Expected.
+        }
+        XCTAssertTrue(store.manifest.statements.isEmpty)
+    }
+
+    /// Visual language is project-scope only (spec §2.1) — the storage table has
+    /// no row for a per-document one, so there is no path to mint.
+    func test_visualLanguageAtDocumentScopeThrows() async throws {
+        let (_, store) = try await loadedNovel(named: "VisualScope")
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+
+        do {
+            _ = try await store.createStatement(
+                kind: .visualLanguage, scope: .document(chapter.id))
+            XCTFail("expected a throw: visual language is project-scope only")
+        } catch {
+            // Expected.
+        }
+
+        let project = try await store.createStatement(kind: .visualLanguage, scope: .project)
+        XCTAssertEqual(project.path, "visual-language.md")
+    }
+
+    // MARK: - Collisions
+
+    /// The manifest is the only authority on identity, so a statement minted at
+    /// a path that already holds an UNTRACKED file would adopt that file's bytes
+    /// as its bootstrap and then own the path — the writer's file eaten by a
+    /// registry entry it never made. Creation steers around it instead.
+    func test_creationSteersAroundAnUntrackedFileRatherThanAdoptingIt() async throws {
+        let (url, store) = try await loadedNovel(named: "CollidingIntent")
+        let squatter = "Someone else's intent.md, not ours.\n"
+        try squatter.write(to: url.appendingPathComponent("intent.md"),
+                           atomically: true, encoding: .utf8)
+
+        let created = try await store.createStatement(kind: .intent, scope: .project)
+        XCTAssertNotEqual(created.path, "intent.md",
+                          "the untracked file must not become the statement's home")
+        XCTAssertEqual(created.path, "intent-2.md")
+        XCTAssertEqual(
+            try String(contentsOf: url.appendingPathComponent("intent.md"), encoding: .utf8),
+            squatter, "the untracked file is left byte-for-byte alone")
+        XCTAssertEqual(store.statement(kind: .intent, scope: .project)?.id, created.id)
+    }
+
+    /// Two documents can share a title, so their slugs collide. Each still gets
+    /// its own statement file — identity is the manifest id, not the path.
+    func test_twoDocumentsWithTheSameTitleGetSeparateIntents() async throws {
+        let (_, store) = try await loadedNovel(named: "TwinTitles")
+        let first = try XCTUnwrap(store.manifest.structure.first)
+        let twin = try await store.addStructureItem(
+            parentId: nil, title: first.title, kind: .document(extension: "md"))
+
+        let a = try await store.createStatement(kind: .intent, scope: .document(first.id))
+        let b = try await store.createStatement(kind: .intent, scope: .document(twin.id))
+        XCTAssertEqual(a.path, "intent/chapter-1.md")
+        XCTAssertEqual(b.path, "intent/chapter-1-2.md")
+        XCTAssertNotEqual(a.id, b.id)
+        XCTAssertEqual(store.statement(kind: .intent, scope: .document(twin.id))?.id, b.id)
+    }
+}

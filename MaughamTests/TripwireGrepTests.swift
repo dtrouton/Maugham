@@ -838,6 +838,91 @@ final class TripwireGrepTests: XCTestCase {
             + "existing id population. Offenders:\n" + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - EditorSurface mount census (M1A: two editors in one window)
+
+    /// Every production site that mounts an `EditorSurface`. Adding one is the
+    /// moment to answer a question that has no default answer:
+    /// **can this surface be on screen at the same time as another editor?**
+    ///
+    /// It went unasked once and cost two defects at once (see
+    /// `Maugham/Editor/AREA.md`, "Two editors in one window"): the second editor
+    /// shared the window's `UndoManager`, so taking it down wiped the
+    /// manuscript's ⌘Z history, and both coordinators answered the window's
+    /// key-window commands, so the pane flipped into review chrome on ⌘⌥R.
+    /// `EditorSurfaceConfiguration.isSecondEditorInItsWindow` is the answer, and
+    /// its default is the safe-for-today one rather than the safe-in-general
+    /// one — which is exactly why a warning in a doc comment would not hold.
+    ///
+    /// A CENSUS, not an allow/deny grep: `EditorSurface(` is not a forbidden
+    /// token, so only an exact expected set can fail on a fourth.
+    static let editorSurfaceMountSites: Set<String> = [
+        // The manuscript editor. Primary in its window.
+        "EditorHost.swift",
+        // A research note in the centre column. Primary in its window — it
+        // replaces the manuscript editor rather than sitting beside it.
+        "ResearchNoteEditor.swift",
+        // M1A's Intent / Visual Language panes, in the right column. The only
+        // one that is a SECOND editor, and the only one setting the flag.
+        "StatementEditorHost.swift",
+    ]
+
+    func test_everyEditorSurfaceMountIsAccountedFor() throws {
+        let sites = try grepSwift(
+            in: sourceDir,
+            patterns: ["EditorSurface("],
+            excludeLine: {
+                let trimmed = $0.trimmingCharacters(in: .whitespaces)
+                return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+            })
+        let files = Set(sites.map { String($0.prefix(while: { $0 != ":" })) })
+        XCTAssertEqual(files, Self.editorSurfaceMountSites,
+            "The set of files mounting an EditorSurface has changed. A NEW one must "
+            + "answer: can it be on screen at the same time as another editor? If so "
+            + "it is a second editor and must set "
+            + "`isSecondEditorInItsWindow: true` — otherwise taking it down wipes the "
+            + "manuscript's undo stack and it answers ⌘⌥R. Then add it above with "
+            + "which it is. Found:\n" + sites.joined(separator: "\n"))
+    }
+
+    /// Self-check: the census fires on a planted fourth mount. Without this the
+    /// test could be reading nothing and reporting an empty set that happens to
+    /// have been written down as empty.
+    func test_theEditorSurfaceCensusFiresOnAPlantedFourthMount() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-editorsurface-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct SomeNewPane: View {
+            var body: some View {
+                EditorSurface(text: $text, configuration: config)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SomeNewPane.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        /// A doc comment naming EditorSurface( is not a mount.
+        struct Innocent: View { var body: some View { Text("hi") } }
+        """.write(to: tmp.appendingPathComponent("Innocent.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let sites = try grepSwift(
+            in: tmp,
+            patterns: ["EditorSurface("],
+            excludeLine: {
+                let trimmed = $0.trimmingCharacters(in: .whitespaces)
+                return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+            })
+        let files = Set(sites.map { String($0.prefix(while: { $0 != ":" })) })
+        XCTAssertEqual(files, ["SomeNewPane.swift"],
+            "Self-check: the census must see the planted mount and must NOT count "
+            + "the doc comment. Found: \(sites)")
+        XCTAssertNotEqual(files, Self.editorSurfaceMountSites,
+            "Self-check expected the planted set to disagree with the real one.")
+    }
+
     // MARK: - applyExternalText call-site census (tripwire 7)
 
     /// A line is exempt when it's the function's own definition (`func
@@ -2012,24 +2097,34 @@ final class TripwireGrepTests: XCTestCase {
 
     // MARK: - The canvas's asset well has exactly one writer (1C-d Task 2)
 
-    /// The shared image saver. Three seams own a `<slug>_assets/` well and so
-    /// may call it; a fourth caller is a fourth answer to "where does a dropped
-    /// image live", which is the decision this seam exists to make once.
+    /// The shared image saver. A seam that owns a `<slug>_assets/` well of its
+    /// own may call it; any other caller is one more answer to "where does a
+    /// dropped image live", which is the decision this seam exists to make once.
     private static let imageSaverCall = "ImagePasteHandler.saveAndReference"
 
     /// **Count the set, not this comment.** Each entry is a seam that owns a
-    /// well of its own:
+    /// well of its own, and each line says which well:
     ///
     /// - `ProjectStore+Palette.swift` — a palette card's images.
     /// - `ResearchNoteEditor.swift` — an image pasted into a research note.
-    /// - `ProjectStore+CanvasAssets.swift` — the canvas's ingestion pair.
+    /// - `ProjectStore+CanvasAssets.swift` — the canvas's ingestion pair,
+    ///   `canvas_assets/`.
+    /// - `ProjectStore+StatementAssets.swift` (M1A Task 12) — a statement's own
+    ///   well, `visual-language_assets/` for the one statement kind that holds
+    ///   pictures. It is a seam rather than a caller of one of the others
+    ///   because a statement is its own file: routing its pictures into
+    ///   `canvas_assets/` or a palette card's well would put them beside a
+    ///   document they do not belong to, and the well's name is derived from
+    ///   `Statement.path` exactly as the canvas's is from
+    ///   `CanvasStore.scrapsRelativePath`.
     ///
     /// 1C-d's drop, browser-bitmap and inbox routes are all *callers* of the
-    /// third; none of them is a fourth entry here.
+    /// canvas pair; none of them is an entry here.
     private static let imageSaverCallers: Set<String> = [
         "ProjectStore+Palette.swift",
         "ResearchNoteEditor.swift",
         "ProjectStore+CanvasAssets.swift",
+        "ProjectStore+StatementAssets.swift",
     ]
 
     /// Which production files call the shared saver, comments excluded.
@@ -2129,7 +2224,7 @@ final class TripwireGrepTests: XCTestCase {
             + literalOffenders.joined(separator: "\n"))
 
         XCTAssertEqual(try imageSaverCallSites(in: tmp), ["CanvasDropTarget.swift"],
-            "Self-check: a planted fourth caller of the shared saver should be "
+            "Self-check: a planted extra caller of the shared saver should be "
             + "recorded by the census.")
     }
 
@@ -2599,6 +2694,269 @@ final class TripwireGrepTests: XCTestCase {
             "Control, and the reason this guard exists: the planted file's SECOND "
             + "line names the forbidden token in code, and the ban cannot see it "
             + "because the first line hid the rest of the file.")
+    }
+
+    // MARK: - The statement pane's mount marker has a closed set of readers (M1A Task 12)
+
+    /// `resolvedScope` is a **proxy**, and this file has produced seven defects
+    /// of one family: a value still trusted after the thing it described had
+    /// moved.
+    ///
+    /// It says which scope finished RESOLVING. It does not say whether the host
+    /// is still on screen, and for most of M1A nothing cleared it on the way out
+    /// — so it went on naming a scope over a `Document` that had been closed.
+    /// Two shipped defects read it as "the pane is still here": a picture ingest
+    /// that finished after `⌘⌥N` wrote its ref into a husked `Document` (accepted
+    /// drop, no text) or into the writer's *intent* prose, and a disappear /
+    /// re-appear on the same scope left the pane mounted over a husk, eating
+    /// keystrokes. Neither is guarded now; both are unreachable, because the
+    /// ingest names its destination outright and reads no view state after
+    /// suspending.
+    ///
+    /// **Construction closed the class; this keeps it closed.** Re-introduce a
+    /// `resolvedScope` read inside `take`, `deliver`, `ingest` or a paste handler
+    /// and nothing else in the suite goes red — which is the shape this project's
+    /// own recorded lesson says to answer with a census rather than a warning.
+    private static let mountMarkerToken = "resolvedScope"
+
+    /// **Count the set, not this comment.** Every member allowed to touch the
+    /// marker, and why each is legitimate:
+    ///
+    /// - `resolvedScope` — its own declaration.
+    /// - `shouldMount` — the pure predicate; takes it as a parameter.
+    /// - `showsPictureWell` — the same, for the drop well's visibility. It
+    ///   carries no correctness: `take` does not consult it.
+    /// - `canMount` / `body` — the mount condition, which is what the marker is
+    ///   FOR.
+    /// - `reconcile` — the one place it is derived.
+    /// - `leave` — the one place it is retracted.
+    ///
+    /// An async member appearing here is the regression: anything that resumes
+    /// after a suspension must name what it is acting on, not ask a marker.
+    private static let mountMarkerMembers: Set<String> = [
+        "resolvedScope",
+        "shouldMount",
+        "showsPictureWell",
+        "canMount",
+        "body",
+        "reconcile",
+        "leave",
+    ]
+
+    /// Which members of a Swift file mention `token` in CODE, keyed by the
+    /// enclosing `func`/`var` declaration at member indentation.
+    ///
+    /// Comment lines are excluded — this file discusses the marker at length in
+    /// prose, which is the point of that prose.
+    private func membersMentioning(
+        _ token: String, inFileNamed filename: String, under dir: URL
+    ) throws -> Set<String> {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var found: Set<String> = []
+        for case let url as URL in walker where url.lastPathComponent == filename {
+            var member = "(top level)"
+            for line in try String(contentsOf: url, encoding: .utf8)
+                .components(separatedBy: .newlines) {
+                if let declared = Self.memberName(declaredOn: line) { member = declared }
+                guard !Self.isCommentLine(line), line.contains(token) else { continue }
+                found.insert(member)
+            }
+        }
+        return found
+    }
+
+    /// The name a member-level `func`/`var` declaration introduces, or nil.
+    /// Member level is four-space indentation, which is this codebase's style
+    /// throughout — a nested declaration is deeper and keeps its parent's name,
+    /// which is what we want: a closure inside `take` is `take`.
+    private static func memberName(declaredOn line: String) -> String? {
+        guard line.hasPrefix("    "), !line.hasPrefix("     ") else { return nil }
+        let words = line.dropFirst(4)
+            .replacingOccurrences(of: "(", with: " ")
+            .replacingOccurrences(of: ":", with: " ")
+            .split(separator: " ").map(String.init)
+        guard let keyword = words.firstIndex(where: { $0 == "func" || $0 == "var" }),
+              words.indices.contains(keyword + 1) else { return nil }
+        return words[keyword + 1]
+    }
+
+    /// **Census, not a ban.** An equality against a non-empty expected set is its
+    /// own control: a scanner that read nothing would fail here rather than pass
+    /// quietly.
+    func test_theStatementPaneMountMarkerIsReadOnlyWhereItMeansSomething() throws {
+        XCTAssertEqual(
+            try membersMentioning(Self.mountMarkerToken,
+                                  inFileNamed: "StatementEditorHost.swift",
+                                  under: sourceDir),
+            Self.mountMarkerMembers,
+            "The set of members touching `\(Self.mountMarkerToken)` changed. It is a "
+            + "PROXY — it names the scope that resolved, never whether the host is "
+            + "still on screen — and reading it to decide where a writer's words go "
+            + "has shipped two defects. If your member resumes after a suspension, "
+            + "name what it is acting on instead (see `take`, which carries a "
+            + "`StatementPicture`). If it is genuinely part of the mount condition, "
+            + "add it to mountMarkerMembers with a line saying why.")
+    }
+
+    /// Self-check: the census FIRES on a planted offender, and its scanner
+    /// really attributes a mention to the member that contains it. A census that
+    /// reads nothing and a census that passes look identical from the outside.
+    func test_theMountMarkerCensusFiresOnAPlantedReader() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-mount-marker-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct StatementEditorHost {
+            @State private var resolvedScope: String?
+
+            /// A doc comment naming resolvedScope must NOT count.
+            private func take() async {
+                let landed = await ingest()
+                guard resolvedScope == scopeKey else { return }
+                write(landed)
+            }
+
+            private var canMount: Bool { resolvedScope == scopeKey }
+        }
+        """.write(to: tmp.appendingPathComponent("StatementEditorHost.swift"),
+                  atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            try membersMentioning(Self.mountMarkerToken,
+                                  inFileNamed: "StatementEditorHost.swift", under: tmp),
+            ["resolvedScope", "take", "canMount"],
+            "Self-check: the planted `take` must be caught, the declaration and "
+            + "`canMount` must be attributed to themselves, and the doc comment "
+            + "above `take` must not count on its own.")
+
+        // Control: the offender is NOT in the production expectation, so the
+        // census above would really have gone red for it.
+        XCTAssertFalse(Self.mountMarkerMembers.contains("take"),
+                       "Control: if `take` were an allowed member the planted "
+                       + "offender would pass the real census too.")
+    }
+
+    // MARK: - Who takes the statement open gate (whole-branch review, I2)
+
+    /// Every member that takes `lockStatementOpen`, `File.swift:member`.
+    ///
+    /// **The census exists because the prose was wrong twice.**
+    /// `ProjectStore+Statements.swift` and `Maugham/Canvas/AREA.md` both said
+    /// "Both openers take it", and there were three openers, one of which
+    /// (`adopt`) took nothing while a fourth taker (`promotePieceToProject`)
+    /// opens no `Document` at all. A number in prose about a list is a defect
+    /// the moment it is written; this is the list.
+    ///
+    /// Each entry says what it is:
+    /// - `ProjectStore+Statements.swift:lockStatementOpen` — the declaration.
+    /// - `StatementEditorHost.swift:load` — the pane, which holds its `Document`
+    ///   for as long as the scope is showing and releases the gate as soon as it
+    ///   has registered.
+    /// - `ProjectStore+Statements.swift:appendToStatement` — the transient
+    ///   writer's arm, which every out-of-band write reaches (a promotion, a
+    ///   dropped picture). `PromotionPerformer` is NOT a taker: it gets here.
+    /// - `ProjectStore+StatementAdoption.swift:adopt` — the third opener, safe
+    ///   by circumstance before it took the gate and no longer relying on that.
+    /// - `ProjectStore+CollectionPieces.swift:promotePieceToProject` — takes the
+    ///   gate while opening nothing, because it MOVES the file the gate is over.
+    private static let statementOpenGateTakers: Set<String> = [
+        "ProjectStore+Statements.swift:lockStatementOpen",
+        "ProjectStore+Statements.swift:appendToStatement",
+        "ProjectStore+StatementAdoption.swift:adopt",
+        "ProjectStore+CollectionPieces.swift:promotePieceToProject",
+        "StatementEditorHost.swift:load",
+    ]
+
+    private static let statementOpenGateToken = "lockStatementOpen("
+    private static let statementOpenGateAntiToken = "unlockStatementOpen("
+
+    /// `File.swift:member` for every CODE line matching `token` and not
+    /// `antiToken`, anywhere under `dir`.
+    private func membersCalling(
+        _ token: String, notMatching antiToken: String, under dir: URL
+    ) throws -> Set<String> {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var found: Set<String> = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            var member = "(top level)"
+            for line in try String(contentsOf: url, encoding: .utf8)
+                .components(separatedBy: .newlines) {
+                if let declared = Self.memberName(declaredOn: line) { member = declared }
+                guard !Self.isCommentLine(line),
+                      line.contains(token),
+                      !line.contains(antiToken) else { continue }
+                found.insert("\(url.lastPathComponent):\(member)")
+            }
+        }
+        return found
+    }
+
+    /// **Census, not a ban.** Equality against a non-empty set is its own
+    /// control: a scanner that read nothing goes red here rather than passing.
+    func test_theStatementOpenGateIsTakenByExactlyTheseMembers() throws {
+        XCTAssertEqual(
+            try membersCalling(Self.statementOpenGateToken,
+                               notMatching: Self.statementOpenGateAntiToken,
+                               under: sourceDir),
+            Self.statementOpenGateTakers,
+            "The set of members taking `lockStatementOpen` changed. If you added "
+            + "one, add it to statementOpenGateTakers with a line saying what it "
+            + "is. If you REMOVED one, say why the path it guarded can no longer "
+            + "put two live `Document`s on one statement's file — that is "
+            + "paragraph loss, and it is why the gate exists. And never write "
+            + "the count in prose: this list is the only place it lives.")
+    }
+
+    /// Self-check: the census fires on a planted taker, attributes it to the
+    /// member that contains it, ignores a comment mentioning the gate, and does
+    /// not confuse `unlockStatementOpen` for a take.
+    func test_theStatementOpenGateCensusFiresOnAPlantedTaker() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-statement-gate-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        extension ProjectStore {
+            /// A doc comment naming lockStatementOpen( must NOT count.
+            func sneakilyOpensAStatement() async throws {
+                await lockStatementOpen(statement.id)
+                defer { unlockStatementOpen(statement.id) }
+                _ = try await Document.load(url: statementURL)
+            }
+
+            func releasesOnly() {
+                unlockStatementOpen(id)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("Planted.swift"),
+                  atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            try membersCalling(Self.statementOpenGateToken,
+                               notMatching: Self.statementOpenGateAntiToken, under: tmp),
+            ["Planted.swift:sneakilyOpensAStatement"],
+            "Self-check: the planted taker must be caught and attributed to its "
+            + "own member; the doc comment must not count; and `releasesOnly`, "
+            + "which only unlocks, must not be read as a take.")
+
+        // Control: the planted member is NOT in the production expectation, so
+        // the real census would genuinely have gone red for it.
+        XCTAssertFalse(
+            Self.statementOpenGateTakers.contains(
+                where: { $0.hasSuffix(":sneakilyOpensAStatement") }),
+            "Control: if the planted member were already allowed, the census "
+            + "above would pass for it too and prove nothing.")
     }
 
     /// A whole-line comment, in either spelling. Shared by the canvas-asset

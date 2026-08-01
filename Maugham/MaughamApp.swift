@@ -209,11 +209,12 @@ struct MaughamApp: App {
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 Divider()
 
-                // Right-pane segments. All nine are declared here rather than
-                // on the Picker in DetailPaneToggle, so every one reveals a
-                // hidden inspector column (SessionAndNavigationModifier sets
-                // showInspector = true). Splitting these across two dispatch
-                // paths meant ⌘⌥4–8 silently no-opped with the column closed.
+                // Right-pane segments — one button per `DetailSegment` case,
+                // declared here rather than on the Picker in DetailPaneToggle
+                // so every one reveals a hidden inspector column
+                // (SessionAndNavigationModifier sets showInspector = true).
+                // Splitting these across two dispatch paths meant ⌘⌥4–8
+                // silently no-opped with the column closed.
                 Button("Inspector") { postSegment(.inspector) }
                     .keyboardShortcut("i", modifiers: [.command, .option])
                 Button("Research") { postSegment(.research) }
@@ -232,6 +233,13 @@ struct MaughamApp: App {
                     .keyboardShortcut("p", modifiers: [.command, .option])
                 Button("Translation") { postSegment(.translation) }
                     .keyboardShortcut("l", modifiers: [.command, .option])
+                // ⌘⌥I is the Inspector's, so Intent takes the next letter in
+                // its own name — the same stretch ⌘⌥B (inBox) and ⌘⌥L
+                // (transLation) already make.
+                Button("Intent") { postSegment(.intent) }
+                    .keyboardShortcut("n", modifiers: [.command, .option])
+                Button("Visual Language") { postSegment(.visualLanguage) }
+                    .keyboardShortcut("v", modifiers: [.command, .option])
                 #if MAUGHAM_DEV_BUILD
                 // Scene-storage spike instrument (ADR 0021): logs how many
                 // EditorCoordinators are still alive. Close a project window,
@@ -327,12 +335,14 @@ struct MaughamApp: App {
         .windowResizability(.contentMinSize)
     }
 
-    /// One spelling of the segment post, so the nine menu items can't drift
-    /// apart. `.keyWindow` scope: only the focused project window responds.
+    /// The View menu's way of asking for a segment, so its items can't drift
+    /// apart — and, since M1A gave the inspector one too, a thin call onto
+    /// `MaughamEvent.postDetailSegment(_:)`, which is where the payload and the
+    /// `.keyWindow` scope are spelled. Kept as a local name because
+    /// `PersonaKeyspaceTests` reads `postSegment(.<segment>)` out of this file
+    /// to prove every segment has a menu item.
     private func postSegment(_ segment: DetailSegment) {
-        MaughamEvent.post(.maughamSetDetailSegment,
-                          to: .keyWindow,
-                          payload: ["segment": segment.rawValue])
+        MaughamEvent.postDetailSegment(segment)
     }
 
     /// Mirrors `postSegment(_:)`. `.keyWindow` scope: only the focused

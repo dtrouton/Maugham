@@ -137,6 +137,29 @@ struct EditorSurfaceConfiguration {
     /// consume-on-every-pass semantics in `updateNSView` are unchanged. See the
     /// tripwire discussion in EditorCoordinator.applyExternalText.
     var consumeUndoCoherentApplyFlag: (() -> Bool)? = nil
+    /// Whether this surface is a SECOND editor alive in a window that already
+    /// has one. False for every surface there has ever been; M1A's statement
+    /// panes are the first true, and they sit in the right column beside the
+    /// manuscript editor in the centre.
+    ///
+    /// Two things follow, and both are defects if left undone — see
+    /// `StatementEditorMountTests`:
+    ///
+    /// - **It answers no window commands.** Every observer
+    ///   `EditorCoordinator`'s init registers — the ⌘⌥R review membrane, scene /
+    ///   find-match / paragraph / annotation navigation, the translation
+    ///   membrane — is about the manuscript, and all of them are gated at the
+    ///   one funnel they share (`EditorCoordinator.respondsToWindowCommands`).
+    /// - **It owns its undo stack.** Every text view in a window shares the
+    ///   window's `UndoManager`, and `EditorCoordinator.detach()` calls
+    ///   `removeAllActions()` on the one it can reach — so a second editor being
+    ///   taken down (a pane switch) wiped the manuscript's ⌘Z history. Measured,
+    ///   not reasoned: the test asserting it fails without
+    ///   `MaughamTextView.usesPrivateUndoManager`.
+    ///
+    /// Fixed for the lifetime of a mount, so it is applied in
+    /// `makeCoordinator`/`makeNSView` and nowhere else.
+    var isSecondEditorInItsWindow: Bool = false
 }
 
 struct EditorSurface: NSViewRepresentable {
@@ -174,6 +197,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
         coordinator.reviewAnnotationsProvider = rp.reviewAnnotationsProvider
         coordinator.scriptOriginProjectId = pp.scriptOriginProjectId
+        coordinator.respondsToWindowCommands = !configuration.isSecondEditorInItsWindow
         assignReviewCardHandlers(to: coordinator)
         return coordinator
     }
@@ -198,6 +222,11 @@ struct EditorSurface: NSViewRepresentable {
             typography: configuration.presentation.typography)
 
         let textView = MaughamTextView()
+        // BEFORE anything that could register an undo action (or read the undo
+        // manager): a second editor in the window keeps its own stack rather
+        // than sharing — and clearing — the manuscript's. See
+        // `EditorSurfaceConfiguration.isSecondEditorInItsWindow`.
+        textView.usesPrivateUndoManager = configuration.isSecondEditorInItsWindow
         // Pin the editor to TextKit 1. On recent macOS a fresh NSTextView is
         // TextKit 2, whose caret is a private `NSTextInsertionIndicator` we can't
         // resize — so the empty-line caret renders at the full line-fragment
@@ -447,6 +476,23 @@ final class MaughamTextView: NSTextView {
 
     var gutterView: ElementGutterView?
 
+    /// Take this view's undo actions off the window's shared `UndoManager` and
+    /// onto one of its own. Set once, in `EditorSurface.makeNSView`, before any
+    /// edit can register — see
+    /// `EditorSurfaceConfiguration.isSecondEditorInItsWindow` for why a second
+    /// editor in one window must not share.
+    var usesPrivateUndoManager = false
+
+    private lazy var privateUndoManager = UndoManager()
+
+    /// `NSTextView` registers its typing undo with `self.undoManager`, and the
+    /// responder chain reads the first responder's — so overriding here covers
+    /// both registration and ⌘Z, and leaves the primary editor on exactly the
+    /// manager it has always used.
+    override var undoManager: UndoManager? {
+        usesPrivateUndoManager ? privateUndoManager : super.undoManager
+    }
+
     override var acceptsFirstResponder: Bool { true }
     override func becomeFirstResponder() -> Bool {
         super.becomeFirstResponder()
@@ -532,13 +578,33 @@ final class MaughamTextView: NSTextView {
         return types
     }
 
+    /// **A surface with an image-paste handler OWNS pasteboard images**, and
+    /// falls through to `super` only when there is no handler or no image.
+    ///
+    /// The `let ref = handler(image)` used to be part of the same condition, so a
+    /// handler returning nil fell through to `super.paste` — which, because
+    /// `readablePasteboardTypes` above advertises image types whenever a handler
+    /// is set, accepts the image and inserts an **attachment character**. Measured
+    /// 2026-08-01 on the visual-language pane: pasting a picture into a statement
+    /// that had no file yet put `![](./visual-language_assets/…png)\n\n￼` into the
+    /// writer's op log — the ref from the handler's own asynchronous path, and a
+    /// `U+FFFC` from `super`. A research note whose paste failed to encode got the
+    /// same character with no ref at all.
+    ///
+    /// So nil now means *"handled, with nothing to insert here"* rather than
+    /// *"not mine"* — the only two handlers are `ResearchNoteEditor`'s, where nil
+    /// is an encoding failure it has already logged, and
+    /// `StatementEditorHost`'s, where nil means the ref is arriving by another
+    /// route. Neither wants `super` to have a go. What is given up is `super`'s
+    /// handling of a mixed pasteboard's TEXT when an image is also present, which
+    /// on these two surfaces was never the intent.
     override func paste(_ sender: Any?) {
         if let handler = coordinator?.imagePasteHandler,
            NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil),
-           let image = NSImage(pasteboard: .general),
-           let ref = handler(image) {
-            let range = selectedRange()
-            insertText(ref, replacementRange: range)
+           let image = NSImage(pasteboard: .general) {
+            if let ref = handler(image) {
+                insertText(ref, replacementRange: selectedRange())
+            }
             return
         }
         super.paste(sender)
