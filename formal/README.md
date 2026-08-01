@@ -82,6 +82,27 @@ before the model existed, so confirmation can be told from discovery. That file
 is deliberately **never edited** — its value is entirely in having been written
 first.
 
+## BackupRetention.tla
+
+Backup retention against auto-bisect (ADR 0014) — deliberately **off** the op
+log, as a test of whether the approach generalises.
+
+    ./formal/check.sh BackupRetention BackupRetention_NoCorruptRetainedOverIntact
+
+| Config | Expected |
+|---|---|
+| `BackupRetention_NoCorruptRetainedOverIntact` | **violated** — prune deletes an intact generation while keeping a corrupt one |
+| `BackupRetention_NoWedgedOnCorruptNewest` | **violated** — a corrupt newest generation with a surviving marker suppresses all further backups |
+| `BackupRetention_Full_R2C1`, `_Full_R3C2` | no violation — with retention full, fewer corruptions than the retention count always leaves something recoverable |
+| `BackupRetention_RunLeavesAnIntact` | no violation |
+
+`BackupRetention_FewerCorruptionsThanRetentionKeepsAnIntact.cfg` is **retained
+deliberately as a bad example** and is expected to be violated: the property
+omits the "retention is actually full" antecedent, so it fails on one
+generation and one corruption — trivially true and nothing to do with the
+system. Kept because §10.3 counts it, and because a property-formulation error
+is the most likely way this directory produces a wrong answer.
+
 ## Bounds
 
 2 devices, 3 ops/device, 1 seal/device. Widening is a deliberate act — TLC's

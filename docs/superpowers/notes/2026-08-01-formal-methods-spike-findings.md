@@ -322,3 +322,72 @@ Not fixed — proving scope before code changes was the agreed mode, and the fix
 1. **Decide the intended semantics first.** Should a `reject` losing the opId race undo an already-spliced accept? That means rejects must carry inverse changes (become revert-like), which is a wire-format and undo-stack change. Or should the *text* be authoritative and the status follow it? Either is defensible; they are different products.
 2. **Divergence B may need answering separately** — reopening after a foreign accept is a distinct case from a plain lost race, and the "accept it twice" follow-on (does `SuggestionSplice.apply` double-splice against a paragraph already containing the suggestion?) is **unchecked and worth checking**.
 3. **No Swift test yet.** A test asserting today's behaviour would pin the defect in place. The regression test comes with the fix.
+
+---
+
+# 10. Third target — backup retention vs auto-bisect (OFF the op log)
+
+*Model: `formal/BackupRetention.tla`. Predictions pre-registered at `98086ba`.*
+
+**Chosen deliberately off the op log.** Three of the four defects so far live in the sync/derive family, where ADR 0012 had already done the hard thinking. This target tests whether the method generalises to ground nobody had prepared.
+
+## 10.1 The structure
+
+Two orderings run over one set of generations, and nothing reconciles them:
+
+| | Source | Orders by |
+|---|---|---|
+| **retention** | `BackupWriter.prune:109` | **recency** — keeps the highest-sorting N ids. Never calls `verify`. |
+| **recovery** | `BackupRestore.newestIntact` | **intactness** — newest-first, first that verifies. |
+
+## 10.2 Results
+
+| Property | Predicted | Result |
+|---|---|---|
+| `NoCorruptRetainedOverIntact` | violated | **violated** (129 states) |
+| `NoWedgedOnCorruptNewest` | violated | **violated** (57 states) |
+| `FullRetentionSurvivesFewerCorruptions` | holds | **holds** — R2/C1 337 states, R3/C2 1,395 |
+| `RunLeavesAnIntact` | holds | **holds** (156 states) |
+
+### Finding 5 — prune deletes an intact generation to keep a corrupt one
+
+```
+Run→g0 intact · edit · Run→g1 intact · CORRUPT g1 · edit · Run→g2 intact
+prune keeps the newest 2 = {g1 corrupt, g2 intact} and DELETES g0, which was intact
+```
+
+Recency beat recoverability. Effective protection is not `retention` but `retention − (corrupt generations in the retained set)`, and prune actively *preserves* the corrupt ones by preferring them to intact older ones. `FullRetentionSurvivesFewerCorruptions` holding bounds the damage — you do not lose everything below the corruption budget — but the budget is silently smaller than the number the writer configured.
+
+### Finding 6 — a corrupt newest generation wedges skip-detection
+
+```
+Run→g0 intact · CORRUPT g0 content only (its .signature marker survives)
+→ every subsequent run returns .skippedUnchanged for as long as the source is unchanged
+```
+
+`BackupRunner.latestSignature` reads the marker of `generationIds().last` — the newest **by id**, with no intactness check (`BackupRunner.swift:73,96`). If that marker survives while the content rots, the system reports "backed up", writes nothing, and never replaces the corrupt newest generation until the writer edits the project. The marker lives *inside* the directory it describes, so this needs partial rather than total corruption — which is the common kind.
+
+## 10.3 Discovery accounting — a clean negative, and two own goals
+
+**Zero discovery.** Both violations were predicted in full; both properties I expected to hold, held. Off the op log, the method confirmed and found nothing.
+
+**And it cost two modelling errors of my own, both of which I had to catch by hand:**
+
+1. **A vacuous property.** `NoCorruptRetainedOverIntact` was first written disjoining `Cardinality(gens) <= Retention` — *always* true after a prune, so the property could not fail. TLC reported **green over the whole state space** and the greenness meant nothing. This is the dangerous direction: an artifact that fails loudly gets investigated, one that passes quietly gets believed. It is the modelling equivalent of the repo's own "helpers that could not fail" (`3167365`), and nothing in the toolchain flags it.
+2. **An ill-formed property.** `FewerCorruptionsThanRetentionKeepsAnIntact` omitted the "retention is actually full" antecedent, so TLC violated it with one generation and one corruption — true, trivial, and nothing to do with the system. Had I reported that as a finding it would have been wrong.
+
+Running tally across three models: **one genuine discovery (§8.2) in thirteen properties**, **two environment artifacts** (§5.3, §9.4) and now **two property-formulation errors**. The error rate on my own specs is higher than the discovery rate.
+
+## 10.4 What this settles about (b)
+
+The §9.4 hypothesis — that the method's real value is as a forcing function for attention — survives this target and is now the best explanation of all three. What does **not** survive is any claim that it finds things reading would not: on unprepared ground it found nothing new, while generating four artifacts that a less careful operator ships as findings.
+
+**Recommendation, unchanged and now better evidenced: do not adopt (b).** Keep the three models as *regression detection for decisions already made* — `cpshared`/`cppartitioned` is a proven pair and will catch a future un-partitioning — and wire `check.sh` into CI, which is cheap. Do not write specs ahead of new work.
+
+## 10.5 What should happen
+
+Neither finding is fixed.
+
+1. **Make `prune` intactness-aware** — keep the newest N *that verify*, plus corrupt ones only to fill remaining slots. Verifying on every prune costs a Merkle pass per generation; a cheaper variant is to refuse to delete an intact generation while a corrupt one is retained. Small, self-contained, and independently useful.
+2. **Make skip-detection intactness-aware** — `latestSignature` should read the newest **intact** generation's marker, not the newest by id. Without this a corrupt newest generation silently suppresses backups. Note this is the same class as §8.2: a *check* keyed on the wrong ordering.
+3. **Neither needs a semantics decision**, unlike §9 — both are local fixes with obvious intended behaviour, which makes them the cheapest items in the backlog.
