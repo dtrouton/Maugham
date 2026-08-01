@@ -2607,4 +2607,91 @@ final class TripwireGrepTests: XCTestCase {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         return trimmed.hasPrefix("//") || trimmed.hasPrefix("/*") || trimmed.hasPrefix("*")
     }
+
+    // MARK: - Seal atomicity (formal-methods spike, 2026-08-01)
+
+    /// Recurrence-tripper: `OpLogStore.sealTailIfNeeded` reads the tail's
+    /// bytes in one `NSFileCoordinator` scope and deletes the tail in a
+    /// DIFFERENT one. An append landing between those two points is captured
+    /// in the segment by neither, and is then deleted with the tail — silent
+    /// op loss, the constitution's "the words are safe" failing.
+    ///
+    /// The only thing preventing it is that `OpLogStore` is `@MainActor` and
+    /// this `async` body contains no `await`, so it runs to completion without
+    /// a suspension point and `append` cannot interleave. Swift releases actor
+    /// isolation at every `await`; adding one anywhere between the read and
+    /// the delete reopens the window with no diagnostic.
+    ///
+    /// The hazard itself IS documented at `OpLogStore.swift:167`, but that
+    /// note's stated justification is incomplete in the way that matters: it
+    /// argues from "the seal runs on the same MainActor as every append" to
+    /// "the interleaving requires two app instances," and that step does not
+    /// hold — same-actor is sufficient only in the absence of a suspension
+    /// point. A future `await` would leave that reasoning still reading as
+    /// valid while the window stands open, which is precisely why the
+    /// syntactic property needs a test rather than a paragraph.
+    ///
+    /// Model-checked: `formal/OpLogSync.tla` with `SealHasSuspensionPoint =
+    /// TRUE` yields a `LocalNoLoss` counterexample — SealRead captures
+    /// {op1, op2} and frees the lock, Append lands op3, SealWrite seals only
+    /// the captured two, SealDelete removes the whole tail, and op3 ends in
+    /// `appended` but in neither `sealed` nor `tail`. With the constant FALSE
+    /// the same spec is green.
+    /// Run: `./formal/check.sh OpLogSync OpLogSync_suspend`
+    func test_sealTailIfNeededHasNoSuspensionPoint() throws {
+        let storeURL = repoRoot
+            .appendingPathComponent(
+                "Packages/MaughamCore/Sources/MaughamCore/OpLogStore.swift")
+        let source = try String(contentsOf: storeURL, encoding: .utf8)
+        let lines = source.components(separatedBy: .newlines)
+
+        guard let start = lines.firstIndex(where: {
+            $0.contains("func sealTailIfNeeded(")
+        }) else {
+            return XCTFail(
+                "sealTailIfNeeded not found in OpLogStore.swift. If it was "
+                + "renamed, update this tripwire — do not delete it; the "
+                + "hazard is in the two-coordination-scope shape, not the name.")
+        }
+        // The method's closing brace is the first line that is exactly four
+        // spaces and a brace; every nested closure closes at eight or more.
+        guard let end = lines[(start + 1)...].firstIndex(where: {
+            $0 == "    }"
+        }) else {
+            return XCTFail("Could not find the end of sealTailIfNeeded's body.")
+        }
+        let body = Array(lines[start...end])
+
+        // Landmark assertions: if the extraction above silently grabs the
+        // wrong range, the `await` scan below would pass vacuously. This repo
+        // has shipped helpers that could not fail (3167365); this one must be
+        // able to. Both landmarks are load-bearing lines of the real body.
+        XCTAssertTrue(
+            body.contains(where: { $0.contains("coordinate(readingItemAt:") }),
+            "Body extraction is broken — the coordinated READ is missing from "
+            + "the extracted range, so the await scan below proves nothing.")
+        XCTAssertTrue(
+            body.contains(where: { $0.contains(".forDeleting") }),
+            "Body extraction is broken — the coordinated DELETE is missing from "
+            + "the extracted range, so the await scan below proves nothing.")
+
+        let offenders = body.enumerated().filter { _, line in
+            guard !Self.isCommentLine(line) else { return false }
+            return line.contains("await ")
+        }.map { "OpLogStore.swift:\(start + $0.offset + 1): \($0.element)" }
+
+        XCTAssertTrue(offenders.isEmpty,
+            "`await` inside sealTailIfNeeded. Swift releases actor isolation at "
+            + "every suspension point, so an append can now interleave between "
+            + "the coordinated read (line ~194) and the coordinated delete "
+            + "(line ~224) — and the interleaved op is sealed into no segment, "
+            + "then deleted with the tail. Silent op loss.\n\n"
+            + "Model-checked: ./formal/check.sh OpLogSync OpLogSync_suspend "
+            + "produces the LocalNoLoss counterexample.\n\n"
+            + "If the suspension point is genuinely needed, the fix is to make "
+            + "the delete remove only the captured ops rather than the whole "
+            + "file, or to re-read and diff under one coordination scope — not "
+            + "to delete this test. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
 }

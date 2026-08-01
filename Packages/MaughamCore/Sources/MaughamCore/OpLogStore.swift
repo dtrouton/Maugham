@@ -173,6 +173,21 @@ public final class OpLogStore {
     /// requires two same-variant app instances on one Mac, which the app's
     /// single-instance model rules out. If that model ever changes, this gap
     /// needs a single coordinated read+rewrite instead.
+    ///
+    /// AND — the second half of that argument, which the paragraph above
+    /// leaves implicit and which is the half that can rot. "Same MainActor"
+    /// does NOT by itself make the read→delete gap atomic: an `async` function
+    /// releases actor isolation at EVERY `await`, so a body with a suspension
+    /// point between the read and the delete lets a same-actor `append`
+    /// interleave with no second app instance involved. What actually closes
+    /// the gap is that this body contains **no `await` at all**. That is a
+    /// property of the fifty lines below, not of the concurrency model, and
+    /// adding one `await` anywhere in them reopens the window silently while
+    /// leaving the single-instance reasoning above still reading as valid.
+    ///
+    /// Model-checked: `formal/OpLogSync.tla` with `SealHasSuspensionPoint =
+    /// TRUE` produces the op-loss trace. Pinned by
+    /// `TripwireGrepTests.test_sealTailIfNeededHasNoSuspensionPoint`.
     @discardableResult
     public func sealTailIfNeeded(
         docId: String, deviceSlug: DeviceSlug,
