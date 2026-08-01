@@ -54,11 +54,18 @@
 - [ ] **Step 1: Install the JDK**
 
 ```bash
-brew install --cask temurin
-java -version
+brew install openjdk
+"$(brew --prefix openjdk)/bin/java" -version
 ```
 
-Expected: version output, not "Unable to locate a Java Runtime". If `brew` prompts for a password, that is expected for a cask install.
+Expected: version output.
+
+**Use the formula, not the `temurin` cask the spec named.** The cask installs
+into `/Library/Java/JavaVirtualMachines` and requires `sudo` — an interactive
+password prompt that blocks unattended execution. The formula installs into the
+Homebrew prefix and needs no password. It is *keg-only*: not symlinked into
+`PATH`, so bare `java` will still report "Unable to locate a Java Runtime".
+That is expected, and `check.sh` Step 3 resolves the interpreter itself.
 
 - [ ] **Step 2: Write the gitignore**
 
