@@ -71,8 +71,25 @@ final class StatementPaneTests: XCTestCase {
                        + "\(tokens.sorted())")
     }
 
-    // MARK: - Scope follows selection (spec §4.3)
+    // MARK: - Scope follows the window's subject (spec §4.3)
 
+    /// **`test_theProjectsIntentIsOneClickAwayFromADocuments` was deleted here**
+    /// (persona shell, slice 1, task 7), and deliberately rather than as tidying
+    /// after a signature change.
+    ///
+    /// It pinned the pane's promise that *"the other one click away"* — the
+    /// `[<chapter> | Project]` switch — put the book's intent within one press of
+    /// a chapter's. That promise was a workaround for a hole in the tree: there
+    /// was no way to select the project, so the pane had to offer the one subject
+    /// nothing else could reach. The project row closes the hole at the cause
+    /// (§3.3), and the project's intent is now one click away in the tree, beside
+    /// every other subject, with one control saying what the window is about
+    /// instead of two that can disagree. Keeping the test would have pinned the
+    /// workaround against the fix.
+    ///
+    /// What replaced it here: `test_theProjectSubjectResolvesToTheProjectsIntent`
+    /// for the resolution, and `StatementPaneSelectionDeliveryTests` for the
+    /// click itself, on the real tree.
     private var structure: [StructureItem] {
         [
             StructureItem(id: "doc-1", title: "Chapter One", type: .document,
@@ -84,26 +101,41 @@ final class StatementPaneTests: XCTestCase {
     func test_intentFollowsTheSelectedDocument() {
         XCTAssertEqual(
             StatementPane.effectiveScope(
-                kind: .intent, activeDocumentId: "doc-1",
-                structure: structure, prefersProjectScope: false),
+                kind: .intent, subject: .item("doc-1"), structure: structure),
             .document("doc-1"))
     }
 
     func test_intentFallsBackToTheProjectWhenNothingIsSelected() {
         XCTAssertEqual(
             StatementPane.effectiveScope(
-                kind: .intent, activeDocumentId: nil,
-                structure: structure, prefersProjectScope: false),
+                kind: .intent, subject: nil, structure: structure),
             .project)
     }
 
-    /// The right pane's "no selection" sentinel is a real value that flows in
-    /// here, not a hypothetical: `ProjectWindow` passes `"__no-selection__"`.
+    /// **The subject the tree can now name.** `.project` is its own arm in
+    /// `effectiveScope` rather than a fall-through, and this is what says so: an
+    /// implicit `.project` and a decided one give the same answer here today and
+    /// would part company the moment the project row carried an id that IS in
+    /// the structure.
+    func test_theProjectSubjectResolvesToTheProjectsIntent() {
+        XCTAssertEqual(
+            StatementPane.effectiveScope(
+                kind: .intent, subject: .project, structure: structure),
+            .project)
+    }
+
+    /// The right pane's "no selection" sentinel is refused as an id.
+    ///
+    /// **No longer a value that arrives here**, and the claim that it was is
+    /// what this comment used to make. The pane took a `String?` that
+    /// `ProjectWindow` had already `??`-substituted; it takes the typed subject
+    /// now, and nothing constructs `.item("__no-selection__")`. Kept as the
+    /// control on the guard, not as a description of production.
     func test_intentTreatsTheNoSelectionSentinelAsTheProject() {
         XCTAssertEqual(
             StatementPane.effectiveScope(
-                kind: .intent, activeDocumentId: "__no-selection__",
-                structure: structure, prefersProjectScope: false),
+                kind: .intent, subject: .item(BinderSubject.noDocumentSubject),
+                structure: structure),
             .project)
     }
 
@@ -113,41 +145,77 @@ final class StatementPaneTests: XCTestCase {
     func test_intentFallsBackToTheProjectForAGroup() {
         XCTAssertEqual(
             StatementPane.effectiveScope(
-                kind: .intent, activeDocumentId: "grp-1",
-                structure: structure, prefersProjectScope: false),
+                kind: .intent, subject: .item("grp-1"), structure: structure),
             .project)
     }
 
     func test_intentFallsBackToTheProjectForAnIdThatIsNotInThisProject() {
         XCTAssertEqual(
             StatementPane.effectiveScope(
-                kind: .intent, activeDocumentId: "doc-from-another-project",
-                structure: structure, prefersProjectScope: false),
-            .project)
-    }
-
-    /// The other one is a click away: asking for the project's intent while a
-    /// document is selected gives the project's.
-    func test_theProjectsIntentIsOneClickAwayFromADocuments() {
-        XCTAssertEqual(
-            StatementPane.effectiveScope(
-                kind: .intent, activeDocumentId: "doc-1",
-                structure: structure, prefersProjectScope: true),
+                kind: .intent, subject: .item("doc-from-another-project"),
+                structure: structure),
             .project)
     }
 
     /// Visual language is project-scope only — the book has one look (§2.1). It
-    /// ignores the selection and the switch alike, over every input.
+    /// ignores the subject entirely, over every input.
     func test_visualLanguageIsAlwaysProjectScope() {
-        for activeId in [nil, "doc-1", "grp-1", "__no-selection__"] as [String?] {
-            for prefersProject in [true, false] {
-                XCTAssertEqual(
-                    StatementPane.effectiveScope(
-                        kind: .visualLanguage, activeDocumentId: activeId,
-                        structure: structure, prefersProjectScope: prefersProject),
-                    .project,
-                    "visual language resolved off the project for "
-                    + "(\(activeId ?? "nil"), prefersProject: \(prefersProject))")
+        let subjects: [BinderSubject?] = [
+            nil, .project, .item("doc-1"), .item("grp-1"),
+            .item(BinderSubject.noDocumentSubject),
+        ]
+        for subject in subjects {
+            XCTAssertEqual(
+                StatementPane.effectiveScope(
+                    kind: .visualLanguage, subject: subject, structure: structure),
+                .project,
+                "visual language resolved off the project for "
+                + "\(String(describing: subject))")
+        }
+    }
+
+    // MARK: - The header, now that it is the only thing naming the scope
+
+    /// **The header names the scope that RESOLVED, not the subject the tree
+    /// names**, and the two differ exactly where the resolution coerces: a group
+    /// selected in the tree shows the project's intent, and the header is the
+    /// only thing on screen that says so.
+    func test_theHeaderNamesTheDocumentWhenTheScopeIsADocuments() {
+        XCTAssertEqual(
+            StatementPane.headerCaption(
+                kind: .intent, scope: .document("doc-1"), structure: structure),
+            "What “Chapter One” is going for")
+    }
+
+    func test_theHeaderNamesTheProjectWhenTheScopeCoercedToIt() {
+        let coerced = StatementPane.effectiveScope(
+            kind: .intent, subject: .item("grp-1"), structure: structure)
+        XCTAssertEqual(
+            StatementPane.headerCaption(
+                kind: .intent, scope: coerced, structure: structure),
+            "What this project is going for")
+    }
+
+    /// Visual language's header ignores the scope, exactly as its resolution
+    /// ignores the subject.
+    func test_theVisualLanguageHeaderIsTheSameSentenceOnEveryScope() {
+        for scope in [Statement.Scope.project, .document("doc-1")] {
+            XCTAssertEqual(
+                StatementPane.headerCaption(
+                    kind: .visualLanguage, scope: scope, structure: structure),
+                "How this book looks")
+        }
+    }
+
+    /// The header is never empty — the failure mode the picker's deletion could
+    /// have left behind is a selected document with no header at all.
+    func test_theHeaderSaysSomethingForEveryKindAndScope() {
+        for kind in [Statement.Kind.intent, .visualLanguage, .unknown("future")] {
+            for scope in [Statement.Scope.project, .document("doc-1"), .document("gone")] {
+                XCTAssertFalse(
+                    StatementPane.headerCaption(
+                        kind: kind, scope: scope, structure: structure).isEmpty,
+                    "no header for (\(kind), \(scope))")
             }
         }
     }
@@ -170,7 +238,7 @@ final class StatementPaneTests: XCTestCase {
     func test_typingIntoANewlySelectedScopeMintsThatScopesStatement() async throws {
         let made = try await fixture(named: "scope-switch-mint")
         let window = await made.hostWithASettableSelection(
-            kind: .intent, activeDocumentId: nil)
+            kind: .intent, subject: nil)
         _ = try made.textView(in: window)
 
         // Move to the chapter, whose intent does not exist yet, and type.
@@ -242,7 +310,7 @@ final class StatementPaneTests: XCTestCase {
         let fixture = try await fixture(named: "AbsenceRendersAnEditor")
         XCTAssertNil(fixture.store.statement(kind: .visualLanguage, scope: .project))
 
-        let window = await fixture.host(kind: .visualLanguage, activeDocumentId: nil)
+        let window = await fixture.host(kind: .visualLanguage, subject: nil)
         let textView = try fixture.textView(in: window)
 
         XCTAssertEqual(textView.string, "",
@@ -269,7 +337,7 @@ final class StatementPaneTests: XCTestCase {
         let fixture = try await fixture(named: "CheckboxDisplaysNowhere")
         let statement = try await fixture.store.createStatement(kind: .intent, scope: .project)
 
-        let window = await fixture.host(kind: .intent, activeDocumentId: nil)
+        let window = await fixture.host(kind: .intent, subject: nil)
         let textView = try fixture.textView(in: window)
         await fixture.type("- [ ] find the ending", into: textView)
         try await fixture.settle(window, expectingOpsFor: statement.id)

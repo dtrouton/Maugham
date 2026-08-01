@@ -138,7 +138,7 @@ final class StatementOpenGateTests: XCTestCase {
 
         // Fire-and-forget: with the gate held the pane's `reconcile` parks before
         // `Document.load`, so `host` would sit out its own deadline.
-        Task { @MainActor in await self.fixture.host(kind: .intent, activeDocumentId: nil) }
+        Task { @MainActor in await self.fixture.host(kind: .intent, subject: nil) }
         await fixture.waitOut(0.6)
 
         XCTAssertNil(fixture.store.openStatementDocument(id: statement.id),

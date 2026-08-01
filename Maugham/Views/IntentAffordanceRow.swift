@@ -36,15 +36,20 @@ struct IntentAffordanceRow: View {
     /// caption derived any other way would describe a scope the writer is not
     /// about to be shown.
     ///
-    /// `prefersProjectScope: false` because that is what a fresh arrival shows:
-    /// the pane resets its own switch on every selection change. The inspector
-    /// cannot see the pane's state (the pane is often not even mounted) and must
-    /// not pretend to.
+    /// It used to pass `prefersProjectScope: false` — "what a fresh arrival
+    /// shows", the inspector declining to guess at pane state it cannot see.
+    /// The pane has no such state as of the persona shell's slice 1: its scope
+    /// switch is gone and the tree is the one subject-picker, so there is
+    /// nothing left for this row to be out of step with.
+    ///
+    /// A `nil` id is *no selection*, which resolves to the project — the same
+    /// answer `BinderSubject.project` gets. This row is removed in slice 4, when
+    /// the inspector dissolves.
     static func scope(selectedItemId: String?,
                       in structure: [StructureItem]) -> Statement.Scope {
         StatementPane.effectiveScope(
-            kind: .intent, activeDocumentId: selectedItemId,
-            structure: structure, prefersProjectScope: false)
+            kind: .intent, subject: selectedItemId.map(BinderSubject.item),
+            structure: structure)
     }
 
     var body: some View {

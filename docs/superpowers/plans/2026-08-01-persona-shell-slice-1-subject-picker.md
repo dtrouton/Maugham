@@ -227,6 +227,45 @@ written, the pending-burst force-flush still runs, and the ⌘S flash still fire
 `.maugham/ops/` — a test that fails against unmodified code today. Then the same
 for the project row.
 
+### Task 4b — the checkpoint stops carrying a sentinel where a document goes
+
+*Added 2026-08-01 after task 4 shipped, on two Denver rulings. Both are the same
+id travelling one hop further than the op log — task 4 stopped it reaching a
+FILENAME; this stops it reaching the writer's eye and the restore picker.*
+
+**Deliverable 1 — the auto-label drops its parenthetical.** `CheckpointCapture`
+builds `"HH:mm — N words (\(activeDocId))"`, and `HistoryPane` shows it. With a
+group selected it has always read `(grp-1)`; with the project row it reads
+`(__no-selection__)`, and the project row makes that common rather than transient.
+
+**Ruling: when the subject is not a document, emit no parenthetical at all** —
+just the time and the word count. Not the project's title, which would sit in the
+slot that otherwise always holds a document name and read as though a document by
+that name existed. Checkpoints are project-wide regardless; the parenthetical
+exists to say which document you were in, and when you were in none, saying nothing
+is the honest answer.
+
+**Deliverable 2 — `Checkpoint.activeDoc` stops recording a non-document.**
+`checkpoints.jsonl` can hold `"activeDoc": "__no-selection__"`, and
+`PartialRestorePicker` seeds `_scope = .document(checkpoint.activeDoc)` from it —
+a restore picker opening scoped to a document that does not exist.
+
+**Ruling: record no active document rather than a sentinel, and have the picker
+fall back to project scope.** Triage here is binary — do it or drop it on merit,
+never defer (`memory/feedback_no_defer_bucket.md`).
+
+**Contracts.**
+
+- **The two are one decision and must not disagree.** The label is derived from the
+  same value the record carries; fix them together or they drift.
+- **Old checkpoints already on disk still hold the sentinel.** The picker must
+  tolerate reading one — this is a *read* fallback as well as a *write* change.
+  Tripwire 11 says no migration: handle it on read.
+- `Checkpoint`'s codec must stay tolerant in both directions. If `activeDoc` becomes
+  optional, an older build reading a file without it must not throw.
+- Do **not** widen this into a rethink of what a checkpoint is scoped to. ⌘S is a
+  labeled project checkpoint; that is unchanged.
+
 ### Task 5 — the registry moves
 
 *Independent of tasks 1–4; start it in parallel.*

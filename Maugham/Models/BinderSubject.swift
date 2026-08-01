@@ -20,11 +20,13 @@ import Foundation
 public enum BinderSubject: Hashable, Sendable {
 
     /// The project itself — the subject `StatementPane`'s `[chapter | Project]`
-    /// switch exists to reach because the tree cannot say it.
+    /// switch existed to reach because the tree could not say it.
     ///
-    /// Representable from here on; the binder row that constructs it is a later
-    /// task, so in this build nothing but a test produces this case. That is the
-    /// intended end state of introducing the type, not an oversight.
+    /// **Both halves of that sentence are now history.** The binder's head row
+    /// and `CollectionPiecesPane`'s construct this case (slice 1, tasks 2 and
+    /// 2b), and the pane's switch was deleted once they did (task 7) — a second
+    /// subject-picker beside the tree is two controls that can disagree about
+    /// what the window is about.
     case project
 
     /// A node of `manifest.structure` — a manuscript document *or* a group.

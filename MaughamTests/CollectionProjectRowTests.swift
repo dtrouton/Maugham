@@ -26,11 +26,12 @@ private struct CollectionPiecesProbeView: View {
 /// `ProjectWindow.binderColumn` mounts `BinderView` only for non-collection
 /// projects; a Collection's manuscript segment is `CollectionPiecesPane`, which
 /// carries its own `List(selection:)`. Without a project row here,
-/// `BinderSubject.project` is **unconstructible in a Collection** — harmless
-/// only while `StatementPane` still carries its `[Chapter | Project]` picker,
-/// and task 7 deletes that picker. After it, a Collection would have no route to
-/// project-scoped intent at all, which is the case
-/// `craftIntentItem(forPieceId:)` was originally built for.
+/// `BinderSubject.project` is **unconstructible in a Collection** — which was
+/// harmless only while `StatementPane` carried its `[Chapter | Project]` picker.
+/// **Task 7 has now deleted that picker**, so this row is the only route a
+/// Collection has to project-scoped intent, and the case
+/// `craftIntentItem(forPieceId:)` was originally built for reaches nothing
+/// without it. It stopped being a precaution the moment the picker went.
 ///
 /// **Mounted, not reasoned about**, for the same reason `BinderProjectRowTests`
 /// is: the row's whole implementation is a label and a `.tag`, so the only thing

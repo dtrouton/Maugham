@@ -42,7 +42,7 @@ final class StatementEditorMountTests: XCTestCase {
         let fixture = try await fixture(named: "KeystrokeToOpLog")
         let statement = try await fixture.store.createStatement(kind: .intent, scope: .project)
 
-        let window = await fixture.host(kind: .intent, activeDocumentId: nil)
+        let window = await fixture.host(kind: .intent, subject: nil)
         let textView = try fixture.textView(in: window)
 
         // Control: nothing has been typed, so nothing may be on disk yet. An
@@ -89,7 +89,7 @@ final class StatementEditorMountTests: XCTestCase {
         let fixture = try await fixture(named: "MountCarriesKeystroke")
         let statement = try await fixture.store.createStatement(kind: .intent, scope: .project)
 
-        let window = await fixture.host(kind: .intent, activeDocumentId: nil)
+        let window = await fixture.host(kind: .intent, subject: nil)
         let textView = try fixture.textView(in: window)
         XCTAssertTrue(textView.delegate is EditorCoordinator,
                       "the hosted text view is not driven by an EditorCoordinator, "
@@ -115,7 +115,7 @@ final class StatementEditorMountTests: XCTestCase {
         let fixture = try await fixture(named: "UndoInStatementPane")
         let statement = try await fixture.store.createStatement(kind: .intent, scope: .project)
 
-        let window = await fixture.host(kind: .intent, activeDocumentId: nil)
+        let window = await fixture.host(kind: .intent, subject: nil)
         let textView = try fixture.textView(in: window)
 
         await fixture.type("a sentence I will take back", into: textView)
@@ -145,7 +145,7 @@ final class StatementEditorMountTests: XCTestCase {
         let fixture = try await fixture(named: "MintOnFirstKeystroke")
         XCTAssertNil(fixture.store.statement(kind: .intent, scope: .project))
 
-        let window = await fixture.host(kind: .intent, activeDocumentId: nil)
+        let window = await fixture.host(kind: .intent, subject: nil)
         let textView = try fixture.textView(in: window)
 
         XCTAssertTrue(fixture.store.manifest.statements.isEmpty,
@@ -176,7 +176,7 @@ final class StatementEditorMountTests: XCTestCase {
     /// would replace the buffer and move the caret out from under the writer.
     func test_wordsTypedBeforeTheStatementExistedSurviveTheMint() async throws {
         let fixture = try await fixture(named: "WordsSurviveTheMint")
-        let window = await fixture.host(kind: .visualLanguage, activeDocumentId: nil)
+        let window = await fixture.host(kind: .visualLanguage, subject: nil)
         let textView = try fixture.textView(in: window)
 
         let typed = "warm paper, cold ink\n\nno rules yet"
@@ -216,7 +216,7 @@ final class StatementEditorMountTests: XCTestCase {
     /// keystroke of theirs lands before the mint ever starts.
     func test_theMintDoesNotTearDownTheEditorMidWord() async throws {
         let fixture = try await fixture(named: "MintKeepsTheEditor")
-        let window = await fixture.host(kind: .visualLanguage, activeDocumentId: nil)
+        let window = await fixture.host(kind: .visualLanguage, subject: nil)
         let original = try fixture.textView(in: window)
 
         await fixture.type("w", into: original)
@@ -250,7 +250,7 @@ final class StatementEditorMountTests: XCTestCase {
         let fixture = try await fixture(named: "ScopeChangeFlushes")
         let docId = fixture.documentItemId
         let window = await fixture.hostWithASettableSelection(
-            kind: .intent, activeDocumentId: docId)
+            kind: .intent, subject: .item(docId))
         let textView = try fixture.textView(in: window)
 
         await fixture.type("the aim of this chapter", into: textView)
@@ -321,7 +321,7 @@ final class StatementEditorMountTests: XCTestCase {
             to: fixture.projectURL.appendingPathComponent(projectIntent.path))
 
         let window = await fixture.hostWithASettableSelection(
-            kind: .intent, activeDocumentId: docId)
+            kind: .intent, subject: .item(docId))
         let onA = try fixture.textView(in: window)
         await fixture.pumpUntil(deadline: 5) { !onA.string.isEmpty }
         XCTAssertEqual(onA.string, prose,
@@ -377,7 +377,7 @@ final class StatementEditorMountTests: XCTestCase {
         let fixture = try await fixture(named: "RenameSurvival")
         let docId = fixture.documentItemId
 
-        let first = await fixture.host(kind: .intent, activeDocumentId: docId)
+        let first = await fixture.host(kind: .intent, subject: .item(docId))
         let textView = try fixture.textView(in: first)
         await fixture.type("a chapter about weather", into: textView)
         await fixture.pumpUntil(deadline: 5) {
@@ -403,7 +403,7 @@ final class StatementEditorMountTests: XCTestCase {
                        "the statement's op log was orphaned by the rename")
 
         // …and the pane still shows it on the other side.
-        let second = await fixture.host(kind: .intent, activeDocumentId: docId)
+        let second = await fixture.host(kind: .intent, subject: .item(docId))
         let reopened = try fixture.textView(in: second)
         await fixture.pumpUntil(deadline: 5) { reopened.string.isEmpty == false }
         XCTAssertEqual(reopened.string, "a chapter about weather",
@@ -463,7 +463,7 @@ final class StatementEditorMountTests: XCTestCase {
         let fixture = try await fixture(named: "NoCommandCrossTalk")
         try await fixture.store.createStatement(kind: .intent, scope: .project)
 
-        let window = await fixture.host(kind: .intent, activeDocumentId: nil)
+        let window = await fixture.host(kind: .intent, subject: nil)
         let textView = try fixture.textView(in: window)
         let coordinator = try XCTUnwrap(textView.delegate as? EditorCoordinator)
 
@@ -576,7 +576,7 @@ final class StatementEditorMountTests: XCTestCase {
         await seeded.close()
 
         let window = await fixture.hostWithASettableSelection(
-            kind: .intent, activeDocumentId: nil)
+            kind: .intent, subject: nil)
         XCTAssertNotNil(fixture.firstTextView(in: window),
                         "the project scope never resolved, so this test has not "
                         + "reached the state it is about")
@@ -634,7 +634,7 @@ final class StatementEditorMountTests: XCTestCase {
 
         // The pane resolves the project scope as empty…
         let window = await fixture.hostWithASettableSelection(
-            kind: .intent, activeDocumentId: nil)
+            kind: .intent, subject: nil)
         let onProject = try fixture.textView(in: window)
 
         // …and only then does the project's intent come into existence, with
@@ -703,7 +703,7 @@ final class StatementEditorMountTests: XCTestCase {
 
         // The pane resolves the project scope as empty…
         let window = await fixture.hostWithASettableSelection(
-            kind: .intent, activeDocumentId: nil)
+            kind: .intent, subject: nil)
         let onProject = try fixture.textView(in: window)
 
         // …and only then does the project's intent come into existence, with

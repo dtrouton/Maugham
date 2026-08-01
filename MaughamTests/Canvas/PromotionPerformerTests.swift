@@ -593,7 +593,7 @@ final class PromotionPerformerTests: XCTestCase {
     func test_promotingWhileTheIntentPaneIsOpenDoesNotOpenASecondDocument() async throws {
         let fixture = try await StatementMountFixture.novel(named: "promote-intent")
         defer { fixture.tearDown() }
-        let window = await fixture.host(kind: .intent, activeDocumentId: nil)
+        let window = await fixture.host(kind: .intent, subject: nil)
         let textView = try fixture.textView(in: window)
         await fixture.type("Typed first.", into: textView)
 
@@ -647,7 +647,7 @@ final class PromotionPerformerTests: XCTestCase {
         defer { fixture.tearDown() }
         // Mounted, resolved, and holding NO Document: nothing has been typed, so
         // no statement exists for this scope yet.
-        let window = await fixture.host(kind: .intent, activeDocumentId: nil)
+        let window = await fixture.host(kind: .intent, subject: nil)
         let textView = try fixture.textView(in: window)
         XCTAssertNil(fixture.store.statement(kind: .intent, scope: .project),
                      "the control: this pane really is sitting on an undeclared "

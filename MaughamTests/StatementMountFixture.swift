@@ -12,10 +12,16 @@ import MaughamCore
 @MainActor
 final class StatementProbeModel {
     var showsStatementPane = true
-    /// The binder selection the pane sees. Settable so a test can drive a SCOPE
-    /// CHANGE on one live pane — the case that must close the outgoing
+    /// The window's subject as the pane sees it. Settable so a test can drive a
+    /// SCOPE CHANGE on one live pane — the case that must close the outgoing
     /// `Document` before the incoming one loads.
-    var activeDocumentId: String?
+    var subject: BinderSubject?
+    /// Which right-hand pane the toggle is showing. Settable so a test can drive
+    /// `⌘⌥N`/`⌘⌥V` — the route that TEARS THE HOST DOWN rather than reconciling
+    /// it (`segmentContent` gives `.intent` and `.visualLanguage` separate `case`
+    /// arms), which is the other half of what `hostTheBinderBesideThePane`
+    /// exists to exercise.
+    var detailSegment: DetailSegment = .intent
     init() {}
 }
 
@@ -39,6 +45,9 @@ final class StatementMountFixture {
     /// document-scoped intent is about.
     let documentItemId: String
     let probe = StatementProbeModel()
+    /// The window's subject, held outside the views — written by the real binder
+    /// and read by the real right column. See `hostTheBinderBesideThePane`.
+    let subjectProbe = BinderSubjectProbe()
 
     private let temp: TempDirectory
     private var windows: [NSWindow] = []
@@ -91,12 +100,12 @@ final class StatementMountFixture {
 
     /// The pane alone, as the right column shows it.
     @discardableResult
-    func host(kind: Statement.Kind, activeDocumentId: String?) async -> NSWindow {
+    func host(kind: Statement.Kind, subject: BinderSubject?) async -> NSWindow {
         await mount(
             AnyView(
                 StatementPane(
                     store: store, documentStore: documentStore,
-                    kind: kind, activeDocumentId: activeDocumentId)
+                    kind: kind, subject: subject)
                 .environment(preferences)))
     }
 
@@ -104,8 +113,8 @@ final class StatementMountFixture {
     /// live pane rather than by hosting a second one.
     @discardableResult
     func hostWithASettableSelection(kind: Statement.Kind,
-                                    activeDocumentId: String?) async -> NSWindow {
-        probe.activeDocumentId = activeDocumentId
+                                    subject: BinderSubject?) async -> NSWindow {
+        probe.subject = subject
         return await mount(
             AnyView(
                 RebindableStatementPaneView(
@@ -116,8 +125,63 @@ final class StatementMountFixture {
 
     /// Change the selection the hosted pane sees, and let the change settle.
     func selectDocument(_ id: String?) async {
-        probe.activeDocumentId = id
+        probe.subject = id.map(BinderSubject.item)
         await waitOut(0.3)
+    }
+
+    /// **The whole delivery path: the real binder writes the window's subject
+    /// and the real right column reads it** (slice 1, task 6).
+    ///
+    /// Every other mount here hands `StatementPane` a value the test chose, so
+    /// nothing in the suite has ever exercised `detailSegment`, the selection
+    /// binding and the pane's own state together — which is precisely what
+    /// `ProjectWindow.openPromotedArtifact`'s comment records as the reason
+    /// `Open`-sets-scope failed three fix rounds and was reverted: *"no test
+    /// drives a press through the binding and back through this view's state"*.
+    ///
+    /// What is production here: `BinderView`'s `List(selection:)` and its row
+    /// tags, the `Binding` between the two columns, `DetailPaneToggle`'s picker
+    /// and its `segmentContent` routing, and `StatementPane`'s own resolution.
+    /// The only thing this view supplies is `ProjectWindow`'s boundary
+    /// conversion, and it CALLS that rather than re-spelling it
+    /// (`BinderSubject.itemID` / `BinderSubject.activeDocId(for:)`), so a change
+    /// to the rule reaches this test.
+    ///
+    /// Drive it with `selectBinderRow(_:in:)` and read the answer off
+    /// `firstTextView(in:)` — the pane's resolved scope observed as the words it
+    /// put on screen, which is the only reading of it available from outside.
+    @discardableResult
+    func hostTheBinderBesideThePane(subject: BinderSubject?) async -> NSWindow {
+        subjectProbe.subject = subject
+        return await mount(
+            AnyView(
+                BinderBesideThePaneProbeView(
+                    store: store, documentStore: documentStore,
+                    subjectProbe: subjectProbe, paneProbe: probe)
+                .environment(preferences)))
+    }
+
+    /// Move the binder's selection the way a click does — `selectRowIndexes`
+    /// runs the delegate's proposed-selection filter and SwiftUI's list
+    /// coordinator writes the matched `.tag` back through the binding
+    /// (`BinderProjectRowTests`).
+    func selectBinderRow(_ row: Int, in window: NSWindow) async {
+        guard let table = firstTableView(in: window) else { return }
+        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        await waitOut(0.4)
+    }
+
+    /// Show another right-hand pane, as `⌘⌥N`/`⌘⌥V` does.
+    func showSegment(_ segment: DetailSegment) async {
+        probe.detailSegment = segment
+        await waitOut(0.4)
+    }
+
+    func firstTableView(in window: NSWindow) -> NSTableView? {
+        guard let root = window.contentView else { return nil }
+        var found: [NSTableView] = []
+        collect(NSTableView.self, in: root, into: &found)
+        return found.first
     }
 
     /// The pane beside the manuscript editor — the arrangement the writer gets,
@@ -295,7 +359,7 @@ private struct TwoEditorProbeView: View {
             if probe.showsStatementPane {
                 StatementPane(
                     store: store, documentStore: documentStore,
-                    kind: kind, activeDocumentId: itemId)
+                    kind: kind, subject: .item(itemId))
                 .frame(width: 260)
             }
         }
@@ -321,6 +385,62 @@ private final class AlwaysKeyWindow: NSWindow {
     override var isKeyWindow: Bool { true }
 }
 
+/// The two columns that share the window's subject, with the subject held
+/// outside both of them.
+///
+/// **`ProjectWindow`'s boundary, called rather than copied.** The window
+/// converts its typed subject exactly twice on the way to the right column —
+/// `activeItemID` is `selectedSubject?.itemID` (`ProjectWindow.swift:1511`) and
+/// `activeDocId` is `BinderSubject.activeDocId(for:)` (`:1516-1518`) — and both
+/// of those are the type's own accessors. Re-spelling either here would be a
+/// second answer to the question the type exists to have one answer to, and a
+/// test built on a copy of a rule cannot fail when the rule changes.
+///
+/// `EmptyView` for the inspector arm: this probe is about the statement panes,
+/// and mounting the real inspector would drag the whole binder-segment routing
+/// in behind it.
+@MainActor
+private struct BinderBesideThePaneProbeView: View {
+    let store: ProjectStore
+    let documentStore: DocumentStore
+    let subjectProbe: BinderSubjectProbe
+    let paneProbe: StatementProbeModel
+
+    @State private var outlineLayout: OutlineLayout = .table
+
+    private var subject: Binding<BinderSubject?> {
+        Binding(get: { subjectProbe.subject }, set: { subjectProbe.subject = $0 })
+    }
+
+    private var segment: Binding<DetailSegment> {
+        Binding(get: { paneProbe.detailSegment }, set: { paneProbe.detailSegment = $0 })
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            BinderView(store: store, selectedSubject: subject)
+                .frame(width: 260)
+            DetailPaneToggle(
+                store: store,
+                segment: segment,
+                outlineLayout: $outlineLayout,
+                selectedSubject: subject,
+                activeManuscriptItemId: subjectProbe.subject?.itemID,
+                // Plan registers BOTH statement panes, so neither `.intent` nor
+                // `.visualLanguage` is an out-of-persona selection here and
+                // `snapSegmentIntoPicker` has nothing to move. (Author registers
+                // `.intent` only — `.visualLanguage` is `—` for Author.)
+                persona: .plan,
+                projectURL: store.url,
+                activeDocId: BinderSubject.activeDocId(for: subjectProbe.subject),
+                documentStore: documentStore
+            ) {
+                EmptyView()
+            }
+        }
+    }
+}
+
 /// `StatementPane` with the binder selection driven by the probe, so a scope
 /// change happens on ONE live pane.
 @MainActor
@@ -333,6 +453,6 @@ private struct RebindableStatementPaneView: View {
     var body: some View {
         StatementPane(
             store: store, documentStore: documentStore,
-            kind: kind, activeDocumentId: probe.activeDocumentId)
+            kind: kind, subject: probe.subject)
     }
 }

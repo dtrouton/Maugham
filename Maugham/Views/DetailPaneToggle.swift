@@ -361,9 +361,15 @@ struct DetailPaneToggle<Inspector: View>: View {
     @ViewBuilder
     private func statementPane(kind: Statement.Kind) -> some View {
         if let ds = documentStore {
+            // The TYPED subject, not `activeManuscriptItemId` — a statement's
+            // scope is the one question in this file whose answer differs for
+            // "the project" and "nothing selected", and the `String?` boundary
+            // spells both `nil`. They still resolve alike; passing the subject
+            // is what lets that stay a decision rather than an accident
+            // (`StatementPane.effectiveScope`).
             StatementPane(
                 store: store, documentStore: ds, kind: kind,
-                activeDocumentId: activeManuscriptItemId)
+                subject: selectedSubject)
         } else {
             ContentUnavailableView(
                 "Open a project",

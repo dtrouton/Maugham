@@ -207,13 +207,20 @@ final class InspectorIntentAffordanceTests: XCTestCase {
             IntentAffordanceRow.scope(
                 selectedItemId: nil, in: store.manifest.structure),
             .project)
-        XCTAssertEqual(
-            IntentAffordanceRow.scope(
-                selectedItemId: chapter.id, in: store.manifest.structure),
-            StatementPane.effectiveScope(
-                kind: .intent, activeDocumentId: chapter.id,
-                structure: store.manifest.structure, prefersProjectScope: false),
-            "the two resolutions have drifted apart")
+
+        // **A third assertion stood here and it has been deleted rather than
+        // updated** (persona shell, slice 1, task 7). It compared
+        // `IntentAffordanceRow.scope` against `StatementPane.effectiveScope`
+        // with the same arguments, to catch the two "drifting apart". It could
+        // catch that while the row passed `prefersProjectScope: false` and the
+        // pane passed its own `@State` — a real second answer. With the switch
+        // gone the row's call is `effectiveScope`'s arguments verbatim, so the
+        // assertion was `f(x) == f(x)`: it cannot go red, and a test that
+        // cannot go red is worse than no test because it reads like cover. What
+        // it was protecting is now protected by construction — there is one
+        // resolution and the row calls it. The two above still say something:
+        // they pin this row's OWN mapping, `String?` to `BinderSubject?`, which
+        // is a line of code that can be wrong.
     }
 
     // MARK: - The Collection piece inspector (contract 3)
@@ -235,8 +242,8 @@ final class InspectorIntentAffordanceTests: XCTestCase {
 
         XCTAssertEqual(
             StatementPane.effectiveScope(
-                kind: .intent, activeDocumentId: piece.id,
-                structure: store.manifest.structure, prefersProjectScope: false),
+                kind: .intent, subject: .item(piece.id),
+                structure: store.manifest.structure),
             .document(piece.id),
             "the Intent pane would show the PROJECT's intent while the button "
             + "sat under this piece's heading")

@@ -94,7 +94,7 @@ final class StatementImageIngestTests: XCTestCase {
             kind: .visualLanguage, scope: .project)
         let assets = well(beside: statement, in: fixture.projectURL)
 
-        let window = await fixture.host(kind: .visualLanguage, activeDocumentId: nil)
+        let window = await fixture.host(kind: .visualLanguage, subject: nil)
         let textView = try fixture.textView(in: window)
 
         // Control: nothing is in the well and nothing is in the op log, so the
@@ -153,7 +153,7 @@ final class StatementImageIngestTests: XCTestCase {
             kind: .visualLanguage, scope: .project)
         let assets = well(beside: statement, in: fixture.projectURL)
 
-        let window = await fixture.host(kind: .visualLanguage, activeDocumentId: nil)
+        let window = await fixture.host(kind: .visualLanguage, subject: nil)
         let textView = try fixture.textView(in: window)
         XCTAssertEqual(textView.string, "", "control: the editor starts empty")
 
@@ -189,7 +189,7 @@ final class StatementImageIngestTests: XCTestCase {
         // exactly how the first draft of this test passed against the defect.
         XCTAssertNil(fixture.store.statement(kind: .visualLanguage, scope: .project))
 
-        let window = await fixture.host(kind: .visualLanguage, activeDocumentId: nil)
+        let window = await fixture.host(kind: .visualLanguage, subject: nil)
         let textView = try fixture.textView(in: window)
         try putImageOnTheClipboard()
         textView.paste(nil)
@@ -239,7 +239,7 @@ final class StatementImageIngestTests: XCTestCase {
                      "precondition: absence is valid and the pane mints nothing "
                      + "just because it was looked at (§4.3)")
 
-        let window = await fixture.host(kind: .visualLanguage, activeDocumentId: nil)
+        let window = await fixture.host(kind: .visualLanguage, subject: nil)
         let textView = try fixture.textView(in: window)
 
         try putImageOnTheClipboard()
@@ -270,7 +270,7 @@ final class StatementImageIngestTests: XCTestCase {
             kind: .intent, scope: .project)
         let assets = well(beside: statement, in: fixture.projectURL)
 
-        let window = await fixture.host(kind: .intent, activeDocumentId: nil)
+        let window = await fixture.host(kind: .intent, subject: nil)
         let textView = try fixture.textView(in: window)
 
         try putImageOnTheClipboard()
