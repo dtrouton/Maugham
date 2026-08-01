@@ -77,7 +77,9 @@ final class PromotionPerformerTests: XCTestCase {
     }
 
     private func index(_ store: ProjectStore) -> ArtifactIndex {
-        ArtifactIndex.over(research: store.manifest.research)
+        ArtifactIndex.over(research: store.manifest.research,
+                           statements: store.manifest.statements,
+                           structure: store.manifest.structure)
     }
 
     private func plan(_ source: PromotionSource, _ target: PromotionTarget,
@@ -98,6 +100,46 @@ final class PromotionPerformerTests: XCTestCase {
     private func item(_ title: String, in store: ProjectStore) throws -> ResearchItem {
         try XCTUnwrap(TreeWalk.first(in: store.manifest.research, where: { $0.title == title }))
     }
+
+    /// A novel with one real chapter — the shape a document-scoped intent needs,
+    /// and the one `makeProject`'s empty structure cannot supply. Kept beside
+    /// `makeProject` rather than shared with `PromotionPieceRoutingTests`: this
+    /// file's pattern is a per-file helper (see the type doc).
+    private func makeNovelWithAChapter() async throws -> (URL, ProjectStore) {
+        let (root, store) = try await makeProject()
+        try "Chapter 1\n".write(to: root.appendingPathComponent("manuscript/c1.md"),
+                                atomically: true, encoding: .utf8)
+        store.manifest.structure = [
+            StructureItem(id: "ch-1", title: "Chapter 1", type: .document,
+                          path: "manuscript/c1.md")]
+        try await store.saveManifest()
+        return (root, store)
+    }
+
+    // MARK: - A statement's text (M1A)
+
+    /// What a statement SAYS, read off its op log.
+    ///
+    /// **Never off the `.md`** (tripwire 20): the file is derived, so a
+    /// promotion that wrote straight to disk would read back identically here
+    /// and leave no history at all — which is exactly what
+    /// `test_thePromotedIntentArrivesAsOps` exists to catch.
+    private func statementText(_ statement: Statement, in root: URL) -> String {
+        let state = Deriver.deriveWithSequenceFallback(
+            ops: OpLogStore.loadSyncMerged(forDocId: statement.id, in: root))
+        return state.sequence
+            .compactMap { state.paragraphs[$0] }
+            .joined(separator: "\n\n")
+    }
+
+    private func intent(_ scope: Statement.Scope,
+                        in store: ProjectStore) throws -> Statement {
+        try XCTUnwrap(store.statement(kind: .intent, scope: scope),
+                      "no intent statement for \(scope.rawValue); the promotion "
+                      + "either wrote somewhere else or created nothing")
+    }
+
+
 
     // MARK: - Scrap → research note
 
@@ -351,18 +393,19 @@ final class PromotionPerformerTests: XCTestCase {
         XCTAssertEqual(updated.swatches, ["#112233"])
     }
 
-    /// The sharper variant: the craft-intent doc ACCUMULATES, so a research-note
-    /// "update" over it replaces the writer's whole intent statement with one
-    /// card — which is precisely what excluding `.intentStatement` from
-    /// `updatableTargets` exists to prevent, arriving through the other door.
+    /// The sharper variant: the intent statement ACCUMULATES, so a research-note
+    /// "update" over it replaces the writer's whole intent with one card — which
+    /// is precisely what excluding `.intentStatement` from `updatableTargets`
+    /// exists to prevent, arriving through the other door.
     func test_aResearchNotePromotionCannotOverwriteTheCraftIntent() async throws {
         let (root, store) = try await makeProject()
         let model = makeModel(at: root)
         let performer = PromotionPerformer(store: store, model: model)
         _ = try await performer.perform(
             plan(.scrap(a), .intentStatement, store: store, model: model))
-        let intent = try XCTUnwrap(store.craftIntentItem(forPieceId: nil))
-        let before = try body(of: intent, in: root)
+        let statement = try intent(.project, in: store)
+        let before = statementText(statement, in: root)
+        XCTAssertFalse(before.isEmpty, "the control: there is prose to be lost")
 
         XCTAssertNil(Promotion.existingArtifact(for: .scrap(a), target: .researchNote,
                                                 in: model.scene, artifacts: index(store)))
@@ -371,13 +414,13 @@ final class PromotionPerformerTests: XCTestCase {
             body: "one card's worth of text",
             destinationDescription: "the existing “Craft Intent”", discards: [],
             offeredLinks: [], wikiLinkWrite: nil,
-            mode: .update(itemID: intent.id, title: "Craft Intent"),
+            mode: .update(itemID: statement.id, title: "Craft Intent"),
             paletteKind: .other, contributors: [], linkAlreadyPresent: false, pictures: [])
         do {
             _ = try await performer.perform(overwrite)
             XCTFail("expected a refusal")
         } catch PromotionFailure.artifactIsADifferentKind {}
-        XCTAssertEqual(try body(of: intent, in: root), before,
+        XCTAssertEqual(statementText(statement, in: root), before,
                        "the writer's accumulated intent statement is untouched")
     }
 
@@ -440,9 +483,13 @@ final class PromotionPerformerTests: XCTestCase {
                        + "is worse than one that refuses")
     }
 
-    // MARK: - Scrap → craft intent
+    // MARK: - Scrap → the intent statement (M1A)
 
-    func test_promotingToAnIntentAppendsRatherThanReplacing() async throws {
+    /// **In order, not merely both present.** A test that asserted only
+    /// "contains A and contains B" passes on an append that puts the second
+    /// promotion in front of the first — which is a statement whose reading
+    /// order is not the order the writer wrote it in.
+    func test_promotingTwiceAppendsRatherThanReplacing() async throws {
         let (root, store) = try await makeProject()
         let model = makeModel(at: root)
         let performer = PromotionPerformer(store: store, model: model)
@@ -451,14 +498,132 @@ final class PromotionPerformerTests: XCTestCase {
         _ = try await performer.perform(
             plan(.scrap(b), .intentStatement, store: store, model: model))
 
-        let intent = try XCTUnwrap(store.craftIntentItem(forPieceId: nil))
-        let text = try body(of: intent, in: root)
-        XCTAssertTrue(text.contains("Sodium light on the spray."))
-        XCTAssertTrue(text.contains("October's doctor"),
-                      "an intent doc accumulates; the second statement must not "
-                      + "replace the first")
-        XCTAssertEqual(TreeWalk.collect(in: store.manifest.research,
-                                        where: { $0.role == .craftIntent }).count, 1)
+        let text = statementText(try intent(.project, in: store), in: root)
+        let first = try XCTUnwrap(text.range(of: "Sodium light on the spray."),
+                                  "the first promotion's words are gone — found: \(text)")
+        let second = try XCTUnwrap(text.range(of: "October's doctor"),
+                                   "an intent accumulates; the second promotion "
+                                   + "must not replace the first — found: \(text)")
+        XCTAssertTrue(first.lowerBound < second.lowerBound,
+                      "the second promotion goes at the END of what is already "
+                      + "there, which is what the sheet promised — found: \(text)")
+        XCTAssertEqual(store.manifest.statements.count, 1,
+                       "one statement per scope; a second is the writer's intent "
+                       + "silently split in two")
+    }
+
+    /// Contract 3: the append goes through the OP LOG, not through a file write.
+    ///
+    /// A direct write to the `.md` looks identical on screen and in
+    /// `statementText` — the `.md` is derived from these very ops — and leaves
+    /// the writer's intent with no history, no undo and nothing to merge across
+    /// devices. The op file is the only place the difference shows.
+    func test_thePromotedIntentArrivesAsOps() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        _ = try await PromotionPerformer(store: store, model: model)
+            .perform(plan(.scrap(a), .intentStatement, store: store, model: model))
+
+        let statement = try intent(.project, in: store)
+        let ops = OpLogStore.loadSyncMerged(forDocId: statement.id, in: root)
+        XCTAssertFalse(ops.isEmpty,
+                       "nothing in .maugham/ops/\(statement.id)*.jsonl — the body "
+                       + "was written straight to the file")
+        XCTAssertTrue(
+            ops.contains { op in
+                op.changes.contains { ($0.next ?? "").contains("Sodium light on the spray.") }
+            },
+            "the promoted words are not in any op — found \(ops.count) op(s)")
+    }
+
+    /// Contract 6: the mark a promotion leaves must still RESOLVE once it names
+    /// a statement rather than a research item.
+    ///
+    /// Two readers, because they fail differently and a fix for one need not fix
+    /// the other: the inspector renders `.artifactMissing` ("what it produced is
+    /// no longer in the project") over prose that is right there, and a line
+    /// promotion between two such cards is refused as dangling — told to promote
+    /// again something that worked.
+    ///
+    /// Falsified by leaving `ArtifactIndex` research-only.
+    func test_aCardPromotedToIntentStillResolvesItsMark() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        for id in [a, b] {
+            _ = try await performer.perform(
+                plan(.scrap(id), .intentStatement, store: store, model: model))
+        }
+
+        let mark = try XCTUnwrap(model.scene.node(a)?.promotedItemID,
+                                 "a promoted card must carry a mark: it is what "
+                                 + "draws the stripe and what VoiceOver speaks")
+        let artifacts = index(store)
+        let provenance = PromotedArtifactSection.provenance(
+            promotedItemID: mark, contributedToItemID: nil,
+            title: { artifacts.title(of: $0) })
+        switch provenance.artifact {
+        case .promoted: break
+        default:
+            XCTFail("the inspector says the writer's intent was deleted: "
+                    + "\(provenance.artifact)")
+        }
+
+        let refusal = Promotion.blockedReason(
+            for: .line(l1), in: model.scene, scraps: model.scraps, artifacts: artifacts)
+        if let refusal, refusal.contains("no longer in the project") {
+            XCTFail("a line between two cards promoted to intent is refused as "
+                    + "dangling, and told to promote again what worked: \(refusal)")
+        }
+    }
+
+    /// Contract 7: a promotion must not become the SECOND live `Document` on the
+    /// statement's path while its pane is open.
+    ///
+    /// **The honest failure is lost words, not a crash.** Two `Document`s on one
+    /// path each hold their own paragraph state; whichever writes last decides
+    /// the sequence. So the writer types, promotes a card, types again — and the
+    /// promoted paragraph is not in the pane's sequence, so the pane's next burst
+    /// writes it out of the statement. The assertion is therefore on what the
+    /// statement says AFTER the pane has flushed: all three, in order.
+    ///
+    /// Driven through the real pane in a real window (`StatementMountFixture`)
+    /// rather than by hand, because it is the pane's own live `Document` that is
+    /// the hazard.
+    func test_promotingWhileTheIntentPaneIsOpenDoesNotOpenASecondDocument() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "promote-intent")
+        defer { fixture.tearDown() }
+        let window = await fixture.host(kind: .intent, activeDocumentId: nil)
+        let textView = try fixture.textView(in: window)
+        await fixture.type("Typed first.", into: textView)
+
+        let model = makeModel(at: fixture.projectURL)
+        _ = try await PromotionPerformer(store: fixture.store, model: model)
+            .perform(plan(.scrap(a), .intentStatement,
+                          store: fixture.store, model: model))
+
+        // **The runloop turn every real keystroke has already had.** `type`
+        // drives `shouldChangeText`/`didChangeText` synchronously from the test's
+        // own main-actor code, so without this the "keystroke" reaches the text
+        // view before SwiftUI has processed the update the promotion posted —
+        // which is not a race a writer can win at a keyboard, where the key event
+        // and the update are both delivered by this loop. Removing the pane's
+        // refresh still fails this test, which is what keeps the wait honest.
+        await fixture.waitOut(0.2)
+
+        // The writer carries on typing in the pane — the act that makes a second
+        // Document, or an unrefreshed one, cost them the promotion rather than
+        // merely look odd.
+        await fixture.type(" Typed last.", into: textView)
+        let statement = try intent(.project, in: fixture.store)
+        try await fixture.settle(window, expectingOpsFor: statement.id)
+
+        let text = fixture.derivedText(forDocId: statement.id)
+        XCTAssertTrue(text.contains("Typed first."), "found: \(text)")
+        XCTAssertTrue(text.contains("Sodium light on the spray."),
+                      "the promotion was written out of the statement by the "
+                      + "pane's own Document — found: \(text)")
+        XCTAssertTrue(text.contains("Typed last."), "found: \(text)")
     }
 
     // MARK: - Region → palette card, and the offer (§6.1)
@@ -683,16 +848,16 @@ final class PromotionPerformerTests: XCTestCase {
     }
 
     /// The control for the test above: an EMPTY destination is not a failure.
-    /// `addResearchTextNote` writes a zero-byte file and the craft intent is
-    /// created empty, so a `readBody` that threw on absence would refuse the
-    /// first promotion a writer ever makes.
+    /// `addResearchTextNote` writes a zero-byte file and a statement is created
+    /// empty too, so a `readBody` that threw on absence would refuse the first
+    /// promotion a writer ever makes.
     func test_anEmptyDestinationIsWrittenRatherThanRefused() async throws {
         let (root, store) = try await makeProject()
         let model = makeModel(at: root)
         _ = try await PromotionPerformer(store: store, model: model)
             .perform(plan(.scrap(a), .intentStatement, store: store, model: model))
-        let intent = try XCTUnwrap(store.craftIntentItem(forPieceId: nil))
-        XCTAssertTrue(try body(of: intent, in: root).contains("Sodium light on the spray."))
+        XCTAssertTrue(statementText(try intent(.project, in: store), in: root)
+                        .contains("Sodium light on the spray."))
     }
 
     /// The other half of `readBody`'s "absent is not unreadable" rule, and the
@@ -853,8 +1018,50 @@ final class PromotionPerformerTests: XCTestCase {
         var p = plan(.scrap(a), .intentStatement, store: store, model: model)
         p.title = ""
         _ = try await PromotionPerformer(store: store, model: model).perform(p)
-        let intent = try XCTUnwrap(store.craftIntentItem(forPieceId: nil))
-        XCTAssertTrue(try body(of: intent, in: root).contains("Sodium light on the spray."))
+        XCTAssertTrue(statementText(try intent(.project, in: store), in: root)
+                        .contains("Sodium light on the spray."))
+    }
+
+    // MARK: - The scope is the source's own document (M1A, contract 2)
+
+    /// **The defect's grave, on the promotion path.** `intentPiece` took the
+    /// piece only where the routing was `.pieceFolder` — a collection loose
+    /// piece — because the old lookup found an intent doc by the piece's
+    /// research PATH PREFIX, which a novel chapter has none of. A statement is
+    /// found by SCOPE, so a chapter's intent is the chapter's.
+    ///
+    /// Falsified by restoring that guard: the scope becomes `.project` and this
+    /// dies on the unwrap.
+    func test_aScrapPromotedOnANovelChapterLandsOnThatChaptersIntent() async throws {
+        let (root, store) = try await makeNovelWithAChapter()
+        let model = makeModel(at: root)
+        model.withScene { $0.setBoundPiece("ch-1", for: a) }
+        _ = try await PromotionPerformer(store: store, model: model)
+            .perform(plan(.scrap(a), .intentStatement, store: store, model: model))
+
+        let chapters = try intent(.document("ch-1"), in: store)
+        XCTAssertTrue(statementText(chapters, in: root)
+                        .contains("Sodium light on the spray."))
+        XCTAssertNil(store.statement(kind: .intent, scope: .project),
+                     "and the PROJECT's intent was not the one written to — that "
+                     + "is the writer's chapter note in the book's statement")
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: "ch-1"), [],
+                       "the intent takes the SCOPE and never the link: linking a "
+                       + "statement to a chapter misrepresents what it is")
+    }
+
+    /// The control that says the rule narrowed nothing away: a card with no
+    /// piece association still lands on the project's intent, in the same
+    /// project shape.
+    func test_aScrapWithNoPieceStillLandsOnTheProjectsIntent() async throws {
+        let (root, store) = try await makeNovelWithAChapter()
+        let model = makeModel(at: root)
+        _ = try await PromotionPerformer(store: store, model: model)
+            .perform(plan(.scrap(a), .intentStatement, store: store, model: model))
+
+        XCTAssertTrue(statementText(try intent(.project, in: store), in: root)
+                        .contains("Sodium light on the spray."))
+        XCTAssertNil(store.statement(kind: .intent, scope: .document("ch-1")))
     }
 
     /// The control: an EMPTY BODY is still refused for an intent, so dropping

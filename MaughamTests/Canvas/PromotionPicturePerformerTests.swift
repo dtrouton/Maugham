@@ -86,7 +86,9 @@ final class PromotionPicturePerformerTests: XCTestCase {
     }
 
     private func index(_ store: ProjectStore) -> ArtifactIndex {
-        ArtifactIndex.over(research: store.manifest.research)
+        ArtifactIndex.over(research: store.manifest.research,
+                           statements: store.manifest.statements,
+                           structure: store.manifest.structure)
     }
 
     private func plan(_ node: CanvasNodeID, _ target: PromotionTarget,

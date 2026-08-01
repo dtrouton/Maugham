@@ -341,7 +341,7 @@ final class PromotionPictureTests: XCTestCase {
             ResearchItem(id: "res-pdf", title: "A score", type: .asset, kind: .pdf,
                          path: "research/a-score.pdf"),
         ]
-        let index = ArtifactIndex.over(research: research)
+        let index = ArtifactIndex.over(research: research, statements: [], structure: [])
         XCTAssertEqual(index.kind(of: "res-img"), .researchAsset)
         XCTAssertEqual(index.kind(of: "res-pdf"), .researchAsset)
         XCTAssertEqual(index.kind(of: "res-note"), .researchNote,

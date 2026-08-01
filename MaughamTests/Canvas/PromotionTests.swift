@@ -414,7 +414,8 @@ final class PromotionTests: XCTestCase {
                                   role: .craftIntent)
         let note = ResearchItem(id: "res-note", title: "The falls at night", type: .asset,
                                 kind: .document, path: "research/the-falls-at-night.md")
-        return ArtifactIndex.over(research: [group, intent, note])
+        return ArtifactIndex.over(research: [group, intent, note],
+                                  statements: [], structure: [])
     }
 
     func test_theIndexSaysWhatKindOfArtifactEachIdNames() {
@@ -578,7 +579,7 @@ final class PromotionTests: XCTestCase {
                                  kind: .document, path: "research/g/child.md", addedAt: Date())
         let group = ResearchItem(id: "res-grp", title: "Group", type: .group,
                                  path: "research/g", addedAt: Date(), children: [child])
-        let idx = ArtifactIndex.over(research: [group])
+        let idx = ArtifactIndex.over(research: [group], statements: [], structure: [])
         XCTAssertEqual(idx.title(of: "res-child"), "Child")
         XCTAssertEqual(idx.title(of: "res-grp"), "Group")
         XCTAssertNil(idx.title(of: "res-nope"))

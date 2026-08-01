@@ -327,23 +327,35 @@ final class PromotionDestinationTests: XCTestCase {
             + "naming the piece here would describe a move that does not happen")
     }
 
-    /// The craft intent takes the SCOPE and never the link, and only where the
-    /// routing is `.pieceFolder` — so the copy has exactly two shapes, matching
-    /// `PromotionPerformer.intentPiece`.
-    func test_theCraftIntentNamesThePieceOnlyWhereItIsScopedToOne() {
-        XCTAssertEqual(
-            plan(.intentStatement,
-                 piece: .routed(id: "p", title: "Story A", route: .ownResearch))
-                .destinationDescription,
-            "“Story A”’s craft intent, at the end of what is already there")
-        XCTAssertEqual(
-            plan(.intentStatement,
-                 piece: .routed(id: "p", title: "Chapter Three", route: .sharedPlusLink))
-                .destinationDescription,
-            "the project's craft intent, at the end of what is already there",
-            "an intent doc created under a novel chapter's shared+link routing "
-            + "could never be found again, so it is the project's — and the copy "
-            + "says the project's")
+    /// The craft intent takes the SCOPE and never the link, on **every routed
+    /// row** — matching `PromotionPerformer.intentScope` (M1A).
+    ///
+    /// This test used to assert the opposite for the two shared-research routes,
+    /// on the stated grounds that a chapter's intent doc "could never be found
+    /// again"; a statement is found by scope in the manifest, so it can. Left as
+    /// it was, the sheet would promise a novel chapter the project's intent
+    /// while the performer wrote the chapter's — §6.1's own failure.
+    func test_theCraftIntentNamesThePieceOnEveryRoutedRow() {
+        for (route, title) in [(PromotionPiece.Route.ownResearch, "Story A"),
+                               (.sharedPlusLink, "Chapter Three"),
+                               (.sharedOnly, "The short one")] {
+            XCTAssertEqual(
+                plan(.intentStatement, piece: .routed(id: "p", title: title, route: route))
+                    .destinationDescription,
+                "“\(title)”’s craft intent, at the end of what is already there")
+        }
+    }
+
+    /// The other half of that rule, and the one that keeps it from being "always
+    /// the piece": an association the router refuses falls back to the project's
+    /// intent, which is exactly what the performer does with it.
+    func test_theCraftIntentNamesTheProjectWhenThereIsNoRoutedPiece() {
+        for piece: PromotionPiece in [
+            .none, .unroutable(id: "ref-1", title: "Elsewhere", inherited: false)] {
+            XCTAssertEqual(
+                plan(.intentStatement, piece: piece).destinationDescription,
+                "the project's craft intent, at the end of what is already there")
+        }
     }
 
     // MARK: - A stale association is refused, in the same words, on both sides

@@ -28,6 +28,10 @@ private let _statementEditorLog = Logger(
 final class StatementTextTarget {
 
     private(set) var document: Document?
+    /// The statement the bound `Document` belongs to, so the host can withdraw
+    /// its registration from `ProjectStore` without threading the id through a
+    /// second piece of view state.
+    private(set) var statementID: String?
     private(set) var draft = ""
 
     /// Fired on every write that lands in `draft` — i.e. while the statement
@@ -60,12 +64,13 @@ final class StatementTextTarget {
     /// triggered — the words typed before the file existed belong in its first
     /// op. It must be false when binding a statement that already has content,
     /// or an empty draft would overwrite what the writer wrote last week.
-    func bind(_ document: Document, carryingDraft: Bool) {
+    func bind(_ document: Document, id: String, carryingDraft: Bool) {
         if carryingDraft, !draft.isEmpty {
             document.setFullText(draft)
         }
         draft = ""
         self.document = document
+        self.statementID = id
     }
 
     /// Let go of the previous scope's `Document` and its draft.
@@ -78,6 +83,7 @@ final class StatementTextTarget {
     /// reference.
     func release() {
         document = nil
+        statementID = nil
         draft = ""
     }
 }
@@ -194,6 +200,11 @@ struct StatementEditorHost: View {
             // Leaving the pane (a segment switch, a persona switch, window
             // close) flushes the pending typing burst. `Document.close()` is
             // idempotent, so a spurious fire costs nothing.
+            //
+            // The registration goes first: a `Document` on its way to being
+            // closed must stop being the one a promotion writes into, and the
+            // close below is asynchronous.
+            if let id = target.statementID { store.forgetStatementDocument(id: id) }
             if let document = target.document {
                 Task { await document.close() }
             }
@@ -207,6 +218,7 @@ struct StatementEditorHost: View {
         // fire-and-forget: NSApplication may give us ~100ms. The real
         // crash-safety net for both is `PendingBuffer`'s 750ms disk mirror.
         .onGlobalEvent(.maughamAppWillTerminate) { _ in
+            if let id = target.statementID { store.forgetStatementDocument(id: id) }
             if let document = target.document {
                 Task { await document.close() }
             }
@@ -287,6 +299,9 @@ struct StatementEditorHost: View {
         // no scope, so it never re-enters here — instrumented and confirmed.
         resolvedScope = nil
         if let prior = target.document {
+            // Withdrawn BEFORE the close, so no window exists in which the
+            // registry offers a `Document` that is on its way to being a husk.
+            if let id = target.statementID { store.forgetStatementDocument(id: id) }
             await prior.close()
         }
         // A cancelled reconcile has been superseded by another scope change; its
@@ -337,7 +352,13 @@ struct StatementEditorHost: View {
                 device: Self.deviceId,
                 session: Self.sessionId,
                 presenter: documentStore.presenter)
-            target.bind(document, carryingDraft: carryingDraft)
+            target.bind(document, id: statement.id, carryingDraft: carryingDraft)
+            // **Announce it, or a promotion opens a second `Document` on this
+            // path** (M1A Task 7). A statement is in no `DocumentStore` registry
+            // by design, so this is the only way anything else can find the one
+            // the writer is typing into. Registered AFTER `bind`, so the
+            // registry never names a `Document` the pane has not taken.
+            store.noteStatementDocumentOpened(document, id: statement.id)
             return true
         } catch {
             _statementEditorLog.error(

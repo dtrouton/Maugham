@@ -3,7 +3,9 @@ import MaughamCore
 
 /// What a promotion produced.
 struct PromotionResult: Equatable {
-    /// The artifact's research-item id.
+    /// The artifact's id — a research item's, or, since M1A, an intent
+    /// `Statement`'s. Both are resolved through `ArtifactIndex`, which is what
+    /// makes a mark carrying either one meaningful to every reader of it.
     let createdItemID: String?
     /// The artifact's title AS CREATED — `addResearchTextNote` dedupes, so this
     /// is not always the title the writer typed.
@@ -259,6 +261,25 @@ struct PromotionPerformer {
     let store: ProjectStore
     let model: CanvasModel
 
+    /// The live index over BOTH artifact registries, read off the manifest at
+    /// the moment it is asked.
+    ///
+    /// **A property rather than a value threaded in**, because a plan is a
+    /// snapshot taken when the sheet opened and every reader here is deliberately
+    /// re-reading the manifest at Commit — the artifact can have changed kind, or
+    /// gone, in between.
+    private var artifacts: ArtifactIndex {
+        ArtifactIndex.over(research: store.manifest.research,
+                           statements: store.manifest.statements,
+                           structure: store.manifest.structure)
+    }
+
+    /// A manuscript document's title, for the one thing that needs it: naming a
+    /// document-scoped statement (`ArtifactIndex.statementTitle`).
+    private func documentTitle(_ id: String) -> String? {
+        TreeWalk.collect(in: store.manifest.structure, where: { $0.id == id }).first?.title
+    }
+
     func perform(_ plan: PromotionPlan) async throws -> PromotionResult {
         try validate(plan)
         switch plan.producedKind {
@@ -334,8 +355,13 @@ struct PromotionPerformer {
                 else { throw PromotionFailure.paletteCardIsGone }
             }
         }
-        if case .update(let itemID, _) = plan.mode,
-           TreeWalk.find(id: itemID, in: store.manifest.research) == nil {
+        // Asked of the index rather than of `manifest.research` directly, and
+        // the difference is one case: since M1A a mark can name a STATEMENT, and
+        // a research-only existence check would refuse that update as
+        // `artifactMissing` — "no longer in the project", said of the writer's
+        // intent, which is right there — instead of letting
+        // `refuseIfNotAResearchNote` say what it actually is.
+        if case .update(let itemID, _) = plan.mode, artifacts.title(of: itemID) == nil {
             throw PromotionFailure.artifactMissing(itemID)
         }
         // **A stale association, refused here rather than inside
@@ -364,14 +390,17 @@ struct PromotionPerformer {
     /// `.artifactMissing` when the id is not a palette card, and craft intent is
     /// not updatable at all.
     private func refuseIfNotAResearchNote(_ itemID: String) throws {
-        switch ArtifactIndex.over(research: store.manifest.research).kind(of: itemID) {
+        switch artifacts.kind(of: itemID) {
         case .researchNote, nil: return   // nil is `artifactMissing`'s case, thrown by `validate`
         case .paletteCard:
             throw PromotionFailure.artifactIsADifferentKind(itemID: itemID,
                                                             found: "a palette card")
         case .craftIntent:
+            // "a craft intent" rather than "the project's": since M1A a chapter
+            // has one of its own, so naming the project's would be wrong about
+            // which artifact was spared.
             throw PromotionFailure.artifactIsADifferentKind(itemID: itemID,
-                                                            found: "the project's craft intent")
+                                                            found: "a craft intent")
         case .researchAsset:
             // Not reachable from the UI — nothing offers an Update against a
             // picture's mark — and the cheapest possible insurance against the
@@ -495,39 +524,98 @@ struct PromotionPerformer {
         return PromotionResult(createdItemID: itemID, title: title, writtenLinks: written)
     }
 
+    /// Add this card's words to the end of an intent statement (M1A).
+    ///
+    /// **The statement is found by SCOPE, and the scope is the source's own
+    /// document.** Nothing here reads a path prefix, which is what the old craft
+    /// intent was located by and what forced its narrowing rule — see
+    /// `intentScope` for the rule that replaced it.
     private func performCraftIntent(_ plan: PromotionPlan) async throws -> PromotionResult {
-        // Find-or-create, idempotent: one intent doc per scope — and the scope
-        // takes the piece ONLY where the routing is `.pieceFolder`.
-        //
-        // **Not a shrug at the other rows: the lookup cannot find them.**
-        // `craftIntentItem(forPieceId:)` locates an existing intent doc by the
-        // piece's research PREFIX (`ResearchScope.pieceResearchPrefix`), which is
-        // nil for anything that is not a collection loose piece. An intent doc
-        // created under a novel chapter's `.sharedPlusLink` would land in shared
-        // `research/` where that lookup never looks, so the next promotion would
-        // find nothing and mint a second one — the writer's intent statement
-        // silently split in two. And the intent takes the scope and never the
-        // link (§6.2): linking the PROJECT's intent to one chapter misrepresents
-        // what it is.
-        let item = try await store.createCraftIntent(forPieceId: intentPiece(plan.source))
-        guard let path = item.path else { throw PromotionFailure.itemHasNoFile(item.id) }
-        // AFTER the flush, so what we append to is what is on disk.
-        try? await store.documentStore?.flushPendingSave()
-        let existing = try readBody(atPath: path)
-        let joined = existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? plan.body
-            : existing + "\n\n" + plan.body
-        try await write(joined, toPath: path)
+        // Find-or-create, idempotent: one statement per (kind, scope).
+        let statement = try await store.createStatement(kind: .intent,
+                                                        scope: intentScope(plan.source))
+        try await append(plan.body, to: statement)
         // `plan.contributors` rather than `[]`, and it is not defensive padding:
         // only a scrap can reach an intent statement today (`Promotion.targets`
         // offers a region `.researchNote` and `.paletteCard` only), so this list
         // is always empty — but writing `[]` here would be a second rule about
         // who records, and if a region ever gains this target the second rule is
         // the one that would silently be wrong.
-        mark(item.id, for: plan.source, named: "Promote Scrap",
+        mark(statement.id, for: plan.source, named: "Promote Scrap",
              contributors: plan.contributors)
-        return PromotionResult(createdItemID: item.id, title: item.title, writtenLinks: [])
+        return PromotionResult(createdItemID: statement.id,
+                               title: ArtifactIndex.statementTitle(
+                                statement, documentTitle: documentTitle),
+                               writtenLinks: [])
     }
+
+    /// Put `text` at the end of a statement, **through its op log**.
+    ///
+    /// There is no read-back-from-disk and no flush dance here, and their
+    /// absence is the point: the op log is the source of truth (ADR 0019), so
+    /// the prior text is the `Document`'s own and a queued 750 ms save cannot
+    /// race an append the way it races a whole-file write.
+    ///
+    /// **The live `Document` FIRST, and never a second one on the same path.**
+    /// A statement's `Document` is deliberately in no `DocumentStore` registry
+    /// (spec §8, `StatementEditorHost`), so `document(forDocId:)` cannot find an
+    /// open statement — and `.intent` is a pane of the Plan persona, the persona
+    /// the canvas lives in, so the writer really can have this statement open in
+    /// the right column while promoting a card in the centre. Two `Document`s on
+    /// one path each hold their own paragraph state and their own
+    /// `PendingBuffer`; whichever writes last decides the sequence, so the
+    /// promoted paragraph is written back out of the statement by the pane's
+    /// next burst. `ProjectStore.openStatementDocument(id:)` is the seam both
+    /// sides go through, and the lookup-plus-write below does not suspend, so
+    /// the pane cannot close its `Document` between them.
+    ///
+    /// **The open pane redraws off the shared `Document` with no push from
+    /// here, and that is measured rather than assumed** (2026-08-01). It is not
+    /// obvious: `StatementEditorHost.body` deliberately reads no text, so the
+    /// expectation was that nothing would invalidate it — the first cut of this
+    /// added an out-of-band-change event for the pane to service. Instrumented,
+    /// SwiftUI's observation reaches the binding's own `get` inside
+    /// `EditorSurface.updateNSView`, so writing `displayText` re-renders the host
+    /// and the buffer swaps through the one sanctioned `applyExternalText` site.
+    /// The event was deleted as machinery nothing needed;
+    /// `test_promotingWhileTheIntentPaneIsOpenDoesNotOpenASecondDocument` is what
+    /// holds the OUTCOME — the writer's next keystroke does not write the
+    /// promotion back out — so if that ever stops being true it goes red rather
+    /// than the loss being silent.
+    ///
+    /// `Document.load` stays the only construction path (hard invariant;
+    /// `BootstrapWiringTests`).
+    private func append(_ text: String, to statement: Statement) async throws {
+        if let live = store.openStatementDocument(id: statement.id) {
+            live.setFullText(appending(text, to: live.displayText))
+            // Durable now rather than on the pane's own debounce: a promotion is
+            // an act the writer has committed to, and the banner says it landed.
+            try? await live.flushBurstNow()
+            return
+        }
+        let document = try await Document.load(
+            url: store.url.appendingPathComponent(statement.path),
+            device: MacDeviceID.current,
+            session: Self.promotionSession,
+            presenter: store.documentStore?.presenter)
+        document.setFullText(appending(text, to: document.displayText))
+        // Awaited, unlike `withAnnotationDocument`'s fire-and-forget close: that
+        // path has already appended its ops itself, and this one's words are
+        // still in the pending buffer until the close flushes it.
+        await document.close()
+    }
+
+    /// A blank line between what is there and what is arriving, and nothing at
+    /// all in front of the first promotion into an empty statement.
+    private func appending(_ text: String, to existing: String) -> String {
+        existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? text
+            : existing + "\n\n" + text
+    }
+
+    /// Session id for the ops a promotion writes when no pane has the statement
+    /// open. Stable for the launch, like every other session stamp.
+    private static let promotionSession = "promotion-\(UUID().uuidString)"
 
     private func performWikiLink(_ plan: PromotionPlan) async throws -> PromotionResult {
         guard let link = plan.wikiLinkWrite else { throw PromotionFailure.missingWikiLinkWrite }
@@ -713,8 +801,10 @@ struct PromotionPerformer {
                        atomically: true, encoding: .utf8)
     }
 
-    /// What is already in the destination, for the three paths that APPEND to it
-    /// and write the result back.
+    /// What is already in the destination, for the paths that APPEND to it and
+    /// write the result back — `performWikiLink` and `writeOfferedLinks`.
+    /// (`performCraftIntent` was a third until M1A; a statement is appended to
+    /// through its op log, which has no read-back-and-rewrite step to be raced.)
     ///
     /// **"Absent" and "unreadable" are not the same answer, and a `try?` cannot
     /// tell them apart.** No file at that URL is legitimately empty — a
@@ -769,15 +859,32 @@ struct PromotionPerformer {
         return documentID
     }
 
-    /// The piece a craft intent is scoped to: the source's, but only where it
-    /// routes to `.pieceFolder`. See `performCraftIntent` for why the other rows
-    /// must be project scope rather than a piece the lookup could never find
-    /// again.
-    private func intentPiece(_ source: PromotionSource) -> String? {
+    /// The scope an intent statement is found in: the source's own piece, on
+    /// **every** routed row.
+    ///
+    /// **The narrowing rule died with the defect it existed for** (M1A). This
+    /// returned a piece only where `researchRouting` answered `.pieceFolder` —
+    /// a Collection loose piece — because `craftIntentItem(forPieceId:)` located
+    /// an existing intent doc by that piece's research PATH PREFIX, which a
+    /// novel chapter has none of: a chapter's intent doc would land in shared
+    /// `research/` where the lookup never looked, and the next promotion would
+    /// mint a second one. A statement is found by scope in the manifest, so
+    /// there is no prefix to be nil and a chapter's intent is the chapter's.
+    ///
+    /// **What survives is the fallback, and it is a ruling rather than a
+    /// leftover.** A piece the router refuses — deleted since, a group, a
+    /// Collection *reference* piece whose research belongs to its own project —
+    /// scopes to the project. `Promotion.pieceFailure` says so from the other
+    /// side: `.intentStatement` is deliberately not a `scopedTarget`, "the craft
+    /// intent falls back to project scope by design", so refusing here would
+    /// make a stale association cost the writer a promotion that has always
+    /// worked. `isResearchScopeTarget` is the exact predicate:
+    /// `createStatement`'s own guard (a `.document` in this project's structure)
+    /// is strictly weaker, so anything it accepts this has already accepted.
+    private func intentScope(_ source: PromotionSource) -> Statement.Scope {
         guard let piece = Promotion.piece(for: source, in: model.scene),
-              let routing = try? store.researchRouting(forDocumentId: piece),
-              case .pieceFolder(let pieceID) = routing else { return nil }
-        return pieceID
+              store.isResearchScopeTarget(piece) else { return .project }
+        return .document(piece)
     }
 
     // MARK: - The mark

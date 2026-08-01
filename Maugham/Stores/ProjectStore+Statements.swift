@@ -14,6 +14,42 @@ import MaughamCore
 /// There is no prefix here, so there is nothing to be nil.
 extension ProjectStore {
 
+    // MARK: - The one live Document per statement
+
+    /// Record that a pane has this statement's `Document` open.
+    ///
+    /// Called by `StatementEditorHost` the moment it binds one. Everything else
+    /// that writes into a statement asks `openStatementDocument(id:)` FIRST and
+    /// only loads its own when the answer is nil — see that property's storage
+    /// on `ProjectStore` for what two live `Document`s on one path cost.
+    func noteStatementDocumentOpened(_ document: Document, id: String) {
+        openStatementDocuments[id] = OpenStatementDocument(document)
+    }
+
+    /// Drop a pane's registration. Hygiene rather than correctness — the entry
+    /// is weak and the read below refuses a closed `Document` — but a registry
+    /// that is only ever added to is one nobody can reason about.
+    func forgetStatementDocument(id: String) {
+        openStatementDocuments[id] = nil
+    }
+
+    /// The live `Document` for a statement, or nil.
+    ///
+    /// **Nil for a CLOSED one, and that is the load-bearing half.** A pane that
+    /// has gone away closes its `Document` and may still hold the reference
+    /// (`.onDisappear` closes but does not release), so a registry that answered
+    /// with a husk would send an append into `setFullText`'s closed-doc no-op.
+    /// Nil sends the caller down its own transient-load path, which is correct
+    /// because there is no longer a second live `Document` to collide with.
+    func openStatementDocument(id: String) -> Document? {
+        guard let document = openStatementDocuments[id]?.document else {
+            openStatementDocuments[id] = nil
+            return nil
+        }
+        guard !document.isClosed else { return nil }
+        return document
+    }
+
     /// The statement for a scope, or nil. **Absence is valid**: this mints
     /// nothing, stamps nothing and logs nothing — unlike `craftIntentItem`,
     /// which lazily healed a legacy identity on read, a statement's identity is
@@ -112,4 +148,17 @@ extension ProjectStore {
         }
         return free + suffix
     }
+}
+
+/// A **weak** handle to the `Document` a statement pane has open.
+///
+/// Weak because the PANE owns it: `StatementEditorHost` holds the strong
+/// reference for as long as it is showing that scope, closes it on the way out,
+/// and an entry outliving that would hand a writer's promotion a husk to write
+/// into — `Document.setFullText` no-ops on a closed doc, so the words would go
+/// nowhere and nothing would be red.
+@MainActor
+final class OpenStatementDocument {
+    weak var document: Document?
+    init(_ document: Document) { self.document = document }
 }

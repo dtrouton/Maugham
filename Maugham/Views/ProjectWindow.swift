@@ -1344,7 +1344,7 @@ struct ProjectWindow: View {
             model: canvasModel,
             pieces: Self.pieceChoices(in: store),
             // Deferred — walked only when a promoted card is selected.
-            artifactTitle: { TreeWalk.find(id: $0, in: store.manifest.research)?.title },
+            artifactTitle: { Self.artifactTitle($0, in: store) },
             // Deferred, and asked even less often: only when an association
             // names a piece `pieceChoices` does not hold. **The whole structure,
             // not the routable subset** — this is what tells an association whose
@@ -1357,7 +1357,7 @@ struct ProjectWindow: View {
                 TreeWalk.collect(in: store.manifest.structure,
                                  where: { $0.id == id }).first?.title
             },
-            onOpenResearchItem: openResearchItem,
+            onOpenResearchItem: openPromotedArtifact,
             // A region's member list names item nodes too — a Claude region holds
             // the page its scraps were read off — so the pane resolves a title
             // through the same index the canvas draws from (1C-d).
@@ -1415,6 +1415,74 @@ struct ProjectWindow: View {
     private func openResearchItem(_ itemId: String) {
         binderSegment = .research
         selectedResearchId = itemId
+    }
+
+    /// **Open** on a promoted card, region or picture — which since M1A can name
+    /// an artifact that is not in `research/` at all.
+    ///
+    /// A card promoted to craft intent carries a `Statement` id, and sending that
+    /// to `openResearchItem` selects a research id no research tree holds: the
+    /// pane says "Select an item" and the writer's intent is nowhere. So a
+    /// statement routes to the Intent pane instead.
+    ///
+    /// **What it does not do is choose the pane's SCOPE.** `StatementPane`
+    /// resolves that from the binder's selection, with the project one click
+    /// away by design ("a chapter's intent and the book's are never further apart
+    /// than that"), and driving the manuscript selection from here would move the
+    /// writer's open document as a side effect of pressing Open. So a
+    /// document-scoped intent may land on a different scope's; the pane's own
+    /// switch is the way across, and giving `StatementPane` a requested scope is
+    /// the fix if that is ever not enough.
+    private func openPromotedArtifact(_ itemId: String) {
+        guard let store else { return }
+        if let pane = Self.statementPane(forMark: itemId, in: store) {
+            detailSegment = pane
+            return
+        }
+        openResearchItem(itemId)
+    }
+
+    /// The right-pane segment **Open** goes to for a mark, or nil for one that
+    /// means the Research pane.
+    ///
+    /// Pure and static so the routing is asked over the whole product of its
+    /// inputs rather than through a window's state, and a `switch` over the kind
+    /// rather than a test for `.intent`: a fall-through is how a selected page
+    /// card came to be told to select something (`RegionInspectorPane`), and here
+    /// it would send the writer to a Research pane that shows them nothing. Only
+    /// `.intent` is reachable today — it is the one kind a promotion produces.
+    static func statementPane(forMark itemId: String,
+                              in store: ProjectStore) -> DetailSegment? {
+        guard let statement = store.manifest.statements.first(where: { $0.id == itemId })
+        else { return nil }
+        switch statement.kind {
+        case .intent: return .intent
+        case .visualLanguage: return .visualLanguage
+        // A kind a newer build wrote, retained and ignored everywhere else
+        // (`Statement.Kind`). There is no pane for it here either.
+        case .unknown: return nil
+        }
+    }
+
+    /// The name a mark shows — a research item's title, or, since M1A, an intent
+    /// statement's composed name.
+    ///
+    /// **One rule, two readers.** The promotion sheet reads `ArtifactIndex`,
+    /// built once when it opens; this is the inspector's deferred lookup, which
+    /// exists so that selecting an unpromoted card walks nothing. They must
+    /// answer identically for a statement or one card says two different things
+    /// about what it became, so the composing is `ArtifactIndex.statementTitle`'s
+    /// in both — pinned by `PromotionStatementMarkTests`.
+    static func artifactTitle(_ itemID: String, in store: ProjectStore) -> String? {
+        if let item = TreeWalk.find(id: itemID, in: store.manifest.research) {
+            return item.title
+        }
+        guard let statement = store.manifest.statements.first(where: { $0.id == itemID }),
+              case .intent = statement.kind else { return nil }
+        return ArtifactIndex.statementTitle(statement, documentTitle: { id in
+            TreeWalk.collect(in: store.manifest.structure, where: { $0.id == id })
+                .first?.title
+        })
     }
 
     // MARK: - Helpers
@@ -2327,7 +2395,13 @@ struct CanvasPromotionModifier: ViewModifier {
         let research = store.manifest.research
         sheet = PromotionSheetModel(
             source: source, scene: model.scene, scraps: model.scraps,
-            artifacts: ArtifactIndex.over(research: research),
+            // **Both registries**: since M1A a mark can name a `Statement`, and
+            // an index built over research alone answers nil for one — see
+            // `ArtifactIndex.over` for the three readers that then say something
+            // false.
+            artifacts: ArtifactIndex.over(research: research,
+                                          statements: store.manifest.statements,
+                                          structure: store.manifest.structure),
             // **The canvas's own index, and the SAME builder the canvas is
             // handed above** (1C-d Task 12a). A region's palette promotion
             // carries the pictures in it, and a referenced one's file is the

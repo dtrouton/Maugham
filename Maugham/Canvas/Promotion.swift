@@ -317,18 +317,89 @@ struct ArtifactIndex: Equatable {
         self.init(entriesByID: titlesByID.mapValues { Entry(title: $0) })
     }
 
-    static func over(research: [ResearchItem]) -> ArtifactIndex {
+    /// Every artifact a mark can name — **both registries, because since M1A
+    /// there are two.**
+    ///
+    /// A promotion to craft intent writes a `Statement` id into
+    /// `CanvasNode.promotedItemID`, and a statement is in `manifest.statements`
+    /// and never in `manifest.research`. Built over research alone this index
+    /// answers nil for such a mark, and three readers then say something false:
+    /// `PromotedArtifactSection` renders `.artifactMissing` — telling the writer
+    /// their intent was deleted, over prose that is right there —
+    /// `Promotion.hasDanglingMark` answers true so a line promotion between two
+    /// such cards is refused and the writer is told to promote again something
+    /// that worked, and `ArtifactKind.craftIntent` becomes unreachable, which
+    /// costs `PromotionPerformer.refuseIfNotAResearchNote` the one refusal that
+    /// keeps a research-note update off an intent statement.
+    ///
+    /// **The alternative was writing no mark at all, and it is a trap**: the
+    /// mark is what draws the stripe on the card and what `CanvasAccessibility`
+    /// speaks, so removing it makes a promoted card look and sound un-promoted.
+    ///
+    /// `structure` is here to NAME a document-scoped statement — see
+    /// `statementTitle`. It is the third value rather than a `ProjectStore`
+    /// because this index is pure by design, and it is walked once here rather
+    /// than per statement.
+    static func over(research: [ResearchItem],
+                     statements: [Statement],
+                     structure: [StructureItem]) -> ArtifactIndex {
         // `PaletteLookup` is the ONE definition of "which research items are
         // palette cards" (tripwire 19) — a local predicate here would be the
         // fourth surface spelling it.
         let paletteCards = Set(PaletteLookup.paletteCards(in: research).map(\.id))
-        return ArtifactIndex(entriesByID: Dictionary(
+        var entries = Dictionary(
             TreeWalk.collect(in: research, where: { _ in true }).map { item in
                 (item.id, Entry(title: item.title,
                                 kind: kind(of: item, paletteCards: paletteCards)))
             },
-            uniquingKeysWith: { _, later in later }))
+            uniquingKeysWith: { _, later in later })
+        let titlesByDocument = Dictionary(
+            TreeWalk.collect(in: structure, where: { _ in true })
+                .map { ($0.id, $0.title) },
+            uniquingKeysWith: { _, later in later })
+        for statement in statements {
+            // **`.intent` only.** Nothing produces a mark naming any other kind
+            // — `performCraftIntent` is the one writer and it creates `.intent`
+            // — and an entry claiming a visual-language statement is a craft
+            // intent would be a false answer to `refuseIfNotAResearchNote`,
+            // which is the reader that decides whether a file gets written over.
+            guard case .intent = statement.kind else { continue }
+            entries[statement.id] = Entry(
+                title: statementTitle(statement, documentTitle: { titlesByDocument[$0] }),
+                kind: .craftIntent)
+        }
+        return ArtifactIndex(entriesByID: entries)
     }
+
+    /// What a mark naming an intent statement is CALLED.
+    ///
+    /// **A statement carries no title** — its identity is the manifest entry and
+    /// its path is derived once from the document's name — so this composes one,
+    /// and it is the ONE definition: the sheet's index and the inspector's own
+    /// deferred lookup both read it, or a card could say two different things
+    /// about what it became.
+    ///
+    /// **It names the document, and that is what M1A made necessary.** Until
+    /// this milestone an intent was the project's on every row but a Collection
+    /// loose piece, so "Craft Intent" was unambiguous; a chapter's intent is now
+    /// the ordinary case, and a pane saying `Became “Craft Intent”` on cards
+    /// belonging to three different chapters describes none of them. The `·`
+    /// separator is this surface's own (`Missing piece · ref-1`).
+    static func statementTitle(_ statement: Statement,
+                               documentTitle: (String) -> String?) -> String {
+        guard case .document(let id) = statement.scope,
+              let title = documentTitle(id) else { return intentTitle }
+        return "\(intentTitle) · \(title)"
+    }
+
+    /// The bare name, and the project's scope answers with it alone.
+    ///
+    /// Deliberately NOT `PaletteConvention.craftIntentTitle`: that constant is
+    /// the *research note's* title and belongs to the seam M1A replaces, so
+    /// borrowing it would tie a live sentence to a value the next task deletes.
+    /// It reads identically to what shipped, which is the point — the writer's
+    /// word for this thing did not change.
+    static let intentTitle = "Craft Intent"
 
     /// Position first (a palette card is an ordinary document that happens to
     /// live under the palette group), then the role, then the manifest's own
@@ -1241,10 +1312,16 @@ enum Promotion {
     /// cards promoted to craft intent stack, and a destination reading only "the
     /// project's craft intent" left that discoverable by doing it.
     ///
-    /// The piece appears on one row only, matching
-    /// `PromotionPerformer.intentPiece`: an intent doc created under a novel
-    /// chapter's shared+link routing lands where `craftIntentItem(forPieceId:)`
-    /// never looks, so it is the project's — and the copy says the project's.
+    /// **The piece appears on EVERY routed row, matching
+    /// `PromotionPerformer.intentScope`** (M1A). It appeared on `.ownResearch`
+    /// alone while an intent doc was located by the piece's research path
+    /// prefix — a chapter's would have landed where that lookup never looked —
+    /// and a statement is found by scope, so the narrowing went with the defect.
+    /// Left as it was, this sentence would promise a novel chapter the project's
+    /// intent while the performer wrote the chapter's: a preview that is wrong
+    /// about where the writer's words are going, which is what §6.1 forbids.
+    /// `.none` and `.unroutable` are the project's, which is exactly the
+    /// fallback the performer takes.
     ///
     /// **It reads as the object of a sentence, because it is one twice over.**
     /// The sheet puts it after "Goes to" and
@@ -1256,7 +1333,7 @@ enum Promotion {
     /// without the verb arriving twice; it still says plainly that this appends,
     /// which is what §6.1 requires of it.
     static func craftIntentDestination(_ piece: PromotionPiece) -> String {
-        if case .routed(_, let title, .ownResearch) = piece {
+        if case .routed(_, let title, _) = piece {
             return "“\(title)”’s craft intent, at the end of what is already there"
         }
         return "the project's craft intent, at the end of what is already there"

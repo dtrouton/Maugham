@@ -102,6 +102,22 @@ public final class ProjectStore {
     /// an unattached one costs.
     weak var liveCanvas: CanvasModel?
 
+    /// The `Document`s that statement panes currently have open, by statement id
+    /// (M1A). Implementation lives in `ProjectStore+Statements.swift`; the
+    /// storage must sit on the class body because `@Observable` extensions
+    /// cannot synthesize it.
+    ///
+    /// **This registry exists because a statement is deliberately in NO other
+    /// one.** `StatementEditorHost` does not register its `Document` with
+    /// `DocumentStore` — that would put it in `allOpenDocuments()`, which the
+    /// project Tasks aggregation iterates (spec §8) — so
+    /// `DocumentStore.document(forDocId:)` cannot find an open statement, and
+    /// anything else that wanted to write into one would open a SECOND
+    /// `Document` on the same path, each with its own `PendingBuffer` writing
+    /// the same file. `@ObservationIgnored` because it is a lifecycle handle,
+    /// never a rendered dependency.
+    @ObservationIgnored internal var openStatementDocuments: [String: OpenStatementDocument] = [:]
+
     /// Per-project cache fronting `DerivedManuscript` for CLOSED docs (F5).
     /// Owned here — not on `DocumentStore` — because every adopter (search,
     /// word counts, wiki-rename pre-check, the link tools) already holds a
