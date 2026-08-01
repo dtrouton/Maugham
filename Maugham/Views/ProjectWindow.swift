@@ -1517,6 +1517,44 @@ struct ProjectWindow: View {
         BinderSubject.activeDocId(for: selectedSubject)
     }
 
+    /// Where a freshly opened window lands, given what `ui-state.json` held and
+    /// the structure that file's ids are supposed to name.
+    ///
+    /// **`.project` is valid precisely because it is in no structure.** The
+    /// validation this replaces was a bare `TreeWalk.contains` over the subject's
+    /// item id, and the project subject has none — so it failed the check and the
+    /// window silently landed on the first document instead. A restore that lands
+    /// somewhere *plausible* is the failure mode nobody reports: the writer
+    /// selects the project, quits, reopens, and sees chapter one with no error
+    /// anywhere.
+    ///
+    /// Four shapes reach here, and the four answers are the whole contract:
+    ///
+    /// | on disk | answer |
+    /// |---|---|
+    /// | the project flag | `.project` |
+    /// | a bare id still in the structure | that item, unchanged |
+    /// | a bare id naming a deleted item | the first document |
+    /// | nothing at all | the first document |
+    ///
+    /// `nil` back means **no answer** — a structure with no document in it — and
+    /// the caller leaves the selection alone rather than clearing it.
+    ///
+    /// A pure function rather than four lines inside `load()`: this is a routing
+    /// decision, the failure is silent, and `load()` is unreachable from a test.
+    static func restoredSubject(saved: BinderSubject?,
+                                in structure: [StructureItem]) -> BinderSubject? {
+        switch saved {
+        case .project:
+            return .project
+        case .item(let id) where TreeWalk.contains(id: id, in: structure):
+            return .item(id)
+        case .item, nil:
+            return TreeWalk.first(in: structure, where: { $0.type == .document })
+                .map { BinderSubject.item($0.id) }
+        }
+    }
+
     /// Whether the window's subject resolves to a manuscript document (the
     /// only selection kind for which the EditorCoordinator delivers metrics).
     private func selectionIsDocument(_ subject: BinderSubject?) -> Bool {
@@ -1622,23 +1660,13 @@ struct ProjectWindow: View {
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
 
-            // Seed UI state from disk (or defaults). Validate the saved subject
-            // against current structure — if it names a deleted item, fall back
-            // to the first document.
-            //
-            // The validation is `TreeWalk.contains` over the ITEM id, unchanged.
-            // Note what that means for the project subject: it is in no
-            // structure, so it fails this check and lands on the first document
-            // exactly as a deleted item does. Nothing writes that subject yet,
-            // and closing this is the restore work's, not the type's.
-            let savedSelection = ds.uiState.selectedSubject
-            let isValid = savedSelection?.itemID.map {
-                TreeWalk.contains(id: $0, in: s.manifest.structure)
-            } ?? false
-            if isValid {
-                self.selectedSubject = savedSelection
-            } else if let first = TreeWalk.first(in: s.manifest.structure, where: { $0.type == .document }) {
-                self.selectedSubject = .item(first.id)
+            // Seed UI state from disk (or defaults), through the one rule that
+            // decides where a freshly opened window lands. `nil` back means
+            // "no answer" — an empty structure — and leaves the selection alone,
+            // exactly as the `else if let first` this replaced did.
+            if let restored = Self.restoredSubject(
+                saved: ds.uiState.selectedSubject, in: s.manifest.structure) {
+                self.selectedSubject = restored
             }
             self.isNoChromeOn = ds.uiState.isNoChromeOn
             self.isReviewModeOn = ds.uiState.isReviewModeOn

@@ -10,15 +10,33 @@ struct BinderView: View {
     @State private var showingTidyConfirmation: Bool = false
 
     var body: some View {
-        Group {
-            if store.manifest.structure.isEmpty {
-                emptyState
-            } else {
-                List(selection: $selectedSubject) {
-                    outline(items: store.manifest.structure)
-                }
-                .listStyle(.sidebar)
-            }
+        // One `List`, always — including when the structure is empty. The empty
+        // state used to REPLACE the list, and with a project row at its head that
+        // would mean deleting the last document takes the only remaining subject
+        // away with it: no row to click, nothing selectable, and a window whose
+        // project-scoped panes can never be pointed at anything again.
+        //
+        // **The empty state is an overlay, and the two obvious alternatives were
+        // both measured and rejected** (macOS 26.5, `BinderProjectRowTests`):
+        //
+        // - *as a row, `selectionDisabled()`* — the row is selected anyway, and
+        //   because it carries no `.tag` the List writes `nil` through the
+        //   binding. Clicking "No documents yet" silently deselected the project.
+        //   `selectionDisabled` did not refuse it: `table.selectedRow` was 1.
+        // - *as a `Section` footer* — a `Section` costs a leading row of its own
+        //   even with no header, so the project row stopped being row zero and
+        //   every row index moved with it.
+        //
+        // An overlay is neither a row nor a selection, so it cannot become a
+        // subject. It intercepts only its own glyphs and buttons — nothing gives
+        // it a background — so the project row above it stays clickable.
+        List(selection: $selectedSubject) {
+            projectRow
+            outline(items: store.manifest.structure)
+        }
+        .listStyle(.sidebar)
+        .overlay {
+            if store.manifest.structure.isEmpty { emptyState }
         }
         // Root context menu — attached at the binder level so it's
         // available even when the structure is empty (right-clicking
@@ -59,6 +77,34 @@ struct BinderView: View {
         } message: { _ in
             Text("Existing files will be moved to fix gaps in numbering. This change is visible to other apps that read this folder.")
         }
+    }
+
+    /// The row at the head of the tree naming the project itself (spec §3.3).
+    ///
+    /// **It is a row, not a control.** Its whole implementation is a label and a
+    /// `.tag`, so `List(selection:)` matches it against the binding exactly as it
+    /// matches every chapter — tripwire 9 is the reason it is not a `Button` and
+    /// not an `.onTapGesture`: hit-testing for either is unreliable inside
+    /// `List(.sidebar)`. It writes the selection through the same binding on the
+    /// same synchronous path a chapter does, and does nothing else on the way
+    /// (tripwire 3).
+    ///
+    /// Deliberately not renamable, not draggable, not a drop target, and with no
+    /// context menu of its own: the binder's root `.contextMenu` hangs off this
+    /// view, so right-clicking here offers New Document / New Group exactly as
+    /// right-clicking empty space always has. A menu on the row would shadow it.
+    private var projectRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "books.vertical")
+                .imageScale(.small)
+                .foregroundStyle(.secondary)
+            Text(store.manifest.title)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+        }
+        .contentShape(Rectangle())
+        .tag(BinderSubject.project)
     }
 
     private func outline(items: [StructureItem]) -> some View {
@@ -138,9 +184,11 @@ struct BinderView: View {
         }
     }
 
-    /// Empty-state shown when `store.manifest.structure` has zero items.
-    /// The parent `.contextMenu` on the Group covers right-click; this
-    /// view gives the writer a discoverable button-driven alternative.
+    /// Empty-state shown when `store.manifest.structure` has zero items —
+    /// an OVERLAY on the list rather than a replacement for it, so the project
+    /// row survives an empty binder (see `body` for the two shapes that did not
+    /// work). The binder's root `.contextMenu` covers right-click; this view
+    /// gives the writer a discoverable button-driven alternative.
     private var emptyState: some View {
         VStack(spacing: 16) {
             Image(systemName: "doc.text")
@@ -190,10 +238,28 @@ struct BinderView: View {
     private func deleteItem(id: String) async {
         do {
             try await store.deleteStructureItem(id: id)
-            if selectedSubject == .item(id) { selectedSubject = nil }
+            selectedSubject = Self.subject(selectedSubject, afterDeleting: id)
         } catch {
             pendingError = error.localizedDescription
         }
+    }
+
+    /// What the window's subject becomes when `deletedId` leaves the structure.
+    ///
+    /// **Only the deleted item's own subject is cleared.** This is the one site
+    /// in the app that sets the selection to `nil`, and with a project row above
+    /// the tree it now has a value it must leave alone: `.project` names nothing
+    /// in the structure, so no delete can invalidate it, and clearing it would
+    /// silently move the window off a subject the writer chose while they were
+    /// tidying up somewhere else.
+    ///
+    /// The `nil` it does still return is no longer a dead end — the project row
+    /// is in the list even when the structure is empty, so deleting the last
+    /// document leaves a subject one click away rather than a window with
+    /// nothing selectable in it.
+    static func subject(_ subject: BinderSubject?,
+                        afterDeleting deletedId: String) -> BinderSubject? {
+        subject == .item(deletedId) ? nil : subject
     }
 
     private func handleDrop(

@@ -2,6 +2,10 @@
 
 The binder shows your manuscript structure. For a novel, that's parts and chapters; for a screenplay, scenes.
 
+### The project row
+
+The row at the top of the binder is the project itself. Select it the way you select a chapter, and the right-hand panes are about the whole project rather than one document. It's how you say "everything" — and it's still there when the binder is empty, so deleting your last chapter never leaves the window with nothing selected. It can't be renamed, dragged, or dropped on.
+
 ### Adding items
 
 Right-click a row in the binder:

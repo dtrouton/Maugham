@@ -17,7 +17,7 @@ import Foundation
 /// a site that wants a bare id has to say, where it asks, what the project
 /// means to it. `itemID` and `activeDocId(for:)` are those two answers and are
 /// the only way out of the type.
-public enum BinderSubject: Hashable {
+public enum BinderSubject: Hashable, Sendable {
 
     /// The project itself — the subject `StatementPane`'s `[chapter | Project]`
     /// switch exists to reach because the tree cannot say it.
