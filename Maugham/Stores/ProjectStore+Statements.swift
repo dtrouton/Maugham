@@ -50,6 +50,39 @@ extension ProjectStore {
         return document
     }
 
+    /// What a statement currently SAYS, **derived rather than read off the
+    /// `.md`** (tripwire 20). A statement is a `Document` with an op log, so the
+    /// file beside it is derived output and lags whenever an op lands out of
+    /// band — a peer syncing `.maugham/ops/` before the render leaves exactly
+    /// those bytes.
+    ///
+    /// ADR 0018's two branches, with the open one reached by a seam of its own:
+    /// a statement is deliberately in no `DocumentStore` registry (spec §8 — it
+    /// would join `allOpenDocuments()` and pollute the project Tasks
+    /// aggregation), so `documentStore.document(forDocId:)` answers nil for one
+    /// and the branch `read_document` and `find_references` take is unavailable
+    /// here. `openStatementDocument(id:)` — built for promotion's own collision
+    /// on this path — is what finds the pane's live `Document`, and it is the
+    /// fresher answer by up to one debounce window: a burst the writer is still
+    /// typing has not reached `.maugham/ops/` yet, and the derived branch cannot
+    /// see it.
+    ///
+    /// **One spelling, for every statement reader.** `read_craft_intent` and
+    /// `read_visual_language` both answer through here; a second copy of this
+    /// choice is two readers that can come to different conclusions about which
+    /// text is real, which is the drift `CanvasClaudeWrite.readScene` is shared
+    /// to prevent on the canvas.
+    ///
+    /// Display form, not the materialised one: a statement carries no
+    /// annotations, so nothing on these surfaces anchors to a `¶id`, and what
+    /// the writer sees in the pane is what Claude should read.
+    func statementText(of statement: Statement) -> String {
+        if let live = openStatementDocument(id: statement.id) {
+            return live.displayText
+        }
+        return derivedCache.displayText(forDocId: statement.id, in: url)
+    }
+
     // MARK: - Opening one, which is not the same as holding one
 
     /// Take exclusive right to OPEN a `Document` on this statement's path, and

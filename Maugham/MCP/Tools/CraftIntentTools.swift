@@ -41,39 +41,17 @@ public enum ReadCraftIntentTool: MCPTool {
             // an undeclared scope, not an error. Nothing is minted on the way.
             return try JSONEncoder().encode(Result(exists: false, markdown: nil, path: nil))
         }
+        // Derived, never the `.md` (tripwire 20). The old annotation here was
+        // `// adr-0018-ok: craft-intent note read, not manuscript`, and that
+        // justification held only while intent was a plain research note.
+        // `ProjectStore.statementText(of:)` owns both of ADR 0018's branches and
+        // is shared with `read_visual_language`.
         return try MCPResponseBudget.enforce(
             try JSONEncoder().encode(Result(
-                exists: true, markdown: text(of: statement, in: entry), path: statement.path)),
+                exists: true,
+                markdown: entry.store.statementText(of: statement),
+                path: statement.path)),
             hint: "The craft-intent doc is too large to return in one MCP response. "
                 + "Open it directly on disk at \(statement.path).")
-    }
-
-    /// What the statement says, **derived rather than read off the `.md`**
-    /// (tripwire 20). The old annotation here was `// adr-0018-ok: craft-intent
-    /// note read, not manuscript`, and that justification held only while intent
-    /// was a plain research note; a statement is a `Document` with an op log, so
-    /// the file beside it is derived output and lags whenever an op lands out of
-    /// band.
-    ///
-    /// ADR 0018's two branches, with the open one reached by a seam of its own:
-    /// a statement is deliberately in no `DocumentStore` registry (spec §8 — it
-    /// would join `allOpenDocuments()` and pollute the project Tasks
-    /// aggregation), so `documentStore.document(forDocId:)` answers nil for one
-    /// and the branch `read_document` and `find_references` take is unavailable
-    /// here. `ProjectStore.openStatementDocument(id:)` — built by Task 7 for
-    /// promotion's own collision on this path — is what finds the Intent pane's
-    /// live `Document`, and it is the fresher answer by up to one debounce
-    /// window: a burst the writer is still typing has not reached
-    /// `.maugham/ops/` yet, and the derived branch cannot see it.
-    @MainActor
-    private static func text(of statement: Statement, in entry: ProjectRegistry.Entry) -> String {
-        if let live = entry.store.openStatementDocument(id: statement.id) {
-            return live.displayText
-        }
-        // Display form, not the materialised one: an intent carries no
-        // annotations, so nothing on this surface anchors to a `¶id`, and what
-        // the writer sees in the pane is what Claude should read.
-        return entry.store.derivedCache.displayText(
-            forDocId: statement.id, in: entry.url)
     }
 }

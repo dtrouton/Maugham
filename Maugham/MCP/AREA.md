@@ -6,7 +6,7 @@ The local MCP server that lets Claude Desktop read and contribute to projects. R
 
 The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the **two write paths into the planning plane** — `add_note` under `research/`, and (1C-c3) `add_canvas_scraps` onto the planning canvas — the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket. **Manuscript text is never one of them**; see tripwire 4, which is where that half of the rule is stated and where it does not soften.
 
-## Tool catalogue (54)
+## Tool catalogue (55)
 
 **Discovery / identity**
 - `list_projects` — enumerate all open Maugham projects
@@ -33,8 +33,9 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `list_all_links` — all research–manuscript links for a project, incl. `piece_research` edges (a collection piece's own research, no explicit link needed); wiki-link scanning covers both manuscript documents and research note bodies
 - `move_research_item` — batch-move research items (including whole groups) between shared research, a research group, and a collection piece's research folder; exactly one of `target: "shared"` / `target_group_id` / `target_document_id`. Cross-scope moves leave explicit links (`linkedResearchIds`) untouched — association is containment-based (2026-07-17): a manual link goes dormant while the item lives in a piece's research and resurfaces on move-out; a containment-only association severs on move-out with no auto-link minted. Wraps `ProjectStore.moveResearchItems` (`Maugham/Stores/ProjectStore+ResearchMove.swift`) — read that file's header before touching this tool's validation shape.
 
-**Palette / craft intent**
+**Palette / the spine (intent + visual language)**
 - `read_craft_intent` — the writer's optional freeform statement of what a piece needs sensorially; absence returns `exists: false`, never an error. Since M1A it answers off a `Statement` and `item_id` names **any manuscript document**, not a Collection loose piece alone (a widening of an existing read, so the tool count did not move); the read derives from the op log — the open pane's `Document` through `ProjectStore.openStatementDocument(id:)`, else `derivedCache` — never the `.md`
+- `read_visual_language` — the book's look: the writer's freeform prose about typography and feel, plus `image_paths`, the images it references. **M1A's second named protection** (spec §10) — visual language gets a consumer in the milestone that builds it, and the other half of that protection is the section in `docs/skills/maugham-bootstrap/SKILL.md` telling a Claude authoring a template to read this first; a tool nobody is told to call leaves it unmet. **Project scope only, and the schema says so by taking `project_id` and nothing else**: `StatementConvention.newPath` has no row for `(.visualLanguage, .document)`, so an `item_id` would promise a scope the store refuses to create. Absence is `exists: false`, never an error, and mints nothing. The prose derives from the op log through `ProjectStore.statementText(of:)` — the ONE spelling of ADR 0018's two branches for statements, shared with `read_craft_intent` so the two readers cannot disagree about which text is real — and the images are scanned out of that same text (`MarkdownBlockParser.findInlineImages`, unanchored, so an image referenced mid-paragraph counts) and resolved through `ProjectStore.resolveImageRef`. **Paths, not pixels, deliberately**, exactly as `list_canvas` reports no path: nothing in this catalogue reads a file by project-relative path, so the field says WHICH images the look is built on and the description tells Claude to ask the writer about any it needs to see. The edge, stated rather than implied: `read_document` is the only image reader here and it takes a research item id, so a visual-language image that is also a research item is reachable and a loose file at the project root is not.
 - `list_palette_cards` — summaries of the project's sensory-palette cards (subject-keyed research assets: locations, characters, motifs)
 - `read_palette_card` — a card's full markdown plus image thumbnails (crop-on-demand for a single image via `image`)
 
@@ -92,8 +93,8 @@ A **separate** catalog, `TestMCPToolCatalog`, that mirrors `MCPToolCatalog`'s sh
 (`register(router:registry:)`) but is registered onto the **same dev-build Unix socket**
 only inside `#if MAUGHAM_DEV_BUILD` in `MaughamApp.registerTools` — absent from the stable
 binary entirely (enforced by `TripwireGrepTests.test_testMCPCatalog_registeredOnlyUnderDevFlag`).
-It exists for **Claude Code**, not Claude Desktop, and is not part of the production 54-tool
-count above — the "Tool catalogue (54)" heading is unaffected by these tools.
+It exists for **Claude Code**, not Claude Desktop, and is not part of the production 55-tool
+count above — the "Tool catalogue (55)" heading is unaffected by these tools.
 
 Purpose: let Claude Code drive the full create → edit → autosave → checkpoint → quit →
 relaunch → verify loop end to end without the owner acting as a human tester, so the
@@ -154,7 +155,7 @@ URI** (per the draft, names aren't unique identifiers) and fails loudly (protoco
 only — any other URI fails loudly too (Maugham's server has no general resources support).
 These three are **protocol methods**, registered directly on the router in
 `MaughamApp.registerTools` alongside `initialize`/`tools/list`/`tools/call` — not tools,
-so **the tool catalogue count stays 54** whether or not a connecting client speaks the
+so **the tool catalogue count stays 55** whether or not a connecting client speaks the
 extension.
 
 **Content source:** `docs/skills/<name>/SKILL.md` (agentskills.io flat-frontmatter format:
@@ -203,7 +204,7 @@ a compatible superset (extra fields only), not a rename.
 - **Foundation scope: read tools + `add_note`.** `add_note` only writes under `research/`. **Manuscript text is never mutated via MCP** — that's the annotation layer's job (or no-op, in foundation scope). The user's framing: *"the manuscript is yours, full stop. Claude operates in a parallel annotation layer."* (ADR 0004)
 - **Tool responses are capped at ~1MB, and the cap is enforced — not just documented.** (The ~1 MB figure is *inferred* from the ADR-0004 incident, not a measured Claude Desktop / transport constant — treat it as the working ceiling, not a guarantee.) The limit is a property of the JSON-RPC *line*, so enforcement is layered rather than per-tool-by-hope:
   - **Text:** `MCPResponseBudget.enforce(_:hint:)` (`MCPResponseBudget.swift`, `maxTextBytes = 900_000` — 900 KB). It fails loudly with a structured `payload_too_large` tool error carrying a section-scoped hint. Two layers, and the distinction matters:
-    - **Per-tool `enforce` calls** on the unbounded single-value file readers (`read_document` manuscript + research, `read_publish_file`, `read_inbox_entry`, `read_craft_intent`, and `read_palette_card`'s markdown block — the last bypasses the default wrap because it returns a `content` envelope). These fire **regardless of how the tool was invoked**, including the top-level-JSON-RPC-method path.
+    - **Per-tool `enforce` calls** on the unbounded single-value file readers (`read_document` manuscript + research, `read_publish_file`, `read_inbox_entry`, `read_craft_intent`, `read_visual_language`, and `read_palette_card`'s markdown block — the last bypasses the default wrap because it returns a `content` envelope). These fire **regardless of how the tool was invoked**, including the top-level-JSON-RPC-method path.
     - A **central backstop** in `MCPToolsCallHandler`'s default text-wrap branch (generic hint) catches every *other* plain-JSON tool so a new text tool can't silently reintroduce the gap — **but it only covers the `tools/call` dispatch path.** Tool methods invoked as **top-level JSON-RPC methods bypass `MCPToolsCallHandler` entirely** (`MaughamApp.swift` registers each `tool.method` directly on the router; this is the audit's known Low finding, Task 26 territory), so a backstop-only tool called that way is *unguarded*. Don't rely on the backstop for end-to-end coverage that path doesn't have; the per-tool `enforce` calls are the only ones that hold universally.
     - Why 900 KB and not nearer 1 MB: the enforced payload is re-escaped as the string value of a `text` block (a second JSON escape) then wrapped in the tool-result + JSON-RPC envelopes. The real constraint is **backslash/quote density** — content around **~11–15%** literal `"`/`\` at 900 KB can push the escaped line past 1 MB. That's not hypothetical: compile logs and code/JSON samples (via `read_publish_file` / research notes) are realistic high-density cases. Ordinary prose is <1% density and sits far under. Lower the single constant if a real case bites.
     - Bounded-by-construction tools (`get_help`, `list_maugham_tools`, status/id responses) never trip it.
