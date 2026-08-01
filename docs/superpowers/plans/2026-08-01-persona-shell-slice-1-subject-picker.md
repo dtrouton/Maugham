@@ -132,6 +132,38 @@ selecting `BinderSubject.project`.
 back must not disturb the editor's cursor. Tripwire 3 — no heavy work in a
 synchronous binding setter.
 
+### Task 2b — the project row in a Collection
+
+*Added 2026-08-01, after task 2 shipped. Found by task 2's implementer while
+checking what its own change made newly possible; verified independently before
+being written down.*
+
+**A Collection project has no route to the project subject, and task 7 turns that
+into a hole.** `ProjectWindow.binderColumn` mounts `BinderView` only for
+non-collection projects; a Collection's manuscript segment is
+`CollectionPiecesPane`, which carries its own `List(selection: $selectedSubject)`
+and no project row. So `.project` is unconstructible in a Collection.
+
+That is harmless **only while** `StatementPane` still carries its
+`[Chapter | Project]` picker — and **task 7 deletes that picker**. After task 7 and
+without this task, a Collection would have **no route to project-scoped intent at
+all**. Craft intent scoped to a Collection is not a hypothetical: it is the case
+`craftIntentItem(forPieceId:)` was originally built for.
+
+**Deliverable.** The same project row, at the head of `CollectionPiecesPane`'s list.
+
+**Contracts.**
+
+- **Must land before task 7 merges.** It is the reason task 7 is not safe on its own.
+- `CollectionPiecesPane` has its own row idioms — `PieceRow`, inline rename, drag.
+  The project row is none of those: not renamable, not draggable, not a drop target.
+- Task 2 measured two shapes that fail and shipped a third; **read that comment in
+  `BinderView.body` before choosing one here.** A `.selectionDisabled()` row gets
+  selected anyway on macOS 26.5, and a `Section` costs a leading row that moves
+  every index beneath it.
+- A Collection's empty state has the same "delete the last piece" question. Answer
+  it the same way, or say why it differs.
+
 ### Task 3 — the selection survives a relaunch
 
 **Deliverable.** Selecting the project, quitting and reopening lands back on the
