@@ -289,7 +289,7 @@ struct TasksPane: View {
 
     private func activeDoc() -> Document? {
         guard let id = activeDocId,
-              id != "__no-selection__" else { return nil }
+              id != BinderSubject.noDocumentSubject else { return nil }
         return documentStore.document(forDocId: id)
     }
 

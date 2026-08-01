@@ -22,7 +22,7 @@ final class UIStateMigrationTests: XCTestCase {
 
         let loaded = UIState.loadOrEmpty(from: url)
         XCTAssertEqual(loaded.schemaVersion, UIState.currentSchemaVersion)
-        XCTAssertEqual(loaded.selectedItemId, "doc-1")
+        XCTAssertEqual(loaded.selectedSubject, .item("doc-1"))
         XCTAssertTrue(loaded.isNoChromeOn)
         XCTAssertEqual(loaded.binderSegment, .manuscript)
     }
@@ -30,7 +30,7 @@ final class UIStateMigrationTests: XCTestCase {
     func test_v2JSON_roundtrips() throws {
         let original = UIState(
             schemaVersion: 2,
-            selectedItemId: "doc-9",
+            selectedSubject: .item("doc-9"),
             isNoChromeOn: false,
             binderSegment: .research)
         let url = FileManager.default.temporaryDirectory
@@ -40,7 +40,7 @@ final class UIStateMigrationTests: XCTestCase {
 
         let loaded = UIState.loadOrEmpty(from: url)
         XCTAssertEqual(loaded.binderSegment, .research)
-        XCTAssertEqual(loaded.selectedItemId, "doc-9")
+        XCTAssertEqual(loaded.selectedSubject, .item("doc-9"))
     }
 
     func test_unknownFutureSchema_returnsEmpty() throws {

@@ -271,7 +271,7 @@ struct HistoryPane: View {
         if let ds = documentStore,
            let doc = ds.document(forDocId: activeDocId) {
             ops = (try? await doc.opLog()) ?? []
-        } else if activeDocId != "__no-selection__" {
+        } else if activeDocId != BinderSubject.noDocumentSubject {
             let opStore = OpLogStore(projectURL: projectURL)
             ops = (try? await opStore.load(docId: activeDocId)) ?? []
         } else {

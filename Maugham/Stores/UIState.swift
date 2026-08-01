@@ -6,7 +6,17 @@ public struct UIState: Codable, Equatable, Sendable {
     public static let currentSchemaVersion = 5
 
     public var schemaVersion: Int
-    public var selectedItemId: String?
+    /// What the window's tree names (`BinderSubject`).
+    ///
+    /// **Persisted under the keys it always used, and additively.** An item
+    /// subject still writes `selectedItemId` as a bare string, so an older build
+    /// restores it exactly as it did; the project subject writes a separate
+    /// `selectedSubjectIsProject` flag and NO `selectedItemId`, so an older build
+    /// sees no selection and falls to the first document — the same landing a
+    /// deleted item already gets. Decode reads a bare string back as `.item`.
+    /// Neither direction of the skew loses or invents a selection, which is why
+    /// the new case cost no schema bump and no migration.
+    public var selectedSubject: BinderSubject?
     public var isNoChromeOn: Bool
     public var binderSegment: BinderSegment
     public var researchPreviewVisible: Bool
@@ -33,7 +43,7 @@ public struct UIState: Codable, Equatable, Sendable {
 
     public init(
         schemaVersion: Int = UIState.currentSchemaVersion,
-        selectedItemId: String? = nil,
+        selectedSubject: BinderSubject? = nil,
         isNoChromeOn: Bool = false,
         binderSegment: BinderSegment = .manuscript,
         researchPreviewVisible: Bool = false,
@@ -44,7 +54,7 @@ public struct UIState: Codable, Equatable, Sendable {
         personaMemory: PersonaMemory = .empty
     ) {
         self.schemaVersion = schemaVersion
-        self.selectedItemId = selectedItemId
+        self.selectedSubject = selectedSubject
         self.isNoChromeOn = isNoChromeOn
         self.binderSegment = binderSegment
         self.researchPreviewVisible = researchPreviewVisible
@@ -58,15 +68,50 @@ public struct UIState: Codable, Equatable, Sendable {
     public static let empty = UIState()
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, selectedItemId, isNoChromeOn, binderSegment,
+        case schemaVersion, selectedItemId, selectedSubjectIsProject,
+             isNoChromeOn, binderSegment,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
              persona, personaMemory
+    }
+
+    /// Hand-written because `selectedSubject` is not stored the way it is
+    /// spelled — see that property. Everything else is written exactly as the
+    /// synthesized encoder wrote it, so no other field's on-disk shape moves.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(schemaVersion, forKey: .schemaVersion)
+        switch selectedSubject {
+        case .item(let id):
+            try c.encode(id, forKey: .selectedItemId)
+        case .project:
+            try c.encode(true, forKey: .selectedSubjectIsProject)
+        case nil:
+            break
+        }
+        try c.encode(isNoChromeOn, forKey: .isNoChromeOn)
+        try c.encode(binderSegment, forKey: .binderSegment)
+        try c.encode(researchPreviewVisible, forKey: .researchPreviewVisible)
+        try c.encode(detailSegment, forKey: .detailSegment)
+        try c.encode(outlineLayout, forKey: .outlineLayout)
+        try c.encode(isReviewModeOn, forKey: .isReviewModeOn)
+        try c.encode(persona, forKey: .persona)
+        try c.encode(personaMemory, forKey: .personaMemory)
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
-        self.selectedItemId = try c.decodeIfPresent(String.self, forKey: .selectedItemId)
+        // The flag is checked FIRST and wins: a file written by this build for
+        // the project subject carries no `selectedItemId` at all, and one
+        // carrying both could only come from a hand-edit — in which case the
+        // explicit new key is the more specific statement of intent.
+        if (try? c.decodeIfPresent(Bool.self, forKey: .selectedSubjectIsProject)) == true {
+            self.selectedSubject = .project
+        } else if let id = try c.decodeIfPresent(String.self, forKey: .selectedItemId) {
+            self.selectedSubject = .item(id)
+        } else {
+            self.selectedSubject = nil
+        }
         self.isNoChromeOn = (try? c.decode(Bool.self, forKey: .isNoChromeOn)) ?? false
         self.isReviewModeOn = (try? c.decode(Bool.self, forKey: .isReviewModeOn)) ?? false
         self.binderSegment = (try? c.decode(BinderSegment.self, forKey: .binderSegment)) ?? .manuscript

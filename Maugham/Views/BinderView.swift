@@ -3,7 +3,7 @@ import MaughamCore
 
 struct BinderView: View {
     @Bindable var store: ProjectStore
-    @Binding var selectedItemId: String?
+    @Binding var selectedSubject: BinderSubject?
     @State private var renamingItemId: String?
     @State private var pendingError: String?
     @State private var pendingTidyParentId: String?
@@ -14,7 +14,7 @@ struct BinderView: View {
             if store.manifest.structure.isEmpty {
                 emptyState
             } else {
-                List(selection: $selectedItemId) {
+                List(selection: $selectedSubject) {
                     outline(items: store.manifest.structure)
                 }
                 .listStyle(.sidebar)
@@ -69,10 +69,10 @@ struct BinderView: View {
                 } label: {
                     row(for: item)
                 }
-                .tag(item.id)
+                .tag(BinderSubject.item(item.id))
             } else {
                 row(for: item)
-                    .tag(item.id)
+                    .tag(BinderSubject.item(item.id))
             }
         }
     }
@@ -132,7 +132,7 @@ struct BinderView: View {
             let item = try await store.addStructureItem(
                 parentId: parentId, title: title, kind: kind)
             renamingItemId = item.id  // immediately go to rename mode
-            selectedItemId = item.id
+            selectedSubject = .item(item.id)
         } catch {
             pendingError = error.localizedDescription
         }
@@ -190,7 +190,7 @@ struct BinderView: View {
     private func deleteItem(id: String) async {
         do {
             try await store.deleteStructureItem(id: id)
-            if selectedItemId == id { selectedItemId = nil }
+            if selectedSubject == .item(id) { selectedSubject = nil }
         } catch {
             pendingError = error.localizedDescription
         }
@@ -230,7 +230,7 @@ struct BinderView: View {
         do {
             let copy = try await store.duplicateStructureItem(id: id)
             renamingItemId = copy.id  // immediately offer rename
-            selectedItemId = copy.id
+            selectedSubject = .item(copy.id)
         } catch {
             pendingError = error.localizedDescription
         }

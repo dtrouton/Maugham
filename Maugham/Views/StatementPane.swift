@@ -60,7 +60,11 @@ struct StatementPane: View {
     /// `ProjectWindow` passes this for "nothing is selected" (`DetailPaneToggle`
     /// threads it through as `activeDocId`). It is a real value that arrives
     /// here, not a hypothetical.
-    static let noSelectionSentinel = "__no-selection__"
+    ///
+    /// The literal itself lives on `BinderSubject`, which is where the
+    /// substitution that produces it happens; this is the same string and not a
+    /// second one.
+    static let noSelectionSentinel = BinderSubject.noDocumentSubject
 
     private var scope: Statement.Scope {
         Self.effectiveScope(

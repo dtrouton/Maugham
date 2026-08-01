@@ -33,7 +33,10 @@ struct ProjectWindow: View {
     @State private var metrics: EditorMetrics =
         EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
     @State private var showingSaveFlash: Bool = false
-    @State private var selectedItemId: String?
+    /// What this window's tree names — the window's single subject (spec §3).
+    /// Typed rather than a `String?` so no site can answer "is this a manuscript
+    /// document?" by accident; see `BinderSubject`.
+    @State private var selectedSubject: BinderSubject?
     @State private var selectedResearchId: String?
     @State private var selectedPaletteCardId: String?
     /// The inspector's visibility captured on entry to the palette segment, so
@@ -134,7 +137,6 @@ struct ProjectWindow: View {
                 }
                 .sheet(isPresented: $showingCheckpointLabelSheet) {
                     let projectURL = store.url
-                    let activeDocId = selectedItemId ?? "__no-selection__"
                     let allDocIds: [String] = Self.documentIds(in: store.manifest.structure)
                     CheckpointLabelPromptSheet(
                         onConfirm: { label in
@@ -251,8 +253,8 @@ struct ProjectWindow: View {
                 self.lastParsedScript = script
             }
         }
-        .onChange(of: selectedItemId) { _, newValue in
-            documentStore?.updateUIState { $0.selectedItemId = newValue }
+        .onChange(of: selectedSubject) { _, newValue in
+            documentStore?.updateUIState { $0.selectedSubject = newValue }
             // Zero the inspector/footer metrics when the new selection is not a
             // document (group, no selection). The EditorCoordinator only
             // delivers `onMetricsChanged` while a document is bound, so it can't
@@ -272,7 +274,7 @@ struct ProjectWindow: View {
             url: url,
             window: window,
             sessionLog: $sessionLog,
-            selectedItemId: $selectedItemId,
+            selectedSubject: $selectedSubject,
             selectedResearchId: $selectedResearchId,
             binderSegment: $binderSegment,
             findActive: $findActive,
@@ -288,7 +290,8 @@ struct ProjectWindow: View {
             store: store,
             window: window,
             url: url,
-            selectedItemId: selectedItemId,
+            selectedItemId: activeItemID,
+            activeDocId: activeDocId,
             showingCheckpointLabelSheet: $showingCheckpointLabelSheet,
             onSaveFlash: { showSaveFlash() }))
         .modifier(ParagraphNavModifier(window: window,
@@ -334,7 +337,7 @@ struct ProjectWindow: View {
         .modifier(TranslationReviewModifier(
             window: window,
             projectURL: url,
-            activeDocId: selectedItemId,
+            activeDocId: activeDocId,
             editorControl: $editorControl))
         .modifier(PaletteSegmentModifier(
             binderSegment: binderSegment,
@@ -510,7 +513,7 @@ struct ProjectWindow: View {
         let url: URL
         let window: NSWindow?
         @Binding var sessionLog: SessionLog
-        @Binding var selectedItemId: String?
+        @Binding var selectedSubject: BinderSubject?
         @Binding var selectedResearchId: String?
         @Binding var binderSegment: BinderSegment
         @Binding var findActive: Bool
@@ -546,7 +549,7 @@ struct ProjectWindow: View {
                         // Screenplays have no Manuscript segment — their
                         // document home is the Scenes navigator.
                         binderSegment = .documentHome(for: store.manifest.type)
-                        selectedItemId = id
+                        selectedSubject = .item(id)
                     }
                 }
                 .onKeyWindowCommand(.maughamAddResearchFile, window: window) { _ in
@@ -594,7 +597,7 @@ struct ProjectWindow: View {
                     case .manuscript:
                         if let item = TreeWalk.first(
                             in: store.manifest.structure) { $0.path == match.documentPath } {
-                            selectedItemId = item.id
+                            selectedSubject = .item(item.id)
                         }
                     case .research:
                         if let item = TreeWalk.first(
@@ -614,7 +617,7 @@ struct ProjectWindow: View {
                 .modifier(CollectionPieceModifier(
                     store: store,
                     window: window,
-                    selectedItemId: $selectedItemId,
+                    selectedSubject: $selectedSubject,
                     pendingPieceRenameId: $pendingPieceRenameId))
                 .alert("Renumber every chapter and scene?",
                        isPresented: $showingTidyAllConfirmation
@@ -646,7 +649,7 @@ struct ProjectWindow: View {
         /// screenplay" adds it to the front project only. The collection-type
         /// and membership checks below are action preconditions, not scope guards.
         let window: NSWindow?
-        @Binding var selectedItemId: String?
+        @Binding var selectedSubject: BinderSubject?
         @Binding var pendingPieceRenameId: String?
 
         func body(content: Content) -> some View {
@@ -657,7 +660,7 @@ struct ProjectWindow: View {
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Piece", mode: .prose)
                         if let piece {
-                            selectedItemId = piece.id
+                            selectedSubject = .item(piece.id)
                             pendingPieceRenameId = piece.id
                         }
                     }
@@ -668,7 +671,7 @@ struct ProjectWindow: View {
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Screenplay", mode: .screenplay)
                         if let piece {
-                            selectedItemId = piece.id
+                            selectedSubject = .item(piece.id)
                             pendingPieceRenameId = piece.id
                         }
                     }
@@ -684,7 +687,7 @@ struct ProjectWindow: View {
                         guard response == .OK, let target = panel.url else { return }
                         Task {
                             let piece = try? await store.addProjectReference(targetURL: target)
-                            if let piece { selectedItemId = piece.id }
+                            if let piece { selectedSubject = .item(piece.id) }
                         }
                     }
                 }
@@ -735,7 +738,7 @@ struct ProjectWindow: View {
             CollectionBinderPaneToggle(
                 store: store,
                 segment: $binderSegment,
-                selectedItemId: $selectedItemId,
+                selectedSubject: $selectedSubject,
                 selectedResearchId: $selectedResearchId,
                 selectedPaletteCardId: $selectedPaletteCardId,
                 findActive: $findActive,
@@ -749,7 +752,7 @@ struct ProjectWindow: View {
             BinderPaneToggle(
                 store: store,
                 segment: $binderSegment,
-                selectedItemId: $selectedItemId,
+                selectedSubject: $selectedSubject,
                 selectedResearchId: $selectedResearchId,
                 selectedPaletteCardId: $selectedPaletteCardId,
                 projectType: store.manifest.type,
@@ -761,7 +764,7 @@ struct ProjectWindow: View {
 
     private func activePiece(in store: ProjectStore) -> StructureItem? {
         guard store.manifest.type == .collection,
-              let id = selectedItemId else { return nil }
+              let id = activeItemID else { return nil }
         return store.manifest.structure.first(where: { $0.id == id })
     }
 
@@ -773,7 +776,7 @@ struct ProjectWindow: View {
 
     @MainActor
     private func addPieceNoteAction(store: ProjectStore) async throws {
-        guard let pieceId = selectedItemId else { return }
+        guard let pieceId = activeItemID else { return }
         let item = try await store.addPieceResearchNote(
             pieceId: pieceId, title: "Untitled Note")
         selectedResearchId = item.id
@@ -864,7 +867,7 @@ struct ProjectWindow: View {
 
     /// Whether the selected item is a Collection reference piece.
     private func selectedPieceIsReference(in store: ProjectStore) -> Bool {
-        guard let id = selectedItemId,
+        guard let id = activeItemID,
               let piece = store.manifest.structure.first(where: { $0.id == id })
         else { return false }
         return piece.pieceKind == .reference
@@ -878,7 +881,7 @@ struct ProjectWindow: View {
                             projectType: store.manifest.type,
                             selectedPieceIsReference: selectedPieceIsReference(in: store))
             == .collectionReference,
-           let id = selectedItemId,
+           let id = activeItemID,
            let piece = store.manifest.structure.first(where: { $0.id == id }) {
             ReferencePlaceholderCard(piece: piece) {
                 openReferenceInWindow(piece: piece, store: store)
@@ -912,7 +915,7 @@ struct ProjectWindow: View {
             EditorHost(
                 store: store,
                 documentStore: documentStore,
-                selectedItemId: selectedItemId,
+                selectedItemId: activeItemID,
                 onMetricsChanged: { metrics = $0 },
                 onElementChanged: { currentElement = $0 },
                 wikiLinkResolver: { title in
@@ -1004,7 +1007,7 @@ struct ProjectWindow: View {
     /// Helper: the currently-selected manuscript Document, if one is open
     /// in the editor registry.
     private func activeDocument(in store: ProjectStore, documentStore: DocumentStore) -> Document? {
-        guard let id = selectedItemId,
+        guard let id = activeItemID,
               let item = TreeWalk.find(id: id, in: store.manifest.structure),
               let path = item.path else { return nil }
         return documentStore.document(for: path)
@@ -1218,12 +1221,12 @@ struct ProjectWindow: View {
             store: store,
             segment: $detailSegment,
             outlineLayout: $outlineLayout,
-            selectedItemId: $selectedItemId,
-            activeManuscriptItemId: selectedItemId,
+            selectedSubject: $selectedSubject,
+            activeManuscriptItemId: activeItemID,
             persona: persona,
             hideOutline: store.manifest.type == .collection,
             projectURL: store.url,
-            activeDocId: selectedItemId ?? "__no-selection__",
+            activeDocId: activeDocId,
             allDocIds: Self.documentIds(in: store.manifest.structure),
             device: _checkpointDeviceId,
             session: _checkpointSessionId,
@@ -1268,7 +1271,7 @@ struct ProjectWindow: View {
 
     @ViewBuilder
     private func collectionInspector(store: ProjectStore) -> some View {
-        if let id = selectedItemId,
+        if let id = activeItemID,
            let piece = store.manifest.structure.first(where: { $0.id == id }) {
             switch piece.pieceKind {
             case .reference:
@@ -1292,7 +1295,7 @@ struct ProjectWindow: View {
         case .manuscript, .scenes, .find:
             InspectorView(
                 store: store,
-                selectedItemId: selectedItemId,
+                selectedItemId: activeItemID,
                 metrics: metrics,
                 onOpenProjectSettings: { activeSheet = .projectSettings }
             )
@@ -1492,10 +1495,32 @@ struct ProjectWindow: View {
 
     // MARK: - Helpers
 
-    /// Whether the given selection id resolves to a manuscript document (the
+    // MARK: - The subject boundary
+
+    // **Two properties, one rule.** Everything below this line that wants a bare
+    // `String` takes one of these; nothing else in the window unwraps a
+    // `BinderSubject`. Before the type there were three spellings of the same
+    // defaulting rule at three call sites — one raw, two `??`-substituted, and a
+    // fourth re-substitution inside `DetailPaneToggle` on a value already
+    // substituted here — so which pane you were looking at decided what "no
+    // document" meant.
+
+    /// The structure item the tree names, when it names one. `nil` for the
+    /// project and for no selection alike: neither is an item, and every
+    /// consumer of this already had to handle a `nil`.
+    private var activeItemID: String? { selectedSubject?.itemID }
+
+    /// The same answer for the panes that require a non-optional document id
+    /// (History, Tasks, the annotations arm, the translation arm). They test it
+    /// against `BinderSubject.noDocumentSubject`; nothing re-substitutes.
+    private var activeDocId: String {
+        BinderSubject.activeDocId(for: selectedSubject)
+    }
+
+    /// Whether the window's subject resolves to a manuscript document (the
     /// only selection kind for which the EditorCoordinator delivers metrics).
-    private func selectionIsDocument(_ id: String?) -> Bool {
-        guard let store, let id,
+    private func selectionIsDocument(_ subject: BinderSubject?) -> Bool {
+        guard let store, let id = subject?.itemID,
               let item = TreeWalk.find(id: id, in: store.manifest.structure)
         else { return false }
         return item.type == .document && item.path != nil
@@ -1503,7 +1528,7 @@ struct ProjectWindow: View {
 
     private var goalIndicatorState: GoalIndicatorState {
         guard let store else { return .empty }
-        let currentDoc = selectedItemId.flatMap {
+        let currentDoc = activeItemID.flatMap {
             TreeWalk.find(id: $0, in: store.manifest.structure)
         }
 
@@ -1597,17 +1622,23 @@ struct ProjectWindow: View {
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
 
-            // Seed UI state from disk (or defaults). Validate selectedItemId
-            // against current structure — if the saved selection refers to a
-            // deleted item, fall back to first document.
-            let savedSelection = ds.uiState.selectedItemId
-            let isValid = savedSelection != nil
-                ? TreeWalk.contains(id: savedSelection!, in: s.manifest.structure)
-                : false
+            // Seed UI state from disk (or defaults). Validate the saved subject
+            // against current structure — if it names a deleted item, fall back
+            // to the first document.
+            //
+            // The validation is `TreeWalk.contains` over the ITEM id, unchanged.
+            // Note what that means for the project subject: it is in no
+            // structure, so it fails this check and lands on the first document
+            // exactly as a deleted item does. Nothing writes that subject yet,
+            // and closing this is the restore work's, not the type's.
+            let savedSelection = ds.uiState.selectedSubject
+            let isValid = savedSelection?.itemID.map {
+                TreeWalk.contains(id: $0, in: s.manifest.structure)
+            } ?? false
             if isValid {
-                self.selectedItemId = savedSelection
+                self.selectedSubject = savedSelection
             } else if let first = TreeWalk.first(in: s.manifest.structure, where: { $0.type == .document }) {
-                self.selectedItemId = first.id
+                self.selectedSubject = .item(first.id)
             }
             self.isNoChromeOn = ds.uiState.isNoChromeOn
             self.isReviewModeOn = ds.uiState.isReviewModeOn
@@ -1666,7 +1697,13 @@ private struct CheckpointModifier: ViewModifier {
     /// Fallback project URL, threaded to RewindModifier for its project scope
     /// when `store` hasn't loaded yet (ADR 0021).
     let url: URL
+    /// The item the tree names, already converted at `ProjectWindow`'s
+    /// boundary — `nil` for the project and for no selection alike.
     let selectedItemId: String?
+    /// The breadcrumb's stream id, from the same boundary. Taken rather than
+    /// re-derived: this modifier used to spell the `?? "__no-selection__"` rule
+    /// a second time, three hops from the two other spellings of it.
+    let activeDocId: String
     @Binding var showingCheckpointLabelSheet: Bool
     let onSaveFlash: () -> Void
     @Environment(BackupCoordinator.self) private var backupCoordinator
@@ -1675,7 +1712,6 @@ private struct CheckpointModifier: ViewModifier {
         content
             .onKeyWindowCommand(.maughamSaveCheckpoint, window: window) { _ in
                 guard let store, let documentStore else { return }
-                let activeDocId = selectedItemId ?? "__no-selection__"
                 let allDocIds = ProjectWindow.documentIds(in: store.manifest.structure)
                 let activeDoc = activeDocument(
                     selectedItemId: selectedItemId,
@@ -2169,7 +2205,11 @@ private struct EditorControlMirrorModifier: ViewModifier {
 private struct TranslationReviewModifier: ViewModifier {
     let window: NSWindow?
     let projectURL: URL
-    let activeDocId: String?
+    /// From `ProjectWindow`'s boundary, so this modifier sees the same value the
+    /// right-hand panes do. It used to be handed the RAW selection under this
+    /// name — the one consumer of `activeDocId` with no sentinel substitution at
+    /// all, and a third spelling of the rule.
+    let activeDocId: String
     @Binding var editorControl: EditorControl
 
     @State private var translationLanguage: String?
@@ -2179,9 +2219,13 @@ private struct TranslationReviewModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onKeyWindowCommand(.maughamShowTranslationPicker, window: window) { _ in
-                pickerLanguages = activeDocId.map {
-                    TranslationStore.languages(forDocId: $0, in: projectURL).sorted()
-                } ?? []
+                // The sentinel names no document, so the store finds no
+                // translations for it and the picker says so — the same empty
+                // list the `nil` arm produced before.
+                pickerLanguages = activeDocId == BinderSubject.noDocumentSubject
+                    ? []
+                    : TranslationStore.languages(
+                        forDocId: activeDocId, in: projectURL).sorted()
                 showingPicker = true
             }
             .onKeyWindowCommand(.maughamEnterTranslationReview, window: window) { note in

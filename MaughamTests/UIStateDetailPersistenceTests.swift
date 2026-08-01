@@ -4,7 +4,7 @@ import XCTest
 final class UIStateDetailPersistenceTests: XCTestCase {
     func test_detailSegment_roundTrip() throws {
         let state = UIState(
-            selectedItemId: nil,
+            selectedSubject: nil,
             isNoChromeOn: false,
             binderSegment: .manuscript,
             detailSegment: .research,
@@ -16,7 +16,7 @@ final class UIStateDetailPersistenceTests: XCTestCase {
 
     func test_outlineLayout_roundTrip() throws {
         let state = UIState(
-            selectedItemId: nil,
+            selectedSubject: nil,
             isNoChromeOn: false,
             binderSegment: .manuscript,
             detailSegment: .inspector,

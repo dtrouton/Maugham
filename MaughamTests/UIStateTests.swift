@@ -6,7 +6,7 @@ final class UIStateTests: XCTestCase {
     func test_empty_hasExpectedDefaults() {
         let s = UIState.empty
         XCTAssertEqual(s.schemaVersion, UIState.currentSchemaVersion)
-        XCTAssertNil(s.selectedItemId)
+        XCTAssertNil(s.selectedSubject)
         XCTAssertFalse(s.isNoChromeOn)
         XCTAssertEqual(s.binderSegment, .manuscript)
     }
@@ -14,7 +14,7 @@ final class UIStateTests: XCTestCase {
     func test_codable_roundTrip() throws {
         let original = UIState(
             schemaVersion: 1,
-            selectedItemId: "doc-abc",
+            selectedSubject: .item("doc-abc"),
             isNoChromeOn: true)
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(UIState.self, from: data)
@@ -49,7 +49,7 @@ final class UIStateTests: XCTestCase {
         let url = temp.url.appendingPathComponent("ui-state.json")
         let s = UIState(
             schemaVersion: UIState.currentSchemaVersion,
-            selectedItemId: "doc-x",
+            selectedSubject: .item("doc-x"),
             isNoChromeOn: true)
         try JSONEncoder().encode(s).write(to: url)
         XCTAssertEqual(UIState.loadOrEmpty(from: url), s)
@@ -65,7 +65,7 @@ final class UIStateTests: XCTestCase {
         """#
         try withGhostKey.write(to: url, atomically: true, encoding: .utf8)
         let loaded = UIState.loadOrEmpty(from: url)
-        XCTAssertEqual(loaded.selectedItemId, "doc-x")
+        XCTAssertEqual(loaded.selectedSubject, .item("doc-x"))
         XCTAssertFalse(loaded.isNoChromeOn)
     }
 }

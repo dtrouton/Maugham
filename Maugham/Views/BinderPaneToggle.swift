@@ -4,7 +4,7 @@ import MaughamCore
 struct BinderPaneToggle: View {
     @Bindable var store: ProjectStore
     @Binding var segment: BinderSegment
-    @Binding var selectedItemId: String?
+    @Binding var selectedSubject: BinderSubject?
     @Binding var selectedResearchId: String?
     @Binding var selectedPaletteCardId: String?
     let projectType: ProjectType
@@ -27,7 +27,7 @@ struct BinderPaneToggle: View {
             Group {
                 switch segment {
                 case .manuscript:
-                    BinderView(store: store, selectedItemId: $selectedItemId)
+                    BinderView(store: store, selectedSubject: $selectedSubject)
                 case .research, .canvas:
                     // Spec §10: the canvas segment shows the RESEARCH TREE.
                     // Umbrella §6.3 gives Plan a Left surface of "Research

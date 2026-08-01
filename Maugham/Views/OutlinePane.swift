@@ -4,7 +4,7 @@ import MaughamCore
 struct OutlinePane: View {
     @Bindable var store: ProjectStore
     @Binding var layout: OutlineLayout
-    @Binding var selectedItemId: String?
+    @Binding var selectedSubject: BinderSubject?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,12 +21,12 @@ struct OutlinePane: View {
                 OutlineTable(
                     items: TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document }),
                     store: store,
-                    selectedItemId: $selectedItemId)
+                    selectedSubject: $selectedSubject)
             } else {
                 CorkboardGrid(
                     items: TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document }),
                     store: store,
-                    selectedItemId: $selectedItemId)
+                    selectedSubject: $selectedSubject)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

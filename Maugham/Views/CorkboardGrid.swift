@@ -4,7 +4,7 @@ import MaughamCore
 struct CorkboardGrid: View {
     let items: [StructureItem]
     @Bindable var store: ProjectStore
-    @Binding var selectedItemId: String?
+    @Binding var selectedSubject: BinderSubject?
 
     private let columns = [
         GridItem(.adaptive(minimum: 180), spacing: 12)
@@ -23,7 +23,7 @@ struct CorkboardGrid: View {
 
     private func card(for item: StructureItem) -> some View {
         Button {
-            selectedItemId = item.id
+            selectedSubject = .item(item.id)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .top) {
@@ -66,8 +66,8 @@ struct CorkboardGrid: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(selectedItemId == item.id ? Color.accentColor : Color.secondary.opacity(0.3),
-                            lineWidth: selectedItemId == item.id ? 2 : 1)
+                    .stroke(selectedSubject == .item(item.id) ? Color.accentColor : Color.secondary.opacity(0.3),
+                            lineWidth: selectedSubject == .item(item.id) ? 2 : 1)
             )
         }
         .buttonStyle(.plain)

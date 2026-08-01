@@ -7,7 +7,7 @@ import MaughamCore
 struct CollectionBinderPaneToggle: View {
     @Bindable var store: ProjectStore
     @Binding var segment: BinderSegment
-    @Binding var selectedItemId: String?
+    @Binding var selectedSubject: BinderSubject?
     @Binding var selectedResearchId: String?
     @Binding var selectedPaletteCardId: String?
     @Binding var findActive: Bool
@@ -37,7 +37,7 @@ struct CollectionBinderPaneToggle: View {
                 case .manuscript:
                     CollectionPiecesPane(
                         store: store,
-                        selectedItemId: $selectedItemId,
+                        selectedSubject: $selectedSubject,
                         renamingItemId: $renamingItemId)
                 case .research, .canvas:
                     // Spec §10 — see BinderPaneToggle for the reasoning.
@@ -59,7 +59,7 @@ struct CollectionBinderPaneToggle: View {
                     // screenplay piece in the editor). Fall back to Pieces.
                     CollectionPiecesPane(
                         store: store,
-                        selectedItemId: $selectedItemId,
+                        selectedSubject: $selectedSubject,
                         renamingItemId: $renamingItemId)
                 }
             }

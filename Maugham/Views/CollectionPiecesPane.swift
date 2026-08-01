@@ -4,7 +4,7 @@ import SwiftUI
 /// inline rename support, and a right-click context menu.
 struct CollectionPiecesPane: View {
     @Bindable var store: ProjectStore
-    @Binding var selectedItemId: String?
+    @Binding var selectedSubject: BinderSubject?
     @Binding var renamingItemId: String?
 
     var body: some View {
@@ -27,7 +27,7 @@ struct CollectionPiecesPane: View {
 
     @ViewBuilder
     private var pieceList: some View {
-        List(selection: $selectedItemId) {
+        List(selection: $selectedSubject) {
             ForEach(store.manifest.structure) { piece in
                 PieceRow(
                     piece: piece,
@@ -44,7 +44,7 @@ struct CollectionPiecesPane: View {
                             targetId: piece.id,
                             position: position)
                     })
-                    .tag(piece.id as String?)
+                    .tag(BinderSubject.item(piece.id))
                     .contextMenu {
                         Button("Rename") {
                             renamingItemId = piece.id

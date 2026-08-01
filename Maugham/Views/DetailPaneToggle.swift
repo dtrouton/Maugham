@@ -5,7 +5,9 @@ struct DetailPaneToggle<Inspector: View>: View {
     @Bindable var store: ProjectStore
     @Binding var segment: DetailSegment
     @Binding var outlineLayout: OutlineLayout
-    @Binding var selectedItemId: String?
+    @Binding var selectedSubject: BinderSubject?
+    /// The item the tree names, converted once at `ProjectWindow`'s boundary.
+    /// `nil` for the project and for no selection alike.
     let activeManuscriptItemId: String?
     /// The window's working mode. Decides which segments the picker offers —
     /// see `visibleSegments(persona:hideOutline:)`.
@@ -13,7 +15,11 @@ struct DetailPaneToggle<Inspector: View>: View {
     let hideOutline: Bool
     // History pane props — optional so callers that don't need history can omit them.
     let projectURL: URL?
-    let activeDocId: String?
+    /// The non-optional document id the per-document panes take, from the same
+    /// boundary. **Not re-substituted here** — this view used to apply a second
+    /// `?? "__no-selection__"` to a value the window had already substituted,
+    /// which is two spellings of one rule three hops apart.
+    let activeDocId: String
     let allDocIds: [String]
     let device: String
     let session: String
@@ -38,12 +44,12 @@ struct DetailPaneToggle<Inspector: View>: View {
         store: ProjectStore,
         segment: Binding<DetailSegment>,
         outlineLayout: Binding<OutlineLayout>,
-        selectedItemId: Binding<String?>,
+        selectedSubject: Binding<BinderSubject?>,
         activeManuscriptItemId: String?,
         persona: Persona = .default,
         hideOutline: Bool = false,
         projectURL: URL? = nil,
-        activeDocId: String? = nil,
+        activeDocId: String = BinderSubject.noDocumentSubject,
         allDocIds: [String] = [],
         device: String = "",
         session: String = "",
@@ -55,7 +61,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.store = store
         self._segment = segment
         self._outlineLayout = outlineLayout
-        self._selectedItemId = selectedItemId
+        self._selectedSubject = selectedSubject
         self.activeManuscriptItemId = activeManuscriptItemId
         self.persona = persona
         self.hideOutline = hideOutline
@@ -325,7 +331,7 @@ struct DetailPaneToggle<Inspector: View>: View {
                 OutlinePane(
                     store: store,
                     layout: $outlineLayout,
-                    selectedItemId: $selectedItemId)
+                    selectedSubject: $selectedSubject)
             }
         case .history:
             historyPane
@@ -371,9 +377,8 @@ struct DetailPaneToggle<Inspector: View>: View {
     private var translationPane: some View {
         if let ds = documentStore,
            let control = editorControl,
-           let docId = activeDocId,
-           docId != "__no-selection__",
-           let doc = ds.document(forDocId: docId) {
+           activeDocId != BinderSubject.noDocumentSubject,
+           let doc = ds.document(forDocId: activeDocId) {
             TranslationReviewPane(document: doc, control: control)
         } else {
             ContentUnavailableView(
@@ -405,7 +410,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         if let url = projectURL {
             HistoryPane(
                 projectURL: url,
-                activeDocId: activeDocId ?? "__no-selection__",
+                activeDocId: activeDocId,
                 allDocIds: allDocIds,
                 device: device,
                 session: session,
@@ -424,9 +429,8 @@ struct DetailPaneToggle<Inspector: View>: View {
     @ViewBuilder
     private var annotationsPane: some View {
         if let ds = documentStore,
-           let docId = activeDocId,
-           docId != "__no-selection__",
-           let doc = ds.document(forDocId: docId) {
+           activeDocId != BinderSubject.noDocumentSubject,
+           let doc = ds.document(forDocId: activeDocId) {
             AnnotationsPane(document: doc)
         } else {
             ContentUnavailableView(
