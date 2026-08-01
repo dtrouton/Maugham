@@ -143,4 +143,64 @@ final class CanvasSceneTests: XCTestCase {
         XCTAssertEqual(CanvasCardMetrics.textOrigin(inCard: frame),
                        CGPoint(x: 10 + CanvasCardMetrics.inset, y: 20 + CanvasCardMetrics.inset))
     }
+
+    // MARK: - Re-pointing marks (M1A adoption; whole-branch review, I4)
+
+    private func markedScene() -> CanvasScene {
+        var scene = CanvasScene()
+        var promoted = scrap("promoted", x: 0, y: 0)
+        promoted.promotedItemID = "res-legacy"
+        var contributor = scrap("contributor", x: 300, y: 0)
+        contributor.contributedToItemID = "res-legacy"
+        var both = scrap("both", x: 600, y: 0)
+        both.promotedItemID = "res-legacy"
+        both.contributedToItemID = "res-legacy"
+        var elsewhere = scrap("elsewhere", x: 900, y: 0)
+        elsewhere.promotedItemID = "res-other"
+        for node in [promoted, contributor, both, elsewhere] { scene.insert(node) }
+        scene.insertRegion(CanvasRegion(
+            id: CanvasRegionID("r1"), label: "Act One",
+            frame: CGRect(x: 0, y: 0, width: 400, height: 400),
+            promotedItemID: "res-legacy"))
+        scene.insertRegion(CanvasRegion(
+            id: CanvasRegionID("r2"), label: "Act Two",
+            frame: CGRect(x: 500, y: 0, width: 400, height: 400),
+            promotedItemID: "res-other"))
+        return scene
+    }
+
+    /// Adoption trashes the legacy craft-intent note, so a mark naming it
+    /// resolves to nothing and the inspector tells the writer their intent was
+    /// deleted — over prose sitting in the new pane. The artifact is the same
+    /// object under a new id, so the mark follows it.
+    func test_repointMarksFollowsBothFieldsAndRegions() {
+        var scene = markedScene()
+        let moved = scene.repointMarks(from: "res-legacy", to: "stmt-1")
+
+        XCTAssertEqual(moved, 5, "the count is what the caller decides to write on")
+        XCTAssertEqual(scene.node(CanvasNodeID("promoted"))?.promotedItemID, "stmt-1")
+        XCTAssertEqual(scene.node(CanvasNodeID("contributor"))?.contributedToItemID, "stmt-1",
+                       "a contribution record names an artifact too, and its "
+                       + "reader goes just as wrong when it dangles")
+        XCTAssertEqual(scene.node(CanvasNodeID("both"))?.promotedItemID, "stmt-1")
+        XCTAssertEqual(scene.node(CanvasNodeID("both"))?.contributedToItemID, "stmt-1")
+        XCTAssertEqual(scene.region(CanvasRegionID("r1"))?.promotedItemID, "stmt-1")
+    }
+
+    /// The control: a mark naming something else must be untouched, or the
+    /// migration would collect every promotion on the canvas into the intent.
+    func test_repointMarksLeavesEveryOtherArtifactAlone() {
+        var scene = markedScene()
+        scene.repointMarks(from: "res-legacy", to: "stmt-1")
+        XCTAssertEqual(scene.node(CanvasNodeID("elsewhere"))?.promotedItemID, "res-other")
+        XCTAssertEqual(scene.region(CanvasRegionID("r2"))?.promotedItemID, "res-other")
+    }
+
+    func test_repointMarksReportsNothingWhenNothingNamesTheOldId() {
+        var scene = markedScene()
+        XCTAssertEqual(scene.repointMarks(from: "res-nobody", to: "stmt-1"), 0,
+                       "a project with no promoted intent must not be written at all")
+        XCTAssertEqual(scene.repointMarks(from: "res-legacy", to: "res-legacy"), 0,
+                       "re-pointing an id at itself is not a change")
+    }
 }

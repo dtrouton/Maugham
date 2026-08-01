@@ -110,7 +110,23 @@ final class CanvasStore {
         writeNow(scene: payload.scene, scraps: payload.scraps)
     }
 
+    /// Write the derived sidecar and **nothing else**.
+    ///
+    /// `canvas.md` is CONTENT (spec §8) and this deliberately does not touch it.
+    /// The one caller is craft-intent adoption, which re-points marks inside
+    /// `ProjectStore.load` before any `CanvasModel` exists: it has no scrap text
+    /// of its own, and putting a parse→render round trip of the writer's scraps
+    /// on a migration path is a risk with nothing on the other side of it.
+    func saveSceneOnly(_ scene: CanvasScene) {
+        writeSidecar(scene)
+    }
+
     private func writeNow(scene: CanvasScene, scraps: [CanvasNodeID: String]) {
+        writeSidecar(scene)
+        try? ScrapText.render(scraps).write(to: scrapsURL, atomically: true, encoding: .utf8)
+    }
+
+    private func writeSidecar(_ scene: CanvasScene) {
         try? FileManager.default.createDirectory(
             at: sidecarURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
@@ -119,6 +135,5 @@ final class CanvasStore {
         if let data = try? encoder.encode(CanvasSceneDTO(scene: scene)) {
             try? data.write(to: sidecarURL, options: .atomic)
         }
-        try? ScrapText.render(scraps).write(to: scrapsURL, atomically: true, encoding: .utf8)
     }
 }

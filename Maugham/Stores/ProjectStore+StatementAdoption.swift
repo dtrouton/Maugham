@@ -252,7 +252,51 @@ extension ProjectStore {
         // to close and no debounced save to flush — but it is safe for *that*
         // reason and not because the discipline ran, and a reader who assumes
         // otherwise will reason wrongly about this window.
+        // **The canvas's marks follow the prose** (whole-branch review, I4).
+        // Trashing the notes above removed their manifest entries, so any
+        // `CanvasNode.promotedItemID` / `contributedToItemID` — or region mark —
+        // naming one is now unresolvable by `ArtifactIndex.over`, and every
+        // reader of a dangling mark says something false: the inspector reports
+        // the writer's intent as deleted, over prose sitting in the new pane,
+        // and a line promotion between two such cards is refused with "Promote
+        // that card again first" for something that worked. It is the same
+        // artifact one hop later; the mark is re-pointed rather than cleared,
+        // because a cleared mark makes a promoted card look and sound
+        // un-promoted.
+        //
+        // Ordered AFTER the trash on purpose: nothing here may be the reason a
+        // scope fails, and by this line the writer's words are durably in the
+        // statement's op log.
+        repointCanvasMarks(from: notes.map(\.id), to: statement.id)
+
         try await deleteResearchItems(ids: notes.map(\.id))
+    }
+
+    /// Re-point the canvas sidecar's marks, in place, best-effort.
+    ///
+    /// **Straight to `CanvasStore`, and that is safe only here.** Adoption runs
+    /// inside `ProjectStore.load`, before the store is handed out and long
+    /// before `ProjectWindow` builds a `CanvasModel`, so there is no live scene
+    /// to write underneath. This is the same "safe because of where it sits"
+    /// reasoning the open gate above stopped relying on — it is kept here
+    /// because the alternative is a canvas model this seam has no business
+    /// owning, and because the cost of being wrong is an arrangement rather than
+    /// a word.
+    ///
+    /// **Never throws and never blocks the adoption.** A canvas that cannot be
+    /// read leaves marks dangling, which is exactly today's behaviour; a
+    /// migration that failed because of it would cost the writer their prose.
+    private func repointCanvasMarks(from oldIDs: [String], to newID: String) {
+        let canvas = CanvasStore(projectRoot: url)
+        var scene = canvas.load().scene
+        var moved = 0
+        for oldID in oldIDs { moved += scene.repointMarks(from: oldID, to: newID) }
+        guard moved > 0 else { return }
+        // Sidecar only: `canvas.md` is the writer's scrap text and this seam has
+        // no business rewriting it.
+        canvas.saveSceneOnly(scene)
+        projectStoreLog.info(
+            "Craft-intent adoption re-pointed \(moved, privacy: .public) canvas mark(s) at statement \(newID, privacy: .public)")
     }
 
     /// The writer's notes as one body: **oldest first, separated by a blank

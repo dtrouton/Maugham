@@ -621,4 +621,90 @@ final class StatementAdoptionTests: XCTestCase {
         XCTAssertEqual(projectText, "The book is about weather.",
                        "the piece's intent must not be swept into the book's")
     }
+
+    // MARK: - The canvas's marks (whole-branch review, I4)
+
+    /// A card promoted to craft intent under 1C-c2 names the legacy note's id.
+    /// Adoption trashes that note, taking its manifest entry with it — so
+    /// without re-pointing, `ArtifactIndex.over` cannot resolve the mark and its
+    /// readers each say something false: `PromotedArtifactSection` reports the
+    /// writer's intent as deleted over prose sitting in the new pane, and
+    /// `Promotion.hasDanglingMark` refuses a line promotion with "Promote that
+    /// card again first" for something that worked.
+    func test_adoptionRepointsACanvasMarkThatNamedTheLegacyNote() async throws {
+        var legacyNoteId = ""
+        let url = try await legacyNovel(
+            named: "CanvasMark",
+            notes: [LegacyNote(body: "The weather is a character.", addedAt: Date())]
+        ) { _, created in
+            legacyNoteId = try XCTUnwrap(created.first).id
+        }
+
+        // A canvas that promoted a card and a region into that note, plus one
+        // card contributing to it and one naming something else entirely.
+        var scene = CanvasScene()
+        var promoted = CanvasNode(id: CanvasNodeID("n1"), kind: .scrap,
+                                  origin: .zero, width: 240)
+        promoted.promotedItemID = legacyNoteId
+        var contributor = CanvasNode(id: CanvasNodeID("n2"), kind: .scrap,
+                                     origin: CGPoint(x: 300, y: 0), width: 240)
+        contributor.contributedToItemID = legacyNoteId
+        var unrelated = CanvasNode(id: CanvasNodeID("n3"), kind: .scrap,
+                                   origin: CGPoint(x: 600, y: 0), width: 240)
+        unrelated.promotedItemID = "res-something-else"
+        for node in [promoted, contributor, unrelated] { scene.insert(node) }
+        scene.insertRegion(CanvasRegion(
+            id: CanvasRegionID("r1"), label: "Act One",
+            frame: CGRect(x: 0, y: 0, width: 400, height: 400),
+            promotedItemID: legacyNoteId))
+        CanvasStore(projectRoot: url).save(scene: scene, scraps: [:])
+
+        let store = try await ProjectStore.load(from: url)
+        let statement = try XCTUnwrap(store.statement(kind: .intent, scope: .project))
+        XCTAssertNotEqual(statement.id, legacyNoteId,
+                          "the statement reused the note's id, so this test "
+                          + "cannot tell a re-pointing from doing nothing")
+
+        let reloaded = CanvasStore(projectRoot: url).load().scene
+        XCTAssertEqual(reloaded.node(CanvasNodeID("n1"))?.promotedItemID, statement.id,
+                       "the promoted card still names the trashed research note, "
+                       + "so the inspector reports the writer's intent as deleted")
+        XCTAssertEqual(reloaded.node(CanvasNodeID("n2"))?.contributedToItemID, statement.id)
+        XCTAssertEqual(reloaded.region(CanvasRegionID("r1"))?.promotedItemID, statement.id)
+        XCTAssertEqual(reloaded.node(CanvasNodeID("n3"))?.promotedItemID,
+                       "res-something-else",
+                       "adoption collected an unrelated promotion into the intent")
+
+        // And `ArtifactIndex` really can resolve it now — the reader that
+        // decides what the writer is told.
+        let index = ArtifactIndex.over(research: store.manifest.research,
+                                       statements: store.manifest.statements,
+                                       structure: store.manifest.structure)
+        XCTAssertEqual(index.kind(of: statement.id), .craftIntent,
+                        "the re-pointed mark must resolve, or it is dangling "
+                        + "under a different id")
+    }
+
+    /// The control: a project with a canvas and no promoted intent must come out
+    /// of adoption with its sidecar untouched, so the assertion above is about
+    /// re-pointing rather than about rewriting every canvas that exists.
+    func test_adoptionLeavesACanvasWithNoMatchingMarkExactlyAsItWas() async throws {
+        let url = try await legacyNovel(
+            named: "CanvasUntouched",
+            notes: [LegacyNote(body: "The weather is a character.", addedAt: Date())])
+
+        var scene = CanvasScene()
+        var node = CanvasNode(id: CanvasNodeID("n1"), kind: .scrap,
+                              origin: .zero, width: 240)
+        node.promotedItemID = "res-something-else"
+        scene.insert(node)
+        CanvasStore(projectRoot: url).save(scene: scene, scraps: [:])
+        let sidecar = url.appendingPathComponent(CanvasStore.sidecarRelativePath)
+        let before = try Data(contentsOf: sidecar)
+
+        _ = try await ProjectStore.load(from: url)
+
+        XCTAssertEqual(try Data(contentsOf: sidecar), before,
+                       "adoption rewrote a sidecar it had no reason to touch")
+    }
 }
