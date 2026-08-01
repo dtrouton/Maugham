@@ -52,10 +52,21 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
                        Persona.author.panes)
     }
 
-    func test_visibleSegments_dropOutlineWhenHidden() {
-        let segments = DetailPaneToggle<AnyView>.visibleSegments(persona: .author, hideOutline: true)
-        XCTAssertFalse(segments.contains(.outline))
-        XCTAssertEqual(segments.count, Persona.author.panes.count - 1)
+    /// `hideOutline`'s filter over the registry list is a no-op as of the
+    /// persona shell's slice 1, because no persona registers `.outline` any
+    /// more — the flag now bites only on the `including:` append
+    /// (`test_visibleSegments_doNotAppendOutlineWhenItIsHidden`). Asserted
+    /// rather than assumed: if a later slice re-registers the pane this goes
+    /// red, which is the moment the filter starts mattering again and wants a
+    /// decision.
+    func test_hideOutlineDoesNotChangeTheBarePickerInAnyPersona() {
+        for persona in Persona.allCases {
+            XCTAssertFalse(persona.panes.contains(.outline), "\(persona) registers outline")
+            XCTAssertEqual(
+                DetailPaneToggle<AnyView>.visibleSegments(persona: persona, hideOutline: true),
+                DetailPaneToggle<AnyView>.visibleSegments(persona: persona, hideOutline: false),
+                "\(persona)")
+        }
     }
 
     func test_visibleSegments_areNeverEmpty() {
@@ -214,6 +225,41 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
                                        "\(persona) dropped \(requested) on reveal")
                     }
                 }
+            }
+        }
+    }
+
+    /// The property that replaces `PersonaPaneRegistryTests.
+    /// test_everyDetailSegment_appearsInAtLeastOnePersona`, deleted by the
+    /// persona shell's slice 1. That test's failure message called a pane in no
+    /// registry "unreachable"; the shell demotes `.outline` to exactly that
+    /// state on purpose, so the claim had to be proved false rather than
+    /// worked around. **Leaving a registry is a demotion, not a removal.**
+    ///
+    /// The control matters more than the assertions: with no globally
+    /// unregistered segment this test proves nothing, so it says so and fails.
+    func test_aPaneRegisteredInNoPersonaIsStillReachable() {
+        let registered = Set(Persona.allCases.flatMap(\.panes))
+        let unregistered = DetailSegment.allCases.filter { !registered.contains($0) }
+        XCTAssertFalse(unregistered.isEmpty,
+                       "no segment is unregistered, so this test is vacuous — delete it "
+                       + "or the registry has silently re-adopted every pane")
+
+        for segment in unregistered {
+            for persona in Persona.allCases {
+                // The reveal path: ⌘⌥-letter with the column closed mounts the
+                // picker with the requested segment already in place.
+                XCTAssertEqual(
+                    DetailPaneToggle<AnyView>.mountSelection(
+                        segment, persona: persona, hideOutline: false),
+                    segment,
+                    "\(persona) dropped the unregistered \(segment) on reveal")
+                // The picker path: it is appended and rendered highlighted.
+                XCTAssertTrue(
+                    DetailPaneToggle<AnyView>.visibleSegments(
+                        persona: persona, hideOutline: false, including: segment)
+                        .contains(segment),
+                    "\(persona)'s picker does not carry the unregistered \(segment)")
             }
         }
     }

@@ -6,12 +6,14 @@ The right column's modes are Inspector, Research, and Outline (covered on this p
 
 Each of the four personas (⌘1 Plan, ⌘2 Author, ⌘3 Review, ⌘4 Publish — see [Getting Started → Personas](getting-started.md#personas)) offers its own subset of these modes in the picker, in an order suited to that persona's work. A shortcut still opens its pane from any persona — it reveals the right column if it's hidden and switches to it — even one the current persona doesn't lead with:
 
-- **Plan** — Research, Outline, Palette, Inbox, Intent, Visual Language, Tasks, Inspector.
-- **Author** — Inspector, Outline, Research, Tasks, Palette, Intent.
-- **Review** — Annotations, History, Intent, Translation, Inspector, Outline, Tasks, Palette, Visual Language.
-- **Publish** — Translation, Visual Language, Inspector, Intent.
+- **Plan** — Research, Palette, Inbox, Intent, Visual Language, Tasks, Inspector.
+- **Author** — Inspector, Research, Tasks, Palette, Intent, History.
+- **Review** — Annotations, History, Intent, Translation, Inspector, Tasks, Palette, Visual Language.
+- **Publish** — Visual Language, Inspector.
 
-Switching persona while sitting on a pane the destination doesn't offer falls back to that persona's default rather than blanking the pane.
+**Outline is in no persona's picker.** It's still there — ⌘⌥O opens it from any persona, and it stays selected while you use it — it just isn't one of the modes a persona leads you to. The binder is where structure lives.
+
+Switching persona while sitting on a pane the destination doesn't offer falls back to that persona's default rather than blanking the pane. A pane no persona offers is the one thing that isn't remembered across a persona switch: summon Outline with ⌘⌥O, switch persona and come back, and you're on that persona's own mode again.
 
 ### Inspector mode (⌘⌥I)
 

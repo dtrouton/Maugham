@@ -74,13 +74,32 @@ public extension Persona {
     /// sole dispatch path for all of them (`DocSyncTests` guards it against
     /// `docs/guide/reference.md`).
     ///
-    /// The registry is the design's pane × persona matrix (§6.3 of
-    /// `docs/superpowers/specs/2026-07-25-mode-based-ux-redesign-design.md`)
-    /// made executable: every `●` and `○` cell for a built segment appears
-    /// below, and `PersonaPaneRegistryTests.test_everyPersona_matchesTheDesignMatrix`
+    /// The registry is the design's pane × persona matrix made executable, and
+    /// that matrix now has two documents. §6.3 of
+    /// `docs/superpowers/specs/2026-07-25-mode-based-ux-redesign-design.md` is
+    /// the base; §5 of
+    /// `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md` is
+    /// **an amendment in force to it**, and where they disagree the amendment
+    /// wins. `PersonaPaneRegistryTests.test_everyPersona_matchesTheDesignMatrix`
     /// checks the whole table rather than a row at a time — the matrix was
     /// swept row-wise twice and lost a cell each time (Review's translation
     /// and palette, then Plan's tasks).
+    ///
+    /// The amendment's departures, delivered by the persona shell's slice 1:
+    /// `.outline` leaves every persona, `.translation` and `.intent` leave
+    /// Publish, and `.history` joins Author. `.outline` leaves because the tree
+    /// shows structure and `OutlinePane` is read-only — it renders and sets the
+    /// selection but has no create, move or delete, so it cannot be the
+    /// structure surface Plan needs. **Leaving a registry is a demotion, not a
+    /// removal**: ⌘⌥O still binds unconditionally in `MaughamApp`'s View menu,
+    /// `DetailPaneToggle.visibleSegments(including:)` appends an unregistered
+    /// selection, and `segmentContent` still renders `OutlinePane`. Personas
+    /// are lenses, not gates.
+    ///
+    /// Still owed to the amendment, and NOT slice 1's: `.tasks` leaves Plan,
+    /// and `.inspector` dissolves into per-persona sections (§5.1, slice 4).
+    /// They are listed in `PersonaPaneRegistryTests.notYetDelivered`, which is
+    /// the ledger — not this comment.
     ///
     /// One deliberate deviation, marked at its case below: Publish carries
     /// `.inspector`, which §6.3 gives it as `—`.
@@ -96,13 +115,24 @@ public extension Persona {
             // (what the writer intends to do next), Inspector is metadata.
             // Intent and Visual Language are both ● here — planning is where a
             // book's aim and its look are decided.
-            return [.research, .outline, .palette, .inbox,
+            //
+            // `.outline` left in slice 1 of the persona shell: Plan is where
+            // structure gets built, and a read-only outline is not that.
+            return [.research, .palette, .inbox,
                     .intent, .visualLanguage, .tasks, .inspector]
         case .author:
             // Intent is ○: the chapter's aim is worth a glance while drafting,
             // but Author leads with the document itself. Visual language is —
             // for Author, and stays absent.
-            return [.inspector, .outline, .research, .tasks, .palette, .intent]
+            //
+            // `.history` joined in slice 1 of the persona shell. It takes
+            // `activeDocId` like any per-document pane and works wherever a
+            // document is selected; it was registered only in Review, so ⌘⌥H
+            // in Author summoned a pane that `PersonaMemory` then refused to
+            // keep. `.inspector` stays first — Author is the default persona
+            // and its landing pane must not move under an upgrading writer.
+            // `.history` goes last for the same reason: nothing above it moves.
+            return [.inspector, .research, .tasks, .palette, .intent, .history]
         case .review:
             // Order follows the review workflow: adjudicate notes, see what
             // changed, check the translated edition, then the supporting
@@ -114,19 +144,42 @@ public extension Persona {
             // Intent is ● here for the reason the milestone exists: review's
             // job is to compare a draft against the intent you started with, so
             // it sits with the notes and the diff rather than among the lenses.
-            // Visual language is ○.
+            // Visual language is ○. `.outline` left in slice 1 with every
+            // other persona's.
             return [.annotations, .history, .intent, .translation,
-                    .inspector, .outline, .tasks, .palette, .visualLanguage]
+                    .inspector, .tasks, .palette, .visualLanguage]
         case .publish:
             // Thin until M1D gives Publishing its own surfaces (editions,
             // config). Visual language arrives here in M1A — §6.3 marks it ●
             // for Publish, and Publish's column is where "how the book looks"
-            // is read. Translation is genuinely its work today; Intent is ○.
+            // is read.
+            //
+            // `.translation` and `.intent` left in slice 1 of the persona
+            // shell. `TranslationReviewPane` is source text plus translator
+            // queries — adjudication, which is Review's job, not building an
+            // edition; and Publish is not where a book's aim is read.
+            //
+            // TWO CONSEQUENCES, stated so a reviewer does not have to
+            // rediscover them. **Publish's default pane moves from Translation
+            // to Visual Language**, because `defaultPane` is `panes.first`;
+            // that is the design — visual language IS Publish's built work
+            // today. And Publish now sits exactly on the two-pane floor
+            // `PersonaPaneRegistryTests.test_everyPersona_offersAtLeastTwoPanes`
+            // asserts, so the `.inspector` deviation below stops being a
+            // nicety and becomes the only thing holding that floor.
+            //
             // DELIBERATE DEVIATION from §6.3, which marks Inspector `—` for
-            // Publish: without it the picker was a single button, which reads
-            // as broken chrome rather than a choice. Drop it when Publish
-            // gains its own surfaces.
-            return [.translation, .visualLanguage, .inspector, .intent]
+            // Publish, and from the 2026-08-01 amendment, which dissolves it
+            // everywhere. It stays until the Publishing section becomes
+            // Publish's own pane (slice 4). The reason recorded here before —
+            // "without it the picker was a single button, which reads as
+            // broken chrome" — is TOO WEAK and the amendment (§5.1) says so by
+            // name: `InspectorPublishSection` is the only UI in the app for
+            // per-piece publish config (include in ToC, start-on, title
+            // override), so removing it now deletes the writer's
+            // table-of-contents control. A comment stating a weaker reason
+            // than the real one is how a later reader acts on the weaker one.
+            return [.visualLanguage, .inspector]
         }
     }
 

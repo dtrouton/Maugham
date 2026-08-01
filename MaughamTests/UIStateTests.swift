@@ -111,14 +111,14 @@ final class UIStatePersonaTests: XCTestCase {
                                    detailSegment: .history)
         state.personaMemory.record(persona: .plan,
                                    binderSegment: .palette,
-                                   detailSegment: .outline)
+                                   detailSegment: .inbox)
         let data = try JSONEncoder().encode(state)
         let decoded = try JSONDecoder().decode(UIState.self, from: data)
         XCTAssertEqual(decoded.personaMemory, state.personaMemory)
         XCTAssertEqual(
             decoded.personaMemory.restoredBinderSegment(for: .author, projectType: .novel),
             .manuscript)
-        XCTAssertEqual(decoded.personaMemory.restoredDetailSegment(for: .plan), .outline)
+        XCTAssertEqual(decoded.personaMemory.restoredDetailSegment(for: .plan), .inbox)
     }
 
     func test_decode_ofV4StateWithoutPersonaMemory_isEmptyNotAFailure() throws {

@@ -17,11 +17,20 @@ final class PersonaModifierTests: XCTestCase {
 
     /// The behaviour change defect B bought: a persona is a workspace, so
     /// entering one restores ITS panes, not whatever the last one happened to
-    /// share with it. `.outline` exists in Review, but Review's own remembered
+    /// share with it. `.tasks` exists in Review, but Review's own remembered
     /// pane (here: none, so its default) wins.
+    ///
+    /// The shared pane must be one BOTH personas offer, or the test passes for
+    /// the wrong reason — it would prove only that an unoffered pane is
+    /// dropped, which is a different test two files over. It was `.outline`
+    /// until the persona shell's slice 1 took that pane out of every registry.
     func test_applyPersonaChange_doesNotInheritASegmentJustBecauseTheDestinationOffersIt() {
+        XCTAssertTrue(Persona.author.panes.contains(.tasks))
+        XCTAssertTrue(Persona.review.panes.contains(.tasks))
+        XCTAssertNotEqual(Persona.review.defaultPane, .tasks)
+
         let result = PersonaModifier.applyPersonaChange(
-            to: .review, from: .author, currentSegment: .outline,
+            to: .review, from: .author, currentSegment: .tasks,
             currentBinderSegment: .manuscript, projectType: .novel,
             memory: .empty)
         XCTAssertEqual(result.segment, Persona.review.defaultPane)
@@ -98,8 +107,12 @@ final class PersonaModifierTests: XCTestCase {
 
     /// The same round trip on a screenplay, where the binder home is Scenes.
     func test_personaRoundTrip_isLosslessOnAScreenplay() {
+        // `.tasks` stands in for `.outline`, which the persona shell's slice 1
+        // took out of every registry — a remembered pane the persona no longer
+        // offers is filtered on restore, so the round trip could not be
+        // lossless with it and the test would have been asserting the drop.
         let out = PersonaModifier.applyPersonaChange(
-            to: .plan, from: .author, currentSegment: .outline,
+            to: .plan, from: .author, currentSegment: .tasks,
             currentBinderSegment: .scenes, projectType: .screenplay,
             memory: .empty)
         let back = PersonaModifier.applyPersonaChange(
@@ -107,7 +120,7 @@ final class PersonaModifierTests: XCTestCase {
             currentBinderSegment: out.binderSegment, projectType: .screenplay,
             memory: out.memory)
         XCTAssertEqual(back.binderSegment, .scenes)
-        XCTAssertEqual(back.segment, .outline)
+        XCTAssertEqual(back.segment, .tasks)
     }
 
     /// Every persona pair, every project type: leave and come back, and both

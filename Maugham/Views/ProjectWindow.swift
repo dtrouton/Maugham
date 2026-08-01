@@ -1614,8 +1614,8 @@ struct ProjectWindow: View {
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible
             // Restored VERBATIM, exactly as the binder below is. Coercing to
             // the restored persona's registry here silently ate the writer's
-            // last explicit pane choice (⌘⌥H in Author, quit, reopen → History
-            // gone), and would have moved every pre-persona project off
+            // last explicit pane choice (⌘⌥O in any persona, quit, reopen →
+            // Outline gone), and would have moved every pre-persona project off
             // Annotations/History/Inbox/Translation on upgrade. It protects
             // nothing: `DetailPaneToggle` appends an out-of-persona selection
             // and renders it highlighted — `visibleSegments`' own doc comment

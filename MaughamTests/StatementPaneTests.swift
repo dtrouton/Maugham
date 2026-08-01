@@ -25,17 +25,23 @@ final class StatementPaneTests: XCTestCase {
 
     // MARK: - The registry (spec §4.1, umbrella spec §6.3)
 
-    /// §6.3 gives Intent a cell in every persona and Visual language a cell in
+    /// §6.3 gave Intent a cell in every persona and Visual language a cell in
     /// Plan, Review and Publish — the shape `Persona.swift` reserved. The whole
     /// matrix is checked by `PersonaPaneRegistryTests`; this pins the two rows
-    /// this task consumes, so a sweep that drops one names the milestone that
-    /// added it.
-    func test_intentIsOfferedByEveryPersona() {
-        for persona in Persona.allCases {
-            XCTAssertTrue(persona.panes.contains(.intent),
-                          "\(persona) does not offer Intent, which §6.3 marks ● or ○ "
-                          + "for all four personas")
-        }
+    /// M1A consumes, so a sweep that drops one names the milestone that added
+    /// it.
+    ///
+    /// **The milestone doing the dropping, as that comment asked for: the
+    /// persona shell, slice 1** (`docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`
+    /// §5, an amendment in force to §6.3). Intent leaves Publish. Publish is
+    /// where a finished book is made to look right; what the writing is going
+    /// for is read where the writing happens, and in Review where a draft is
+    /// compared against it. The assertion is not weakened to "at least one" —
+    /// it names the three, so re-adding a fourth is as loud as losing one.
+    func test_intentIsOfferedByEveryPersonaExceptPublish() {
+        XCTAssertEqual(
+            Set(Persona.allCases.filter { $0.panes.contains(.intent) }),
+            [.plan, .author, .review])
     }
 
     func test_visualLanguageIsOfferedByPlanReviewAndPublishOnly() {

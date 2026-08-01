@@ -35,11 +35,11 @@ final class PersonaMemoryTests: XCTestCase {
     func test_record_isPerPersona() {
         var memory = PersonaMemory.empty
         memory.record(persona: .author, binderSegment: .research, detailSegment: .tasks)
-        memory.record(persona: .plan, binderSegment: .palette, detailSegment: .outline)
+        memory.record(persona: .plan, binderSegment: .palette, detailSegment: .inbox)
         XCTAssertEqual(memory.restoredBinderSegment(for: .author, projectType: .novel), .research)
         XCTAssertEqual(memory.restoredBinderSegment(for: .plan, projectType: .novel), .palette)
         XCTAssertEqual(memory.restoredDetailSegment(for: .author), .tasks)
-        XCTAssertEqual(memory.restoredDetailSegment(for: .plan), .outline)
+        XCTAssertEqual(memory.restoredDetailSegment(for: .plan), .inbox)
     }
 
     func test_record_overwritesThePreviousValueForThatPersona() {
@@ -120,8 +120,12 @@ final class PersonaMemoryTests: XCTestCase {
     }
 
     func test_restore_dropsAPaneThePersonaDoesNotOffer() {
-        // Author does not offer History.
-        let memory = PersonaMemory(detail: ["author": .history])
+        // Author does not offer Annotations — adjudicating durable notes is a
+        // review activity (`PersonaPaneRegistryTests.test_authorPersona_excludesAnnotations`).
+        // This case used History, which Author gained in the persona shell's
+        // slice 1; the pane that shipped as summonable-but-forgotten is now one
+        // the memory keeps.
+        let memory = PersonaMemory(detail: ["author": .annotations])
         XCTAssertEqual(memory.restoredDetailSegment(for: .author), Persona.author.defaultPane)
     }
 
