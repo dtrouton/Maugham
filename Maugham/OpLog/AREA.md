@@ -42,7 +42,7 @@ Key machinery:
 
 These hold by construction. If you find code that violates one, treat it as a bug.
 
-- **Op log is append-only.** No mutation, no deletion. Checkpoints capture state; they don't truncate history. Sealing (ADR 0016) is a storage-layout change to a single-writer file; the logical log is untouched — the merged, opId-deduped set is identical before and after a seal.
+- **Op log is append-only.** No mutation, no deletion. Checkpoints capture state; they don't truncate history. Sealing (ADR 0016) is a storage-layout change to a single-writer file; the logical log is untouched — the merged, opId-deduped set is identical before and after a seal. **On the sealing device.** For any OTHER device the set can transiently *shrink*: the segment-write and the tail-delete propagate through iCloud as two independent events with no ordering guarantee, so a remote reader can receive the deletion before the segment carrying those ops. Model-checked — `./formal/check.sh OpLogSync OpLogSync_monotonic` refutes "once visible, always visible." Eventually consistent, so harmless on its own; the open question is whether anything reacts to such a gap **durably** (`docs/superpowers/notes/2026-08-01-formal-methods-spike-findings.md` §5.2).
 - **`¶id` anchors are 4-char.** No exceptions. Tests that use 1-char IDs are wrong and silently bypass validation.
 - **Task anchors are 6-char.** Same alphabet as paragraph anchors. `<!--t-XXXXXX-->` only — no uppercase, no other prefix.
 - **Paragraph-keyed LWW, by opId.** Concurrent writes to the same paragraph resolve by **opId order** (ULIDs give a deterministic total order), not by line position. Cross-Mac merges depend on this. See the merge/derive contract below for the exact rule.
