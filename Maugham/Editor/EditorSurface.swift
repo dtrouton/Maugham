@@ -145,10 +145,11 @@ struct EditorSurfaceConfiguration {
     /// Two things follow, and both are defects if left undone — see
     /// `StatementEditorMountTests`:
     ///
-    /// - **It answers no window commands.** ⌘⌥R's review membrane, scene /
-    ///   find-match / paragraph / annotation navigation and the translation
-    ///   membrane are all about the manuscript
-    ///   (`EditorCoordinator.respondsToWindowCommands`).
+    /// - **It answers no window commands.** Every observer
+    ///   `EditorCoordinator`'s init registers — the ⌘⌥R review membrane, scene /
+    ///   find-match / paragraph / annotation navigation, the translation
+    ///   membrane — is about the manuscript, and all of them are gated at the
+    ///   one funnel they share (`EditorCoordinator.respondsToWindowCommands`).
     /// - **It owns its undo stack.** Every text view in a window shares the
     ///   window's `UndoManager`, and `EditorCoordinator.detach()` calls
     ///   `removeAllActions()` on the one it can reach — so a second editor being

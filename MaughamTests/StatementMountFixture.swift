@@ -12,6 +12,10 @@ import MaughamCore
 @MainActor
 final class StatementProbeModel {
     var showsStatementPane = true
+    /// The binder selection the pane sees. Settable so a test can drive a SCOPE
+    /// CHANGE on one live pane — the case that must close the outgoing
+    /// `Document` before the incoming one loads.
+    var activeDocumentId: String?
     init() {}
 }
 
@@ -96,28 +100,53 @@ final class StatementMountFixture {
                 .environment(preferences)))
     }
 
+    /// The pane with a SETTABLE selection, so a test can change its scope on one
+    /// live pane rather than by hosting a second one.
+    @discardableResult
+    func hostWithASettableSelection(kind: Statement.Kind,
+                                    activeDocumentId: String?) async -> NSWindow {
+        probe.activeDocumentId = activeDocumentId
+        return await mount(
+            AnyView(
+                RebindableStatementPaneView(
+                    store: store, documentStore: documentStore,
+                    kind: kind, probe: probe)
+                .environment(preferences)))
+    }
+
+    /// Change the selection the hosted pane sees, and let the change settle.
+    func selectDocument(_ id: String?) async {
+        probe.activeDocumentId = id
+        await waitOut(0.3)
+    }
+
     /// The pane beside the manuscript editor — the arrangement the writer gets,
     /// and the first time two `EditorSurface`s have been alive at once.
+    ///
+    /// `key: true` hosts it in an `AlwaysKeyWindow` — see that type for why the
+    /// one OS fact this harness cannot produce is forced rather than skipped.
     @discardableResult
-    func hostBesideAManuscriptEditor(kind: Statement.Kind) async -> NSWindow {
+    func hostBesideAManuscriptEditor(kind: Statement.Kind, key: Bool = false) async -> NSWindow {
         let window = await mount(
             AnyView(
                 TwoEditorProbeView(
                     store: store, documentStore: documentStore,
                     itemId: documentItemId, kind: kind, probe: probe)
-                .environment(preferences)))
+                .environment(preferences)),
+            key: key)
         // The manuscript editor loads its Document asynchronously; wait for both
         // surfaces rather than racing the mount.
         await pumpUntil(deadline: 5) { self.allTextViews(in: window).count >= 2 }
         return window
     }
 
-    private func mount(_ view: AnyView) async -> NSWindow {
+    private func mount(_ view: AnyView, key: Bool = false) async -> NSWindow {
         let frame = CGRect(x: 0, y: 0, width: 700, height: 700)
         let hosting = NSHostingView(rootView: view)
         hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
+        let windowType = key ? AlwaysKeyWindow.self : NSWindow.self
+        let window = windowType.init(contentRect: frame, styleMask: [.titled],
+                                     backing: .buffered, defer: false)
         window.contentView = hosting
         window.orderFront(nil)
         hosting.layoutSubtreeIfNeeded()
@@ -270,5 +299,40 @@ private struct TwoEditorProbeView: View {
                 .frame(width: 260)
             }
         }
+    }
+}
+
+/// A window that reports itself key.
+///
+/// **The one OS fact this harness cannot produce.** `MaughamEvent.shouldDeliver`
+/// gates every `.keyWindow`-scoped post on `context.isWindowKey`, which
+/// `EventReceiverContext.forWindow` reads straight off `NSWindow.isKeyWindow` —
+/// and a window hosted by `xcodebuild`'s test host never becomes key, even after
+/// `NSApplication.activate` + `makeKeyAndOrderFront` (measured 2026-08-01). So a
+/// `.keyWindow` post reaches NOTHING in a unit test, and a delivery test written
+/// against a real window either skips or passes vacuously.
+///
+/// Overriding this one property leaves the whole rest of the path production:
+/// the real `MaughamEvent.post`, the real `NotificationCenter`, the real
+/// `shouldDeliver` filter, the real `receiverContext`, and the coordinator's own
+/// registered closure. Nothing about the assertion is stubbed — only the
+/// window's answer to "are you key".
+private final class AlwaysKeyWindow: NSWindow {
+    override var isKeyWindow: Bool { true }
+}
+
+/// `StatementPane` with the binder selection driven by the probe, so a scope
+/// change happens on ONE live pane.
+@MainActor
+private struct RebindableStatementPaneView: View {
+    let store: ProjectStore
+    let documentStore: DocumentStore
+    let kind: Statement.Kind
+    let probe: StatementProbeModel
+
+    var body: some View {
+        StatementPane(
+            store: store, documentStore: documentStore,
+            kind: kind, activeDocumentId: probe.activeDocumentId)
     }
 }

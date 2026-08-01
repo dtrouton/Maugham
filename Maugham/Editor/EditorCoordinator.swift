@@ -403,10 +403,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// no heavy text-view graph and does nothing on any residual callback.
     private(set) var isDetached = false
 
-    /// Whether this coordinator answers the window's MANUSCRIPT commands — the
-    /// ⌘⌥R review membrane, scene / find-match / paragraph / annotation
-    /// navigation, and the translation membrane. All six ride
-    /// `receiverContext(.keyWindow)`, which is where this is read.
+    /// Whether this coordinator answers the window's MANUSCRIPT commands —
+    /// **every observer this class's `init` registers**, which is what makes the
+    /// gating complete rather than a list someone remembered: they all resolve
+    /// their scope through `receiverContext(.keyWindow)`, which is where this is
+    /// read. Today that is `maughamNavigateToScene`, `maughamFindMatchSelected`,
+    /// `maughamNavigateToParagraph`, `maughamNavigateToAnnotation`,
+    /// `maughamToggleReviewMode`, `maughamEnterTranslationReview` and
+    /// `maughamExitTranslationReview` — count the `MaughamEvent.observe` calls
+    /// rather than this sentence.
     ///
     /// True for every editor that IS the window's manuscript surface, which is
     /// every one there has ever been. M1A's statement panes are the first case

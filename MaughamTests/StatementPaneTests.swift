@@ -146,6 +146,45 @@ final class StatementPaneTests: XCTestCase {
         }
     }
 
+    // MARK: - The mount condition (fix round 1, C1)
+
+    /// The mount is held for a resolved scope and for nothing else.
+    ///
+    /// The state that matters is the middle of the mint: `createStatement` has
+    /// appended the statement to the manifest and is suspended at
+    /// `await saveManifest()`, and no `Document` is bound yet. The first cut
+    /// derived the mount from exactly those two facts (`isBound || statement ==
+    /// nil`), which is FALSE right there — so a body pass landing in the window
+    /// unmounts the editor on the first character of every new statement, taking
+    /// the caret, the first responder and the pane's undo stack with it.
+    ///
+    /// **This is asserted here, as a predicate, rather than only through the
+    /// view**, because whether SwiftUI happens to render that window is timing:
+    /// `test_theMintDoesNotTearDownTheEditorMidWord` did not reproduce a remount
+    /// on an empty project with a fast disk, and a test that can only fail when
+    /// the machine is slow is not a guard. What is invariant is the predicate.
+    func test_theMountIsHeldAcrossTheMintAndNothingElse() {
+        let key = "intent|project"
+
+        XCTAssertTrue(
+            StatementEditorHost.shouldMount(resolvedScope: key, scopeKey: key),
+            "a resolved scope must stay mounted — including in the middle of the "
+            + "mint, when the statement exists and its Document does not yet")
+
+        XCTAssertFalse(
+            StatementEditorHost.shouldMount(resolvedScope: nil, scopeKey: key),
+            "nothing may be mounted before the scope has been resolved: an "
+            + "editable surface over content that has not loaded is how an empty "
+            + "draft overwrites a statement")
+
+        XCTAssertFalse(
+            StatementEditorHost.shouldMount(
+                resolvedScope: "intent|document:doc-1", scopeKey: key),
+            "the previous scope's resolution must not hold the mount open for a "
+            + "new one — the editor would show, and accept typing into, the "
+            + "Document the pane has just navigated away from")
+    }
+
     // MARK: - Absence is valid, and it renders an editor
 
     /// An undeclared scope shows an **empty editor** — not a "create intent"

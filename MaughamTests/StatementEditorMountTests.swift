@@ -196,6 +196,90 @@ final class StatementEditorMountTests: XCTestCase {
         XCTAssertEqual(fixture.derivedText(forDocId: statement.id), typed)
     }
 
+    /// **The mint must not tear the editor down mid-word.**
+    ///
+    /// `createStatement` appends to `manifest.statements` and then SUSPENDS at
+    /// `await saveManifest()`; `mintAndBind` suspends again at
+    /// `await Document.load`. Across both, the statement exists and no
+    /// `Document` is bound yet — so a mount condition derived from those two
+    /// facts is FALSE for two whole suspensions, with the main actor free. A
+    /// body pass landing in that window removes the `EditorSurface`, runs
+    /// `dismantleNSView` → `detach()`, and builds a brand-new surface and
+    /// coordinator when the bind lands: caret and first responder lost, the
+    /// pane's undo stack emptied, and any keystroke arriving in the gap
+    /// reaching no text view at all. That is the very "loses characters" shape
+    /// `StatementTextTarget` exists to prevent — the box keeps the *binding*
+    /// live; only this keeps the *view* alive.
+    ///
+    /// **One character, then wait** — that is what makes this able to fail. The
+    /// other mint tests type a whole string first and only then wait, so every
+    /// keystroke of theirs lands before the mint ever starts.
+    func test_theMintDoesNotTearDownTheEditorMidWord() async throws {
+        let fixture = try await fixture(named: "MintKeepsTheEditor")
+        let window = await fixture.host(kind: .visualLanguage, activeDocumentId: nil)
+        let original = try fixture.textView(in: window)
+
+        await fixture.type("w", into: original)
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.store.statement(kind: .visualLanguage, scope: .project) != nil
+        }
+        await fixture.waitOut(0.4)
+
+        XCTAssertNotNil(fixture.store.statement(kind: .visualLanguage, scope: .project),
+                        "the keystroke minted nothing, so this test never reached "
+                        + "the window it is about")
+        let now = try fixture.textView(in: window)
+        XCTAssertTrue(now === original,
+                      "the editor was torn down and rebuilt while the statement was "
+                      + "being minted — on the first character of every new "
+                      + "statement. The caret, the first responder and the pane's "
+                      + "undo stack all go with it, and a keystroke arriving in the "
+                      + "gap reaches no text view at all.")
+        XCTAssertEqual(now.string, "w", "the typed character did not survive the mint")
+    }
+
+    /// Changing scope must close the outgoing `Document` — which is what flushes
+    /// its pending typing burst — and it must do so in the same function that
+    /// loads the incoming one, so the two can never be in flight together.
+    ///
+    /// The burst's idle threshold is 30 s, so nothing reaches the op log on its
+    /// own inside this test: the control below asserts the log is still empty
+    /// while the pane is live, and the flush that follows can only have come
+    /// from the scope change.
+    func test_changingScopeFlushesTheOutgoingStatement() async throws {
+        let fixture = try await fixture(named: "ScopeChangeFlushes")
+        let docId = fixture.documentItemId
+        let window = await fixture.hostWithASettableSelection(
+            kind: .intent, activeDocumentId: docId)
+        let textView = try fixture.textView(in: window)
+
+        await fixture.type("the aim of this chapter", into: textView)
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.store.statement(kind: .intent, scope: .document(docId)) != nil
+        }
+        let statement = try XCTUnwrap(
+            fixture.store.statement(kind: .intent, scope: .document(docId)))
+        XCTAssertTrue(fixture.ops(forDocId: statement.id).isEmpty,
+                      "the burst reached the op log on its own, so the flush "
+                      + "asserted below would not be evidence of anything")
+
+        // Nothing is selected any more: the pane falls back to the project's
+        // intent, which does not exist.
+        await fixture.selectDocument(nil)
+        await fixture.pumpUntil(deadline: 5) { !fixture.ops(forDocId: statement.id).isEmpty }
+
+        XCTAssertEqual(fixture.derivedText(forDocId: statement.id), "the aim of this chapter",
+                       "changing scope did not flush the outgoing statement — its "
+                       + "Document was abandoned with an un-bursted tail")
+        let after = try fixture.textView(in: window)
+        XCTAssertEqual(after.string, "",
+                       "the pane still shows the previous scope's text after the "
+                       + "selection changed")
+        XCTAssertNil(fixture.store.statement(kind: .intent, scope: .project),
+                     "falling back to the project scope minted a statement with no "
+                     + "keystroke")
+    }
+
     // MARK: - A rename does not orphan a statement (tripwire 22)
 
     /// Renaming the document a statement is about must not move, re-derive or
@@ -313,5 +397,57 @@ final class StatementEditorMountTests: XCTestCase {
         XCTAssertNotNil(manuscript.coordinator.receiverContext(.keyWindow),
                         "the control coordinator answers nothing either, so the "
                         + "assertion above proves nothing")
+    }
+
+    /// The same claim, driven the way the writer drives it: ⌘⌥R posted as a real
+    /// key-window command into a window holding BOTH editors.
+    ///
+    /// The test above asserts the mechanism — `receiverContext` returns nil. This
+    /// asserts the behaviour, and it is the difference this milestone already
+    /// paid for once: twenty-two green undo tests against a ⌘Z that could not
+    /// reach the stack. If the context filter were bypassed, or a future
+    /// observer registered without a context, the mechanism test still passes
+    /// and this one does not.
+    func test_toggleReviewModeReachesTheManuscriptEditorAndNotTheStatementPane() async throws {
+        let fixture = try await fixture(named: "ReviewToggleCrossTalk")
+        try await fixture.store.createStatement(kind: .intent, scope: .project)
+
+        let window = await fixture.hostBesideAManuscriptEditor(kind: .intent, key: true)
+        let views = fixture.allTextViews(in: window)
+        XCTAssertEqual(views.count, 2,
+                       "expected both editors in one window; found \(views.count)")
+        let coordinators = try views.map {
+            try XCTUnwrap($0.delegate as? EditorCoordinator)
+        }
+        let manuscript = try XCTUnwrap(
+            coordinators.first { $0.respondsToWindowCommands },
+            "no manuscript coordinator in this window")
+        let statementPane = try XCTUnwrap(
+            coordinators.first { !$0.respondsToWindowCommands },
+            "no statement-pane coordinator in this window")
+
+        // The window must report itself key, or `MaughamEvent.shouldDeliver`
+        // filters the post out for BOTH editors and this test passes without
+        // exercising anything. A test-host window never becomes key for real —
+        // see `AlwaysKeyWindow`, which forces that one fact and leaves the rest
+        // of the delivery path production.
+        XCTAssertTrue(window.isKeyWindow,
+                      "the hosting window does not report itself key, so a "
+                      + "`.keyWindow`-scoped post reaches neither editor and this "
+                      + "test would prove nothing")
+
+        XCTAssertFalse(manuscript.isReviewMode)
+        XCTAssertFalse(statementPane.isReviewMode)
+
+        MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
+        await fixture.waitOut(0.3)
+
+        XCTAssertTrue(manuscript.isReviewMode,
+                      "⌘⌥R did not reach the manuscript editor, so the assertion "
+                      + "below cannot tell scoping from a post that went nowhere")
+        XCTAssertFalse(statementPane.isReviewMode,
+                       "⌘⌥R flipped the statement pane into review posture: the "
+                       + "intent editor gains crafted-render chrome and a "
+                       + "Comment/Query/Suggest toolbar wired to nothing")
     }
 }

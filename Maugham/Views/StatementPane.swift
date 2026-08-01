@@ -84,21 +84,22 @@ struct StatementPane: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
+            // **No `.id()`, deliberately.** Keying the host on the scope looked
+            // right — a scope switch does want a fresh `Document` — but it made
+            // the switch a REMOUNT, which splits the close of the outgoing
+            // document (the departing view's `.onDisappear`) from the load of
+            // the incoming one (the arriving view's `.task`) with no ordering
+            // between them: SwiftUI inserts the new subtree and removes the old
+            // in the same update, so the load routinely started first and two
+            // `Document`s could be live on one path. One host handles the switch
+            // itself, sequentially — see `StatementEditorHost.reconcile`.
             StatementEditorHost(
                 store: store, documentStore: documentStore,
                 kind: kind, scope: scope)
-                // Keyed on the SCOPE, not the statement's path: the path appears
-                // partway through the mount when the first keystroke mints the
-                // file, and a path key would tear the editor down mid-word. A
-                // scope switch is what wants a fresh Document and a fresh
-                // coordinator, and it is what this changes on.
-                .id(mountKey)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: activeDocumentId) { _, _ in prefersProjectScope = false }
     }
-
-    private var mountKey: String { "\(kind.rawValue)|\(scope.rawValue)" }
 
     @ViewBuilder
     private var header: some View {

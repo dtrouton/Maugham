@@ -67,6 +67,19 @@ final class StatementTextTarget {
         draft = ""
         self.document = document
     }
+
+    /// Let go of the previous scope's `Document` and its draft.
+    ///
+    /// Called only while the pane is showing its placeholder — i.e. after the
+    /// scope changed and before the new one has resolved. Calling it while the
+    /// editor is mounted would put an empty surface over real content, and the
+    /// next keystroke would write the empty draft into the wrong statement.
+    /// **The caller must have closed the document first**; this only drops the
+    /// reference.
+    func release() {
+        document = nil
+        draft = ""
+    }
 }
 
 /// The editor for one statement — the writer's intent for a document or the
@@ -92,10 +105,11 @@ struct StatementEditorHost: View {
     /// The one text destination. `@State` so it survives re-renders; not
     /// observable, so nothing here re-renders per keystroke.
     @State private var target = StatementTextTarget()
-    /// Render trigger and mount latch. The `Document` itself lives on `target`
-    /// (the binding needs it synchronously); this only tells SwiftUI that the
-    /// bind happened.
-    @State private var isBound = false
+    /// The scope this host has finished RESOLVING — either its `Document` is
+    /// bound, or it has been established that the scope holds no statement at
+    /// all. `nil` until the first reconcile, and re-derived on every scope
+    /// change. It is the whole mount condition; see `shouldMount`.
+    @State private var resolvedScope: String?
     @State private var isMinting = false
     @State private var editorControl = EditorControl()
 
@@ -111,19 +125,40 @@ struct StatementEditorHost: View {
     /// mints nothing — `ProjectStore.statement(kind:scope:)` is a pure lookup.
     private var statement: Statement? { store.statement(kind: kind, scope: scope) }
 
-    /// Whether there is something to type into.
+    /// The scope the pane is currently asking for.
+    private var scopeKey: String { "\(kind.rawValue)|\(scope.rawValue)" }
+
+    /// Whether there is something to type into: exactly "this scope has been
+    /// resolved", and nothing else.
     ///
-    /// Two states qualify and they are not the same: a bound `Document`, and a
-    /// scope with **no statement at all** — which is an empty editor that mints
-    /// on the first keystroke, not a button and not a nag (§4.3). The remaining
-    /// state — a statement exists but its `Document` has not loaded — is the
-    /// only one that shows anything else, because mounting an editable surface
-    /// over content that has not arrived is how a draft overwrites a statement.
+    /// **It is deliberately NOT derived from the live statement + document.**
+    /// That shape — `isBound || statement == nil` — was the first cut, and it is
+    /// false for the whole of the mint: `createStatement` appends to
+    /// `manifest.statements` and then suspends at `await saveManifest()`, and
+    /// `mintAndBind` suspends again at `await Document.load`, so across two
+    /// suspensions the statement exists and no `Document` is bound yet. Any body
+    /// pass landing in that window unmounts the `EditorSurface` — caret, first
+    /// responder and the pane's own undo stack with it — and rebuilds a fresh
+    /// one when the bind lands, on the first character of every new statement.
+    /// (Measured 2026-08-01: SwiftUI coalesced past the window on this machine
+    /// with an empty project, so it did not reproduce as a remount — the
+    /// intermediate state was real and simply never rendered. That is timing,
+    /// not a guarantee: `saveManifest` writes and coordinates the whole manifest.)
     ///
-    /// Note it can only ever go false → true: after the mint, `statement` is
-    /// non-nil AND `isBound` is true, so the surface is never torn down and
-    /// rebuilt under the writer's hands.
-    private var canMount: Bool { isBound || statement == nil }
+    /// `resolvedScope` cannot flicker: the mint does not touch it, so once a
+    /// scope is mounted it stays mounted until the SCOPE ITSELF changes — which
+    /// is the one case that genuinely wants a fresh `Document`, and which
+    /// `reconcile` handles by closing the outgoing one first.
+    ///
+    /// Static and pure so the invariant is asserted deterministically rather
+    /// than through a race — `StatementPaneTests` drives it directly.
+    static func shouldMount(resolvedScope: String?, scopeKey: String) -> Bool {
+        resolvedScope == scopeKey
+    }
+
+    private var canMount: Bool {
+        Self.shouldMount(resolvedScope: resolvedScope, scopeKey: scopeKey)
+    }
 
     var body: some View {
         Group {
@@ -152,11 +187,26 @@ struct StatementEditorHost: View {
         .onChange(of: effectiveTypography) { _, typography in
             editorControl.typography = typography
         }
-        .task { await bindExistingStatement() }
+        // ONE task per scope, and the only place a Document is opened or closed
+        // while the pane lives. See `reconcile`.
+        .task(id: scopeKey) { await reconcile() }
         .onDisappear {
-            // The pane's own `.onDisappear` is what flushes the pending typing
-            // burst to the op log — `Document.close()` is idempotent, so a
-            // spurious fire costs nothing.
+            // Leaving the pane (a segment switch, a persona switch, window
+            // close) flushes the pending typing burst. `Document.close()` is
+            // idempotent, so a spurious fire costs nothing.
+            if let document = target.document {
+                Task { await document.close() }
+            }
+        }
+        // The manuscript's belt, worn here too: `DocumentStore.close()` closes
+        // every REGISTERED Document at quit (`ProjectWindow`'s own
+        // `.onGlobalEvent`), and a statement is deliberately in no registry —
+        // registering one would put it in `allOpenDocuments()`, which is step 1a
+        // of the project Tasks aggregation, contradicting spec §8. So it takes
+        // the same best-effort flush directly. Like ProjectWindow's, this is
+        // fire-and-forget: NSApplication may give us ~100ms. The real
+        // crash-safety net for both is `PendingBuffer`'s 750ms disk mirror.
+        .onGlobalEvent(.maughamAppWillTerminate) { _ in
             if let document = target.document {
                 Task { await document.close() }
             }
@@ -191,22 +241,50 @@ struct StatementEditorHost: View {
         editorControl.paragraphFocus = false
     }
 
-    /// Load the `Document` for a statement that already exists. A scope with no
-    /// statement returns immediately and waits for a keystroke.
+    /// Bring this host onto the scope the pane is asking for: close whatever was
+    /// open, then open what is wanted, **in one function, sequentially**.
+    ///
+    /// That ordering is the whole point, and it is `EditorHost`'s
+    /// (`loadDocumentIfNeeded`, which awaits `prior.close()` before
+    /// `Document.load` and says why: closing flushes the pending typing burst,
+    /// so a fast-fingered switch never drops unflushed paragraph changes). The
+    /// first cut split the two across a `.id()`-driven remount — the outgoing
+    /// view's `.onDisappear` firing an unstructured close while the incoming
+    /// view's `.task` started a load — with no ordering between them at all. On
+    /// an `.id` change SwiftUI inserts the new subtree and removes the old in
+    /// the same update, so the load routinely started first, and two `Document`s
+    /// could be live on one path, each with its own `PendingBuffer` writing the
+    /// same file. Here that is not a race that is won; it is unreachable.
     ///
     /// **Not keyed on the path, and that is tripwire 22 satisfied rather than
     /// dodged.** The tripwire is about a Document binding that must RELOAD when
     /// its file moves; a statement's path does not move when the document it is
     /// about is renamed — identity is the manifest `id` and the path is derived
     /// from the title once, at creation (spec §2.2), which
-    /// `test_renamingTheDocumentLeavesItsIntentWhereItIs` drives end to end.
-    /// `StatementPane` keys the whole host on the SCOPE, so the case that does
-    /// need a fresh Document — the writer switching between a chapter's intent
-    /// and the book's — remounts. If a mover ever does relocate a statement,
-    /// this becomes a path-keyed reload and that test is where it will fail.
-    private func bindExistingStatement() async {
-        guard !isBound, let statement else { return }
-        await load(statement, carryingDraft: false)
+    /// `test_renamingTheDocumentLeavesItsIntentWhereItIs` drives end to end. If
+    /// a mover ever does relocate a statement, the key here becomes the path and
+    /// that test is where it will fail.
+    private func reconcile() async {
+        let key = scopeKey
+        guard resolvedScope != key else { return }
+        if let prior = target.document {
+            await prior.close()
+        }
+        // A cancelled reconcile has been superseded by another scope change; its
+        // own task will do the work. Leaving `resolvedScope` stale keeps the
+        // placeholder up, which is the safe state.
+        guard !Task.isCancelled else { return }
+        target.release()
+
+        if let statement {
+            // A statement that already has content must never be typed over, so
+            // the scope counts as resolved only if its Document really loaded. A
+            // failed load leaves the placeholder up rather than an empty editor
+            // whose first keystroke would mint a draft over the writer's prose.
+            guard await load(statement, carryingDraft: false) else { return }
+        }
+        guard !Task.isCancelled else { return }
+        resolvedScope = key
     }
 
     /// The first keystroke into an undeclared scope. Find-or-create is
@@ -214,13 +292,13 @@ struct StatementEditorHost: View {
     /// stops a burst of keystrokes from starting a second attempt, and a failed
     /// attempt is retried by the next keystroke rather than losing the words.
     private func mintAndBind() {
-        guard !isMinting, !isBound else { return }
+        guard !isMinting, target.document == nil else { return }
         isMinting = true
         Task { @MainActor in
             defer { isMinting = false }
             do {
                 let created = try await store.createStatement(kind: kind, scope: scope)
-                await load(created, carryingDraft: true)
+                _ = await load(created, carryingDraft: true)
             } catch {
                 _statementEditorLog.error(
                     "Could not create statement: \(error, privacy: .public)")
@@ -230,8 +308,10 @@ struct StatementEditorHost: View {
 
     /// `Document.load` is the contract surface — it is what reaches
     /// `Bootstrap.run`, and no other way of constructing a `Document` is
-    /// sanctioned (`BootstrapWiringTests`).
-    private func load(_ statement: Statement, carryingDraft: Bool) async {
+    /// sanctioned (`BootstrapWiringTests`). Returns whether it bound; the caller
+    /// decides what a failure means (see `reconcile`).
+    @discardableResult
+    private func load(_ statement: Statement, carryingDraft: Bool) async -> Bool {
         do {
             let document = try await Document.load(
                 url: store.url.appendingPathComponent(statement.path),
@@ -239,10 +319,11 @@ struct StatementEditorHost: View {
                 session: Self.sessionId,
                 presenter: documentStore.presenter)
             target.bind(document, carryingDraft: carryingDraft)
-            isBound = true
+            return true
         } catch {
             _statementEditorLog.error(
                 "Could not load statement \(statement.id, privacy: .public): \(error, privacy: .public)")
+            return false
         }
     }
 
