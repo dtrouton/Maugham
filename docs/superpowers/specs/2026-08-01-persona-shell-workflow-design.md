@@ -29,7 +29,7 @@ Pulling that thread found four more things, and they are one problem.
 
 ---
 
-## 2. The two axes
+## 2. Stage, centre, and the one place posture is real
 
 **Persona is the stage — what you are producing.**
 
@@ -53,14 +53,32 @@ with the manual ⌘⌥R toggle, and produces `isReviewMode` + `lockEditing`, wit
 role as a hard floor so the toggle can never unlock someone else's text. Today it
 drives only the editor's render and lock.
 
-Every persona has both postures. Review is where both halves are equally heavy,
-which is why it was found there first: *"it's both I'm reviewing and I'm
-responding to review."*
+**Posture is not universal, and an earlier draft of this document was wrong to
+say it was.** It is needed exactly where two different jobs are done *over the
+same object*, so nothing else can tell them apart:
 
-**A pane belongs to a persona if it serves that persona's output**, and belongs
-to a posture within it if it serves making or responding specifically. Most panes
-serve both postures. A few do not: history serves responding (what changed) and
-not making; the queue-shaped reading of annotations serves adjudicating and not
+- **Review** — producing notes and adjudicating notes both happen over the same
+  prose. *"It's both I'm reviewing and I'm responding to review."*
+- **Author, at M2** — writing and answering diagnostics both happen over the same
+  paragraph.
+
+**Plan and Publish do not have a posture.** In Plan the two things you might be
+doing are distinguished by *what you are looking at*, which the left segment
+already selects — and the right column stays the same beside either, because a
+capture can become a research note or go to the canvas, and reading research is
+exactly when intent changes. That is not a posture; it is a persona with more
+than one centre.
+
+So the rule is narrower than "two axes":
+
+> **Persona is the stage. The left segment selects the centre. The right column
+> belongs to the persona — except in Review, where the columns follow the
+> posture.**
+
+**A pane belongs to a persona if it serves that persona's output.** In Review,
+and only there, it belongs to a posture within it if it serves producing or
+adjudicating specifically — history serves adjudicating (what changed) and not
+producing; the queue-shaped reading of annotations serves adjudicating and not
 writing a note.
 
 **This is what closes the third case.** Reviewing *someone else's* work is not a
@@ -173,17 +191,42 @@ nothing is pushed).
 
 **R** = a registry line. **B** = something has to be built.
 
-| | Left | Right — making | Right — responding |
+| | Left | Centre | Right |
 |---|---|---|---|
-| **Plan** | canvas, **tree** (B), research, palette | intent, visual language, research, inbox (R) | *thin — Claude's canvas arrival is a banner, not a pane* |
-| **Author** | binder, research, palette | intent, research, palette (R) | tasks, **history** (R); diagnostics (M2) |
-| **Review** | pieces by review state (B; binder stands in) | the prose, intent, palette, annotations-as-writing (R) | annotations queue, history, intent, tasks, translation (R) |
-| **Publish** | editions (B; the Exports footer stands in) | visual language, config (B) | **the compiled page** (B), per-piece style (B) |
+| **Plan** | canvas, **tree** (B), research, palette | canvas · canvas · the note · the card | intent, visual language, inbox, research (R) |
+| **Author** | binder, research, palette | the editor · the note · the card | intent, research, palette, tasks, **history** (R) |
+| **Publish** | editions (B; the Exports footer stands in) | **the compiled page** (B) | visual language, config (B) |
 
-**Leaving:** outline from every persona — the tree shows structure and Plan now
-builds it, and `OutlinePane` is read-only (it renders and sets the selection; it
-has no create, move or delete). Inspector from Plan and Author. Translation from
-Publish. Intent from Publish.
+**Review is the one persona whose right column follows the posture:**
+
+| Review posture | Right |
+|---|---|
+| **Producing notes** (⌘⌥R, or `role: .reviewer`) | the prose, intent, palette, annotations-as-writing (R) |
+| **Adjudicating** | annotations queue, history, intent, tasks, translation (R) |
+
+Its left column is §6.3's "pieces by review state", unbuilt; the binder stands in.
+
+**Plan's right column is constant across its four segments** — that is the point.
+A capture in the inbox may become a research note *or* go straight to the canvas
+(`InboxStore.sendToCanvas` already exists), and reading research is exactly when
+intent changes. The Research pane earns its place there for the first time
+because the tree now selects a chapter, so "this chapter's own and linked
+research" finally has a subject in Plan.
+
+**Leaving**, by persona rather than a count, since the set will move:
+
+- **Plan** loses outline, tasks and inspector.
+- **Author** loses outline and inspector, and gains history.
+- **Review** keeps its members but splits them across the two postures.
+- **Publish** loses translation, intent and inspector.
+
+Outline leaves every persona: the tree shows structure and Plan now builds it,
+and `OutlinePane` is read-only — it renders and sets the selection, but has no
+create, move or delete, so it cannot be the structure surface Plan needs.
+
+Publish keeping `.inspector` was a deliberate deviation from §6.3, taken so the
+picker was not a single button reading as broken chrome. With visual language and
+config there, that reason expires.
 
 **Translation moves to Review only.** `TranslationReviewPane` is source text plus
 translator queries — adjudication, not building an edition.
@@ -192,11 +235,9 @@ translator queries — adjudication, not building an edition.
 (`DetailPaneToggle.swift:404-414`) and works wherever a document is selected; it
 is registered only in Review today.
 
-**Two honest limits on the posture axis.** Plan's responding half is thin — the
-only thing responded to there is Claude arriving on the canvas, which is a banner.
-Publish's making half is nearly empty and its responding half does not exist in
-the app at all. **Posture earns its keep in Review now and in Author at M2**;
-Plan and Publish adopt the mechanism when they have something to put in it.
+**Posture is Review's alone today, and Author's at M2** — see §2. Plan and
+Publish are not waiting to grow one; they do not have two jobs over one object,
+which is the only thing posture is for.
 
 ### 5.1 Publish is mostly unbuilt, and this records what it needs
 
