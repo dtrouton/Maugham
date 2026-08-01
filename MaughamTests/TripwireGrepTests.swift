@@ -2696,6 +2696,152 @@ final class TripwireGrepTests: XCTestCase {
             + "because the first line hid the rest of the file.")
     }
 
+    // MARK: - The statement pane's mount marker has a closed set of readers (M1A Task 12)
+
+    /// `resolvedScope` is a **proxy**, and this file has produced seven defects
+    /// of one family: a value still trusted after the thing it described had
+    /// moved.
+    ///
+    /// It says which scope finished RESOLVING. It does not say whether the host
+    /// is still on screen, and for most of M1A nothing cleared it on the way out
+    /// — so it went on naming a scope over a `Document` that had been closed.
+    /// Two shipped defects read it as "the pane is still here": a picture ingest
+    /// that finished after `⌘⌥N` wrote its ref into a husked `Document` (accepted
+    /// drop, no text) or into the writer's *intent* prose, and a disappear /
+    /// re-appear on the same scope left the pane mounted over a husk, eating
+    /// keystrokes. Neither is guarded now; both are unreachable, because the
+    /// ingest names its destination outright and reads no view state after
+    /// suspending.
+    ///
+    /// **Construction closed the class; this keeps it closed.** Re-introduce a
+    /// `resolvedScope` read inside `take`, `deliver`, `ingest` or a paste handler
+    /// and nothing else in the suite goes red — which is the shape this project's
+    /// own recorded lesson says to answer with a census rather than a warning.
+    private static let mountMarkerToken = "resolvedScope"
+
+    /// **Count the set, not this comment.** Every member allowed to touch the
+    /// marker, and why each is legitimate:
+    ///
+    /// - `resolvedScope` — its own declaration.
+    /// - `shouldMount` — the pure predicate; takes it as a parameter.
+    /// - `showsPictureWell` — the same, for the drop well's visibility. It
+    ///   carries no correctness: `take` does not consult it.
+    /// - `canMount` / `body` — the mount condition, which is what the marker is
+    ///   FOR.
+    /// - `reconcile` — the one place it is derived.
+    /// - `leave` — the one place it is retracted.
+    ///
+    /// An async member appearing here is the regression: anything that resumes
+    /// after a suspension must name what it is acting on, not ask a marker.
+    private static let mountMarkerMembers: Set<String> = [
+        "resolvedScope",
+        "shouldMount",
+        "showsPictureWell",
+        "canMount",
+        "body",
+        "reconcile",
+        "leave",
+    ]
+
+    /// Which members of a Swift file mention `token` in CODE, keyed by the
+    /// enclosing `func`/`var` declaration at member indentation.
+    ///
+    /// Comment lines are excluded — this file discusses the marker at length in
+    /// prose, which is the point of that prose.
+    private func membersMentioning(
+        _ token: String, inFileNamed filename: String, under dir: URL
+    ) throws -> Set<String> {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var found: Set<String> = []
+        for case let url as URL in walker where url.lastPathComponent == filename {
+            var member = "(top level)"
+            for line in try String(contentsOf: url, encoding: .utf8)
+                .components(separatedBy: .newlines) {
+                if let declared = Self.memberName(declaredOn: line) { member = declared }
+                guard !Self.isCommentLine(line), line.contains(token) else { continue }
+                found.insert(member)
+            }
+        }
+        return found
+    }
+
+    /// The name a member-level `func`/`var` declaration introduces, or nil.
+    /// Member level is four-space indentation, which is this codebase's style
+    /// throughout — a nested declaration is deeper and keeps its parent's name,
+    /// which is what we want: a closure inside `take` is `take`.
+    private static func memberName(declaredOn line: String) -> String? {
+        guard line.hasPrefix("    "), !line.hasPrefix("     ") else { return nil }
+        let words = line.dropFirst(4)
+            .replacingOccurrences(of: "(", with: " ")
+            .replacingOccurrences(of: ":", with: " ")
+            .split(separator: " ").map(String.init)
+        guard let keyword = words.firstIndex(where: { $0 == "func" || $0 == "var" }),
+              words.indices.contains(keyword + 1) else { return nil }
+        return words[keyword + 1]
+    }
+
+    /// **Census, not a ban.** An equality against a non-empty expected set is its
+    /// own control: a scanner that read nothing would fail here rather than pass
+    /// quietly.
+    func test_theStatementPaneMountMarkerIsReadOnlyWhereItMeansSomething() throws {
+        XCTAssertEqual(
+            try membersMentioning(Self.mountMarkerToken,
+                                  inFileNamed: "StatementEditorHost.swift",
+                                  under: sourceDir),
+            Self.mountMarkerMembers,
+            "The set of members touching `\(Self.mountMarkerToken)` changed. It is a "
+            + "PROXY — it names the scope that resolved, never whether the host is "
+            + "still on screen — and reading it to decide where a writer's words go "
+            + "has shipped two defects. If your member resumes after a suspension, "
+            + "name what it is acting on instead (see `take`, which carries a "
+            + "`StatementPicture`). If it is genuinely part of the mount condition, "
+            + "add it to mountMarkerMembers with a line saying why.")
+    }
+
+    /// Self-check: the census FIRES on a planted offender, and its scanner
+    /// really attributes a mention to the member that contains it. A census that
+    /// reads nothing and a census that passes look identical from the outside.
+    func test_theMountMarkerCensusFiresOnAPlantedReader() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-mount-marker-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct StatementEditorHost {
+            @State private var resolvedScope: String?
+
+            /// A doc comment naming resolvedScope must NOT count.
+            private func take() async {
+                let landed = await ingest()
+                guard resolvedScope == scopeKey else { return }
+                write(landed)
+            }
+
+            private var canMount: Bool { resolvedScope == scopeKey }
+        }
+        """.write(to: tmp.appendingPathComponent("StatementEditorHost.swift"),
+                  atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            try membersMentioning(Self.mountMarkerToken,
+                                  inFileNamed: "StatementEditorHost.swift", under: tmp),
+            ["resolvedScope", "take", "canMount"],
+            "Self-check: the planted `take` must be caught, the declaration and "
+            + "`canMount` must be attributed to themselves, and the doc comment "
+            + "above `take` must not count on its own.")
+
+        // Control: the offender is NOT in the production expectation, so the
+        // census above would really have gone red for it.
+        XCTAssertFalse(Self.mountMarkerMembers.contains("take"),
+                       "Control: if `take` were an allowed member the planted "
+                       + "offender would pass the real census too.")
+    }
+
     /// A whole-line comment, in either spelling. Shared by the canvas-asset
     /// tripwires, which both guard tokens their own documentation names.
     private static func isCommentLine(_ line: String) -> Bool {

@@ -123,18 +123,31 @@ final class StatementImageIngestTests: XCTestCase {
                        "a ref is text in a Document; it needs no new OpKind")
     }
 
-    /// **A mounted editor SHOWS the picture, and this is the one claim the round-2
-    /// shape rests on.**
+    /// **⌘V into a statement that already exists inserts at the caret, and the
+    /// writer sees it.**
     ///
-    /// `take` writes through `ProjectStore.appendToStatement` rather than through
-    /// the pane's binding, so the editor redraws only because that seam's live arm
-    /// finds the pane's own registered `Document` and `setFullText` reaches the
-    /// binding's `get` inside `EditorSurface.updateNSView`. That was measured for
-    /// promotion and is asserted here for the ingest, against the text view
-    /// SwiftUI's own mounting produced — the op-log assertion above cannot see it,
-    /// and "the words are on disk but the writer is looking at an empty pane" is
-    /// exactly the kind of thing a green op-log test hides.
-    func test_theMountedEditorShowsThePictureAndNotJustTheOpLog() async throws {
+    /// **What this drives, exactly** — because the first version of this comment
+    /// claimed otherwise, and the same setup error had already made a sibling
+    /// test pass against a live defect. The statement is created up front, so
+    /// `makeImagePasteHandler`'s **synchronous** branch runs:
+    /// `store.statement` is non-nil → `addImage(to:image:)` → the ref is returned
+    /// to `MaughamTextView.paste(_:)` → `insertText` at the caret → the binding →
+    /// the `Document`. **`take` and `appendToStatement` are not reached at all.**
+    ///
+    /// So this is the caret-insertion path's test and nothing more. It is still
+    /// worth having: it is the only one that reads the text view SwiftUI's own
+    /// mounting produced, and "the words are on disk but the writer is looking at
+    /// an empty pane" is exactly what a green op-log test hides.
+    ///
+    /// **The gap it leaves, named rather than implied:** `take`'s live arm — an
+    /// append into a `Document` a pane already has open — has no test from this
+    /// host. It is reachable only through the drop well on a bound pane, and
+    /// SwiftUI drop delivery has no seam XCTest can post a drag session into
+    /// (`CanvasDrop`'s own comment says the same about the canvas). The mechanism
+    /// is not unmeasured — `PromotionPerformer` exercises the same arm and
+    /// `test_promotingWhileTheIntentPaneIsOpenDoesNotOpenASecondDocument` holds
+    /// its outcome — but this file's claim on it rests on that, not on this test.
+    func test_pastingIntoAStatementThatExistsInsertsAtTheCaret() async throws {
         let fixture = try await fixture(named: "VisualLanguageVisible")
         let statement = try await fixture.store.createStatement(
             kind: .visualLanguage, scope: .project)

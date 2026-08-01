@@ -30,25 +30,6 @@ import MaughamCore
 /// the `Document`.** A statement's `.md` is derived output (hard invariant), so
 /// writing the ref into the file would be discarded on the next re-materialize.
 /// Nothing here touches the statement's text.
-
-/// Where a picture landed.
-///
-/// **The pair travels together, and that is the M1A Task 12 review's I1.** The
-/// ref is a path relative to one particular document, and an async ingest can
-/// outlive the surface that started it — the writer drops a picture on Visual
-/// Language and presses `⌘⌥N` while the file is being copied, which tears that
-/// pane down rather than reconciling it. A caller holding only the ref has to
-/// ask "which document is this for?" of whatever is on screen *now*, and every
-/// answer available there is a proxy that can be stale. The honest answer is the
-/// statement the picture was saved beside, so it is returned rather than
-/// inferred.
-public struct StatementPicture {
-    /// The statement the picture was saved beside, found-or-created.
-    public let statement: Statement
-    /// The Markdown ref to put into **that statement's** text.
-    public let ref: String
-}
-
 extension ProjectStore {
 
     /// Save `image` into the statement's well and return where it landed.
@@ -112,4 +93,22 @@ extension ProjectStore {
             ref: try ImagePasteHandler.saveAndReferenceFile(
                 from: fileURL, forNoteAt: statement.path, in: url))
     }
+}
+
+/// Where a picture landed.
+///
+/// **The pair travels together, and that is the M1A Task 12 review's I1.** The
+/// ref is a path relative to one particular document, and an async ingest can
+/// outlive the surface that started it — the writer drops a picture on Visual
+/// Language and presses `⌘⌥N` while the file is being copied, which tears that
+/// pane down rather than reconciling it. A caller holding only the ref has to
+/// ask "which document is this for?" of whatever is on screen *now*, and every
+/// answer available there is a proxy that can be stale. The honest answer is the
+/// statement the picture was saved beside, so it is returned rather than
+/// inferred.
+public struct StatementPicture {
+    /// The statement the picture was saved beside, found-or-created.
+    public let statement: Statement
+    /// The Markdown ref to put into **that statement's** text.
+    public let ref: String
 }
