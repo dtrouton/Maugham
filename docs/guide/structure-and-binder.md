@@ -6,6 +6,8 @@ The binder shows your manuscript structure. For a novel, that's parts and chapte
 
 The row at the top of the binder is the project itself. Select it the way you select a chapter, and the right-hand panes are about the whole project rather than one document. It's how you say "everything" — and it's still there when the binder is empty, so deleting your last chapter never leaves the window with nothing selected. It can't be renamed, dragged, or dropped on.
 
+A **Collection** has the same row at the top of its Pieces list, and there it matters from the first moment: a new Collection starts with no pieces at all, and the project row is what you select to write the collection's own intent before there is anything to put in it.
+
 ### Adding items
 
 Right-click a row in the binder:

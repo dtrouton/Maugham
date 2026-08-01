@@ -10,7 +10,7 @@ public enum CheckpointCapture {
     /// Runs a checkpoint.
     ///
     /// - Parameter activeDocId: What the window's tree names. **Not trusted to
-    ///   be a document** — see `breadcrumbBelongs(on:in:)`.
+    ///   be a document** — see `documentSubject(of:in:)`.
     /// - Parameter allDocIds: The project's document census, and therefore also
     ///   the answer to *"is `activeDocId` a document?"*.
     public static func run(
@@ -23,6 +23,15 @@ public enum CheckpointCapture {
         activeDocument: Document? = nil
     ) async throws -> Checkpoint {
         let opStore = OpLogStore(projectURL: projectURL)
+
+        // ONE decision, and everything below that needs a document id reads
+        // THIS value: the breadcrumb op's `docId`, the auto-label's
+        // parenthetical, and the `activeDoc` the checkpoint records. The same
+        // id travelling three distances, and a fix applied to fewer than all of
+        // them is how they drift — the label and the record are pinned together
+        // by `CheckpointSubjectRecordTests.test_theLabelAndTheRecordCannotDisagree`,
+        // which goes red on a half-fix in either direction.
+        let subjectDoc: String? = documentSubject(of: activeDocId, in: allDocIds)
 
         // doc_pointers = last op_id per doc.
         var pointers: [String: String] = [:]
@@ -37,12 +46,12 @@ public enum CheckpointCapture {
         // content op (captured above), so restore targets meaningful content.
         //
         // SKIPPED ENTIRELY when the subject is not a document — see
-        // `breadcrumbBelongs(on:in:)`. Everything below this block runs either
+        // `documentSubject(of:in:)`. Everything below this block runs either
         // way: ⌘S is a labeled checkpoint, and the writer gets their checkpoint.
-        if breadcrumbBelongs(on: activeDocId, in: allDocIds) {
+        if let subjectDoc {
             let cpOp = Op(
                 opId: ULID.generate(),
-                docId: activeDocId,
+                docId: subjectDoc,
                 at: Date(),
                 device: device,
                 session: session,
@@ -86,7 +95,13 @@ public enum CheckpointCapture {
             formatter.dateFormat = "HH:mm"
             let timeStr = formatter.string(from: Date())
             let words = totalWords.formatted(.number)
-            resolvedLabel = "\(timeStr) — \(words) words (\(activeDocId))"
+            // The parenthetical says WHICH DOCUMENT you were in. When you were
+            // in none it says nothing — not the project's title, which would
+            // sit in a slot that otherwise always holds a document name and
+            // read as though a document by that name existed (Denver's ruling).
+            // Checkpoints are project-wide either way.
+            let subjectSuffix = subjectDoc.map { " (\($0))" } ?? ""
+            resolvedLabel = "\(timeStr) — \(words) words\(subjectSuffix)"
             labelSource = .auto
         }
 
@@ -102,14 +117,23 @@ public enum CheckpointCapture {
             labelSource: labelSource,
             at: snappedAt,
             device: device,
-            activeDoc: activeDocId,
+            activeDoc: subjectDoc,
             docPointers: pointers,
             manuscriptWordCount: totalWords)
         try await CheckpointStore(projectURL: projectURL).append(cp)
         return cp
     }
 
-    /// Whether a `checkpoint` breadcrumb op belongs on `activeDocId`'s stream.
+    /// The manuscript document a checkpoint's subject names, or `nil` when it
+    /// names something that is not one.
+    ///
+    /// **The one answer to *"is this a document?"* for everything
+    /// checkpoint-shaped** — the breadcrumb op's stream, the auto-label's
+    /// parenthetical, the `activeDoc` the record carries, and (on the read side)
+    /// the scope `PartialRestorePicker` opens with. Every one of those, one
+    /// membership test; a second spelling of it somewhere is free to disagree
+    /// with this one, which is the whole reason it is a named function rather
+    /// than an `if` in each place.
     ///
     /// **The guard is here rather than at either ⌘S call site, because there are
     /// two of them** — `ProjectWindow`'s Shift-⌘S label sheet and
@@ -143,8 +167,17 @@ public enum CheckpointCapture {
     /// *task* ops and is walked by `TaskDeriver`, `TasksPane.ownerDoc` and
     /// `ProjectStore.projectTasksOpLog()`; a breadcrumb in it would be a second
     /// op kind in a log those three read. The op is dropped, not re-homed.
-    static func breadcrumbBelongs(on activeDocId: String,
-                                  in allDocIds: [String]) -> Bool {
-        allDocIds.contains(activeDocId)
+    ///
+    /// **`candidate` is optional so the read side can ask the same question.**
+    /// A checkpoint already on disk may hold `nil`, a group id, the sentinel, or
+    /// a document since deleted, and every one of those is the same answer.
+    ///
+    /// `nonisolated` because the read side asks it from a `View`'s initializer:
+    /// it is a pure membership test over its two arguments and touches nothing
+    /// the main actor owns.
+    nonisolated static func documentSubject(of candidate: String?,
+                                            in allDocIds: [String]) -> String? {
+        guard let candidate, allDocIds.contains(candidate) else { return nil }
+        return candidate
     }
 }

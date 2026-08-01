@@ -5,9 +5,14 @@ import Foundation
 /// The backup runner uses this to decide whether anything worth backing up has
 /// changed since the last generation. A naive whole-tree hash doesn't work,
 /// because the very act that triggers a backup — `CheckpointCapture` on ⌘S —
-/// rewrites volatile bookkeeping on *every* save: it appends a `.checkpoint`
-/// breadcrumb op to the active doc's op log and adds an entry to
-/// `checkpoints.jsonl`. So this signature deliberately ignores that churn:
+/// rewrites volatile bookkeeping on every save: it adds an entry to
+/// `checkpoints.jsonl`, and — *when the window's subject is one of the
+/// project's documents* — appends a `.checkpoint` breadcrumb op to that
+/// document's op log. (The subject may be a group or the project row, and since
+/// the persona shell's slice 1 the breadcrumb is skipped entirely for those; the
+/// `checkpoints.jsonl` entry is written either way. Skipping it only removes
+/// churn this signature was already filtering.) So this signature deliberately
+/// ignores that churn:
 ///
 /// - op-log files (`.maugham/ops/*.jsonl`) contribute only their **non-checkpoint
 ///   op ids** (the per-save breadcrumb is filtered out),

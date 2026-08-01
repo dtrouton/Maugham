@@ -9,8 +9,9 @@ story is not "missing" sensory detail.
 
 1. **Declare** — write a *craft intent*: a freeform statement of what this
    piece needs. Open the **Intent** pane (⌘⌥N) and type; there is nothing to
-   create first. The pane follows what you have selected, so the project has
-   one and any document can have its own, with the project's one click away.
+   create first. The pane follows what you have selected in the binder, so the
+   project has one and any document can have its own — select the project row
+   at the top of the binder for the book's, a chapter for that chapter's.
    The Inspector's **Open Intent** button goes to the same place. Not having
    one is a valid choice; it means you've decided this piece doesn't need the
    apparatus.

@@ -25,9 +25,41 @@ struct PartialRestorePicker: View {
     @State private var scope: ScopeChoice
     @State private var isRestoring: Bool = false
 
+    /// What `_scope` **actually holds** before the sheet is installed on a
+    /// view — the value the picker opens with.
+    ///
+    /// A read of the `@State`'s own box rather than a second stored property
+    /// alongside it, and the difference is not cosmetic: written the other way
+    /// this was a copy of `initialScope`'s answer, so planting a raw
+    /// `.document(checkpoint.activeDoc)` seed on the line below left it green.
+    /// A test of a value beside the one that ships is no test at all.
+    var seededScope: ScopeChoice { _scope.wrappedValue }
+
     enum ScopeChoice: Hashable {
         case wholeProject
         case document(String)
+    }
+
+    /// The scope the picker opens on, for a checkpoint whose recorded
+    /// `activeDoc` **is not trusted to name a document**.
+    ///
+    /// The write side stopped recording non-documents
+    /// (`CheckpointCapture.documentSubject(of:in:)`), but `checkpoints.jsonl` is
+    /// append-only and tripwire 11 rules out a migration, so old rows still hold
+    /// a group id or `BinderSubject.noDocumentSubject`. Seeding
+    /// `.document(<that>)` opened the radio group on a tag matching none of the
+    /// offered rows, and Revert then ran a restore over an id with no op log.
+    ///
+    /// **The census membership test covers one case a nil-check plus a sentinel
+    /// compare would not**: a document recorded honestly and since deleted. It
+    /// is the same question the write side asks, asked of a value that arrived
+    /// from disk instead of from the binder.
+    static func initialScope(for checkpoint: Checkpoint,
+                            allDocIds: [String]) -> ScopeChoice {
+        guard let docId = CheckpointCapture.documentSubject(
+            of: checkpoint.activeDoc, in: allDocIds)
+        else { return .wholeProject }
+        return .document(docId)
     }
 
     init(
@@ -52,7 +84,8 @@ struct PartialRestorePicker: View {
         self.documentStore = documentStore
         self.onComplete = onComplete
         self.onCancel = onCancel
-        _scope = State(initialValue: .document(checkpoint.activeDoc))
+        _scope = State(
+            initialValue: Self.initialScope(for: checkpoint, allDocIds: allDocIds))
     }
 
     var body: some View {

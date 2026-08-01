@@ -56,7 +56,7 @@ It also has a **History** mode (⌘⌥H) — a read-only timeline of edits, anno
 
 ### Intent mode (⌘⌥N)
 
-What you're going for — freeform prose, never a form. The pane shows the selected document's intent, or the project's when nothing is selected; when a document is selected, a small switch at the top of the pane puts the book's intent one click away.
+What you're going for — freeform prose, never a form. The pane shows the intent of whatever the binder names: select a chapter and you get the chapter's, select the project row at the top of the binder and you get the book's. The tree is the only place that choice is made, and a line at the top of the pane says which one you're reading — *What “Chapter Three” is going for*, or *What this project is going for*. Selecting a group, or nothing, shows the project's.
 
 Intent is a real document, not a note: every edit lands in its own operation log, so ⌘Z works here as it does in the manuscript, and it merges across your Macs the same way. `[[Chapter 9]]` links resolve here too.
 

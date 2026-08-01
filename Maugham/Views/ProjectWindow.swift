@@ -1425,22 +1425,33 @@ struct ProjectWindow: View {
     /// statement routes to the Intent pane instead.
     ///
     /// **What it does not do is choose the pane's SCOPE.** `StatementPane`
-    /// resolves that from the binder's selection, with the project one click
-    /// away by design ("a chapter's intent and the book's are never further apart
-    /// than that"), and driving the manuscript selection from here would move the
-    /// writer's open document as a side effect of pressing Open. So a
-    /// document-scoped intent may land on a different scope's, and the pane's own
-    /// switch is the way across.
+    /// resolves that from the window's subject and has no say in it, so a
+    /// document-scoped intent opened from here may land on a different scope's.
+    /// Driving the subject from Open would move the writer's open document as a
+    /// side effect of pressing a button about an artifact — which is the whole
+    /// of what is left to decide, and slice 4's to decide.
     ///
     /// **A request the pane honours was built for that gap and reverted**
-    /// (M1A Task 7, fix rounds 1–3, 2026-08-01). It is not that the shape was
-    /// unworkable: three rounds each closed their finding and each opened a new
-    /// one in a cell the last had right, because the pane's scope switch, the
-    /// request and `prefersProjectScope` interact and **no test drives a press
-    /// through the binding and back through this view's state** — every
-    /// `StatementPane` in `StatementMountFixture` is mounted without one. The
-    /// next attempt should start from that test, not from the control. See the
-    /// task-7 report for what the three rounds established.
+    /// (M1A Task 7, fix rounds 1–3, 2026-08-01). Three rounds each closed their
+    /// finding and each opened a new one in a cell the last had right, because
+    /// the pane's scope switch, the request and `prefersProjectScope` interacted
+    /// and no test drove a press through the binding and back through this
+    /// view's state.
+    ///
+    /// **Two of those three parts no longer exist.** Slice 1 gave the tree a
+    /// project row, and the pane's `[<chapter> | Project]` switch and its
+    /// `prefersProjectScope` state went with it (task 7) — the switch was only
+    /// ever a workaround for the tree being unable to say "the project". And the
+    /// missing test now exists: `StatementPaneSelectionDeliveryTests` drives a
+    /// real selection through `BinderView`'s `List(selection:)`, the shared
+    /// binding, this view's boundary conversion and `DetailPaneToggle`, and
+    /// reads the resolved scope off the words in the mounted editor. It was
+    /// written deliberately against the SELECTION rather than the switch, so it
+    /// survived the deletion and is the fixture the next attempt starts from.
+    ///
+    /// So what remains here is not the three-way interaction — it is one design
+    /// question: **may pressing Open move the window's subject?** See the task-7
+    /// report for what the three rounds established.
     private func openPromotedArtifact(_ itemId: String) {
         guard let store else { return }
         if let pane = Self.statementPane(forMark: itemId, in: store) {

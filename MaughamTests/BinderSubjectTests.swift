@@ -132,4 +132,94 @@ final class BinderSubjectTests: XCTestCase {
         XCTAssertEqual(decoded, original,
                        "a field is missing from UIState.encode(to:)")
     }
+
+    // MARK: - The sentinel has one home, asserted rather than promised
+
+    /// **`BinderSubject`'s doc comment says the literal was written out at six
+    /// production sites and now has one. That claim is prose until something
+    /// scans for it.**
+    ///
+    /// The type itself is compiler-enforced in the direction that matters — no
+    /// `rawValue`, no `init(String)`, so nothing gets a bare id without deciding
+    /// what the project means to it. The literal is the part the compiler cannot
+    /// see: a new site spelling `"__no-selection__"` inline behaves identically
+    /// *today* and diverges silently the day the constant's value changes. Six
+    /// prior sites is the recurrence that earns a census rather than a warning
+    /// (`memory/feedback_census_over_warning.md`).
+    ///
+    /// **Its honest limit.** `SourceScan` cannot see past an unclosed `/*`, and
+    /// two production files end their scan inside one — see
+    /// `TripwireGrepTests.test_noScannedFileIsTruncatedByAnUnclosedBlockComment`,
+    /// which pins that set. An offender in such a tail would be missed. What
+    /// keeps this from being unfalsifiable is the *required* member: if
+    /// `BinderSubject.swift` were ever truncated the census goes red, loudly.
+    func test_theSentinelLiteralIsWrittenInExactlyOnePlace() throws {
+        XCTAssertEqual(
+            try Self.filesNamingTheSentinelLiteral(in: Self.appSourceDir),
+            ["BinderSubject.swift"],
+            "the sentinel is declared once and read as "
+            + "`BinderSubject.noDocumentSubject` everywhere else. A site "
+            + "spelling the literal is a second place to change and a second "
+            + "place to look — which is the shape the type was introduced to "
+            + "end, after six of them")
+    }
+
+    /// **The planted offender**, without which the census could be scanning an
+    /// empty tree and reporting a set that happens to have been written down.
+    func test_theSentinelCensusCatchesASecondLiteral() throws {
+        XCTAssertEqual(
+            try Self.filesNamingTheSentinelLiteral(
+                Self.appSourceDir,
+                plus: ["SomeNewPane.swift":
+                        #"if activeDocId != "__no-selection__" { show() }"#]),
+            ["BinderSubject.swift", "SomeNewPane.swift"],
+            "the census must see a planted second literal")
+    }
+
+    /// **The control on the control.** Four production files quote the literal
+    /// in doc comments explaining what it is; prose is not a site.
+    func test_theSentinelCensusDoesNotCountAComment() throws {
+        XCTAssertEqual(
+            try Self.filesNamingTheSentinelLiteral(
+                Self.appSourceDir,
+                plus: ["CommentedOnly.swift":
+                        #"/// the `"__no-selection__"` literal, refused here as an id."#]),
+            ["BinderSubject.swift"],
+            "a literal quoted in a doc comment must not count — four production "
+            + "files already do exactly that")
+    }
+
+    // MARK: - Census helpers
+
+    private static var appSourceDir: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // MaughamTests/
+            .deletingLastPathComponent()   // repo root
+            .appendingPathComponent("Maugham", isDirectory: true)
+    }
+
+    private static func filesNamingTheSentinelLiteral(in dir: URL) throws -> [String] {
+        try filesNamingTheSentinelLiteral(dir)
+    }
+
+    /// `plus` injects synthetic (name, source) pairs through the identical
+    /// predicate, so the two companions above test *this* scan.
+    private static func filesNamingTheSentinelLiteral(
+        _ dir: URL,
+        plus injected: [String: String] = [:]
+    ) throws -> [String] {
+        var sources: [(name: String, text: String)] = []
+        let fm = FileManager.default
+        let walker = try XCTUnwrap(fm.enumerator(at: dir, includingPropertiesForKeys: nil))
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            sources.append((url.lastPathComponent,
+                            try String(contentsOf: url, encoding: .utf8)))
+        }
+        sources.append(contentsOf: injected.map { ($0.key, $0.value) })
+
+        return sources
+            .filter { SourceScan.namesInCode(#""__no-selection__""#, in: $0.text) }
+            .map(\.name)
+            .sorted()
+    }
 }

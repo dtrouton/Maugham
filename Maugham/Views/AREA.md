@@ -15,7 +15,7 @@ The SwiftUI view layer for the project window. Composes the binder (left), edito
 - `AnnotationsPane.swift` — sibling segment to HistoryPane; action surface for Claude annotations (Accept/Reject/Archive).
 - `RewindWindow.swift` — time-travel modal. Per-doc v1; scrubber + Doc/Diff preview + Snapshot/Restore footer. Snapshots the op log at open-time.
 - `RewindTickLayout.swift` — pure decimation helper for the scrubber. Unit-tested independent of SwiftUI.
-- `PartialRestorePicker.swift` — per-doc-vs-project picker used by checkpoint-row reverts. NOT used by rewind restore (which is per-doc by construction).
+- `PartialRestorePicker.swift` — per-doc-vs-project picker used by checkpoint-row reverts. NOT used by rewind restore (which is per-doc by construction). **The scope it opens on is `initialScope(for:allDocIds:)`, and the checkpoint's recorded `activeDoc` is not trusted to name a document** — it may be `nil`, or (on rows already on disk, tripwire 11) a group id or `BinderSubject.noDocumentSubject`, or a document since deleted. Same membership test the write side makes, `CheckpointCapture.documentSubject(of:in:)`. `seededScope` reads the `@State`'s own box rather than a copy beside it, because a copy left the delivery-path test green against a planted raw seed.
 - `CheckpointLabelPromptSheet.swift` — reusable label-entry sheet; used by both ⌘⇧S and "Snapshot here" in the rewind modal.
 
 ## Patterns
