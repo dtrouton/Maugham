@@ -100,13 +100,19 @@ extension ProjectStore {
     /// paragraph-loss `StatementEditorHost.reconcile` calls unreachable for the
     /// case IT controls.
     ///
-    /// Both openers take it: the pane, which holds its `Document` for as long as
-    /// the scope is showing, and a transient writer (`PromotionPerformer`), which
-    /// loads, writes and closes. **The lock is only over the OPENING** — the pane
-    /// releases as soon as it has registered, so a writer that queues behind it
-    /// finds the registry populated and takes the live-`Document` path instead of
-    /// loading at all. That is why the transient arm re-asks the registry once it
-    /// is inside.
+    /// **Who takes it is a census, not a count** —
+    /// `TripwireGrepTests.statementOpenGateTakers`, which names every member and
+    /// goes red when the set changes. Read it rather than a sentence here: this
+    /// comment said "Both openers take it" for a whole slice, over three openers,
+    /// one of which took nothing, while naming `PromotionPerformer` — which is
+    /// not an opener at all and reaches the gate through `appendToStatement` —
+    /// and omitting `promotePieceToProject`, which takes the gate while opening
+    /// nothing because it MOVES the file the gate is over.
+    ///
+    /// **The lock is only over the OPENING** — the pane releases as soon as it
+    /// has registered, so a writer that queues behind it finds the registry
+    /// populated and takes the live-`Document` path instead of loading at all.
+    /// That is why the transient arm re-asks the registry once it is inside.
     ///
     /// `defer { unlockStatementOpen(id) }` at every call site. There is no
     /// suspension between the check and the claim below, so two callers arriving

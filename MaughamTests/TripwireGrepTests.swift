@@ -2842,6 +2842,123 @@ final class TripwireGrepTests: XCTestCase {
                        + "offender would pass the real census too.")
     }
 
+    // MARK: - Who takes the statement open gate (whole-branch review, I2)
+
+    /// Every member that takes `lockStatementOpen`, `File.swift:member`.
+    ///
+    /// **The census exists because the prose was wrong twice.**
+    /// `ProjectStore+Statements.swift` and `Maugham/Canvas/AREA.md` both said
+    /// "Both openers take it", and there were three openers, one of which
+    /// (`adopt`) took nothing while a fourth taker (`promotePieceToProject`)
+    /// opens no `Document` at all. A number in prose about a list is a defect
+    /// the moment it is written; this is the list.
+    ///
+    /// Each entry says what it is:
+    /// - `ProjectStore+Statements.swift:lockStatementOpen` — the declaration.
+    /// - `StatementEditorHost.swift:load` — the pane, which holds its `Document`
+    ///   for as long as the scope is showing and releases the gate as soon as it
+    ///   has registered.
+    /// - `ProjectStore+Statements.swift:appendToStatement` — the transient
+    ///   writer's arm, which every out-of-band write reaches (a promotion, a
+    ///   dropped picture). `PromotionPerformer` is NOT a taker: it gets here.
+    /// - `ProjectStore+StatementAdoption.swift:adopt` — the third opener, safe
+    ///   by circumstance before it took the gate and no longer relying on that.
+    /// - `ProjectStore+CollectionPieces.swift:promotePieceToProject` — takes the
+    ///   gate while opening nothing, because it MOVES the file the gate is over.
+    private static let statementOpenGateTakers: Set<String> = [
+        "ProjectStore+Statements.swift:lockStatementOpen",
+        "ProjectStore+Statements.swift:appendToStatement",
+        "ProjectStore+StatementAdoption.swift:adopt",
+        "ProjectStore+CollectionPieces.swift:promotePieceToProject",
+        "StatementEditorHost.swift:load",
+    ]
+
+    private static let statementOpenGateToken = "lockStatementOpen("
+    private static let statementOpenGateAntiToken = "unlockStatementOpen("
+
+    /// `File.swift:member` for every CODE line matching `token` and not
+    /// `antiToken`, anywhere under `dir`.
+    private func membersCalling(
+        _ token: String, notMatching antiToken: String, under dir: URL
+    ) throws -> Set<String> {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var found: Set<String> = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            var member = "(top level)"
+            for line in try String(contentsOf: url, encoding: .utf8)
+                .components(separatedBy: .newlines) {
+                if let declared = Self.memberName(declaredOn: line) { member = declared }
+                guard !Self.isCommentLine(line),
+                      line.contains(token),
+                      !line.contains(antiToken) else { continue }
+                found.insert("\(url.lastPathComponent):\(member)")
+            }
+        }
+        return found
+    }
+
+    /// **Census, not a ban.** Equality against a non-empty set is its own
+    /// control: a scanner that read nothing goes red here rather than passing.
+    func test_theStatementOpenGateIsTakenByExactlyTheseMembers() throws {
+        XCTAssertEqual(
+            try membersCalling(Self.statementOpenGateToken,
+                               notMatching: Self.statementOpenGateAntiToken,
+                               under: sourceDir),
+            Self.statementOpenGateTakers,
+            "The set of members taking `lockStatementOpen` changed. If you added "
+            + "one, add it to statementOpenGateTakers with a line saying what it "
+            + "is. If you REMOVED one, say why the path it guarded can no longer "
+            + "put two live `Document`s on one statement's file — that is "
+            + "paragraph loss, and it is why the gate exists. And never write "
+            + "the count in prose: this list is the only place it lives.")
+    }
+
+    /// Self-check: the census fires on a planted taker, attributes it to the
+    /// member that contains it, ignores a comment mentioning the gate, and does
+    /// not confuse `unlockStatementOpen` for a take.
+    func test_theStatementOpenGateCensusFiresOnAPlantedTaker() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-statement-gate-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        extension ProjectStore {
+            /// A doc comment naming lockStatementOpen( must NOT count.
+            func sneakilyOpensAStatement() async throws {
+                await lockStatementOpen(statement.id)
+                defer { unlockStatementOpen(statement.id) }
+                _ = try await Document.load(url: statementURL)
+            }
+
+            func releasesOnly() {
+                unlockStatementOpen(id)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("Planted.swift"),
+                  atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            try membersCalling(Self.statementOpenGateToken,
+                               notMatching: Self.statementOpenGateAntiToken, under: tmp),
+            ["Planted.swift:sneakilyOpensAStatement"],
+            "Self-check: the planted taker must be caught and attributed to its "
+            + "own member; the doc comment must not count; and `releasesOnly`, "
+            + "which only unlocks, must not be read as a take.")
+
+        // Control: the planted member is NOT in the production expectation, so
+        // the real census would genuinely have gone red for it.
+        XCTAssertFalse(
+            Self.statementOpenGateTakers.contains(
+                where: { $0.hasSuffix(":sneakilyOpensAStatement") }),
+            "Control: if the planted member were already allowed, the census "
+            + "above would pass for it too and prove nothing.")
+    }
+
     /// A whole-line comment, in either spelling. Shared by the canvas-asset
     /// tripwires, which both guard tokens their own documentation names.
     private static func isCommentLine(_ line: String) -> Bool {

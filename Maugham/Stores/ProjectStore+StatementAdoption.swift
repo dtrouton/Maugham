@@ -214,6 +214,18 @@ extension ProjectStore {
         let fileURL = url.appendingPathComponent(statement.path)
         try Data((joined + "\n").utf8).write(to: fileURL, options: .atomic)
 
+        // **The third opener takes the gate too** (whole-branch review, I2).
+        // Adoption is safe without it by circumstance — it runs inside
+        // `ProjectStore.load`, before the store is handed out, on a statement it
+        // created moments earlier, and `openStatementDocuments` is per-store so
+        // no lock could span two windows anyway. But "safe because of where it
+        // happens to sit" is a property the next edit to `ProjectStore.load`
+        // silently removes, and the gate costs one uncontended set insertion.
+        // Held across the close, as `appendToStatement`'s transient arm is, so
+        // nothing opens this path until the bootstrap ops are on disk.
+        await lockStatementOpen(statement.id)
+        defer { unlockStatementOpen(statement.id) }
+
         // The content becomes a BOOTSTRAP OP, through the path `Document.load`
         // already takes for an imported plain file with an empty op log
         // (`Document+Load.swift`'s `needsBootstrap` branch — the sanctioned
