@@ -525,7 +525,7 @@ struct ProjectWindow: View {
         func body(content: Content) -> some View {
             content
                 .onKeyWindowCommand(.maughamSetDetailSegment, window: window) { note in
-                    guard let raw = note.userInfo?["segment"] as? String,
+                    guard let raw = note.userInfo?[MaughamEvent.detailSegmentKey] as? String,
                           let seg = DetailSegment(rawValue: raw) else { return }
                     showInspector = true     // ensure pane is visible
                     detailSegment = seg
@@ -1275,13 +1275,9 @@ struct ProjectWindow: View {
                 ReferencePieceInspector(store: store, pieceId: id)
             case .loose, .none:
                 if let path = piece.path, path.hasSuffix(".fountain") {
-                    PieceInspector(
-                        store: store, pieceId: id, kind: .screenplay,
-                        onOpenCraftIntent: openResearchItem)
+                    PieceInspector(store: store, pieceId: id, kind: .screenplay)
                 } else {
-                    PieceInspector(
-                        store: store, pieceId: id, kind: .prose,
-                        onOpenCraftIntent: openResearchItem)
+                    PieceInspector(store: store, pieceId: id, kind: .prose)
                 }
             }
         } else {
@@ -1298,8 +1294,7 @@ struct ProjectWindow: View {
                 store: store,
                 selectedItemId: selectedItemId,
                 metrics: metrics,
-                onOpenProjectSettings: { activeSheet = .projectSettings },
-                onOpenCraftIntent: openResearchItem
+                onOpenProjectSettings: { activeSheet = .projectSettings }
             )
         case .canvas:
             // Unreachable — `inspectorRoute` takes the canvas above the
@@ -1410,8 +1405,9 @@ struct ProjectWindow: View {
     /// Navigate to a research item in the right pane: switch to Research and
     /// select it, which the existing click-to-edit flow opens.
     ///
-    /// Reached from the craft-intent inspector affordance and, since 1C-c2, from
-    /// a promoted card's **Open** button.
+    /// Reached from a promoted card's **Open** button (1C-c2), through
+    /// `openPromotedArtifact`. The craft-intent inspector affordance was the
+    /// other caller until M1A Task 8 replaced it with a pane switch.
     private func openResearchItem(_ itemId: String) {
         binderSegment = .research
         selectedResearchId = itemId

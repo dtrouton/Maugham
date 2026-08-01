@@ -45,9 +45,6 @@ struct PieceInspector: View {
     @Bindable var store: ProjectStore
     let pieceId: String
     let kind: PieceInspectorKind
-    let onOpenCraftIntent: (String) -> Void
-
-    @State private var isCreatingIntent = false
 
     var body: some View {
         if let piece = store.manifest.structure.first(where: { $0.id == pieceId }) {
@@ -58,7 +55,7 @@ struct PieceInspector: View {
                     synopsisSection(piece: piece)
                     statusSection(piece: piece)
                     targetSection(piece: piece)
-                    craftIntentSection(piece: piece)
+                    intentSection(piece: piece)
                     InspectorPublishSection(
                         projectURL: store.url,
                         selectedPieceID: piece.id)
@@ -104,24 +101,15 @@ struct PieceInspector: View {
         }
     }
 
-    @ViewBuilder private func craftIntentSection(piece: StructureItem) -> some View {
+    /// A loose piece is a `type: .document` structure item and `ProjectWindow`
+    /// passes the same `selectedItemId` here and to the right column, so the
+    /// pane this row opens resolves to *this piece's* intent rather than the
+    /// Collection's — which is what makes a button under a piece's heading
+    /// honest (`InspectorIntentAffordanceTests`).
+    @ViewBuilder private func intentSection(piece: StructureItem) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Craft Intent").font(.caption).foregroundStyle(.secondary)
-            if let intent = store.craftIntentItem(forPieceId: piece.id) {
-                Button("Open Craft Intent") { onOpenCraftIntent(intent.id) }
-            } else {
-                Button("Add craft intent…") {
-                    guard !isCreatingIntent else { return }
-                    isCreatingIntent = true
-                    Task {
-                        defer { isCreatingIntent = false }
-                        if let item = try? await store.createCraftIntent(forPieceId: piece.id) {
-                            onOpenCraftIntent(item.id)
-                        }
-                    }
-                }
-                .disabled(isCreatingIntent)
-            }
+            Text("Intent").font(.caption).foregroundStyle(.secondary)
+            IntentAffordanceRow(store: store, selectedItemId: piece.id)
         }
     }
 

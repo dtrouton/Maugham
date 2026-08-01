@@ -68,6 +68,83 @@ final class PromotePieceTests: XCTestCase {
         }
     }
 
+    /// **A promoted piece takes its intent with it** (M1A Task 8, contract 7).
+    ///
+    /// Before M1A a loose piece's craft intent was a research note under
+    /// `pieces/<n>-<slug>/research/`, which `writePromotedManifest`'s prefix
+    /// rewrite carried for free. After M1A it is a `.document(pieceId)`
+    /// **statement** at `intent/<slug>.md` at the Collection's root, which no
+    /// research prefix matches — so without this the writer's intent silently
+    /// stays behind in a project whose piece is now a reference, reachable from
+    /// nothing.
+    func test_aPromotedPieceCarriesItsIntent() async throws {
+        let (collection, store, piece) = try await makeCollectionWithPiece(mode: .prose)
+        let statement = try await store.createStatement(
+            kind: .intent, scope: .document(piece.id))
+        let intentDocument = try await Document.load(
+            url: collection.appendingPathComponent(statement.path),
+            device: "promote-intent-test", session: "s", presenter: nil)
+        intentDocument.setFullText("Story A should end on the tide going out.")
+        try await intentDocument.flushBurstNow()
+        await intentDocument.close()
+
+        let destination = collection.deletingLastPathComponent()
+            .appendingPathComponent("Promoted With Intent")
+        let newProjectURL = try await store.promotePieceToProject(
+            pieceId: piece.id, destination: destination)
+
+        let promoted = try await ProjectStore.load(from: newProjectURL)
+        let docId = try XCTUnwrap(
+            TreeWalk.collect(in: promoted.manifest.structure,
+                             where: { $0.type == .document }).first?.id)
+        let carried = try XCTUnwrap(
+            promoted.statement(kind: .intent, scope: .document(docId)),
+            "the promoted project holds no intent for its one document; "
+            + "statements: \(promoted.manifest.statements)")
+
+        // The prose itself, read the way the Intent pane reads it: through
+        // `Document.load`, which bootstraps the carried `.md` into the new
+        // project's op log on first open.
+        //
+        // **Not through `derivedCache`, and the reason is worth knowing.** The
+        // promoted project carries no `.maugham/ops/` — the piece's own
+        // manuscript history is not staged either — so a derive-only read of
+        // any of its documents answers "" until something opens them once. That
+        // is promotion's pre-existing shape, inherited here rather than
+        // introduced; what the carry has to preserve is the writer's words.
+        let reopened = try await Document.load(
+            url: newProjectURL.appendingPathComponent(carried.path),
+            device: "promote-intent-test", session: "s2", presenter: nil)
+        XCTAssertEqual(reopened.displayText,
+                       "Story A should end on the tide going out.",
+                       "the intent's manifest entry travelled and its words did not")
+        await reopened.close()
+
+        // …and it is no longer claimed by the Collection, whose file is gone.
+        XCTAssertTrue(store.manifest.statements.isEmpty,
+                      "the Collection still claims a statement whose file moved: "
+                      + "\(store.manifest.statements)")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: collection.appendingPathComponent(statement.path).path),
+            "the intent file is still in the Collection as well")
+    }
+
+    /// The control for the test above: a piece with no intent promotes to a
+    /// project with no statements, and nothing is invented on the way.
+    func test_aPromotedPieceWithNoIntentGetsNone() async throws {
+        let (collection, store, piece) = try await makeCollectionWithPiece(mode: .prose)
+        let destination = collection.deletingLastPathComponent()
+            .appendingPathComponent("Promoted Without Intent")
+
+        let newProjectURL = try await store.promotePieceToProject(
+            pieceId: piece.id, destination: destination)
+
+        let promoted = try await ProjectStore.load(from: newProjectURL)
+        XCTAssertTrue(promoted.manifest.statements.isEmpty,
+                      "promotion invented an intent the writer never wrote")
+    }
+
     func test_promotedProject_carriedResearch_isDerivedForItsDocument() async throws {
         // Collection with a piece that owns one research note.
         let parent = FileManager.default.temporaryDirectory

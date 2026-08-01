@@ -335,12 +335,14 @@ struct MaughamApp: App {
         .windowResizability(.contentMinSize)
     }
 
-    /// One spelling of the segment post, so the nine menu items can't drift
-    /// apart. `.keyWindow` scope: only the focused project window responds.
+    /// The View menu's way of asking for a segment, so its items can't drift
+    /// apart — and, since M1A gave the inspector one too, a thin call onto
+    /// `MaughamEvent.postDetailSegment(_:)`, which is where the payload and the
+    /// `.keyWindow` scope are spelled. Kept as a local name because
+    /// `PersonaKeyspaceTests` reads `postSegment(.<segment>)` out of this file
+    /// to prove every segment has a menu item.
     private func postSegment(_ segment: DetailSegment) {
-        MaughamEvent.post(.maughamSetDetailSegment,
-                          to: .keyWindow,
-                          payload: ["segment": segment.rawValue])
+        MaughamEvent.postDetailSegment(segment)
     }
 
     /// Mirrors `postSegment(_:)`. `.keyWindow` scope: only the focused

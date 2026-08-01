@@ -26,7 +26,7 @@ final class StatementAdoptionTests: XCTestCase {
 
     /// One legacy craft-intent note as a writer's project would carry it.
     private struct LegacyNote {
-        var title: String = ProjectStore.craftIntentTitle
+        var title: String = PaletteConvention.craftIntentTitle
         var body: String
         /// `ResearchItem.addedAt` — the only recorded age, and what "oldest
         /// first" is measured on.
@@ -187,7 +187,7 @@ final class StatementAdoptionTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         await store.wordCountPopulationTask?.value
         let note = try await store.addResearchTextNote(
-            parentId: nil, title: ProjectStore.craftIntentTitle)
+            parentId: nil, title: PaletteConvention.craftIntentTitle)
         XCTAssertNil(note.role, "the fixture must reach adoption with no durable role")
         try "Nobody stamped me.".write(
             to: url.appendingPathComponent(try XCTUnwrap(note.path)),
@@ -202,6 +202,38 @@ final class StatementAdoptionTests: XCTestCase {
             "a note identified only by its filename must still be adopted")
         let adopted = try await derivedText(of: statement, in: url)
         XCTAssertEqual(adopted, "Nobody stamped me.")
+    }
+
+    /// **The load-time role heal still runs, and adoption is now its only
+    /// reason to.** `healPaletteRolesEagerly`'s craft-intent arm
+    /// (`ProjectStore+Palette.swift`) stamps `.craftIntent` onto a legacy note
+    /// identified by filename, immediately before adoption reads it. M1A Task 8
+    /// deleted the craft-intent seam, so that arm no longer serves any lookup of
+    /// its own and reads like dead code — this is what makes removing it fail
+    /// rather than quietly cost a writer their renamed intent. (The test above
+    /// covers the other half: what adoption does when the stamp did not run.)
+    ///
+    /// Falsified by deleting the `legacyIntents` loop from `healPaletteRolesEagerly`.
+    func test_theLoadTimeRoleHealStillStampsALegacyCraftIntentNote() async throws {
+        let url = try await ProjectFactory.createNovelProject(
+            named: "EagerHeal", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        await store.wordCountPopulationTask?.value
+        // A v0.19.0-shaped note: at the legacy path, with no durable role. The
+        // project is already at the current schema, so adoption's gate holds and
+        // the note is still here to be looked at after the reload.
+        let legacy = try await store.addResearchTextNote(
+            parentId: nil, title: PaletteConvention.craftIntentTitle)
+        XCTAssertEqual(legacy.path, "research/\(PaletteConvention.craftIntentFileName)")
+        XCTAssertNil(legacy.role, "the fixture must reach the heal with no role")
+
+        let reloaded = try await ProjectStore.load(from: url)
+        XCTAssertEqual(
+            TreeWalk.find(id: legacy.id, in: reloaded.manifest.research)?.role,
+            .craftIntent,
+            "the load-time heal no longer stamps a legacy craft-intent note, so "
+            + "adoption's role-first detection misses every note the writer "
+            + "renamed away from craft-intent.md")
     }
 
     // MARK: - Contract 2: the content arrives as a bootstrap op
@@ -296,7 +328,7 @@ final class StatementAdoptionTests: XCTestCase {
         // The writer makes a craft-intent-shaped note after the migration. It is
         // theirs; adoption is over and must not touch it.
         let after = try await first.addResearchTextNote(
-            parentId: nil, title: ProjectStore.craftIntentTitle)
+            parentId: nil, title: PaletteConvention.craftIntentTitle)
         try "Something else entirely.".write(
             to: url.appendingPathComponent(try XCTUnwrap(after.path)),
             atomically: true, encoding: .utf8)
@@ -424,8 +456,18 @@ final class StatementAdoptionTests: XCTestCase {
         await setup.wordCountPopulationTask?.value
         let chapter = try XCTUnwrap(setup.manifest.structure.first)
 
-        let bookNote = try await setup.createCraftIntent(forPieceId: nil)
-        let chapterNote = try await setup.createCraftIntent(forPieceId: chapter.id)
+        // The shipped seam, hand-built: `createCraftIntent(forPieceId:)` was
+        // deleted by M1A Task 8, and this fixture is the two calls it made —
+        // the project's note straight into shared `research/`, the chapter's
+        // through `ResearchScope`, which routes a novel chapter to
+        // `.sharedPlusLink` and writes the `linkedResearchIds` record adoption
+        // reads. Both stamped, as the seam stamped them on create.
+        let bookNote = try await setup.addResearchTextNote(
+            parentId: nil, title: PaletteConvention.craftIntentTitle)
+        try await setup.stampRole(itemId: bookNote.id, role: .craftIntent)
+        let chapterNote = try await setup.createResearchNote(
+            scope: .document(chapter.id), title: PaletteConvention.craftIntentTitle)
+        try await setup.stampRole(itemId: chapterNote.id, role: .craftIntent)
         // The fixture must actually reproduce the defect, or this test proves
         // nothing about the population it is named for.
         XCTAssertNotEqual(chapterNote.id, bookNote.id,
@@ -549,14 +591,14 @@ final class StatementAdoptionTests: XCTestCase {
         let piece = try await setup.addLoosePiece(title: "The Fall", mode: .prose)
 
         let pieceNote = try await setup.addPieceResearchNote(
-            pieceId: piece.id, title: ProjectStore.craftIntentTitle)
+            pieceId: piece.id, title: PaletteConvention.craftIntentTitle)
         try "This piece is about falling.".write(
             to: url.appendingPathComponent(try XCTUnwrap(pieceNote.path)),
             atomically: true, encoding: .utf8)
         try await setup.stampRole(itemId: pieceNote.id, role: .craftIntent)
 
         let projectNote = try await setup.addResearchTextNote(
-            parentId: nil, title: ProjectStore.craftIntentTitle)
+            parentId: nil, title: PaletteConvention.craftIntentTitle)
         try "The book is about weather.".write(
             to: url.appendingPathComponent(try XCTUnwrap(projectNote.path)),
             atomically: true, encoding: .utf8)

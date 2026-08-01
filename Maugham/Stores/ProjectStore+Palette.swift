@@ -241,13 +241,13 @@ extension ProjectStore {
     /// One-shot EAGER role heal, run at PROJECT LOAD (`ProjectStore.load`)
     /// before any rename affordance is reachable. The lazy heal only fires when
     /// a role-first lookup runs; but renames happen from the Research binder,
-    /// which never calls `paletteGroup()`/`craftIntentItem(...)`. So on a legacy
-    /// (role == nil) project, renaming the palette group away from
-    /// `research/palette` — or the craft-intent doc away from `craft-intent.md`
-    /// — BEFORE the palette wall / craft-intent doc is ever opened would defeat
-    /// BOTH the role check and the path/filename fallback, permanently orphaning
-    /// the cards (a later `ensurePaletteGroup()` mints a fresh empty group).
-    /// Stamping the durable role at load closes that window.
+    /// which never calls `paletteGroup()`. So on a legacy (role == nil) project,
+    /// renaming the palette group away from `research/palette` BEFORE the
+    /// palette wall is ever opened would defeat BOTH the role check and the path
+    /// fallback, permanently orphaning the cards (a later `ensurePaletteGroup()`
+    /// mints a fresh empty group). Stamping the durable role at load closes that
+    /// window. The craft-intent arm below is here for a different reader now —
+    /// see its own comment.
     ///
     /// Identifies legacy items by the same path/filename identity the lookups
     /// fall back to: the `research/palette` group, and every `craft-intent.md`
@@ -264,6 +264,16 @@ extension ProjectStore {
         for group in legacyGroups {
             try? await stampRole(itemId: group.id, role: .paletteGroup)
         }
+        // **This arm looks like dead code after M1A Task 8 and is not.** The
+        // craft-intent seam it was written for is gone, and `ResearchRole
+        // .craftIntent` now has exactly one reader left: `adoptLegacyCraftIntent
+        // IfNeeded`, which runs from `ProjectStore.load` IMMEDIATELY AFTER this
+        // and detects a writer's legacy notes role-first. Delete the stamp and
+        // adoption falls back to matching `craft-intent.md` by filename, which
+        // misses every note the writer ever renamed — their intent then stays in
+        // the research tree while the new pane shows them nothing.
+        // `StatementAdoptionTests.test_theLoadTimeRoleHealStillStampsALegacy
+        // CraftIntentNote` is the guard.
         let legacyIntents = TreeWalk.collect(in: manifest.research) {
             $0.type == .asset
                 && $0.role != .craftIntent

@@ -7,8 +7,11 @@ story is not "missing" sensory detail.
 
 ## The three-part loop
 
-1. **Declare** — write a *craft intent* doc: a freeform statement of what this
-   piece needs. Add one from the inspector (**Add craft intent…**). Not having
+1. **Declare** — write a *craft intent*: a freeform statement of what this
+   piece needs. Open the **Intent** pane (⌘⌥N) and type; there is nothing to
+   create first. The pane follows what you have selected, so the project has
+   one and any document can have its own, with the project's one click away.
+   The Inspector's **Open Intent** button goes to the same place. Not having
    one is a valid choice; it means you've decided this piece doesn't need the
    apparatus.
 2. **Gather** — build *palette cards* in the Palette segment — the palette

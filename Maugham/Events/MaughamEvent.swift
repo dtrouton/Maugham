@@ -58,12 +58,29 @@ enum MaughamEvent {
     /// `PersonaModifier`, so a rename cannot silently make the post a no-op.
     static let personaKey = "persona"
 
+    /// Payload key for `.maughamSetDetailSegment`. One spelling shared by the
+    /// View menu's eleven items, the inspector's Intent affordance (M1A) and
+    /// `ProjectWindow`'s receiver — same reason as `personaKey`.
+    static let detailSegmentKey = "segment"
+
     /// Payload keys for `.maughamCanvasNodesAdded`. Constants for the reason
     /// `personaKey` is one: the post site (`AddCanvasScrapsTool`) and whatever
     /// announces the arrival are written by different hands at different times,
     /// and a rename on one side must not quietly make the other read nil.
     static let canvasScrapCountKey = "scrap_count"
     static let canvasRegionIDKey = "region_id"
+
+    /// Ask the key window's right column to show `segment`.
+    ///
+    /// **The one spelling of this post**, because there are now two kinds of
+    /// caller: the View menu's items, and an inspector arm handing the writer to
+    /// a different segment of the column it is itself in (M1A Task 8). Scoped
+    /// `.keyWindow` because it is a command, not a data event — only the focused
+    /// project window switches.
+    static func postDetailSegment(_ segment: DetailSegment) {
+        post(.maughamSetDetailSegment, to: .keyWindow,
+             payload: [detailSegmentKey: segment.rawValue])
+    }
 
     /// Post `name` to the given scope. `object` and `payload` pass through to
     /// NotificationCenter unchanged (payload keys must not shadow the

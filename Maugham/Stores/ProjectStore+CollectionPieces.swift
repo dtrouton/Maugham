@@ -176,8 +176,8 @@ extension ProjectStore {
     }
 
     /// Promote a loose Collection piece into a standalone Maugham project.
-    /// Moves the piece's main doc + research/ subfolder to a fresh project
-    /// at `destination`. Converts the Collection's manifest entry into a
+    /// Moves the piece's main doc, its research/ subfolder and its intent
+    /// statement to a fresh project at `destination`. Converts the Collection's manifest entry into a
     /// reference. Returns the new project's URL.
     public func promotePieceToProject(
         pieceId: String, destination: URL
@@ -198,6 +198,14 @@ extension ProjectStore {
         let mainDocName = (piecePath as NSString).lastPathComponent
         let mainDocExt = (mainDocName as NSString).pathExtension
         let newType: ProjectType = mainDocExt == "fountain" ? .screenplay : .shortStory
+        // **The piece's intent travels with it** (M1A Task 8). Before M1A this
+        // was a research note under `pieces/<n>-<slug>/research/`, which the
+        // prefix rewrite below carried for free; a statement lives at
+        // `intent/<slug>.md` at the Collection's ROOT, which no research prefix
+        // matches — so leaving it behind would strand the writer's intent in a
+        // project whose piece has just become a reference. Read before anything
+        // moves, because `manifest.statements` is pruned on the way out.
+        let carriedIntent = statement(kind: .intent, scope: .document(pieceId))
 
         // 1. Flush + close any open document for this piece.
         if let docStore = documentStore {
@@ -207,6 +215,17 @@ extension ProjectStore {
             }
             try? await docStore.flushPendingSave()
             await docStore.close()
+        }
+        // The Intent pane can be showing this piece's intent in the right column
+        // while the promotion runs, and a statement is deliberately in no
+        // `DocumentStore` registry (spec §8), so the close above cannot reach it.
+        // Withdrawn from the registry first, so no window exists in which it
+        // offers a `Document` on its way to being a husk — `StatementEditorHost`'s
+        // own ordering. The close is also what RENDERS the `.md` the new project
+        // bootstraps from, so it must happen before the file is staged.
+        if let carriedIntent, let live = openStatementDocument(id: carriedIntent.id) {
+            forgetStatementDocument(id: carriedIntent.id)
+            await live.close()
         }
 
         // 2. Stage the new project under a sibling .maugham-staging-* folder.
@@ -234,6 +253,10 @@ extension ProjectStore {
             // 4. Move piece's research/ subfolder into staging/research/ (if non-empty)
             try stagePromotedResearch(staging: stagingURL, from: pieceFolderURL)
 
+            // 4b. Move the piece's intent statement, if it has one.
+            let stagedIntent = try stagePromotedIntent(
+                staging: stagingURL, statement: carriedIntent)
+
             // 5. Build + write new project manifest
             try writePromotedManifest(
                 staging: stagingURL,
@@ -241,6 +264,7 @@ extension ProjectStore {
                 newType: newType,
                 docName: mainDocName,
                 researchPrefix: researchPrefix,
+                carriedIntent: stagedIntent,
                 now: now,
                 encoder: encoder)
 
@@ -257,6 +281,7 @@ extension ProjectStore {
                 pieceFolderURL: pieceFolderURL,
                 pieceFolderRel: pieceFolderRel,
                 researchPrefix: researchPrefix,
+                carriedIntent: stagedIntent,
                 destination: destination,
                 now: now,
                 encoder: encoder)
@@ -309,6 +334,34 @@ extension ProjectStore {
         }
     }
 
+    /// Step 4b: move the piece's intent statement into the staging tree, at the
+    /// same project-relative path it holds in the Collection — `intent/<slug>.md`
+    /// means the same thing in either project.
+    ///
+    /// Returns what it actually staged, so the manifest below can only claim a
+    /// statement whose file really travelled. A manifest entry pointing at a
+    /// missing file would be bootstrapped from nothing and then own the path.
+    ///
+    /// **The op log stays behind, and the prose survives in the rendered `.md`** —
+    /// exactly what already happens to the piece's own manuscript, whose
+    /// `.maugham/ops/` is not staged either and which the new project
+    /// re-bootstraps on first open. The intent's edit history is lost with it;
+    /// its words are not.
+    private func stagePromotedIntent(staging: URL, statement: Statement?) throws -> Statement? {
+        guard let statement else { return nil }
+        let source = url.appendingPathComponent(statement.path)
+        guard FileManager.default.fileExists(atPath: source.path) else { return nil }
+        let destination = staging.appendingPathComponent(statement.path)
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // internal-move: into the promote-to-project `staging/` temp tree, on the
+        // same terms as the main document and the piece's research folder — the
+        // live Document, if the Intent pane had one, is closed above before
+        // staging begins. (TripwireGrepTests exclusion)
+        try FileManager.default.moveItem(at: source, to: destination) // internal-move: staging
+        return statement
+    }
+
     /// Step 5: build the new project's manifest (carrying over the piece's metadata
     /// and rewriting per-piece research paths) and write it into the staging folder.
     private func writePromotedManifest(
@@ -317,6 +370,7 @@ extension ProjectStore {
         newType: ProjectType,
         docName: String,
         researchPrefix: String,
+        carriedIntent: Statement?,
         now: Date,
         encoder: JSONEncoder
     ) throws {
@@ -339,6 +393,15 @@ extension ProjectStore {
             copy.path = "research/" + String(p.dropFirst(researchPrefix.count))
             return copy
         }
+        // The carried intent is re-pointed at the new document and given a fresh
+        // id, exactly as the document itself is: the promoted project is a new
+        // project and shares no identifier space with the Collection. Its PATH is
+        // unchanged — `stagePromotedIntent` put the file at the same
+        // project-relative place.
+        let carriedStatements: [Statement] = carriedIntent.map {
+            [Statement(id: Self.newId(prefix: "stmt"), kind: .intent,
+                       scope: .document(docStructItem.id), path: $0.path)]
+        } ?? []
         let newTargets: ProjectTargets? = {
             if let pt = piece.pageTarget { return ProjectTargets(pageTarget: pt) }
             if let wt = piece.wordTarget { return ProjectTargets(totalWords: wt) }
@@ -352,6 +415,7 @@ extension ProjectStore {
             modified: now,
             structure: [docStructItem],
             research: carriedResearch,
+            statements: carriedStatements,
             targets: newTargets)
         try encoder.encode(newManifest).write(
             to: staging.appendingPathComponent(ProjectManifest.fileName),
@@ -386,6 +450,7 @@ extension ProjectStore {
         pieceFolderURL: URL,
         pieceFolderRel: String,
         researchPrefix: String,
+        carriedIntent: Statement?,
         destination: URL,
         now: Date,
         encoder: JSONEncoder
@@ -414,6 +479,13 @@ extension ProjectStore {
         // Remove per-piece research entries from Collection's manifest
         manifest.research.removeAll { item in
             item.path?.hasPrefix(researchPrefix) == true
+        }
+        // …and the intent, whose file moved with the piece in step 4b. An entry
+        // left claiming a path that is no longer there points `resolveDocId` at
+        // nothing, and the Intent pane would offer the writer an empty editor
+        // over prose that is now in another project.
+        if let carriedIntent {
+            manifest.statements.removeAll { $0.id == carriedIntent.id }
         }
         manifest.modified = now
         try await saveManifest()

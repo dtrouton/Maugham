@@ -34,7 +34,7 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `move_research_item` — batch-move research items (including whole groups) between shared research, a research group, and a collection piece's research folder; exactly one of `target: "shared"` / `target_group_id` / `target_document_id`. Cross-scope moves leave explicit links (`linkedResearchIds`) untouched — association is containment-based (2026-07-17): a manual link goes dormant while the item lives in a piece's research and resurfaces on move-out; a containment-only association severs on move-out with no auto-link minted. Wraps `ProjectStore.moveResearchItems` (`Maugham/Stores/ProjectStore+ResearchMove.swift`) — read that file's header before touching this tool's validation shape.
 
 **Palette / craft intent**
-- `read_craft_intent` — the writer's optional freeform statement of what a piece needs sensorially; absence returns `exists: false`, never an error
+- `read_craft_intent` — the writer's optional freeform statement of what a piece needs sensorially; absence returns `exists: false`, never an error. Since M1A it answers off a `Statement` and `item_id` names **any manuscript document**, not a Collection loose piece alone (a widening of an existing read, so the tool count did not move); the read derives from the op log — the open pane's `Document` through `ProjectStore.openStatementDocument(id:)`, else `derivedCache` — never the `.md`
 - `list_palette_cards` — summaries of the project's sensory-palette cards (subject-keyed research assets: locations, characters, motifs)
 - `read_palette_card` — a card's full markdown plus image thumbnails (crop-on-demand for a single image via `image`)
 
