@@ -61,18 +61,6 @@ struct ProjectWindow: View {
     @State private var findActive: Bool = false
     @State private var pendingPieceRenameId: String?
     @State private var detailSegment: DetailSegment = .inspector
-    /// The scope the statement panes have been asked to show — set by **Open**
-    /// on a card promoted to craft intent (M1A Task 7).
-    ///
-    /// **It lives here rather than in the pane because it outlives it**: a
-    /// segment switch destroys `StatementPane` and every `@State` on it, so a
-    /// request recorded there came back stale on the next visit, and one that
-    /// needed the pane present to latch would not survive being set from the
-    /// canvas at all — the Plan persona gives the whole right column to the
-    /// canvas inspector, so the pane is not mounted when Open is pressed. It is
-    /// revoked by the writer, two ways: moving the binder selection (below) and
-    /// working the pane's own scope switch (`onStatementScopeSwitchTouched`).
-    @State private var statementScopeRequest: Statement.Scope?
     @State private var persona: Persona = .default
     @State private var outlineLayout: OutlineLayout = .table
     @State private var mcpBanner = MCPBannerModel()
@@ -265,15 +253,6 @@ struct ProjectWindow: View {
         }
         .onChange(of: selectedItemId) { _, newValue in
             documentStore?.updateUIState { $0.selectedItemId = newValue }
-            // **The writer moving the binder revokes an Open request, and the
-            // revocation has to live HERE** (M1A Task 7, fix round 2). The
-            // request outlives the statement pane — a segment switch destroys
-            // that view and its `@State` with it — so a revocation recorded in
-            // the pane died with it and `.onAppear` re-seeded the request the
-            // writer had already declined, on every later visit. State is
-            // revoked where the state it is about lives, and `selectedItemId`
-            // is this view's.
-            statementScopeRequest = nil
             // Zero the inspector/footer metrics when the new selection is not a
             // document (group, no selection). The EditorCoordinator only
             // delivers `onMetricsChanged` while a document is bound, so it can't
@@ -1250,11 +1229,7 @@ struct ProjectWindow: View {
             session: _checkpointSessionId,
             docPaths: Self.documentPaths(in: store.manifest.structure),
             documentStore: documentStore,
-            editorControl: editorControl,
-            statementScopeRequest: statementScopeRequest,
-            // The pane's scope switch revokes the request, and the revocation
-            // has to reach the state it is about — which is this one.
-            onStatementScopeSwitchTouched: { statementScopeRequest = nil }
+            editorControl: editorControl
         ) {
             switch Self.inspectorRoute(binderSegment: binderSegment,
                                        projectType: store.manifest.type) {
@@ -1450,24 +1425,26 @@ struct ProjectWindow: View {
     /// pane says "Select an item" and the writer's intent is nowhere. So a
     /// statement routes to the Intent pane instead.
     ///
-    /// **It takes the pane to the mark's own SCOPE, not to whatever the binder
-    /// has selected.** Contract 2 makes a chapter's intent the ordinary case, so
-    /// a pane left on the selection's scope shows an intent that is not the one
-    /// the card produced — frequently an empty one, since the project's intent
-    /// may never have been written — and the writer either concludes the
-    /// promotion did nothing or types into the wrong scope's intent believing it
-    /// is the one they just added to.
+    /// **What it does not do is choose the pane's SCOPE.** `StatementPane`
+    /// resolves that from the binder's selection, with the project one click
+    /// away by design ("a chapter's intent and the book's are never further apart
+    /// than that"), and driving the manuscript selection from here would move the
+    /// writer's open document as a side effect of pressing Open. So a
+    /// document-scoped intent may land on a different scope's, and the pane's own
+    /// switch is the way across.
     ///
-    /// **It still does not touch the binder selection**, which was the other way
-    /// to make the scope land: that would move the writer's open manuscript
-    /// document as a side effect of pressing Open, which is a worse defect than
-    /// the one it fixes. The request is the pane's own input and reaches nothing
-    /// else; `StatementPane` drops it the moment the writer moves the selection.
+    /// **A request the pane honours was built for that gap and reverted**
+    /// (M1A Task 7, fix rounds 1–3, 2026-08-01). It is not that the shape was
+    /// unworkable: three rounds each closed their finding and each opened a new
+    /// one in a cell the last had right, because the pane's scope switch, the
+    /// request and `prefersProjectScope` interact and **no test drives a press
+    /// through the binding and back through this view's state** — every
+    /// `StatementPane` in `StatementMountFixture` is mounted without one. The
+    /// next attempt should start from that test, not from the control. See the
+    /// task-7 report for what the three rounds established.
     private func openPromotedArtifact(_ itemId: String) {
         guard let store else { return }
         if let pane = Self.statementPane(forMark: itemId, in: store) {
-            statementScopeRequest = store.manifest.statements
-                .first(where: { $0.id == itemId })?.scope
             detailSegment = pane
             return
         }

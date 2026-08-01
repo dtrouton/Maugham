@@ -23,14 +23,6 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// per-paragraph freshness entries the Translation segment reads (ADR 0017).
     /// Optional so callers that don't surface translation review can omit it.
     let editorControl: EditorControl?
-    /// A scope somebody has asked the statement panes to show — **Open** on a
-    /// card promoted to craft intent (M1A Task 7). Passed straight through; the
-    /// WINDOW owns how long it is honoured for, because it outlives this view.
-    let statementScopeRequest: Statement.Scope?
-    /// Fired when the writer works a statement pane's scope switch, which
-    /// revokes the request above. Threaded rather than defaulted: forgetting it
-    /// is a control that does nothing.
-    let onStatementScopeSwitchTouched: () -> Void
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// Local transcription exists only on Apple Silicon (see DocumentStore.makeTranscriber).
@@ -58,8 +50,6 @@ struct DetailPaneToggle<Inspector: View>: View {
         docPaths: [String: String] = [:],
         documentStore: DocumentStore? = nil,
         editorControl: EditorControl? = nil,
-        statementScopeRequest: Statement.Scope? = nil,
-        onStatementScopeSwitchTouched: @escaping () -> Void = {},
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -77,8 +67,6 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.docPaths = docPaths
         self.documentStore = documentStore
         self.editorControl = editorControl
-        self.statementScopeRequest = statementScopeRequest
-        self.onStatementScopeSwitchTouched = onStatementScopeSwitchTouched
         self.inspectorContent = inspectorContent
     }
 
@@ -369,9 +357,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         if let ds = documentStore {
             StatementPane(
                 store: store, documentStore: ds, kind: kind,
-                activeDocumentId: activeManuscriptItemId,
-                scopeRequest: statementScopeRequest,
-                onScopeSwitchTouched: onStatementScopeSwitchTouched)
+                activeDocumentId: activeManuscriptItemId)
         } else {
             ContentUnavailableView(
                 "Open a project",

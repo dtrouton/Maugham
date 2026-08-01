@@ -22,44 +22,10 @@ struct StatementPane: View {
     /// project, or `ProjectWindow`'s `"__no-selection__"` sentinel — all of
     /// which resolve to the project (see `effectiveScope`).
     let activeDocumentId: String?
-    /// A scope somebody has asked this pane to show — today, **Open** on a card
-    /// promoted to craft intent (M1A Task 7). Nil in the ordinary case.
-    ///
-    /// **It carried a token until fix round 3, and the token's job is gone.** It
-    /// existed so that pressing **Open** twice on one card was two changes the
-    /// pane could see; now that touching the scope switch revokes the request
-    /// (below), a re-press is always a `nil → scope` transition and there is
-    /// nothing an unchanged value would need to do. A rule whose stated reason
-    /// has become false is worse than no rule.
-    var scopeRequest: Statement.Scope? = nil
-
-    /// Called when the writer works the scope switch — which **revokes** the
-    /// request, in the window that holds it.
-    ///
-    /// **A closure rather than pane state, and that is fix round 2's rule
-    /// applied to fix round 3's control.** The request outlives this view, so a
-    /// revocation recorded here dies on the next segment switch and the request
-    /// silently returns (N1). Round 2 removed the pane's copy for that reason
-    /// and deleted this revocation along with it — which was the right diagnosis
-    /// and the wrong extent: the deleted line was the only thing making the
-    /// switch live for a `.project` request, where no value of
-    /// `prefersProjectScope` can contradict the request (N2).
-    ///
-    /// No default. This seam has one production caller and forgetting it is a
-    /// dead control, which is exactly what a default would hide.
-    let onScopeSwitchTouched: () -> Void
 
     /// Set when the writer asks for the *project's* intent while a document is
     /// selected. Reset by a selection change, so moving to another chapter shows
     /// that chapter's intent rather than silently keeping the book's.
-    ///
-    /// **It is the pane's only scope state, and it is right that it dies with
-    /// the pane.** A segment switch destroys this view, and this comes back at
-    /// its neutral value — the pane returns to its declarative answer. A copy of
-    /// the *request* alongside it did not have that property: it came back
-    /// STALE, because what it copied outlives the pane (fix round 2, N1). So
-    /// there is no copy; `scopeRequest` is read where it is needed, and the
-    /// window revokes it.
     @State private var prefersProjectScope = false
 
     /// Which statement this pane is showing.
@@ -76,47 +42,14 @@ struct StatementPane: View {
         kind: Statement.Kind,
         activeDocumentId: String?,
         structure: [StructureItem],
-        prefersProjectScope: Bool,
-        requested: Statement.Scope? = nil
+        prefersProjectScope: Bool
     ) -> Statement.Scope {
         // Visual language is project-scope only — the book has one look (§2.1).
         // An `.unknown` kind (a newer build's) is retained and ignored
         // everywhere else, and has no document storage either.
         guard case .intent = kind else { return .project }
-        // **The switch is asked BEFORE the request, and that is what keeps it a
-        // live control** (fix round 2). A request outranking it left the writer
-        // pressing Project on a pane pinned by Open and watching nothing happen.
-        // The two acts do not need an ordering rule between them, only a rule
-        // that the LATER one wins — and the other half of that is the pane
-        // clearing this flag when a new request arrives, so an Open after a
-        // switch press is not swallowed either. That half is a `.onChange`
-        // rather than a term here, because "which came last" is not a fact this
-        // function's inputs carry.
-        if prefersProjectScope { return .project }
-        // **A request wins over the selection, and only over the selection.** It
-        // is the writer saying "take me to what this card became" (M1A Task 7),
-        // and a chapter's intent is the ordinary case now — so `Open` landing on
-        // whatever the binder happens to have selected shows an intent that is
-        // not the one the card produced, frequently an empty one, and the writer
-        // either concludes the promotion did nothing or types into the wrong
-        // scope believing it is the one they just added to.
-        //
-        // **A request naming a document this project does not hold is ignored
-        // rather than obeyed**: `createStatement` throws `.structureMissing` for
-        // one, so honouring it would put the pane on a scope whose first
-        // keystroke fails. That is the orphaned-statement case (the document was
-        // deleted and its intent outlived it), and falling back to the pane's own
-        // rule is the honest answer.
-        if let requested {
-            switch requested {
-            case .project: return .project
-            case .document(let id)
-                where TreeWalk.find(id: id, in: structure)?.type == .document:
-                return .document(id)
-            case .document, .unknown: break
-            }
-        }
-        guard let id = activeDocumentId,
+        guard !prefersProjectScope,
+              let id = activeDocumentId,
               id != StatementPane.noSelectionSentinel,
               let item = TreeWalk.find(id: id, in: structure),
               item.type == .document
@@ -133,55 +66,18 @@ struct StatementPane: View {
         Self.effectiveScope(
             kind: kind, activeDocumentId: activeDocumentId,
             structure: store.manifest.structure,
-            prefersProjectScope: prefersProjectScope,
-            requested: scopeRequest)
+            prefersProjectScope: prefersProjectScope)
     }
 
-    /// The document the picker's left segment stands for — **the pane's own
-    /// answer with the project switch off**, which is the requested document
-    /// while one is being honoured and the binder's selection otherwise.
-    ///
-    /// Asked of `effectiveScope` rather than read off `activeDocumentId`, so the
-    /// switch cannot name one document while the editor below it shows another's
-    /// intent. Pure and static for that function's reason.
-    ///
-    /// **A `.project` request falls back to the selection, and that second
-    /// question is the whole of fix round 2's N2.** Asking once left the switch
-    /// off screen whenever a project-scoped Open landed with a document
-    /// selected — the common case, since `PromotionPerformer.intentScope` routes
-    /// every unroutable piece to the project — and the pane's own way back went
-    /// with it: re-clicking the same binder row fires no change, so the only
-    /// escape left was selecting a DIFFERENT document, which moves the writer's
-    /// open manuscript. The switch's job is to name what there is to switch
-    /// **to**, and there is something to switch to exactly when the binder holds
-    /// a document.
-    static func pickerDocumentId(
-        kind: Statement.Kind,
-        activeDocumentId: String?,
-        structure: [StructureItem],
-        requested: Statement.Scope?
-    ) -> String? {
-        if case .document(let id) = effectiveScope(
-            kind: kind, activeDocumentId: activeDocumentId, structure: structure,
-            prefersProjectScope: false, requested: requested) {
-            return id
-        }
-        if case .document(let id) = effectiveScope(
-            kind: kind, activeDocumentId: activeDocumentId, structure: structure,
-            prefersProjectScope: false, requested: nil) {
-            return id
-        }
-        return nil
-    }
-
-    /// That document's title, when there is one — the label the scope switch
-    /// offers, and what decides whether there is a switch at all.
+    /// The selected document's title, when the selection is one — the label the
+    /// scope switch offers.
     private var selectedDocumentTitle: String? {
-        guard let id = Self.pickerDocumentId(
-            kind: kind, activeDocumentId: activeDocumentId,
-            structure: store.manifest.structure, requested: scopeRequest)
+        guard case .intent = kind,
+              let id = activeDocumentId, id != Self.noSelectionSentinel,
+              let item = TreeWalk.find(id: id, in: store.manifest.structure),
+              item.type == .document
         else { return nil }
-        return TreeWalk.find(id: id, in: store.manifest.structure)?.title
+        return item.title
     }
 
     var body: some View {
@@ -202,75 +98,14 @@ struct StatementPane: View {
                 kind: kind, scope: scope)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        // The writer moving the binder takes the switch back to neutral. **It
-        // does not take the REQUEST back — `ProjectWindow` does**, on the same
-        // selection change, because the request outlives this view and a
-        // revocation recorded here would not (fix round 2, N1).
         .onChange(of: activeDocumentId) { _, _ in prefersProjectScope = false }
-        // **A fresh Open beats a stale switch press**, which is the other half
-        // of "the later act wins": `effectiveScope` asks the switch first, so
-        // without this an Open arriving after the writer had pressed Project
-        // would change nothing. It is always a real transition, because the
-        // switch revokes the request it would otherwise be repeating.
-        .onChange(of: scopeRequest) { _, _ in prefersProjectScope = false }
-    }
-
-    /// Which segment the switch highlights: **`true` when the pane is showing
-    /// the project's**, read off the scope itself rather than off any one of the
-    /// three things that decide it.
-    ///
-    /// Static and pure so the agreement between the highlight and the editor is
-    /// asserted over the whole product of the inputs rather than reasoned about
-    /// — `test_theHighlightedSegmentAgreesWithWhatThePaneIsShowing`. That
-    /// agreement is what fix round 3 was: nothing pinned it, and it was false in
-    /// the commonest case an Open produces.
-    static func switchShowsProject(
-        kind: Statement.Kind,
-        activeDocumentId: String?,
-        structure: [StructureItem],
-        prefersProjectScope: Bool,
-        requested: Statement.Scope?
-    ) -> Bool {
-        effectiveScope(kind: kind, activeDocumentId: activeDocumentId,
-                       structure: structure,
-                       prefersProjectScope: prefersProjectScope,
-                       requested: requested) == .project
-    }
-
-    /// The switch's binding: the highlight is derived, and **the set is where a
-    /// request is revoked**.
-    ///
-    /// Pressing a segment therefore always means something. With a `.project`
-    /// request live, the writer's press of the document segment writes a
-    /// `prefersProjectScope` that was already false — so the revocation, not the
-    /// flag, is what makes the scope move.
-    private var scopeSwitch: Binding<Bool> {
-        Binding(
-            get: {
-                Self.switchShowsProject(
-                    kind: kind, activeDocumentId: activeDocumentId,
-                    structure: store.manifest.structure,
-                    prefersProjectScope: prefersProjectScope,
-                    requested: scopeRequest)
-            },
-            set: { wantsProject in
-                prefersProjectScope = wantsProject
-                onScopeSwitchTouched()
-            })
     }
 
     @ViewBuilder
     private var header: some View {
         Group {
             if let title = selectedDocumentTitle {
-                // **Bound to the SCOPE, never straight to `prefersProjectScope`**
-                // (fix round 3). That flag is only one of three things deciding
-                // what the editor shows, so binding to it highlighted "Chapter
-                // One" over the project's intent whenever an Open had asked for
-                // the project — a highlight contradicting the pane under it, and
-                // a segment that did nothing when pressed, because the value it
-                // wrote was the one already there.
-                Picker("Intent for", selection: scopeSwitch) {
+                Picker("Intent for", selection: $prefersProjectScope) {
                     Text(title).tag(false)
                     Text("Project").tag(true)
                 }

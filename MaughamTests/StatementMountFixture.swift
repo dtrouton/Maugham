@@ -96,25 +96,7 @@ final class StatementMountFixture {
             AnyView(
                 StatementPane(
                     store: store, documentStore: documentStore,
-                    kind: kind, activeDocumentId: activeDocumentId,
-                    onScopeSwitchTouched: {})
-                .environment(preferences)))
-    }
-
-    /// The pane mounted with a REQUESTED scope — what `ProjectWindow` hands it
-    /// when the writer presses **Open** on a card promoted to craft intent
-    /// (M1A Task 7). The pane is what decides whether to honour it, so a test
-    /// that built the scope itself would prove nothing.
-    @discardableResult
-    func host(kind: Statement.Kind, activeDocumentId: String?,
-              requesting request: Statement.Scope) async -> NSWindow {
-        await mount(
-            AnyView(
-                StatementPane(
-                    store: store, documentStore: documentStore,
-                    kind: kind, activeDocumentId: activeDocumentId,
-                    scopeRequest: request,
-                    onScopeSwitchTouched: {})
+                    kind: kind, activeDocumentId: activeDocumentId)
                 .environment(preferences)))
     }
 
@@ -313,8 +295,7 @@ private struct TwoEditorProbeView: View {
             if probe.showsStatementPane {
                 StatementPane(
                     store: store, documentStore: documentStore,
-                    kind: kind, activeDocumentId: itemId,
-                    onScopeSwitchTouched: {})
+                    kind: kind, activeDocumentId: itemId)
                 .frame(width: 260)
             }
         }
@@ -352,7 +333,6 @@ private struct RebindableStatementPaneView: View {
     var body: some View {
         StatementPane(
             store: store, documentStore: documentStore,
-            kind: kind, activeDocumentId: probe.activeDocumentId,
-            onScopeSwitchTouched: {})
+            kind: kind, activeDocumentId: probe.activeDocumentId)
     }
 }
