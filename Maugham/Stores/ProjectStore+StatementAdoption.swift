@@ -264,9 +264,12 @@ extension ProjectStore {
         // because a cleared mark makes a promoted card look and sound
         // un-promoted.
         //
-        // Ordered AFTER the trash on purpose: nothing here may be the reason a
-        // scope fails, and by this line the writer's words are durably in the
-        // statement's op log.
+        // Ordered after the words and BEFORE the trash below, which this
+        // function's own doc comment keeps last: nothing here may be the reason
+        // a scope fails — it never throws — and by this line the writer's words
+        // are durably in the statement's op log. It re-points the note ids it
+        // was handed rather than anything it looks up, so running before the
+        // trash rather than after changes none of its answers.
         repointCanvasMarks(from: notes.map(\.id), to: statement.id)
 
         try await deleteResearchItems(ids: notes.map(\.id))
