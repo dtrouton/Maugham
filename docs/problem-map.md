@@ -30,7 +30,7 @@
 - ✓ **Keep the research beside the draft, not in another app** — sources, images, and notes one pane away. *(research browser, research↔manuscript linking)*
 - ✓ **Follow the threads between people, places, and pieces** — connections are recorded where they occur and traversable later. *([[wiki-links]], backlinks, rename propagation)*
 - ✓ **Remember what every piece is for** — each chapter carries its own intent, state, and size. *(inspector: synopsis, status, tags, word target)*
-- ✓ **Keep the story's sensory world consistent** — what this place smells like, what this character wears, held somewhere better than memory. *(sensory palette cards, craft intent doc, Claude sense pass)*
+- ✓ **Keep the story's sensory world consistent** — what this place smells like, what this character wears, held somewhere better than memory. *(sensory palette cards, craft intent pane ⌘⌥N — per project or per chapter, visual language pane ⌘⌥V, Claude sense pass)*
 - ✓ **Track the loose ends inside the draft itself** — "fix this later" lives at the paragraph it belongs to and is findable when later comes. *(tasks layer: inline checkboxes, Fountain todos, tasks pane)*
 - ✓ **Find that line I wrote somewhere** — one search across the whole project, replace with care. *(cross-document find/replace ⌘⌥F)*
 - ✓ **Jump around a screenplay by scene** — sluglines as a map, not a scroll target. *(scene navigator)*

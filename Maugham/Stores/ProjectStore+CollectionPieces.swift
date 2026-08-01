@@ -366,7 +366,8 @@ extension ProjectStore {
 
             return destination
         } catch {
-            rollbackPromotionStaging(stagedMoves, staging: stagingURL, cause: error)
+            rollbackPromotionStaging(stagedMoves, staging: stagingURL,
+                                     destination: destination, cause: error)
             throw error
         }
     }
@@ -391,18 +392,30 @@ extension ProjectStore {
     /// all**; research notes are plain-edited by design. Deleting it took the
     /// writer's notes, images and assets with nothing behind them.
     private func rollbackPromotionStaging(
-        _ moves: [PromotionStagedMove], staging: URL, cause: Error
+        _ moves: [PromotionStagedMove], staging: URL, destination: URL, cause: Error
     ) {
         let fm = FileManager.default
 
         // The tree is gone only when step 7 already consumed it — in which case
-        // the writer's files are at the destination, whole, and "putting them
-        // back" from paths that no longer exist would be inventing a second
-        // promotion out of a failure in step 8. The Collection's manifest is
-        // stale, which is a wrong label on the right files.
+        // "putting them back" from paths that no longer exist would be inventing
+        // a second promotion out of a failure in step 8. The Collection's
+        // manifest is stale, which is a wrong label on the right files.
+        //
+        // **The sentence CHECKS rather than claiming** (whole-branch review).
+        // Its whole job is telling a writer where their files went, and it said
+        // "the files are there" unconditionally — true on the ordinary
+        // `moveItem` path and unverified on the `replaceItemAt` one, which can
+        // consume the staging tree and still not leave a whole project at the
+        // destination. So it says what was observed, and says it loudly when
+        // what was observed is that nothing is at either path.
         guard fm.fileExists(atPath: staging.path) else {
-            projectStoreLog.error(
-                "Promotion failed after its staged project was already moved to its destination; the files are there and the Collection's entry was not updated: \(cause.localizedDescription, privacy: .public)")
+            if fm.fileExists(atPath: destination.path) {
+                projectStoreLog.error(
+                    "Promotion failed after its staged project was already moved to \(destination.path, privacy: .public); the files are there and the Collection's entry was not updated: \(cause.localizedDescription, privacy: .public)")
+            } else {
+                projectStoreLog.error(
+                    "Promotion failed after its staging tree was consumed, and NOTHING is at \(destination.path, privacy: .public) either. The moved files are at neither path: \(cause.localizedDescription, privacy: .public)")
+            }
             return
         }
 

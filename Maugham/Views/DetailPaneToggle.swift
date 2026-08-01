@@ -186,7 +186,7 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// to the enum does not silently change any picker.
     ///
     /// `selected`, when supplied and not already registered, is **appended**.
-    /// Personas are lenses, not gates: the nine `⌘⌥`-letter pane shortcuts fire
+    /// Personas are lenses, not gates: every `⌘⌥`-letter pane shortcut fires
     /// in every persona, and `ProjectWindow` force-sets `.translation` on
     /// entering translation review — without this the picker would render with
     /// nothing selected while the pane below it showed the right content.

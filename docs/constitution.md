@@ -47,7 +47,7 @@ A writer must be able to open Maugham and write, with zero configuration. Prefer
 
 **Rationale:** the product exists to protect the writing state of mind. Every demand the tool makes — configure me, look at your numbers, follow the method — is a withdrawal from the attention the words needed.
 
-An honest note: Maugham is not minimalist and doesn't claim to be. It has a binder, an inspector, nine right-pane modes grouped under four optional personas (ADR 0025), and a phone app. The principle is *calm*, not sparse — capability lives beside the writing surface and waits to be summoned. Richness around the edges is fine; demands are not.
+An honest note: Maugham is not minimalist and doesn't claim to be. It has a binder, an inspector, a right-pane mode for every `DetailSegment` case grouped under four optional personas (ADR 0025), and a phone app. The principle is *calm*, not sparse — capability lives beside the writing surface and waits to be summoned. Richness around the edges is fine; demands are not.
 
 **Violated if:** any feature requires setup before writing can start; any metric or reminder interrupts unprompted; any feature only works if the writer adopts a prescribed process.
 

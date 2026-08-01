@@ -137,6 +137,29 @@ final class VisualLanguageToolTests: XCTestCase {
         await ds.close()
     }
 
+    /// A remote URL is not a project-relative path, and this field is documented
+    /// as project-relative paths that `read_publish_image` opens — so one
+    /// sitting in it makes the tool's own description false. `PaletteCard`
+    /// already applies exactly this filter; this is the same rule, one surface
+    /// over. (Whole-branch review.)
+    func test_readVisualLanguageDoesNotReportARemoteUrlAsAProjectPath() async throws {
+        let (url, store, ds, reg) = try await makeRegisteredNovel()
+        let statement = try await store.createStatement(kind: .visualLanguage, scope: .project)
+        try await write("""
+            The palette comes from ![this](https://example.com/cover.jpg).
+
+            The spine is ours: ![spine](./covers/spine.png)
+            """, into: statement, at: url)
+
+        let result = try await read(reg, projectURL: url)
+
+        XCTAssertEqual(result.image_paths, ["covers/spine.png"],
+                       "a remote URL was reported in a field of project-relative "
+                       + "paths, so a reader would hand it to a tool that reads "
+                       + "files by project-relative path")
+        await ds.close()
+    }
+
     // MARK: - The read derives (contract 3, tripwire 20)
 
     /// **The `.md` is deliberately staled.** A statement is a `Document` with an

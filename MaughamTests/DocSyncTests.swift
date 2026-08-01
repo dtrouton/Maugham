@@ -139,7 +139,7 @@ final class DocSyncTests: XCTestCase {
         // it — the very failure mode this repoint exists to avoid. Assert a
         // floor, not equality: MaughamApp.swift also carries non-pane ⌘⌥
         // bindings (⌘⌥0 inspector column, ⌘⌥F find in project, ⌘⌥Z restore),
-        // so the count is more than the nine panes. ⌘⌥⇧R does not match: its
+        // so the count exceeds `DetailSegment.allCases`. ⌘⌥⇧R does not match: its
         // modifier list is [.command, .option, .shift].
         XCTAssertGreaterThanOrEqual(tokens.count, DetailSegment.allCases.count,
                                     "extracted \(tokens.count) ⌘⌥ shortcuts — expected at least "

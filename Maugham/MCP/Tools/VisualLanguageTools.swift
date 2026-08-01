@@ -91,10 +91,17 @@ public enum ReadVisualLanguageTool: MCPTool {
     /// resolves against is the statement's own — `visual-language.md` sits at the
     /// project root today, and deriving it rather than assuming "" keeps that a
     /// fact about the path instead of a fact about this function. It does not
-    /// collapse `..` and does not touch a URL or an absolute path, so a
-    /// reference the writer wrote to somewhere outside the project is reported
-    /// as they wrote it — which is the honest answer, since nothing in the
-    /// catalogue could open it either way.
+    /// collapse `..`, so a reference the writer wrote to somewhere outside the
+    /// project is reported as they wrote it — which is the honest answer, since
+    /// nothing in the catalogue could open it either way.
+    ///
+    /// **A remote URL is dropped, and that is the same rule `PaletteCard`
+    /// applies** (whole-branch review): this field is documented as
+    /// *project-relative paths* that `read_publish_image` opens, and a
+    /// `https://…` ref sitting in it looks like one — so the tool's own
+    /// description becomes false for exactly that input. An absolute local path
+    /// is kept: it is still a path, and reporting it is how a writer finds out
+    /// their look is built on a file outside the project.
     @MainActor
     private static func imagePaths(in markdown: String, statementPath: String) -> [String] {
         let directory = (statementPath as NSString).deletingLastPathComponent
@@ -102,7 +109,7 @@ public enum ReadVisualLanguageTool: MCPTool {
         return MarkdownBlockParser.findInlineImages(in: markdown).compactMap { image in
             // `![alt]()` is a reference to nothing; resolving it would name the
             // statement's own directory.
-            guard !image.path.isEmpty else { return nil }
+            guard !image.path.isEmpty, !image.path.contains("://") else { return nil }
             let path = ProjectStore.resolveImageRef(image.path, relativeTo: directory)
             guard seen.insert(path).inserted else { return nil }
             return path
