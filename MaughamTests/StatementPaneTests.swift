@@ -183,22 +183,75 @@ final class StatementPaneTests: XCTestCase {
 
     /// The other half of "the later act wins", and it is why the rule above is
     /// not simply "the switch beats Open": a request arriving after a switch
-    /// press resets the switch, so an Open is never swallowed either. The pane
-    /// does that in `.onChange(of: scopeRequest)`, which is what makes the
-    /// TOKEN load-bearing — a second press of the same Open must be a change.
+    /// press resets the switch (`.onChange(of: scopeRequest)`), so an Open is
+    /// never swallowed either.
     func test_aFreshRequestIsNotSwallowedByAnEarlierSwitchPress() {
-        let first = StatementPane.ScopeRequest(scope: .document("doc-1"), token: 1)
-        let again = StatementPane.ScopeRequest(scope: .document("doc-1"), token: 2)
-        XCTAssertNotEqual(first, again,
-                          "two presses of one Open must reach `.onChange`, or the "
-                          + "second cannot reset the switch")
         XCTAssertEqual(
             StatementPane.effectiveScope(
                 kind: .intent, activeDocumentId: "doc-1",
                 structure: structure, prefersProjectScope: false,
-                requested: again.scope),
+                requested: .document("doc-1")),
             .document("doc-1"),
-            "and with the switch reset, the request is what answers")
+            "with the switch reset, the request is what answers")
+    }
+
+    // MARK: - The switch's highlight (fix round 3, N2)
+
+    /// **The highlighted segment agrees with what the pane is SHOWING, over the
+    /// whole product of the inputs.** Nothing asserted this, and it was false in
+    /// the commonest case an Open produces: a `.project` request with a document
+    /// selected highlighted the DOCUMENT segment over the project's intent —
+    /// and pressing that highlighted segment wrote the `prefersProjectScope` it
+    /// already held, so nothing happened and the chapter's intent was
+    /// unreachable for the life of the request.
+    ///
+    /// Falsified by binding the highlight to `prefersProjectScope` again: the
+    /// `.project`-request rows go red.
+    func test_theHighlightedSegmentAgreesWithWhatThePaneIsShowing() {
+        let requests: [Statement.Scope?] = [
+            nil, .project, .document("doc-1"), .document("grp-1"), .unknown("?")]
+        for activeId in [nil, "doc-1", "grp-1", "__no-selection__"] as [String?] {
+            for prefers in [true, false] {
+                for requested in requests {
+                    let scope = StatementPane.effectiveScope(
+                        kind: .intent, activeDocumentId: activeId,
+                        structure: structure, prefersProjectScope: prefers,
+                        requested: requested)
+                    let highlight = StatementPane.switchShowsProject(
+                        kind: .intent, activeDocumentId: activeId,
+                        structure: structure, prefersProjectScope: prefers,
+                        requested: requested)
+                    XCTAssertEqual(
+                        highlight, scope == .project,
+                        "the switch highlights \(highlight ? "Project" : "the document") "
+                        + "while the pane shows \(scope.rawValue) — for "
+                        + "(\(activeId ?? "nil"), prefers: \(prefers), "
+                        + "requested: \(requested?.rawValue ?? "nil"))")
+                }
+            }
+        }
+    }
+
+    /// And the press does something in the case the highlight was lying about.
+    /// With a `.project` request live, `prefersProjectScope` cannot contradict
+    /// it — no value of a Bool can — so the **revocation** is what moves the
+    /// scope. This asserts the state the revocation produces; that the setter
+    /// calls it is the census in `PromotionStatementMarkTests`.
+    func test_revokingAProjectRequestIsWhatReachesTheDocumentsIntent() {
+        XCTAssertEqual(
+            StatementPane.effectiveScope(
+                kind: .intent, activeDocumentId: "doc-1", structure: structure,
+                prefersProjectScope: false, requested: .project),
+            .project,
+            "the control: while the request stands, no press of the document "
+            + "segment can answer anything else")
+        XCTAssertEqual(
+            StatementPane.effectiveScope(
+                kind: .intent, activeDocumentId: "doc-1", structure: structure,
+                prefersProjectScope: false, requested: nil),
+            .document("doc-1"),
+            "and once it is revoked the pane reaches the chapter's intent — the "
+            + "escape N2 is about, without moving the writer's open document")
     }
 
     /// **A request naming something this project cannot hold a statement for is
@@ -294,8 +347,7 @@ final class StatementPaneTests: XCTestCase {
         let made = try await fixture(named: "requested-scope")
         let window = await made.host(
             kind: .intent, activeDocumentId: nil,
-            requesting: StatementPane.ScopeRequest(
-                scope: .document(made.documentItemId), token: 1))
+            requesting: .document(made.documentItemId))
         let textView = try made.textView(in: window)
         await made.type("Intent for the chapter.", into: textView)
         await made.pumpUntil(deadline: 5) {
@@ -349,17 +401,6 @@ final class StatementPaneTests: XCTestCase {
         XCTAssertNil(made.store.statement(kind: .intent, scope: .project),
                      "and the project's intent was not created behind the "
                      + "writer's back")
-    }
-
-    /// Two presses of **Open** on one card are two requests. Without the token
-    /// the second is an unchanged value, `.onChange` never fires, and the pane
-    /// stays wherever the writer's last selection put it.
-    func test_asecondPressOfTheSameOpenIsANewRequest() {
-        let first = StatementPane.ScopeRequest(scope: .document("doc-1"), token: 1)
-        let second = StatementPane.ScopeRequest(scope: .document("doc-1"), token: 2)
-        XCTAssertNotEqual(first, second,
-                          "the pane observes this value; two presses that compare "
-                          + "equal are one request")
     }
 
     // MARK: - The mount condition (fix round 1, C1)

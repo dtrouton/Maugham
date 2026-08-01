@@ -25,8 +25,12 @@ struct DetailPaneToggle<Inspector: View>: View {
     let editorControl: EditorControl?
     /// A scope somebody has asked the statement panes to show — **Open** on a
     /// card promoted to craft intent (M1A Task 7). Passed straight through; the
-    /// pane owns how long it is honoured for.
-    let statementScopeRequest: StatementPane.ScopeRequest?
+    /// WINDOW owns how long it is honoured for, because it outlives this view.
+    let statementScopeRequest: Statement.Scope?
+    /// Fired when the writer works a statement pane's scope switch, which
+    /// revokes the request above. Threaded rather than defaulted: forgetting it
+    /// is a control that does nothing.
+    let onStatementScopeSwitchTouched: () -> Void
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// Local transcription exists only on Apple Silicon (see DocumentStore.makeTranscriber).
@@ -54,7 +58,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         docPaths: [String: String] = [:],
         documentStore: DocumentStore? = nil,
         editorControl: EditorControl? = nil,
-        statementScopeRequest: StatementPane.ScopeRequest? = nil,
+        statementScopeRequest: Statement.Scope? = nil,
+        onStatementScopeSwitchTouched: @escaping () -> Void = {},
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -73,6 +78,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.documentStore = documentStore
         self.editorControl = editorControl
         self.statementScopeRequest = statementScopeRequest
+        self.onStatementScopeSwitchTouched = onStatementScopeSwitchTouched
         self.inspectorContent = inspectorContent
     }
 
@@ -364,7 +370,8 @@ struct DetailPaneToggle<Inspector: View>: View {
             StatementPane(
                 store: store, documentStore: ds, kind: kind,
                 activeDocumentId: activeManuscriptItemId,
-                scopeRequest: statementScopeRequest)
+                scopeRequest: statementScopeRequest,
+                onScopeSwitchTouched: onStatementScopeSwitchTouched)
         } else {
             ContentUnavailableView(
                 "Open a project",

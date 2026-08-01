@@ -62,12 +62,17 @@ struct ProjectWindow: View {
     @State private var pendingPieceRenameId: String?
     @State private var detailSegment: DetailSegment = .inspector
     /// The scope the statement panes have been asked to show — set by **Open**
-    /// on a card promoted to craft intent, and honoured by `StatementPane` until
-    /// the writer moves the binder selection (M1A Task 7).
-    @State private var statementScopeRequest: StatementPane.ScopeRequest?
-    /// Bumped per press so a second **Open** on the same card is a new request;
-    /// see `StatementPane.ScopeRequest`.
-    @State private var statementScopeRequestToken = 0
+    /// on a card promoted to craft intent (M1A Task 7).
+    ///
+    /// **It lives here rather than in the pane because it outlives it**: a
+    /// segment switch destroys `StatementPane` and every `@State` on it, so a
+    /// request recorded there came back stale on the next visit, and one that
+    /// needed the pane present to latch would not survive being set from the
+    /// canvas at all — the Plan persona gives the whole right column to the
+    /// canvas inspector, so the pane is not mounted when Open is pressed. It is
+    /// revoked by the writer, two ways: moving the binder selection (below) and
+    /// working the pane's own scope switch (`onStatementScopeSwitchTouched`).
+    @State private var statementScopeRequest: Statement.Scope?
     @State private var persona: Persona = .default
     @State private var outlineLayout: OutlineLayout = .table
     @State private var mcpBanner = MCPBannerModel()
@@ -1246,7 +1251,10 @@ struct ProjectWindow: View {
             docPaths: Self.documentPaths(in: store.manifest.structure),
             documentStore: documentStore,
             editorControl: editorControl,
-            statementScopeRequest: statementScopeRequest
+            statementScopeRequest: statementScopeRequest,
+            // The pane's scope switch revokes the request, and the revocation
+            // has to reach the state it is about — which is this one.
+            onStatementScopeSwitchTouched: { statementScopeRequest = nil }
         ) {
             switch Self.inspectorRoute(binderSegment: binderSegment,
                                        projectType: store.manifest.type) {
@@ -1458,11 +1466,8 @@ struct ProjectWindow: View {
     private func openPromotedArtifact(_ itemId: String) {
         guard let store else { return }
         if let pane = Self.statementPane(forMark: itemId, in: store) {
-            if let statement = store.manifest.statements.first(where: { $0.id == itemId }) {
-                statementScopeRequestToken &+= 1
-                statementScopeRequest = StatementPane.ScopeRequest(
-                    scope: statement.scope, token: statementScopeRequestToken)
-            }
+            statementScopeRequest = store.manifest.statements
+                .first(where: { $0.id == itemId })?.scope
             detailSegment = pane
             return
         }

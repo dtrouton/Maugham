@@ -191,20 +191,58 @@ final class PromotionStatementMarkTests: XCTestCase {
     func test_theWindowRevokesTheOpenRequestAndThePaneKeepsNoCopyOfIt() throws {
         let window = CanvasSourceCensus.commentsStripped(
             try CanvasSourceCensus.source(at: "Maugham/Views/ProjectWindow.swift"))
-        XCTAssertTrue(window.contains("statementScopeRequest = nil"),
-                      "nothing revokes an Open request: one survives every later "
-                      + "visit to the pane, over a selection the writer has moved")
+
+        // **WHERE, not merely whether** (fix round 3). `contains` alone left the
+        // revocation free to move off the selection change while staying green,
+        // which is N1 returning with the census none the wiser. The scan reads
+        // the body of that one `.onChange` — from its head to the next modifier
+        // that starts with `.onChange(of:`.
+        let selectionArm = Self.body(ofOnChangeOf: "selectedItemId", in: window)
+        XCTAssertNotNil(selectionArm,
+                        "ProjectWindow no longer watches `selectedItemId`, so the "
+                        + "scan below cannot mean anything")
+        XCTAssertTrue(selectionArm?.contains("statementScopeRequest = nil") == true,
+                      "the writer moving the binder does not revoke an Open "
+                      + "request: one survives every later visit to the pane, "
+                      + "over a selection they have moved")
+
+        // The second revoker: the pane's own scope switch. Without it a
+        // `.project` request cannot be got out of at all — no value of
+        // `prefersProjectScope` contradicts one (N2).
+        XCTAssertTrue(
+            window.contains("onStatementScopeSwitchTouched: { statementScopeRequest = nil }"),
+            "working the scope switch does not revoke the request, so the switch "
+            + "is a control that does nothing on the commonest Open there is")
 
         let pane = CanvasSourceCensus.commentsStripped(
             try CanvasSourceCensus.source(at: "Maugham/Views/StatementPane.swift"))
-        XCTAssertTrue(pane.contains("requested: scopeRequest?.scope"),
-                      "the pane is resolving its scope from something other than "
-                      + "the live request — a copy is what N1 was")
+        // **A COUNT, because `contains` was satisfied by any one site.** The pane
+        // consults the live request in three places — `scope`, the switch's
+        // LABEL (`selectedDocumentTitle` → `pickerDocumentId`) and the switch's
+        // HIGHLIGHT (`scopeSwitch` → `switchShowsProject`) — and reintroducing a
+        // `@State` copy for one while leaving the others is precisely the shape
+        // N1 was. Fewer means that regression; more means a reader this census
+        // has not been told about, which is the other way it goes stale.
+        //
+        // (This assertion was written expecting TWO, by an author who had added
+        // the third an hour earlier. It went red immediately, which is what a
+        // count is for and what a prose sentence would not have done.)
+        XCTAssertEqual(
+            pane.components(separatedBy: "requested: scopeRequest").count - 1, 3,
+            "the pane consults the live request at some number of sites other "
+            + "than its three (the scope, the switch's label, the switch's "
+            + "highlight) — a copy standing in for one of them is N1")
+        XCTAssertTrue(pane.contains("selection: scopeSwitch"),
+                      "the switch is bound to something other than the derived "
+                      + "scope, which is how its highlight came to contradict the "
+                      + "pane under it (N2)")
 
         // The companion: prove the scan reports an absence rather than always
         // answering true, with a spelling that cannot exist in production.
         XCTAssertFalse(window.contains("statementScopeRequestNotAReal = nil"),
                        "the scan reads the file rather than always answering true")
+        XCTAssertNil(Self.body(ofOnChangeOf: "notARealPieceOfState", in: window),
+                     "and the closure-body scan reports an absence too")
         // And the arm that proves the STRIPPING, which the plant above cannot.
         XCTAssertFalse(
             CanvasSourceCensus.commentsStripped(
@@ -212,5 +250,20 @@ final class PromotionStatementMarkTests: XCTestCase {
                 .contains("statementScopeRequest = nil"),
             "a census that reads comments is satisfied by a paragraph describing "
             + "the line it is meant to require")
+    }
+
+    /// The text of one `.onChange(of: <name>)` closure — from its head to
+    /// whatever `.onChange(of:` comes next, or the end of the file.
+    ///
+    /// Crude on purpose: it is enough to say a line is in THAT arm rather than
+    /// somewhere else in a 2,000-line view, which is the whole of what the
+    /// census above needs. Nil when the view does not watch that state at all,
+    /// so the caller can tell "not there" from "not watched".
+    private static func body(ofOnChangeOf name: String, in source: String) -> String? {
+        let head = ".onChange(of: \(name))"
+        guard let start = source.range(of: head) else { return nil }
+        let rest = source[start.upperBound...]
+        guard let next = rest.range(of: ".onChange(of:") else { return String(rest) }
+        return String(rest[..<next.lowerBound])
     }
 }

@@ -96,7 +96,8 @@ final class StatementMountFixture {
             AnyView(
                 StatementPane(
                     store: store, documentStore: documentStore,
-                    kind: kind, activeDocumentId: activeDocumentId)
+                    kind: kind, activeDocumentId: activeDocumentId,
+                    onScopeSwitchTouched: {})
                 .environment(preferences)))
     }
 
@@ -106,13 +107,14 @@ final class StatementMountFixture {
     /// that built the scope itself would prove nothing.
     @discardableResult
     func host(kind: Statement.Kind, activeDocumentId: String?,
-              requesting request: StatementPane.ScopeRequest) async -> NSWindow {
+              requesting request: Statement.Scope) async -> NSWindow {
         await mount(
             AnyView(
                 StatementPane(
                     store: store, documentStore: documentStore,
                     kind: kind, activeDocumentId: activeDocumentId,
-                    scopeRequest: request)
+                    scopeRequest: request,
+                    onScopeSwitchTouched: {})
                 .environment(preferences)))
     }
 
@@ -311,7 +313,8 @@ private struct TwoEditorProbeView: View {
             if probe.showsStatementPane {
                 StatementPane(
                     store: store, documentStore: documentStore,
-                    kind: kind, activeDocumentId: itemId)
+                    kind: kind, activeDocumentId: itemId,
+                    onScopeSwitchTouched: {})
                 .frame(width: 260)
             }
         }
@@ -349,6 +352,7 @@ private struct RebindableStatementPaneView: View {
     var body: some View {
         StatementPane(
             store: store, documentStore: documentStore,
-            kind: kind, activeDocumentId: probe.activeDocumentId)
+            kind: kind, activeDocumentId: probe.activeDocumentId,
+            onScopeSwitchTouched: {})
     }
 }
