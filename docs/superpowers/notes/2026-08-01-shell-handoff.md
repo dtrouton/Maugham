@@ -17,10 +17,12 @@ It is sliced six ways and explicitly sequenced *after* M1A's smoke.
 - **M1A merged at `7b8e762`** (32 commits), plus three tidy commits closing its
   residuals. See `memory/project_milestone_1a_spine.md`.
 - **The M1 smoke is DONE and passed** (Denver, 2026-08-01).
-- **M1C's roadmap entry is still `~`** at `docs/roadmap.md:55`. Every slice under
-  it is ✓ and 1A is already ✓ at `:67`. The flip is now unblocked — it is the
-  first job of the next session, and it is small: the marker, plus CLAUDE.md rule
-  10's sweep of sibling docs for claims the flip makes false.
+- **M1C is flipped to ✓** (`docs/roadmap.md`), with CLAUDE.md rule 10's sweep in
+  the same commit: `problem-map.md`'s "Think before it's a book" flipped with it
+  (its `~` was carrying a *"but dragging research in is still to come"* clause
+  that 1C-d had already removed), and `product.md` gained the **Planning**
+  paragraph it had never had — the canvas was described there only as a thing
+  Claude writes to. **M1 is closed.**
 - **The paired Mac + phone release is DEFERRED until the shell work below is
   done** — Denver's call, 2026-08-01. Not blocked, chosen: shipping the spine
   into a shell that does not fit it, and then reshaping the shell, would mean two
