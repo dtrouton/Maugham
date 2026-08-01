@@ -235,6 +235,18 @@ public final class ProjectStore {
     /// schema gate held" and "the scan ran and found nothing", and so the only
     /// way the once-and-never-again contract can be falsified.
     internal var _debugAdoptionScanCount: Int = 0
+
+    /// What a failed promotion's rollback could NOT put back (M1A Task 13),
+    /// one entry per staged path left in the staging tree. Empty is the normal
+    /// state, including after a rollback that succeeded.
+    ///
+    /// The compensation reports through `projectStoreLog` because the writer
+    /// must see why the promotion failed, not why its cleanup did — and a log
+    /// line is not assertable, so "it was not silent" would be untestable
+    /// without this. Mirrors `_debugAdoptionScanCount`: the only observable
+    /// difference between "nothing was stranded" and "something was stranded
+    /// quietly".
+    internal var _debugPromotionStrandedMoveBacks: [String] = []
     #endif
 
     /// Cache-key struct kept on the class so the extension can read/write it.

@@ -16,6 +16,21 @@ public enum PieceMode {
     }
 }
 
+/// One move `promotePieceToProject` made into its staging tree, recorded as it
+/// happened so the failure path can move it **back**.
+///
+/// A record rather than a re-derivation, and that is the whole design. Working
+/// out on the failure path what *should* have been staged means writing the
+/// staging rules a second time, in a place no successful promotion ever
+/// exercises — and the two copies drift. The drifting one hands the writer's
+/// research to `removeItem`.
+private struct PromotionStagedMove {
+    /// Where it was in the Collection, and where it goes back to.
+    let original: URL
+    /// Where it is now, inside the staging tree.
+    let staged: URL
+}
+
 extension ProjectStore {
 
     /// Add a loose piece to a Collection. Creates `pieces/<NN>-<slug>/`
@@ -182,6 +197,34 @@ extension ProjectStore {
     public func promotePieceToProject(
         pieceId: String, destination: URL
     ) async throws -> URL {
+        try await promotePieceToProject(
+            pieceId: pieceId, destination: destination, afterStaging: nil)
+    }
+
+    /// The promotion, with a seam at the one moment a test needs: every staging
+    /// move done, nothing else yet.
+    ///
+    /// **The seam cannot throw**, and that restraint is the point. A hook that
+    /// threw would let a test assert a rollback against an error the code below
+    /// can never produce; this one can only *arrange the world* so that a real
+    /// step fails — occupy the manifest's path and `writePromotedManifest`'s own
+    /// `.write` throws; occupy the piece's old research folder and the
+    /// compensating move-back throws. The error under test is always production
+    /// code's.
+    ///
+    /// It exists because nothing else reaches the failure path. Measured before
+    /// writing it: the parent directory is created *before* the staging tree, so
+    /// a read-only parent fails ahead of any move; `replaceItemAt` happily
+    /// replaces a regular file at the destination with the staged directory; and
+    /// the remaining steps take no input a caller can spoil. An untested
+    /// rollback is exactly how the defect this closes survived to be found by
+    /// reading rather than by a red test.
+    ///
+    /// `internal`, and the public entry point above passes `nil` — the same body
+    /// runs in Release, so the tested path is the shipped path.
+    func promotePieceToProject(
+        pieceId: String, destination: URL, afterStaging: (() -> Void)?
+    ) async throws -> URL {
         guard manifest.type == .collection else {
             throw ProjectStoreError.fileSystemError(
                 "promotePieceToProject only valid for Collection projects")
@@ -258,22 +301,39 @@ extension ProjectStore {
         let now = Date()
         let encoder = ProjectManifest.makeEncoder()
 
+        // Declared outside the `do` so the failure path can read it. Appended to
+        // as each move lands, never before — a move that threw is not a move to
+        // undo.
+        var stagedMoves: [PromotionStagedMove] = []
+        #if DEBUG
+        // Per-promotion, not cumulative: left to accumulate, a store that had
+        // stranded something earlier would make every later promotion look like
+        // it stranded something too.
+        _debugPromotionStrandedMoveBacks = []
+        #endif
+
         do {
             // 2b. Create the new project's empty subfolders.
             try stagePromotedSubfolders(staging: stagingURL)
 
             // 3. Move main doc into staging/manuscript/
-            try stagePromotedMainDocument(
+            stagedMoves.append(try stagePromotedMainDocument(
                 staging: stagingURL,
                 from: pieceFolderURL,
-                docName: mainDocName)
+                docName: mainDocName))
 
             // 4. Move piece's research/ subfolder into staging/research/ (if non-empty)
-            try stagePromotedResearch(staging: stagingURL, from: pieceFolderURL)
+            if let researchMove = try stagePromotedResearch(
+                staging: stagingURL, from: pieceFolderURL) {
+                stagedMoves.append(researchMove)
+            }
 
             // 4b. Move the piece's intent statement, if it has one.
             let stagedIntent = try stagePromotedIntent(
                 staging: stagingURL, statement: carriedIntent)
+            if let stagedIntent { stagedMoves.append(stagedIntent.move) }
+
+            afterStaging?()
 
             // 5. Build + write new project manifest
             try writePromotedManifest(
@@ -282,7 +342,7 @@ extension ProjectStore {
                 newType: newType,
                 docName: mainDocName,
                 researchPrefix: researchPrefix,
-                carriedIntent: stagedIntent,
+                carriedIntent: stagedIntent?.statement,
                 now: now,
                 encoder: encoder)
 
@@ -299,17 +359,95 @@ extension ProjectStore {
                 pieceFolderURL: pieceFolderURL,
                 pieceFolderRel: pieceFolderRel,
                 researchPrefix: researchPrefix,
-                carriedIntent: stagedIntent,
+                carriedIntent: stagedIntent?.statement,
                 destination: destination,
                 now: now,
                 encoder: encoder)
 
             return destination
         } catch {
-            // Rollback: delete staging if present
-            try? FileManager.default.removeItem(at: stagingURL)
+            rollbackPromotionStaging(stagedMoves, staging: stagingURL, cause: error)
             throw error
         }
+    }
+
+    /// Put back everything the promotion moved into `staging`, then remove the
+    /// tree — and if anything could **not** go back, leave the tree standing.
+    ///
+    /// **Non-throwing on purpose.** The writer must be told why the promotion
+    /// failed, not why its cleanup did, so `cause` is what the caller re-throws
+    /// and this reports only through the log.
+    ///
+    /// But *not* silent, and never `try?` over a move-back. A directory the
+    /// writer can recover by hand beats a correct-looking error and no files, so
+    /// a failed compensation logs loudly and keeps the staging tree — the only
+    /// remaining copy of what could not be returned.
+    ///
+    /// **Why this is worth the machinery at all:** the blast radius is uneven.
+    /// The main document and the intent statement each leave their op log behind
+    /// in the Collection — `.maugham/ops/` is not staged — and `Document.load`
+    /// reads a missing file as empty stored bytes with the log intact, so both
+    /// re-materialise on next open. The `research/` folder has **no op log at
+    /// all**; research notes are plain-edited by design. Deleting it took the
+    /// writer's notes, images and assets with nothing behind them.
+    private func rollbackPromotionStaging(
+        _ moves: [PromotionStagedMove], staging: URL, cause: Error
+    ) {
+        let fm = FileManager.default
+
+        // The tree is gone only when step 7 already consumed it — in which case
+        // the writer's files are at the destination, whole, and "putting them
+        // back" from paths that no longer exist would be inventing a second
+        // promotion out of a failure in step 8. The Collection's manifest is
+        // stale, which is a wrong label on the right files.
+        guard fm.fileExists(atPath: staging.path) else {
+            projectStoreLog.error(
+                "Promotion failed after its staged project was already moved to its destination; the files are there and the Collection's entry was not updated: \(cause.localizedDescription, privacy: .public)")
+            return
+        }
+
+        // Reverse order, so a later move is undone before the earlier one whose
+        // folder may contain it.
+        var stranded: [String] = []
+        for move in moves.reversed() {
+            guard fm.fileExists(atPath: move.staged.path) else {
+                // Nothing at the staged path. If the original is back, or never
+                // left, there is nothing to do; otherwise the file is at neither
+                // end and the writer has to be told.
+                if !fm.fileExists(atPath: move.original.path) {
+                    stranded.append(
+                        "\(move.original.path) is at neither its own path nor \(move.staged.path)")
+                }
+                continue
+            }
+            do {
+                try fm.createDirectory(
+                    at: move.original.deletingLastPathComponent(),
+                    withIntermediateDirectories: true)
+                // internal-move: the exact inverse of the staging moves above,
+                // on the same terms — every Document on these paths was closed
+                // and unregistered before staging began, and the promotion has
+                // closed the DocumentStore besides, so there is no live autosave
+                // to race back to a stale path. Routing this through the typed
+                // mover would re-enter a store the promotion has already shut,
+                // and `relocateUserContent` is `throws` — which is precisely what
+                // a compensation must not be. (TripwireGrepTests exclusion)
+                try fm.moveItem(at: move.staged, to: move.original) // internal-move: staging rollback
+            } catch {
+                stranded.append(
+                    "\(move.staged.path) → \(move.original.path): \(error.localizedDescription)")
+            }
+        }
+
+        guard stranded.isEmpty else {
+            projectStoreLog.error(
+                "Promotion rollback could not return \(stranded.count, privacy: .public) staged path(s); the staging tree is LEFT AT \(staging.path, privacy: .public) so they can be recovered by hand. Promotion failed with: \(cause.localizedDescription, privacy: .public). Stranded: \(stranded.joined(separator: "; "), privacy: .public)")
+            #if DEBUG
+            _debugPromotionStrandedMoveBacks = stranded
+            #endif
+            return
+        }
+        try? fm.removeItem(at: staging)
     }
 
     /// Step 2b: create the new project's empty `manuscript/` and `notes/` subfolders
@@ -324,31 +462,43 @@ extension ProjectStore {
     }
 
     /// Step 3: move the piece's main document into `staging/manuscript/`.
+    /// Returns the move, for the failure path to undo.
     private func stagePromotedMainDocument(
         staging: URL, from pieceFolderURL: URL, docName: String
-    ) throws {
+    ) throws -> PromotionStagedMove {
+        let oldDocURL = pieceFolderURL.appendingPathComponent(docName)
         let newDocURL = staging.appendingPathComponent("manuscript/\(docName)")
         // internal-move: into the promote-to-project `staging/` temp tree.
         // promotePieceToProject already closes+flushes the live doc (line ~205)
         // before staging begins, so this move doesn't race a live autosave —
         // it's not the tripwire-14 user-path class. (TripwireGrepTests exclusion)
         try FileManager.default.moveItem( // internal-move: staging
-            at: pieceFolderURL.appendingPathComponent(docName),
+            at: oldDocURL,
             to: newDocURL)
+        return PromotionStagedMove(original: oldDocURL, staged: newDocURL)
     }
 
     /// Step 4: move the piece's `research/` subfolder into `staging/research/`,
     /// or create an empty `staging/research/` when the piece has none.
-    private func stagePromotedResearch(staging: URL, from pieceFolderURL: URL) throws {
+    ///
+    /// Returns the move, or nil when it made none — a piece with no `research/`
+    /// gets a fresh empty folder in staging, and putting *that* "back" would
+    /// mint a folder the writer never had.
+    private func stagePromotedResearch(
+        staging: URL, from pieceFolderURL: URL
+    ) throws -> PromotionStagedMove? {
         let pieceResearchURL = pieceFolderURL.appendingPathComponent("research")
         let newResearchURL = staging.appendingPathComponent("research")
         if FileManager.default.fileExists(atPath: pieceResearchURL.path) {
             // internal-move: into the promote-to-project `staging/` temp tree
             // (close+flush already ran upstream). (TripwireGrepTests exclusion)
             try FileManager.default.moveItem(at: pieceResearchURL, to: newResearchURL) // internal-move: staging
+            return PromotionStagedMove(
+                original: pieceResearchURL, staged: newResearchURL)
         } else {
             try FileManager.default.createDirectory(
                 at: newResearchURL, withIntermediateDirectories: true)
+            return nil
         }
     }
 
@@ -365,7 +515,9 @@ extension ProjectStore {
     /// `.maugham/ops/` is not staged either and which the new project
     /// re-bootstraps on first open. The intent's edit history is lost with it;
     /// its words are not.
-    private func stagePromotedIntent(staging: URL, statement: Statement?) throws -> Statement? {
+    private func stagePromotedIntent(
+        staging: URL, statement: Statement?
+    ) throws -> (statement: Statement, move: PromotionStagedMove)? {
         guard let statement else { return nil }
         let source = url.appendingPathComponent(statement.path)
         guard FileManager.default.fileExists(atPath: source.path) else { return nil }
@@ -377,7 +529,8 @@ extension ProjectStore {
         // live Document, if the Intent pane had one, is closed above before
         // staging begins. (TripwireGrepTests exclusion)
         try FileManager.default.moveItem(at: source, to: destination) // internal-move: staging
-        return statement
+        return (statement,
+                PromotionStagedMove(original: source, staged: destination))
     }
 
     /// Step 5: build the new project's manifest (carrying over the piece's metadata
