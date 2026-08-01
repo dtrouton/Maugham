@@ -325,4 +325,86 @@ final class ListAllLinksToolTests: XCTestCase {
         let all = try await edges(url, reg)
         XCTAssertFalse(all.contains { $0.from_id == "res-sarah" })
     }
+
+    // MARK: - Statements (whole-branch review, I1)
+
+    /// Seed one statement with a body, through the op log — a statement IS a
+    /// `Document`, so writing its `.md` would be writing derived output.
+    @discardableResult
+    private func seedStatement(
+        _ store: ProjectStore, in url: URL,
+        kind: Statement.Kind, scope: Statement.Scope, body: String
+    ) async throws -> Statement {
+        let statement = try await store.createStatement(kind: kind, scope: scope)
+        let doc = try await Document.load(
+            url: url.appendingPathComponent(statement.path),
+            device: "test", session: "s", presenter: nil)
+        doc.setFullText(body)
+        try await doc.flushBurstNow()
+        await doc.close()
+        return statement
+    }
+
+    /// The capability adoption would otherwise have taken away silently: a
+    /// `[[…]]` written into a craft-intent RESEARCH NOTE was an edge here, and
+    /// adoption carries that body verbatim into a statement.
+    func test_aWikiLinkInsideAStatementIsAnEdge() async throws {
+        let (url, store, reg) = try await makeProject()
+        let intent = try await seedStatement(
+            store, in: url, kind: .intent, scope: .document("ch-1"),
+            body: "This chapter answers [[Ch 2]].")
+        let all = try await edges(url, reg)
+        XCTAssertTrue(all.contains {
+            $0.from_id == intent.id && $0.to_id == "ch-2" && $0.kind == "wiki"
+        }, "a link written into a chapter's intent is invisible to the link "
+            + "graph, which is where adoption put every link a legacy "
+            + "craft-intent note held")
+    }
+
+    /// The edge has to be readable: `Craft Intent · Ch 1`, not a bare id, and
+    /// not the project's name on a chapter's statement.
+    func test_aStatementEdgeNamesTheDocumentItIsAbout() async throws {
+        let (url, store, reg) = try await makeProject()
+        let intent = try await seedStatement(
+            store, in: url, kind: .intent, scope: .document("ch-1"),
+            body: "This chapter answers [[Ch 2]].")
+        let all = try await edges(url, reg)
+        XCTAssertEqual(all.first { $0.from_id == intent.id }?.from_title,
+                       "Craft Intent · Ch 1")
+    }
+
+    /// Visual language is a statement too, and it is the kind
+    /// `ArtifactIndex.statementTitle` used to answer for with the wrong word.
+    func test_aWikiLinkInsideVisualLanguageIsAnEdgeAndIsNamedAsOne() async throws {
+        let (url, store, reg) = try await makeProject()
+        let look = try await seedStatement(
+            store, in: url, kind: .visualLanguage, scope: .project,
+            body: "The look of [[Ch 2]] sets it, and [[Nobody]] does not.")
+        let all = try await edges(url, reg)
+        XCTAssertEqual(all.first { $0.from_id == look.id }?.from_title,
+                       "Visual Language",
+                       "the book's visual language was reported under the "
+                       + "craft-intent name")
+        XCTAssertTrue(all.contains {
+            $0.from_id == look.id && $0.to_id == "ch-2" && $0.kind == "wiki"
+        })
+        XCTAssertTrue(all.contains {
+            $0.from_id == look.id && $0.to_id == nil
+                && $0.to_title == "Nobody" && $0.kind == "wiki_unresolved"
+        })
+    }
+
+    /// The control: an EMPTY statement — the ordinary state of one the writer
+    /// has opened and not typed into — must add nothing, so "it found an edge"
+    /// above means the body was read rather than the registry walked.
+    func test_aStatementWithNoLinksAddsNoEdges() async throws {
+        let (url, store, reg) = try await makeProject()
+        let empty = try await store.createStatement(kind: .intent, scope: .project)
+        let prose = try await seedStatement(
+            store, in: url, kind: .intent, scope: .document("ch-1"),
+            body: "No references at all in here.")
+        let all = try await edges(url, reg)
+        XCTAssertFalse(all.contains { $0.from_id == empty.id })
+        XCTAssertFalse(all.contains { $0.from_id == prose.id })
+    }
 }

@@ -564,4 +564,55 @@ extension ReferenceToolsTests {
             from: try await FindReferencesTool.handle(paramsJSON: Data(req.utf8), registry: reg))
         XCTAssertFalse(refs.contains { $0.from_id == "res-echo" })
     }
+
+    // MARK: - Statements (whole-branch review, I1)
+
+    /// "What points at this" must include the writer's intent, or adoption
+    /// silently removed an answer this tool used to give — a `[[…]]` in a
+    /// craft-intent research note WAS found here, and adoption moves that body
+    /// verbatim into a statement.
+    func test_findReferencesSeesALinkMadeFromAStatement() async throws {
+        let (url, reg) = try await makeProject()
+        let store = try XCTUnwrap(reg.lookup(id: ProjectIdentifier.id(for: url))?.store)
+        let intent = try await store.createStatement(kind: .intent, scope: .project)
+        let doc = try await Document.load(
+            url: url.appendingPathComponent(intent.path),
+            device: "test", session: "s", presenter: nil)
+        doc.setFullText("The book is going for what [[Ch 1]] does.")
+        try await doc.flushBurstNow()
+        await doc.close()
+
+        let req = "{\"project_id\":\"\(ProjectIdentifier.id(for: url))\","
+            + "\"target\":\"Ch 1\"}"
+        let refs = try JSONDecoder().decode(
+            [FindReferencesTool.Reference].self,
+            from: try await FindReferencesTool.handle(paramsJSON: Data(req.utf8), registry: reg))
+        let hit = try XCTUnwrap(
+            refs.first { $0.from_id == intent.id },
+            "a link written into the project's intent is not reported as a "
+            + "reference, so the migration cost this answer")
+        XCTAssertEqual(hit.kind, "wiki")
+        XCTAssertEqual(hit.from_title, "Craft Intent")
+    }
+
+    /// The control: a statement with nothing pointing at the target must not be
+    /// reported, or the assertion above says only that statements are walked.
+    func test_findReferencesDoesNotReportAStatementThatNamesSomethingElse() async throws {
+        let (url, reg) = try await makeProject()
+        let store = try XCTUnwrap(reg.lookup(id: ProjectIdentifier.id(for: url))?.store)
+        let intent = try await store.createStatement(kind: .intent, scope: .project)
+        let doc = try await Document.load(
+            url: url.appendingPathComponent(intent.path),
+            device: "test", session: "s", presenter: nil)
+        doc.setFullText("Nothing in here points anywhere. [[Somewhere else]].")
+        try await doc.flushBurstNow()
+        await doc.close()
+
+        let req = "{\"project_id\":\"\(ProjectIdentifier.id(for: url))\","
+            + "\"target\":\"Ch 1\"}"
+        let refs = try JSONDecoder().decode(
+            [FindReferencesTool.Reference].self,
+            from: try await FindReferencesTool.handle(paramsJSON: Data(req.utf8), registry: reg))
+        XCTAssertFalse(refs.contains { $0.from_id == intent.id })
+    }
 }

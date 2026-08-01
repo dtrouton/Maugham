@@ -767,9 +767,14 @@ struct StatementEditorHost: View {
     /// **Prose mode always**: a screenplay's intent is prose *about* a
     /// screenplay, so Fountain tokenization never applies to a statement. Wiki
     /// links resolve, because `[[Chapter 9]]` in an intent is the same reference
-    /// it is anywhere else, and `list_all_links` / `find_references` already scan
-    /// non-manuscript bodies. No element gutter, no focus dim, no typewriter
-    /// scroll: a pane is not the writing surface.
+    /// it is anywhere else — and `list_all_links` / `find_references` scan
+    /// statements for exactly that reason (whole-branch review, I1: they scanned
+    /// manuscript documents and research-note bodies only, so adoption moved
+    /// every link in a legacy craft-intent note *out* of the graph in the same
+    /// pass that moved the prose). **⌘⌥F still does not reach a statement** —
+    /// `ProjectSearchEngine` walks `manifest.structure` and `manifest.research`;
+    /// see the roadmap's 1A entry. No element gutter, no focus dim, no
+    /// typewriter scroll: a pane is not the writing surface.
     private func makeSurfaceConfiguration() -> EditorSurfaceConfiguration {
         EditorSurfaceConfiguration(
             presentation: .init(

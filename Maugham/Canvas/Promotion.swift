@@ -372,7 +372,7 @@ struct ArtifactIndex: Equatable {
         return ArtifactIndex(entriesByID: entries)
     }
 
-    /// What a mark naming an intent statement is CALLED.
+    /// What a statement is CALLED.
     ///
     /// **A statement carries no title** — its identity is the manifest entry and
     /// its path is derived once from the document's name — so this composes one,
@@ -386,12 +386,41 @@ struct ArtifactIndex: Equatable {
     /// the ordinary case, and a pane saying `Became “Craft Intent”` on cards
     /// belonging to three different chapters describes none of them. The `·`
     /// separator is this surface's own (`Missing piece · ref-1`).
+    ///
+    /// **Every kind, not only the mark's.** `ArtifactIndex` is still `.intent`-only
+    /// (nothing writes a mark naming any other kind, and an entry claiming
+    /// otherwise would be a false answer to `refuseIfNotAResearchNote`), but the
+    /// link tools name a statement of any kind as an edge's origin — a
+    /// `[[Chapter 9]]` written into the book's visual language is the same
+    /// reference it is anywhere else. Composed here rather than beside them so
+    /// there is still one answer to what a statement is called.
     static func statementTitle(_ statement: Statement,
                                documentTitle: (String) -> String?) -> String {
+        let base = kindTitle(statement.kind)
         guard case .document(let id) = statement.scope,
-              let title = documentTitle(id) else { return intentTitle }
-        return "\(intentTitle) · \(title)"
+              let title = documentTitle(id) else { return base }
+        return "\(base) · \(title)"
     }
+
+    /// The writer's word for each kind.
+    ///
+    /// `.unknown` is a kind a NEWER build wrote and this one preserves verbatim
+    /// (`Statement.Kind`), so it is named by its raw string. Folding it into
+    /// "Craft Intent" would be exactly the relabelling that enum's shape exists
+    /// to prevent.
+    static func kindTitle(_ kind: Statement.Kind) -> String {
+        switch kind {
+        case .intent: return intentTitle
+        case .visualLanguage: return visualLanguageTitle
+        case .unknown(let raw): return raw
+        }
+    }
+
+    /// The other kind's name, and it matches the pane's own menu item
+    /// (`MaughamApp`'s `Button("Visual Language")`) — the writer meets this
+    /// artifact by that name, so an edge that named it anything else would be
+    /// describing a surface they cannot find.
+    static let visualLanguageTitle = "Visual Language"
 
     /// The bare name, and the project's scope answers with it alone.
     ///
