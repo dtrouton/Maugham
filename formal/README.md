@@ -28,10 +28,25 @@ prefix). Nothing needs to be added to your shell profile.
 
 | Config | Constants | Expected |
 |---|---|---|
-| `OpLogSync.cfg` | production values | no violation |
+| `OpLogSync.cfg` | production values, `MaxCps = 0` | no violation |
 | `OpLogSync_shared.cfg` | `PerDeviceFiles = FALSE` | `LocalNoLoss` violated |
 | `OpLogSync_suspend.cfg` | `SealHasSuspensionPoint = TRUE` | `LocalNoLoss` violated |
 | `OpLogSync_monotonic.cfg` | adds `RemoteMonotonic` | `RemoteMonotonic` violated |
+| `OpLogSync_cpshared.cfg` | `PerDeviceCheckpoints = FALSE` | `CheckpointNoLoss` violated |
+| `OpLogSync_cppartitioned.cfg` | `PerDeviceCheckpoints = TRUE` | no violation |
+| `OpLogSync_dangling.cfg` | checkpoints partitioned | `DanglingMeansLost` violated |
+| `OpLogSync_cpdetect.cfg` | `PerDeviceCheckpoints = FALSE` | `CheckpointLossIsDetected` violated |
+
+The first four set `MaxCps = 0`, which disables checkpoints entirely — so they
+measure exactly what they measured before checkpoints were added to the model,
+and remain a clean regression signal.
+
+**`OpLogSync_cpshared.cfg` models production as it currently ships.**
+`PerDeviceCheckpoints = FALSE` is not a hypothetical: `CheckpointStore.swift:27`
+points every device at one `.maugham/checkpoints.jsonl`. Its violation describes
+a live defect. Its partner `OpLogSync_cppartitioned.cfg` is the same spec with
+ADR 0012's pattern applied, and is green — that pair is the proof that
+partitioning is the fix rather than a tidy-up.
 
 **A non-zero exit from a falsification config is the intended result.** Each
 pair exists to prove an assumption is load-bearing rather than decorative

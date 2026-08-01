@@ -6,7 +6,9 @@
 
 ---
 
-## 1. Verdict
+> **REVISED 2026-08-01, same day.** §1 below was written before (a) ran. (a) then found a **data-loss defect in shipping code** (`.maugham/checkpoints.jsonl` is an unpartitioned shared JSONL) and, more importantly for the verdict, **TLC found a failure path I had not predicted** — invalidating §1's central claim that the model discovered nothing reading did not. §1 is left standing as written, because the point of §3 was honesty about what the method earned and quietly rewriting it would defeat that. **Read §8 for the corrected verdict.**
+
+## 1. Verdict *(superseded by §8)*
 
 **(a): qualified go — but reframed.** The spike did what it was asked to do: one load-bearing assumption surfaced, sharpened, and pinned in Swift on the path where loss is unrecoverable. The cost was small (all four configs check in under a second; the model is ~200 lines). But the honest accounting in §3 shows the model **discovered nothing that reading the code did not**. Every finding was hypothesised by reading and then *confirmed* by TLC. What TLA+ bought was rigour, not discovery: a belief became a checked fact, the environment's adversarial properties had to be enumerated rather than assumed, and the resulting test is defensible because a falsification pair backs it.
 
@@ -148,3 +150,101 @@ Ordered:
 3. **Wire `formal/check.sh` into CI** if and only if step 1 pays. All four configs run in under a second, so the cost is near zero — but a spec nobody maintains is worse than no spec, so this waits on evidence that the spec earns maintenance.
 
 Explicitly **not** recommended: modelling the editor loop (§6.2), or attempting trace validation to close the refinement gap (§6.1) — the latter is a large project whose payoff depends entirely on step 1's outcome.
+
+---
+
+# 8. (a) executed — checkpoints, integrity and the backup gate
+
+*Added 2026-08-01, same day, after §7 step 1 ran. Supersedes §1.*
+
+§7 named `IntegrityChecks` / `IntegrityQuarantine` against the §5.2 window as (a)'s first target, on the grounds that it was the one place the answer was genuinely unknown. It was, and the answer is **yes, something reacts durably** — plus two findings nobody was looking for.
+
+## 8.1 Corrected verdict
+
+**(a): go, and it already paid.** It found a data-loss defect in shipping code (§8.3) and a routine false positive that stops backups (§8.2).
+
+**(b): revisit — upgraded from "no".** §1 declined a standing practice on the grounds that the method had only ever confirmed what reading found. **That is no longer true.** In §8.2 TLC produced a four-state counterexample by a mechanism I had explicitly predicted otherwise — I expected the seal's transient window, and the actual path involves no seal at all. That is the method doing the thing it is supposed to do, once, on the fifth property written. Not yet a mandate; enough to reopen the question after the fix lands. The concrete next step is unchanged: wire `formal/check.sh` into CI (all eight configs run in ~15s total).
+
+**What changed my mind is narrow and worth stating precisely.** The model did not find §8.3 or §8.4 — reading found those. What the model did was refute `RemoteMonotonic`, which generated the question *"what reacts durably to a transient gap?"*, and following that question found everything else. Then, when the question was formalised as `DanglingMeansLost`, TLC contradicted my stated mechanism. Prioritising the right question and then correcting the answer is a real contribution and a smaller one than "it finds bugs."
+
+## 8.2 A checkpoint routinely outruns the op it pins, and backups stop
+
+**The chain.** `ProjectIntegrity.check` → `IntegrityChecks.danglingCheckpointPointers` → `IntegrityReport.isHealthy` → `BackupCoordinator.backupNow:62` returns `.integrityFailed` and **skips the backup**. ADR 0014 §3 makes that refusal deliberate — *"corruption must never propagate into a destination"* — and the policy is right. The problem is the input.
+
+`danglingCheckpointPointers`' own doc calls a dangling pointer *"evidence the op log lost ops (corruption or a dropped twin)."* Stated as a property — anything flagged is genuinely lost, i.e. its owner cannot see it either — it is **false**:
+
+```
+DanglingMeansLost ==
+    \A e \in Devices : \A op \in DanglingAt(e) : op \notin Merged(op.dev)
+```
+
+`./formal/check.sh OpLogSync OpLogSync_dangling` → violated in **four states**, with `sealsUsed = (d1 :> 0 @@ d2 :> 0)` — **no seal occurs**:
+
+1. `Append(d1)` — `op1` lands in d1's tail
+2. `CreateCheckpoint(d1)` — `cpFile[d1] = {op1}`
+3. `PropagateCp(d1, d2)` — d2 receives d1's *checkpoint file*
+4. d2 has not yet received d1's *op log*: `viewTail[d2][d1] = {}`
+
+d2 now sees a checkpoint pinning `op1` and cannot see `op1`. It reports corruption and refuses to back up a project in perfect health.
+
+**This was predicted wrongly and the correction matters.** §5.2 attributed the false positive to the seal's transient window. The seal is not required. `checkpoints.jsonl` and the op-log files are separate files that iCloud propagates independently, and a checkpoint *by construction* pins an op written moments earlier — so the checkpoint arriving first is the **ordinary** case, not a race. The seal window widens it; it does not cause it. Severity accordingly is not "rare interleaving" but "expected behaviour on a second Mac."
+
+**Not fixed.** The shape of a fix: a dangling pointer whose referenced doc has files not yet fully propagated is *inconclusive*, not corrupt. Distinguishing "op absent because unpropagated" from "op absent because lost" is the real design question and is not obvious — which is why this is written up rather than patched.
+
+## 8.3 `.maugham/checkpoints.jsonl` is an unpartitioned shared JSONL — data loss
+
+Following the checkpoint thread out of §8.2:
+
+```swift
+// CheckpointStore.swift:27
+fileURL: projectURL.appendingPathComponent(".maugham/checkpoints.jsonl")
+```
+
+One path. No device slug, no glob-and-merge; `JSONLAppendStore` does not partition internally. `.maugham/publications.jsonl` (`PublicationStore.swift:33`) has the identical shape.
+
+This is **exactly what CLAUDE.md tripwire 17 forbids** and what ADR 0012 restructured the op log and inbox to fix. ADR 0012's scope statement names only the op log and the inbox manifest; checkpoints were never in scope, and no ADR records a decision to leave them out. Writers are `CheckpointCapture` (⌘S), `RewindWindow`, and `Bootstrap`.
+
+Two Macs, concurrent ⌘S inside a sync window → iCloud whole-file-replace → the loser's checkpoints land in a conflict twin `load()` never opens. ADR 0012 called the Mac↔Mac case *"latent but rarely triggered"* — and then restructured the op log anyway.
+
+**Model-checked against production constants.** `PerDeviceCheckpoints = FALSE` *is* the shipping configuration:
+
+| Config | Result |
+|---|---|
+| `OpLogSync_cpshared` (production) | `CheckpointNoLoss` **violated**, 7 states |
+| `OpLogSync_cppartitioned` (ADR 0012 pattern applied) | no violation, 75,276 states |
+
+Final state of the violation — d1 created a checkpoint pinning `op1`, and reconciliation replaced its whole file with d2's:
+
+```
+/\ cpCreated = (d1 :> {[dev |-> d1, seq |-> 1]} @@ d2 :> {[dev |-> d1, seq |-> 2]})
+/\ cpFile    = (d1 :> {[dev |-> d1, seq |-> 2]} @@ d2 :> {[dev |-> d1, seq |-> 2]})
+```
+
+The pair is the point: same spec, one constant, and the fix is *proven to be the fix* rather than assumed. **Unfixed.**
+
+## 8.4 The loss erases its own evidence
+
+Two reasons §8.3 is silent, the second much worse than the first.
+
+**The blind spot.** `IntegrityChecks.conflictTwins(inOpsDirectoryFilenames:)` scans only `.maugham/ops/` (`ProjectIntegrity.swift:44`). A conflict twin of `checkpoints.jsonl` lives at `.maugham/`. The detector built for this exact class cannot see it here.
+
+**The self-erasure.** Losing a checkpoint removes **the very pointer whose dangling would have signalled the loss**. Stated as *"if a device has lost a checkpoint it created, something is dangling for it"*:
+
+```
+CheckpointLossIsDetected ==
+    \A d \in Devices :
+        (cpCreated[d] \ MergedCp(d)) # {} => DanglingAt(d) # {}
+```
+
+`./formal/check.sh OpLogSync OpLogSync_cpdetect` → **violated**. In the counterexample d1 has lost its checkpoint on `op2` while `tail[d1]` holds both ops, so the surviving pointer resolves cleanly and **nothing dangles**. Widening the twin scan to `.maugham/` would help; it would not close this, because the evidence is destroyed by the event it would evidence.
+
+## 8.5 Cost
+
+Eight configs, ~15s total. The model grew from ~200 to ~330 lines. `MaxCps = 0` on the original four disables checkpoints entirely, so they still measure 8,464 / 64 / 515 / 517 distinct states exactly as in §4 — a clean regression signal that the extension did not disturb the earlier results. `OpLogSync_cppartitioned` at 75,276 distinct states is the largest run and still sub-second; the 59× growth noted in §4 has not yet become a wall, though it is still only two devices.
+
+## 8.6 What should happen next
+
+1. **Partition `checkpoints.jsonl` and `publications.jsonl`** per ADR 0012's existing pattern (`DeviceSlug`, glob-and-merge, legacy unsuffixed file stays a merge source). `OpLogSync_cppartitioned` already shows this closes §8.3. Needs its own spec — it touches `BackupSignature`, `MaughamSidecarPath`, presenter routing, and the rewind UI's checkpoint list.
+2. **Widen `conflictTwins`** to scan `.maugham/` as well as `.maugham/ops/`. Small, independent, and useful regardless of (1).
+3. **Fix §8.2's false positive** — the design question is how to tell "unpropagated" from "lost". Note that (1) does *not* fix this; they are independent defects that happen to share a file.
+4. **Then reconsider (b)**, with CI as the concrete first step.
