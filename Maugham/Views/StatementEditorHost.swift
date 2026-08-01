@@ -1,6 +1,7 @@
 import SwiftUI
 import MaughamCore
 import AppKit
+import UniformTypeIdentifiers
 import os
 
 private let _statementEditorLog = Logger(
@@ -146,6 +147,14 @@ struct StatementEditorHost: View {
     @State private var resolvedScope: String?
     @State private var isMinting = false
     @State private var editorControl = EditorControl()
+    @State private var isDropTargeted = false
+    /// Why the last picture did not land, or nil.
+    ///
+    /// **Cleared in `reconcile`, and that is not housekeeping.** This host is
+    /// deliberately not remounted on a scope change (see `reconcile`'s comment on
+    /// `.id()`), so every `@State` here outlives one. A refusal left behind is a
+    /// sentence about a file the writer dropped on another scope's editor.
+    @State private var pictureMessage: String?
 
     /// Session id stable for the lifetime of this app launch, stamped onto every
     /// op. Declared here rather than shared with `EditorHost`, whose pair is
@@ -195,19 +204,26 @@ struct StatementEditorHost: View {
     }
 
     var body: some View {
-        Group {
-            if canMount {
-                EditorSurface(
-                    // The sanctioned binding, and nothing else. It stays inline
-                    // here — this is the fragile data-plane seam (tripwires
-                    // 2/3/6/7) and is deliberately not packaged into the
-                    // configuration, exactly as `EditorHost` keeps it.
-                    text: Binding(
-                        get: { target.text },
-                        set: { target.write($0) }),
-                    configuration: makeSurfaceConfiguration())
-            } else {
-                loadingPlaceholder
+        VStack(spacing: 0) {
+            Group {
+                if canMount {
+                    EditorSurface(
+                        // The sanctioned binding, and nothing else. It stays inline
+                        // here — this is the fragile data-plane seam (tripwires
+                        // 2/3/6/7) and is deliberately not packaged into the
+                        // configuration, exactly as `EditorHost` keeps it.
+                        text: Binding(
+                            get: { target.text },
+                            set: { target.write($0) }),
+                        configuration: makeSurfaceConfiguration())
+                } else {
+                    loadingPlaceholder
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            if Self.showsPictureWell(
+                kind: kind, resolvedScope: resolvedScope, scopeKey: scopeKey) {
+                pictureWell
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -338,6 +354,9 @@ struct StatementEditorHost: View {
         // SCOPE change, where the editor must come down anyway. The mint changes
         // no scope, so it never re-enters here — instrumented and confirmed.
         resolvedScope = nil
+        // See `pictureMessage`: this host is not remounted on a scope change, so
+        // a refusal that is not cleared here follows the writer to the next scope.
+        pictureMessage = nil
         if let prior = target.document {
             // Withdrawn BEFORE the close, so no window exists in which the
             // registry offers a `Document` that is on its way to being a husk.
@@ -414,6 +433,180 @@ struct StatementEditorHost: View {
         }
     }
 
+    // MARK: - Pictures (M1A Task 12, spec §7)
+
+    /// Only visual language takes pictures. An intent is prose *about* the
+    /// writing; the umbrella spec's §3.2 calls visual language *mixed — images,
+    /// references and prose*, and it is the one artifact whose subject is how the
+    /// book looks. `StatementImageIngestTests.test_intentTakesNoPicturesAtAll` is
+    /// the control on this being a switch rather than an oversight.
+    static func takesPictures(_ kind: Statement.Kind) -> Bool {
+        if case .visualLanguage = kind { return true }
+        return false
+    }
+
+    /// Whether the drop well is on screen: visual language, **and only while the
+    /// editor is mounted**.
+    ///
+    /// The second half is correctness rather than tidiness. `reconcile` releases
+    /// the outgoing target and then suspends at `Document.load`; a drop landing
+    /// in that window writes its ref into `draft`, and the
+    /// `bind(carryingDraft: false)` waiting at the end of `reconcile` clears the
+    /// draft without carrying it — so the picture is in the well and the ref is
+    /// gone. There is no editor to take a keystroke in that window either, and
+    /// this is the same answer for the same reason.
+    ///
+    /// Static and pure, like `shouldMount`, so the rule is asserted over the
+    /// product of its inputs rather than through a race.
+    static func showsPictureWell(
+        kind: Statement.Kind, resolvedScope: String?, scopeKey: String
+    ) -> Bool {
+        takesPictures(kind) && shouldMount(resolvedScope: resolvedScope, scopeKey: scopeKey)
+    }
+
+    /// The drop target, **beside the editor rather than over it**.
+    ///
+    /// `EditorSurface` mounts a real `NSTextView`, which is the deeper AppKit
+    /// view and therefore the one a drag is offered to first; a SwiftUI
+    /// `.onDrop` laid over it is a target whose delivery nobody here can
+    /// predict. A well of its own is `PaletteCardEditor`'s shape, it is
+    /// unambiguous on screen, and it says what it takes. `⌘V` inside the editor
+    /// is the other half and needs no chrome — see `makeSurfaceConfiguration`.
+    ///
+    /// `[.fileURL, .image]` providers and NEVER `.dropDestination(for: URL.self)`,
+    /// which silently rejects a browser's rendered bitmap with nothing logged and
+    /// nothing red (`DropClassification`).
+    private var pictureWell: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4]))
+                .foregroundStyle(isDropTargeted
+                                 ? AnyShapeStyle(Color.accentColor)
+                                 : AnyShapeStyle(.separator))
+                .frame(height: 40)
+                .overlay(
+                    Label("Drop pictures here", systemImage: "photo")
+                        .font(.caption).foregroundStyle(.secondary))
+                .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted) { providers in
+                    ingest(providers)
+                    return true
+                }
+            if let pictureMessage {
+                Text(pictureMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.bottom, 8)
+    }
+
+    /// Take every provider a drop carried, in order.
+    private func ingest(_ providers: [NSItemProvider]) {
+        Task { @MainActor in
+            for provider in providers {
+                switch DropClassification.action(
+                    hasFileURL: provider.hasItemConformingToTypeIdentifier(
+                        UTType.fileURL.identifier),
+                    canLoadImage: provider.canLoadObject(ofClass: NSImage.self)) {
+                case .fileURL:
+                    guard let url = await DropClassification.fileURL(from: provider) else {
+                        pictureMessage = ImagePasteHandler.failureMessage(for: LoadFailed())
+                        continue
+                    }
+                    await take { try await store.addImage(
+                        toStatement: kind, scope: scope, fileURL: url) }
+                case .image:
+                    guard let image = await DropClassification.image(from: provider) else {
+                        pictureMessage = ImagePasteHandler.failureMessage(for: LoadFailed())
+                        continue
+                    }
+                    await take { try await store.addImage(
+                        toStatement: kind, scope: scope, image: image) }
+                case .ignore:
+                    continue
+                }
+            }
+        }
+    }
+
+    /// A drag that carried a file URL or a bitmap and then would not hand it
+    /// over. It has no sentence of its own — `failureMessage` gives it the
+    /// generic one, which is the honest answer: we do not know what it was.
+    private struct LoadFailed: Error {}
+
+    /// Run one ingest and put its ref into the statement, or say why not.
+    private func take(_ ingest: () async throws -> String) async {
+        do {
+            append(try await ingest())
+            pictureMessage = nil
+        } catch {
+            pictureMessage = ImagePasteHandler.failureMessage(for: error)
+        }
+    }
+
+    /// Put a Markdown ref into the statement's text.
+    ///
+    /// **Through `target.write`, which is the same binding every keystroke
+    /// takes** (contract 7). A statement is a `Document` and its `.md` is derived
+    /// output, so a ref written to the file would be discarded on the next
+    /// re-materialize. When the statement has no `Document` yet this lands in
+    /// `draft` and fires the pane's own mint, which carries it in — so a picture
+    /// dropped into an empty visual language is what declares it to exist.
+    ///
+    /// Appended rather than inserted at the caret, because a drop has no caret
+    /// and the well is not the editor. `⌘V` inside the editor does insert at the
+    /// caret; see `makeImagePasteHandler`.
+    private func append(_ ref: String) {
+        let existing = target.text
+        target.write(existing.isEmpty ? ref : existing + "\n\n" + ref)
+    }
+
+    /// `⌘V` of a picture inside the editor.
+    ///
+    /// **The closure captures `kind` and `scope` from the body pass that built
+    /// it, and that is safe here for a reason worth stating** — `reconcile`'s own
+    /// comment records the live defect from getting this wrong once, where a
+    /// handler wired at `.onAppear` went on naming the pane's first scope for its
+    /// whole life. This one is rebuilt on every body pass and re-assigned by
+    /// `EditorSurface.updateNSView`, and no paste can outrun it: a scope change
+    /// unmounts the editor entirely (`canMount` goes false) until `reconcile`
+    /// sets `resolvedScope` again, which is itself a body pass.
+    ///
+    /// **Synchronous by contract** (`MaughamTextView.paste(_:)` inserts what this
+    /// returns at the caret), which is why the two branches differ. With a
+    /// statement already on disk its well is known and the ref goes in at the
+    /// caret, where the writer put it. Without one, the well cannot be derived at
+    /// all — `vacantStatementPath` steers around an occupied
+    /// `visual-language.md`, so the path is find-or-create's answer rather than a
+    /// constant — so this returns nil and finishes on the same route the drop
+    /// takes. Nothing is lost: the statement is minted, the picture is saved and
+    /// the ref is appended. It appends rather than inserting, and in the only
+    /// case that reaches it those are the same place — there is no statement, so
+    /// there is nothing in the editor to be after.
+    private func makeImagePasteHandler() -> ((NSImage) -> String?)? {
+        guard Self.takesPictures(kind) else { return nil }
+        return { image in
+            if let statement = store.statement(kind: kind, scope: scope) {
+                do {
+                    // Through the seam, never the saver: where a statement's
+                    // pictures live is `ProjectStore+StatementAssets`' decision,
+                    // and a second call to the saver from here is a second answer.
+                    return try store.addImage(to: statement, image: image)
+                } catch {
+                    pictureMessage = ImagePasteHandler.failureMessage(for: error)
+                    return nil
+                }
+            }
+            Task { @MainActor in
+                await take { try await store.addImage(
+                    toStatement: kind, scope: scope, image: image) }
+            }
+            return nil
+        }
+    }
+
     // MARK: - Configuration
 
     /// Prose, with wiki links on and every writing-surface affordance off.
@@ -441,7 +634,11 @@ struct StatementEditorHost: View {
                 // Scopes a wiki-link click's navigation to this project (ADR
                 // 0021). Prose never posts a script update — `lastParsedScript`
                 // is nil outside screenplay mode — so this only serves the click.
-                scriptOriginProjectId: ProjectIdentifier.id(for: store.url)),
+                scriptOriginProjectId: ProjectIdentifier.id(for: store.url),
+                // Nil for an intent, which is what makes `⌘V` of a picture fall
+                // through to `super.paste` there — and what keeps the image
+                // types out of `readablePasteboardTypes` on that surface.
+                imagePasteHandler: makeImagePasteHandler()),
             // The right column's editor sits beside the manuscript's. It answers
             // none of the window's manuscript commands and keeps its own undo
             // stack — see `EditorSurfaceConfiguration.isSecondEditorInItsWindow`

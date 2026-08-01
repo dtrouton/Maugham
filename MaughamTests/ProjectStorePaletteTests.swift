@@ -135,6 +135,79 @@ final class ProjectStorePaletteTests: XCTestCase {
         await ds.close()
     }
 
+    /// **A text file dropped on a card's image well is refused, and the writer
+    /// is told which file and why** (M1A Task 12).
+    ///
+    /// This surface had no check at all: `PaletteCardEditor.handleDrop` reached
+    /// the shared saver through `try?`, and the saver took `pathExtension` as
+    /// given — so a `.txt` was copied into `<slug>_assets/`, appended to
+    /// `imagePaths`, and drawn as a grey photo placeholder the writer could
+    /// neither fix nor explain. Refusing at the saver is only half of it; a
+    /// refusal that reaches a `try?` is the same silence one layer down, which
+    /// is why the sentence is asserted here rather than only the throw.
+    ///
+    /// **Control, in the same test:** a real PNG through the same call still
+    /// lands on the card, and produces no message.
+    func test_aTextFileDroppedOnAPaletteCardIsRefusedAndSaysSo() async throws {
+        let (url, store, ds) = try await makeNovel()
+        _ = try await store.addPaletteCard(title: "Pics", kind: .motif)
+        let cardId = store.loadPaletteCards()[0].researchItemId
+        let notes = url.appendingPathComponent("notes.txt")
+        try Data("not a picture".utf8).write(to: notes)
+
+        var refusal: Error?
+        do { _ = try await store.addImage(toPaletteCard: cardId, fileURL: notes) }
+        catch { refusal = error }
+
+        let error = try XCTUnwrap(refusal, "a text file is not an image")
+        let sentence = ImagePasteHandler.failureMessage(for: error)
+        XCTAssertTrue(sentence.contains("notes.txt"),
+                      "the sentence NAMES the file: \(sentence)")
+        XCTAssertTrue(store.loadPaletteCards()[0].imagePaths.isEmpty,
+                      "nothing was appended to the card")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: url.appendingPathComponent(
+                    "research/palette/pics_assets").path),
+            "nothing was ingested, so the well was never even made")
+
+        // Control.
+        let png = url.appendingPathComponent("real.png")
+        try makePNGData(width: 20, height: 20).write(to: png)
+        let card = try await store.addImage(toPaletteCard: cardId, fileURL: png)
+        XCTAssertEqual(card.imagePaths.count, 1, "a real picture still lands")
+        await ds.close()
+    }
+
+    /// Control for the sentence above: **every** failure says something (a
+    /// silent one is the defect this task fixed), and it blames the writer's
+    /// file only when the writer's file is what is wrong.
+    ///
+    /// The second half is the one worth having, and it is what falsifies a
+    /// `error.localizedDescription` passthrough: on an error that is not ours
+    /// that reads *"The operation couldn’t be completed. (… error 1.)"*, which
+    /// is a stack trace shown to a writer who dropped a picture.
+    func test_theSentenceBlamesTheFileOnlyWhenTheFileIsToBlame() {
+        struct DiskWentAway: Error {}
+
+        XCTAssertTrue(
+            ImagePasteHandler.failureMessage(
+                for: ImagePasteHandler.ImagePasteError.notAnImage(filename: "notes.txt"))
+                .contains("notes.txt"))
+
+        let generic = ImagePasteHandler.failureMessage(for: DiskWentAway())
+        XCTAssertFalse(generic.isEmpty, "a failure that says nothing is the defect")
+        XCTAssertFalse(generic.contains("DiskWentAway"),
+                       "an error's own description names a Swift type: \(generic)")
+        XCTAssertFalse(generic.lowercased().contains("operation"),
+                       "…and reads as a crash report: \(generic)")
+        XCTAssertEqual(generic,
+                       ImagePasteHandler.failureMessage(
+                        for: ImagePasteHandler.ImagePasteError.encodingFailed),
+                       "everything that is not the writer's file gets the one "
+                       + "sentence, so there is no second spelling to drift")
+    }
+
     func test_updatePaletteCard_unknownId_throws() async throws {
         let (_, store, ds) = try await makeNovel()
         let ghost = PaletteCard(researchItemId: "res-ghost", title: "G", kind: .other,

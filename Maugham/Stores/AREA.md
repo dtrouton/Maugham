@@ -25,6 +25,7 @@ The persistence and coordination layer: project structure, documents, recents, s
   - `ProjectStore+CanvasAssets.swift` — the canvas's asset well (see below)
   - `ProjectStore+Statements.swift` — find-or-create a statement by scope (see below)
   - `ProjectStore+StatementAdoption.swift` — the one-time, on-open migration of legacy craft-intent notes (see below)
+  - `ProjectStore+StatementAssets.swift` — a statement's own asset well (see below)
 - `DocumentStore.swift` — project-folder coordinator + Document registry. Owns the NSFilePresenter, manifest IO, session tracking, UI state, rename/copy/move orchestration, **and the typed user-content mover** (see below). Per-doc op-log, autosave, conflict-detection, and echo guard now live on `Document` (post-`milestone-document-first-class`); this file routes external presenter callbacks to the matching Document via the registry.
 - `MaughamSidecarPath.swift` — typed classification of project-relative file URLs into manifest / opLog / checkpoints / sessions / uiState / conflictBackup / scratch / pending / trash / unknownSidecar / otherProjectFile / outsideProject. `presenterDidChangeSubitem` dispatches via a switch on this enum — adding a new sidecar owner is a compile-error workflow. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `DebounceScheduler.swift`, `RecentsStore.swift`, `SessionLog.swift`, `TrashStore.swift` — small focused stores, well-bounded. **Use these as the model** for new stores; don't model new things after `ProjectStore`'s size.
@@ -86,6 +87,17 @@ Two new research-adjacent conventions, both plain-edited (no op log, no `¶id` a
 - **The pair returns a PROJECT-RELATIVE path**, which is what `CanvasItemReference.owned(path:)` requires. The saver returns a Markdown ref one step earlier; resolving it is `ProjectStore.resolveImageRef(_:relativeTo:)` — the palette's, shared rather than respelled (its label was generalised from `cardDirectory:` for this). An absolute path, a `file://` URL or the ref itself each renders nothing, keys the thumbnail cache on a string that differs between Macs, and breaks the moment the project is moved or synced.
 - **Two tripwires, same shape as the palette's.** `TripwireGrepTests.test_theSharedImageSaverIsCalledFromTheSeamsThatOwnAWell` is a census of the files allowed to call `ImagePasteHandler.saveAndReference*` (count the set, not the prose); `…test_theCanvasAssetWellIsDerivedAndNeverSpelledInCode` catches the other reach-around, a hand-built `"canvas_assets"` path that never names the pair at all. Both have a planted-offender self-check.
 - **The image write itself is uncoordinated**, matching the two existing wells: these are new files with minted unique names, written once and never re-edited, so there is no second writer for NSFileCoordinator to arbitrate. A *manuscript* or a card's markdown is a different case — those still route through `DocumentStore` (tripwire 7).
+
+## A statement's asset well — `ProjectStore+StatementAssets.swift` (M1A Task 12, 2026-08-01)
+
+`addImage(toStatement:scope:image:)` / `(…fileURL:)` are visual language's ingestion pair, and `addImage(to:image:)` is their synchronous sibling for a caller that has already found the statement. Umbrella §3.2 calls visual language *mixed — images, references and prose*, and a mood board you cannot put a picture into is the wrong shape for the one artifact whose subject is how the book looks.
+
+- **A seam of its own rather than a caller of the canvas's or the palette's.** A statement is a file of its own, so its pictures go beside it; routing them into `canvas_assets/` would file them next to a document they have nothing to do with, and would tie them to a sidecar the writer may delete. It is an entry in the saver census, and the census comment says which well.
+- **The name is derived, never spelled.** `ImagePasteHandler.destination` builds `<slug>_assets` from the file's own name, so a `Statement.path` of `visual-language.md` yields `visual-language_assets/` with no literal anywhere.
+- **Find-or-create, because the well cannot be known before the file exists.** `vacantStatementPath` steers around an occupied `visual-language.md`, so the path is `createStatement`'s answer rather than a constant. `createStatement` is idempotent, so a pane minting on the same turn gets the same statement.
+- **The file-URL twin validates BEFORE it mints.** A refused `.txt` must not be what declares the writer's visual language to exist — so the guard is asked here as well as inside the saver, and a refusal leaves nothing behind at all.
+- **It returns a Markdown ref and never touches the statement's text.** A statement is a `Document` and its `.md` is derived output; the ref reaches the op log through the same `setFullText` binding a keystroke takes (`StatementEditorHost.append`). Writing the file directly would be discarded on the next re-materialize.
+- **It opens no `Document`, so it deliberately does not take `lockStatementOpen`** — that gate is over the *opening*, and this only writes a file beside one.
 
 ## The statement seam — `ProjectStore+Statements.swift` (M1A, 2026-07-31)
 

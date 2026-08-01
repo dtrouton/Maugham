@@ -2097,24 +2097,34 @@ final class TripwireGrepTests: XCTestCase {
 
     // MARK: - The canvas's asset well has exactly one writer (1C-d Task 2)
 
-    /// The shared image saver. Three seams own a `<slug>_assets/` well and so
-    /// may call it; a fourth caller is a fourth answer to "where does a dropped
-    /// image live", which is the decision this seam exists to make once.
+    /// The shared image saver. A seam that owns a `<slug>_assets/` well of its
+    /// own may call it; any other caller is one more answer to "where does a
+    /// dropped image live", which is the decision this seam exists to make once.
     private static let imageSaverCall = "ImagePasteHandler.saveAndReference"
 
     /// **Count the set, not this comment.** Each entry is a seam that owns a
-    /// well of its own:
+    /// well of its own, and each line says which well:
     ///
     /// - `ProjectStore+Palette.swift` — a palette card's images.
     /// - `ResearchNoteEditor.swift` — an image pasted into a research note.
-    /// - `ProjectStore+CanvasAssets.swift` — the canvas's ingestion pair.
+    /// - `ProjectStore+CanvasAssets.swift` — the canvas's ingestion pair,
+    ///   `canvas_assets/`.
+    /// - `ProjectStore+StatementAssets.swift` (M1A Task 12) — a statement's own
+    ///   well, `visual-language_assets/` for the one statement kind that holds
+    ///   pictures. It is a seam rather than a caller of one of the others
+    ///   because a statement is its own file: routing its pictures into
+    ///   `canvas_assets/` or a palette card's well would put them beside a
+    ///   document they do not belong to, and the well's name is derived from
+    ///   `Statement.path` exactly as the canvas's is from
+    ///   `CanvasStore.scrapsRelativePath`.
     ///
     /// 1C-d's drop, browser-bitmap and inbox routes are all *callers* of the
-    /// third; none of them is a fourth entry here.
+    /// canvas pair; none of them is an entry here.
     private static let imageSaverCallers: Set<String> = [
         "ProjectStore+Palette.swift",
         "ResearchNoteEditor.swift",
         "ProjectStore+CanvasAssets.swift",
+        "ProjectStore+StatementAssets.swift",
     ]
 
     /// Which production files call the shared saver, comments excluded.
