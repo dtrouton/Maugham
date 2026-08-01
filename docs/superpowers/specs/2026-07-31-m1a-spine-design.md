@@ -446,8 +446,16 @@ Anything not on this list is a claim to be checked, not a fact.
 - `performCraftIntent` documents the resulting split-intent defect —
   `PromotionPerformer.swift:498-512`.
 - `RegionBinding.references(forPiece:)` has zero production callers —
-  `RegionBinding.swift:35`; its doc comment cites a non-existent §4.4 and claims
-  1A consumes it — `:3-11`.
+  `RegionBinding.swift:35`; its doc comment claims 1A consumes it — `:3-11`.
+  **Corrected 2026-08-01 (Task 10):** this entry also said the comment "cites a
+  non-existent §4.4". That was wrong, and wrong in the way this list exists to
+  prevent — it was checked against the umbrella spec, but a bare `§` in
+  `Maugham/Canvas/` refers to the **planning-canvas** design, whose §4.4 is real,
+  is titled for this bridge, and quotes the umbrella §8 sentence while saying so.
+  The milestone half of the claim stands and was corrected in the code: umbrella
+  §10 assigns pinned references to M2, and what 1A gave the projection is a
+  *reader*, not a rail. The disambiguation now lives in `RegionBinding.swift`
+  itself, because two readers made the same mistake three weeks apart.
 - `list_canvas` reports `bound_piece_id` on nodes and regions —
   `CanvasTools.swift:73, 96`.
 - `Persona.panes` reserves `.intent` and `.visualLanguage` —
