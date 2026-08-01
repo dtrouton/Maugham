@@ -55,6 +55,9 @@ final class PaletteLoadingTests: XCTestCase {
 
     // MARK: - excludingPalette
 
+    /// `statements: []` throughout this suite — the legacy arm. The intent
+    /// exclusion is conditional as of M1A (it follows what the Craft Intent row
+    /// actually shows); `PhoneStatementReadTests` owns both sides of that.
     func test_excludingPalette_removesGroupDescendantsAndIntent_keepsOrdinaryResearch() {
         let research = [
             group("pg", "Palette", path: "research/palette", role: .paletteGroup, [
@@ -74,7 +77,7 @@ final class PaletteLoadingTests: XCTestCase {
                          path: "research/craft-intent.md", role: .craftIntent),
             card("wb", "World Bible", path: "research/world-bible.md"),
         ]
-        let kept = PaletteLoading.excludingPalette(leaves, research: research)
+        let kept = PaletteLoading.excludingPalette(leaves, research: research, statements: [])
         XCTAssertEqual(kept.map(\.id), ["wb"],
             "palette cards and the craft-intent doc leave the Research section; ordinary research stays")
     }
@@ -92,13 +95,13 @@ final class PaletteLoadingTests: XCTestCase {
             card("c1", "The Flat", path: "research/my-textures/the-flat.md"),
             card("wb", "World Bible", path: "research/world-bible.md"),
         ]
-        XCTAssertEqual(PaletteLoading.excludingPalette(leaves, research: research).map(\.id), ["wb"])
+        XCTAssertEqual(PaletteLoading.excludingPalette(leaves, research: research, statements: []).map(\.id), ["wb"])
     }
 
     func test_excludingPalette_noPaletteOrIntent_isIdentity() {
         let research = [card("wb", "World Bible", path: "research/world-bible.md")]
         let leaves = [card("wb", "World Bible", path: "research/world-bible.md")]
-        XCTAssertEqual(PaletteLoading.excludingPalette(leaves, research: research).map(\.id), ["wb"])
+        XCTAssertEqual(PaletteLoading.excludingPalette(leaves, research: research, statements: []).map(\.id), ["wb"])
     }
 
     // MARK: - groupedNotes

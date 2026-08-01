@@ -30,7 +30,8 @@ story is not "missing" sensory detail.
    card exists; aiming is never required. Back at your Mac, promote aimed
    captures into cards from the Inbox pane (⌘⌥B): text and audio land as
    sense-tagged notes, photos land in the card's image well. Browse existing
-   cards and the project's craft intent from the phone's Read tab, and triage
+   cards and the project's intent from the phone's Read tab — reading only, and
+   the project's own; a document's intent stays on the Mac — and triage
    sense-pass annotations from the Annotations tab, same as any other note.
 3. **Audit** — ask Claude (via Claude Desktop + the Maugham MCP connection) to
    run the sense pass below. Claude reads your intent, your palette, and the
