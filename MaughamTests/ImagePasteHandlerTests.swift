@@ -140,7 +140,11 @@ final class ImagePasteHandlerTests: XCTestCase {
     /// otherwise: ImageIO reads a PDF's first page happily, and a PDF is not
     /// something these wells hold.
     ///
-    /// Every row here is a measurement. If one changes, the OS changed.
+    /// Every row is a pin on the PREDICATE. The measurement that motivated it
+    /// is in the doc comment on `isIngestableImage`; no row here re-measures
+    /// it — each one holds under either hypothesis about how the OS derives
+    /// `contentType`, which is what makes them a good pin on our code and no
+    /// pin at all on the platform.
     func test_whatTheSaverWillAndWillNotTakeIntoAWell() throws {
         let project = try makeProject()
         let png = try pngData()

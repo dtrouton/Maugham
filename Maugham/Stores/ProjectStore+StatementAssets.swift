@@ -30,9 +30,25 @@ import MaughamCore
 /// the `Document`.** A statement's `.md` is derived output (hard invariant), so
 /// writing the ref into the file would be discarded on the next re-materialize.
 /// Nothing here touches the statement's text.
+/// Where a picture landed.
+///
+/// **The pair travels together, and that is the M1A Task 12 review's I1.** The
+/// ref is a path relative to one particular document, and an async ingest can
+/// finish on a different scope than it started on — the writer drops a picture
+/// on Visual Language and presses `⌘⌥N` while the file is being copied. A caller
+/// holding only the ref has to ask "which document is this for?" of whatever the
+/// pane is showing *now*, and the honest answer is the statement the picture was
+/// saved beside. So it is returned rather than inferred.
+public struct StatementPicture {
+    /// The statement the picture was saved beside, found-or-created.
+    public let statement: Statement
+    /// The Markdown ref to put into **that statement's** text.
+    public let ref: String
+}
+
 extension ProjectStore {
 
-    /// Save `image` into the statement's well and return the Markdown ref.
+    /// Save `image` into the statement's well and return where it landed.
     ///
     /// **Find-or-create, because the well cannot be known before the file
     /// exists.** `vacantStatementPath` steers around an occupied
@@ -41,14 +57,16 @@ extension ProjectStore {
     /// alone. `createStatement` is idempotent, so a pane that mints on the same
     /// turn gets the same statement and no second file.
     ///
-    /// It does **not** open a `Document`, and so deliberately does not take
-    /// `lockStatementOpen` — that gate is over the opening, and the ref reaches
-    /// the text through whichever `Document` the pane already has (or the one
-    /// its own first-keystroke mint opens under the gate).
+    /// It opens no `Document` and so takes no `lockStatementOpen` of its own —
+    /// that gate is over the *opening*. Putting the ref into the text is the
+    /// caller's next act, and `ProjectStore.appendToStatement` is what takes the
+    /// gate when nobody has the statement open.
     public func addImage(
         toStatement kind: Statement.Kind, scope: Statement.Scope, image: NSImage
-    ) async throws -> String {
-        try addImage(to: try await createStatement(kind: kind, scope: scope), image: image)
+    ) async throws -> StatementPicture {
+        let statement = try await createStatement(kind: kind, scope: scope)
+        return StatementPicture(statement: statement,
+                                ref: try addImage(to: statement, image: image))
     }
 
     /// Save `image` beside a statement that **already exists**, synchronously.
@@ -80,13 +98,15 @@ extension ProjectStore {
     /// language to exist.
     public func addImage(
         toStatement kind: Statement.Kind, scope: Statement.Scope, fileURL: URL
-    ) async throws -> String {
+    ) async throws -> StatementPicture {
         guard ImagePasteHandler.isIngestableImage(fileURL) else {
             throw ImagePasteHandler.ImagePasteError.notAnImage(
                 filename: fileURL.lastPathComponent)
         }
         let statement = try await createStatement(kind: kind, scope: scope)
-        return try ImagePasteHandler.saveAndReferenceFile(
-            from: fileURL, forNoteAt: statement.path, in: url)
+        return StatementPicture(
+            statement: statement,
+            ref: try ImagePasteHandler.saveAndReferenceFile(
+                from: fileURL, forNoteAt: statement.path, in: url))
     }
 }

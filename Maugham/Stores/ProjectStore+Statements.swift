@@ -182,6 +182,106 @@ extension ProjectStore {
         return created
     }
 
+    // MARK: - Writing into one
+
+    /// Put `text` at the end of a statement, **through its op log**, whoever
+    /// currently has it open.
+    ///
+    /// **Shared rather than promotion's own** (M1A Task 12 review, I1). It was
+    /// `PromotionPerformer.append(_:to:)`; visual language's picture ingest is
+    /// the second caller and arrives with the same problem — a destination named
+    /// by STATEMENT rather than by "whatever the pane is showing now", because
+    /// the caller may finish on a different scope than it started on. `session`
+    /// is the caller's, so the ops carry who wrote them.
+    ///
+    /// There is no read-back-from-disk and no flush dance here, and their
+    /// absence is the point: the op log is the source of truth (ADR 0019), so
+    /// the prior text is the `Document`'s own and a queued 750 ms save cannot
+    /// race an append the way it races a whole-file write.
+    ///
+    /// **The live `Document` FIRST, and never a second one on the same path.**
+    /// A statement's `Document` is deliberately in no `DocumentStore` registry
+    /// (spec §8, `StatementEditorHost`), so `document(forDocId:)` cannot find an
+    /// open statement — and `.intent` is a pane of the Plan persona, the persona
+    /// the canvas lives in, so the writer really can have this statement open in
+    /// the right column while promoting a card in the centre. Two `Document`s on
+    /// one path each hold their own paragraph state and their own
+    /// `PendingBuffer`; whichever writes last decides the sequence, so the
+    /// promoted paragraph is written back out of the statement by the pane's
+    /// next burst. `ProjectStore.openStatementDocument(id:)` is the seam both
+    /// sides go through, and the lookup-plus-write below does not suspend, so
+    /// the pane cannot close its `Document` between them.
+    ///
+    /// **The open pane redraws off the shared `Document` with no push from
+    /// here, and that is measured rather than assumed** (2026-08-01). It is not
+    /// obvious: `StatementEditorHost.body` deliberately reads no text, so the
+    /// expectation was that nothing would invalidate it — the first cut of this
+    /// added an out-of-band-change event for the pane to service. Instrumented,
+    /// SwiftUI's observation reaches the binding's own `get` inside
+    /// `EditorSurface.updateNSView`, so writing `displayText` re-renders the host
+    /// and the buffer swaps through the one sanctioned `applyExternalText` site.
+    /// The event was deleted as machinery nothing needed;
+    /// `test_promotingWhileTheIntentPaneIsOpenDoesNotOpenASecondDocument` is what
+    /// holds the OUTCOME — the writer's next keystroke does not write the
+    /// promotion back out — so if that ever stops being true it goes red rather
+    /// than the loss being silent.
+    ///
+    /// `Document.load` stays the only construction path (hard invariant;
+    /// `BootstrapWiringTests`).
+    func appendToStatement(_ text: String, to statement: Statement,
+                           session: String) async throws {
+        if let live = openStatementDocument(id: statement.id) {
+            writeStatementText(live, text)
+            // Durable now rather than on the pane's own debounce: an append
+            // through here is an act the writer has committed to — a promotion
+            // they confirmed, a picture they dropped — and the surface says it
+            // landed.
+            try? await live.flushBurstNow()
+            return
+        }
+        // **The registry alone leaves a window and this closes it.** Nobody has
+        // this statement open *yet* — but `Document.load` suspends, and a pane
+        // arriving on this scope mid-load asks the same registry, gets the same
+        // answer, and loads a second `Document` on the same path. The gate is
+        // over the OPENING, so the pane simply queues behind us; see
+        // `ProjectStore.lockStatementOpen(_:)`.
+        await lockStatementOpen(statement.id)
+        defer { unlockStatementOpen(statement.id) }
+        // Asked AGAIN inside the gate: a pane can have bound while we queued,
+        // and its `Document` is the one that will still be live in a moment.
+        if let live = openStatementDocument(id: statement.id) {
+            writeStatementText(live, text)
+            try? await live.flushBurstNow()
+            return
+        }
+        let document = try await Document.load(
+            url: url.appendingPathComponent(statement.path),
+            device: MacDeviceID.current,
+            session: session,
+            presenter: documentStore?.presenter)
+        writeStatementText(document, text)
+        // Awaited, unlike `withAnnotationDocument`'s fire-and-forget close: that
+        // path has already appended its ops itself, and this one's words are
+        // still in the pending buffer until the close flushes it. Inside the
+        // gate, so nothing else opens this path until the ops are on disk.
+        await document.close()
+    }
+
+    /// Put the arriving text at the end of what a statement's `Document`
+    /// already says. One spelling, because the live arm and the transient arm
+    /// must not come to different conclusions about where an append goes.
+    private func writeStatementText(_ document: Document, _ text: String) {
+        document.setFullText(statementAppending(text, to: document.displayText))
+    }
+
+    /// A blank line between what is there and what is arriving, and nothing at
+    /// all in front of the first thing to reach an empty statement.
+    private func statementAppending(_ text: String, to existing: String) -> String {
+        existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? text
+            : existing + "\n\n" + text
+    }
+
     // MARK: - Path minting
 
     /// The slug a new document-scoped statement's filename is built from, or nil

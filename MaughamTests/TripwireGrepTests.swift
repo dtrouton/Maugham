@@ -2224,7 +2224,7 @@ final class TripwireGrepTests: XCTestCase {
             + literalOffenders.joined(separator: "\n"))
 
         XCTAssertEqual(try imageSaverCallSites(in: tmp), ["CanvasDropTarget.swift"],
-            "Self-check: a planted fourth caller of the shared saver should be "
+            "Self-check: a planted extra caller of the shared saver should be "
             + "recorded by the census.")
     }
 

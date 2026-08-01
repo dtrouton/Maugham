@@ -536,10 +536,56 @@ struct StatementEditorHost: View {
     /// generic one, which is the honest answer: we do not know what it was.
     private struct LoadFailed: Error {}
 
-    /// Run one ingest and put its ref into the statement, or say why not.
-    private func take(_ ingest: () async throws -> String) async {
+    /// Where a finished ingest's ref goes.
+    enum PictureDelivery: Equatable {
+        /// Through the pane's own binding. Visible immediately, and it mints the
+        /// statement when the drop is what created it.
+        case throughThePane
+        /// By statement id, through the seam promotion uses. The pane has moved
+        /// on while the file was being copied, so its `target` names another
+        /// scope's `Document` — or none at all.
+        case byStatementID
+    }
+
+    /// Which route a ref takes, decided at the moment the ingest FINISHES.
+    ///
+    /// **This is the M1A Task 12 review's I1, and it is a keystroke rather than
+    /// a race against the machine.** `showsPictureWell` stops a drop from
+    /// *starting* while the editor is unmounted; it says nothing about one that
+    /// started while mounted and completes during a `reconcile` — and that window
+    /// is a manifest write plus a file copy wide. Two landing places, both wrong:
+    /// before intent's `bind`, the ref sits in `draft` and
+    /// `bind(carryingDraft: false)` clears it, so the writer sees an accepted
+    /// drop and no text; after it, `target.document` is *intent's*, and a
+    /// `visual-language_assets/` ref is appended to their intent prose.
+    ///
+    /// Every prior defect on this file was a value still trusted after the thing
+    /// it described had moved, which is exactly what the captured `kind`/`scope`
+    /// are here. So the pane's route is taken only while the pane is still
+    /// resolved on the scope the ingest started from — and otherwise the ref goes
+    /// in by id, which is lossless. Nothing is dropped and nothing lands in the
+    /// wrong document.
+    ///
+    /// Static and pure so it is asserted over the product of its inputs rather
+    /// than through a race, like `shouldMount` and `showsPictureWell`.
+    static func delivery(
+        kind: Statement.Kind, scopeKeyAtStart: String, resolvedScopeAtFinish: String?
+    ) -> PictureDelivery {
+        showsPictureWell(kind: kind,
+                         resolvedScope: resolvedScopeAtFinish,
+                         scopeKey: scopeKeyAtStart)
+            ? .throughThePane : .byStatementID
+    }
+
+    /// Run one ingest and put its ref where it belongs, or say why not.
+    ///
+    /// `scopeKey` is read **before** the suspension and compared after, which is
+    /// `reconcile`'s own idiom one function over.
+    private func take(_ ingest: () async throws -> StatementPicture) async {
+        let startedOn = scopeKey
         do {
-            append(try await ingest())
+            let landed = try await ingest()
+            await deliver(landed, startedOn: startedOn)
             pictureMessage = nil
         } catch {
             pictureMessage = ImagePasteHandler.failureMessage(for: error)
@@ -548,19 +594,31 @@ struct StatementEditorHost: View {
 
     /// Put a Markdown ref into the statement's text.
     ///
-    /// **Through `target.write`, which is the same binding every keystroke
-    /// takes** (contract 7). A statement is a `Document` and its `.md` is derived
-    /// output, so a ref written to the file would be discarded on the next
-    /// re-materialize. When the statement has no `Document` yet this lands in
-    /// `draft` and fires the pane's own mint, which carries it in — so a picture
-    /// dropped into an empty visual language is what declares it to exist.
+    /// **Never by writing the `.md`** (contract 7), on either route: a statement
+    /// is a `Document` and its file is derived output, so a direct write would be
+    /// discarded on the next re-materialize.
+    ///
+    /// The pane route goes through `target.write`, the same binding every
+    /// keystroke takes — and when the statement has no `Document` yet the ref
+    /// lands in `draft` and fires the pane's own mint, which carries it in, so a
+    /// picture dropped into an empty visual language is what declares it to
+    /// exist. The by-id route reaches the same op log through
+    /// `ProjectStore.appendToStatement`, whose live arm writes into the pane's
+    /// own `Document` when a pane has one.
     ///
     /// Appended rather than inserted at the caret, because a drop has no caret
     /// and the well is not the editor. `⌘V` inside the editor does insert at the
     /// caret; see `makeImagePasteHandler`.
-    private func append(_ ref: String) {
-        let existing = target.text
-        target.write(existing.isEmpty ? ref : existing + "\n\n" + ref)
+    private func deliver(_ landed: StatementPicture, startedOn: String) async {
+        switch Self.delivery(kind: kind, scopeKeyAtStart: startedOn,
+                             resolvedScopeAtFinish: resolvedScope) {
+        case .throughThePane:
+            let existing = target.text
+            target.write(existing.isEmpty ? landed.ref : existing + "\n\n" + landed.ref)
+        case .byStatementID:
+            try? await store.appendToStatement(landed.ref, to: landed.statement,
+                                               session: Self.sessionId)
+        }
     }
 
     /// `⌘V` of a picture inside the editor.

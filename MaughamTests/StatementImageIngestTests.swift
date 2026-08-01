@@ -212,6 +212,99 @@ final class StatementImageIngestTests: XCTestCase {
             "an intent is prose about the writing")
     }
 
+    // MARK: - Where a finished ingest's ref goes (review I1)
+
+    /// **An ingest that finishes on a different scope than it started on must
+    /// not write into the pane's current `Document`.**
+    ///
+    /// `showsPictureWell` stops a drop from *starting* while the editor is
+    /// unmounted. It says nothing about one that started while mounted and
+    /// completes during a `reconcile` — and the window is a manifest write plus a
+    /// file copy wide, opened by a keystroke (`⌘⌥N`) rather than by a race
+    /// against the machine. Both landing places were wrong: before intent's
+    /// `bind` the ref sits in `draft` and `bind(carryingDraft: false)` clears it,
+    /// so the writer sees an accepted drop and no text; after it, a
+    /// `visual-language_assets/` ref is appended to their intent prose.
+    ///
+    /// Asked over the product of (scope at start, resolved scope at finish),
+    /// because the one path a test happens to drive is not the question.
+    func test_aRefGoesByIdWhenThePaneHasMovedOnAndThroughItWhenItHasNot() {
+        let visualLanguage = "visual_language|project"
+        let intent = "intent|project"
+
+        for startedOn in [visualLanguage, intent] {
+            for finishedAt: String? in [nil, visualLanguage, intent] {
+                for kind: Statement.Kind in [.intent, .visualLanguage, .unknown("newer")] {
+                    let route = StatementEditorHost.delivery(
+                        kind: kind, scopeKeyAtStart: startedOn,
+                        resolvedScopeAtFinish: finishedAt)
+                    let paneIsStillThere =
+                        StatementEditorHost.takesPictures(kind) && finishedAt == startedOn
+                    XCTAssertEqual(route,
+                                   paneIsStillThere ? .throughThePane : .byStatementID,
+                                   "kind=\(kind) started=\(startedOn) "
+                                   + "finished=\(finishedAt ?? "nil")")
+                }
+            }
+        }
+
+        // The three cases the defect was made of, named rather than left to the
+        // loop — each is a distinct wrong landing place.
+        XCTAssertEqual(
+            StatementEditorHost.delivery(
+                kind: .visualLanguage, scopeKeyAtStart: visualLanguage,
+                resolvedScopeAtFinish: nil),
+            .byStatementID,
+            "mid-reconcile: the ref would sit in `draft` and be cleared by the "
+            + "`bind(carryingDraft: false)` waiting at the end of `reconcile`")
+        XCTAssertEqual(
+            StatementEditorHost.delivery(
+                kind: .visualLanguage, scopeKeyAtStart: visualLanguage,
+                resolvedScopeAtFinish: intent),
+            .byStatementID,
+            "the pane switched to intent: `target.document` is intent's, and a "
+            + "visual-language_assets/ ref would go into the writer's intent prose")
+        XCTAssertEqual(
+            StatementEditorHost.delivery(
+                kind: .visualLanguage, scopeKeyAtStart: visualLanguage,
+                resolvedScopeAtFinish: visualLanguage),
+            .throughThePane,
+            "control: nothing moved, so the ordinary route must still be taken — "
+            + "it is the one that mints an empty visual language and shows the "
+            + "writer their picture immediately")
+    }
+
+    /// **The by-id route is lossless**, driven for real against a statement that
+    /// nobody has open — which is what the pane's `target` amounts to once it has
+    /// moved to another scope.
+    ///
+    /// Dropping the ref would have been the easy fix and it is not good enough:
+    /// the picture is already in the well, so a dropped ref is an orphan file the
+    /// writer can neither see nor clean up.
+    func test_theByIdRouteReachesTheStatementsOwnOpLogWithNobodyHoldingIt() async throws {
+        let fixture = try await fixture(named: "VisualLanguageById")
+        let png = fixture.projectURL.appendingPathComponent("by-id.png")
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 8, pixelsHigh: 8,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: png)
+
+        let landed = try await fixture.store.addImage(
+            toStatement: .visualLanguage, scope: .project, fileURL: png)
+        XCTAssertNil(
+            fixture.store.openStatementDocument(id: landed.statement.id),
+            "precondition: no pane has this statement open, so the append must "
+            + "take the transient arm under the open gate")
+
+        try await fixture.store.appendToStatement(
+            landed.ref, to: landed.statement, session: "test-\(UUID().uuidString)")
+        await fixture.waitOut(0.4)
+
+        XCTAssertEqual(fixture.derivedText(forDocId: landed.statement.id), landed.ref,
+                       "the ref reached the statement's OWN op log")
+    }
+
     // MARK: - What visual language refuses
 
     /// **A text file is refused on its way into visual language**, through the
@@ -247,11 +340,15 @@ final class StatementImageIngestTests: XCTestCase {
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
             colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
         try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: png)
-        let ref = try await fixture.store.addImage(
+        let landed = try await fixture.store.addImage(
             toStatement: .visualLanguage, scope: .project, fileURL: png)
-        let statement = try XCTUnwrap(
-            fixture.store.statement(kind: .visualLanguage, scope: .project))
-        XCTAssertTrue(ref.contains("\(well(beside: statement, in: fixture.projectURL).lastPathComponent)/"),
-                      "control: a real picture lands in the derived well; got \(ref)")
+        XCTAssertEqual(
+            landed.statement.id,
+            try XCTUnwrap(fixture.store.statement(kind: .visualLanguage, scope: .project)).id,
+            "the picture names the statement it was saved beside, so an ingest "
+            + "that finishes on another scope still knows where its ref belongs")
+        let assets = well(beside: landed.statement, in: fixture.projectURL)
+        XCTAssertTrue(landed.ref.contains("\(assets.lastPathComponent)/"),
+                      "control: a real picture lands in the derived well; got \(landed.ref)")
     }
 }
