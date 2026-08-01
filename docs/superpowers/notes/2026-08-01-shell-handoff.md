@@ -12,25 +12,21 @@ It is sliced six ways and explicitly sequenced *after* M1A's smoke.
 
 ## State
 
-`main` is at **`6873c19`**, **pushed**. Tree clean. **No tag** — M1A completed M1
-in code, and the release is deliberately not cut.
+`main` is at **`f552eaa`**, **pushed**. Tree clean. **No tag.**
 
 - **M1A merged at `7b8e762`** (32 commits), plus three tidy commits closing its
   residuals. See `memory/project_milestone_1a_spine.md`.
-- **M1C's roadmap entry is still `~`.** Every slice is ✓; the flip waits on the
-  whole-milestone smoke. That is Denver's.
-- **The paired Mac + phone release is owed and unstarted.** At manifest schema 4
-  an older build *refuses* a project rather than degrading it, so the two ship
-  together or not at all.
-
-## What M1A still owes, before any of this starts
-
-1. **The whole-milestone M1 smoke.** Denver runs it. The script is in the M1A
-   memory file; the item no unit test can reach is the **iOS download gate for
-   `intent.md`**, which sits at the *project root* — a directory level the phone
-   has never read before.
-2. **Flip M1C's `~` to ✓** once that smoke passes.
-3. **Then** the paired release.
+- **The M1 smoke is DONE and passed** (Denver, 2026-08-01).
+- **M1C's roadmap entry is still `~`** at `docs/roadmap.md:55`. Every slice under
+  it is ✓ and 1A is already ✓ at `:67`. The flip is now unblocked — it is the
+  first job of the next session, and it is small: the marker, plus CLAUDE.md rule
+  10's sweep of sibling docs for claims the flip makes false.
+- **The paired Mac + phone release is DEFERRED until the shell work below is
+  done** — Denver's call, 2026-08-01. Not blocked, chosen: shipping the spine
+  into a shell that does not fit it, and then reshaping the shell, would mean two
+  paired releases where one will do. At manifest schema 4 an older build *refuses*
+  a project rather than degrading it, so Mac and phone ship together whenever that
+  happens.
 
 ## Read these, in this order
 
