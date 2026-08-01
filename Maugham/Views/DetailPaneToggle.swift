@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct DetailPaneToggle<Inspector: View>: View {
     @Bindable var store: ProjectStore
@@ -336,6 +337,33 @@ struct DetailPaneToggle<Inspector: View>: View {
             PalettePane(store: store)
         case .translation:
             translationPane
+        case .intent:
+            statementPane(kind: .intent)
+        case .visualLanguage:
+            statementPane(kind: .visualLanguage)
+        }
+    }
+
+    /// **This switch is why a new right-pane surface touches this file.**
+    /// `Persona.panes`' extension-point comment says adding one is an enum case
+    /// plus a registry entry and nothing else; that is true of the picker, the
+    /// shortcut table and `ProjectWindow`, and false here — `segmentContent` is
+    /// exhaustive over `DetailSegment` with no `default`, so a new case cannot
+    /// compile without an arm. The comment has been corrected rather than the
+    /// switch loosened: a `default` here would let a segment ship registered,
+    /// reachable by shortcut, and rendering the wrong pane.
+    @ViewBuilder
+    private func statementPane(kind: Statement.Kind) -> some View {
+        if let ds = documentStore {
+            StatementPane(
+                store: store, documentStore: ds, kind: kind,
+                activeDocumentId: activeManuscriptItemId)
+        } else {
+            ContentUnavailableView(
+                "Open a project",
+                systemImage: kind == .visualLanguage ? "photo.on.rectangle.angled" : "target",
+                description: Text("What you're going for lives with the project."))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

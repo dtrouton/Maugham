@@ -1,15 +1,15 @@
 # Inspector, Research & Outline
 
-The right column has nine modes: Inspector, Research, and Outline (covered on this page), plus Tasks, Annotations, History, Inbox, Palette, and Translation (each covered elsewhere — see the pointers at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
+The right column's modes are Inspector, Research, and Outline (covered on this page), plus Tasks, Annotations, History, Inbox, Palette, Translation, Intent, and Visual Language (each covered elsewhere, or at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
 
 ### Panes are grouped by persona
 
-Each of the four personas (⌘1 Plan, ⌘2 Author, ⌘3 Review, ⌘4 Publish — see [Getting Started → Personas](getting-started.md#personas)) offers its own subset of these nine modes in the picker, in an order suited to that persona's work. A shortcut still opens its pane from any persona — it reveals the right column if it's hidden and switches to it — even one the current persona doesn't lead with:
+Each of the four personas (⌘1 Plan, ⌘2 Author, ⌘3 Review, ⌘4 Publish — see [Getting Started → Personas](getting-started.md#personas)) offers its own subset of these modes in the picker, in an order suited to that persona's work. A shortcut still opens its pane from any persona — it reveals the right column if it's hidden and switches to it — even one the current persona doesn't lead with:
 
-- **Plan** — Research, Outline, Palette, Inbox, Tasks, Inspector.
-- **Author** — Inspector, Outline, Research, Tasks, Palette.
-- **Review** — Annotations, History, Translation, Inspector, Outline, Tasks, Palette.
-- **Publish** — Translation, Inspector.
+- **Plan** — Research, Outline, Palette, Inbox, Intent, Visual Language, Tasks, Inspector.
+- **Author** — Inspector, Outline, Research, Tasks, Palette, Intent.
+- **Review** — Annotations, History, Intent, Translation, Inspector, Outline, Tasks, Palette, Visual Language.
+- **Publish** — Translation, Visual Language, Inspector, Intent.
 
 Switching persona while sitting on a pane the destination doesn't offer falls back to that persona's default rather than blanking the pane.
 
@@ -51,3 +51,15 @@ Layout choice persists per project.
 The right pane also has a **Tasks** mode (⌘⌥T) — see [Tasks & To-Dos](tasks.md) — and an **Annotations** mode (⌘⌥A) — see [Annotations & Suggestions](annotations-and-suggestions.md).
 
 It also has a **History** mode (⌘⌥H) — a read-only timeline of edits, annotations, and checkpoints, with a scrubber for time-travel — an **Inbox** mode (⌘⌥B) — triage text/audio/photo captures from MaughamPhone, see [The Sense Pass](sense-pass.md) — a **Palette** mode (⌘⌥P) — a card for the sensory palette wall, also covered there — and a **Translation** mode (⌘⌥L) — the selected paragraph's source text and any open translator queries, active while reviewing a translation, see [Translating Your Manuscript](translation-review.md).
+
+### Intent mode (⌘⌥N)
+
+What you're going for — freeform prose, never a form. The pane shows the selected document's intent, or the project's when nothing is selected; when a document is selected, a small switch at the top of the pane puts the book's intent one click away.
+
+Intent is a real document, not a note: every edit lands in its own operation log, so ⌘Z works here as it does in the manuscript, and it merges across your Macs the same way. `[[Chapter 9]]` links resolve here too.
+
+**Having no intent recorded is a valid state.** An undeclared scope is simply an empty editor — start typing and the file is created for you. Nothing nags, and nothing is written until you write it.
+
+### Visual Language mode (⌘⌥V)
+
+How the book looks — typography, cover direction, the references you're steering by. Project-scope: one book, one look. Like Intent it's an ordinary document, with the same undo and the same cross-Mac merge, and it's likewise empty until you write in it.

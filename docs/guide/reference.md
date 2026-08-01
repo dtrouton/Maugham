@@ -34,6 +34,8 @@ The ones you'll use most:
 | `⌘⌥B` | Inbox pane |
 | `⌘⌥P` | Palette pane |
 | `⌘⌥L` | Translation pane |
+| `⌘⌥N` | Intent pane |
+| `⌘⌥V` | Visual Language pane |
 | `⌘⌥0` | Toggle inspector column |
 | `⌘⇧P` | Toggle Research preview |
 | `⌘/` | Syntax + keyboard reference |

@@ -838,6 +838,91 @@ final class TripwireGrepTests: XCTestCase {
             + "existing id population. Offenders:\n" + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - EditorSurface mount census (M1A: two editors in one window)
+
+    /// Every production site that mounts an `EditorSurface`. Adding one is the
+    /// moment to answer a question that has no default answer:
+    /// **can this surface be on screen at the same time as another editor?**
+    ///
+    /// It went unasked once and cost two defects at once (see
+    /// `Maugham/Editor/AREA.md`, "Two editors in one window"): the second editor
+    /// shared the window's `UndoManager`, so taking it down wiped the
+    /// manuscript's ⌘Z history, and both coordinators answered the window's
+    /// key-window commands, so the pane flipped into review chrome on ⌘⌥R.
+    /// `EditorSurfaceConfiguration.isSecondEditorInItsWindow` is the answer, and
+    /// its default is the safe-for-today one rather than the safe-in-general
+    /// one — which is exactly why a warning in a doc comment would not hold.
+    ///
+    /// A CENSUS, not an allow/deny grep: `EditorSurface(` is not a forbidden
+    /// token, so only an exact expected set can fail on a fourth.
+    static let editorSurfaceMountSites: Set<String> = [
+        // The manuscript editor. Primary in its window.
+        "EditorHost.swift",
+        // A research note in the centre column. Primary in its window — it
+        // replaces the manuscript editor rather than sitting beside it.
+        "ResearchNoteEditor.swift",
+        // M1A's Intent / Visual Language panes, in the right column. The only
+        // one that is a SECOND editor, and the only one setting the flag.
+        "StatementEditorHost.swift",
+    ]
+
+    func test_everyEditorSurfaceMountIsAccountedFor() throws {
+        let sites = try grepSwift(
+            in: sourceDir,
+            patterns: ["EditorSurface("],
+            excludeLine: {
+                let trimmed = $0.trimmingCharacters(in: .whitespaces)
+                return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+            })
+        let files = Set(sites.map { String($0.prefix(while: { $0 != ":" })) })
+        XCTAssertEqual(files, Self.editorSurfaceMountSites,
+            "The set of files mounting an EditorSurface has changed. A NEW one must "
+            + "answer: can it be on screen at the same time as another editor? If so "
+            + "it is a second editor and must set "
+            + "`isSecondEditorInItsWindow: true` — otherwise taking it down wipes the "
+            + "manuscript's undo stack and it answers ⌘⌥R. Then add it above with "
+            + "which it is. Found:\n" + sites.joined(separator: "\n"))
+    }
+
+    /// Self-check: the census fires on a planted fourth mount. Without this the
+    /// test could be reading nothing and reporting an empty set that happens to
+    /// have been written down as empty.
+    func test_theEditorSurfaceCensusFiresOnAPlantedFourthMount() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-editorsurface-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct SomeNewPane: View {
+            var body: some View {
+                EditorSurface(text: $text, configuration: config)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SomeNewPane.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        /// A doc comment naming EditorSurface( is not a mount.
+        struct Innocent: View { var body: some View { Text("hi") } }
+        """.write(to: tmp.appendingPathComponent("Innocent.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let sites = try grepSwift(
+            in: tmp,
+            patterns: ["EditorSurface("],
+            excludeLine: {
+                let trimmed = $0.trimmingCharacters(in: .whitespaces)
+                return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+            })
+        let files = Set(sites.map { String($0.prefix(while: { $0 != ":" })) })
+        XCTAssertEqual(files, ["SomeNewPane.swift"],
+            "Self-check: the census must see the planted mount and must NOT count "
+            + "the doc comment. Found: \(sites)")
+        XCTAssertNotEqual(files, Self.editorSurfaceMountSites,
+            "Self-check expected the planted set to disagree with the real one.")
+    }
+
     // MARK: - applyExternalText call-site census (tripwire 7)
 
     /// A line is exempt when it's the function's own definition (`func

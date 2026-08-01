@@ -137,6 +137,28 @@ struct EditorSurfaceConfiguration {
     /// consume-on-every-pass semantics in `updateNSView` are unchanged. See the
     /// tripwire discussion in EditorCoordinator.applyExternalText.
     var consumeUndoCoherentApplyFlag: (() -> Bool)? = nil
+    /// Whether this surface is a SECOND editor alive in a window that already
+    /// has one. False for every surface there has ever been; M1A's statement
+    /// panes are the first true, and they sit in the right column beside the
+    /// manuscript editor in the centre.
+    ///
+    /// Two things follow, and both are defects if left undone — see
+    /// `StatementEditorMountTests`:
+    ///
+    /// - **It answers no window commands.** ⌘⌥R's review membrane, scene /
+    ///   find-match / paragraph / annotation navigation and the translation
+    ///   membrane are all about the manuscript
+    ///   (`EditorCoordinator.respondsToWindowCommands`).
+    /// - **It owns its undo stack.** Every text view in a window shares the
+    ///   window's `UndoManager`, and `EditorCoordinator.detach()` calls
+    ///   `removeAllActions()` on the one it can reach — so a second editor being
+    ///   taken down (a pane switch) wiped the manuscript's ⌘Z history. Measured,
+    ///   not reasoned: the test asserting it fails without
+    ///   `MaughamTextView.usesPrivateUndoManager`.
+    ///
+    /// Fixed for the lifetime of a mount, so it is applied in
+    /// `makeCoordinator`/`makeNSView` and nowhere else.
+    var isSecondEditorInItsWindow: Bool = false
 }
 
 struct EditorSurface: NSViewRepresentable {
@@ -174,6 +196,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
         coordinator.reviewAnnotationsProvider = rp.reviewAnnotationsProvider
         coordinator.scriptOriginProjectId = pp.scriptOriginProjectId
+        coordinator.respondsToWindowCommands = !configuration.isSecondEditorInItsWindow
         assignReviewCardHandlers(to: coordinator)
         return coordinator
     }
@@ -198,6 +221,11 @@ struct EditorSurface: NSViewRepresentable {
             typography: configuration.presentation.typography)
 
         let textView = MaughamTextView()
+        // BEFORE anything that could register an undo action (or read the undo
+        // manager): a second editor in the window keeps its own stack rather
+        // than sharing — and clearing — the manuscript's. See
+        // `EditorSurfaceConfiguration.isSecondEditorInItsWindow`.
+        textView.usesPrivateUndoManager = configuration.isSecondEditorInItsWindow
         // Pin the editor to TextKit 1. On recent macOS a fresh NSTextView is
         // TextKit 2, whose caret is a private `NSTextInsertionIndicator` we can't
         // resize — so the empty-line caret renders at the full line-fragment
@@ -446,6 +474,23 @@ final class MaughamTextView: NSTextView {
     weak var coordinator: EditorCoordinator?
 
     var gutterView: ElementGutterView?
+
+    /// Take this view's undo actions off the window's shared `UndoManager` and
+    /// onto one of its own. Set once, in `EditorSurface.makeNSView`, before any
+    /// edit can register — see
+    /// `EditorSurfaceConfiguration.isSecondEditorInItsWindow` for why a second
+    /// editor in one window must not share.
+    var usesPrivateUndoManager = false
+
+    private lazy var privateUndoManager = UndoManager()
+
+    /// `NSTextView` registers its typing undo with `self.undoManager`, and the
+    /// responder chain reads the first responder's — so overriding here covers
+    /// both registration and ⌘Z, and leaves the primary editor on exactly the
+    /// manager it has always used.
+    override var undoManager: UndoManager? {
+        usesPrivateUndoManager ? privateUndoManager : super.undoManager
+    }
 
     override var acceptsFirstResponder: Bool { true }
     override func becomeFirstResponder() -> Bool {
