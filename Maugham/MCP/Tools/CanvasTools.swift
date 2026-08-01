@@ -113,6 +113,29 @@ public enum ListCanvasTool: MCPTool {
         public let author: String?
     }
 
+    /// One piece, and the cards that are its context — **the projection, not the
+    /// raw fields it is computed from** (`RegionBinding.references(forPiece:in:)`,
+    /// spec §4.4 of the planning-canvas design).
+    ///
+    /// Two rules live in that function and neither is guessable from the wire:
+    /// **residents only** — a card merely visiting a bound region is cited, not
+    /// owned, or two regions citing one card would each claim it as their piece's
+    /// context — and **unioned across regions**, because more than one region may
+    /// bind to the same piece and each contributes what lives in it.
+    /// `bound_piece_id`, `home_node_ids` and `appearance_node_ids` have all been
+    /// on the wire since 1C-c3 with nothing saying which to use, so a reader
+    /// deriving a piece's context for itself gets `home ∪ appearances` and picks
+    /// up the visitor. This field is that derivation made unnecessary.
+    ///
+    /// **An entry per piece rather than an object keyed by piece id**: a JSON
+    /// object's key order comes from `Dictionary` iteration and is not stable
+    /// across runs, and two reads of an unchanged canvas must not differ — the
+    /// same reason `home_node_ids` is sorted.
+    public struct PieceReferences: Codable, Equatable {
+        public let piece_id: String
+        public let node_ids: [String]
+    }
+
     public struct Result: Codable, Equatable {
         /// `"open_canvas"` or `"sidecar"`.
         public let read_from: String
@@ -122,6 +145,9 @@ public enum ListCanvasTool: MCPTool {
         public let nodes: [Node]
         public let regions: [Region]
         public let lines: [Line]
+        /// One entry per piece some region on this canvas binds to, in piece-id
+        /// order. See the type.
+        public let piece_references: [PieceReferences]
     }
 
     public static let method = "list_canvas"
@@ -140,8 +166,15 @@ public enum ListCanvasTool: MCPTool {
         "claude" on ones added through this server. `promoted_item_id` is the \
         artifact a card BECAME; `contributed_to_item_id` is an artifact its words \
         went into alongside other cards' — only the first means the card has \
-        produced a note of its own. Pass include_text: false for the same structure \
-        without the scraps' words when a canvas is too large to return whole.
+        produced a note of its own. `piece_references` is the answer to "what has \
+        the writer gathered around this piece": one entry per piece some region is \
+        bound to, listing the cards that LIVE in those regions. Read it rather than \
+        working the same thing out from `bound_piece_id` and the region lists — a \
+        card that merely APPEARS in a region is cited there, not part of that \
+        piece's context, and two regions may be bound to one piece, so a derived \
+        answer goes wrong in both directions. Pass include_text: false for the same \
+        structure without the scraps' words when a canvas is too large to return \
+        whole.
         """
 
     public static let inputSchemaJSON = #"""
@@ -170,7 +203,8 @@ public enum ListCanvasTool: MCPTool {
             // `regions` and `lines` are already id-sorted by the scene; a second
             // opinion about the order here would be a second opinion.
             regions: read.scene.regions.map(describe),
-            lines: read.scene.lines.map(describe))
+            lines: read.scene.lines.map(describe),
+            piece_references: pieceReferences(in: read.scene))
 
         // Enforced HERE and not left to `MCPToolsCallHandler`'s backstop: scrap
         // text is unbounded, and the backstop only covers the `tools/call`
@@ -244,6 +278,34 @@ public enum ListCanvasTool: MCPTool {
             contributed_to_item_id: node.contributedToItemID,
             bound_piece_id: node.boundPieceID,
             author: node.author?.rawValue)
+    }
+
+    /// **Calls the projection; does not restate it.** A second spelling of
+    /// residents-only-unioned-across-regions here is what tripwire 19's reasoning
+    /// forbids one layer down, and the two would diverge in exactly the way that
+    /// is invisible until a card the writer moved shows up as a piece's context.
+    /// `RegionBindingTests.test_theProjectionHasAProductionCaller` is the census
+    /// that keeps this the one call site.
+    ///
+    /// **Keyed on the REGIONS' bindings.** A card's own `boundPieceID` is §6.2's
+    /// association — where a promotion from that card lands — and is a different
+    /// relationship; keyed on every `bound_piece_id` in the scene this would
+    /// report references for a piece no region has been drawn around. A piece
+    /// bound to an empty region gets an empty list rather than no entry, because
+    /// "bound and not filled yet" is something the writer can act on and "never
+    /// bound" is not.
+    private static func pieceReferences(in scene: CanvasScene) -> [PieceReferences] {
+        Set(scene.unorderedRegions.compactMap(\.boundPieceID))
+            .sorted()
+            .map { piece in
+                PieceReferences(
+                    piece_id: piece,
+                    // Sorted for the reason `home_node_ids` is: the projection
+                    // answers a `Set`, whose iteration order is not stable across
+                    // runs, and two reads of an unchanged canvas must not differ.
+                    node_ids: RegionBinding.references(forPiece: piece, in: scene)
+                        .map(\.raw).sorted())
+            }
     }
 
     private static func describe(_ region: CanvasRegion) -> Region {

@@ -412,12 +412,17 @@ struct RegionInspector: View {
     }
 
     /// **The association has two readers, and the footer used to name only the
-    /// one that does not exist yet.** 1A's reference rail is unbuilt (§4.4, and
-    /// `RegionBinding.references(forPiece:)` still has no production caller), so
-    /// for a whole slice this sentence described nothing the writer could
-    /// observe — which is why the smoke report was "I don't see it doing
-    /// anything". Since 1C-c2a the same field also decides where a promotion
-    /// lands (§6.2), and that half is visible today.
+    /// one that did not exist yet.** The reference rail is unbuilt and is M2's
+    /// (umbrella §10), so for a whole slice this sentence described nothing the
+    /// writer could observe — which is why the smoke report was "I don't see it
+    /// doing anything". Since 1C-c2a the same field also decides where a
+    /// promotion lands (§6.2), and that half is visible today.
+    ///
+    /// The rail is still not what reads §4.4's projection: since M1A Task 10
+    /// `RegionBinding.references(forPiece:)` has a production caller —
+    /// `list_canvas` — so what the writer clusters here reaches Claude before it
+    /// reaches a pane. That is a reader rather than a surface, and it does not
+    /// change what this footer owes the writer.
     ///
     /// Held as a constant for `CanvasAccessibility.regionKind`'s reason: a
     /// `Form`'s contents are not inspectable, so this is the only way a test can

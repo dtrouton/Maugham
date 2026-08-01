@@ -59,7 +59,9 @@ public struct CanvasRegion: Equatable, Sendable {
     public private(set) var homeMembers: Set<CanvasNodeID>
     /// Nodes that merely APPEAR here — references, never copies (§4.3).
     public private(set) var appearances: Set<CanvasNodeID>
-    /// §4.4's bridge. Produced here, consumed by 1A's reference rail.
+    /// §4.4's bridge. Produced here; read by `RegionBinding.references(forPiece:)`,
+    /// which `list_canvas` reports as `piece_references` (M1A Task 10), and by
+    /// §6.2's promotion destination. The reference rail itself is M2's.
     public var boundPieceID: String?
     /// §7/§10: crowding at Playlist scale is answered by collapsing, not by
     /// minting more canvases.
@@ -69,8 +71,8 @@ public struct CanvasRegion: Equatable, Sendable {
     /// same absence of validation — see there.
     ///
     /// Deliberately NOT `boundPieceID`'s sibling in meaning: a binding is a live
-    /// relationship 1A's reference rail reads every time it draws, and this is a
-    /// record of something that happened once.
+    /// relationship, re-read on every `list_canvas` call and on every promotion,
+    /// and this is a record of something that happened once.
     public var promotedItemID: String?
 
     /// Who swept this region. **nil means the writer**, on exactly the terms
