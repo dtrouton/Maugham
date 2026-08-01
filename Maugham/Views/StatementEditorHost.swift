@@ -247,6 +247,7 @@ struct StatementEditorHost: View {
             if let document = target.document {
                 Task { await document.close() }
             }
+            leave()
         }
         // The manuscript's belt, worn here too: `DocumentStore.close()` closes
         // every REGISTERED Document at quit (`ProjectWindow`'s own
@@ -261,7 +262,26 @@ struct StatementEditorHost: View {
             if let document = target.document {
                 Task { await document.close() }
             }
+            leave()
         }
+    }
+
+    /// Stop claiming to be resolved once the `Document` is on its way to being
+    /// closed.
+    ///
+    /// **`resolvedScope` described the resolved SCOPE and not whether this host
+    /// was mounted, and nothing cleared it on the way out** (review round 2). A
+    /// marker left set over a husked `Document` is a lie with two readers:
+    /// `canMount` says yes, and anything asking "is the pane still here" gets the
+    /// wrong answer. `⌘⌥N` is what exposed it — `DetailPaneToggle.segmentContent`
+    /// gives `.intent` and `.visualLanguage` separate `case` arms, so switching
+    /// between them TEARS THIS HOST DOWN rather than reconciling it, and
+    /// `.onDisappear` ran while the marker went on naming the scope it had left.
+    ///
+    /// Cheap and correct on its own terms — the close above is what makes the
+    /// claim false, so it is unset in the same breath.
+    private func leave() {
+        resolvedScope = nil
     }
 
     private var loadingPlaceholder: some View {
@@ -448,13 +468,15 @@ struct StatementEditorHost: View {
     /// Whether the drop well is on screen: visual language, **and only while the
     /// editor is mounted**.
     ///
-    /// The second half is correctness rather than tidiness. `reconcile` releases
-    /// the outgoing target and then suspends at `Document.load`; a drop landing
-    /// in that window writes its ref into `draft`, and the
-    /// `bind(carryingDraft: false)` waiting at the end of `reconcile` clears the
-    /// draft without carrying it — so the picture is in the well and the ref is
-    /// gone. There is no editor to take a keystroke in that window either, and
-    /// this is the same answer for the same reason.
+    /// **The second half is UI coherence, and it is deliberately no longer
+    /// carrying any correctness** (review round 2). It was written to close a
+    /// window in which a ref could be lost, which made it the kind of guard that
+    /// has to be right about the pane's lifecycle — and it was not, because
+    /// `resolvedScope` describes the resolved SCOPE rather than whether the host
+    /// is mounted. `take` now names its destination outright and reads no view
+    /// state after suspending, so a drop that starts or finishes at any moment
+    /// reaches the right statement. What is left here is only that a drop target
+    /// under a "Loading…" placeholder is nonsense to look at.
     ///
     /// Static and pure, like `shouldMount`, so the rule is asserted over the
     /// product of its inputs rather than through a race.
@@ -536,88 +558,71 @@ struct StatementEditorHost: View {
     /// generic one, which is the honest answer: we do not know what it was.
     private struct LoadFailed: Error {}
 
-    /// Where a finished ingest's ref goes.
-    enum PictureDelivery: Equatable {
-        /// Through the pane's own binding. Visible immediately, and it mints the
-        /// statement when the drop is what created it.
-        case throughThePane
-        /// By statement id, through the seam promotion uses. The pane has moved
-        /// on while the file was being copied, so its `target` names another
-        /// scope's `Document` — or none at all.
-        case byStatementID
-    }
-
-    /// Which route a ref takes, decided at the moment the ingest FINISHES.
-    ///
-    /// **This is the M1A Task 12 review's I1, and it is a keystroke rather than
-    /// a race against the machine.** `showsPictureWell` stops a drop from
-    /// *starting* while the editor is unmounted; it says nothing about one that
-    /// started while mounted and completes during a `reconcile` — and that window
-    /// is a manifest write plus a file copy wide. Two landing places, both wrong:
-    /// before intent's `bind`, the ref sits in `draft` and
-    /// `bind(carryingDraft: false)` clears it, so the writer sees an accepted
-    /// drop and no text; after it, `target.document` is *intent's*, and a
-    /// `visual-language_assets/` ref is appended to their intent prose.
-    ///
-    /// Every prior defect on this file was a value still trusted after the thing
-    /// it described had moved, which is exactly what the captured `kind`/`scope`
-    /// are here. So the pane's route is taken only while the pane is still
-    /// resolved on the scope the ingest started from — and otherwise the ref goes
-    /// in by id, which is lossless. Nothing is dropped and nothing lands in the
-    /// wrong document.
-    ///
-    /// Static and pure so it is asserted over the product of its inputs rather
-    /// than through a race, like `shouldMount` and `showsPictureWell`.
-    static func delivery(
-        kind: Statement.Kind, scopeKeyAtStart: String, resolvedScopeAtFinish: String?
-    ) -> PictureDelivery {
-        showsPictureWell(kind: kind,
-                         resolvedScope: resolvedScopeAtFinish,
-                         scopeKey: scopeKeyAtStart)
-            ? .throughThePane : .byStatementID
-    }
-
     /// Run one ingest and put its ref where it belongs, or say why not.
     ///
-    /// `scopeKey` is read **before** the suspension and compared after, which is
-    /// `reconcile`'s own idiom one function over.
-    private func take(_ ingest: () async throws -> StatementPicture) async {
-        let startedOn = scopeKey
-        do {
-            let landed = try await ingest()
-            await deliver(landed, startedOn: startedOn)
-            pictureMessage = nil
-        } catch {
-            pictureMessage = ImagePasteHandler.failureMessage(for: error)
-        }
-    }
-
-    /// Put a Markdown ref into the statement's text.
+    /// **The destination is a value this function already holds, and after the
+    /// suspension it reads NO view state to find one** (review round 2). That is
+    /// the whole of the fix, and it is a narrower surface rather than a better
+    /// guard: round 1 routed on `resolvedScope`, which describes the resolved
+    /// SCOPE and not whether the host is mounted — and `⌘⌥N` is not a scope
+    /// change on this host at all. `DetailPaneToggle.segmentContent` gives
+    /// `.intent` and `.visualLanguage` separate `case` arms, so the structural
+    /// identity differs and the visual-language host is **torn down**: its
+    /// `.onDisappear` forgets the registration and closes the `Document`, and
+    /// leaves `resolvedScope` naming the scope it just left. A route decided on
+    /// that proxy wrote into a husked `Document` (a logged no-op — accepted drop,
+    /// picture on disk, no text) or, unbound, fired `mintAndBind` from a dead
+    /// view and registered a `Document` nothing would ever close.
     ///
-    /// **Never by writing the `.md`** (contract 7), on either route: a statement
-    /// is a `Document` and its file is derived output, so a direct write would be
-    /// discarded on the next re-materialize.
+    /// There is no proxy to go stale now because there is no proxy: the ingest
+    /// returns the statement it saved the picture beside (`StatementPicture`),
+    /// and `appendToStatement` writes into **that** statement's op log — its live
+    /// arm finding the pane's own `Document` when a pane still has one, so a
+    /// mounted editor shows the picture immediately, and its transient arm
+    /// loading one under the open gate when none does. `deliver` was deleted
+    /// rather than corrected; the choice it made is the thing that could be
+    /// wrong.
     ///
-    /// The pane route goes through `target.write`, the same binding every
-    /// keystroke takes — and when the statement has no `Document` yet the ref
-    /// lands in `draft` and fires the pane's own mint, which carries it in, so a
-    /// picture dropped into an empty visual language is what declares it to
-    /// exist. The by-id route reaches the same op log through
-    /// `ProjectStore.appendToStatement`, whose live arm writes into the pane's
-    /// own `Document` when a pane has one.
+    /// The one behaviour this gave up: a picture dropped into a visual language
+    /// that has no statement yet reaches the op log but is not *shown* until the
+    /// pane binds — the writer's next keystroke, or the next time they arrive on
+    /// the pane. The words are safe either way, which the old route could not
+    /// promise.
+    ///
+    /// **Never by writing the `.md`** (contract 7): a statement is a `Document`
+    /// and its file is derived output, so a direct write would be discarded on
+    /// the next re-materialize.
     ///
     /// Appended rather than inserted at the caret, because a drop has no caret
     /// and the well is not the editor. `⌘V` inside the editor does insert at the
-    /// caret; see `makeImagePasteHandler`.
-    private func deliver(_ landed: StatementPicture, startedOn: String) async {
-        switch Self.delivery(kind: kind, scopeKeyAtStart: startedOn,
-                             resolvedScopeAtFinish: resolvedScope) {
-        case .throughThePane:
-            let existing = target.text
-            target.write(existing.isEmpty ? landed.ref : existing + "\n\n" + landed.ref)
-        case .byStatementID:
-            try? await store.appendToStatement(landed.ref, to: landed.statement,
-                                               session: Self.sessionId)
+    /// caret when it can; see `makeImagePasteHandler`.
+    ///
+    /// **Nothing here binds the pane, and the version that did was dangerous.**
+    /// A picture that lands in a scope with no statement leaves `target` unbound
+    /// — `reconcile` established there was none and nothing re-runs it — so the
+    /// editor goes on showing its empty `draft` until the pane is next opened on
+    /// that scope, when `makeNSView` seeds it from the `Document`. Calling
+    /// `mintAndBind` here to close that gap was written, measured and removed: it
+    /// binds, but **no body pass follows** (nothing in `body` reads `isMinting`,
+    /// so writing it invalidates nothing), leaving a bound `Document` holding the
+    /// ref behind a text view holding "" — and the writer's next keystroke then
+    /// goes through the binding as `setFullText("a")` and **takes the ref with
+    /// it**. Unbound, the same keystroke lands in `draft` and
+    /// `bind(carryingDraft: true)` MERGES it with what the document already has.
+    /// The gap is a picture you cannot see yet; the fix for it was a picture you
+    /// lose.
+    ///
+    /// One `do`/`catch` over both steps, so a throwing append cannot be followed
+    /// by the `pictureMessage = nil` that a separate success path would run —
+    /// which would be an accepted drop, no text and no sentence.
+    private func take(_ ingest: () async throws -> StatementPicture) async {
+        do {
+            let landed = try await ingest()
+            try await store.appendToStatement(landed.ref, to: landed.statement,
+                                              session: Self.sessionId)
+            pictureMessage = nil
+        } catch {
+            pictureMessage = ImagePasteHandler.failureMessage(for: error)
         }
     }
 

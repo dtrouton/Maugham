@@ -578,13 +578,33 @@ final class MaughamTextView: NSTextView {
         return types
     }
 
+    /// **A surface with an image-paste handler OWNS pasteboard images**, and
+    /// falls through to `super` only when there is no handler or no image.
+    ///
+    /// The `let ref = handler(image)` used to be part of the same condition, so a
+    /// handler returning nil fell through to `super.paste` — which, because
+    /// `readablePasteboardTypes` above advertises image types whenever a handler
+    /// is set, accepts the image and inserts an **attachment character**. Measured
+    /// 2026-08-01 on the visual-language pane: pasting a picture into a statement
+    /// that had no file yet put `![](./visual-language_assets/…png)\n\n￼` into the
+    /// writer's op log — the ref from the handler's own asynchronous path, and a
+    /// `U+FFFC` from `super`. A research note whose paste failed to encode got the
+    /// same character with no ref at all.
+    ///
+    /// So nil now means *"handled, with nothing to insert here"* rather than
+    /// *"not mine"* — the only two handlers are `ResearchNoteEditor`'s, where nil
+    /// is an encoding failure it has already logged, and
+    /// `StatementEditorHost`'s, where nil means the ref is arriving by another
+    /// route. Neither wants `super` to have a go. What is given up is `super`'s
+    /// handling of a mixed pasteboard's TEXT when an image is also present, which
+    /// on these two surfaces was never the intent.
     override func paste(_ sender: Any?) {
         if let handler = coordinator?.imagePasteHandler,
            NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil),
-           let image = NSImage(pasteboard: .general),
-           let ref = handler(image) {
-            let range = selectedRange()
-            insertText(ref, replacementRange: range)
+           let image = NSImage(pasteboard: .general) {
+            if let ref = handler(image) {
+                insertText(ref, replacementRange: selectedRange())
+            }
             return
         }
         super.paste(sender)

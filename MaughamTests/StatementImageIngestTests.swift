@@ -66,6 +66,14 @@ final class StatementImageIngestTests: XCTestCase {
                 "\(file.deletingPathExtension().lastPathComponent)_assets")
     }
 
+    private func pngBytes(_ side: Int = 8) throws -> Data {
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        return try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+    }
+
     private func files(in directory: URL) -> [String] {
         (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
     }
@@ -113,6 +121,94 @@ final class StatementImageIngestTests: XCTestCase {
                       + "The log derives to: \"\(text)\"")
         XCTAssertEqual(Set(fixture.ops(forDocId: statement.id).map(\.kind)), [.typingBurst],
                        "a ref is text in a Document; it needs no new OpKind")
+    }
+
+    /// **A mounted editor SHOWS the picture, and this is the one claim the round-2
+    /// shape rests on.**
+    ///
+    /// `take` writes through `ProjectStore.appendToStatement` rather than through
+    /// the pane's binding, so the editor redraws only because that seam's live arm
+    /// finds the pane's own registered `Document` and `setFullText` reaches the
+    /// binding's `get` inside `EditorSurface.updateNSView`. That was measured for
+    /// promotion and is asserted here for the ingest, against the text view
+    /// SwiftUI's own mounting produced — the op-log assertion above cannot see it,
+    /// and "the words are on disk but the writer is looking at an empty pane" is
+    /// exactly the kind of thing a green op-log test hides.
+    func test_theMountedEditorShowsThePictureAndNotJustTheOpLog() async throws {
+        let fixture = try await fixture(named: "VisualLanguageVisible")
+        let statement = try await fixture.store.createStatement(
+            kind: .visualLanguage, scope: .project)
+        let assets = well(beside: statement, in: fixture.projectURL)
+
+        let window = await fixture.host(kind: .visualLanguage, activeDocumentId: nil)
+        let textView = try fixture.textView(in: window)
+        XCTAssertEqual(textView.string, "", "control: the editor starts empty")
+
+        try putImageOnTheClipboard()
+        textView.paste(nil)
+        await fixture.pumpUntil(deadline: 5) { textView.string.contains("![](") }
+
+        XCTAssertTrue(
+            textView.string.contains("![](./\(assets.lastPathComponent)/"),
+            "the writer is looking at an editor that does not show the picture "
+            + "they just pasted. The mounted text view says: \"\(textView.string)\"")
+        try await fixture.settle(window, expectingOpsFor: statement.id)
+    }
+
+    /// **No attachment character reaches the writer's op log** (review round 3).
+    ///
+    /// Found by probing what the mounted editor actually held, not by a failing
+    /// test: pasting into a visual language that had no file yet produced
+    /// `![](./visual-language_assets/…png)\n\n￼` — the ref from the handler's own
+    /// asynchronous path, and a `U+FFFC` from `super.paste`. `MaughamTextView`
+    /// advertises image types in `readablePasteboardTypes` whenever a handler is
+    /// set, so when the handler returned nil `super` accepted the image and
+    /// inserted an attachment. A junk character in the writer's mood board, in
+    /// the op log, on the first picture they ever put there.
+    ///
+    /// Asserted on the OP LOG rather than the buffer, because that is where it
+    /// was durable — and against the whole derived text rather than
+    /// `contains("￼")` alone, so a second stray paragraph of any kind fails too.
+    func test_pastingAPictureLeavesNoAttachmentCharacterBehind() async throws {
+        let fixture = try await fixture(named: "VisualLanguageNoJunk")
+        // **No statement up front, and that is the whole test.** With one, the
+        // handler answers synchronously and `super.paste` never runs — which is
+        // exactly how the first draft of this test passed against the defect.
+        XCTAssertNil(fixture.store.statement(kind: .visualLanguage, scope: .project))
+
+        let window = await fixture.host(kind: .visualLanguage, activeDocumentId: nil)
+        let textView = try fixture.textView(in: window)
+        try putImageOnTheClipboard()
+        textView.paste(nil)
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.store.statement(kind: .visualLanguage, scope: .project) != nil
+        }
+        let statement = try XCTUnwrap(
+            fixture.store.statement(kind: .visualLanguage, scope: .project))
+        let assets = well(beside: statement, in: fixture.projectURL)
+        await fixture.pumpUntil(deadline: 5) { !self.files(in: assets).isEmpty }
+
+        // Read BEFORE `settle`, which takes the content view down.
+        XCTAssertFalse(textView.string.contains("\u{FFFC}"),
+                       "no attachment character in the buffer: "
+                       + textView.string.debugDescription)
+
+        // **And the writer's next keystroke MERGES with the picture rather than
+        // replacing it.** This pane is still unbound — `reconcile` established
+        // there was no statement and nothing re-runs it — so the editor is empty
+        // over a document that now has content, and the keystroke goes through
+        // `draft` → `mintAndBind` → `bind(carryingDraft: true)`, which appends.
+        // A version of this that bound the pane to close the visibility gap made
+        // the same keystroke `setFullText("a")` and took the ref with it; it was
+        // measured, and removed. See `take`.
+        await fixture.type("a", into: textView)
+        try await fixture.settle(window, expectingOpsFor: statement.id)
+
+        let filename = try XCTUnwrap(files(in: assets).first)
+        let ref = "![](./\(assets.lastPathComponent)/\(filename))"
+        XCTAssertEqual(fixture.derivedText(forDocId: statement.id), "\(ref)\n\na",
+                       "the statement must hold the ref, then the writer's "
+                       + "character, and nothing else")
     }
 
     /// **The first thing a writer does with an empty mood board may well be to
@@ -183,12 +279,13 @@ final class StatementImageIngestTests: XCTestCase {
     /// happened to drive — the shape that found both of `ProjectWindow`'s
     /// routing bugs.
     ///
-    /// The unmounted half is the one with a defect behind it. `reconcile`
-    /// releases the outgoing target and then suspends at `Document.load`; a drop
-    /// landing in that window writes its ref into `draft`, and the
-    /// `bind(carryingDraft: false)` waiting at the end of `reconcile` clears the
-    /// draft without carrying it. The picture is in the well and the ref is gone
-    /// — an orphan file and a writer who saw a drop accepted.
+    /// **This carries no correctness any more, deliberately** (review round 2).
+    /// It was written to close a window in which a ref could be lost, which made
+    /// it a guard that had to be right about the pane's lifecycle — and it was
+    /// not. `take` names its destination outright now, so a drop that starts or
+    /// finishes at any moment reaches the right statement whatever this says.
+    /// What is left is that a drop target under a "Loading…" placeholder is
+    /// nonsense to look at, which is worth one cheap assertion and no more.
     func test_theWellIsVisualLanguagesAndOnlyWhileTheEditorIsMounted() {
         let key = "visual_language|project"
         for kind: Statement.Kind in [.intent, .visualLanguage, .unknown("newer")] {
@@ -214,64 +311,40 @@ final class StatementImageIngestTests: XCTestCase {
 
     // MARK: - Where a finished ingest's ref goes (review I1)
 
-    /// **An ingest that finishes on a different scope than it started on must
-    /// not write into the pane's current `Document`.**
+    /// **An ingest outlives the surface that started it, and its ref still lands
+    /// in the right statement** (review rounds 1 and 2).
     ///
-    /// `showsPictureWell` stops a drop from *starting* while the editor is
-    /// unmounted. It says nothing about one that started while mounted and
-    /// completes during a `reconcile` — and the window is a manifest write plus a
-    /// file copy wide, opened by a keystroke (`⌘⌥N`) rather than by a race
-    /// against the machine. Both landing places were wrong: before intent's
-    /// `bind` the ref sits in `draft` and `bind(carryingDraft: false)` clears it,
-    /// so the writer sees an accepted drop and no text; after it, a
-    /// `visual-language_assets/` ref is appended to their intent prose.
+    /// There is no routing decision left to assert, and that is the fix: round 1
+    /// chose between the pane and the statement using `resolvedScope`, which
+    /// describes the resolved SCOPE rather than whether the host is mounted — and
+    /// `⌘⌥N` is not a scope change on this host at all, because
+    /// `DetailPaneToggle.segmentContent` gives the two kinds separate `case` arms
+    /// and the visual-language host is torn down. `.onDisappear` leaves
+    /// `resolvedScope` naming the scope it just left, so the guard could not see
+    /// the case it was written for.
     ///
-    /// Asked over the product of (scope at start, resolved scope at finish),
-    /// because the one path a test happens to drive is not the question.
-    func test_aRefGoesByIdWhenThePaneHasMovedOnAndThroughItWhenItHasNot() {
-        let visualLanguage = "visual_language|project"
-        let intent = "intent|project"
+    /// `take` names its destination outright now and reads no view state after
+    /// suspending, so the class is unreachable rather than guarded. What is left
+    /// to assert is the property underneath: the destination comes from the
+    /// INGEST, and the ref reaches that statement's own op log.
+    func test_thePictureNamesItsOwnStatementSoTheDestinationCannotGoStale() async throws {
+        let fixture = try await fixture(named: "VisualLanguageDestination")
+        let png = fixture.projectURL.appendingPathComponent("named.png")
+        try pngBytes().write(to: png)
 
-        for startedOn in [visualLanguage, intent] {
-            for finishedAt: String? in [nil, visualLanguage, intent] {
-                for kind: Statement.Kind in [.intent, .visualLanguage, .unknown("newer")] {
-                    let route = StatementEditorHost.delivery(
-                        kind: kind, scopeKeyAtStart: startedOn,
-                        resolvedScopeAtFinish: finishedAt)
-                    let paneIsStillThere =
-                        StatementEditorHost.takesPictures(kind) && finishedAt == startedOn
-                    XCTAssertEqual(route,
-                                   paneIsStillThere ? .throughThePane : .byStatementID,
-                                   "kind=\(kind) started=\(startedOn) "
-                                   + "finished=\(finishedAt ?? "nil")")
-                }
-            }
-        }
+        let landed = try await fixture.store.addImage(
+            toStatement: .visualLanguage, scope: .project, fileURL: png)
 
-        // The three cases the defect was made of, named rather than left to the
-        // loop — each is a distinct wrong landing place.
         XCTAssertEqual(
-            StatementEditorHost.delivery(
-                kind: .visualLanguage, scopeKeyAtStart: visualLanguage,
-                resolvedScopeAtFinish: nil),
-            .byStatementID,
-            "mid-reconcile: the ref would sit in `draft` and be cleared by the "
-            + "`bind(carryingDraft: false)` waiting at the end of `reconcile`")
-        XCTAssertEqual(
-            StatementEditorHost.delivery(
-                kind: .visualLanguage, scopeKeyAtStart: visualLanguage,
-                resolvedScopeAtFinish: intent),
-            .byStatementID,
-            "the pane switched to intent: `target.document` is intent's, and a "
-            + "visual-language_assets/ ref would go into the writer's intent prose")
-        XCTAssertEqual(
-            StatementEditorHost.delivery(
-                kind: .visualLanguage, scopeKeyAtStart: visualLanguage,
-                resolvedScopeAtFinish: visualLanguage),
-            .throughThePane,
-            "control: nothing moved, so the ordinary route must still be taken — "
-            + "it is the one that mints an empty visual language and shows the "
-            + "writer their picture immediately")
+            landed.statement.id,
+            try XCTUnwrap(fixture.store.statement(kind: .visualLanguage, scope: .project)).id,
+            "the ingest returns the statement it saved the picture beside — a "
+            + "caller holding only the ref would have to ask the pane, and every "
+            + "answer available there is a proxy that can be stale")
+        XCTAssertTrue(
+            landed.ref.contains(
+                "\(well(beside: landed.statement, in: fixture.projectURL).lastPathComponent)/"),
+            "and the ref is relative to THAT statement: \(landed.ref)")
     }
 
     /// **The by-id route is lossless**, driven for real against a statement that
@@ -284,11 +357,7 @@ final class StatementImageIngestTests: XCTestCase {
     func test_theByIdRouteReachesTheStatementsOwnOpLogWithNobodyHoldingIt() async throws {
         let fixture = try await fixture(named: "VisualLanguageById")
         let png = fixture.projectURL.appendingPathComponent("by-id.png")
-        let rep = try XCTUnwrap(NSBitmapImageRep(
-            bitmapDataPlanes: nil, pixelsWide: 8, pixelsHigh: 8,
-            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
-        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: png)
+        try pngBytes().write(to: png)
 
         let landed = try await fixture.store.addImage(
             toStatement: .visualLanguage, scope: .project, fileURL: png)
@@ -335,11 +404,7 @@ final class StatementImageIngestTests: XCTestCase {
 
         // Control.
         let png = fixture.projectURL.appendingPathComponent("real.png")
-        let rep = try XCTUnwrap(NSBitmapImageRep(
-            bitmapDataPlanes: nil, pixelsWide: 8, pixelsHigh: 8,
-            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
-        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: png)
+        try pngBytes().write(to: png)
         let landed = try await fixture.store.addImage(
             toStatement: .visualLanguage, scope: .project, fileURL: png)
         XCTAssertEqual(
