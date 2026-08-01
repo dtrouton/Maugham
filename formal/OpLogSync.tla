@@ -37,10 +37,14 @@ VARIABLES
     opsUsed,    \* opsUsed[d]     : bound counter
     sealsUsed,  \* sealsUsed[d]   : bound counter
     lock,       \* lock[d]        : "free", or the role holding d's MainActor
-    captured    \* captured[d]    : the seal's step-1 read buffer
+    captured,   \* captured[d]    : the seal's step-1 read buffer
+    everSeen    \* everSeen[e]    : every op e has ever had visible. Grows
+                \*                  only. Maintained by Next, not by the
+                \*                  individual actions -- so no action's
+                \*                  UNCHANGED list may mention it.
 
 vars == << tail, sealed, viewTail, viewSealed, appended, opsUsed,
-           sealsUsed, lock, captured >>
+           sealsUsed, lock, captured, everSeen >>
 
 \* An op is identified by its origin device and a per-device counter. This
 \* stands in for the ULID: globally unique, and that is all merge needs.
@@ -60,6 +64,7 @@ TypeOK ==
     /\ sealsUsed  \in [Devices -> 0..MaxSeals]
     /\ lock       \in [Devices -> {"free", "appender", "sealer"}]
     /\ captured   \in [Devices -> SUBSET Ops]
+    /\ everSeen   \in [Devices -> SUBSET Ops]
 
 Init ==
     /\ tail       = [d \in Devices |-> {}]
@@ -71,6 +76,7 @@ Init ==
     /\ sealsUsed  = [d \in Devices |-> 0]
     /\ lock       = [d \in Devices |-> "free"]
     /\ captured   = [d \in Devices |-> {}]
+    /\ everSeen   = [e \in Devices |-> {}]
 
 (***************************************************************************)
 (* Append. A device writes to its own tail, and sees its own write          *)
@@ -187,7 +193,7 @@ SealDelete(d) ==
     /\ lock'     = [lock     EXCEPT ![d] = "free"]
     /\ UNCHANGED << sealed, viewSealed, appended, opsUsed, sealsUsed >>
 
-Next ==
+BaseNext ==
     \/ \E d \in Devices : Append(d)
     \/ \E d, e \in Devices : PropagateTail(d, e)
     \/ \E d, e \in Devices : PropagateSealed(d, e)
@@ -195,6 +201,12 @@ Next ==
     \/ \E d \in Devices : SealRead(d)
     \/ \E d \in Devices : SealWrite(d)
     \/ \E d \in Devices : SealDelete(d)
+
+\* `everSeen` is maintained here rather than in each action, so that adding a
+\* new action cannot forget it.
+Next ==
+    /\ BaseNext
+    /\ everSeen' = [e \in Devices |-> everSeen[e] \union Merged(e)']
 
 Spec == Init /\ [][Next]_vars
 
@@ -221,4 +233,26 @@ FullySynced(e) ==
 Convergence ==
     \A e, f \in Devices :
         (FullySynced(e) /\ FullySynced(f)) => (Merged(e) = Merged(f))
+
+(***************************************************************************)
+(* PLAUSIBLE AND FALSE (spec section 7.2).                                 *)
+(*                                                                         *)
+(* "Once a device can see an op, it can always see it." A reasonable reader *)
+(* of ADR 0016 would assume this. It is false, and the counterexample is a  *)
+(* FINDING, not a defect in the model.                                      *)
+(*                                                                         *)
+(* Cause: the seal's segment-write and tail-delete propagate as TWO         *)
+(* INDEPENDENT file events with no ordering guarantee. A remote observer    *)
+(* can receive the tail deletion before the segment carrying those ops      *)
+(* arrives, opening a window in which the ops are visible to nobody but     *)
+(* their owner.                                                            *)
+(*                                                                         *)
+(* Transient invisibility is harmless in itself. It becomes damage when     *)
+(* something reacts to it DURABLY -- and IntegrityChecks /                  *)
+(* IntegrityQuarantine live in exactly that neighbourhood. Out of scope to  *)
+(* model here (spec section 2); this property exists to prove the window is *)
+(* real, which is what makes it worth scheduling.                           *)
+(***************************************************************************)
+RemoteMonotonic ==
+    \A e \in Devices : everSeen[e] \subseteq Merged(e)
 =============================================================================
