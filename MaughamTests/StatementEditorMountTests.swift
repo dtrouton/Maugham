@@ -532,4 +532,182 @@ final class StatementEditorMountTests: XCTestCase {
                        + "intent editor gains crafted-render chrome and a "
                        + "Comment/Query/Suggest toolbar wired to nothing")
     }
+
+    // MARK: - A superseded load must not bind (whole-branch review, C1)
+
+    /// **The wedge is the production gate, not a sleep.** Both tests below need
+    /// a load that is provably still in flight while a second scope resolves,
+    /// and `load`'s first line is `await store.lockStatementOpen(statement.id)`
+    /// — so a test that takes that gate first parks the load exactly where it
+    /// needs it, for as long as it likes, with no timing assumption anywhere.
+    /// The alternative the review suggested (a fixture that changes the
+    /// selection without waiting out the load) races `Document.load` against a
+    /// pump interval and would be flaky in the safe direction, which is the
+    /// worst kind of regression test: green whether or not the bug is there.
+
+    /// A `reconcile` that has been superseded must not bind its `Document` into
+    /// the target the pane is now showing for another scope.
+    ///
+    /// The arm needs no race the writer has to lose. The chapter has an intent
+    /// and the project does not — the ordinary case — so the incoming
+    /// `reconcile` for the project scope is **wholly synchronous** (nothing to
+    /// close, no statement to load) and finishes while the outgoing one is
+    /// still in file I/O. It then binds the CHAPTER's `Document` into the box
+    /// the pane is showing for the project, nothing invalidates the body, and
+    /// the writer's next keystroke arrives as
+    /// `chapterDocument.setFullText("y")` — the whole chapter intent replaced
+    /// by one character. Same outcome as N1 and Task 7's C1, through a door
+    /// neither fix covers: `carryingDraft` is false here, and `resolvedScope`
+    /// is *correct* — it names the project. The target is what is wrong.
+    func test_aSupersededLoadDoesNotBindIntoTheScopeThatReplacedIt() async throws {
+        let fixture = try await fixture(named: "SupersededLoad")
+        let docId = fixture.documentItemId
+        let prose = "the chapter is about the weather"
+
+        // The chapter has an intent with real prose in its op log; the project
+        // has none.
+        let chapterIntent = try await fixture.store.createStatement(
+            kind: .intent, scope: .document(docId))
+        let seeded = try await Document.load(
+            url: fixture.projectURL.appendingPathComponent(chapterIntent.path),
+            device: "seed", session: "seed", presenter: nil)
+        seeded.setFullText(prose)
+        try await seeded.flushBurstNow()
+        await seeded.close()
+
+        let window = await fixture.hostWithASettableSelection(
+            kind: .intent, activeDocumentId: nil)
+        XCTAssertNotNil(fixture.firstTextView(in: window),
+                        "the project scope never resolved, so this test has not "
+                        + "reached the state it is about")
+
+        // Hold the chapter's open gate, so the reconcile the next line starts
+        // parks inside `load` and cannot possibly finish first.
+        await fixture.store.lockStatementOpen(chapterIntent.id)
+        await fixture.selectDocument(docId)
+        XCTAssertNil(fixture.store.openStatementDocument(id: chapterIntent.id),
+                     "the chapter's load got past the gate this test is holding, "
+                     + "so the wedge did not work and nothing below is evidence")
+
+        // Move again before it can land. The project scope resolves entirely
+        // synchronously.
+        await fixture.selectDocument(nil)
+        // Let the superseded load through.
+        fixture.store.unlockStatementOpen(chapterIntent.id)
+        await fixture.waitOut(0.5)
+
+        XCTAssertNil(fixture.store.openStatementDocument(id: chapterIntent.id),
+                     "a superseded load registered its `Document` as the live one "
+                     + "for the chapter's intent while the pane shows the "
+                     + "project's — which is what `appendToStatement` and "
+                     + "`statementText(of:)` then read, and it is never closed")
+
+        // The keystroke is the proof: it must not reach the chapter. Settle
+        // first — the burst's idle threshold is 30 s, so the op log says
+        // nothing about a keystroke until the pane's teardown flushes it.
+        let textView = try fixture.textView(in: window)
+        await fixture.type("y", into: textView)
+        try await fixture.settle(window)
+        XCTAssertEqual(fixture.derivedText(forDocId: chapterIntent.id), prose,
+                       "typing into the pane while it showed the PROJECT's intent "
+                       + "rewrote the CHAPTER's — the superseded load bound its "
+                       + "Document into the box the new scope is using")
+        XCTAssertNotNil(fixture.store.statement(kind: .intent, scope: .project),
+                        "the keystroke minted no project statement, so it went "
+                        + "somewhere else entirely")
+    }
+
+    /// The mint's load is never cancelled by anything, so it needs the same
+    /// refusal and cannot get it from `Task.isCancelled`.
+    ///
+    /// `mintAndBind` runs a detached `Task { @MainActor in }`; SwiftUI's
+    /// `.task(id:)` knows nothing about it. The reachable shape is the one
+    /// `StatementTextTarget.bind` already documents: a statement created out of
+    /// band into a scope this pane resolved as empty, so the pane is mounted and
+    /// unbound over content that exists. The first keystroke find-or-creates
+    /// (getting that statement back) and loads it — and if the writer moves on
+    /// while it loads, that load lands in the new scope's box.
+    func test_aMintThatOutlivesItsScopeDoesNotBindIntoTheNextOne() async throws {
+        let fixture = try await fixture(named: "MintOutlivesScope")
+        let docId = fixture.documentItemId
+        let prose = "the book is about a house"
+
+        // The pane resolves the project scope as empty…
+        let window = await fixture.hostWithASettableSelection(
+            kind: .intent, activeDocumentId: nil)
+        let onProject = try fixture.textView(in: window)
+
+        // …and only then does the project's intent come into existence, with
+        // prose in it. Nothing re-runs `reconcile`, so the pane stays unbound.
+        let projectIntent = try await fixture.store.createStatement(
+            kind: .intent, scope: .project)
+        let seeded = try await Document.load(
+            url: fixture.projectURL.appendingPathComponent(projectIntent.path),
+            device: "seed", session: "seed", presenter: nil)
+        seeded.setFullText(prose)
+        try await seeded.flushBurstNow()
+        await seeded.close()
+
+        // Park the mint's load on the production gate.
+        await fixture.store.lockStatementOpen(projectIntent.id)
+        await fixture.type("x", into: onProject)
+        await fixture.waitOut(0.3)
+        XCTAssertNil(fixture.store.openStatementDocument(id: projectIntent.id),
+                     "the mint's load got past the gate this test is holding, so "
+                     + "the wedge did not work and nothing below is evidence")
+
+        // Move to the chapter, which has no intent — so it resolves
+        // synchronously and mounts an empty editor.
+        await fixture.selectDocument(docId)
+        fixture.store.unlockStatementOpen(projectIntent.id)
+        await fixture.waitOut(0.5)
+
+        XCTAssertNil(fixture.store.openStatementDocument(id: projectIntent.id),
+                     "the mint's load registered the PROJECT's Document while the "
+                     + "pane shows the chapter — nothing will ever close it, and "
+                     + "every statement writer reads it as the live one")
+
+        let onChapter = try fixture.textView(in: window)
+        await fixture.type("y", into: onChapter)
+        try await fixture.settle(window)
+        XCTAssertEqual(fixture.derivedText(forDocId: projectIntent.id), prose,
+                       "typing under the CHAPTER's header rewrote the PROJECT's "
+                       + "intent — the mint bound its Document into the box the "
+                       + "next scope is using, and no cancellation ever arrives "
+                       + "on that path to stop it")
+    }
+
+    /// The rule itself, over the whole product of its inputs — the file's own
+    /// idiom (`shouldMount`, `showsPictureWell`), so the refusal is asserted
+    /// deterministically rather than only through the two races above.
+    func test_aLoadMayBindOnlyIntoTheScopeItWasStartedFor() {
+        let mine = "intent|project"
+        let other = "intent|document:ch1"
+
+        XCTAssertTrue(
+            StatementEditorHost.loadMayBind(
+                loadedScope: mine, paneWants: mine, cancelled: false),
+            "the ordinary load refused to bind, so the pane would never show "
+            + "anything at all")
+
+        XCTAssertFalse(
+            StatementEditorHost.loadMayBind(
+                loadedScope: mine, paneWants: other, cancelled: false),
+            "a load bound into a box another scope has claimed — the mint arm, "
+            + "where no cancellation ever arrives")
+        XCTAssertFalse(
+            StatementEditorHost.loadMayBind(
+                loadedScope: mine, paneWants: mine, cancelled: true),
+            "a cancelled load bound anyway")
+        XCTAssertFalse(
+            StatementEditorHost.loadMayBind(
+                loadedScope: mine, paneWants: nil, cancelled: false),
+            "a load bound into a pane that has left — `.onDisappear` closed the "
+            + "Document and forgot the registration, so this one is registered "
+            + "with nothing left to close it")
+        XCTAssertFalse(
+            StatementEditorHost.loadMayBind(
+                loadedScope: mine, paneWants: other, cancelled: true),
+            "both signals wrong and it bound regardless")
+    }
 }

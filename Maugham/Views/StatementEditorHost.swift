@@ -35,6 +35,19 @@ final class StatementTextTarget {
     private(set) var statementID: String?
     private(set) var draft = ""
 
+    /// The scope key this box is currently FOR, or nil when the pane has left.
+    ///
+    /// **A destination, named up front, and not a proxy for one.** It is set by
+    /// `reconcile` before its first suspension and cleared by `leave()`, and an
+    /// in-flight `load` compares the scope it was started for against it before
+    /// binding — see `StatementEditorHost.loadMayBind`. It lives here rather
+    /// than in the host's `@State` because it is a fact about THIS box: the box
+    /// is what two overlapping loads share (`StatementPane` mounts the host
+    /// without `.id()`, deliberately), so the answer to "who owns you now"
+    /// belongs on the thing being written into rather than on a view value a
+    /// superseded task holds a copy of.
+    var wantedScope: String?
+
     /// Fired on every write that lands in `draft` — i.e. while the statement
     /// still has no file. The host guards it; firing on every write (rather
     /// than only the first) is what lets a failed mint retry on the next
@@ -199,6 +212,44 @@ struct StatementEditorHost: View {
         resolvedScope == scopeKey
     }
 
+    /// Whether a `Document` that has just finished loading may be bound into the
+    /// pane's one text target (whole-branch review, C1).
+    ///
+    /// **Two overlapping loads share one `StatementTextTarget`.** `StatementPane`
+    /// mounts this host without `.id()` (deliberately — it is how the
+    /// close/open ordering was made sequential), so a scope change does not
+    /// remount and does not replace `target`. Nothing between `Document.load`'s
+    /// suspension and `target.bind` used to ask whether the load was still
+    /// wanted, and the ordinary case needs no race the writer has to lose: the
+    /// outgoing chapter HAS an intent so its reconcile suspends in file I/O,
+    /// while the incoming project scope has none so its reconcile is wholly
+    /// synchronous and finishes first, every time. The chapter's `Document` then
+    /// landed in the box the pane was showing for the project, nothing
+    /// invalidated the body, and one keystroke arrived as
+    /// `chapterDocument.setFullText("y")`.
+    ///
+    /// **Both signals, because neither covers both doors.** `reconcile` is a
+    /// `.task(id:)` body and IS cancelled when the scope changes; `mintAndBind`
+    /// runs a detached `Task { @MainActor in }` that nothing ever cancels, so on
+    /// that path `cancelled` is false forever and only the named destination can
+    /// refuse. That is Task 12's lesson — *name your destination, do not ask a
+    /// proxy* — applied to the one path Task 12 did not revisit. `resolvedScope`
+    /// is exactly the proxy that cannot serve here: during a legitimate load it
+    /// is nil, and after a superseding one it is *correct* (it names the new
+    /// scope) while the target is what is wrong.
+    ///
+    /// A nil `paneWants` is the pane having LEFT (`leave()` clears it). Binding
+    /// then would register a `Document` in `openStatementDocuments` that nothing
+    /// is left to close, which `take`'s own comment records as a live defect
+    /// once already.
+    ///
+    /// Static and pure like `shouldMount`, so the rule is asserted over the
+    /// product of its inputs rather than only through the two races that reach
+    /// it.
+    static func loadMayBind(loadedScope: String, paneWants: String?, cancelled: Bool) -> Bool {
+        !cancelled && paneWants == loadedScope
+    }
+
     private var canMount: Bool {
         Self.shouldMount(resolvedScope: resolvedScope, scopeKey: scopeKey)
     }
@@ -282,6 +333,13 @@ struct StatementEditorHost: View {
     /// claim false, so it is unset in the same breath.
     private func leave() {
         resolvedScope = nil
+        // And nothing may bind into the box on the way out. `.task(id:)` is
+        // cancelled when this host disappears, so `reconcile`'s own load is
+        // covered — but the mint's detached `Task` is not cancelled by anything,
+        // and a bind from a dead view registers a `Document` in
+        // `openStatementDocuments` that nothing is left to close. See
+        // `loadMayBind`.
+        target.wantedScope = nil
     }
 
     private var loadingPlaceholder: some View {
@@ -374,6 +432,13 @@ struct StatementEditorHost: View {
         // SCOPE change, where the editor must come down anyway. The mint changes
         // no scope, so it never re-enters here — instrumented and confirmed.
         resolvedScope = nil
+        // **Claimed before the first suspension, and it is the destination every
+        // in-flight load checks itself against** (whole-branch review, C1). One
+        // `StatementTextTarget` is shared by every reconcile this host ever runs
+        // — the pane mounts it without `.id()` — so a load that has been
+        // superseded is otherwise free to bind into the box the NEW scope is
+        // using. See `loadMayBind`.
+        target.wantedScope = key
         // See `pictureMessage`: this host is not remounted on a scope change, so
         // a refusal that is not cleared here follows the writer to the next scope.
         pictureMessage = nil
@@ -394,7 +459,7 @@ struct StatementEditorHost: View {
             // the scope counts as resolved only if its Document really loaded. A
             // failed load leaves the placeholder up rather than an empty editor
             // whose first keystroke would mint a draft over the writer's prose.
-            guard await load(statement, carryingDraft: false) else { return }
+            guard await load(statement, carryingDraft: false, for: key) else { return }
         }
         guard !Task.isCancelled else { return }
         resolvedScope = key
@@ -404,14 +469,24 @@ struct StatementEditorHost: View {
     /// idempotent, so a second arrival cannot mint a second file; `isMinting`
     /// stops a burst of keystrokes from starting a second attempt, and a failed
     /// attempt is retried by the next keystroke rather than losing the words.
+    ///
+    /// **Its destination is named here, before either suspension.** Nothing
+    /// cancels this `Task` — it is detached from the `.task(id:)` that `reconcile`
+    /// runs under — so `Task.isCancelled` is false on this path forever and the
+    /// named scope is the only thing that can refuse a bind whose pane has moved
+    /// on. `scopeKey` is correct to read at this instant and only at this
+    /// instant: `reconcile` re-wires `onUnboundWrite` with the current `self` on
+    /// every scope, so the keystroke that got here belongs to the scope this
+    /// value names.
     private func mintAndBind() {
         guard !isMinting, target.document == nil else { return }
+        let wanted = scopeKey
         isMinting = true
         Task { @MainActor in
             defer { isMinting = false }
             do {
                 let created = try await store.createStatement(kind: kind, scope: scope)
-                _ = await load(created, carryingDraft: true)
+                _ = await load(created, carryingDraft: true, for: wanted)
             } catch {
                 _statementEditorLog.error(
                     "Could not create statement: \(error, privacy: .public)")
@@ -423,8 +498,17 @@ struct StatementEditorHost: View {
     /// `Bootstrap.run`, and no other way of constructing a `Document` is
     /// sanctioned (`BootstrapWiringTests`). Returns whether it bound; the caller
     /// decides what a failure means (see `reconcile`).
+    ///
+    /// `wanted` is the scope this load is FOR, and the caller names it before
+    /// suspending. Between `Document.load`'s suspension and `target.bind` the
+    /// pane may have moved on, and this function must not bind or register a
+    /// `Document` it no longer owns — see `loadMayBind` for the two doors and
+    /// why neither signal covers both. A refused `Document` is CLOSED here: it
+    /// was never registered, nothing else holds it strongly, and one left to
+    /// deallocate unclosed strands its pending buffer.
     @discardableResult
-    private func load(_ statement: Statement, carryingDraft: Bool) async -> Bool {
+    private func load(_ statement: Statement, carryingDraft: Bool,
+                      for wanted: String) async -> Bool {
         // **Held across the load AND the registration**, so that the window
         // between "the registry says nobody has this" and "I have registered
         // mine" is not one a transient writer can open a second `Document` in.
@@ -438,6 +522,12 @@ struct StatementEditorHost: View {
                 device: Self.deviceId,
                 session: Self.sessionId,
                 presenter: documentStore.presenter)
+            guard Self.loadMayBind(loadedScope: wanted,
+                                   paneWants: target.wantedScope,
+                                   cancelled: Task.isCancelled) else {
+                await document.close()
+                return false
+            }
             target.bind(document, id: statement.id, carryingDraft: carryingDraft)
             // **Announce it, or a promotion opens a second `Document` on this
             // path** (M1A Task 7). A statement is in no `DocumentStore` registry
