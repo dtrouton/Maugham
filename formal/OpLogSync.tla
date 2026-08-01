@@ -35,9 +35,12 @@ VARIABLES
     appended,   \* appended[d]    : history variable -- every op d ever
                 \*                  durably appended. Never shrinks.
     opsUsed,    \* opsUsed[d]     : bound counter
-    sealsUsed   \* sealsUsed[d]   : bound counter
+    sealsUsed,  \* sealsUsed[d]   : bound counter
+    lock,       \* lock[d]        : "free", or the role holding d's MainActor
+    captured    \* captured[d]    : the seal's step-1 read buffer
 
-vars == << tail, sealed, viewTail, viewSealed, appended, opsUsed, sealsUsed >>
+vars == << tail, sealed, viewTail, viewSealed, appended, opsUsed,
+           sealsUsed, lock, captured >>
 
 \* An op is identified by its origin device and a per-device counter. This
 \* stands in for the ULID: globally unique, and that is all merge needs.
@@ -55,6 +58,8 @@ TypeOK ==
     /\ appended   \in [Devices -> SUBSET Ops]
     /\ opsUsed    \in [Devices -> 0..MaxOps]
     /\ sealsUsed  \in [Devices -> 0..MaxSeals]
+    /\ lock       \in [Devices -> {"free", "appender", "sealer"}]
+    /\ captured   \in [Devices -> SUBSET Ops]
 
 Init ==
     /\ tail       = [d \in Devices |-> {}]
@@ -64,19 +69,24 @@ Init ==
     /\ appended   = [d \in Devices |-> {}]
     /\ opsUsed    = [d \in Devices |-> 0]
     /\ sealsUsed  = [d \in Devices |-> 0]
+    /\ lock       = [d \in Devices |-> "free"]
+    /\ captured   = [d \in Devices |-> {}]
 
 (***************************************************************************)
 (* Append. A device writes to its own tail, and sees its own write          *)
 (* immediately -- local writes do not propagate, they simply are.           *)
 (***************************************************************************)
+\* The `lock[d] = "free"` guard is the whole point: `append` is a @MainActor
+\* method and cannot run while another @MainActor method holds isolation.
 Append(d) ==
+    /\ lock[d] = "free"
     /\ opsUsed[d] < MaxOps
     /\ LET op == [dev |-> d, seq |-> opsUsed[d] + 1] IN
         /\ tail'     = [tail     EXCEPT ![d] = @ \union {op}]
         /\ appended' = [appended EXCEPT ![d] = @ \union {op}]
         /\ viewTail' = [viewTail EXCEPT ![d][d] = @ \union {op}]
     /\ opsUsed' = [opsUsed EXCEPT ![d] = @ + 1]
-    /\ UNCHANGED << sealed, viewSealed, sealsUsed >>
+    /\ UNCHANGED << sealed, viewSealed, sealsUsed, lock, captured >>
 
 (***************************************************************************)
 (* Propagation. Whole-file replace, per file, in any order, at any time --  *)
@@ -87,12 +97,14 @@ Append(d) ==
 PropagateTail(d, e) ==
     /\ d # e
     /\ viewTail' = [viewTail EXCEPT ![e][d] = tail[d]]
-    /\ UNCHANGED << tail, sealed, viewSealed, appended, opsUsed, sealsUsed >>
+    /\ UNCHANGED << tail, sealed, viewSealed, appended, opsUsed, sealsUsed,
+                    lock, captured >>
 
 PropagateSealed(d, e) ==
     /\ d # e
     /\ viewSealed' = [viewSealed EXCEPT ![e][d] = sealed[d]]
-    /\ UNCHANGED << tail, sealed, viewTail, appended, opsUsed, sealsUsed >>
+    /\ UNCHANGED << tail, sealed, viewTail, appended, opsUsed, sealsUsed,
+                    lock, captured >>
 
 (***************************************************************************)
 (* The pre-ADR-0012 world, enabled only when PerDeviceFiles = FALSE.        *)
@@ -122,6 +134,57 @@ ReconcileSharedFile(d, e) ==
     /\ tail[d] # tail[e]
     /\ tail'     = [tail     EXCEPT ![e] = tail[d]]
     /\ viewTail' = [viewTail EXCEPT ![e][e] = tail[d], ![d][d] = tail[d]]
+    /\ UNCHANGED << sealed, viewSealed, appended, opsUsed, sealsUsed,
+                    lock, captured >>
+
+(***************************************************************************)
+(* The seal (ADR 0016, OpLogStore.sealTailIfNeeded:177).                   *)
+(*                                                                         *)
+(* Three steps, deliberately NOT one atomic action -- the decomposition IS  *)
+(* the hypothesis under test (spec section 1.2):                            *)
+(*                                                                         *)
+(*   SealRead    line 194 -- coordinated read of the tail's bytes           *)
+(*   SealWrite   line 217 -- atomic rename of the .mzseg into place         *)
+(*   SealDelete  line 224 -- coordinated delete, a SEPARATE coordination    *)
+(*                           scope from the read                            *)
+(*                                                                         *)
+(* OpLogStore is @MainActor, so these run under the device's lock. But an   *)
+(* `async` function releases actor isolation at EVERY `await`.              *)
+(* SealHasSuspensionPoint = TRUE frees the lock between the read and the    *)
+(* delete, exactly as one `await` in that body would.                       *)
+(***************************************************************************)
+SealRead(d) ==
+    /\ lock[d] = "free"
+    /\ sealsUsed[d] < MaxSeals
+    /\ tail[d] # {}
+    /\ captured'  = [captured  EXCEPT ![d] = tail[d]]
+    /\ sealsUsed' = [sealsUsed EXCEPT ![d] = @ + 1]
+    /\ lock'      = [lock EXCEPT ![d] = IF SealHasSuspensionPoint
+                                        THEN "free" ELSE "sealer"]
+    /\ UNCHANGED << tail, sealed, viewTail, viewSealed, appended, opsUsed >>
+
+\* Segment-before-delete. This ordering is CORRECT and must not be swapped:
+\* a mid-seal reader sees both files and dedup-by-opId absorbs the duplicate.
+\* Reversing these two actions is the bug this ordering already avoids.
+SealWrite(d) ==
+    /\ captured[d] # {}
+    /\ lock[d] \in {"free", "sealer"}
+    /\ sealed'     = [sealed     EXCEPT ![d] = @ \union captured[d]]
+    /\ viewSealed' = [viewSealed EXCEPT ![d][d] = @ \union captured[d]]
+    /\ UNCHANGED << tail, viewTail, appended, opsUsed, sealsUsed, lock,
+                    captured >>
+
+\* Deletes the WHOLE tail -- not `tail \ captured`. This mirrors the code:
+\* `fm.removeItem(at: wu)` removes the file, and anything appended since the
+\* read goes with it.
+SealDelete(d) ==
+    /\ captured[d] # {}
+    /\ captured[d] \subseteq sealed[d]
+    /\ lock[d] \in {"free", "sealer"}
+    /\ tail'     = [tail     EXCEPT ![d] = {}]
+    /\ viewTail' = [viewTail EXCEPT ![d][d] = {}]
+    /\ captured' = [captured EXCEPT ![d] = {}]
+    /\ lock'     = [lock     EXCEPT ![d] = "free"]
     /\ UNCHANGED << sealed, viewSealed, appended, opsUsed, sealsUsed >>
 
 Next ==
@@ -129,6 +192,9 @@ Next ==
     \/ \E d, e \in Devices : PropagateTail(d, e)
     \/ \E d, e \in Devices : PropagateSealed(d, e)
     \/ \E d, e \in Devices : ReconcileSharedFile(d, e)
+    \/ \E d \in Devices : SealRead(d)
+    \/ \E d \in Devices : SealWrite(d)
+    \/ \E d \in Devices : SealDelete(d)
 
 Spec == Init /\ [][Next]_vars
 
