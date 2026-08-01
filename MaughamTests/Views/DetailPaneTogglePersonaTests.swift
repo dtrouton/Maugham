@@ -78,9 +78,10 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
 
     // MARK: - The picker always shows its active segment
 
-    /// The nine ⌘⌥-letter pane shortcuts fire in every persona, so a writer in
-    /// Author can land on Annotations. The pane content is right; without this
-    /// the picker rendered with nothing selected.
+    /// Every ⌘⌥-letter pane shortcut fires in every persona — one per
+    /// `DetailSegment` case, which is the only place that set is counted — so a
+    /// writer in Author can land on Annotations. The pane content is right;
+    /// without this the picker rendered with nothing selected.
     func test_visibleSegments_includeASelectionThisPersonaDoesNotRegister() {
         let segments = DetailPaneToggle<AnyView>.visibleSegments(
             persona: .author, hideOutline: false, including: .annotations)
