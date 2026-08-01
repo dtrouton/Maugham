@@ -215,8 +215,8 @@ research" finally has a subject in Plan.
 
 **Leaving**, by persona rather than a count, since the set will move:
 
-- **Plan** loses outline, tasks and inspector.
-- **Author** loses outline and inspector, and gains history.
+- **Plan** loses outline and tasks.
+- **Author** loses outline, and gains history.
 - **Review** keeps its members but splits them across the two postures.
 - **Publish** loses translation, intent and inspector.
 
@@ -224,9 +224,10 @@ Outline leaves every persona: the tree shows structure and Plan now builds it,
 and `OutlinePane` is read-only — it renders and sets the selection, but has no
 create, move or delete, so it cannot be the structure surface Plan needs.
 
-Publish keeping `.inspector` was a deliberate deviation from §6.3, taken so the
-picker was not a single button reading as broken chrome. With visual language and
-config there, that reason expires.
+**`.inspector` leaves every persona, but not by being deleted** — it dissolves,
+and its sections go where they are used (§5.1). Publish loses it only once the
+Publishing section has become Publish's own pane; until then, removing it deletes
+the writer's table-of-contents control.
 
 **Translation moves to Review only.** `TranslationReviewPane` is source text plus
 translator queries — adjudication, not building an edition.
@@ -239,7 +240,74 @@ is registered only in Review today.
 Publish are not waiting to grow one; they do not have two jobs over one object,
 which is the only thing posture is for.
 
-### 5.1 Publish is mostly unbuilt, and this records what it needs
+### 5.1 The Inspector dissolves
+
+The Inspector is the one pane the rule in §2 does not explain. Every other pane
+serves a persona's output; the Inspector serves *whatever document is selected*,
+and is a stack of unrelated per-document fields. Author wants the word target.
+Publish wants the publishing section. Plan wants the synopsis. Nobody wants all
+of it.
+
+**It is dissolved and its sections distributed.** Verified contents of
+`InspectorView.swift` on 2026-08-01:
+
+| Section | Goes to | Why |
+|---|---|---|
+| **Status** (draft / revising / final) | **Review** | This *is* "pieces by review state" — §6.3's left column, unbuilt since the umbrella spec. The field it needs has been three sections down a metadata drawer the whole time. |
+| **Publishing** (`InspectorPublishSection`: include in ToC, start-on, title override) | **Publish**, as its own pane | The only UI in the app for per-piece publish config; everything else in `PublishConfig.SectionConfig` is MCP-only. |
+| **Word target**, **page target** | **Author** | Drafting goals. |
+| **Synopsis** | folds into intent — see §5.2 | |
+| **Tags** | **Plan** | Organisational. |
+| **Links** (`InspectorLinksSection`) | the **Research pane** | It is wiki links to other *documents*; the Research pane already shows a document's own and linked research. One pane for everything this chapter points at. |
+| **Words** (count) | nowhere | Already in the editor footer (`EditorStatusFooter`). Duplicate. |
+| **Intent affordance row** | nowhere | Added in M1A as a way to reach intent *because the tree could not aim it*. The tree and the Intent pane replace it. |
+| **Title** (read-only) | nowhere | The tree says it. |
+| **Project Settings…** | nowhere | A button that opens a window; it belongs to the menu. |
+
+**`PieceInspector` is in scope too** — it carries a synopsis section for collection
+pieces and is the same shape of drawer.
+
+**This is mostly moving fields into panes that exist or are already planned.**
+Only Publishing needs a surface of its own, and that surface is already on M4's
+list as "editions and config as a real surface" — this delivers its per-piece
+half early.
+
+**Recorded so it is not repeated:** `Persona.swift`'s comment justifies keeping
+Inspector in Publish as *"without it the picker is a single button, which reads
+as broken chrome"* — a cosmetic reason for a pane that is in fact carrying the
+work. An earlier draft of this document proposed removing it on the strength of
+that comment, which would have deleted the writer's table-of-contents control. A
+comment that states a weaker reason than the real one is how a later reader acts
+on the weaker one.
+
+### 5.2 Synopsis folds into intent
+
+Synopsis is what the chapter *is*; per-document intent is what you are *going
+for*. They are adjacent enough to be one field, and M1A built the op-logged one
+with history while synopsis remains plain manifest metadata that nothing
+versions.
+
+**Every reader of `StructureItem.synopsis`, verified 2026-08-01:**
+
+- `InspectorView` (edits it) and `PieceInspector` — both dissolving anyway.
+- **`get_outline`** (`MCP/Tools/ProjectTools.swift`) — returns it to Claude, and
+  its description names it. This is the only consumer that outlives the
+  dissolution: it either drops the field or reads the intent's opening line.
+  Either way it is a shape change to a shipped MCP tool.
+- `ProjectStore+CollectionPieces.swift` — carried on piece promotion, cleared on
+  convert-to-reference.
+- `ProjectStore+Metadata.swift` — the setter.
+
+**The trap:** `.synopsis` also appears in `ReferenceTools`, `FountainNodeMapper`
+and `TranslationCoverage`. That is the **Fountain element type** (`= synopsis`
+lines in a screenplay), not `StructureItem.synopsis`. An over-eager grep will eat
+it.
+
+**Existing synopses must migrate into each document's intent**, in the shape M1A's
+adoption already established: content arrives as a bootstrap op through
+`Document.load`, so it has history from the migration forward rather than none.
+
+### 5.3 Publish is mostly unbuilt, and this records what it needs
 
 The writer's account: *"I'm reviewing the output drafts. I'm also maybe editing
 the visual identity for the published page… I'm also sometimes tweaking
@@ -265,10 +333,9 @@ The parts justify each other, so the reasoning stays in one document; the
 delivery does not.
 
 **Slice 1 — the subject-picker.** The project row, and the registry moves that
-delete dead panes (outline everywhere; inspector from Plan and Author;
-translation from Publish; intent from Publish; history into Author). Removes
-`StatementPane`'s pane-local scope switch. Small, mostly registry, and it closes
-§1's hole for project scope immediately.
+delete dead panes (outline everywhere; translation and intent from Publish;
+history into Author). Removes `StatementPane`'s pane-local scope switch. Small,
+mostly registry, and it closes §1's hole for project scope immediately.
 
 **Slice 2 — Plan's tree.** The manuscript tree as a left segment in Plan with the
 canvas staying in the centre, and structure creation reachable from it. This is
@@ -277,12 +344,26 @@ the slice that makes Plan able to produce what §2 says it produces.
 **Slice 3 — the canvas highlight.** §4's three states, including the offer to
 bind. Depends on slice 2.
 
-**Slice 4 — Review's posture.** Columns follow `ReviewPosturePolicy.Effective`.
-Nine panes become two sets. Best done alongside or just before M3, which is the
-milestone that gives Review its named passes.
+**Slice 4 — the Inspector dissolves** (§5.1). Each section to its persona, and
+the Publishing section becomes Publish's own pane. **Do not start this before
+slice 1**: the Intent affordance row only goes away once the tree can aim, and
+the publishing pane is the thing that lets Inspector leave Publish without
+deleting a control.
 
-**Not scheduled:** Publish's columns, which wait on M4's surfaces; Review's
-"pieces by review state" left column, same.
+**Slice 5 — synopsis folds into intent** (§5.2). A migration plus a `get_outline`
+shape change. Independent of the shell slices; depends on nothing but M1A.
+
+**Slice 6 — Review's posture.** Columns follow `ReviewPosturePolicy.Effective`,
+and its left column becomes "pieces by review state" using the status field slice
+4 freed. Best done alongside or just before M3, the milestone that gives Review
+its named passes.
+
+**Not scheduled:** the rest of Publish's columns, which wait on M4's surfaces.
+
+**Sequencing against M1A:** none of this starts until M1A has been smoked and
+its milestone is closed. Slice 4 and slice 5 both touch things M1A shipped —
+`IntentAffordanceRow` and per-document intent — so they want a settled base
+rather than a moving one.
 
 ---
 
