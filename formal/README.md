@@ -62,6 +62,26 @@ falsification that requires editing the model proves nothing, because the
 edited model is a different model. Driving falsification from constants makes
 the green run and the counterexample run provably the same spec.
 
+## AnnotationRace.tla
+
+A second, separate model: the annotation lifecycle against the manuscript text
+it splices. Smaller and independent of `OpLogSync.tla` — it abstracts the op
+log to a totally-ordered set, which is the contract `OpLogSync` established.
+
+    ./formal/check.sh AnnotationRace AnnotationRace_NoRejectedButSpliced
+
+| Config | Expected |
+|---|---|
+| `AnnotationRace_NoRejectedButSpliced` | **violated** — rejected, yet the change is in the manuscript |
+| `AnnotationRace_NoOpenButSpliced` | **violated** — unresolved, yet the change is in the manuscript |
+| `AnnotationRace_AcceptedImpliesSpliced` | no violation (a useful negative — bounds the defect to the two shapes above) |
+| `AnnotationRace_NoArchivedButSpliced` | violated, and **not a bug** — archiving an accepted annotation legitimately leaves the text spliced. Asserted only to make the archive arm visible in a counterexample. |
+
+Predictions were pre-registered in `PREDICTIONS-annotation.md` and committed
+before the model existed, so confirmation can be told from discovery. That file
+is deliberately **never edited** — its value is entirely in having been written
+first.
+
 ## Bounds
 
 2 devices, 3 ops/device, 1 seal/device. Widening is a deliberate act — TLC's

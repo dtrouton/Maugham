@@ -248,3 +248,77 @@ Eight configs, ~15s total. The model grew from ~200 to ~330 lines. `MaxCps = 0` 
 2. **Widen `conflictTwins`** to scan `.maugham/` as well as `.maugham/ops/`. Small, independent, and useful regardless of (1).
 3. **Fix §8.2's false positive** — the design question is how to tell "unpropagated" from "lost". Note that (1) does *not* fix this; they are independent defects that happen to share a file.
 4. **Then reconsider (b)**, with CI as the concrete first step.
+
+---
+
+# 9. Second target — annotation lifecycle vs spliced text
+
+*Added 2026-08-01. Model: `formal/AnnotationRace.tla`. Predictions pre-registered in `formal/PREDICTIONS-annotation.md`, committed at `6e6d8bd` **before** the model existed, so the discovery accounting below is checkable in git rather than asserted after the fact.*
+
+## 9.1 The structure
+
+Two **independent** derivations run over one op log and nothing makes them agree:
+
+| | Source | Rule |
+|---|---|---|
+| **status** | `AnnotationDeriver.swift:11` | the single latest *lifecycle* op by opId wins |
+| **text** | `Deriver.swift:63,74` | a fold of **every** op's `changes` in opId order — *"claude_accept … DOES KEEP its changes"* |
+
+`Document+Annotations.swift:377` calls this **"two effects, one op"**: the `claudeAccept` op *itself* carries the spliced paragraph. So the text effect is unconditional the moment accept is written. `claudeReject`, `claudeArchive` and `annotationReopen` carry **no** changes — they can move the status without being able to move the text. Only `claudeAcceptRevert` can put the text back.
+
+ADR 0012 names the trigger — *"reject on phone while accept on Mac"* — as a **routine** overlap, and says partitioning does not settle lifecycle semantics: *"the deriver still has to decide which lifecycle state wins."* It decided. **Nobody asked what happens to the text.**
+
+## 9.2 Results
+
+| Property | Predicted | Result | States |
+|---|---|---|---|
+| `NoRejectedButSpliced` | violated (P1) | **violated** | 137 |
+| `AcceptedImpliesSpliced` | holds | **holds** (full space) | 7,709 |
+| `NoOpenButSpliced` | *not predicted* | **violated** | 122 |
+| `NoArchivedButSpliced` | pre-declared *not a bug* | violated, as expected and benign | 61 |
+
+### Divergence A — rejected, but the change is in the manuscript
+
+```
+id 0  accept  device a
+id 1  reject  device b
+```
+
+Status `rejected`; text spliced. **The writer rejected a change and has it anyway.** Two devices, two ops, no clock skew required. This is P1 exactly.
+
+### Divergence B — unresolved, but the change is in the manuscript
+
+```
+id 0  accept  device a
+id 1  reject  device b      (b has not seen a's accept; sees it open)
+id 2  reopen  device b      (b hits ⌘Z on its own reject)
+```
+
+Status `open`; text spliced. Every action is legitimate *on its own device*. The annotation is re-presented to the writer as an **unresolved suggestion whose change is already in their text** — arguably worse than A, because the natural response is to accept it again.
+
+`AcceptedImpliesSpliced` holding over the full 7,709-state space is the useful negative: `accept` is both a lifecycle op and a change op, so whenever it is the latest lifecycle op it is also the latest change op. The mirror failure is impossible. That bounds the defect to exactly the two shapes above.
+
+## 9.3 Neither is transient — P3 confirmed
+
+Every window found in §2–§8 converged once propagation completed. **These do not.** `claudeAcceptRevert` is the only op carrying inverse changes, and neither `reject` nor `reopen` emits one, so the disagreement is the *settled* state. Syncing harder does not repair it.
+
+## 9.4 Discovery accounting — the honest tally
+
+**No.** TLC produced no mechanism I had not already reasoned to.
+
+- **Divergence A** was predicted in full (P1).
+- **Divergence B** is outside the committed predictions file — but I spotted it while *transcribing* `AnnotationDeriver.resolution:169` into the model, and wrote it into the spec as "NOT predicted either way" before running anything. Found by reading-in-service-of-modelling; confirmed by TLC.
+
+**This is the third time that pattern has appeared.** §3 named it — formal methods as *a forcing function for attention* — and dismissed it as "a genuine benefit and a poor justification for a toolchain." Three instances make it a pattern rather than an anecdote, and the dismissal now looks too quick: the attention is nominally free, but it demonstrably does not happen without something forcing it. That is worth more than it was given credit for, and it is still not the same thing as a checker finding bugs.
+
+**And a cost got sharper.** TLC's first `NoOpenButSpliced` counterexample was a **two-op single-device** trace through a `Reopen` guard I had written as `{accepted, rejected, archived}`. The app cannot do that: `annotationReopen` is the undo-compensation for a *reject* or *withdraw*, while undoing an accept emits `claudeAcceptRevert`. Tightening the guard to `rejected` produced the real three-op trace above. **Second instance of §5.3** — the shortest counterexample rides the most permissive transition, so an over-permissive guard yields something that looks like a finding and is an artifact. A less careful operator ships both. That cost belongs in the (b) decision beside the benefit.
+
+Running tally across both models: **one genuine discovery (§8.2) in nine properties**, and **two artifacts** that required catching by hand.
+
+## 9.5 What should happen
+
+Not fixed — proving scope before code changes was the agreed mode, and the fix is a real design decision rather than a patch.
+
+1. **Decide the intended semantics first.** Should a `reject` losing the opId race undo an already-spliced accept? That means rejects must carry inverse changes (become revert-like), which is a wire-format and undo-stack change. Or should the *text* be authoritative and the status follow it? Either is defensible; they are different products.
+2. **Divergence B may need answering separately** — reopening after a foreign accept is a distinct case from a plain lost race, and the "accept it twice" follow-on (does `SuggestionSplice.apply` double-splice against a paragraph already containing the suggestion?) is **unchecked and worth checking**.
+3. **No Swift test yet.** A test asserting today's behaviour would pin the defect in place. The regression test comes with the fix.
