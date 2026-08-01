@@ -626,6 +626,51 @@ final class PromotionPerformerTests: XCTestCase {
         XCTAssertTrue(text.contains("Typed last."), "found: \(text)")
     }
 
+    /// The **other** configuration of contract 7, and the one with no timing
+    /// window at all: the pane is mounted on a scope that has no statement yet.
+    ///
+    /// It resolves that scope with no `Document` bound (`reconcile`'s `if let
+    /// statement` is skipped) and nothing re-runs `reconcile`, so the pane sits
+    /// there believing the scope is empty. The promotion then CREATES the
+    /// statement — Task 7 made the performer a second creator, where before it
+    /// only the pane could — and the writer's first keystroke reaches
+    /// `mintAndBind`, whose `createStatement` is idempotent and hands back the
+    /// statement the promotion just filled. Bound `carryingDraft: true`, one
+    /// character replaced the writer's promoted card.
+    ///
+    /// **Promote, go and make coffee, come back, type.** An empty intent pane is
+    /// the state every new project starts in, so this is the likelier half.
+    /// It is the failure `reconcile`'s own comment describes arriving through a
+    /// different door.
+    func test_promotingIntoAnUnboundPanesScopeSurvivesTheWritersFirstKeystroke() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "unbound-intent")
+        defer { fixture.tearDown() }
+        // Mounted, resolved, and holding NO Document: nothing has been typed, so
+        // no statement exists for this scope yet.
+        let window = await fixture.host(kind: .intent, activeDocumentId: nil)
+        let textView = try fixture.textView(in: window)
+        XCTAssertNil(fixture.store.statement(kind: .intent, scope: .project),
+                     "the control: this pane really is sitting on an undeclared "
+                     + "scope, which is the whole premise")
+
+        let model = makeModel(at: fixture.projectURL)
+        _ = try await PromotionPerformer(store: fixture.store, model: model)
+            .perform(plan(.scrap(a), .intentStatement,
+                          store: fixture.store, model: model))
+        let statement = try intent(.project, in: fixture.store)
+
+        await fixture.type("x", into: textView)
+        try await fixture.settle(window, expectingOpsFor: statement.id)
+
+        let text = fixture.derivedText(forDocId: statement.id)
+        XCTAssertTrue(text.contains("Sodium light on the spray."),
+                      "the writer's promoted card was replaced by the one "
+                      + "character that bound the pane — found: \(text)")
+        XCTAssertTrue(text.contains("x"),
+                      "and the keystroke that bound it is not thrown away "
+                      + "either — found: \(text)")
+    }
+
     // MARK: - Region → palette card, and the offer (§6.1)
 
     private func promoteBothScraps(_ store: ProjectStore, _ model: CanvasModel) async throws {

@@ -61,6 +61,13 @@ struct ProjectWindow: View {
     @State private var findActive: Bool = false
     @State private var pendingPieceRenameId: String?
     @State private var detailSegment: DetailSegment = .inspector
+    /// The scope the statement panes have been asked to show — set by **Open**
+    /// on a card promoted to craft intent, and honoured by `StatementPane` until
+    /// the writer moves the binder selection (M1A Task 7).
+    @State private var statementScopeRequest: StatementPane.ScopeRequest?
+    /// Bumped per press so a second **Open** on the same card is a new request;
+    /// see `StatementPane.ScopeRequest`.
+    @State private var statementScopeRequestToken = 0
     @State private var persona: Persona = .default
     @State private var outlineLayout: OutlineLayout = .table
     @State private var mcpBanner = MCPBannerModel()
@@ -1229,7 +1236,8 @@ struct ProjectWindow: View {
             session: _checkpointSessionId,
             docPaths: Self.documentPaths(in: store.manifest.structure),
             documentStore: documentStore,
-            editorControl: editorControl
+            editorControl: editorControl,
+            statementScopeRequest: statementScopeRequest
         ) {
             switch Self.inspectorRoute(binderSegment: binderSegment,
                                        projectType: store.manifest.type) {
@@ -1425,17 +1433,27 @@ struct ProjectWindow: View {
     /// pane says "Select an item" and the writer's intent is nowhere. So a
     /// statement routes to the Intent pane instead.
     ///
-    /// **What it does not do is choose the pane's SCOPE.** `StatementPane`
-    /// resolves that from the binder's selection, with the project one click
-    /// away by design ("a chapter's intent and the book's are never further apart
-    /// than that"), and driving the manuscript selection from here would move the
-    /// writer's open document as a side effect of pressing Open. So a
-    /// document-scoped intent may land on a different scope's; the pane's own
-    /// switch is the way across, and giving `StatementPane` a requested scope is
-    /// the fix if that is ever not enough.
+    /// **It takes the pane to the mark's own SCOPE, not to whatever the binder
+    /// has selected.** Contract 2 makes a chapter's intent the ordinary case, so
+    /// a pane left on the selection's scope shows an intent that is not the one
+    /// the card produced — frequently an empty one, since the project's intent
+    /// may never have been written — and the writer either concludes the
+    /// promotion did nothing or types into the wrong scope's intent believing it
+    /// is the one they just added to.
+    ///
+    /// **It still does not touch the binder selection**, which was the other way
+    /// to make the scope land: that would move the writer's open manuscript
+    /// document as a side effect of pressing Open, which is a worse defect than
+    /// the one it fixes. The request is the pane's own input and reaches nothing
+    /// else; `StatementPane` drops it the moment the writer moves the selection.
     private func openPromotedArtifact(_ itemId: String) {
         guard let store else { return }
         if let pane = Self.statementPane(forMark: itemId, in: store) {
+            if let statement = store.manifest.statements.first(where: { $0.id == itemId }) {
+                statementScopeRequestToken &+= 1
+                statementScopeRequest = StatementPane.ScopeRequest(
+                    scope: statement.scope, token: statementScopeRequestToken)
+            }
             detailSegment = pane
             return
         }
@@ -2397,8 +2415,8 @@ struct CanvasPromotionModifier: ViewModifier {
             source: source, scene: model.scene, scraps: model.scraps,
             // **Both registries**: since M1A a mark can name a `Statement`, and
             // an index built over research alone answers nil for one — see
-            // `ArtifactIndex.over` for the three readers that then say something
-            // false.
+            // `ArtifactIndex.over` for the readers that then say something
+            // false, and what each of them says.
             artifacts: ArtifactIndex.over(research: research,
                                           statements: store.manifest.statements,
                                           structure: store.manifest.structure),

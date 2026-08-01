@@ -323,7 +323,8 @@ struct ArtifactIndex: Equatable {
     /// A promotion to craft intent writes a `Statement` id into
     /// `CanvasNode.promotedItemID`, and a statement is in `manifest.statements`
     /// and never in `manifest.research`. Built over research alone this index
-    /// answers nil for such a mark, and three readers then say something false:
+    /// answers nil for such a mark, and every reader of one then says something
+    /// false — each differently:
     /// `PromotedArtifactSection` renders `.artifactMissing` — telling the writer
     /// their intent was deleted, over prose that is right there —
     /// `Promotion.hasDanglingMark` answers true so a line promotion between two

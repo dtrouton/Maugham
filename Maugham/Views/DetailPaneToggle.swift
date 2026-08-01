@@ -23,6 +23,10 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// per-paragraph freshness entries the Translation segment reads (ADR 0017).
     /// Optional so callers that don't surface translation review can omit it.
     let editorControl: EditorControl?
+    /// A scope somebody has asked the statement panes to show — **Open** on a
+    /// card promoted to craft intent (M1A Task 7). Passed straight through; the
+    /// pane owns how long it is honoured for.
+    let statementScopeRequest: StatementPane.ScopeRequest?
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// Local transcription exists only on Apple Silicon (see DocumentStore.makeTranscriber).
@@ -50,6 +54,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         docPaths: [String: String] = [:],
         documentStore: DocumentStore? = nil,
         editorControl: EditorControl? = nil,
+        statementScopeRequest: StatementPane.ScopeRequest? = nil,
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -67,6 +72,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.docPaths = docPaths
         self.documentStore = documentStore
         self.editorControl = editorControl
+        self.statementScopeRequest = statementScopeRequest
         self.inspectorContent = inspectorContent
     }
 
@@ -357,7 +363,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         if let ds = documentStore {
             StatementPane(
                 store: store, documentStore: ds, kind: kind,
-                activeDocumentId: activeManuscriptItemId)
+                activeDocumentId: activeManuscriptItemId,
+                scopeRequest: statementScopeRequest)
         } else {
             ContentUnavailableView(
                 "Open a project",

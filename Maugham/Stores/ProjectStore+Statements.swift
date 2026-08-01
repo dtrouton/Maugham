@@ -50,6 +50,51 @@ extension ProjectStore {
         return document
     }
 
+    // MARK: - Opening one, which is not the same as holding one
+
+    /// Take exclusive right to OPEN a `Document` on this statement's path, and
+    /// wait if somebody else already has it.
+    ///
+    /// **The registry above is not enough on its own, and the gap is a
+    /// suspension rather than a race that can be avoided by ordering.**
+    /// `openStatementDocument(id:)` answers for a `Document` that is already
+    /// open; `Document.load` is `async` and constructs a fresh instance per call
+    /// (there is no instance sharing), so between "the registry says nobody has
+    /// this" and "I have registered mine" there is a window in which a second
+    /// opener asks the same question and gets the same answer. Both then hold a
+    /// live `Document` on one path, each with its own `PendingBuffer`, and the
+    /// one that loaded first has content the other never saw — which is the
+    /// paragraph-loss `StatementEditorHost.reconcile` calls unreachable for the
+    /// case IT controls.
+    ///
+    /// Both openers take it: the pane, which holds its `Document` for as long as
+    /// the scope is showing, and a transient writer (`PromotionPerformer`), which
+    /// loads, writes and closes. **The lock is only over the OPENING** — the pane
+    /// releases as soon as it has registered, so a writer that queues behind it
+    /// finds the registry populated and takes the live-`Document` path instead of
+    /// loading at all. That is why the transient arm re-asks the registry once it
+    /// is inside.
+    ///
+    /// `defer { unlockStatementOpen(id) }` at every call site. There is no
+    /// suspension between the check and the claim below, so two callers arriving
+    /// in one main-actor turn cannot both claim it.
+    func lockStatementOpen(_ id: String) async {
+        while statementOpensInFlight.contains(id) {
+            await withCheckedContinuation { continuation in
+                statementOpenWaiters[id, default: []].append(continuation)
+            }
+        }
+        statementOpensInFlight.insert(id)
+    }
+
+    /// Release the open lock and wake everyone queued behind it. Each waiter
+    /// re-checks, so waking them all is correct rather than merely convenient.
+    func unlockStatementOpen(_ id: String) {
+        statementOpensInFlight.remove(id)
+        let waiters = statementOpenWaiters.removeValue(forKey: id) ?? []
+        for waiter in waiters { waiter.resume() }
+    }
+
     /// The statement for a scope, or nil. **Absence is valid**: this mints
     /// nothing, stamps nothing and logs nothing — unlike `craftIntentItem`,
     /// which lazily healed a legacy identity on read, a statement's identity is

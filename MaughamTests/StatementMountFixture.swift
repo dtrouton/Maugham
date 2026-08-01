@@ -100,6 +100,22 @@ final class StatementMountFixture {
                 .environment(preferences)))
     }
 
+    /// The pane mounted with a REQUESTED scope — what `ProjectWindow` hands it
+    /// when the writer presses **Open** on a card promoted to craft intent
+    /// (M1A Task 7). The pane is what decides whether to honour it, so a test
+    /// that built the scope itself would prove nothing.
+    @discardableResult
+    func host(kind: Statement.Kind, activeDocumentId: String?,
+              requesting request: StatementPane.ScopeRequest) async -> NSWindow {
+        await mount(
+            AnyView(
+                StatementPane(
+                    store: store, documentStore: documentStore,
+                    kind: kind, activeDocumentId: activeDocumentId,
+                    scopeRequest: request)
+                .environment(preferences)))
+    }
+
     /// The pane with a SETTABLE selection, so a test can change its scope on one
     /// live pane rather than by hosting a second one.
     @discardableResult

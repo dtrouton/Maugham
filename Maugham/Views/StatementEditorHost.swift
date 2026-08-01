@@ -64,9 +64,37 @@ final class StatementTextTarget {
     /// triggered — the words typed before the file existed belong in its first
     /// op. It must be false when binding a statement that already has content,
     /// or an empty draft would overwrite what the writer wrote last week.
+    ///
+    /// **A carried draft is APPENDED to whatever the document already holds; it
+    /// never replaces it.** `setFullText` is whole-text replacement, and this
+    /// line used to hand it the draft alone on the stated grounds that a
+    /// just-minted statement's document is empty — which was true while the pane
+    /// was the only thing that could create one. **M1A Task 7 made the canvas a
+    /// second creator**, and `createStatement` is idempotent: a promotion into a
+    /// scope this pane is mounted on but has not bound (no statement existed when
+    /// `reconcile` ran, and nothing re-runs it) creates the statement WITH the
+    /// promoted card in it, and the writer's next keystroke arrives here as a
+    /// one-character draft. Replacing left them holding that character and
+    /// nothing else. **No timing window is involved** — promote, leave, come
+    /// back, type.
+    ///
+    /// It is fixed here rather than at `mintAndBind` because this is the one
+    /// place a draft meets a document: the caller-side fix ("look the statement
+    /// up first and pass `carryingDraft: false`") closes the one door that
+    /// exists today and throws the writer's keystroke away doing it, while this
+    /// keeps both texts and closes the door for the next creator too. In the
+    /// case this was written for — a genuinely new statement, whose file is
+    /// empty scaffolding — the behaviour is unchanged, byte for byte.
+    ///
+    /// (`reconcile`'s own comment describes this failure arriving through a
+    /// different door: a stale `resolvedScope` leaving the pane bound to
+    /// nothing over real content. That door is closed by clearing the marker;
+    /// this one cannot be, because the pane's belief was true when it formed.)
     func bind(_ document: Document, id: String, carryingDraft: Bool) {
         if carryingDraft, !draft.isEmpty {
-            document.setFullText(draft)
+            let existing = document.displayText
+            document.setFullText(
+                existing.isEmpty ? draft : existing + "\n\n" + draft)
         }
         draft = ""
         self.document = document
@@ -183,12 +211,7 @@ struct StatementEditorHost: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onAppear {
-            seedControl()
-            // Wired before any keystroke can arrive: `.onAppear` runs before
-            // the view can take input.
-            target.onUnboundWrite = { mintAndBind() }
-        }
+        .onAppear { seedControl() }
         .onChange(of: userPreferences.theme) { _, theme in editorControl.theme = theme }
         .onChange(of: effectiveTypography) { _, typography in
             editorControl.typography = typography
@@ -278,6 +301,23 @@ struct StatementEditorHost: View {
     /// that test is where it will fail.
     private func reconcile() async {
         let key = scopeKey
+        // **Re-wired here, per scope, and ABOVE the guard — it was `.onAppear`,
+        // once, and that was a live defect.** `mintAndBind` is a method on this
+        // view, which is a STRUCT, so `{ mintAndBind() }` captures the whole
+        // value — including `scope` — from the body pass that made it. Wired
+        // once at appear it went on naming that first scope for the pane's whole
+        // life: switch from the project to a chapter, type into the chapter's
+        // empty editor, and `createStatement` was asked for the PROJECT's
+        // statement and the writer's chapter sentence went into it.
+        // (`test_typingIntoANewlySelectedScopeMintsThatScopesStatement`.)
+        //
+        // `.task(id: scopeKey)`'s closure is rebuilt every body pass, so the
+        // `self` reaching here is current — and no keystroke can outrun it,
+        // because the editor mounts only on `resolvedScope`, which nothing but
+        // this function sets. Above the guard because a `.task` restart that
+        // early-returns (the writer left the pane and came back to the same
+        // scope) must still leave the wiring pointing at a live value.
+        target.onUnboundWrite = { mintAndBind() }
         guard resolvedScope != key else { return }
         // **Cleared before the first suspension, and this line is load-bearing.**
         // Everything below can exit early — a cancelled task, a load that fails —
@@ -346,6 +386,13 @@ struct StatementEditorHost: View {
     /// decides what a failure means (see `reconcile`).
     @discardableResult
     private func load(_ statement: Statement, carryingDraft: Bool) async -> Bool {
+        // **Held across the load AND the registration**, so that the window
+        // between "the registry says nobody has this" and "I have registered
+        // mine" is not one a transient writer can open a second `Document` in.
+        // See `ProjectStore.lockStatementOpen(_:)`; it is over the opening only,
+        // so this is released as soon as the registry can answer for us.
+        await store.lockStatementOpen(statement.id)
+        defer { store.unlockStatementOpen(statement.id) }
         do {
             let document = try await Document.load(
                 url: store.url.appendingPathComponent(statement.path),

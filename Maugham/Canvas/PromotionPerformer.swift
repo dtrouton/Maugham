@@ -587,9 +587,24 @@ struct PromotionPerformer {
     /// `BootstrapWiringTests`).
     private func append(_ text: String, to statement: Statement) async throws {
         if let live = store.openStatementDocument(id: statement.id) {
-            live.setFullText(appending(text, to: live.displayText))
+            writeInto(live, text)
             // Durable now rather than on the pane's own debounce: a promotion is
             // an act the writer has committed to, and the banner says it landed.
+            try? await live.flushBurstNow()
+            return
+        }
+        // **The registry alone leaves a window and this closes it.** Nobody has
+        // this statement open *yet* — but `Document.load` suspends, and a pane
+        // arriving on this scope mid-load asks the same registry, gets the same
+        // answer, and loads a second `Document` on the same path. The gate is
+        // over the OPENING, so the pane simply queues behind us; see
+        // `ProjectStore.lockStatementOpen(_:)`.
+        await store.lockStatementOpen(statement.id)
+        defer { store.unlockStatementOpen(statement.id) }
+        // Asked AGAIN inside the gate: a pane can have bound while we queued,
+        // and its `Document` is the one that will still be live in a moment.
+        if let live = store.openStatementDocument(id: statement.id) {
+            writeInto(live, text)
             try? await live.flushBurstNow()
             return
         }
@@ -598,11 +613,19 @@ struct PromotionPerformer {
             device: MacDeviceID.current,
             session: Self.promotionSession,
             presenter: store.documentStore?.presenter)
-        document.setFullText(appending(text, to: document.displayText))
+        writeInto(document, text)
         // Awaited, unlike `withAnnotationDocument`'s fire-and-forget close: that
         // path has already appended its ops itself, and this one's words are
-        // still in the pending buffer until the close flushes it.
+        // still in the pending buffer until the close flushes it. Inside the
+        // gate, so nothing else opens this path until the ops are on disk.
         await document.close()
+    }
+
+    /// Put the promoted text at the end of what a statement's `Document` already
+    /// says. One spelling, because the live arm and the transient arm must not
+    /// come to different conclusions about where a promotion goes.
+    private func writeInto(_ document: Document, _ text: String) {
+        document.setFullText(appending(text, to: document.displayText))
     }
 
     /// A blank line between what is there and what is arriving, and nothing at

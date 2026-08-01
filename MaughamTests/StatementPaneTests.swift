@@ -146,6 +146,187 @@ final class StatementPaneTests: XCTestCase {
         }
     }
 
+    // MARK: - A requested scope (M1A Task 7: Open on a promoted card)
+
+    /// **Open** on a card promoted to a chapter's intent takes the pane to THAT
+    /// chapter's, whatever the binder has selected. Without it the writer is
+    /// shown an intent that is not the one the card produced — frequently an
+    /// empty one — and either concludes the promotion did nothing or types into
+    /// the wrong scope believing it is the one they just added to.
+    func test_aRequestedScopeWinsOverTheSelection() {
+        XCTAssertEqual(
+            StatementPane.effectiveScope(
+                kind: .intent, activeDocumentId: "doc-1",
+                structure: structure, prefersProjectScope: false,
+                requested: .project),
+            .project)
+        XCTAssertEqual(
+            StatementPane.effectiveScope(
+                kind: .intent, activeDocumentId: nil,
+                structure: structure, prefersProjectScope: false,
+                requested: .document("doc-1")),
+            .document("doc-1"))
+    }
+
+    /// It wins over the project/document switch too — a request is the later act.
+    func test_aRequestedScopeWinsOverTheProjectSwitch() {
+        XCTAssertEqual(
+            StatementPane.effectiveScope(
+                kind: .intent, activeDocumentId: "doc-1",
+                structure: structure, prefersProjectScope: true,
+                requested: .document("doc-1")),
+            .document("doc-1"))
+    }
+
+    /// **A request naming something this project cannot hold a statement for is
+    /// IGNORED, not obeyed.** `createStatement` throws `.structureMissing` for a
+    /// group or an unknown id, so honouring one would leave the pane on a scope
+    /// whose first keystroke fails. Reachable: a statement outlives the document
+    /// it is about if that document is deleted, and its mark still resolves.
+    func test_aRequestNamingSomethingThatCannotHoldAStatementIsIgnored() {
+        for requested: Statement.Scope in [
+            .document("grp-1"), .document("gone-1"), .unknown("who knows")] {
+            XCTAssertEqual(
+                StatementPane.effectiveScope(
+                    kind: .intent, activeDocumentId: "doc-1",
+                    structure: structure, prefersProjectScope: false,
+                    requested: requested),
+                .document("doc-1"),
+                "expected the pane's own rule for \(requested.rawValue)")
+        }
+    }
+
+    /// Visual language ignores a request as it ignores everything else: the book
+    /// has one look. The `guard` that says so runs first, over every input.
+    func test_visualLanguageIgnoresARequestToo() {
+        for requested: Statement.Scope in [.project, .document("doc-1")] {
+            XCTAssertEqual(
+                StatementPane.effectiveScope(
+                    kind: .visualLanguage, activeDocumentId: "doc-1",
+                    structure: structure, prefersProjectScope: false,
+                    requested: requested),
+                .project)
+        }
+    }
+
+    /// The control: with no request the pane behaves exactly as it did, so the
+    /// parameter cannot be quietly deciding the ordinary case.
+    func test_noRequestLeavesTheSelectionInCharge() {
+        XCTAssertEqual(
+            StatementPane.effectiveScope(
+                kind: .intent, activeDocumentId: "doc-1",
+                structure: structure, prefersProjectScope: false, requested: nil),
+            .document("doc-1"))
+    }
+
+    /// The switch names the document the pane is actually showing, not the one
+    /// the binder has selected — or a pane pinned to Chapter B by **Open** would
+    /// offer a segment reading "Chapter A" above Chapter B's intent.
+    func test_theScopeSwitchNamesTheDocumentThePaneIsShowing() {
+        XCTAssertEqual(
+            StatementPane.pickerDocumentId(
+                kind: .intent, activeDocumentId: "doc-1",
+                structure: structure, requested: nil),
+            "doc-1")
+        XCTAssertEqual(
+            StatementPane.pickerDocumentId(
+                kind: .intent, activeDocumentId: nil,
+                structure: structure, requested: .document("doc-1")),
+            "doc-1",
+            "a request with nothing selected still needs a switch to get back "
+            + "to the project by")
+        XCTAssertNil(
+            StatementPane.pickerDocumentId(
+                kind: .intent, activeDocumentId: nil,
+                structure: structure, requested: .project),
+            "nothing to switch between: the caption is what shows")
+        XCTAssertNil(
+            StatementPane.pickerDocumentId(
+                kind: .visualLanguage, activeDocumentId: "doc-1",
+                structure: structure, requested: .document("doc-1")),
+            "the book has one look, so its pane offers no scope switch")
+    }
+
+    /// **The rule above, through the real pane.** `effectiveScope` is pure and
+    /// says what SHOULD happen; this says the request reaches it — the wiring a
+    /// pure test cannot see, and the half that was missing when this branch
+    /// shipped 22 green undo tests on a ⌘Z that could not reach the stack.
+    ///
+    /// The observable is where the first keystroke MINTS: the pane is mounted
+    /// with no document selected, so without the request it would create the
+    /// project's intent.
+    func test_thePaneReallyHonoursARequestedScope() async throws {
+        let made = try await fixture(named: "requested-scope")
+        let window = await made.host(
+            kind: .intent, activeDocumentId: nil,
+            requesting: StatementPane.ScopeRequest(
+                scope: .document(made.documentItemId), token: 1))
+        let textView = try made.textView(in: window)
+        await made.type("Intent for the chapter.", into: textView)
+        await made.pumpUntil(deadline: 5) {
+            made.store.statement(kind: .intent,
+                                 scope: .document(made.documentItemId)) != nil
+        }
+
+        XCTAssertNotNil(
+            made.store.statement(kind: .intent,
+                                 scope: .document(made.documentItemId)),
+            "the request never reached the pane: it minted somewhere else")
+        XCTAssertNil(made.store.statement(kind: .intent, scope: .project),
+                     "and it is not ALSO the project's — the control that says "
+                     + "the request replaced the selection's answer rather than "
+                     + "being added to it")
+    }
+
+    /// **The first keystroke into a newly-selected scope mints THAT scope's
+    /// statement, not the one the pane first appeared on.**
+    ///
+    /// Found by the test above and general to the pane: `onUnboundWrite` is a
+    /// closure over `StatementEditorHost`, which is a struct, so it captures the
+    /// `scope` of the body pass that created it. Wired once in `.onAppear`, it
+    /// went on naming that first scope for the pane's whole life — switch from
+    /// the project to a chapter, type into the empty chapter, and the words are
+    /// created (and, since this milestone's append fix, appended) into the
+    /// PROJECT's intent. Nothing about it is a race; it is the state outliving
+    /// the thing it described.
+    ///
+    /// Falsified by moving the wiring back into `.onAppear`.
+    func test_typingIntoANewlySelectedScopeMintsThatScopesStatement() async throws {
+        let made = try await fixture(named: "scope-switch-mint")
+        let window = await made.hostWithASettableSelection(
+            kind: .intent, activeDocumentId: nil)
+        _ = try made.textView(in: window)
+
+        // Move to the chapter, whose intent does not exist yet, and type.
+        await made.selectDocument(made.documentItemId)
+        let onChapter = try made.textView(in: window)
+        await made.type("The chapter's own aim.", into: onChapter)
+        await made.pumpUntil(deadline: 5) {
+            made.store.statement(kind: .intent,
+                                 scope: .document(made.documentItemId)) != nil
+        }
+
+        XCTAssertNotNil(
+            made.store.statement(kind: .intent,
+                                 scope: .document(made.documentItemId)),
+            "the chapter's first sentence was minted into the scope the pane "
+            + "appeared on, not the one it is showing")
+        XCTAssertNil(made.store.statement(kind: .intent, scope: .project),
+                     "and the project's intent was not created behind the "
+                     + "writer's back")
+    }
+
+    /// Two presses of **Open** on one card are two requests. Without the token
+    /// the second is an unchanged value, `.onChange` never fires, and the pane
+    /// stays wherever the writer's last selection put it.
+    func test_asecondPressOfTheSameOpenIsANewRequest() {
+        let first = StatementPane.ScopeRequest(scope: .document("doc-1"), token: 1)
+        let second = StatementPane.ScopeRequest(scope: .document("doc-1"), token: 2)
+        XCTAssertNotEqual(first, second,
+                          "the pane observes this value; two presses that compare "
+                          + "equal are one request")
+    }
+
     // MARK: - The mount condition (fix round 1, C1)
 
     /// The mount is held for a resolved scope and for nothing else.

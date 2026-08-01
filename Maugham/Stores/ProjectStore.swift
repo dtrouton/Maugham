@@ -118,6 +118,15 @@ public final class ProjectStore {
     /// never a rendered dependency.
     @ObservationIgnored internal var openStatementDocuments: [String: OpenStatementDocument] = [:]
 
+    /// The statements somebody is currently OPENING a `Document` for, and whoever
+    /// is queued behind them. The registry above answers for a `Document` that is
+    /// already open; these two cover the window in which one is being opened,
+    /// which is a suspension (`await Document.load`) that both openers have and
+    /// neither can see. See `lockStatementOpen(_:)`.
+    @ObservationIgnored internal var statementOpensInFlight: Set<String> = []
+    @ObservationIgnored internal var statementOpenWaiters:
+        [String: [CheckedContinuation<Void, Never>]] = [:]
+
     /// Per-project cache fronting `DerivedManuscript` for CLOSED docs (F5).
     /// Owned here — not on `DocumentStore` — because every adopter (search,
     /// word counts, wiki-rename pre-check, the link tools) already holds a
