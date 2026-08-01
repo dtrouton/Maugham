@@ -165,4 +165,52 @@ final class PromotionStatementMarkTests: XCTestCase {
         XCTAssertNil(ProjectWindow.statementPane(forMark: note.id, in: store))
         XCTAssertNil(ProjectWindow.statementPane(forMark: "res-nope", in: store))
     }
+
+    // MARK: - Where the request lives, and who takes it back
+
+    /// **The two lines that keep an Open request from outliving what it
+    /// described** (fix round 2, N1) — neither of which any runtime test in this
+    /// repo can reach, because nothing hosts a `ProjectWindow` and a segment
+    /// switch destroying `StatementPane` is SwiftUI's own act.
+    ///
+    /// The defect: the pane kept a `@State` copy of the request and re-seeded it
+    /// on `.onAppear` from the window's, which nothing cleared. So a request the
+    /// writer had revoked by moving the binder came back on every later visit to
+    /// the pane, for the life of the window, and typing went into a scope they
+    /// had already declined. The asymmetry that made it a defect rather than a
+    /// preference: the pane's *other* override, `prefersProjectScope`, re-seeds
+    /// to its NEUTRAL value on remount, and the copy re-seeded to a stale one.
+    ///
+    /// So: the window revokes on the selection change (the state the rule is
+    /// about is the window's, and it outlives the pane), and the pane keeps no
+    /// copy at all — it reads `scopeRequest` where it needs it.
+    ///
+    /// **Comment-stripped**, for the reason four other censuses in this
+    /// directory are: both files are more doc comment than code, and every token
+    /// here is the sort of thing their prose discusses.
+    func test_theWindowRevokesTheOpenRequestAndThePaneKeepsNoCopyOfIt() throws {
+        let window = CanvasSourceCensus.commentsStripped(
+            try CanvasSourceCensus.source(at: "Maugham/Views/ProjectWindow.swift"))
+        XCTAssertTrue(window.contains("statementScopeRequest = nil"),
+                      "nothing revokes an Open request: one survives every later "
+                      + "visit to the pane, over a selection the writer has moved")
+
+        let pane = CanvasSourceCensus.commentsStripped(
+            try CanvasSourceCensus.source(at: "Maugham/Views/StatementPane.swift"))
+        XCTAssertTrue(pane.contains("requested: scopeRequest?.scope"),
+                      "the pane is resolving its scope from something other than "
+                      + "the live request — a copy is what N1 was")
+
+        // The companion: prove the scan reports an absence rather than always
+        // answering true, with a spelling that cannot exist in production.
+        XCTAssertFalse(window.contains("statementScopeRequestNotAReal = nil"),
+                       "the scan reads the file rather than always answering true")
+        // And the arm that proves the STRIPPING, which the plant above cannot.
+        XCTAssertFalse(
+            CanvasSourceCensus.commentsStripped(
+                "// statementScopeRequest = nil in prose\nlet x = 1")
+                .contains("statementScopeRequest = nil"),
+            "a census that reads comments is satisfied by a paragraph describing "
+            + "the line it is meant to require")
+    }
 }

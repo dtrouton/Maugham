@@ -260,6 +260,15 @@ struct ProjectWindow: View {
         }
         .onChange(of: selectedItemId) { _, newValue in
             documentStore?.updateUIState { $0.selectedItemId = newValue }
+            // **The writer moving the binder revokes an Open request, and the
+            // revocation has to live HERE** (M1A Task 7, fix round 2). The
+            // request outlives the statement pane — a segment switch destroys
+            // that view and its `@State` with it — so a revocation recorded in
+            // the pane died with it and `.onAppear` re-seeded the request the
+            // writer had already declined, on every later visit. State is
+            // revoked where the state it is about lives, and `selectedItemId`
+            // is this view's.
+            statementScopeRequest = nil
             // Zero the inspector/footer metrics when the new selection is not a
             // document (group, no selection). The EditorCoordinator only
             // delivers `onMetricsChanged` while a document is bound, so it can't

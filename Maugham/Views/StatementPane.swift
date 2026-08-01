@@ -41,13 +41,15 @@ struct StatementPane: View {
     /// Set when the writer asks for the *project's* intent while a document is
     /// selected. Reset by a selection change, so moving to another chapter shows
     /// that chapter's intent rather than silently keeping the book's.
+    ///
+    /// **It is the pane's only scope state, and it is right that it dies with
+    /// the pane.** A segment switch destroys this view, and this comes back at
+    /// its neutral value — the pane returns to its declarative answer. A copy of
+    /// the *request* alongside it did not have that property: it came back
+    /// STALE, because what it copied outlives the pane (fix round 2, N1). So
+    /// there is no copy; `scopeRequest` is read where it is needed, and the
+    /// window revokes it.
     @State private var prefersProjectScope = false
-
-    /// The request this pane is currently honouring. Dropped by a selection
-    /// change, exactly as `prefersProjectScope` is and for the same reason: both
-    /// are the writer having overridden "scope follows selection", and moving the
-    /// selection is them taking that back.
-    @State private var honouredRequest: ScopeRequest?
 
     /// Which statement this pane is showing.
     ///
@@ -70,6 +72,16 @@ struct StatementPane: View {
         // An `.unknown` kind (a newer build's) is retained and ignored
         // everywhere else, and has no document storage either.
         guard case .intent = kind else { return .project }
+        // **The switch is asked BEFORE the request, and that is what keeps it a
+        // live control** (fix round 2). A request outranking it left the writer
+        // pressing Project on a pane pinned by Open and watching nothing happen.
+        // The two acts do not need an ordering rule between them, only a rule
+        // that the LATER one wins — and the other half of that is the pane
+        // clearing this flag when a new request arrives, so an Open after a
+        // switch press is not swallowed either. That half is a `.onChange`
+        // rather than a term here, because "which came last" is not a fact this
+        // function's inputs carry.
+        if prefersProjectScope { return .project }
         // **A request wins over the selection, and only over the selection.** It
         // is the writer saying "take me to what this card became" (M1A Task 7),
         // and a chapter's intent is the ordinary case now — so `Open` landing on
@@ -93,8 +105,7 @@ struct StatementPane: View {
             case .document, .unknown: break
             }
         }
-        guard !prefersProjectScope,
-              let id = activeDocumentId,
+        guard let id = activeDocumentId,
               id != StatementPane.noSelectionSentinel,
               let item = TreeWalk.find(id: id, in: structure),
               item.type == .document
@@ -112,7 +123,7 @@ struct StatementPane: View {
             kind: kind, activeDocumentId: activeDocumentId,
             structure: store.manifest.structure,
             prefersProjectScope: prefersProjectScope,
-            requested: honouredRequest?.scope)
+            requested: scopeRequest?.scope)
     }
 
     /// The document the picker's left segment stands for — **the pane's own
@@ -122,17 +133,34 @@ struct StatementPane: View {
     /// Asked of `effectiveScope` rather than read off `activeDocumentId`, so the
     /// switch cannot name one document while the editor below it shows another's
     /// intent. Pure and static for that function's reason.
+    ///
+    /// **A `.project` request falls back to the selection, and that second
+    /// question is the whole of fix round 2's N2.** Asking once left the switch
+    /// off screen whenever a project-scoped Open landed with a document
+    /// selected — the common case, since `PromotionPerformer.intentScope` routes
+    /// every unroutable piece to the project — and the pane's own way back went
+    /// with it: re-clicking the same binder row fires no change, so the only
+    /// escape left was selecting a DIFFERENT document, which moves the writer's
+    /// open manuscript. The switch's job is to name what there is to switch
+    /// **to**, and there is something to switch to exactly when the binder holds
+    /// a document.
     static func pickerDocumentId(
         kind: Statement.Kind,
         activeDocumentId: String?,
         structure: [StructureItem],
         requested: Statement.Scope?
     ) -> String? {
-        guard case .document(let id) = effectiveScope(
+        if case .document(let id) = effectiveScope(
             kind: kind, activeDocumentId: activeDocumentId, structure: structure,
-            prefersProjectScope: false, requested: requested)
-        else { return nil }
-        return id
+            prefersProjectScope: false, requested: requested) {
+            return id
+        }
+        if case .document(let id) = effectiveScope(
+            kind: kind, activeDocumentId: activeDocumentId, structure: structure,
+            prefersProjectScope: false, requested: nil) {
+            return id
+        }
+        return nil
     }
 
     /// That document's title, when there is one — the label the scope switch
@@ -140,7 +168,7 @@ struct StatementPane: View {
     private var selectedDocumentTitle: String? {
         guard let id = Self.pickerDocumentId(
             kind: kind, activeDocumentId: activeDocumentId,
-            structure: store.manifest.structure, requested: honouredRequest?.scope)
+            structure: store.manifest.structure, requested: scopeRequest?.scope)
         else { return nil }
         return TreeWalk.find(id: id, in: store.manifest.structure)?.title
     }
@@ -163,26 +191,17 @@ struct StatementPane: View {
                 kind: kind, scope: scope)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onChange(of: activeDocumentId) { _, _ in
-            prefersProjectScope = false
-            // The writer moving the binder takes back both overrides; "scope
-            // follows selection" is the pane's rule and a request is a detour.
-            honouredRequest = nil
-        }
-        // Seeded on appear as well as on change: the segment can be switched to
-        // Intent BY the request itself (`ProjectWindow.openPromotedArtifact`
-        // sets both), in which case this pane is mounting fresh and there is no
-        // transition for `.onChange` to see.
-        .onAppear { honouredRequest = scopeRequest }
-        .onChange(of: scopeRequest) { _, request in honouredRequest = request }
-        // **Touching the switch takes the request back, or the switch is a
-        // control that does nothing.** A request outranks `prefersProjectScope`
-        // in `effectiveScope`, so without this the writer presses Project on a
-        // pane pinned by Open and watches nothing happen — the dead editable
-        // field this codebase refuses elsewhere (`namesItsArtifact`). Firing on
-        // the selection-change reset too is harmless: that arm clears the
-        // request itself.
-        .onChange(of: prefersProjectScope) { _, _ in honouredRequest = nil }
+        // The writer moving the binder takes the switch back to neutral. **It
+        // does not take the REQUEST back — `ProjectWindow` does**, on the same
+        // selection change, because the request outlives this view and a
+        // revocation recorded here would not (fix round 2, N1).
+        .onChange(of: activeDocumentId) { _, _ in prefersProjectScope = false }
+        // **A fresh Open beats a stale switch press**, which is the other half
+        // of "the later act wins": `effectiveScope` asks the switch first, so
+        // without this an Open arriving after the writer had pressed Project
+        // would change nothing. The token is what makes a SECOND press of the
+        // same Open a change here.
+        .onChange(of: scopeRequest) { _, _ in prefersProjectScope = false }
     }
 
     @ViewBuilder

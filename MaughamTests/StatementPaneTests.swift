@@ -168,14 +168,37 @@ final class StatementPaneTests: XCTestCase {
             .document("doc-1"))
     }
 
-    /// It wins over the project/document switch too — a request is the later act.
-    func test_aRequestedScopeWinsOverTheProjectSwitch() {
+    /// **The switch is asked first, and that is what keeps it a live control**
+    /// (fix round 2). With the request outranking it, the writer pressed Project
+    /// on a pane pinned by Open and nothing happened — the dead control this
+    /// codebase refuses elsewhere (`PromotionTarget.namesItsArtifact`).
+    func test_theProjectSwitchOutranksARequest() {
         XCTAssertEqual(
             StatementPane.effectiveScope(
                 kind: .intent, activeDocumentId: "doc-1",
                 structure: structure, prefersProjectScope: true,
                 requested: .document("doc-1")),
-            .document("doc-1"))
+            .project)
+    }
+
+    /// The other half of "the later act wins", and it is why the rule above is
+    /// not simply "the switch beats Open": a request arriving after a switch
+    /// press resets the switch, so an Open is never swallowed either. The pane
+    /// does that in `.onChange(of: scopeRequest)`, which is what makes the
+    /// TOKEN load-bearing — a second press of the same Open must be a change.
+    func test_aFreshRequestIsNotSwallowedByAnEarlierSwitchPress() {
+        let first = StatementPane.ScopeRequest(scope: .document("doc-1"), token: 1)
+        let again = StatementPane.ScopeRequest(scope: .document("doc-1"), token: 2)
+        XCTAssertNotEqual(first, again,
+                          "two presses of one Open must reach `.onChange`, or the "
+                          + "second cannot reset the switch")
+        XCTAssertEqual(
+            StatementPane.effectiveScope(
+                kind: .intent, activeDocumentId: "doc-1",
+                structure: structure, prefersProjectScope: false,
+                requested: again.scope),
+            .document("doc-1"),
+            "and with the switch reset, the request is what answers")
     }
 
     /// **A request naming something this project cannot hold a statement for is
@@ -240,6 +263,18 @@ final class StatementPaneTests: XCTestCase {
                 kind: .intent, activeDocumentId: nil,
                 structure: structure, requested: .project),
             "nothing to switch between: the caption is what shows")
+        // **The case fix round 2 was missing.** A project-scoped Open is the
+        // common one — `intentScope` routes every unroutable piece there — and
+        // asking `effectiveScope` once made it answer `.project`, hid the
+        // switch, and left the writer on the project's intent with no control
+        // to reach the chapter's. Re-clicking the same binder row fires no
+        // change, so the only escape left moved their open manuscript.
+        XCTAssertEqual(
+            StatementPane.pickerDocumentId(
+                kind: .intent, activeDocumentId: "doc-1",
+                structure: structure, requested: .project),
+            "doc-1",
+            "a project-scoped request must not take the writer's way back with it")
         XCTAssertNil(
             StatementPane.pickerDocumentId(
                 kind: .visualLanguage, activeDocumentId: "doc-1",
