@@ -948,8 +948,15 @@ final class RegionBindingTests: XCTestCase {
                        + "inspector must never outlive the canvas")
     }
 
-    /// The canvas and its inspector are two columns of ONE `binderSegment` case,
+    /// The canvas and its inspector are two columns of ONE `binderSegment` arm,
     /// so they cannot mount or unmount separately.
+    ///
+    /// **That arm names TWO segments since slice 2** — `.canvas` and `.tree`
+    /// both put the canvas in the centre and differ only in the left column, and
+    /// joining them is what keeps a flip between them from rebuilding the view.
+    /// `BinderSegment.centresTheCanvas` is the one predicate both routes ask;
+    /// this census is about which arm BUILDS each column, which is a different
+    /// question and still worth asking here.
     func test_theCanvasAndItsInspectorAreTwoColumnsOfOneSegment() throws {
         let source = try projectWindowSource()
         XCTAssertEqual(occurrences(of: "switch binderSegment {", in: source), 2,
@@ -957,9 +964,18 @@ final class RegionBindingTests: XCTestCase {
                        + "inspector. A third would need its own arm here.")
 
         let arms = canvasArms(in: source)
-        XCTAssertEqual(arms.count, 2)
-        XCTAssertTrue(arms[0].contains("CanvasView("),
-                      "the centre column's `.canvas` arm is the canvas itself")
+        XCTAssertEqual(arms.count, 2,
+                       "both switches must join `.canvas` and `.tree` into one "
+                       + "arm — a `case .canvas:` on its own is the split this "
+                       + "slice exists to prevent")
+        XCTAssertTrue(arms[0].contains("canvasCentre("),
+                      "the centre column's arm is the canvas itself. It is a call "
+                      + "rather than the view since slice 2: `editorPane` routes "
+                      + "the canvas ABOVE this switch (so ONE branch serves both "
+                      + "segments) and this arm is the unreachable half the "
+                      + "compiler still demands, pointed at the same helper so "
+                      + "the two cannot drift — the inspector's arm below has "
+                      + "been that shape since 2026-07-28")
         XCTAssertTrue(arms[1].contains("canvasInspector("),
                       "and the inspector's `.canvas` arm is the region inspector. "
                       + "This pins WHICH arm builds it, not that the segment is "
@@ -967,7 +983,20 @@ final class RegionBindingTests: XCTestCase {
                       + "`Persona.binderSegments(for:)`, which is where the "
                       + "Collections fix put it")
 
-        XCTAssertEqual(occurrences(of: "CanvasView(", in: source), 1)
+        XCTAssertEqual(occurrences(of: "CanvasView(", in: source), 1,
+                       "one mount for the canvas, in `canvasCentre`. A second is "
+                       + "a second view identity, and what that costs the writer "
+                       + "is measured in `CanvasTreeSegmentMountTests`")
+        XCTAssertEqual(occurrences(of: "canvasCentre(", in: source), 3,
+                       "the declaration and exactly TWO calls, mirroring "
+                       + "`canvasInspector(` below:\n"
+                       + " 1. `editorPane`'s `.canvas` route — the live one, "
+                       + "taken ABOVE the segment switch so that `.canvas` and "
+                       + "`.tree` share one branch and one view identity.\n"
+                       + " 2. `existingEditorSwitch`'s joined arm — UNREACHABLE, "
+                       + "kept only because that switch is exhaustive over "
+                       + "`BinderSegment`.\n"
+                       + "A THIRD call is a real second mount point.")
         XCTAssertEqual(occurrences(of: "RegionInspectorPane(", in: source), 1,
                        "one mount point each; a second would not be gated on the "
                        + "arm above")
@@ -1332,8 +1361,13 @@ final class RegionBindingTests: XCTestCase {
     /// The body of each `case .canvas:` arm, bounded by the next `case` at the
     /// same indentation — unbounded, every arm would contain the whole rest of
     /// the file and the assertions above could not fail.
+    /// **`case .canvas, .tree:`, since slice 2.** Both segments centre the
+    /// canvas, and both switches join them into ONE arm precisely so a flip does
+    /// not rebuild it (`CanvasTreeSegmentMountTests` measures what splitting them
+    /// costs). Splitting either arm back apart makes this slicer find zero arms
+    /// and the census below fail loudly rather than silently counting one.
     private func canvasArms(in source: String) -> [String] {
-        source.components(separatedBy: "\n        case .canvas:").dropFirst().map { arm in
+        source.components(separatedBy: "\n        case .canvas, .tree:").dropFirst().map { arm in
             if let end = arm.range(of: "\n        case ") {
                 return String(arm[..<end.lowerBound])
             }

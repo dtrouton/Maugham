@@ -235,18 +235,38 @@ public extension Persona {
         switch self {
         case .plan:
             // §6.3 gives Plan a canvas centre column, so the canvas leads and is
-            // therefore `binderHome` — entering Plan lands on it. Research and
+            // therefore `binderHome` — entering Plan lands on it. `.tree` is
+            // slice 2's addition and sits second (see below). Research and
             // Palette follow: Research is §6.3's Left surface, and the binder is
             // where a palette card is picked.
             //
-            // The manuscript segment stays deliberately ABSENT, for the reason
-            // recorded before the canvas existed: the coercion rule keeps any
-            // segment the destination offers, so including it would let a writer
-            // entering Plan from the manuscript simply stay on it and never see
-            // the planning surfaces at all. Not a gate — a forced navigation
-            // still selects the manuscript segment and `visibleSegments`
-            // renders it, and ⌘2 is one keystroke away.
-            return [.canvas, .research, .palette]
+            // **`.tree` is Plan's manuscript tree with the CANVAS still in the
+            // centre** (spec §3.1) — the structure segment. It closes §1's hole,
+            // which Denver hit within minutes of opening Plan on 2026-08-02:
+            // "the binder hasn't appeared in plan view."
+            //
+            // **The manuscript segment itself stays absent, and the reason
+            // recorded here before is now false.** It read: "the coercion rule
+            // keeps any segment the destination offers, so including it would
+            // let a writer entering Plan from the manuscript simply stay on it."
+            // **That rule no longer exists.** `PersonaMemory.restoredBinderSegment`
+            // replaced it: a persona switch restores the DESTINATION's own
+            // remembered position, so a writer arriving in Plan lands where they
+            // last stood in Plan and never on the segment they came from. The
+            // old argument could not survive that and does not need to.
+            //
+            // What is true now, and it is a different answer rather than a
+            // reversal of that one: `.manuscript` means "the editor in the
+            // centre", and §2 says Plan does not draft. `.tree` gives Plan the
+            // same TREE without the same CENTRE — which is precisely why it is a
+            // case of its own and not a reuse of the manuscript home (see
+            // `BinderSegment.tree`). Adding `.manuscript` here would put a text
+            // editor in Plan; adding `.tree` puts a structure surface there.
+            //
+            // Ordering is unchanged on purpose: `binderHome` is `.first`, so
+            // Plan still lands on the canvas, which is what §6.3 gives it and
+            // what every writer of it has opened into so far.
+            return [.canvas, .tree, .research, .palette]
         case .author:
             // §6.3 Left = "Binder", and after slice 2 that is all it is: the
             // manuscript home, alone.

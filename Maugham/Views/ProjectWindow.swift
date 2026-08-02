@@ -905,16 +905,37 @@ struct ProjectWindow: View {
         return piece.pieceKind == .reference
     }
 
+    /// **The canvas is ONE branch here, above the segment switch, and that is
+    /// what keeps it mounted across a `.canvas` ↔ `.tree` flip.**
+    ///
+    /// `CanvasView`'s camera, scrap layouts, thumbnail cache, in-progress scrap
+    /// edit and accessibility elements are all `@State` on the view —
+    /// `CanvasModel`'s own doc comment says so from the other side ("what
+    /// deliberately does not live here: camera, layouts…"). Two `case` clauses in
+    /// a ViewBuilder `switch` are two distinct `_ConditionalContent` branches, so
+    /// a `case .tree:` arm of its own would give the canvas a second identity and
+    /// SwiftUI would tear the first one down on every flip: camera back to origin
+    /// at zoom 1, every layout re-measured, thumbnails emptied, `.onAppear`
+    /// re-reading `canvas.md` and the sidecar.
+    ///
+    /// **Measured, not cited** (`CanvasTreeSegmentMountTests`, macOS 26.5): with
+    /// two arms a camera at pan (−680, −420) / zoom 1.5 came back at pan `.zero`
+    /// / zoom 1, the `CanvasEventNSView` was a different object and `load()` had
+    /// run twice; routed through `editorRoute` the camera survives, the object
+    /// is the same one, and `load()` has still run once.
     @ViewBuilder
     private func editorPane(
         store: ProjectStore, documentStore: DocumentStore
     ) -> some View {
-        if Self.editorRoute(binderSegment: binderSegment,
-                            projectType: store.manifest.type,
-                            selectedPieceIsReference: selectedPieceIsReference(in: store))
-            == .collectionReference,
-           let id = activeItemID,
-           let piece = store.manifest.structure.first(where: { $0.id == id }) {
+        let route = Self.editorRoute(
+            binderSegment: binderSegment,
+            projectType: store.manifest.type,
+            selectedPieceIsReference: selectedPieceIsReference(in: store))
+        if route == .canvas {
+            canvasCentre(store: store, documentStore: documentStore)
+        } else if route == .collectionReference,
+                  let id = activeItemID,
+                  let piece = store.manifest.structure.first(where: { $0.id == id }) {
             ReferencePlaceholderCard(piece: piece) {
                 openReferenceInWindow(piece: piece, store: store)
             }
@@ -962,28 +983,14 @@ struct ProjectWindow: View {
                 // (lockEditing) via `effectivePosture` mirrored into the control.
                 control: editorControl
             )
-        case .canvas:
-            CanvasView(model: canvasModel, projectRoot: store.url,
-                       paletteSwatchHexes: { store.paletteSwatchHexes() },
-                       itemIndex: Self.canvasItemIndex(in: store),
-                       // The canvas's asset well (1C-d Task 11): a photograph
-                       // dropped from the Finder or a browser is ingested into
-                       // `canvas_assets/` here and nowhere else, so every route
-                       // is a caller of the one pair rather than a storage
-                       // decision of its own.
-                       assetIngest: CanvasAssetIngest(
-                        file: { try await store.ingestCanvasAsset(fileURL: $0) },
-                        image: { try await store.ingestCanvasAsset(image: $0) }),
-                       // An inbox row dragged onto the canvas (1C-d Task 12, spec
-                       // §8A.4). The whole act is the store's third promote
-                       // sibling; this is the only production site that hands the
-                       // canvas a way to reach it, so its absence would be a drag
-                       // that springs back with nothing said.
-                       captureDrop: CanvasCaptureDrop(send: { entryID, point in
-                           try await documentStore.inboxStore.sendToCanvas(
-                               entryID: entryID, projectStore: store,
-                               placement: .dropped(at: point))
-                       }))
+        case .canvas, .tree:
+            // **Unreachable** — `editorRoute` takes the canvas above this switch
+            // (see `editorPane`), in one branch that serves both segments. Kept
+            // because the switch is exhaustive over `BinderSegment` and the
+            // compiler requires an answer, and routed to the same helper so the
+            // two cannot drift. `existingInspectorSwitch`'s `.canvas` arm is the
+            // same shape, one column over.
+            canvasCentre(store: store, documentStore: documentStore)
         case .research:
             if let id = selectedResearchId,
                let item = TreeWalk.find(
@@ -1036,6 +1043,42 @@ struct ProjectWindow: View {
         }
     }
 
+    /// **The one place the canvas is mounted in production.**
+    ///
+    /// Named and extracted so that `.canvas` and `.tree` reach the SAME view
+    /// identity through `editorRoute` (see `editorPane`) rather than an arm
+    /// apiece. A second mount here would give the tree a canvas of its own, and
+    /// the cost of that is the writer's camera, layouts and thumbnails on every
+    /// flip with nothing red anywhere — so the mount count is censused in
+    /// `RegionBindingTests`, beside the inspector arm's, and what it costs is
+    /// measured in `CanvasTreeSegmentMountTests`. The token that census counts
+    /// is deliberately not spelled in this comment.
+    private func canvasCentre(
+        store: ProjectStore, documentStore: DocumentStore
+    ) -> some View {
+        CanvasView(model: canvasModel, projectRoot: store.url,
+                   paletteSwatchHexes: { store.paletteSwatchHexes() },
+                   itemIndex: Self.canvasItemIndex(in: store),
+                   // The canvas's asset well (1C-d Task 11): a photograph
+                   // dropped from the Finder or a browser is ingested into
+                   // `canvas_assets/` here and nowhere else, so every route
+                   // is a caller of the one pair rather than a storage
+                   // decision of its own.
+                   assetIngest: CanvasAssetIngest(
+                    file: { try await store.ingestCanvasAsset(fileURL: $0) },
+                    image: { try await store.ingestCanvasAsset(image: $0) }),
+                   // An inbox row dragged onto the canvas (1C-d Task 12, spec
+                   // §8A.4). The whole act is the store's third promote
+                   // sibling; this is the only production site that hands the
+                   // canvas a way to reach it, so its absence would be a drag
+                   // that springs back with nothing said.
+                   captureDrop: CanvasCaptureDrop(send: { entryID, point in
+                       try await documentStore.inboxStore.sendToCanvas(
+                           entryID: entryID, projectStore: store,
+                           placement: .dropped(at: point))
+                   }))
+    }
+
     /// Helper: the currently-selected manuscript Document, if one is open
     /// in the editor registry.
     private func activeDocument(in store: ProjectStore, documentStore: DocumentStore) -> Document? {
@@ -1081,7 +1124,12 @@ struct ProjectWindow: View {
 
     static func inspectorRoute(binderSegment: BinderSegment,
                                projectType: ProjectType) -> InspectorRoute {
-        if binderSegment == .canvas { return .canvas }
+        // `centresTheCanvas`, not `== .canvas`: since slice 2 the canvas is the
+        // centre column under `.tree` as well, and this equality spelled in three
+        // places with no compiler help is what the predicate replaces. Miss it
+        // here and the region inspector is unreachable from Plan's tree — the
+        // exact defect the doc comment above records.
+        if binderSegment.centresTheCanvas { return .canvas }
         return projectType == .collection ? .collectionPiece : .segment
     }
 
@@ -1229,9 +1277,19 @@ struct ProjectWindow: View {
     }
 
     enum EditorRoute: Equatable {
+        /// `canvasCentre` — the planning canvas, mounted ONCE and above the
+        /// segment switch, so `.canvas` and `.tree` share one view identity.
+        ///
+        /// **It became a case of its own in slice 2.** It used to answer
+        /// `.segment` and let `existingEditorSwitch`'s `case .canvas:` arm do the
+        /// mounting, which was correct while exactly one segment centred the
+        /// canvas. With two, an arm apiece is two `_ConditionalContent` branches
+        /// and the canvas is rebuilt from scratch on every flip — see
+        /// `editorPane` for what that costs and what was measured.
+        case canvas
         /// A Collection's placeholder for a linked-project reference piece.
         case collectionReference
-        /// `existingEditorSwitch` — which is where the canvas itself lives.
+        /// `existingEditorSwitch`.
         case segment
     }
 
@@ -1242,7 +1300,7 @@ struct ProjectWindow: View {
         // the Pieces segment stays selected across a persona switch — nothing
         // clears `selectedItemId` but a delete — so without this the centre
         // column shows the placeholder and the canvas never appears at all.
-        if binderSegment == .canvas { return .segment }
+        if binderSegment.centresTheCanvas { return .canvas }
         return projectType == .collection && selectedPieceIsReference
             ? .collectionReference : .segment
     }
@@ -1331,7 +1389,7 @@ struct ProjectWindow: View {
                 metrics: metrics,
                 onOpenProjectSettings: { activeSheet = .projectSettings }
             )
-        case .canvas:
+        case .canvas, .tree:
             // Unreachable — `inspectorRoute` takes the canvas above the
             // project-type split, so this arm never runs. Kept because the switch
             // is exhaustive over `BinderSegment` and the compiler requires it;
@@ -2113,7 +2171,7 @@ struct PersonaModifier: ViewModifier {
     /// on SwiftUI pass ordering, which is the fragility tripwire 2 is about.
     static func clearsPaletteStash(from current: BinderSegment,
                                    to next: BinderSegment) -> Bool {
-        leaves(.palette, from: current, to: next)
+        leaves({ $0 == .palette }, from: current, to: next)
     }
 
     /// True when a persona change moves the binder OFF the canvas *while a
@@ -2133,19 +2191,29 @@ struct PersonaModifier: ViewModifier {
     /// switch off an *uncollapsed* canvas reopens nothing: the writer may have
     /// dragged the sidebar shut themselves, and this is not the code that gets to
     /// undo that.
+    ///
+    /// **`centresTheCanvas` rather than `== .canvas`, since slice 2.** The
+    /// canvas is also the centre column under `.tree`, so Plan-on-the-tree →
+    /// Author is a switch OFF the canvas and must hand the sidebar back, while
+    /// `.canvas` → `.tree` is not a switch off it at all and must move nothing.
     static func releasesCanvasCollapse(from current: BinderSegment,
                                        to next: BinderSegment,
                                        stash: Bool?) -> Bool {
-        stash != nil && leaves(.canvas, from: current, to: next)
+        stash != nil && leaves(\.centresTheCanvas, from: current, to: next)
     }
 
     /// The shape both stashes share: a segment change that LEAVES a surface
     /// which had temporarily taken the inspector's column. One spelling, because
     /// two spellings of one rule is how the second one comes to differ.
-    private static func leaves(_ surface: BinderSegment,
+    ///
+    /// **A predicate rather than a segment, since slice 2.** The palette wall is
+    /// one segment; the canvas CENTRE is two (`.canvas` and `.tree` both draw
+    /// it), so "leaves the canvas" stopped being an equality. Taking the test as
+    /// a parameter is what kept that from becoming a second copy of this line.
+    private static func leaves(_ isTheSurface: (BinderSegment) -> Bool,
                                from current: BinderSegment,
                                to next: BinderSegment) -> Bool {
-        current == surface && next != surface
+        isTheSurface(current) && !isTheSurface(next)
     }
 
     func body(content: Content) -> some View {
@@ -2426,7 +2494,13 @@ struct CanvasPromotionModifier: ViewModifier {
     static func isPromotable(binderSegment: BinderSegment,
                              selection: CanvasSelection?,
                              nodeKind: CanvasNodeKind?) -> Bool {
-        guard binderSegment == .canvas else { return false }
+        // **`centresTheCanvas`, and this is the FOURTH site that spelled the
+        // canvas check as an equality** — not one of the three the slice-2 plan
+        // named, found by grepping the comparison rather than reading the list.
+        // The canvas is on screen under `.tree` with a live selection in it, so
+        // an equality here would grey `Promote…` out and drop ⌘⇧↩ over a card
+        // the writer can see and has selected.
+        guard binderSegment.centresTheCanvas else { return false }
         switch selection {
         case .node:
             switch nodeKind {

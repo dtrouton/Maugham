@@ -106,24 +106,43 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     /// sized like any other reads as a picker with one choice in it.
     ///
     /// **Measured 2026-08-02, macOS 26.5:** the one-segment control lays out at
-    /// **24 × 24 pt** inside a 240pt column, the three-segment one at
-    /// **84 × 24 pt** — so the segmented control hugs its content in both cases
-    /// and 28pt-ish per segment is the whole story. Consistent with the 87–145pt
+    /// **24 × 24 pt** inside a 240pt column — so the segmented control hugs its
+    /// content rather than filling the column. Consistent with the 87–145pt
     /// figures already recorded at `BinderSegment.pickerSymbolName`, which is
-    /// how we know this measurement is reading the real control.
+    /// how we know this measurement is reading the real control. Plan's own
+    /// width is not written down: it moves with its segment list (slice 2 added
+    /// one), and the assertion below compares the two rather than pinning
+    /// either.
+    ///
+    /// **Plan's segment count is asked, never asserted as a literal.** It read
+    /// `XCTAssertEqual(three.segmentCount, 3)` and slice 2's `.tree` made it 4 —
+    /// a count over a list, the shape
+    /// `memory/feedback_prose_counts_are_unmaintainable.md` is about. What this
+    /// test needs of Plan is only that it has MORE segments than the
+    /// single-segment personas, which is the premise the width comparison rests
+    /// on; the exact list is `PersonaBinderSegmentTests`' business.
     func test_theOneSegmentDoesNotStretchTheWholeColumn() async throws {
         let one = try await mount(persona: .review, on: .manuscript)
-        let three = try await mount(persona: .plan, on: .canvas)
+        let many = try await mount(persona: .plan, on: .canvas)
 
-        XCTAssertEqual(three.segmentCount, 3, "control: Plan is the multi-segment case")
+        XCTAssertEqual(many.segmentCount,
+                       BinderSegmentPicker.visibleSegments(
+                        persona: .plan, projectType: .novel,
+                        hasTrash: false, findActive: false).count,
+                       "what is drawn and what `visibleSegments` says must agree")
+        XCTAssertGreaterThan(many.segmentCount, one.segmentCount,
+                             "premise: Plan is the multi-segment case, and if it "
+                             + "ever stops being one this comparison measures "
+                             + "nothing")
         let oneWidth = one.frame.width
-        let threeWidth = three.frame.width
+        let manyWidth = many.frame.width
         XCTAssertGreaterThan(oneWidth, 0, "the control must have laid out at all")
         XCTAssertLessThan(oneWidth, 240,
                           "a single segment must not fill the 240pt binder column")
-        XCTAssertLessThan(oneWidth, threeWidth,
-                          "and it must be narrower than the three-segment picker "
-                          + "— measured \(oneWidth)pt against \(threeWidth)pt")
+        XCTAssertLessThan(oneWidth, manyWidth,
+                          "and it must be narrower than Plan's picker — measured "
+                          + "\(oneWidth)pt against \(manyWidth)pt over "
+                          + "\(many.segmentCount) segments")
     }
 
     /// **The icon-only picker's only text, read off the real control.** At count
@@ -164,27 +183,43 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     ///
     /// **Author moved from 2 to 1 in task 6b** (§6.1 — palette followed research
     /// off its left column), which took the last persona whose own registry
-    /// offers exactly two segments: the counts the four personas produce are now
-    /// 1, 1, 1 and 3. The count-2 row is therefore driven by `hasTrash`, which
-    /// is persona-independent and is a real rendering rather than a stand-in —
-    /// the same lever `test_theOneSegmentPersonaStillGrowsForTrashAndFind` uses.
+    /// offers exactly two segments. The count-2 row is therefore driven by
+    /// `hasTrash`, which is persona-independent and is a real rendering rather
+    /// than a stand-in — the same lever
+    /// `test_theOneSegmentPersonaStillGrowsForTrashAndFind` uses.
+    ///
+    /// **Every expectation is ASKED of `visibleSegments`, and the control is
+    /// that the answers differ.** The table carried literal counts (1, 1, 2, 3)
+    /// and slice 2's `.tree` made the last one 4 — a count over a list. What
+    /// this test is for is the harness reading something that varies rather than
+    /// a constant, and "more than one distinct count, including a 1" says that
+    /// without any number having to be maintained.
     func test_theSegmentCountTracksTheRenderedList() async throws {
-        for (persona, selected, hasTrash, expected) in [
-            (Persona.review, BinderSegment.manuscript, false, 1),
-            (.author, .manuscript, false, 1),
-            (.author, .manuscript, true, 2),
-            (.plan, .canvas, false, 3)
-        ] as [(Persona, BinderSegment, Bool, Int)] {
+        var observed: [Int] = []
+        for (persona, selected, hasTrash) in [
+            (Persona.review, BinderSegment.manuscript, false),
+            (.author, .manuscript, false),
+            (.author, .manuscript, true),
+            (.plan, .canvas, false)
+        ] as [(Persona, BinderSegment, Bool)] {
+            let expected = BinderSegmentPicker.visibleSegments(
+                persona: persona, projectType: .novel,
+                hasTrash: hasTrash, findActive: false).count
             let control = try await mount(persona: persona, on: selected, hasTrash: hasTrash)
-            XCTAssertEqual(control.segmentCount, expected, "\(persona) trash=\(hasTrash)")
             XCTAssertEqual(
-                control.segmentCount,
-                BinderSegmentPicker.visibleSegments(
-                    persona: persona, projectType: .novel,
-                    hasTrash: hasTrash, findActive: false).count,
-                "\(persona): what is drawn and what `visibleSegments` says must "
-                + "be the same list")
+                control.segmentCount, expected,
+                "\(persona) trash=\(hasTrash): what is drawn and what "
+                + "`visibleSegments` says must be the same list")
+            observed.append(control.segmentCount)
         }
+        XCTAssertGreaterThan(Set(observed).count, 1,
+                             "the control: a harness that returned the same "
+                             + "count for every input would satisfy every "
+                             + "assertion above — observed \(observed)")
+        XCTAssertTrue(observed.contains(1),
+                      "and the one-segment shape must be among what was "
+                      + "rendered, or the count-1 tests above are measuring a "
+                      + "case this harness never produces")
     }
 
     /// And the runtime-gated segments still reach a one-segment persona, so

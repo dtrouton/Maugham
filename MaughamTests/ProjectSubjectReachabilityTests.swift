@@ -101,6 +101,85 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
                        + "not the first slugline")
     }
 
+    // MARK: - Plan's tree (slice 2)
+
+    /// **The same census, one segment over.** Plan's `.tree` shows the project's
+    /// own manuscript tree with the canvas still in the centre (spec §3.1), and
+    /// "the tree" is three views — so the question this file was written to ask
+    /// has to be asked of the new segment too, or `.tree` is exactly where the
+    /// slice-1 Critical returns.
+    func test_everyProjectTypeCanNameItsOwnProjectFromPlansTree() async throws {
+        for type in ProjectType.allCases {
+            let store = try await project(of: type)
+            let (window, probe) = try await host(store: store, script: nil,
+                                                 segment: .tree, persona: .plan)
+            let table = try XCTUnwrap(
+                firstTableView(in: window),
+                "\(type.rawValue): Plan's tree segment put no List in the "
+                + "hierarchy — the writer opens Plan, clicks Structure, and gets "
+                + "a blank column")
+
+            await select(row: 0, in: table)
+
+            XCTAssertEqual(
+                probe.subject, .project,
+                "\(type.rawValue): the head row of Plan's tree must be the "
+                + "project row, exactly as at the document home")
+        }
+    }
+
+    /// **The discriminator, and the reason the test above is not enough on its
+    /// own.** Every one of the three trees carries a project row at row 0, so a
+    /// `.tree` arm that mounted `BinderView` for a screenplay would pass it —
+    /// which is the 2026-07-02 bug's exact shape (the writer lands in a one-row
+    /// `BinderView` instead of the navigator).
+    ///
+    /// A parsed screenplay tells them apart by what is BELOW the head row:
+    /// `SceneNavigatorPane` renders project + script + one row per slugline,
+    /// `BinderView` renders project + the one document. Row 1 selects the script
+    /// in the navigator; in a `BinderView` it would be the document too, so the
+    /// count is what discriminates and the count is asserted.
+    ///
+    /// `selectRowIndexes` is the right driver here and the Button half is not
+    /// needed: both rows under test are `List(selection:)` rows carrying a
+    /// `.tag` (the sluglines below them are the `Button`s, and this test never
+    /// touches one).
+    func test_aScreenplaysTreeIsItsSceneNavigatorAndNotAOneRowBinder() async throws {
+        let store = try await project(of: .screenplay)
+        let script = FountainTokenizer().parse(
+            "INT. KITCHEN - DAY\n\nLarry sits.\n\nEXT. ROOF - NIGHT\n\nHe climbs.\n")
+        XCTAssertEqual(script.sceneSummaries().count, 2, "fixture precondition")
+
+        let (window, probe) = try await host(store: store, script: script,
+                                             segment: .tree, persona: .plan)
+        let table = try XCTUnwrap(firstTableView(in: window))
+
+        XCTAssertEqual(table.numberOfRows, 4,
+                       "project + script + two sluglines. A `BinderView` here "
+                       + "would show two rows and no scenes at all — the "
+                       + "2026-07-02 one-row-binder defect, on the new segment")
+
+        await select(row: 0, in: table)
+        XCTAssertEqual(probe.subject, .project)
+    }
+
+    /// A Collection's tree at `.tree` is its Pieces pane — asserted by the pane
+    /// that is mounted rather than by the routing table, because
+    /// `CollectionBinderPaneToggle` is a second toggle with a `.tree` arm of its
+    /// own and two toggles answering one question their own way is how the
+    /// 2026-07-02 bug shipped.
+    func test_aCollectionsTreeIsItsPiecesPane() async throws {
+        let store = try await project(of: .collection)
+        _ = try await store.addLoosePiece(title: "Piece One", mode: .prose)
+        let (window, probe) = try await host(store: store, script: nil,
+                                             segment: .tree, persona: .plan)
+        let table = try XCTUnwrap(firstTableView(in: window))
+        XCTAssertEqual(table.numberOfRows, 2, "the project row and the one piece")
+
+        await select(row: 0, in: table)
+        XCTAssertEqual(probe.subject, .project)
+    }
+
     // MARK: - Fixtures
 
     private func project(of type: ProjectType) async throws -> ProjectStore {
@@ -130,12 +209,16 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     /// point of the file: they are exhaustive, so a new shell or a new project
     /// type cannot be added without answering this question for it.
     private func host(store: ProjectStore,
-                      script: FountainScript?) async throws -> (NSWindow, BinderSubjectProbe) {
+                      script: FountainScript?,
+                      segment: BinderSegment? = nil,
+                      persona: Persona = .author)
+    async throws -> (NSWindow, BinderSubjectProbe) {
         let probe = BinderSubjectProbe()
         let frame = CGRect(x: 0, y: 0, width: 320, height: 600)
         let hosting = NSHostingView(
             rootView: AnyView(
-                BinderShellProbeView(store: store, probe: probe, script: script)))
+                BinderShellProbeView(store: store, probe: probe, script: script,
+                                     segment: segment, persona: persona)))
         hosting.frame = frame
         let window = NSWindow(contentRect: frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -194,6 +277,7 @@ private struct BinderShellProbeView: View {
     let store: ProjectStore
     let probe: BinderSubjectProbe
     let script: FountainScript?
+    let persona: Persona
     /// Seeded in `init`, not in `.onAppear`: a screenplay mounted on
     /// `.manuscript` for one frame puts `BinderView`'s table in the hierarchy,
     /// and a test that waits for "a table" would latch onto the wrong surface
@@ -204,11 +288,16 @@ private struct BinderShellProbeView: View {
     @State private var findActive = false
     @State private var renamingItemId: String?
 
-    init(store: ProjectStore, probe: BinderSubjectProbe, script: FountainScript?) {
+    /// - Parameter segment: which binder segment to mount. Defaults to the
+    ///   type's document home, which is where Author lands; slice 2's `.tree`
+    ///   tests pass `.tree` and `persona: .plan`.
+    init(store: ProjectStore, probe: BinderSubjectProbe, script: FountainScript?,
+         segment: BinderSegment? = nil, persona: Persona = .author) {
         self.store = store
         self.probe = probe
         self.script = script
-        _segment = State(initialValue: .documentHome(for: store.manifest.type))
+        self.persona = persona
+        _segment = State(initialValue: segment ?? .documentHome(for: store.manifest.type))
     }
 
     private var subject: Binding<BinderSubject?> {
@@ -228,7 +317,7 @@ private struct BinderShellProbeView: View {
                     projectType: store.manifest.type,
                     lastParsedScript: script,
                     findActive: $findActive,
-                    persona: .author)
+                    persona: persona)
             case .collection:
                 CollectionBinderPaneToggle(
                     store: store,
@@ -241,7 +330,7 @@ private struct BinderShellProbeView: View {
                     activePiece: nil,
                     onAddSharedNote: {},
                     onAddPieceNote: {},
-                    persona: .author)
+                    persona: persona)
             }
         }
     }

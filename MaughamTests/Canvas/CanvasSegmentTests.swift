@@ -15,8 +15,19 @@ final class CanvasSegmentTests: XCTestCase {
 
     /// `CaseIterable` exists so the four hardcoded segment arrays in the persona
     /// tests can never again miss a new case.
+    ///
+    /// **The members, not the count.** This asserted
+    /// `BinderSegment.allCases.count == 7` — a literal count over a list, the
+    /// shape `memory/feedback_prose_counts_are_unmaintainable.md` is about — and
+    /// slice 2 replaced it rather than bumping it to 8. A count fails with
+    /// "8 is not equal to 7" and tells the next reader nothing about which case
+    /// arrived or whether it was meant to; a set difference names it. This is
+    /// still the assertion that stops a new segment being added without anyone
+    /// looking at the four hardcoded arrays next door.
     func test_allCasesCoversEverySegmentAndSymbolsStayDistinct() {
-        XCTAssertEqual(BinderSegment.allCases.count, 7)
+        XCTAssertEqual(Set(BinderSegment.allCases),
+                       [.manuscript, .tree, .research, .palette,
+                        .scenes, .canvas, .trash, .find])
         XCTAssertTrue(BinderSegment.allCases.contains(.canvas))
         let symbols = BinderSegment.allCases.map(\.pickerSymbolName)
         XCTAssertEqual(Set(symbols).count, symbols.count,

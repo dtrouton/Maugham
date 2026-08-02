@@ -200,7 +200,7 @@ final class CanvasClaudeBannerTests: XCTestCase {
     /// set the selection, dismiss.
     func test_showTakesTheWriterToTheRegion() {
         let to = CanvasClaudeArrivalModifier.destination(
-            forRegion: r1)
+            forRegion: r1, from: .manuscript)
         XCTAssertEqual(to.persona, .plan,
                        "the canvas segment is Plan's and nobody else's")
         XCTAssertEqual(to.binderSegment, .canvas)
@@ -212,6 +212,37 @@ final class CanvasClaudeBannerTests: XCTestCase {
                       + "lands on the canvas with nothing naming what arrived — "
                       + "every other navigation-to-a-pane in ProjectWindow forces "
                       + "it open, PersonaModifier on every persona switch")
+    }
+
+    /// **A writer already looking at the canvas is not moved off it** — the
+    /// slice-2 ruling, asserted rather than described.
+    ///
+    /// `.tree` and `.canvas` both put the canvas in the CENTRE and differ only
+    /// in the left column (the manuscript tree against the research tree). Show's
+    /// promise from `.tree` is therefore already kept by the selection and the
+    /// camera move; forcing `.canvas` as well would swap the writer's left column
+    /// out from under them and cost them their place in the structure they were
+    /// arranging, which is what Plan's tree is for.
+    ///
+    /// Asked over every segment rather than over the two that motivated it: the
+    /// rule is "wherever the canvas is already the centre", which is exactly
+    /// `centresTheCanvas`, and a hand-picked pair is the sampling that lets a
+    /// future segment answer wrong.
+    func test_showLeavesAWriterWhoIsAlreadyOnTheCanvasWhereTheyAre() {
+        for segment in BinderSegment.allCases {
+            let to = CanvasClaudeArrivalModifier.destination(forRegion: r1, from: segment)
+            XCTAssertEqual(to.persona, .plan,
+                           "\(segment): the canvas is Plan's, from everywhere")
+            if segment.centresTheCanvas {
+                XCTAssertEqual(to.binderSegment, segment,
+                               "\(segment) already draws the canvas — Show has "
+                               + "nothing to move and a left column to cost")
+            } else {
+                XCTAssertEqual(to.binderSegment, .canvas,
+                               "\(segment) does not draw the canvas, so the "
+                               + "writer has to be taken somewhere")
+            }
+        }
     }
 
     /// **And the camera moves, or Show shows nothing.**
@@ -284,7 +315,8 @@ final class CanvasClaudeBannerTests: XCTestCase {
         XCTAssertEqual(combined.count, 2)
         XCTAssertEqual(combined.region, r2)
         XCTAssertEqual(combined.regionLabel, "Second reading")
-        XCTAssertEqual(CanvasClaudeArrivalModifier.destination(forRegion: combined.region)
+        XCTAssertEqual(CanvasClaudeArrivalModifier
+            .destination(forRegion: combined.region, from: .manuscript)
             .selection, .region(r2),
             "and Show goes where the banner says")
     }

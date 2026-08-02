@@ -140,8 +140,24 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
         let opensInspector: Bool
     }
 
-    static func destination(forRegion region: CanvasRegionID) -> Destination {
-        Destination(persona: .plan, binderSegment: .canvas,
+    /// **A writer already looking at the canvas is not moved off it** (slice 2).
+    ///
+    /// `.tree` and `.canvas` both put the canvas in the centre column and differ
+    /// only in the left one — the manuscript tree against the research tree. So
+    /// from `.tree` the whole of Show's promise is already kept by the selection
+    /// and the camera move below: the region is revealed on a canvas the writer
+    /// can see. Forcing `.canvas` as well would swap their left column out from
+    /// under them and cost them their place in the structure they were
+    /// arranging, which is the one thing Plan's tree exists for — a navigation
+    /// side effect nobody asked for, for no gain.
+    ///
+    /// From every segment that does NOT centre the canvas — including the three
+    /// other personas, whose registries offer neither — `.canvas` remains the
+    /// answer, because there the writer has to be taken somewhere.
+    static func destination(forRegion region: CanvasRegionID,
+                            from current: BinderSegment) -> Destination {
+        Destination(persona: .plan,
+                    binderSegment: current.centresTheCanvas ? current : .canvas,
                     selection: .region(region), opensInspector: true)
     }
 
@@ -155,7 +171,7 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
     /// choice. The persona itself is persisted, or the next launch reopens in the
     /// old persona with the binder already on the canvas.
     private func show(_ arrival: Arrival) {
-        let to = Self.destination(forRegion: arrival.region)
+        let to = Self.destination(forRegion: arrival.region, from: binderSegment)
         persona = to.persona
         binderSegment = to.binderSegment
         model.selection = to.selection

@@ -415,11 +415,80 @@ final class CanvasCollapseTests: XCTestCase {
 
     /// The palette's own predicate still answers exactly as it did, so the
     /// shared `leaves` helper underneath the two did not quietly widen either.
+    ///
+    /// It matters more since slice 2 made `leaves` take a PREDICATE instead of a
+    /// segment: the palette's caller now passes `{ $0 == .palette }` and the
+    /// canvas's passes `\.centresTheCanvas`, so a mistake there widens or
+    /// narrows one of the two silently.
     func test_thePaletteStashRuleIsUnchanged() {
         XCTAssertTrue(PersonaModifier.clearsPaletteStash(from: .palette, to: .manuscript))
         XCTAssertFalse(PersonaModifier.clearsPaletteStash(from: .palette, to: .palette))
         XCTAssertFalse(PersonaModifier.clearsPaletteStash(from: .canvas, to: .manuscript),
                        "and the canvas is not the palette")
+        XCTAssertFalse(PersonaModifier.clearsPaletteStash(from: .tree, to: .canvas),
+                       "nor is the tree")
+    }
+
+    // MARK: - The tree centres the canvas, so it is not a way OFF it
+
+    /// **A `.canvas` ↔ `.tree` flip must move no column at all.**
+    ///
+    /// Both segments draw the canvas in the centre, so a writer in focus mode
+    /// flipping between them has not left the canvas. Spelled as `== .canvas`
+    /// this predicate would answer `true` and hand the sidebar back — and
+    /// `CanvasCollapseModifier`, which re-derives through `inspectorRoute` on
+    /// `.onChange(of: binderSegment)`, would then collapse it again on the next
+    /// pass: the sidebar moving under the writer twice while the canvas never
+    /// left the screen.
+    ///
+    /// Asked over the whole product of the two canvas-centring segments rather
+    /// than over the one flip that motivated it.
+    func test_aFlipBetweenTheTwoCanvasSegmentsReleasesNothing() {
+        for from in [BinderSegment.canvas, .tree] {
+            for to in [BinderSegment.canvas, .tree] {
+                XCTAssertFalse(
+                    PersonaModifier.releasesCanvasCollapse(from: from, to: to, stash: true),
+                    "\(from) → \(to): the canvas is the centre on both sides")
+            }
+        }
+    }
+
+    /// And the half that says the widening did not swallow the rule: leaving the
+    /// canvas centre ALTOGETHER still releases, from either segment.
+    func test_leavingTheCanvasCentreFromEitherSegmentStillReleases() {
+        for from in [BinderSegment.canvas, .tree] {
+            for to in [BinderSegment.manuscript, .scenes, .research, .palette] {
+                XCTAssertTrue(
+                    PersonaModifier.releasesCanvasCollapse(from: from, to: to, stash: true),
+                    "\(from) → \(to): the canvas is gone, so the sidebar comes back")
+            }
+        }
+    }
+
+    /// The modifier's own re-derivation, driven rather than described:
+    /// `CanvasCollapseModifier` asks `inspectorRoute`, so the tree must produce
+    /// the SAME collapse decision the canvas does. Without this the predicate
+    /// above could be right while the modifier that actually runs is not.
+    func test_theCollapseDecisionIsTheSameOnTheTreeAsOnTheCanvas() {
+        for type in ProjectType.allCases {
+            for isNoChromeOn in [true, false] {
+                for stash in stashes {
+                    let onCanvas = ProjectWindow.canvasCollapse(
+                        route: ProjectWindow.inspectorRoute(binderSegment: .canvas,
+                                                            projectType: type),
+                        isNoChromeOn: isNoChromeOn, showInspector: true,
+                        stash: stash, paletteStash: nil)
+                    let onTree = ProjectWindow.canvasCollapse(
+                        route: ProjectWindow.inspectorRoute(binderSegment: .tree,
+                                                            projectType: type),
+                        isNoChromeOn: isNoChromeOn, showInspector: true,
+                        stash: stash, paletteStash: nil)
+                    XCTAssertEqual(onCanvas, onTree,
+                                   "\(type)/noChrome=\(isNoChromeOn)/stash="
+                                   + "\(String(describing: stash))")
+                }
+            }
+        }
     }
 
     // MARK: - The window's state, as a value

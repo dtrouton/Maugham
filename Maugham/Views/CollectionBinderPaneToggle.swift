@@ -35,10 +35,25 @@ struct CollectionBinderPaneToggle: View {
             Group {
                 switch segment {
                 case .manuscript:
-                    CollectionPiecesPane(
-                        store: store,
-                        selectedSubject: $selectedSubject,
-                        renamingItemId: $renamingItemId)
+                    piecesTree
+                case .tree:
+                    // Plan's structure segment (spec §3.1). Routed through the
+                    // same derivation `BinderPaneToggle` uses rather than
+                    // rendering the pane directly: `projectType` is a constant
+                    // `.collection` in this view, so there is nothing to derive
+                    // here today — but a second toggle answering the question
+                    // its own way is exactly how the 2026-07-02 bug shipped, and
+                    // this is the second toggle.
+                    switch BinderSegment.treePane(for: .collection) {
+                    case .collectionPieces:
+                        piecesTree
+                    case .binder, .sceneNavigator:
+                        // Cannot arrive. They share the arm rather than taking
+                        // an `EmptyView` so a future mis-wiring shows a tree
+                        // rather than a blank column; `BinderPaneToggle`'s
+                        // `.tree` arm is the converse of this.
+                        piecesTree
+                    }
                 case .research, .canvas:
                     // Spec §10 — see BinderPaneToggle for the reasoning.
                     CollectionResearchPane(
@@ -57,10 +72,7 @@ struct CollectionBinderPaneToggle: View {
                     // Collections don't surface a Scenes segment at the binder
                     // level (scenes are per-piece, derived from the active
                     // screenplay piece in the editor). Fall back to Pieces.
-                    CollectionPiecesPane(
-                        store: store,
-                        selectedSubject: $selectedSubject,
-                        renamingItemId: $renamingItemId)
+                    piecesTree
                 }
             }
             // Exports footer, shown only on the Pieces segment.
@@ -80,5 +92,15 @@ struct CollectionBinderPaneToggle: View {
                 segment = .manuscript
             }
         }
+    }
+
+    /// The Collection's tree, shared by `.manuscript`, `.tree` and the `.scenes`
+    /// fallback. Extracted because three arms render it and a second literal is
+    /// how they would come to differ.
+    private var piecesTree: some View {
+        CollectionPiecesPane(
+            store: store,
+            selectedSubject: $selectedSubject,
+            renamingItemId: $renamingItemId)
     }
 }

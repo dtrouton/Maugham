@@ -27,7 +27,24 @@ struct BinderPaneToggle: View {
             Group {
                 switch segment {
                 case .manuscript:
-                    BinderView(store: store, selectedSubject: $selectedSubject)
+                    binderTree
+                case .tree:
+                    // Plan's structure segment (spec §3.1): the project's own
+                    // manuscript tree, with the canvas still in the centre. Which
+                    // tree that is fans out by project type through the ONE
+                    // derivation — `type == .screenplay` inline here is the
+                    // re-derivation that shipped the 2026-07-02 bug.
+                    switch BinderSegment.treePane(for: projectType) {
+                    case .binder, .collectionPieces:
+                        // `.collectionPieces` cannot arrive: a Collection window
+                        // mounts `CollectionBinderPaneToggle` instead. It shares
+                        // this arm rather than taking an `EmptyView` so that a
+                        // future mis-wiring shows the writer a tree rather than a
+                        // blank column.
+                        binderTree
+                    case .sceneNavigator:
+                        sceneNavigator
+                    }
                 case .research, .canvas:
                     // Spec §10: the canvas segment shows the RESEARCH TREE.
                     // Umbrella §6.3 gives Plan a Left surface of "Research
@@ -38,24 +55,7 @@ struct BinderPaneToggle: View {
                 case .palette:
                     PaletteBinderList(store: store, selectedCardId: $selectedPaletteCardId)
                 case .scenes:
-                    SceneNavigatorPane(
-                        script: lastParsedScript,
-                        projectTitle: store.manifest.title,
-                        selectedSubject: $selectedSubject,
-                        // A screenplay is one `.fountain` (the Phase 3d
-                        // invariant), so the document its sluglines live in is
-                        // the project's one document. Derived here, once per
-                        // render of the pane rather than once per row (tripwire
-                        // 4), and used only when the subject is the project —
-                        // a subject that already names an item is left alone.
-                        documentID: TreeWalk.first(
-                            in: store.manifest.structure,
-                            where: { $0.type == .document })?.id,
-                        onSelect: { lineLocation in
-                            MaughamEvent.post(
-                                .maughamNavigateToScene, to: .keyWindow,
-                                payload: ["lineLocation": lineLocation])
-                        })
+                    sceneNavigator
                 case .trash:
                     TrashView(store: store)
                 case .find:
@@ -81,5 +81,34 @@ struct BinderPaneToggle: View {
                 segment = .documentHome(for: projectType)
             }
         }
+    }
+
+    /// The manuscript tree, shared by `.manuscript` and `.tree`. Extracted
+    /// because two arms render it and a second literal is how the two would
+    /// come to differ.
+    private var binderTree: some View {
+        BinderView(store: store, selectedSubject: $selectedSubject)
+    }
+
+    /// A screenplay's tree, shared by `.scenes` and `.tree` for `binderTree`'s
+    /// reason.
+    private var sceneNavigator: some View {
+        SceneNavigatorPane(
+            script: lastParsedScript,
+            projectTitle: store.manifest.title,
+            selectedSubject: $selectedSubject,
+            // A screenplay is one `.fountain` (the Phase 3d invariant), so the
+            // document its sluglines live in is the project's one document.
+            // Derived here, once per render of the pane rather than once per row
+            // (tripwire 4), and used only when the subject is the project — a
+            // subject that already names an item is left alone.
+            documentID: TreeWalk.first(
+                in: store.manifest.structure,
+                where: { $0.type == .document })?.id,
+            onSelect: { lineLocation in
+                MaughamEvent.post(
+                    .maughamNavigateToScene, to: .keyWindow,
+                    payload: ["lineLocation": lineLocation])
+            })
     }
 }

@@ -57,9 +57,22 @@ final class PersonaBinderSegmentTests: XCTestCase {
         // §6.3 Left = "Research tree" and centre = the canvas (M1C). The canvas
         // leads because entering Plan should land on it; Research follows as
         // §6.3's Left surface and as the source 1C-d drags items from.
-        // Manuscript is deliberately absent so the coercion rule can't strand a
-        // writer on it (see Persona.swift).
-        XCTAssertEqual(Persona.plan.binderSegments(for: .novel), [.canvas, .research, .palette])
+        //
+        // `.tree` joined in slice 2 (spec §3.1) and sits second: it is the
+        // project's own manuscript tree with the canvas STILL in the centre —
+        // Plan's structure segment, closing §1's hole ("the binder hasn't
+        // appeared in plan view", 2026-08-02). It is second rather than first
+        // because `binderHome` is `.first` and entering Plan must still land on
+        // the canvas.
+        //
+        // `.manuscript` stays absent, and the reason recorded before slice 2 —
+        // "the coercion rule can't strand a writer on it" — is gone with the
+        // rule: `PersonaMemory.restoredBinderSegment` restores the DESTINATION's
+        // own remembered position. What is true now is that `.manuscript` means
+        // the editor in the centre and §2 says Plan does not draft; `.tree` is
+        // the same tree without the same centre.
+        XCTAssertEqual(Persona.plan.binderSegments(for: .novel),
+                       [.canvas, .tree, .research, .palette])
     }
 
     func test_authorPersona_exactSegments() {
@@ -188,7 +201,9 @@ final class PersonaBinderSegmentTests: XCTestCase {
         // list has a shape to lose.
         let segments = BinderSegmentPicker.visibleSegments(
             persona: .plan, projectType: .novel, hasTrash: false, findActive: false)
-        XCTAssertEqual(segments, [.canvas, .research, .palette])
+        XCTAssertEqual(segments, [.canvas, .tree, .research, .palette])
+        XCTAssertFalse(segments.contains(.trash))
+        XCTAssertFalse(segments.contains(.find))
     }
 
     func test_visibleSegments_alwaysCarriesTheCurrentSelection() {

@@ -4,6 +4,22 @@ import MaughamCore
 /// Which top-level segment is active in the binder pane.
 public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
     case manuscript
+    /// The manuscript tree with the planning canvas still in the centre — Plan's
+    /// structure segment (persona shell spec §3.1).
+    ///
+    /// **A case of its own rather than a reuse of the manuscript home**, because
+    /// the reuse would make one enum case mean "the editor" in Author and "the
+    /// canvas" in Plan. That is the context-dependent meaning `SynthesisSource`
+    /// (tripwire 12), `MaughamSidecarPath` and `DeviceSlug` (tripwire 24) were
+    /// each introduced to remove — and it would leave five routing sites needing
+    /// persona-awareness with no compiler help, where a new case is FORCED into
+    /// every exhaustive switch below.
+    ///
+    /// `.tree` and `.canvas` differ only in the LEFT pane: the tree shows the
+    /// project's manuscript (`treePane(for:)`), the canvas segment shows the
+    /// research tree that §8A.1's drag-in route needs beside it. Both centre the
+    /// canvas — see `centresTheCanvas`, which is the one place that is spelled.
+    case tree
     case research
     case palette
     case scenes
@@ -25,6 +41,62 @@ public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
         projectType == .screenplay ? .scenes : .manuscript
     }
 
+    /// Which manuscript tree the `.tree` segment shows.
+    ///
+    /// **"The tree" is three views, not one** — the same correction the slice-1
+    /// whole-branch review made about the project row, one segment over.
+    /// `BinderView` is right for a novel or a short story; a screenplay's tree is
+    /// `SceneNavigatorPane` (one `.fountain`, sluglines beneath a script row) and
+    /// a Collection's is `CollectionPiecesPane`. Deriving that inline inside a
+    /// binder toggle is the re-derivation that shipped the 2026-07-02 bug, so it
+    /// lives here beside `documentHome(for:)`, which answers the same question
+    /// about the same three shells.
+    ///
+    /// **It is NOT expressed in terms of `documentHome(for:)`**, because doing so
+    /// needs a `default:` (that function's return type is the whole segment enum)
+    /// and a `default:` is what lets a new project type ship silently wrong. The
+    /// two are held together by a contract test instead —
+    /// `BinderSegmentTreePaneTests.test_theTreePaneAndTheDocumentHomeAgreeOnEveryProjectType`
+    /// — which is the shape this codebase uses when one derivation must track
+    /// another without either being able to see the other's exhaustiveness.
+    public enum TreePane: String, Equatable, Sendable, CaseIterable {
+        /// `BinderView` — novel, short story, and the fallback for `.unknown`.
+        case binder
+        /// `SceneNavigatorPane` — a screenplay's sluglines under its script row.
+        case sceneNavigator
+        /// `CollectionPiecesPane`.
+        case collectionPieces
+    }
+
+    public static func treePane(for projectType: ProjectType) -> TreePane {
+        // Exhaustive with no `default:` on purpose — a new `ProjectType` must
+        // answer here rather than inheriting a tree that is wrong for it.
+        switch projectType {
+        case .screenplay: return .sceneNavigator
+        case .collection: return .collectionPieces
+        case .novel, .shortStory, .unknown: return .binder
+        }
+    }
+
+    /// **The one spelling of "the centre column is the planning canvas".**
+    ///
+    /// Two segments draw it: `.canvas`, whose left pane is the research tree the
+    /// drag-in route needs, and `.tree`, whose left pane is the manuscript. Three
+    /// separate sites spelled this as `binderSegment == .canvas` and the compiler
+    /// caught none of them, each with its own visible failure — the region
+    /// inspector unreachable from Plan's tree (the exact 2026-07-28 smoke
+    /// defect), a Collection's reference placeholder taking the centre column
+    /// from the canvas, and a `⌘\` collapse never handing the sidebar back.
+    ///
+    /// Exhaustive with no `default:`, so a future segment has to say whether it
+    /// centres the canvas rather than inheriting "no".
+    var centresTheCanvas: Bool {
+        switch self {
+        case .canvas, .tree: return true
+        case .manuscript, .research, .palette, .scenes, .trash, .find: return false
+        }
+    }
+
     /// Runtime-gated, persona-independent segments that survive a persona
     /// switch: a writer mid-search or looking at the trash must not be
     /// ejected by switching persona. This is the single source both
@@ -36,7 +108,7 @@ public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
     public var isTransient: Bool {
         switch self {
         case .trash, .find: return true
-        case .manuscript, .research, .palette, .scenes, .canvas: return false
+        case .manuscript, .tree, .research, .palette, .scenes, .canvas: return false
         }
     }
 }
@@ -50,6 +122,19 @@ public extension BinderSegment {
     func displayName(for projectType: ProjectType) -> String {
         switch self {
         case .manuscript: return projectType == .collection ? "Pieces" : "Manuscript"
+        // **"Structure", not the document home's own name.** The obvious
+        // alternative — borrowing `documentHome(for:).displayName(for:)`, so the
+        // tree reads "Manuscript"/"Pieces"/"Scenes" like the segment it shows —
+        // collides in the one case that matters: `visibleSegments` APPENDS the
+        // current selection, so a screenplay reopened in Plan on a restored
+        // `.scenes` renders two segments both tooltipped "Scenes" in a picker
+        // that has no other text (`pickerSymbolName` explains why). §3.1.1 asks
+        // the labels to carry the distinction between segments whose left panes
+        // look alike; a name that can duplicate another's is the opposite of
+        // that. "Structure" is also what the segment is FOR (§3.1.1: "shaping
+        // the structure") and what the app already calls the manuscript tree —
+        // `manifest.structure`, `addStructureItem`, `structure-and-binder.md`.
+        case .tree: return "Structure"
         case .research: return "Research"
         case .palette: return "Palette"
         case .scenes: return "Scenes"
@@ -85,6 +170,10 @@ public extension BinderSegment {
     var pickerSymbolName: String {
         switch self {
         case .manuscript: return "doc.text"
+        // An indented list — the tree's own shape, and legible next to
+        // `.canvas`'s `square.on.circle` and `.manuscript`'s single sheet, which
+        // is the distinction §3.1.1 asks the picker to carry.
+        case .tree: return "list.bullet.indent"
         case .research: return "books.vertical"
         case .palette: return "paintpalette"
         case .scenes: return "film"

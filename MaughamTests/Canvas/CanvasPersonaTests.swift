@@ -35,6 +35,28 @@ final class CanvasPersonaTests: XCTestCase {
         }
     }
 
+    /// **The tree is Plan's, on every project type** — slice 2's deliverable,
+    /// asserted as a whole row of the registry rather than as one persona.
+    ///
+    /// It is offered by nobody else because it CENTRES the canvas: `.tree` in
+    /// Author would put the planning canvas where the editor belongs. Author's
+    /// tree is `.manuscript` (or `.scenes`), which is the same left pane with
+    /// the editor in the middle — that is exactly why `.tree` is a case of its
+    /// own and not a reuse of the manuscript home.
+    func test_theTreeIsPlansAndNobodyElsesOnEveryProjectType() {
+        for type in ProjectType.allCases {
+            for persona in Persona.allCases {
+                XCTAssertEqual(persona.binderSegments(for: type).contains(.tree),
+                               persona == .plan,
+                               "\(persona)/\(type)")
+            }
+            XCTAssertEqual(Persona.plan.binderSegments(for: type),
+                           [.canvas, .tree, .research, .palette],
+                           "\(type): the canvas still leads, so `binderHome` — "
+                           + "which is `.first` — is unmoved")
+        }
+    }
+
     func test_switchingAwayFromPlanLeavesTheCanvas() {
         // Author does not offer .canvas, so a coerced segment must land on
         // Author's own home rather than stranding the writer on a blank column.
@@ -68,12 +90,36 @@ final class CanvasPersonaTests: XCTestCase {
         }
     }
 
+    /// **The tree centres the canvas too, so the region inspector must be
+    /// reachable from it.** Miss this and the 2026-07-28 smoke defect returns
+    /// one segment over: the writer arranges structure in Plan, clicks a region,
+    /// and gets the piece inspector for whatever manuscript item was last
+    /// selected — in a Collection — or the segment switch's research arm in a
+    /// novel.
+    ///
+    /// **Positive, not just excluded from the loop below.** The exclusion alone
+    /// would let `.tree` fall out of the canvas check with nothing red, which is
+    /// how a census quietly degrades into an exclusion list.
+    func test_theTreeSegmentAlsoReachesTheRegionInspectorOnEveryProjectType() {
+        for type in ProjectType.allCases {
+            XCTAssertEqual(
+                ProjectWindow.inspectorRoute(binderSegment: .tree, projectType: type),
+                .canvas,
+                "Plan's tree keeps the canvas in the centre (spec §3.1), so the "
+                + "right-hand column is the canvas's — \(type)")
+        }
+    }
+
     /// The control, and the half that says the hoist did not break anything:
-    /// every OTHER segment still routes by project type exactly as before.
-    /// Without this, `inspectorRoute` returning `.canvas` unconditionally would
-    /// pass the test above.
+    /// every segment that does NOT centre the canvas still routes by project
+    /// type exactly as before. Without this, `inspectorRoute` returning
+    /// `.canvas` unconditionally would pass the two tests above.
+    ///
+    /// The loop excludes by the PREDICATE rather than by naming `.canvas`, so a
+    /// future segment that centres the canvas leaves this loop and joins the
+    /// positive assertions in one edit instead of silently failing here.
     func test_everyOtherSegmentStillRoutesByProjectType() {
-        for segment in BinderSegment.allCases where segment != .canvas {
+        for segment in BinderSegment.allCases where !segment.centresTheCanvas {
             XCTAssertEqual(
                 ProjectWindow.inspectorRoute(binderSegment: segment, projectType: .collection),
                 .collectionPiece,
@@ -94,19 +140,36 @@ final class CanvasPersonaTests: XCTestCase {
     /// nothing clears `selectedItemId` but a delete, so it survives the persona
     /// switch. Select a reference piece in Pieces, press ⌘1, and the centre
     /// column showed the placeholder while the canvas never appeared.
+    ///
+    /// **Both canvas-centring segments, and `.canvas` now answers `.canvas`
+    /// rather than `.segment`** — slice 2 gave the route a case of its own so
+    /// that one branch of `editorPane` serves both segments and the canvas is
+    /// not rebuilt on a flip (`CanvasTreeSegmentMountTests` measures what that
+    /// costs). `.tree` is asserted positively for the reason the inspector's
+    /// twin is: an exclusion from the control loop alone would let it fall out
+    /// with nothing red, and in a Collection with a reference piece selected
+    /// that means Plan's tree shows the reference placeholder and the canvas
+    /// never appears at all.
     func test_theCanvasDrawsEvenWithAReferencePieceStillSelected() {
-        XCTAssertEqual(
-            ProjectWindow.editorRoute(binderSegment: .canvas, projectType: .collection,
-                                      selectedPieceIsReference: true),
-            .segment,
-            "the canvas segment owns the centre column; a piece selected in some "
-            + "other segment does not get to keep it")
+        for segment in [BinderSegment.canvas, .tree] {
+            XCTAssertEqual(
+                ProjectWindow.editorRoute(binderSegment: segment, projectType: .collection,
+                                          selectedPieceIsReference: true),
+                .canvas,
+                ".\(segment) owns the centre column; a piece selected in some "
+                + "other segment does not get to keep it")
+            XCTAssertEqual(
+                ProjectWindow.editorRoute(binderSegment: segment, projectType: .collection,
+                                          selectedPieceIsReference: false),
+                .canvas)
+        }
     }
 
-    /// Its control: on every other segment a selected reference piece still
-    /// takes the editor column, which is the behaviour that was already right.
+    /// Its control: on every segment that does not centre the canvas, a selected
+    /// reference piece still takes the editor column, which is the behaviour
+    /// that was already right.
     func test_aReferencePieceStillTakesTheEditorColumnOnEveryOtherSegment() {
-        for segment in BinderSegment.allCases where segment != .canvas {
+        for segment in BinderSegment.allCases where !segment.centresTheCanvas {
             XCTAssertEqual(
                 ProjectWindow.editorRoute(binderSegment: segment, projectType: .collection,
                                           selectedPieceIsReference: true),
