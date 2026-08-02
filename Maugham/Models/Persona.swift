@@ -248,31 +248,52 @@ public extension Persona {
             // renders it, and ⌘2 is one keystroke away.
             return [.canvas, .research, .palette]
         case .author:
-            // §6.3 Left = "Binder": the manuscript home and the palette wall.
+            // §6.3 Left = "Binder", and after slice 2 that is all it is: the
+            // manuscript home, alone.
             //
-            // `.research` LEFT in slice 2 of the persona shell (§6.1). The
-            // argument is not convenience — it is that **the right-hand
+            // `.research` LEFT in slice 2 task 6 of the persona shell (§6.1).
+            // The argument is not convenience — it is that **the right-hand
             // registry already said research is not Review's or Publish's
             // business** (`.research` is a pane in Plan and Author and absent
             // from both the others), so the left column was the half that
             // disagreed. Editing research is making planning material, which is
             // Plan's output under §2's rule, and Author keeps
             // `LinkedResearchPane` on the right (⌘⌥R) for reading what the open
-            // chapter points at. Palette stays: a card is picked from the
-            // binder while drafting, and Plan and Author are the two making
-            // personas (`PersonaBinderSegmentTests.test_planAndAuthorAlwaysReachThePalette`).
+            // chapter points at.
+            //
+            // **`.palette` followed in task 6b, on a WEAKER warrant — and the
+            // weaker one is what is written here.** Nothing disagreed: palette
+            // is a left segment in Plan and Author and a right pane in Plan,
+            // Author and Review, so the left set was a strict SUBSET of the
+            // right set. This is §6.1's principle applied further, not a
+            // contradiction corrected. The principle: the left segment is
+            // `PaletteBinderList` and picking a card puts `PaletteCardEditor`
+            // in the CENTRE, which is making palette material; the right pane
+            // is `PalettePane`, "read-only images, swatches, and sensory notes
+            // beside the editor" by its own doc comment, which is consulting it
+            // while drafting. Making is Plan's, consulting is Author's, and
+            // ⌘⌥P is the route Author keeps
+            // (`PersonaBinderSegmentTests.test_theWallIsPlansAndTheCardIsStillAuthorsThroughTheRightColumn`).
+            // Overstating this as a contradiction would put a stronger reason
+            // in the code than the true one — §5.1's own lesson about a comment
+            // recording a WEAKER reason than the real one, running the other
+            // way.
             //
             // **THE ASYMMETRY THIS LEAVES, recorded because smoke meets it.**
             // Two event routes still force `.research` in Author —
             // `ProjectWindow.openResearchItem` (the **Open** button on a
             // promoted canvas card) and `handleShowLatestMCPNote` (the **Show**
-            // button on the MCP note banner). Both still render, highlighted,
-            // because `BinderSegmentPicker.visibleSegments` appends the current
+            // button on the MCP note banner). And `loadProject` restores
+            // `UIState.binderSegment` VERBATIM — it filters `.manuscript` on a
+            // screenplay and nothing else — so a project last quit in Author on
+            // the palette wall reopens there once, on the build that takes the
+            // segment away. All three still render, highlighted, because
+            // `BinderSegmentPicker.visibleSegments` appends the current
             // selection; that is the lens-not-gate half working. But Author now
-            // has NO picker route in, two event routes in, and ⌘1 as the only
-            // way back out. Pinned by
-            // `PersonaBinderSegmentTests.test_aForcedResearchSegmentStillRendersInEveryPersona`.
-            return [home, .palette]
+            // has NO picker route in and ⌘1 as the only way back out. Pinned by
+            // `test_aForcedResearchSegmentStillRendersInEveryPersona` and
+            // `test_aRestoredPaletteSegmentStillRendersInEveryPersona`.
+            return [home]
         case .review:
             // DELIBERATE DEVIATION: §6.3 Left = "Pieces by review state",
             // which is not built. The ordinary binder stands in. Palette
@@ -313,9 +334,11 @@ public extension Persona {
         //
         // **There is no floor on THIS side and there deliberately is not one.**
         // `PersonaPaneRegistryTests.test_everyPersona_offersAtLeastTwoPanes` is
-        // about the RIGHT-hand registry; slice 2 took Review and Publish to a
-        // single binder segment each on purpose (§6.1), so a ≥2 assertion here
-        // would be asserting a coincidence that has already stopped being true.
+        // about the RIGHT-hand registry; slice 2 took Review, Publish AND
+        // Author to a single binder segment each on purpose (§6.1), so a ≥2
+        // assertion here would be asserting a coincidence that has already
+        // stopped being true — three times over, leaving Plan the only persona
+        // whose left column is a choice at all (§6.2, revisited after slice 7).
         binderSegments(for: projectType).first ?? BinderSegment.documentHome(for: projectType)
     }
 }

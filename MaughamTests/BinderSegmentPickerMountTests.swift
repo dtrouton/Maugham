@@ -76,8 +76,12 @@ final class BinderSegmentPickerMountTests: XCTestCase {
 
     // MARK: - Count 1 renders as one real, selected, sized segment
 
+    /// `.author` joined `.review` and `.publish` here in task 6b (§6.1). Task 6
+    /// measured the one-segment shape and there is nothing to re-measure — this
+    /// asks only whether **Author specifically** is different, since it is the
+    /// default persona and the one an upgrading writer opens into.
     func test_aOneSegmentPickerRendersExactlyOneSegment() async throws {
-        for persona in [Persona.review, .publish] {
+        for persona in [Persona.review, .publish, .author] {
             XCTAssertEqual(BinderSegmentPicker.visibleSegments(
                 persona: persona, projectType: .novel,
                 hasTrash: false, findActive: false).count, 1,
@@ -154,22 +158,30 @@ final class BinderSegmentPickerMountTests: XCTestCase {
         }
     }
 
-    /// **The control.** The same mount at count 2 and count 3, so the count-1
+    /// **The control.** The same mount at counts 1, 2 and 3, so the count-1
     /// assertions above are reading something that varies rather than a constant
     /// the harness would produce for any input.
+    ///
+    /// **Author moved from 2 to 1 in task 6b** (§6.1 — palette followed research
+    /// off its left column), which took the last persona whose own registry
+    /// offers exactly two segments: the counts the four personas produce are now
+    /// 1, 1, 1 and 3. The count-2 row is therefore driven by `hasTrash`, which
+    /// is persona-independent and is a real rendering rather than a stand-in —
+    /// the same lever `test_theOneSegmentPersonaStillGrowsForTrashAndFind` uses.
     func test_theSegmentCountTracksTheRenderedList() async throws {
-        for (persona, selected, expected) in [
-            (Persona.review, BinderSegment.manuscript, 1),
-            (.author, .manuscript, 2),
-            (.plan, .canvas, 3)
-        ] as [(Persona, BinderSegment, Int)] {
-            let control = try await mount(persona: persona, on: selected)
-            XCTAssertEqual(control.segmentCount, expected, "\(persona)")
+        for (persona, selected, hasTrash, expected) in [
+            (Persona.review, BinderSegment.manuscript, false, 1),
+            (.author, .manuscript, false, 1),
+            (.author, .manuscript, true, 2),
+            (.plan, .canvas, false, 3)
+        ] as [(Persona, BinderSegment, Bool, Int)] {
+            let control = try await mount(persona: persona, on: selected, hasTrash: hasTrash)
+            XCTAssertEqual(control.segmentCount, expected, "\(persona) trash=\(hasTrash)")
             XCTAssertEqual(
                 control.segmentCount,
                 BinderSegmentPicker.visibleSegments(
                     persona: persona, projectType: .novel,
-                    hasTrash: false, findActive: false).count,
+                    hasTrash: hasTrash, findActive: false).count,
                 "\(persona): what is drawn and what `visibleSegments` says must "
                 + "be the same list")
         }
@@ -193,16 +205,25 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     /// (**Show** on the MCP note banner) both set `binderSegment = .research`
     /// without consulting the persona. In Author, which no longer offers it,
     /// the appended segment must appear AND be the selected one.
-    func test_aForcedResearchSelectionRendersAndIsSelectedInAuthor() async throws {
-        XCTAssertFalse(Persona.author.binderSegments(for: .novel).contains(.research),
-                       "premise: Author no longer offers Research on the left")
+    ///
+    /// **`.palette` is here too as of task 6b**, and it arrives by a third route
+    /// no event fires: `ProjectWindow.loadProject` restores `UIState.binderSegment`
+    /// verbatim, so a project last quit in Author on the palette wall reopens
+    /// there once, on the build that takes the segment away. Author renders one
+    /// segment of its own now, so both cases are counts of 2 rather than 3.
+    func test_aForcedSelectionRendersAndIsSelectedInAuthor() async throws {
+        for forced in [BinderSegment.research, .palette] {
+            XCTAssertFalse(Persona.author.binderSegments(for: .novel).contains(forced),
+                           "premise: Author no longer offers \(forced) on the left")
 
-        let control = try await mount(persona: .author, on: .research)
-        XCTAssertEqual(control.segmentCount, 3,
-                       "Manuscript, Palette, and the appended Research")
-        XCTAssertEqual(control.selectedSegment, 2,
-                       "appended last, and highlighted — a picker with nothing "
-                       + "selected over a pane showing research is the defect")
+            let control = try await mount(persona: .author, on: forced)
+            XCTAssertEqual(control.segmentCount, 2,
+                           "\(forced): Manuscript, and the appended segment")
+            XCTAssertEqual(control.selectedSegment, 1,
+                           "\(forced): appended last, and highlighted — a picker "
+                           + "with nothing selected over a pane showing it is "
+                           + "the defect")
+        }
     }
 
     /// The same, in the one-segment personas: Review and Publish grow a second

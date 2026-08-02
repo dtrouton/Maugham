@@ -75,11 +75,22 @@ final class PersonaModifierTests: XCTestCase {
     /// as the departing persona's position — otherwise a search days ago comes
     /// back as the binder the writer lands on.
     func test_applyPersonaChange_neverRemembersATransientSegment() {
+        // The DEPARTING persona is Plan, not Author, and it has to be: the
+        // pre-existing remembered value is read back through
+        // `restoredBinderSegment`, which filters against the persona's own
+        // registry — so a value the persona does not offer comes back as its
+        // home, and the assertion cannot tell "the old value stood" from "the
+        // transient was recorded and then filtered". Task 6b took Author to
+        // `[home]`, leaving Plan the only persona with a value to stand on.
+        XCTAssertTrue(Persona.plan.binderSegments(for: .novel).contains(.palette),
+                      "premise: the remembered value must be one Plan offers")
+        XCTAssertNotEqual(Persona.plan.binderHome(for: .novel), .palette,
+                          "premise: and must differ from the fallback")
         let result = PersonaModifier.applyPersonaChange(
-            to: .plan, from: .author, currentSegment: .inspector,
+            to: .author, from: .plan, currentSegment: .inspector,
             currentBinderSegment: .find, projectType: .novel,
-            memory: PersonaMemory(binder: ["author": .palette]))
-        XCTAssertEqual(result.memory.restoredBinderSegment(for: .author, projectType: .novel),
+            memory: PersonaMemory(binder: ["plan": .palette]))
+        XCTAssertEqual(result.memory.restoredBinderSegment(for: .plan, projectType: .novel),
                        .palette,
                        "the pre-existing remembered value must stand")
     }

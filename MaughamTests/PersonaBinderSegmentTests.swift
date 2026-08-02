@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 import MaughamCore
 @testable import Maugham
 
@@ -62,13 +63,21 @@ final class PersonaBinderSegmentTests: XCTestCase {
     }
 
     func test_authorPersona_exactSegments() {
-        // §6.3 Left = "Binder". `.research` left in slice 2 of the persona
-        // shell (§6.1): the right-hand registry already said research is not
-        // Review's or Publish's business, so the left column was the half that
-        // disagreed, and Author reads what a chapter points at through
-        // `LinkedResearchPane` (⌘⌥R) instead.
-        XCTAssertEqual(Persona.author.binderSegments(for: .novel),
-                       [.manuscript, .palette])
+        // §6.3 Left = "Binder", and after slice 2 that is all it is.
+        //
+        // `.research` left in task 6 (§6.1): the right-hand registry already
+        // said research is not Review's or Publish's business, so the left
+        // column was the half that disagreed, and Author reads what a chapter
+        // points at through `LinkedResearchPane` (⌘⌥R) instead.
+        //
+        // `.palette` followed in task 6b, on a WEAKER warrant that is stated
+        // as the weaker one: nothing disagreed. Palette is a left segment in
+        // Plan and Author and a right pane in Plan, Author and Review, so the
+        // left set was a strict SUBSET of the right set. This is §6.1's
+        // principle applied further — editing palette material is planning,
+        // consulting it while drafting is Author, and `PalettePane` (⌘⌥P) is
+        // read-only by its own doc comment — not a contradiction corrected.
+        XCTAssertEqual(Persona.author.binderSegments(for: .novel), [.manuscript])
     }
 
     func test_reviewPersona_exactSegments() {
@@ -173,9 +182,13 @@ final class PersonaBinderSegmentTests: XCTestCase {
     }
 
     func test_visibleSegments_omitsTheRuntimeGatedOnesWhenTheirPredicatesAreFalse() {
+        // Plan, not Author: after task 6b Author's list is one element long, so
+        // "the gated ones are absent" would be indistinguishable from "the list
+        // collapsed to the home segment". Plan is the only persona left whose
+        // list has a shape to lose.
         let segments = BinderSegmentPicker.visibleSegments(
-            persona: .author, projectType: .novel, hasTrash: false, findActive: false)
-        XCTAssertEqual(segments, [.manuscript, .palette])
+            persona: .plan, projectType: .novel, hasTrash: false, findActive: false)
+        XCTAssertEqual(segments, [.canvas, .research, .palette])
     }
 
     func test_visibleSegments_alwaysCarriesTheCurrentSelection() {
@@ -191,16 +204,22 @@ final class PersonaBinderSegmentTests: XCTestCase {
     }
 
     func test_visibleSegments_doesNotDuplicateASelectionItAlreadyOffers() {
-        // `.palette`, not `.research`: after §6.1 Author does not offer
-        // Research, so a research selection here would be exercising the
-        // APPEND path and this test would still read green while asserting
-        // nothing about deduplication at all.
+        // Task 6 moved this off Author/`.research` for a reason that came
+        // straight back around in task 6b: a selection the persona does NOT
+        // offer exercises the APPEND path, so the test reads green while
+        // asserting nothing about deduplication. `.palette` on Author was that
+        // fixture, and 6b made it the same mistake it was written to avoid.
+        //
+        // Plan is now the ONLY persona with a non-home segment to test this
+        // with (§6.2 — three of four stand on a single-segment picker), so it
+        // is Plan, with the premise stated rather than assumed.
+        XCTAssertTrue(Persona.plan.binderSegments(for: .novel).contains(.palette),
+                      "premise: the segment under test must be one Plan offers, "
+                      + "or this exercises the append path instead")
         let segments = BinderSegmentPicker.visibleSegments(
-            persona: .author, projectType: .novel, hasTrash: false, findActive: false,
+            persona: .plan, projectType: .novel, hasTrash: false, findActive: false,
             including: .palette)
         XCTAssertEqual(segments.filter { $0 == .palette }.count, 1)
-        XCTAssertTrue(Persona.author.binderSegments(for: .novel).contains(.palette),
-                      "premise: the segment under test must be one Author offers")
     }
 
     // MARK: - Defect C: the palette must be present and selectable
@@ -244,17 +263,85 @@ final class PersonaBinderSegmentTests: XCTestCase {
         }
     }
 
-    /// Plan and Author are the two making personas, and both must reach the
-    /// palette wall from the binder on every project type. Pinned by name
-    /// because this is the reachability the smoke lost.
-    func test_planAndAuthorAlwaysReachThePalette() {
+    /// **The successor to `test_planAndAuthorAlwaysReachThePalette`, which task
+    /// 6b of the persona shell's slice 2 answered rather than edited.**
+    ///
+    /// That test said Plan and Author are the two *making* personas and both
+    /// must reach the palette wall from the binder. Half of it is still exactly
+    /// true and is asserted below unchanged: **Plan** must reach the wall from
+    /// the binder on every project type, which is the reachability the
+    /// 2026-07-25 smoke lost ("I cannot find the wall of images").
+    ///
+    /// The other half stopped being true on purpose (§6.1, task 6b). The left
+    /// segment is `PaletteBinderList` and picking a card puts `PaletteCardEditor`
+    /// in the CENTRE — that is *making* palette material, which is Plan's work.
+    /// What Author keeps is the right-hand `PalettePane`, whose own doc comment
+    /// reads "pick a palette card and write against it — read-only images,
+    /// swatches, and sensory notes beside the editor": consulting the palette
+    /// while drafting, which is what Author is for.
+    ///
+    /// So the claim that replaces it is **the compensating route, asserted as a
+    /// route** — Author reaches the palette by ⌘⌥P and by ⌘1, not by its binder.
+    /// Deleting the old test outright would have left the removal unrecorded and
+    /// nothing at all saying Author can still see a card.
+    func test_theWallIsPlansAndTheCardIsStillAuthorsThroughTheRightColumn() {
         for type in ProjectType.allCases {
-            for persona in [Persona.plan, .author] {
-                XCTAssertTrue(
-                    BinderSegmentPicker.visibleSegments(
-                        persona: persona, projectType: type,
-                        hasTrash: true, findActive: true).contains(.palette),
-                    "\(persona)/\(type) cannot reach the palette wall")
+            XCTAssertTrue(
+                BinderSegmentPicker.visibleSegments(
+                    persona: .plan, projectType: type,
+                    hasTrash: true, findActive: true).contains(.palette),
+                "plan/\(type) cannot reach the palette wall")
+            XCTAssertFalse(
+                BinderSegmentPicker.visibleSegments(
+                    persona: .author, projectType: type,
+                    hasTrash: true, findActive: true).contains(.palette),
+                "author/\(type) — the wall is one ⌘1 away, not a segment")
+        }
+
+        // What Author is left with, and it is a right-pane route, so it is
+        // asserted against the right-hand registry rather than described.
+        // `.palette` is OFFERED there rather than appended, which is the
+        // difference between a pane ⌘⌥P lands on and one it merely forces.
+        XCTAssertTrue(Persona.author.panes.contains(.palette),
+                      "⌘⌥P must have a pane to land on in Author")
+        XCTAssertTrue(
+            DetailPaneToggle<AnyView>.visibleSegments(persona: .author, hideOutline: false)
+                .contains(.palette),
+            "and the right pane's own picker must offer it, so the writer can "
+            + "get back to it without the menu")
+        // And it survives the round trip, so ⌘⌥P in Author is not undone by the
+        // next persona switch: `PersonaMemory` filters a remembered pane against
+        // `panes`, which is the filter that drops `.outline`.
+        var memory = PersonaMemory.empty
+        memory.record(persona: .author, binderSegment: .manuscript, detailSegment: .palette)
+        XCTAssertEqual(memory.restoredDetailSegment(for: .author), .palette)
+    }
+
+    /// **The upgrade path, which is the one way a writer can still be SITTING on
+    /// `.palette` in Author.** `ProjectWindow`'s restore reads
+    /// `UIState.binderSegment` verbatim and filters only `.manuscript` on a
+    /// screenplay — it is not persona-filtered — so a project last quit on
+    /// today's build in Author on the palette wall reopens there on the next
+    /// one. `PersonaModifier.applyPersonaChange` closes the door going forward
+    /// (⌘2 out of Plan coerces to Author's home), but it cannot reach a
+    /// `ui-state.json` written before the change.
+    ///
+    /// So the segment Author no longer offers must still RENDER, and render
+    /// selected — the same lens-not-gate property task 6 pinned for `.research`,
+    /// which is what makes this a restore the writer can click out of rather
+    /// than a picker with nothing highlighted over a wall of images.
+    func test_aRestoredPaletteSegmentStillRendersInEveryPersona() {
+        for type in ProjectType.allCases {
+            for persona in Persona.allCases {
+                let rendered = BinderSegmentPicker.visibleSegments(
+                    persona: persona, projectType: type,
+                    hasTrash: false, findActive: false, including: .palette)
+                XCTAssertTrue(rendered.contains(.palette),
+                              "\(persona)/\(type): a ui-state.json from before "
+                              + "task 6b lands here")
+                XCTAssertEqual(rendered.first, persona.binderHome(for: type),
+                               "\(persona)/\(type): appending must not disturb "
+                               + "the persona's own ordering")
             }
         }
     }

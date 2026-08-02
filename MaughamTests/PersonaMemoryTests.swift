@@ -25,48 +25,86 @@ final class PersonaMemoryTests: XCTestCase {
 
     // MARK: - Recording and restoring
 
-    // NB: these use `.palette` for Author's non-home binder segment. They used
-    // `.research` until slice 2 of the persona shell took it off Author's left
-    // column (§6.1) — at which point a recorded `.research` would be dropped on
-    // restore and every one of them would have been asserting the FALLBACK
-    // while reading like a round trip.
+    // **THE BINDER HALF OF THESE TESTS IS DRIVEN THROUGH PLAN, and it has to
+    // be.** `restoredBinderSegment` filters a remembered value against the
+    // persona's own registry and falls back to its home, so a fixture the
+    // persona does not offer makes the test assert THE FALLBACK while reading
+    // like a round trip — green whatever `record` does.
+    //
+    // They used `.research` on Author until task 6 of the persona shell's
+    // slice 2 (§6.1), then `.palette` on Author until task 6b took that too.
+    // Author now offers exactly `[home]`, and so do Review and Publish, so
+    // **Plan is the only persona left with a non-home binder segment to test
+    // with at all** (§6.2 records that shape and leaves it deliberately
+    // unresolved until after slice 7). Each fixture below states its premise
+    // rather than trusting the registry to still hold it.
+    //
+    // The DETAIL half stays on both personas: `panes` has a two-entry floor
+    // (`PersonaPaneRegistryTests.test_everyPersona_offersAtLeastTwoPanes`), so
+    // every persona still has a non-default pane to distinguish with.
+
+    /// Premise the binder fixtures share: the value must be one Plan offers and
+    /// must differ from what a dropped entry would produce.
+    private func assertPlanDistinguishes(_ segment: BinderSegment,
+                                         file: StaticString = #filePath,
+                                         line: UInt = #line) {
+        XCTAssertTrue(Persona.plan.binderSegments(for: .novel).contains(segment),
+                      "premise: Plan must offer \(segment), or restore filters it",
+                      file: file, line: line)
+        XCTAssertNotEqual(Persona.plan.binderHome(for: .novel), segment,
+                          "premise: \(segment) must differ from the fallback, or "
+                          + "the assertion cannot see the difference",
+                          file: file, line: line)
+    }
 
     func test_record_thenRestore_returnsTheSameSegments() {
+        assertPlanDistinguishes(.palette)
         var memory = PersonaMemory.empty
-        memory.record(persona: .author, binderSegment: .palette, detailSegment: .tasks)
-        XCTAssertEqual(memory.restoredBinderSegment(for: .author, projectType: .novel), .palette)
-        XCTAssertEqual(memory.restoredDetailSegment(for: .author), .tasks)
+        memory.record(persona: .plan, binderSegment: .palette, detailSegment: .inbox)
+        XCTAssertEqual(memory.restoredBinderSegment(for: .plan, projectType: .novel), .palette)
+        XCTAssertEqual(memory.restoredDetailSegment(for: .plan), .inbox)
     }
 
     func test_record_isPerPersona() {
+        assertPlanDistinguishes(.palette)
         var memory = PersonaMemory.empty
-        memory.record(persona: .author, binderSegment: .palette, detailSegment: .tasks)
-        memory.record(persona: .plan, binderSegment: .research, detailSegment: .inbox)
-        XCTAssertEqual(memory.restoredBinderSegment(for: .author, projectType: .novel), .palette)
-        XCTAssertEqual(memory.restoredBinderSegment(for: .plan, projectType: .novel), .research)
+        memory.record(persona: .plan, binderSegment: .palette, detailSegment: .inbox)
+        memory.record(persona: .author, binderSegment: .manuscript, detailSegment: .tasks)
+        // Plan's entry surviving a later write to Author's key is the binder
+        // axis's whole distinguishing power now — a single shared slot would
+        // have overwritten it. Author's own binder entry cannot say anything
+        // here, because its only offered segment IS its fallback.
+        XCTAssertEqual(memory.restoredBinderSegment(for: .plan, projectType: .novel), .palette)
         XCTAssertEqual(memory.restoredDetailSegment(for: .author), .tasks)
         XCTAssertEqual(memory.restoredDetailSegment(for: .plan), .inbox)
     }
 
     func test_record_overwritesThePreviousValueForThatPersona() {
+        // BOTH values are non-home, so a `record` that no-opped entirely would
+        // restore `.canvas` and fail, and one that refused to overwrite would
+        // restore `.research` and fail. A home-valued second write could not
+        // tell either of those from success.
+        assertPlanDistinguishes(.research)
+        assertPlanDistinguishes(.palette)
         var memory = PersonaMemory.empty
-        memory.record(persona: .author, binderSegment: .palette, detailSegment: .tasks)
-        memory.record(persona: .author, binderSegment: .manuscript, detailSegment: .inspector)
-        XCTAssertEqual(memory.restoredBinderSegment(for: .author, projectType: .novel), .manuscript)
-        XCTAssertEqual(memory.restoredDetailSegment(for: .author), .inspector)
+        memory.record(persona: .plan, binderSegment: .research, detailSegment: .inbox)
+        memory.record(persona: .plan, binderSegment: .palette, detailSegment: .inspector)
+        XCTAssertEqual(memory.restoredBinderSegment(for: .plan, projectType: .novel), .palette)
+        XCTAssertEqual(memory.restoredDetailSegment(for: .plan), .inspector)
     }
 
     // MARK: - Transient segments are never remembered
 
     func test_record_ignoresTransientBinderSegments() {
+        assertPlanDistinguishes(.palette)
         for transient in [BinderSegment.find, .trash] {
             var memory = PersonaMemory.empty
-            memory.record(persona: .author, binderSegment: .palette, detailSegment: .tasks)
-            memory.record(persona: .author, binderSegment: transient, detailSegment: .inspector)
+            memory.record(persona: .plan, binderSegment: .palette, detailSegment: .inbox)
+            memory.record(persona: .plan, binderSegment: transient, detailSegment: .inspector)
             XCTAssertEqual(
-                memory.restoredBinderSegment(for: .author, projectType: .novel), .palette,
+                memory.restoredBinderSegment(for: .plan, projectType: .novel), .palette,
                 "\(transient) is a state passed through, not a surface to return to")
-            XCTAssertEqual(memory.restoredDetailSegment(for: .author), .inspector,
+            XCTAssertEqual(memory.restoredDetailSegment(for: .plan), .inspector,
                            "the right pane is still recorded — nothing transient there")
         }
     }
@@ -182,25 +220,29 @@ final class PersonaMemoryTests: XCTestCase {
     func test_decode_dropsUnknownSegmentValuesWithoutLosingTheRest() throws {
         // A newer build's segment name must cost only its own entry.
         //
-        // The surviving binder entry is `"palette"`, not `"research"`. It was
-        // `"research"` until slice 2 of the persona shell took Research off
-        // Author's left column (§6.1) — and a segment Author no longer offers
-        // is filtered out on restore, so the entry would have come back as
-        // Author's HOME. That is the same value an entry lost to the decoder
-        // produces, so this test would have been unable to tell "dropped only
-        // the unknown key" from "dropped both" and would still have read green
-        // once its expectation was nudged to match.
+        // **The two personas have swapped roles twice, for the same reason both
+        // times.** The surviving binder entry must be one its persona OFFERS and
+        // that differs from its home, or a filtered restore is indistinguishable
+        // from a dropped decode. It was `author: "research"` until slice 2's
+        // task 6, then `author: "palette"` until task 6b — which left Author
+        // offering only its home, so it is now `plan: "palette"` and Author
+        // carries the unknown value instead. The premise below is asserted
+        // rather than trusted, and it is the OFFERED half that was missing when
+        // task 6b arrived: the old premise checked only that the value differed
+        // from the home, which stayed true while the value stopped being offered.
+        XCTAssertTrue(Persona.plan.binderSegments(for: .novel).contains(.palette),
+                      "premise: the surviving value must be one Plan offers")
+        XCTAssertNotEqual(Persona.plan.binderHome(for: .novel), .palette,
+                          "premise: and must differ from the fallback, or the "
+                          + "assertion below cannot see the difference")
         let json = Data("""
-        {"binder":{"plan":"moodboard","author":"palette"},
+        {"binder":{"author":"moodboard","plan":"palette"},
          "detail":{"author":"telemetry","review":"history"}}
         """.utf8)
         let memory = try JSONDecoder().decode(PersonaMemory.self, from: json)
-        XCTAssertEqual(memory.restoredBinderSegment(for: .author, projectType: .novel), .palette)
-        XCTAssertNotEqual(Persona.author.binderHome(for: .novel), .palette,
-                          "the surviving value must differ from the fallback, or "
-                          + "the assertion above cannot see the difference")
-        XCTAssertEqual(memory.restoredBinderSegment(for: .plan, projectType: .novel),
-                       Persona.plan.binderHome(for: .novel))
+        XCTAssertEqual(memory.restoredBinderSegment(for: .plan, projectType: .novel), .palette)
+        XCTAssertEqual(memory.restoredBinderSegment(for: .author, projectType: .novel),
+                       Persona.author.binderHome(for: .novel))
         XCTAssertEqual(memory.restoredDetailSegment(for: .review), .history)
         XCTAssertEqual(memory.restoredDetailSegment(for: .author), Persona.author.defaultPane)
     }

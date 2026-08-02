@@ -18,14 +18,16 @@ story is not "missing" sensory detail.
    one is a valid choice; it means you've decided this piece doesn't need the
    apparatus.
 2. **Gather** — build *palette cards* in the Palette segment — the palette
-   icon in the binder's picker, available in Plan and Author. Every segment in
+   icon in the binder's picker, in the **Plan** persona (⌘1). Every segment in
    that picker is an icon; hover for its name. One card per
    location, character, or motif. The card editor is visual, not markdown —
    drag images in from Finder or paste them from the clipboard, pick colour
    swatches with the colour picker or sample them straight off a reference
    image with the eyedropper, and add sensory notes tagged sight / sound /
    smell / touch / taste (or left untagged). Keep a card open beside the
-   editor with ⌘⌥P while you draft.
+   editor with ⌘⌥P while you draft — that pane is a read-only view of a card
+   and it opens in any persona, so building cards stays in Plan while reading
+   them goes wherever you're working.
 
    **From your phone:** the palette's most natural moment often happens away
    from the desk. Aim a capture at a palette subject from the Capture tab —

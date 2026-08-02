@@ -44,6 +44,42 @@ final class PersonaKeyspaceTests: XCTestCase {
         }
     }
 
+    /// **⌘⌥P is Author's only route to the palette**, as of task 6b of the
+    /// persona shell's slice 2 (§6.1): the binder's Palette segment is Plan's
+    /// now, and `PalettePane` on the right is what a drafting writer consults.
+    ///
+    /// `test_everyDetailSegmentHasAMenuShortcut` above proves a menu item posts
+    /// `.palette`, and `DocSyncTests` proves every ⌘⌥ token in this file appears
+    /// in `reference.md`'s table — but neither pairs the letter with the
+    /// segment, so a swap between two items would satisfy both. This asserts the
+    /// pairing for the one item that is now a persona's sole route.
+    /// Read as "the first `.keyboardShortcut` after the item that posts
+    /// `segment`", rather than a whitespace-exact literal — indentation is not
+    /// what this is guarding.
+    func test_thePaletteMenuItemIsTheOneBoundToCommandOptionP() throws {
+        let app = try source("Maugham/MaughamApp.swift")
+        let item = try XCTUnwrap(app.range(of: "postSegment(.palette)"),
+                                 "no View-menu item posts .palette")
+        let after = app[item.upperBound...]
+        let shortcut = try XCTUnwrap(after.range(of: ".keyboardShortcut("),
+                                     "the Palette item carries no shortcut at all")
+        XCTAssertTrue(
+            after[shortcut.lowerBound...].hasPrefix(
+                #".keyboardShortcut("p", modifiers: [.command, .option])"#),
+            "the Palette item's own shortcut must be ⌘⌥P — found "
+            + String(after[shortcut.lowerBound...].prefix(60)))
+
+        // The control: the same read on a different item must NOT answer ⌘⌥P,
+        // or "the next shortcut in the file" would be reporting a constant.
+        let other = try XCTUnwrap(app.range(of: "postSegment(.inbox)"))
+        let afterOther = app[other.upperBound...]
+        let otherShortcut = try XCTUnwrap(afterOther.range(of: ".keyboardShortcut("))
+        XCTAssertFalse(
+            afterOther[otherShortcut.lowerBound...].hasPrefix(
+                #".keyboardShortcut("p", modifiers: [.command, .option])"#),
+            "control: Inbox must not also read as ⌘⌥P")
+    }
+
     func test_reviewModeAndInspectorToggleMovedOffTheirOldKeys() throws {
         let app = try source("Maugham/MaughamApp.swift")
         XCTAssertTrue(app.contains(#"keyboardShortcut("r", modifiers: [.command, .option, .shift])"#),
