@@ -130,6 +130,27 @@ two adjacent segments showing an identical tree, one of which swaps the centre, 
 only legible if the label says which. This is the one place in this design where
 the naming does real work rather than describing.
 
+> **Amendment, 2026-08-02 — slice 2 ships all four, and the redundancy is
+> deliberately slice 7's.** Denver, on first use: *"I'm not sure I see value in
+> the current canvas left panel — it's the view I get in research."* The
+> observation is right, and the argument above is the answer only while the
+> research-drag exists in its current form: `Maugham/Canvas/AREA.md` states the
+> precondition outright — *"the binder's research tree sits beside the canvas in
+> the Plan persona… and a row dragged out of it becomes an item node where it is
+> dropped"* — and that drag is the **only** route for putting research the
+> project already holds onto the canvas. There is no command fallback: `Send to
+> Canvas` exists on Inbox rows and nowhere else.
+>
+> So the choice was *collapse the tabs and give research rows a `Send to Canvas`
+> of their own*, or *keep four and revisit*. **Denver chose to keep four**,
+> because slice 7 reworks what a research view IS, and building a command now
+> means designing it twice. Slice 2 therefore **adds one segment and moves
+> nothing** — the drag route is untouched.
+>
+> Recorded so slice 7 inherits the question rather than rediscovering it: the
+> collapse is desirable, and what it costs is a keyboard- and VoiceOver-reachable
+> replacement for a mouse-only drag.
+
 ### 3.2 The tree drives both other columns at once
 
 - **The right pane gets its subject.** Select chapter 3 and Intent shows chapter
