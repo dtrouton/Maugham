@@ -398,7 +398,80 @@ and its left column becomes "pieces by review state" using the status field slic
 4 freed. Best done alongside or just before M3, the milestone that gives Review
 its named passes.
 
+**Slice 7 — research becomes a view rather than a folder tree.** Denver's
+addition, 2026-08-02, **deliberately left unspecced until slices 1–6 have
+landed** — it is the largest idea in this document and the least constrained by
+what already exists, so specifying it against a shell still being reshaped is
+the mistake CLAUDE.md rule 11 exists to prevent.
+
+What prompted it, in the writer's words: *"selecting a piece or chapter to then
+go to research to have that filter is wonky… I just want to organise my
+thinking."* And the framing that resolved it: **this is the difference between
+tags and folders**, and the writer does not care where a note lives on disk.
+
+The thread to pick up, so it is not re-derived:
+
+- **The shape.** One tree in Plan, always present, whose spine is the
+  manuscript's hierarchy and whose leaves are each piece's *material*. Not a
+  second copy of the filesystem — a **view over relationships**, so dragging in
+  it edits the relationship and never the file.
+- **The objection that shape survives, and the one it must still answer.**
+  `ResearchScope` routes three different ways — a Collection loose piece gets
+  real containment (`pieceFolder`), a novel chapter gets **shared research plus
+  a `linkedResearchIds` link**, and a short story or screenplay gets
+  `sharedOnly` with no per-document notion at all. A tree that renders *link* as
+  *containment* is the membership-from-geometry error tripwire 31 exists for,
+  arriving in a new place. Calling it a view rather than storage answers that —
+  a note linked to two chapters appearing under both is correct for a tag and a
+  lie for a folder. What it does **not** yet answer: **unlink must be
+  distinguishable from delete** (the canvas region inspector's minus — *"takes a
+  card out of a region; the card itself stays"* — is the precedent to copy), and
+  **research belonging to no piece still needs somewhere to be**, or it becomes
+  unreachable in the view that replaced the one it was found in.
+- **Sequencing.** After slices 1–6, and specced then rather than now.
+
 **Not scheduled:** the rest of Publish's columns, which wait on M4's surfaces.
+
+### 6.1 The left column is not a lens — a correction to §8
+
+*Recorded 2026-08-02, verified against the tree the same day.*
+
+**There is no keyboard route to a `BinderSegment`.** Every right-hand pane has a
+`⌘⌥`-letter in `MaughamApp`'s View menu; the left column has nothing. So the two
+registries fail differently and §8's *"personas are lenses, never gates"* is true
+of one of them:
+
+- Dropping a pane from `Persona.panes` is a **demotion**. `⌘⌥O` still opens
+  Outline in every persona (slice 1 proved this, and replaced a test that
+  asserted the opposite).
+- Dropping a segment from `Persona.binderSegments(for:)` is a **removal**. The
+  only route back is switching persona.
+
+**Consequence, decided 2026-08-02: research leaves the LEFT column of Author,
+Review and Publish, and that is a removal made deliberately.** The argument is
+not convenience — it is that **the right-hand registry already says research is
+not Review's or Publish's business** (`.research` is a pane in Plan and Author
+and absent from both the others), so the left column was the half that
+disagreed. Editing research is making planning material, which is Plan's output
+under §2's rule, and Author keeps `LinkedResearchPane` on the right for reading
+what a chapter points at.
+
+Two things this costs, both stated rather than discovered:
+
+- **Review and Publish drop to a one-segment left picker** — the *"reads as
+  broken chrome"* shape already argued at `Persona.swift`'s Publish case. Judged
+  acceptable because both of those columns are **already** deviations standing in
+  for unbuilt surfaces (§6.3's "pieces by review state" and "editions"), so the
+  single entry makes a placeholder visible rather than disguising it, and M3/M4
+  each supply a real second entry. Padding a picker with a segment that does not
+  serve the persona is what slice 1 refused to do for `.outline`.
+- **Editing a note mid-draft becomes a persona switch.** Author's research pane
+  is a *preview*. The writer judges the hop acceptable; it is the first thing to
+  check in smoke, not something to settle in the abstract.
+
+**`selectedResearchId` is `@State` on `ProjectWindow`, not in `UIState`** — so
+the hop keeps your place within a session and loses it on quit. One field if
+that turns out to matter.
 
 **Sequencing against M1A:** none of this starts until M1A has been smoked and
 its milestone is closed. Slice 4 and slice 5 both touch things M1A shipped —
