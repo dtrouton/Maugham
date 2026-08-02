@@ -36,11 +36,14 @@ final class BinderSegmentDocumentHomeTests: XCTestCase {
     /// as well as there, so the expectation cannot be quietly inherited on the
     /// test side either.
     ///
-    /// The interesting row is `.find`, and it is asserted rather than skipped:
-    /// find centres the document (`existingEditorSwitch` joins it to
-    /// `.manuscript, .scenes`) and the footer is silent under it. That is the
-    /// shipped behaviour and the reason this is not a mirror of
-    /// `centresTheCanvas` — see the predicate's doc comment.
+    /// The interesting row is `.find`, and it is asserted rather than skipped.
+    /// It said `false` until 2026-08-02 — an oversight from before find had a
+    /// centre column of its own, ruled as such by Denver when slice 2's task 9
+    /// surfaced it. Find centres the document (`existingEditorSwitch` joins it
+    /// to `.manuscript, .scenes`), so the goal capsule, the live session words
+    /// and the ¶id/element readout all remain true while a search panel is open
+    /// on the left, and the footer now follows the document rather than the
+    /// shape of the left column.
     func test_everySegmentDeclaresWhetherTheStatusFooterFollowsIt() {
         for segment in BinderSegment.allCases {
             let expected: Bool
@@ -54,7 +57,9 @@ final class BinderSegmentDocumentHomeTests: XCTestCase {
             case .research, .palette, .trash:
                 expected = false
             case .find:
-                expected = false
+                // The document is still in the centre while the search panel is
+                // on the left, so every fact the footer reports is still true.
+                expected = true
             }
             XCTAssertEqual(segment.showsManuscriptStatusFooter, expected,
                            "\(segment) disagrees with the shipped rule")

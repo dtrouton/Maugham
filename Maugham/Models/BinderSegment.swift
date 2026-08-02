@@ -104,17 +104,22 @@ public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
     /// — all facts about a manuscript document — so it is silent on the canvas,
     /// on Plan's tree, on research, on the palette and on the trash.
     ///
-    /// **It is NOT `centresTheCanvas` inverted, and it is NOT "the centre column
-    /// is a document" either.** `.find` centres the document too —
-    /// `existingEditorSwitch` and `existingInspectorSwitch` both name
-    /// `.manuscript, .scenes, .find` in one arm — and the footer has never shown
-    /// there. Whether that is deliberate or an oversight from before find had a
-    /// centre column of its own is not something slice 2 can answer, so it is
-    /// recorded here rather than changed: the shipped rule is *the binder is on
-    /// the document home*, and `.find` is the case that makes the two readings
-    /// distinguishable. Naming this `centresTheDocument` and sharing it with
-    /// those two switches would either move the footer under find or put a
-    /// false name on the answer.
+    /// **It is NOT `centresTheCanvas` inverted.** It is close to *"the centre
+    /// column is a document"* — `existingEditorSwitch` and
+    /// `existingInspectorSwitch` both name `.manuscript, .scenes, .find` in one
+    /// arm — but it is not spelled as that, and the reason is `.trash`: the
+    /// trash has no centre column of its own to disagree about, so a predicate
+    /// shared with those switches would have to answer for a segment they never
+    /// see.
+    ///
+    /// **`.find` says YES, and that is a fix rather than the inherited value.**
+    /// It said no until 2026-08-02, when slice 2's task 9 surfaced the
+    /// disagreement and Denver ruled it an oversight from before find had a
+    /// centre column: running `⌘⌥F` put the writer's document in the editor and
+    /// silently took away the goal capsule, the live session words and the
+    /// `¶id`/element readout, none of which stop being true because a search
+    /// panel is open on the left. The footer follows the DOCUMENT in the centre,
+    /// not the shape of the left column.
     ///
     /// **Nor is it `BinderPaneToggle`'s Exports gate**, which reads the same set
     /// today and asks a different question — that one is about the LEFT column
@@ -131,8 +136,8 @@ public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
     /// the compiler would ask.
     var showsManuscriptStatusFooter: Bool {
         switch self {
-        case .manuscript, .scenes: return true
-        case .tree, .research, .palette, .canvas, .trash, .find: return false
+        case .manuscript, .scenes, .find: return true
+        case .tree, .research, .palette, .canvas, .trash: return false
         }
     }
 
