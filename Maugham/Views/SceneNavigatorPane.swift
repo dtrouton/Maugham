@@ -3,14 +3,20 @@ import MaughamCore
 
 /// The Scenes segment — a screenplay's binder.
 ///
-/// A screenplay is ONE `.fountain` (the Phase 3d invariant), so this pane is not
-/// a tree of documents: it is a slugline navigator inside a single file, and
-/// clicking a row scrolls the editor rather than opening anything. That is why
-/// its rows are `Button`s and carry no selection.
+/// A screenplay is ONE `.fountain` (the Phase 3d invariant), so this pane is a
+/// slugline navigator inside a single file: clicking a slugline scrolls the
+/// editor rather than opening anything, which is why those rows are `Button`s
+/// and carry no selection.
 ///
-/// **It also carries the project row** (persona shell spec §3.3), and it is the
-/// only one of the three surfaces that does where that row is not simply another
-/// row of the same kind. `BinderSegment.documentHome(for: .screenplay)` is
+/// **Above them it is a binder like any other** — the project row, then the
+/// project's documents, which for a screenplay is the one script. Those two rows
+/// select; the sluglines beneath them navigate. It listed only the *insides* of
+/// the script for a slice, with no row for the script itself, and that made the
+/// project row a one-way door on every screenplay with no sluglines yet: see
+/// `scriptRow`.
+///
+/// **It carries the project row** (persona shell spec §3.3).
+/// `BinderSegment.documentHome(for: .screenplay)` is
 /// `.scenes` and no persona offers a screenplay the `.manuscript` segment, so
 /// `BinderView` — the row's other non-collection home — is never mounted for a
 /// screenplay at all: without a row here `BinderSubject.project` is
@@ -24,13 +30,14 @@ struct SceneNavigatorPane: View {
     /// Shown on the head row.
     let projectTitle: String
     /// The window's subject. This pane writes it in exactly two places — the
-    /// head row's selection, and the restore in `sceneRow` — and both go through
-    /// the static rules below.
+    /// List's selection (the project row and the script row), and the restore in
+    /// `sceneRow` — and both go through the static rules below.
     @Binding var selectedSubject: BinderSubject?
-    /// The single document the sluglines live in — what a scene click restores
-    /// the subject to when the project row is holding it. `nil` only if the
-    /// screenplay has no document at all, in which case a scene click cannot
-    /// have come from anywhere and the subject is left alone.
+    /// The single document the sluglines live in — the subject of the script
+    /// row, and what a scene click restores the subject to when the project row
+    /// is holding it. `nil` only if the screenplay has no document at all, in
+    /// which case there is no script row and a scene click has nothing to
+    /// restore to, so the subject is left alone.
     let documentID: String?
     /// Called with the line range location when the user clicks a scene.
     let onSelect: (Int) -> Void
@@ -45,14 +52,16 @@ struct SceneNavigatorPane: View {
         // which is what EVERY new screenplay opens on (`createScreenplayProject`
         // writes an empty `.fountain`) and stays on until the writer types their
         // first INT./EXT. The empty state used to REPLACE this list; with the
-        // project row in it that would mean a brand-new screenplay has no
-        // subject it can be given at all — exactly when project-scope intent is
-        // what a writer reaches for first. So it is an OVERLAY, the shape
+        // project and script rows in it that would mean a brand-new screenplay
+        // has no subject it can be given at all — neither the project, exactly
+        // when project-scope intent is what a writer reaches for first, nor the
+        // script, which is the only way back off it. So it is an OVERLAY, the shape
         // `BinderView` and `CollectionPiecesPane` both landed on, and
         // `SceneNavigatorProjectRowTests` hit-tests it here rather than
         // inheriting the measurement: this empty state is neither of theirs.
-        List(selection: headRowSelection) {
+        List(selection: listSelection) {
             projectRow
+            scriptRow
             ForEach(Array(summaries.enumerated()), id: \.offset) { _, summary in
                 sceneRow(for: summary)
             }
@@ -63,19 +72,67 @@ struct SceneNavigatorPane: View {
         }
     }
 
-    /// The row at the head of the navigator naming the screenplay itself.
+    /// The row at the head of the navigator naming the project itself.
     ///
-    /// **A row and a `.tag`**, like the other two — tripwire 9 is why it is not a
-    /// `Button` and not an `.onTapGesture` inside `List(.sidebar)`, even though
-    /// every row below it is a Button. Those are navigation, and their click
-    /// does not select anything.
+    /// **A row and a `.tag`**, like the project row in `BinderView` and
+    /// `CollectionPiecesPane` — tripwire 9 is why it is not a `Button` and not an
+    /// `.onTapGesture` inside `List(.sidebar)`. The slugline rows below are
+    /// Buttons because they navigate and select nothing; `scriptRow`, between
+    /// the two, is a row and a `.tag` for the same reason this one is.
     private var projectRow: some View {
         ProjectRowLabel(title: projectTitle)
             .tag(BinderSubject.project)
     }
 
-    /// The head row's selection, PROJECTED — the pane's whole answer to having
-    /// one selectable row in a list of unselectable ones.
+    /// The row naming the script itself — the screenplay's one document, sitting
+    /// between the project row and the sluglines (smoke, 2026-08-01).
+    ///
+    /// **Why it exists.** Without it this is the only binder in the app that
+    /// lists the *insides* of a document and never the document. That reads as a
+    /// stylistic difference until a screenplay has no sluglines yet — which is
+    /// every new one — and then it is a one-way door: selecting the project row
+    /// blanks the centre column, and the escape the pane was built with is a
+    /// *scene* click, which does not exist when there are no scenes. With this
+    /// row the navigator is shaped like every other binder — the project, then
+    /// the project's documents, with sluglines as detail beneath the one
+    /// document — and because a screenplay always has exactly one script, the
+    /// escape can never be missing the way a scene row can.
+    ///
+    /// **Why it says "Script" and not the document's title.** The rest of the
+    /// app draws a document row with its `StructureItem.title`, and the first
+    /// instinct is to do that here. Two facts rule it out. The title a
+    /// screenplay's document actually carries is `"Scene 1"`
+    /// (`ProjectFactory.createScreenplayProject`), which sitting one row above
+    /// real sluglines reads as a third scene — the exact confusion this row is
+    /// meant to end. And it is not a default the writer can move off:
+    /// `ProjectStore.renameStructureItem` has one caller, `BinderView.rename`,
+    /// and `BinderView` is never mounted for a screenplay
+    /// (`BinderSegment.documentHome(for: .screenplay)` is `.scenes`), so from
+    /// inside the app that title is permanent. So the row names the *kind* of
+    /// thing, which a screenplay can do and no other project type can: there is
+    /// exactly one script (the Phase 3d invariant). A fixed noun also guarantees
+    /// the two head rows can never read the same, which a title cannot — a
+    /// document titled after its project would put "The Long Walk" directly
+    /// under "The Long Walk", and two adjacent rows naming the same thing would
+    /// be worse than the bug this fixes.
+    @ViewBuilder
+    private var scriptRow: some View {
+        if let documentID {
+            HStack(spacing: 6) {
+                Image(systemName: "doc.text")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+                Text("Script")
+                    .lineLimit(1)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+            .tag(BinderSubject.item(documentID))
+        }
+    }
+
+    /// The List's selection, PROJECTED — the pane's whole answer to having two
+    /// selectable rows in a list of unselectable ones.
     ///
     /// A scene row carries no `.tag`, and an untagged row does not decline to be
     /// selected: it is selected and the List writes `nil` through the binding
@@ -86,34 +143,51 @@ struct SceneNavigatorPane: View {
     /// and `nil` blanks the centre column, so the writer would click a slugline
     /// and lose the editor.
     ///
-    /// So the binding is a projection rather than the state itself: it shows
-    /// `.project` only when the subject is the project, and it accepts only
-    /// `.project` back. The scene rows' own Button is the authoritative signal
-    /// for what a scene click means, and it runs through
-    /// `subject(_:whenNavigatingTo:)`. Ordering between the two does not matter,
-    /// which is the point — there is no flag and no guard here (tripwire 2), just
-    /// a value that ignores writes it has no meaning for.
-    private var headRowSelection: Binding<BinderSubject?> {
+    /// So the binding is a projection rather than the state itself, and it now
+    /// distinguishes **three** writes rather than two: `.project` and the
+    /// script's own `.item(documentID)` are this pane's rows and move the
+    /// subject; everything else — `nil` from an untagged scene row, or an item
+    /// this pane does not draw — leaves it exactly where it was. The scene rows'
+    /// own Button is still the authoritative signal for what a scene click
+    /// means, through `subject(_:whenNavigatingTo:)`. Ordering between the two
+    /// does not matter, which is the point — there is no flag and no guard here
+    /// (tripwire 2), just a value that ignores writes it has no meaning for.
+    private var listSelection: Binding<BinderSubject?> {
         Binding(
-            get: { Self.headRowSelection(for: selectedSubject) },
+            get: { Self.listSelection(for: selectedSubject, documentID: documentID) },
             set: { written in
-                selectedSubject = Self.subject(selectedSubject, whenListWrites: written)
+                selectedSubject = Self.subject(
+                    selectedSubject, whenListWrites: written, documentID: documentID)
             })
     }
 
-    /// What the head row shows as selected, given the window's subject.
+    /// Which of this pane's rows shows as selected, given the window's subject.
     /// Pure and static so it can be asked over every subject rather than the one
     /// a mounted test happens to drive.
-    static func headRowSelection(for subject: BinderSubject?) -> BinderSubject? {
-        subject == .project ? .project : nil
+    ///
+    /// A subject naming some *other* document selects nothing: the pane draws no
+    /// row for it, and claiming a row it does not have would highlight the
+    /// script while the window was about something else.
+    static func listSelection(for subject: BinderSubject?,
+                              documentID: String?) -> BinderSubject? {
+        switch subject {
+        case .project: return .project
+        case .item(let id): return id == documentID ? .item(id) : nil
+        case .none: return nil
+        }
     }
 
     /// What the subject becomes when the List writes through the projection.
-    /// Only `.project` moves it; a `nil` from an untagged scene row leaves the
-    /// window's subject exactly where it was.
+    /// This pane's own two rows move it; a `nil` from an untagged scene row, and
+    /// an item this pane draws no row for, leave the window's subject alone.
     static func subject(_ current: BinderSubject?,
-                        whenListWrites written: BinderSubject?) -> BinderSubject? {
-        written == .project ? .project : current
+                        whenListWrites written: BinderSubject?,
+                        documentID: String?) -> BinderSubject? {
+        switch written {
+        case .project: return .project
+        case .item(let id): return id == documentID ? .item(id) : current
+        case .none: return current
+        }
     }
 
     /// What the subject becomes when the writer clicks a slugline.
@@ -149,14 +223,21 @@ struct SceneNavigatorPane: View {
     /// Shown when the script has no sluglines — an overlay on the list rather
     /// than a replacement for it (see `body`). Tripwire 15: the full-frame chain
     /// is what stops SwiftUI sizing this to its intrinsic content.
+    ///
+    /// **The copy names the first step.** It used to read "Type INT. or EXT. to
+    /// add one", which assumes an editor is already on screen — and the state a
+    /// writer most often reads this in is the one where it is not: subject on
+    /// the project, centre column blank, nothing to type into. Now it points at
+    /// the row that puts the editor there.
     private var emptyState: some View {
         VStack {
             Text("No scenes yet")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            Text("Type INT. or EXT. to add one.")
+            Text("Open the script, then type INT. or EXT.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
                 .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

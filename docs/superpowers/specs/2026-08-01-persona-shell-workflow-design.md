@@ -165,11 +165,32 @@ a screenplay. With the pane-local switch removed in the same slice, the missing
 third row made project-scope Intent **unreachable** in a screenplay, and the
 adoption path (`legacyCraftIntentByScope`, gated on schema version and never on
 project type) can put a writer's own pre-M1A prose in exactly that scope. The
-navigator is the odd one of the three: a screenplay is one file, so its rows are
-navigation rather than subjects, and the row is the only selectable thing in the
-list — see `SceneNavigatorPane` for how a click on a slugline is kept from
-writing `nil` through the selection. `ProjectSubjectReachabilityTests` is the
-census that asks the question of every project type rather than of a view.
+navigator is the odd one of the three: a screenplay is one file, so its slugline
+rows are navigation rather than subjects — see `SceneNavigatorPane` for how a
+click on a slugline is kept from writing `nil` through the selection.
+`ProjectSubjectReachabilityTests` is the census that asks the question of every
+project type rather than of a view.
+
+**Second amendment, 2026-08-02 (slice 1 smoke).** The row above the sluglines was
+not enough on its own, and adding it *alone* made a new screenplay worse: with
+the project selected the centre column blanks, and the escape the navigator was
+built with is a *scene* click, which does not exist until the writer has typed a
+slugline — which they cannot do, because the editor is not on screen. A new
+screenplay was a one-way door.
+
+The fix is not a special case, it is the shape the navigator should always have
+had: **a row for the script itself**, between the project row and the sluglines.
+A screenplay's binder then reads like every other binder — the project, then the
+project's documents — with sluglines as detail beneath its one document, and
+because a screenplay always has exactly one script the escape can never be
+missing the way a scene row can. It was the only binder in the app that listed
+the *insides* of a document and never the document. The selection projection now
+accepts two values (`.project` and the script's `.item(id)`) and still ignores
+the `nil` an untagged slugline row writes.
+
+*Still left open by ruling:* what the centre column should show when the subject
+is the project. It is blank today in every project type; the screenplay is not
+made special here.
 
 *Left open by ruling, not by omission:* whether a one-file screenplay should have
 a document intent AND a project intent at all is a design question, and this
