@@ -19,6 +19,10 @@ Right-click a row in the binder:
 - **Duplicate** — copies the document or group with fresh IDs.
 - **Delete** — moves to Maugham's project-local Trash (see below).
 
+You can do all of that from **Plan** as well. Plan's **Structure** tab shows the same tree with the planning canvas still in the middle, and it carries the same right-click menus and the same empty-binder buttons — Plan is where structure gets built.
+
+**A screenplay is the exception, deliberately.** A screenplay is one file, so there is nothing to add to its tree: its structure is its sluglines, and you type those in the script itself. Its tree offers no New Document and no New Scene, in Plan or anywhere else — select **Script** (or ⌘2 for Author) and write the scene heading.
+
 Drag items to reorder. Move chapters between groups; folders physically move on disk. Filenames keep an `NN-` prefix so the on-disk order matches the binder order.
 
 If gaps appear in numbering after deletes, **Tidy Filenames** (right-click a group, or File → Tidy All Filenames) renumbers cleanly.
@@ -40,7 +44,9 @@ Research association isn't shown here — see the Research mode (⌘⌥R) in [In
 
 Type `[[Chapter 2]]` in any document. Maugham renders it blue + underlined. Click to navigate. Rename Chapter 2 in the binder and the wiki links in other documents update automatically.
 
+Following a link to a manuscript document from **Plan** takes you to Author with it, because reading and writing the manuscript is Author's job. ⌘1 brings you straight back to the Plan tab you left.
+
 ### Find
 
 - **⌘F** — find within the current document (standard AppKit find bar; ⌘G next, ⌘⇧G previous).
-- **⌘⌥F** — find across the whole project. Opens a panel with grouped results (per document), case-sensitive and whole-word toggles. Click a result to jump.
+- **⌘⌥F** — find across the whole project. Opens a panel with grouped results (per document), case-sensitive and whole-word toggles. Click a result to jump. Closing the panel puts the left column back on your current mode's own tab — the manuscript in Author, the canvas in Plan.

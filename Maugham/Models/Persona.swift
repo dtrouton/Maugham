@@ -361,4 +361,43 @@ public extension Persona {
         // whose left column is a choice at all (§6.2, revisited after slice 7).
         binderSegments(for: projectType).first ?? BinderSegment.documentHome(for: projectType)
     }
+
+    /// **Would this persona's centre column show a manuscript document?**
+    ///
+    /// The guard behind Denver's 2026-08-02 ruling — *"if I'm moving to the
+    /// manuscript I'm moving to Author"* — and the one question
+    /// `ManuscriptNavigation` asks before it moves anyone.
+    ///
+    /// **It is asked of the binder registry, never of a persona name.** The
+    /// centre column routes off the SEGMENT (`ProjectWindow.editorRoute`), and
+    /// `BinderSegment.documentHome(for:)` is the segment whose centre is the
+    /// document — `.manuscript` for a novel, a short story and a Collection,
+    /// `.scenes` for a screenplay. So a persona shows documents exactly when its
+    /// own column offers that segment, and today Plan is the only one that does
+    /// not. That fact FALLS OUT of the registry rather than being asserted: a
+    /// hardcoded `== .plan` reads identically today and ships the defect the
+    /// moment Review's left column changes, because clicking an annotation or a
+    /// history row navigates to a paragraph and a reviewer ejected into Author
+    /// cannot adjudicate — the one job Review exists for.
+    ///
+    /// This is the neighbour of `BinderSegment.centresTheCanvas` and is
+    /// deliberately NOT a second spelling of it: that answers "which segments
+    /// draw the canvas", this answers "which personas offer the document". Both
+    /// are asked at the segment level and neither re-derives the other.
+    func showsManuscriptDocuments(for projectType: ProjectType) -> Bool {
+        Self.showsManuscriptDocuments(in: binderSegments(for: projectType),
+                                      for: projectType)
+    }
+
+    /// The rule over ANY column, so it can be falsified.
+    ///
+    /// Split out because all four real registries agree with a `== .plan`
+    /// shortcut, so no test over `Persona.allCases` can tell the correct
+    /// implementation from the lazy one — the discriminator has to be a segment
+    /// list this app does not ship
+    /// (`ManuscriptNavigationTests.test_theRuleIsAboutTheDocumentHome_notAboutAnyParticularPersona`).
+    static func showsManuscriptDocuments(in segments: [BinderSegment],
+                                         for projectType: ProjectType) -> Bool {
+        segments.contains(BinderSegment.documentHome(for: projectType))
+    }
 }

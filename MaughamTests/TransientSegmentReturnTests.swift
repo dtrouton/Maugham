@@ -1,0 +1,306 @@
+import XCTest
+import AppKit
+import SwiftUI
+import Observation
+import MaughamCore
+@testable import Maugham
+
+/// The binder's segment and the find flag, outside the view, so a test can flip
+/// the one production flips and watch what the toggle writes back through the
+/// other. At file scope because `@Observable` cannot expand inside a `private`
+/// nested type.
+@Observable
+@MainActor
+final class TransientExitBox {
+    var segment: BinderSegment
+    var findActive: Bool
+    init(segment: BinderSegment, findActive: Bool) {
+        self.segment = segment
+        self.findActive = findActive
+    }
+}
+
+/// **Where does the writer land when a transient segment ends?**
+///
+/// Find and Trash are states, not surfaces (`BinderSegment.isTransient`), and
+/// both toggles put the binder somewhere else the moment the state ends — find
+/// closed, or the trash emptied under the writer. Until slice 2 task 5 that
+/// somewhere was `BinderSegment.documentHome(for:)`, which is the same value as
+/// the binder home in Author, Review and Publish and is **the manuscript editor
+/// in Plan** — Denver's 2026-08-02 ruling arrived at from the other side:
+/// `⌘⌥F`, escape, and the writer is writing the manuscript in Plan.
+///
+/// **This is a return, not a navigation**, which is why it is not
+/// `ManuscriptNavigation`: closing find names no document (it fires with no
+/// match ever clicked), so nobody is moved to Author for it. The answer is the
+/// persona's own home.
+///
+/// **Driven through the flag production flips, on the real mounted toggle.** The
+/// `.onChange` under test cannot be reached from the view's data — it is a
+/// modifier on a `body` — and the ✕ button and `.maughamCloseFind` are two routes
+/// out of one state, so the toggle is where both of them land.
+@MainActor
+final class TransientSegmentReturnTests: XCTestCase {
+
+    private var temp: TempDirectory!
+    private var windows: [NSWindow] = []
+
+    override func setUp() async throws {
+        temp = TempDirectory()
+    }
+
+    override func tearDown() async throws {
+        for window in windows { window.contentView = NSView(frame: .zero) }
+        pump(0.05)
+        windows.removeAll()
+        temp.cleanup()
+        temp = nil
+    }
+
+    // MARK: - Closing find
+
+    /// **The defect, in the persona it was in.** Plan's binder home is the
+    /// canvas; the manuscript segment is not even in Plan's registry.
+    func test_closingFindInPlanReturnsToPlansHomeAndNotToTheManuscript() async throws {
+        for type in ProjectType.allCases where type != .unknown {
+            let box = try await closeFind(persona: .plan, type: type)
+            XCTAssertEqual(box.segment, Persona.plan.binderHome(for: type),
+                           "\(type): closing find in Plan must return to Plan's "
+                           + "own home")
+            XCTAssertNotEqual(box.segment, .documentHome(for: type),
+                              "\(type): landing on the document home puts a text "
+                              + "editor in the centre of the persona that does "
+                              + "not draft")
+        }
+    }
+
+    /// **The control: nothing moved for anybody else.** Author, Review and
+    /// Publish each offer exactly their document home, so the persona's home and
+    /// the document home are the same segment and this change is invisible to
+    /// them. If this ever goes red the fix has moved a writer who was already in
+    /// the right place.
+    func test_closingFindEverywhereElseLandsExactlyWhereItAlwaysDid() async throws {
+        for persona in [Persona.author, .review, .publish] {
+            for type in ProjectType.allCases where type != .unknown {
+                let box = try await closeFind(persona: persona, type: type)
+                XCTAssertEqual(box.segment, .documentHome(for: type),
+                               "\(persona)/\(type): unchanged behaviour")
+            }
+        }
+    }
+
+    // MARK: - Driving it
+
+    /// Mounts the binder shell production mounts for this type, sitting in Find,
+    /// then clears the flag the ✕ button clears.
+    private func closeFind(persona: Persona,
+                           type: ProjectType) async throws -> TransientExitBox {
+        let store = try await project(of: type)
+        let box = TransientExitBox(segment: .find, findActive: true)
+        let window = host(TransientExitProbeView(store: store, box: box,
+                                                 persona: persona))
+        XCTAssertEqual(box.segment, .find, "premise: the binder is in find")
+
+        box.findActive = false
+        await waitOut(0.4)
+        _ = window
+        return box
+    }
+
+    private func project(of type: ProjectType) async throws -> ProjectStore {
+        let name = "\(type.rawValue)-\(UUID().uuidString.prefix(6))"
+        let url: URL
+        switch type {
+        case .shortStory:
+            url = try await ProjectFactory.createShortStoryProject(named: name, in: temp.url)
+        case .novel:
+            url = try await ProjectFactory.createNovelProject(named: name, in: temp.url)
+        case .screenplay:
+            url = try await ProjectFactory.createScreenplayProject(named: name, in: temp.url)
+        case .collection:
+            url = try await ProjectFactory.createCollectionProject(named: name, in: temp.url)
+        case .unknown:
+            throw XCTSkip("`.unknown` is excluded from allCases and cannot be created")
+        }
+        let store = try await ProjectStore.load(from: url)
+        await store.wordCountPopulationTask?.value
+        return store
+    }
+
+    private func host(_ view: some View) -> NSWindow {
+        let frame = CGRect(x: 0, y: 0, width: 320, height: 600)
+        let hosting = NSHostingView(rootView: AnyView(view))
+        hosting.frame = frame
+        let window = NSWindow(contentRect: frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.orderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        windows.append(window)
+        pump(0.15)
+        return window
+    }
+
+    private func waitOut(_ seconds: TimeInterval) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            pump(0.02)
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    private func pump(_ seconds: TimeInterval = 0.15) {
+        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    }
+}
+
+/// The left column as `ProjectWindow.binderColumn` builds it, with the find flag
+/// hoisted out so a test can clear it.
+@MainActor
+private struct TransientExitProbeView: View {
+    let store: ProjectStore
+    let box: TransientExitBox
+    let persona: Persona
+    @State private var subject: BinderSubject?
+    @State private var researchId: String?
+    @State private var paletteCardId: String?
+    @State private var renamingItemId: String?
+
+    private var segment: Binding<BinderSegment> {
+        Binding(get: { box.segment }, set: { box.segment = $0 })
+    }
+
+    private var findActive: Binding<Bool> {
+        Binding(get: { box.findActive }, set: { box.findActive = $0 })
+    }
+
+    var body: some View {
+        Group {
+            switch ProjectWindow.BinderShell.shell(for: store.manifest.type) {
+            case .standard:
+                BinderPaneToggle(
+                    store: store,
+                    segment: segment,
+                    selectedSubject: $subject,
+                    selectedResearchId: $researchId,
+                    selectedPaletteCardId: $paletteCardId,
+                    projectType: store.manifest.type,
+                    lastParsedScript: nil,
+                    findActive: findActive,
+                    persona: persona)
+            case .collection:
+                CollectionBinderPaneToggle(
+                    store: store,
+                    segment: segment,
+                    selectedSubject: $subject,
+                    selectedResearchId: $researchId,
+                    selectedPaletteCardId: $paletteCardId,
+                    findActive: findActive,
+                    renamingItemId: $renamingItemId,
+                    activePiece: nil,
+                    onAddSharedNote: {},
+                    onAddPieceNote: {},
+                    persona: persona)
+            }
+        }
+    }
+}
+
+/// **The census: no site forces the binder onto the manuscript on its own.**
+///
+/// Five sites force the binder home and the brief named three of them; the two
+/// that were missed are the toggles' own `.onChange`s, which no persona write
+/// could ever have reached because they are inside a view with no `persona`
+/// binding — and one of them (`findActive`) fires on the SAME writer action as
+/// `.maughamCloseFind`, so a fix applied to one and not the other is two routes
+/// out of one state disagreeing.
+///
+/// Both spellings are now unwritable in those files: a navigation goes through
+/// `ManuscriptNavigation`, which decides the persona too, and a transient exit
+/// goes to `Persona.binderHome(for:)`.
+@MainActor
+final class ManuscriptForceCensusTests: XCTestCase {
+
+    private var repoRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private func source(_ path: String) throws -> String {
+        try String(contentsOf: repoRoot.appendingPathComponent(path),
+                   encoding: .utf8)
+    }
+
+    /// The offender shapes, as regexes — asked of a planted string first, so a
+    /// census that can no longer match anything fails here rather than passing
+    /// silently everywhere.
+    private static let offenders: [(name: String, pattern: String, plant: String)] = [
+        ("a bare navigation to the document home",
+         #"binderSegment = \.documentHome\("#,
+         "        binderSegment = .documentHome(for: projectType)"),
+        ("a transient exit forced onto the document home",
+         #"segment = \.documentHome\("#,
+         "                segment = .documentHome(for: projectType)"),
+        ("a transient exit forced onto the manuscript segment",
+         #"segment = \.manuscript\b"#,
+         "                segment = .manuscript"),
+    ]
+
+    /// The control. A regex that matches nothing would make every assertion
+    /// below vacuous, which is how an unfalsifiable census ships.
+    func test_theCensusCanStillRecogniseAnOffender() throws {
+        for offender in Self.offenders {
+            XCTAssertNotNil(
+                offender.plant.range(of: offender.pattern, options: .regularExpression),
+                "\(offender.name): the pattern no longer matches its own "
+                + "planted offender, so every assertion using it is vacuous")
+        }
+    }
+
+    /// **The other half, and the one a census of offender spellings cannot
+    /// see.** Deleting the call outright leaves no wrong spelling behind — the
+    /// binder simply stops moving, and every decision test above still passes on
+    /// a `ManuscriptNavigation` nothing reaches. So each receiver is asked
+    /// whether it still routes through it.
+    ///
+    /// The receivers are named, not counted: a third one added later must be
+    /// added here, and that is the point of naming them.
+    func test_bothNavigationReceiversStillRouteThroughTheNavigation() throws {
+        let text = try source("Maugham/Views/ProjectWindow.swift")
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        for receiver in [".maughamNavigateToDocument", ".maughamNavigateToParagraph"] {
+            let start = try XCTUnwrap(
+                lines.firstIndex(where: { $0.contains("(\(receiver),") }),
+                "\(receiver): no receiver for it at all in ProjectWindow")
+            let body = lines[start..<min(start + 25, lines.count)].joined(separator: "\n")
+            XCTAssertTrue(body.contains("ManuscriptNavigation.go("),
+                          "\(receiver) no longer routes through "
+                          + "ManuscriptNavigation, so it moves the binder "
+                          + "without deciding the persona — or has stopped "
+                          + "moving it at all")
+        }
+    }
+
+    func test_noSiteForcesTheBinderOntoTheManuscriptOutsideTheNavigation() throws {
+        for path in ["Maugham/Views/ProjectWindow.swift",
+                     "Maugham/Views/BinderPaneToggle.swift",
+                     "Maugham/Views/CollectionBinderPaneToggle.swift"] {
+            let text = try source(path)
+            XCTAssertFalse(text.isEmpty, "\(path): read nothing")
+            for offender in Self.offenders {
+                let hits = text.split(separator: "\n").filter {
+                    // Comments explain the rule and must stay writable.
+                    !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+                        && $0.range(of: offender.pattern,
+                                    options: .regularExpression) != nil
+                }
+                XCTAssertTrue(hits.isEmpty,
+                              "\(path): \(offender.name) — \(hits). A navigation "
+                              + "goes through ManuscriptNavigation (which decides "
+                              + "the persona too) and a transient exit goes to "
+                              + "Persona.binderHome(for:).")
+            }
+        }
+    }
+}

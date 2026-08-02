@@ -82,14 +82,19 @@ struct CollectionBinderPaneToggle: View {
                 ExportsListView(projectURL: store.url)
             }
         }
+        // Leaving a transient segment returns the writer to this persona's home
+        // — see `BinderPaneToggle` for the whole reasoning, which is not
+        // restated here. `.manuscript` was the raw spelling of the same wrong
+        // answer: it is a Collection, so its document home is Pieces, and in
+        // Plan the writer landed in a piece editor.
         .onChange(of: store.trashEntries.count) { _, newValue in
             if newValue == 0 && segment == .trash {
-                segment = .manuscript
+                segment = persona.binderHome(for: .collection)
             }
         }
         .onChange(of: findActive) { _, newValue in
             if !newValue && segment == .find {
-                segment = .manuscript
+                segment = persona.binderHome(for: .collection)
             }
         }
     }

@@ -71,14 +71,31 @@ struct BinderPaneToggle: View {
                 ExportsListView(projectURL: store.url)
             }
         }
+        // **Leaving a transient segment returns the writer to THIS PERSONA's
+        // home, not to the manuscript's.**
+        //
+        // Both of these fire when a state the writer was passing through ends —
+        // the trash emptied under them, find closed — and neither names a
+        // document. `.documentHome(for:)` was the same value in Author, Review
+        // and Publish, whose binder home IS the document home, and in Plan it
+        // put a text editor in the centre column of the persona §2 says does not
+        // draft: `⌘⌥F`, escape, and the writer is writing the manuscript in
+        // Plan. That is Denver's 2026-08-02 ruling, arrived at from the other
+        // side — and the answer here is to stop forcing the manuscript rather
+        // than to follow it with a persona switch, because a writer who opened
+        // find and changed their mind navigated to nothing.
+        //
+        // `ProjectWindow`'s `.maughamCloseFind` handler carries the same rule:
+        // the ✕ button posts it AND clears the flag below, so the two routes out
+        // of find must agree.
         .onChange(of: store.trashEntries.count) { _, newValue in
             if newValue == 0 && segment == .trash {
-                segment = .documentHome(for: projectType)
+                segment = persona.binderHome(for: projectType)
             }
         }
         .onChange(of: findActive) { _, newValue in
             if !newValue && segment == .find {
-                segment = .documentHome(for: projectType)
+                segment = persona.binderHome(for: projectType)
             }
         }
     }

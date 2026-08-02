@@ -284,6 +284,7 @@ struct ProjectWindow: View {
             researchPreviewVisible: $researchPreviewVisible,
             showInspector: $showInspector,
             detailSegment: $detailSegment,
+            persona: $persona,
             mcpBanner: mcpBanner))
         .modifier(CheckpointModifier(
             documentStore: documentStore,
@@ -296,6 +297,9 @@ struct ProjectWindow: View {
             onSaveFlash: { showSaveFlash() }))
         .modifier(ParagraphNavModifier(window: window,
                                        binderSegment: $binderSegment,
+                                       persona: $persona,
+                                       detailSegment: $detailSegment,
+                                       documentStore: documentStore,
                                        projectType: store?.manifest.type ?? .novel))
         .modifier(FocusPostureModifier(
             window: window,
@@ -523,6 +527,12 @@ struct ProjectWindow: View {
         @Binding var researchPreviewVisible: Bool
         @Binding var showInspector: Bool
         @Binding var detailSegment: DetailSegment
+        /// Written by `.maughamNavigateToDocument` alone, through
+        /// `ManuscriptNavigation` — a navigation to a manuscript document moves
+        /// the writer to Author when the persona they are in would not show it
+        /// (Denver, 2026-08-02). Read by `.maughamCloseFind`, which returns the
+        /// binder to THIS persona's home rather than to the document's.
+        @Binding var persona: Persona
         let mcpBanner: MCPBannerModel
 
         func body(content: Content) -> some View {
@@ -544,11 +554,36 @@ struct ProjectWindow: View {
                 // Project-scoped (ADR 0021), NOT key-window: a wiki-link click
                 // OR a click in the separate stats-window scene must navigate
                 // this project's window even when it isn't key.
+                //
+                // **The persona write on this path is cross-window, and that is
+                // intended.** The scope is what makes the stats window work at
+                // all — it is key, this window is not, and this window is the
+                // one that must move. Taking it to the document while leaving
+                // its persona bar on Plan would be half a navigation: the
+                // window would draw a manuscript editor under a persona whose
+                // own column does not offer one, which is exactly the state
+                // Denver ruled out. Two windows open on ONE project both move,
+                // which is the breadth `selectedSubject` and `binderSegment`
+                // have always had here; `persona` is per-project state in
+                // `UIState` beside `personaMemory`, shared last-writer-wins by
+                // two windows by the same design.
                 .onProjectEvent(.maughamNavigateToDocument, url: url, window: window) { note in
                     if let id = note.userInfo?["id"] as? String, let store {
                         // Screenplays have no Manuscript segment — their
-                        // document home is the Scenes navigator.
-                        binderSegment = .documentHome(for: store.manifest.type)
+                        // document home is the Scenes navigator. That, and
+                        // whether this persona shows a document at all, are
+                        // both `ManuscriptNavigation`'s to answer.
+                        ManuscriptNavigation.go(
+                            to: ManuscriptNavigation.destination(
+                                from: persona,
+                                currentBinderSegment: binderSegment,
+                                currentDetailSegment: detailSegment,
+                                projectType: store.manifest.type,
+                                memory: documentStore?.uiState.personaMemory ?? .empty),
+                            persona: $persona,
+                            binderSegment: $binderSegment,
+                            detailSegment: $detailSegment,
+                            documentStore: documentStore)
                         selectedSubject = .item(id)
                     }
                 }
@@ -586,10 +621,51 @@ struct ProjectWindow: View {
                 .onKeyWindowCommand(.maughamFindInProject, window: window) { _ in
                     binderSegment = .find
                 }
+                // **Closing Find returns the writer to THIS persona's home, not
+                // to the manuscript's.** Identical in Author, Review and
+                // Publish, whose binder home IS the document home; in Plan it
+                // is the canvas.
+                //
+                // **It is deliberately not a `ManuscriptNavigation`.** Closing
+                // find names no document — it fires with no match ever clicked —
+                // so moving the writer to Author here would eject anyone who
+                // opened `⌘⌥F` in Plan and changed their mind. What it DID do
+                // was force `.manuscript` in Plan, which is the state Denver
+                // ruled out, so the fix is to stop forcing the manuscript
+                // rather than to follow it with a persona switch.
+                //
+                // `BinderPaneToggle` carries the same rule on
+                // `.onChange(of: findActive)` — this post and that flag are two
+                // routes out of one state and they must agree.
                 .onKeyWindowCommand(.maughamCloseFind, window: window) { _ in
                     findActive = false
-                    binderSegment = .documentHome(for: store?.manifest.type ?? .novel)
+                    binderSegment = persona.binderHome(
+                        for: store?.manifest.type ?? .novel)
                 }
+                // **A KNOWN GAP, recorded here so it stops being rediscovered.**
+                // Found during slice 2 task 6 and again during task 5; it
+                // predates the persona shell entirely.
+                //
+                // A RESEARCH match sets `selectedResearchId` and nothing else —
+                // and while the binder is on `.find` the centre column is
+                // `EditorHost` regardless (`existingEditorSwitch`'s
+                // `case .manuscript, .scenes, .find`), so clicking a research
+                // result shows the writer their manuscript. The selection only
+                // becomes visible if they switch to `.research` by hand.
+                //
+                // **Deliberately not fixed here.** Making it right means giving
+                // `.find` a centre column that follows the match's source, which
+                // is a redesign of find's routing rather than a line in this
+                // handler. And the obvious half-fix — landing on `.research`
+                // when find closes — would add a THIRD event route forcing
+                // `.research` in Author one commit after task 6 took research
+                // out of Author's registry on purpose (`Persona.swift`'s
+                // `.author` case names the other two).
+                //
+                // What task 5 DID remove is the way this compounded: closing
+                // find used to slam the binder onto the manuscript, so a writer
+                // in Plan who clicked a research result was left in a text
+                // editor. Closing find now returns to the persona's own home.
                 .onKeyWindowCommand(.maughamFindMatchSelected, window: window) { note in
                     guard let store,
                           let match = note.userInfo?["match"] as? SearchMatch else { return }
@@ -2260,6 +2336,14 @@ private struct ParagraphNavModifier: ViewModifier {
     /// scoped (ADR 0021), so only the key window acts.
     let window: NSWindow?
     @Binding var binderSegment: BinderSegment
+    /// Moved to Author by a navigation from a persona that would not show the
+    /// document — **and left alone in Review, which is the case this rule is
+    /// written around.** An annotation row and a history row both post this
+    /// notification; a reviewer taken to Author would lose the notes they were
+    /// adjudicating against. See `Persona.showsManuscriptDocuments(for:)`.
+    @Binding var persona: Persona
+    @Binding var detailSegment: DetailSegment
+    let documentStore: DocumentStore?
     /// Decides the binder's document home. A screenplay has NO Manuscript
     /// segment — Scenes is the slugline navigator inside the single
     /// `.fountain` — so naming `.manuscript` raw drops the writer into a
@@ -2276,7 +2360,17 @@ private struct ParagraphNavModifier: ViewModifier {
                 // v1: just ensure the manuscript pane is focused.
                 // Anchored scroll-to-paragraph is a follow-up.
                 _ = note.userInfo?["paragraph_id"] as? String
-                binderSegment = .documentHome(for: projectType)
+                ManuscriptNavigation.go(
+                    to: ManuscriptNavigation.destination(
+                        from: persona,
+                        currentBinderSegment: binderSegment,
+                        currentDetailSegment: detailSegment,
+                        projectType: projectType,
+                        memory: documentStore?.uiState.personaMemory ?? .empty),
+                    persona: $persona,
+                    binderSegment: $binderSegment,
+                    detailSegment: $detailSegment,
+                    documentStore: documentStore)
             }
             // `.maughamShowHelp` is `.allWindows` scoped, so every live-or-zombie
             // window receives it; `openWindow(id:)` for a singleton Window is
