@@ -839,8 +839,41 @@ struct ProjectWindow: View {
         }
     }
 
+    /// The left column, plus **the second producer of `lastParsedScript`**.
+    ///
+    /// `.maughamScriptDidUpdate` — the only other producer — comes from a mounted
+    /// `EditorCoordinator`, and Plan mounts none: on Plan's Structure tab a
+    /// screenplay's navigator was handed `nil` and told the writer their script
+    /// had no scenes (slice 2 review, F1). `ScreenplayScriptSource` derives it
+    /// from the op log instead, and its `needsDerivation` is what orders the two
+    /// producers — see that type for why this is a producer rather than a second
+    /// value (tripwire 6) and how it satisfies tripwires 4 and 20.
+    ///
+    /// **Keyed on the predicate, not on the segment.** The task re-runs when the
+    /// answer changes, which is exactly "a surface that lists sluglines just
+    /// appeared with nothing to list"; once a script exists the key is `false`
+    /// and stays there. The `nil` re-check inside is not redundant with the key
+    /// — the derive is a suspension point, and an editor that mounted and posted
+    /// across it must not be overwritten by the older op-log parse.
     @ViewBuilder
     private func binderColumn(store: ProjectStore) -> some View {
+        binderShell(store: store)
+            .task(id: ScreenplayScriptSource.needsDerivation(
+                binderSegment: binderSegment,
+                projectType: store.manifest.type,
+                existing: lastParsedScript)
+            ) {
+                guard ScreenplayScriptSource.needsDerivation(
+                    binderSegment: binderSegment,
+                    projectType: store.manifest.type,
+                    existing: lastParsedScript) else { return }
+                let derived = ScreenplayScriptSource.derive(store: store)
+                if lastParsedScript == nil { lastParsedScript = derived }
+            }
+    }
+
+    @ViewBuilder
+    private func binderShell(store: ProjectStore) -> some View {
         switch BinderShell.shell(for: store.manifest.type) {
         case .collection:
             CollectionBinderPaneToggle(
@@ -2334,8 +2367,9 @@ struct PersonaModifier: ViewModifier {
 }
 
 private struct ParagraphNavModifier: ViewModifier {
-    /// The owning project window. `.maughamNavigateToParagraph` is key-window
-    /// scoped (ADR 0021), so only the key window acts.
+    /// The owning project window. `.maughamNavigateToParagraph` and
+    /// `.maughamNavigateToScene` are both key-window scoped (ADR 0021), so only
+    /// the key window acts.
     let window: NSWindow?
     @Binding var binderSegment: BinderSegment
     /// Moved to Author by a navigation from a persona that would not show the
@@ -2362,6 +2396,39 @@ private struct ParagraphNavModifier: ViewModifier {
                 // v1: just ensure the manuscript pane is focused.
                 // Anchored scroll-to-paragraph is a follow-up.
                 _ = note.userInfo?["paragraph_id"] as? String
+                ManuscriptNavigation.go(
+                    to: ManuscriptNavigation.destination(
+                        from: persona,
+                        currentBinderSegment: binderSegment,
+                        currentDetailSegment: detailSegment,
+                        projectType: projectType,
+                        memory: documentStore?.uiState.personaMemory ?? .empty),
+                    persona: $persona,
+                    binderSegment: $binderSegment,
+                    detailSegment: $detailSegment,
+                    documentStore: documentStore)
+            }
+            // **The screenplay's own navigation, and the third to route here.**
+            //
+            // A slugline click posts this from `SceneNavigatorPane`'s `onSelect`
+            // (via `BinderPaneToggle`) and `EditorCoordinator` receives it to
+            // scroll. Slice 2 gave Plan's Structure tab that same navigator, and
+            // in Plan the coordinator does not exist — so the click set the
+            // subject and then nothing happened at all: no movement, no error,
+            // no greyed-out affordance (slice 2 review, F2). Denver's ruling
+            // covers it exactly as it covers the other two: *"if I'm moving to
+            // the manuscript I'm moving to Author."*
+            //
+            // **Two receivers, one poster, and they do different jobs**: this one
+            // moves the window to where the script can be read, the coordinator's
+            // scrolls to the slugline. Deliberately NOT a re-post once the editor
+            // mounts — see `SceneNavigatorPane.subject(_:whenNavigatingTo:)` for
+            // the already-recorded first-click edge and why a delayed re-post
+            // would be worse than a first click that under-delivers. From Plan
+            // that edge is now reachable one more way: the click that moves the
+            // window to Author lands in the script rather than on that slugline,
+            // and the next one scrolls.
+            .onKeyWindowCommand(.maughamNavigateToScene, window: window) { _ in
                 ManuscriptNavigation.go(
                     to: ManuscriptNavigation.destination(
                         from: persona,

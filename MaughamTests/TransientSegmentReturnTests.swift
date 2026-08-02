@@ -337,12 +337,18 @@ final class ManuscriptForceCensusTests: XCTestCase {
     /// a `ManuscriptNavigation` nothing reaches. So each receiver is asked
     /// whether it still routes through it.
     ///
-    /// The receivers are named, not counted: a third one added later must be
-    /// added here, and that is the point of naming them.
-    func test_bothNavigationReceiversStillRouteThroughTheNavigation() throws {
+    /// The receivers are named, not counted — and the third one, added by the
+    /// F2 fix, is why. `.maughamNavigateToScene` existed all along, posted by
+    /// `SceneNavigatorPane`'s `onSelect` and received only by
+    /// `EditorCoordinator`; slice 2 put that navigator on Plan's Structure tab,
+    /// where no coordinator exists, so a slugline click did nothing at all. The
+    /// prose next door said "three receivers" over a list of two, and that
+    /// undercount is precisely what stopped anyone asking about the third.
+    func test_everyNavigationReceiverStillRoutesThroughTheNavigation() throws {
         let text = try source("Maugham/Views/ProjectWindow.swift")
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        for receiver in [".maughamNavigateToDocument", ".maughamNavigateToParagraph"] {
+        for receiver in [".maughamNavigateToDocument", ".maughamNavigateToParagraph",
+                         ".maughamNavigateToScene"] {
             let start = try XCTUnwrap(
                 lines.firstIndex(where: { $0.contains("(\(receiver),") }),
                 "\(receiver): no receiver for it at all in ProjectWindow")

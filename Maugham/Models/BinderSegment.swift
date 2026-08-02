@@ -97,6 +97,28 @@ public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
         }
     }
 
+    /// **Does this segment's left pane list a screenplay's sluglines?**
+    ///
+    /// Two segments mount `SceneNavigatorPane`: `.scenes`, a screenplay's
+    /// document home, and `.tree`, Plan's structure segment, whose tree for a
+    /// screenplay is the same navigator (`treePane(for:)`). Both need a parsed
+    /// `FountainScript` to draw anything at all, which is why the question is
+    /// worth a name — `ScreenplayScriptSource` asks it to decide whether the
+    /// window has to derive that parse itself.
+    ///
+    /// **`.tree`'s answer is delegated to `treePane(for:)` rather than spelled
+    /// as `projectType == .screenplay`** — that inline re-derivation is the one
+    /// `BinderPaneToggle`'s `.tree` arm names as the 2026-07-02 bug, and a
+    /// second copy here would be a third place the same routing lives.
+    /// Exhaustive with no `default:` for `centresTheCanvas`'s reason.
+    func showsSceneNavigator(for projectType: ProjectType) -> Bool {
+        switch self {
+        case .scenes: return true
+        case .tree: return Self.treePane(for: projectType) == .sceneNavigator
+        case .manuscript, .research, .palette, .canvas, .trash, .find: return false
+        }
+    }
+
     /// **Does the manuscript status footer belong under this segment?**
     ///
     /// `EditorStatusFooter` reports the writer's goal capsule, their live

@@ -5,15 +5,27 @@ import MaughamCore
 /// something just navigated to.**
 ///
 /// Denver's ruling, 2026-08-02: *"if I'm moving to the manuscript I'm moving to
-/// Author — I shouldn't be writing the manuscript in plan."* Three routes force
-/// the binder onto the document home and can fire from a persona whose column
-/// does not offer it — a `[[wiki-link]]` clicked in the Intent pane, the
-/// Inspector's Links row, a Tasks row, and the separate Project Statistics
-/// window scene. Before this, all of them left a text editor in the middle of
-/// Plan.
+/// Author — I shouldn't be writing the manuscript in plan."* Every route that
+/// names a manuscript document and forces the binder onto its home can fire from
+/// a persona whose column does not offer one, and before this they all left a
+/// text editor in the middle of Plan.
 ///
-/// **A value plus one applier, rather than four handlers each doing it their
-/// own way.** The three receivers live in three different `ViewModifier`s
+/// **Which routes those are is a census, not a number.** A count in prose is
+/// wrong the day a route is added and nothing goes red — this comment said
+/// "three" over four named things while a fourth notification existed and was
+/// not routed here at all, and that undercount is what hid the slugline click
+/// (slice 2 review, F2/F4). The list lives in
+/// `ManuscriptForceCensusTests` and
+/// `TransientSegmentReturnTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`,
+/// which enumerates the notifications by name; the notifications themselves are
+/// `.maughamNavigateToDocument` (a `[[wiki-link]]` in the editor, the Inspector's
+/// Links row, the separate Project Statistics window scene),
+/// `.maughamNavigateToParagraph` (an annotation row, a history row, a task row)
+/// and `.maughamNavigateToScene` (a slugline in the Scenes navigator or on
+/// Plan's Structure tab).
+///
+/// **A value plus one applier, rather than a handler per poster doing it its own
+/// way.** The receivers live in `ProjectWindow`'s `ViewModifier`s
 /// (`ProjectWindow.body` is at the type-checker ceiling, so window behaviour is
 /// split across modifiers), and a rule spelled once per receiver is a rule that
 /// comes to differ — which is the whole of `BinderSegment.centresTheCanvas`'s

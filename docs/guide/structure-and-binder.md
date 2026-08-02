@@ -23,6 +23,8 @@ You can do all of that from **Plan** as well. Plan's **Structure** tab shows the
 
 **A screenplay is the exception, deliberately.** A screenplay is one file, so there is nothing to add to its tree: its structure is its sluglines, and you type those in the script itself. Its tree offers no New Document and no New Scene, in Plan or anywhere else — select **Script** (or ⌘2 for Author) and write the scene heading.
 
+Plan's Structure tab lists a screenplay's sluglines just as the Scenes segment does, and it does it from the moment you open the window — you don't have to visit Author first to make them appear. Selecting the project row or the **Script** row keeps you in Plan. Clicking a **slugline** does not: a slugline is a jump into the script itself, so it takes you to **Author**, where the script is on screen. As above, that first click lands you in the screenplay rather than on that scene, because the editor is arriving at the same moment — click the slugline again and it jumps.
+
 Drag items to reorder. Move chapters between groups; folders physically move on disk. Filenames keep an `NN-` prefix so the on-disk order matches the binder order.
 
 If gaps appear in numbering after deletes, **Tidy Filenames** (right-click a group, or File → Tidy All Filenames) renumbers cleanly.

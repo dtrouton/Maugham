@@ -88,9 +88,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     /// project row has to survive both.
     func test_aScreenplayWithScenesCanStillNameItsProject() async throws {
         let store = try await project(of: .screenplay)
-        let script = FountainTokenizer().parse(
-            "INT. KITCHEN - DAY\n\nLarry sits.\n\nEXT. ROOF - NIGHT\n\nHe climbs.\n")
-        XCTAssertEqual(script.sceneSummaries().count, 2, "fixture precondition")
+        let script = try await productionScript(for: store, text: Self.twoScenes)
+        XCTAssertEqual(script?.sceneSummaries().count, 2, "fixture precondition")
 
         let (window, probe) = try await host(store: store, script: script)
         let table = try XCTUnwrap(firstTableView(in: window))
@@ -146,9 +145,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     /// touches one).
     func test_aScreenplaysTreeIsItsSceneNavigatorAndNotAOneRowBinder() async throws {
         let store = try await project(of: .screenplay)
-        let script = FountainTokenizer().parse(
-            "INT. KITCHEN - DAY\n\nLarry sits.\n\nEXT. ROOF - NIGHT\n\nHe climbs.\n")
-        XCTAssertEqual(script.sceneSummaries().count, 2, "fixture precondition")
+        let script = try await productionScript(for: store, text: Self.twoScenes)
+        XCTAssertEqual(script?.sceneSummaries().count, 2, "fixture precondition")
 
         let (window, probe) = try await host(store: store, script: script,
                                              segment: .tree, persona: .plan)
@@ -161,6 +159,68 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 
         await select(row: 0, in: table)
         XCTAssertEqual(probe.subject, .project)
+    }
+
+    /// **The planted offender for the fixture above, and the shape of the
+    /// defect it used to hide.**
+    ///
+    /// `nil` is what Plan's tree actually received before this fix — the value
+    /// `ProjectWindow` held whenever no editor had ever mounted in the window —
+    /// and it is what the pane will receive again if `ScreenplayScriptSource`
+    /// ever stops producing one. Two rows and `SceneNavigatorPane`'s "No scenes
+    /// yet" overlay, on a screenplay with two scenes.
+    ///
+    /// If this test ever goes GREEN at four rows, the fixture above has stopped
+    /// discriminating and both are worthless.
+    func test_plantedOffender_withNoScriptPlansTreeSaysAScreenplayHasNoScenes() async throws {
+        let store = try await project(of: .screenplay)
+        let script = try await productionScript(for: store, text: Self.twoScenes)
+        XCTAssertEqual(script?.sceneSummaries().count, 2, "fixture precondition")
+
+        let (window, _) = try await host(store: store, script: nil,
+                                         segment: .tree, persona: .plan)
+        let table = try XCTUnwrap(firstTableView(in: window))
+
+        XCTAssertEqual(table.numberOfRows, 2,
+                       "the plant must fire: with no parsed script the navigator "
+                       + "draws the project row and Script and nothing else. If "
+                       + "this is 4, the test above is passing on something other "
+                       + "than the script it was handed")
+    }
+
+    /// **The defect itself, at the seam that produces the value** — the half no
+    /// mounted fixture can reach, because `lastParsedScript` is `@State` inside
+    /// `ProjectWindow` and a test cannot ask a window for it.
+    ///
+    /// The chain was: `lastParsedScript` ← `.maughamScriptDidUpdate` ←
+    /// `EditorCoordinator` ← `EditorHost` ← `existingEditorSwitch`, and slice 2's
+    /// canvas hoist short-circuits above that switch on every segment that
+    /// centres the canvas — which now includes `.tree`. So in Plan the window
+    /// could never produce a parse at all, and the fixture above was green only
+    /// because it injected one.
+    ///
+    /// Asked of a project that has **never had an editor mounted in it**: the
+    /// store is loaded from disk, no `DocumentStore` is attached, and the only
+    /// thing that has ever touched the script is the op log.
+    func test_planCanParseAScreenplayWithNoEditorEverMounted() async throws {
+        let store = try await project(of: .screenplay)
+        _ = try await productionScript(for: store, text: Self.twoScenes)
+        XCTAssertNil(store.documentStore,
+                     "precondition: nothing has opened a document in this "
+                     + "project, which is Plan on a freshly opened window")
+
+        XCTAssertTrue(
+            ScreenplayScriptSource.needsDerivation(
+                binderSegment: .tree, projectType: .screenplay, existing: nil),
+            "Plan's tree with no parse yet is exactly the state that has to "
+            + "derive one")
+        let derived = try XCTUnwrap(
+            ScreenplayScriptSource.derive(store: store),
+            "the window has no way to show a screenplay's scenes in Plan")
+        XCTAssertEqual(
+            derived.sceneSummaries().map(\.line.content),
+            ["INT. KITCHEN - DAY", "EXT. ROOF - NIGHT"],
+            "Plan's Structure tab must list the script's real sluglines")
     }
 
     /// A Collection's tree at `.tree` is its Pieces pane — asserted by the pane
@@ -180,7 +240,105 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         XCTAssertEqual(probe.subject, .project)
     }
 
+    // MARK: - Clicking a slugline in Plan (slice 2 review, F2)
+
+    /// **A slugline click on Plan's Structure tab really does post the
+    /// screenplay's navigation** — driven with a synthesised mouse event through
+    /// the real `BinderPaneToggle`, because the click is a `Button` inside a
+    /// `List(.sidebar)` and whether it survives being embedded in Plan's tree is
+    /// not something a test built from the view's own data can see.
+    ///
+    /// This is the half of F2 nobody had looked at. The other half — that the
+    /// window then MOVES rather than swallowing the post — is the receiver, and
+    /// it is pinned two ways: `ManuscriptNavigation.destination`'s own decision
+    /// tests, and `ManuscriptForceCensusTests`'
+    /// `test_everyNavigationReceiverStillRoutesThroughTheNavigation`, which now
+    /// names this notification alongside its two siblings. The `.keyWindow`
+    /// delivery filter itself is not exercisable headless (the OS does not grant
+    /// key status), which is the same limit its two siblings sit behind — see
+    /// `MaughamEventLivenessTests`.
+    func test_aSluglineOnPlansTreePostsTheScreenplaysNavigation() async throws {
+        let store = try await project(of: .screenplay)
+        let script = try await productionScript(for: store, text: Self.twoScenes)
+        let (window, _) = try await host(store: store, script: script,
+                                         segment: .tree, persona: .plan)
+        let table = try XCTUnwrap(firstTableView(in: window))
+        XCTAssertEqual(table.numberOfRows, 4, "precondition: project + script + 2")
+
+        var posted: [Int] = []
+        let observer = NotificationCenter.default.addObserver(  // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamNavigateToScene, object: nil, queue: nil
+        ) { note in
+            if let location = note.userInfo?["lineLocation"] as? Int {
+                posted.append(location)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        // Row 2 — the first slugline, one below the script row.
+        await click(row: 2, in: table, window: window)
+
+        XCTAssertEqual(posted.count, 1,
+                       "the click on Plan's Structure tab must reach the "
+                       + "navigation. Before the F2 fix it did reach it and "
+                       + "nothing was listening; if it stops being posted the "
+                       + "receiver is unreachable in the other direction")
+        XCTAssertEqual(posted.first, 0,
+                       "and it must carry the slugline's own line location — "
+                       + "the first scene starts at 0")
+    }
+
+    /// **Where that click takes the window**, as a value. Plan does not show
+    /// manuscript documents, so the ruling applies and the writer moves to
+    /// Author — landing on `.scenes`, a screenplay's document home, never on
+    /// `.manuscript`, which no persona offers a screenplay at all.
+    func test_thatNavigationTakesAScreenplayWriterFromPlanToAuthorsScenes() {
+        let destination = ManuscriptNavigation.destination(
+            from: .plan, currentBinderSegment: .tree,
+            currentDetailSegment: .inspector, projectType: .screenplay,
+            memory: .empty)
+        XCTAssertEqual(destination.persona, .author)
+        XCTAssertEqual(destination.binderSegment, .scenes)
+        XCTAssertTrue(destination.movesPersona,
+                      "the departing Plan position has to be recorded, or ⌘1 "
+                      + "does not come back to the Structure tab")
+    }
+
     // MARK: - Fixtures
+
+    static let twoScenes =
+        "INT. KITCHEN - DAY\n\nLarry sits.\n\nEXT. ROOF - NIGHT\n\nHe climbs.\n"
+
+    /// Puts `text` into the screenplay's one document **through the op log** —
+    /// the only way anything reaches a manuscript (ADR 0018) — and then returns
+    /// the script **the way `ProjectWindow` gets it**, through
+    /// `ScreenplayScriptSource`.
+    ///
+    /// **Why the round trip instead of one `FountainTokenizer().parse(…)`.**
+    /// This file used to hand `BinderPaneToggle` a parse of a string that had
+    /// never been near the project. That is a value production could not
+    /// produce on Plan's tree — `lastParsedScript` came only from a mounted
+    /// editor and Plan mounts none — so the assertion below passed over a pane
+    /// drawing "No scenes yet" on a script with scenes (slice 2 review, F1). A
+    /// fixture that injects what production cannot produce cannot fail when
+    /// production stops producing it; deriving it here means the fixture is
+    /// exactly as good as the seam is.
+    private func productionScript(for store: ProjectStore,
+                                  text: String) async throws -> FountainScript? {
+        let item = try XCTUnwrap(
+            TreeWalk.first(in: store.manifest.structure,
+                           where: { $0.type == .document }),
+            "a screenplay has exactly one document (the Phase 3d invariant)")
+        let url = store.url.appendingPathComponent(try XCTUnwrap(item.path))
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        // `Document.load` bootstraps a doc with no op log from its file, which
+        // is the sanctioned import read — after this the ops are the truth and
+        // the `.fountain` is derived output.
+        let doc = try await Document.load(
+            url: url, device: "test", session: "s", presenter: nil)
+        await doc.close()
+        return ScreenplayScriptSource.derive(store: store)
+    }
 
     private func project(of type: ProjectType) async throws -> ProjectStore {
         let name = "\(type.rawValue)-\(UUID().uuidString.prefix(6))"
@@ -228,6 +386,27 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         windows.append(window)
         await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
         return (window, probe)
+    }
+
+    /// A real click, synthesised through the window — the delivery path a
+    /// slugline `Button` actually takes. `selectRowIndexes` cannot stand in:
+    /// scene rows carry no `.tag`, so the selection path and the Button path are
+    /// two different things (`SceneNavigatorProjectRowTests` measures why).
+    private func click(row: Int, in table: NSTableView, window: NSWindow) async {
+        let rect = table.rect(ofRow: row)
+        let inWindow = table.convert(CGPoint(x: rect.midX, y: rect.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            if let event = NSEvent.mouseEvent(
+                with: type, location: inWindow, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1,
+                pressure: type == .leftMouseDown ? 1 : 0) {
+                window.sendEvent(event)
+            }
+            pump(0.05)
+        }
+        await waitOut(0.4)
     }
 
     private func select(row: Int, in table: NSTableView) async {
