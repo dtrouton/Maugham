@@ -427,6 +427,21 @@ bind. Depends on slice 2.
 >
 > **Not a blocker for slice 1.** The placeholder is pre-existing behaviour; the
 > project row only made it reachable more often.
+>
+> **A screenplay is the case that will judge the answer** (Denver, 2026-08-02,
+> on the shipped fix): *"we will need to come back to script and project being
+> two lines for screenplay — it's weird right now, but if we bring in outline at
+> project in the centre this might be much better."*
+>
+> Two header rows in a pane whose whole content is one document reads as
+> redundant, and it is **the centre that makes it redundant**: selecting either
+> row currently produces a blank or the script, so the pair looks like two names
+> for one thing. Give the project subject a centre of its own and they stop
+> being two names — one shows you the shape of the project, the other opens the
+> script. So the two-row shape is **provisional and deliberately not re-cut
+> now**: it is the honest fix for a trap (a screenplay had no way back off the
+> project row), and re-cutting it before the centre is decided would be
+> designing the header against a placeholder.
 
 **Slice 4 — the Inspector dissolves** (§5.1). Each section to its persona, and
 the Publishing section becomes Publish's own pane. **Do not start this before
