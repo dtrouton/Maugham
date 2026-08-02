@@ -22,7 +22,7 @@ struct PartialRestorePicker: View {
     let onComplete: () -> Void
     let onCancel: () -> Void
 
-    @State private var scope: ScopeChoice
+    @State private var scope: ScopeChoice?
     @State private var isRestoring: Bool = false
 
     /// What `_scope` **actually holds** before the sheet is installed on a
@@ -33,15 +33,16 @@ struct PartialRestorePicker: View {
     /// this was a copy of `initialScope`'s answer, so planting a raw
     /// `.document(checkpoint.activeDoc)` seed on the line below left it green.
     /// A test of a value beside the one that ships is no test at all.
-    var seededScope: ScopeChoice { _scope.wrappedValue }
+    var seededScope: ScopeChoice? { _scope.wrappedValue }
 
     enum ScopeChoice: Hashable {
         case wholeProject
         case document(String)
     }
 
-    /// The scope the picker opens on, for a checkpoint whose recorded
-    /// `activeDoc` **is not trusted to name a document**.
+    /// The scope the picker opens on, or **`nil` when the checkpoint gives no
+    /// grounds to prefer one** — for a checkpoint whose recorded `activeDoc` is
+    /// not trusted to name a document.
     ///
     /// The write side stopped recording non-documents
     /// (`CheckpointCapture.documentSubject(of:in:)`), but `checkpoints.jsonl` is
@@ -54,11 +55,30 @@ struct PartialRestorePicker: View {
     /// compare would not**: a document recorded honestly and since deleted. It
     /// is the same question the write side asks, asked of a value that arrived
     /// from disk instead of from the binder.
+    ///
+    /// **Why `nil` rather than `.wholeProject`** (Denver's ruling, 2026-08-02).
+    /// A checkpoint that names no document has not lost the ability to restore
+    /// one — `performRestore` reads `checkpoint.docPointers[docId]`, and a
+    /// checkpoint carries pointers for **every** document, so either scope is
+    /// available. What it has lost is only the *hint*. Defaulting to
+    /// `.wholeProject` would arm `Revert`'s `.defaultAction` on rows already on
+    /// disk: before this, that same Return was a silent no-op (the seeded tag
+    /// matched no row, and `Restore.buildRestoreOp` returns nil for an empty
+    /// diff), so one keystroke would have gone from doing nothing to reverting
+    /// every document — with no undo registered on this path. The sheet now
+    /// says what is true: both are possible, neither is indicated.
     static func initialScope(for checkpoint: Checkpoint,
-                            allDocIds: [String]) -> ScopeChoice {
+                            allDocIds: [String]) -> ScopeChoice? {
+        // The degenerate case is the one place a preselection is still honest:
+        // with no documents to offer, the whole project is the ONLY restore
+        // available, so showing it selected is showing what is possible rather
+        // than guessing. (Functionally a no-op — `performRestore` would iterate
+        // an empty list — but the sheet should not open with a disabled button
+        // and a single unchosen row.)
+        guard !allDocIds.isEmpty else { return .wholeProject }
         guard let docId = CheckpointCapture.documentSubject(
             of: checkpoint.activeDoc, in: allDocIds)
-        else { return .wholeProject }
+        else { return nil }
         return .document(docId)
     }
 
@@ -102,6 +122,10 @@ struct PartialRestorePicker: View {
     // MARK: - Restore logic
 
     private func performRestore() async {
+        // No scope chosen means the checkpoint named no document and the writer
+        // has not picked one; `Revert` is disabled in that state, so this is a
+        // belt-and-braces refusal rather than a reachable path.
+        guard let scope else { return }
         isRestoring = true
         let opStore = OpLogStore(projectURL: projectURL)
         let docs: [String]
@@ -186,7 +210,7 @@ struct PartialRestorePicker: View {
 private struct RestorePickerContent: View {
     let checkpoint: Checkpoint
     let allDocIds: [String]
-    @Binding var scope: PartialRestorePicker.ScopeChoice
+    @Binding var scope: PartialRestorePicker.ScopeChoice?
     let isRestoring: Bool
     let onCancel: () -> Void
     let onRevert: () -> Void
@@ -195,11 +219,15 @@ private struct RestorePickerContent: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Revert to \u{201C}\(checkpoint.label)\u{201D}")
                 .font(.headline)
+            // Tags are OPTIONAL to match the selection's type — a non-optional
+            // tag against a `Binding<ScopeChoice?>` matches nothing, and the
+            // radio group would render with no row ever selectable.
             Picker("Scope", selection: $scope) {
-                Text("Whole project").tag(PartialRestorePicker.ScopeChoice.wholeProject)
+                Text("Whole project")
+                    .tag(PartialRestorePicker.ScopeChoice?.some(.wholeProject))
                 ForEach(allDocIds, id: \.self) { docId in
                     Text("Document: \(docId)")
-                        .tag(PartialRestorePicker.ScopeChoice.document(docId))
+                        .tag(PartialRestorePicker.ScopeChoice?.some(.document(docId)))
                 }
             }
             .pickerStyle(.radioGroup)
@@ -207,9 +235,12 @@ private struct RestorePickerContent: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { onCancel() }
                     .disabled(isRestoring)
+                // Disabled until a scope is chosen. `.defaultAction` means
+                // Return fires this button, and for a checkpoint that names no
+                // document there is nothing the writer has asked for yet.
                 Button("Revert") { onRevert() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(isRestoring)
+                    .disabled(isRestoring || scope == nil)
             }
         }
         .padding(20)

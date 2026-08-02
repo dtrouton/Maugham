@@ -50,41 +50,41 @@ final class PartialRestoreScopeTests: XCTestCase {
 
     // MARK: - The refusals
 
-    func test_noRecordedDocumentOpensOnTheWholeProject() {
-        XCTAssertEqual(
+    func test_noRecordedDocumentPreselectsNothing() {
+        XCTAssertNil(
             PartialRestorePicker.initialScope(
                 for: checkpoint(activeDoc: nil), allDocIds: census),
-            .wholeProject)
+            "the checkpoint indicates no scope, so the sheet must not choose "
+            + "one on the writer's behalf")
     }
 
     /// The legacy value the binder's project row would have made routine.
-    func test_aLegacySentinelOpensOnTheWholeProject() {
-        XCTAssertEqual(
+    func test_aLegacySentinelPreselectsNothing() {
+        XCTAssertNil(
             PartialRestorePicker.initialScope(
                 for: checkpoint(activeDoc: BinderSubject.noDocumentSubject),
                 allDocIds: census),
-            .wholeProject,
             "an old checkpoint still holds the sentinel — tripwire 11 says "
             + "handle it on read, not with a migration")
     }
 
     /// The legacy value that has always been reachable: select a Part, ⌘S.
-    func test_aLegacyGroupIdOpensOnTheWholeProject() {
-        XCTAssertEqual(
+    func test_aLegacyGroupIdPreselectsNothing() {
+        XCTAssertNil(
             PartialRestorePicker.initialScope(
                 for: checkpoint(activeDoc: "grp-1"), allDocIds: census),
-            .wholeProject)
+            "select a Part, press ⌘S — the reproduction the binder has always "
+            + "been able to produce")
     }
 
     /// **The case the sentinel never covered**, and the reason the fallback is
     /// a census membership test rather than a nil-check plus a sentinel
     /// compare: this checkpoint recorded a real document honestly and the
     /// writer has since deleted it.
-    func test_aDeletedDocumentOpensOnTheWholeProject() {
-        XCTAssertEqual(
+    func test_aDeletedDocumentPreselectsNothing() {
+        XCTAssertNil(
             PartialRestorePicker.initialScope(
                 for: checkpoint(activeDoc: "doc-gone"), allDocIds: census),
-            .wholeProject,
             "a nil-check alone would still seed a scope naming a document the "
             + "picker does not offer")
     }
@@ -121,7 +121,7 @@ final class PartialRestoreScopeTests: XCTestCase {
             onComplete: {}, onCancel: {})
 
         XCTAssertEqual(
-            picker.seededScope, .wholeProject,
+            picker.seededScope, nil,
             "the sheet's own initializer must go through the fallback — a "
             + "correct helper beside a raw seed is the defect, not the fix")
     }
