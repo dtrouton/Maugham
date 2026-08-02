@@ -22,11 +22,21 @@ public enum BinderSubject: Hashable, Sendable {
     /// The project itself — the subject `StatementPane`'s `[chapter | Project]`
     /// switch existed to reach because the tree could not say it.
     ///
-    /// **Both halves of that sentence are now history.** The binder's head row
-    /// and `CollectionPiecesPane`'s construct this case (slice 1, tasks 2 and
-    /// 2b), and the pane's switch was deleted once they did (task 7) — a second
-    /// subject-picker beside the tree is two controls that can disagree about
-    /// what the window is about.
+    /// **Both halves of that sentence are now history.** A head row at the top
+    /// of the tree constructs this case, and the pane's switch was deleted once
+    /// it did (slice 1, task 7) — a second subject-picker beside the tree is two
+    /// controls that can disagree about what the window is about.
+    ///
+    /// **"The tree" is one control per project type, and every one of them needs
+    /// the row.** A sentence here naming two of them stood for the length of a
+    /// slice while a screenplay had none — its manuscript home is the Scenes
+    /// navigator, and with the pane's switch gone that made this case
+    /// unconstructible in a whole project type, with a legacy craft-intent note
+    /// adopted into exactly this scope and nothing left to show it. So the count
+    /// is not written down here: `ProjectSubjectReachabilityTests` mounts the
+    /// surface production mounts for each `ProjectType` and drives a real
+    /// selection through it, which is the form of the claim that cannot go
+    /// quietly stale.
     case project
 
     /// A node of `manifest.structure` — a manuscript document *or* a group.
@@ -55,9 +65,20 @@ public enum BinderSubject: Hashable, Sendable {
     /// translation arm all want a non-optional id and test it against this.
     ///
     /// **The one literal.** It was previously written out at six production
-    /// sites; `HistoryPane`, `TasksPane`, `StatementPane` and `DetailPaneToggle`
-    /// now all name this constant instead, so there is one string to change and
-    /// one place to look for what it means.
+    /// sites; every one of them names this constant instead, so there is one
+    /// string to change and one place to look for what it means.
+    ///
+    /// **Who reads it is deliberately not listed here.** The sentence that stood
+    /// in this place named four panes and was wrong in the commit that wrote it —
+    /// a fifth reader (`ProjectWindow`'s `TranslationReviewModifier`) arrived in
+    /// the same slice, and no test guards a list in prose
+    /// (`memory/feedback_prose_counts_are_unmaintainable.md`). What is guarded is
+    /// the property that actually matters, and by a scan rather than a sentence:
+    /// `BinderSubjectTests.test_theSentinelLiteralIsWrittenInExactlyOnePlace`
+    /// fails the moment a site spells `"__no-selection__"` instead of naming this
+    /// constant, and has a planted-offender companion so it cannot pass
+    /// vacuously. For the readers themselves, ask the compiler — they are the
+    /// references to this symbol.
     public static let noDocumentSubject = "__no-selection__"
 
     /// The bare document id for a subject, for the consumers that legitimately

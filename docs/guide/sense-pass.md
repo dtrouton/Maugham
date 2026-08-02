@@ -11,7 +11,9 @@ story is not "missing" sensory detail.
    piece needs. Open the **Intent** pane (⌘⌥N) and type; there is nothing to
    create first. The pane follows what you have selected in the binder, so the
    project has one and any document can have its own — select the project row
-   at the top of the binder for the book's, a chapter for that chapter's.
+   at the top of the binder for the book's, a chapter for that chapter's. That
+   row is at the top of whichever list your project type shows there: chapters
+   in a novel, Pieces in a Collection, Scenes in a screenplay.
    The Inspector's **Open Intent** button goes to the same place. Not having
    one is a valid choice; it means you've decided this piece doesn't need the
    apparatus.

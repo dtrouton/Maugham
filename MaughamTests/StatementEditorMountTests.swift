@@ -738,6 +738,19 @@ final class StatementEditorMountTests: XCTestCase {
         // now exists and starts a load of its own, which queues behind us.
         await fixture.selectDocument(docId)
         await fixture.selectDocument(nil)
+        // **Wait for the third opener to actually REACH the gate**, rather than
+        // trusting `selectDocument`'s fixed settle window to have been long
+        // enough. All three — the mint, this test's wedge and the returning
+        // pane's load — have to be parked before the release, or the
+        // interleaving this test is about never happens and it fails on its own
+        // precondition. Measured 2026-08-02: in a 4,089-test run the pane's load
+        // had not reached `lockStatementOpen` within the 0.3s window, and the
+        // test went red without anything it guards having changed. A poll on the
+        // queue itself is the deterministic form of the same wait; when the
+        // window was already enough it returns at once.
+        await fixture.pumpUntil(deadline: 5) {
+            (fixture.store.statementOpenWaiters[projectIntent.id]?.count ?? 0) >= 3
+        }
 
         // Released: the mint takes the path, binds and registers; we take it
         // next; the returning pane's load is still queued.

@@ -94,17 +94,8 @@ struct BinderView: View {
     /// view, so right-clicking here offers New Document / New Group exactly as
     /// right-clicking empty space always has. A menu on the row would shadow it.
     private var projectRow: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "books.vertical")
-                .imageScale(.small)
-                .foregroundStyle(.secondary)
-            Text(store.manifest.title)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer()
-        }
-        .contentShape(Rectangle())
-        .tag(BinderSubject.project)
+        ProjectRowLabel(title: store.manifest.title)
+            .tag(BinderSubject.project)
     }
 
     private func outline(items: [StructureItem]) -> some View {

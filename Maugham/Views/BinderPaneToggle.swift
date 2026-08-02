@@ -40,6 +40,17 @@ struct BinderPaneToggle: View {
                 case .scenes:
                     SceneNavigatorPane(
                         script: lastParsedScript,
+                        projectTitle: store.manifest.title,
+                        selectedSubject: $selectedSubject,
+                        // A screenplay is one `.fountain` (the Phase 3d
+                        // invariant), so the document its sluglines live in is
+                        // the project's one document. Derived here, once per
+                        // render of the pane rather than once per row (tripwire
+                        // 4), and used only when the subject is the project —
+                        // a subject that already names an item is left alone.
+                        documentID: TreeWalk.first(
+                            in: store.manifest.structure,
+                            where: { $0.type == .document })?.id,
                         onSelect: { lineLocation in
                             MaughamEvent.post(
                                 .maughamNavigateToScene, to: .keyWindow,

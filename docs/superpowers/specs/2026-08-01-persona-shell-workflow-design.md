@@ -156,6 +156,25 @@ the tree. With a project row, the tree is the single subject-picker for the
 window, every project-scoped surface asks the same control the same question, and
 the pane-local switch is removed.
 
+**Amendment, 2026-08-02 (slice 1 whole-branch review, Critical).** *"The tree"*
+is three views, not one, and the slice shipped the row in two of them. A project
+type's manuscript home is `BinderSegment.documentHome(for:)`: `BinderView` for a
+novel or short story, `CollectionPiecesPane` for a Collection, and — because no
+persona offers a screenplay the `.manuscript` segment — `SceneNavigatorPane` for
+a screenplay. With the pane-local switch removed in the same slice, the missing
+third row made project-scope Intent **unreachable** in a screenplay, and the
+adoption path (`legacyCraftIntentByScope`, gated on schema version and never on
+project type) can put a writer's own pre-M1A prose in exactly that scope. The
+navigator is the odd one of the three: a screenplay is one file, so its rows are
+navigation rather than subjects, and the row is the only selectable thing in the
+list — see `SceneNavigatorPane` for how a click on a slugline is kept from
+writing `nil` through the selection. `ProjectSubjectReachabilityTests` is the
+census that asks the question of every project type rather than of a view.
+
+*Left open by ruling, not by omission:* whether a one-file screenplay should have
+a document intent AND a project intent at all is a design question, and this
+amendment does not answer it. `StatementPane.effectiveScope` is untouched.
+
 ---
 
 ## 4. What the canvas does when the tree selection changes

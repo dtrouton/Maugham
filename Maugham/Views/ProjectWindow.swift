@@ -721,9 +721,12 @@ struct ProjectWindow: View {
 
     // MARK: - Helpers
 
-    private static func defaultSegment(for type: ProjectType) -> BinderSegment {
-        type == .screenplay ? .scenes : .manuscript
-    }
+    // `defaultSegment(for:)` lived here and was deleted 2026-08-02: zero
+    // callers, and its body was a second spelling of
+    // `BinderSegment.documentHome(for:)` — the rule `Persona.swift` warns
+    // against re-deriving inline, because doing so shipped the 2026-07-02
+    // screenplay navigate bug. A dead copy of a load-bearing rule is a copy
+    // waiting to be called.
 
     private var currentSyntaxHelpMode: SyntaxHelpMode {
         guard let store else { return .prose }
@@ -732,9 +735,38 @@ struct ProjectWindow: View {
 
     // MARK: - Column builders
 
+    /// Which binder shell the left column mounts.
+    ///
+    /// **One rule, named, because it decides which surfaces a project type has
+    /// at all.** It was an inline `type == .collection` here; the census that
+    /// asks *"can the writer name the project in every project type?"*
+    /// (`ProjectSubjectReachabilityTests`) has to reach the same surface
+    /// production reaches, and a copy of the check in the test is a copy that can
+    /// drift away from the thing it is meant to be auditing. A third shell is a
+    /// third case, and the census's `switch` stops compiling until it is
+    /// enumerated there too.
+    ///
+    /// The shell is only half the address: which pane *inside* it a writer lands
+    /// on is `BinderSegment.documentHome(for:)`, and that is where a screenplay
+    /// diverges — its manuscript home is the Scenes navigator, not `BinderView`.
+    enum BinderShell {
+        /// `BinderPaneToggle` — every non-collection type. Its manuscript
+        /// segment is `BinderView`; a screenplay lands on `SceneNavigatorPane`
+        /// instead.
+        case standard
+        /// `CollectionBinderPaneToggle` — pieces are flat and have their own
+        /// pane, `CollectionPiecesPane`.
+        case collection
+
+        static func shell(for type: ProjectType) -> BinderShell {
+            type == .collection ? .collection : .standard
+        }
+    }
+
     @ViewBuilder
     private func binderColumn(store: ProjectStore) -> some View {
-        if store.manifest.type == .collection {
+        switch BinderShell.shell(for: store.manifest.type) {
+        case .collection:
             CollectionBinderPaneToggle(
                 store: store,
                 segment: $binderSegment,
@@ -748,7 +780,7 @@ struct ProjectWindow: View {
                 onAddPieceNote: { Task { try? await addPieceNoteAction(store: store) } },
                 persona: persona
             )
-        } else {
+        case .standard:
             BinderPaneToggle(
                 store: store,
                 segment: $binderSegment,

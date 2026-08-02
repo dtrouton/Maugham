@@ -8,6 +8,8 @@ The row at the top of the binder is the project itself. Select it the way you se
 
 A **Collection** has the same row at the top of its Pieces list, and there it matters from the first moment: a new Collection starts with no pieces at all, and the project row is what you select to write the collection's own intent before there is anything to put in it.
 
+A **screenplay** has it too, at the top of the Scenes list. A screenplay is one file, so that list is a set of jumps around the script rather than a list of documents — the row above the sluglines is the only thing in it you *select*, and it works exactly as it does in a novel. Click a slugline afterwards and you're back on the script; the first click after leaving the project row lands you in the screenplay rather than on that scene, because the editor is coming back on screen — click it again and it jumps. It's there before you've written a single INT. or EXT., which is when a screenplay's own intent is most worth writing down.
+
 ### Adding items
 
 Right-click a row in the binder:

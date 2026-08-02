@@ -33,17 +33,8 @@ struct CollectionPiecesPane: View {
     /// Delete. The project row is a label: there is no piece order for it to
     /// take part in, and nothing a piece dropped on it could mean.
     private var projectRow: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "books.vertical")
-                .imageScale(.small)
-                .foregroundStyle(.secondary)
-            Text(store.manifest.title)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer()
-        }
-        .contentShape(Rectangle())
-        .tag(BinderSubject.project)
+        ProjectRowLabel(title: store.manifest.title)
+            .tag(BinderSubject.project)
     }
 
     /// One `List`, always — including when the Collection has no pieces.
