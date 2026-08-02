@@ -75,8 +75,12 @@ struct CollectionBinderPaneToggle: View {
                     piecesTree
                 }
             }
-            // Exports footer, shown only on the Pieces segment.
-            if segment == .manuscript
+            // Exports footer, shown only on the Pieces segment — asked through
+            // the same helper `BinderPaneToggle` asks (see its note), so the two
+            // toggles cannot come to disagree about which segment carries it.
+            // `.collection` is the constant this view exists for, and its
+            // document home is `.manuscript`, so the answer is unchanged.
+            if segment == .documentHome(for: .collection)
                 && PublishStarter.isInitialized(in: store.url) {
                 Divider()
                 ExportsListView(projectURL: store.url)

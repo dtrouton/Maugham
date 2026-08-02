@@ -941,11 +941,13 @@ struct ProjectWindow: View {
 
     private var shouldShowStatusFooter: Bool {
         guard userPreferences.goalIndicatorsVisible else { return false }
-        // `.canvas` is deliberately absent: the footer reports manuscript
-        // metrics, and readiness stays silent about the canvas (umbrella §7, §9).
-        guard binderSegment == .manuscript || binderSegment == .scenes else {
-            return false
-        }
+        // `BinderSegment.showsManuscriptStatusFooter`, not the two equalities
+        // that used to be written out here. The canvas and Plan's tree are both
+        // deliberately absent — the footer reports manuscript metrics, and
+        // readiness stays silent about the canvas (umbrella §7, §9) — and the
+        // predicate's own doc comment records why `.find` is absent too, which
+        // is the case that stops this being "the centre column is a document".
+        guard binderSegment.showsManuscriptStatusFooter else { return false }
         if isNoChromeOn { return false }
         return true
     }

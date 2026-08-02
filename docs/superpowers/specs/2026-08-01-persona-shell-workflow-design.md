@@ -125,10 +125,31 @@ So `canvas` and `research` differ only by centre — which is precisely the writ
 and it already works that way today. The drag-in route needs the research tree
 **beside** the canvas, so collapsing `canvas` into `research` would break it.
 
-**The picker labels must carry that distinction**, because the left pane will not:
-two adjacent segments showing an identical tree, one of which swaps the centre, is
-only legible if the label says which. This is the one place in this design where
+**The picker must carry that distinction**, because the left pane will not: two
+adjacent segments showing an identical tree, one of which swaps the centre, is
+only legible if the picker says which. This is the one place in this design where
 the naming does real work rather than describing.
+
+> **Correction, 2026-08-02 (slice 2, task 8) — it cannot be carried by *labels*,
+> and this sentence said "labels" for a whole slice.** `BinderSegmentPicker`
+> renders `Image(systemName:)` and **no text at all**, deliberately and twice
+> over: a mixed `Image`/`Text` `ForEach` is a `_ConditionalContent` cached per
+> POSITION, which is 2026-07-25 smoke defect C — a palette glyph glued to the
+> Research segment and the palette wall unreachable — and text for every segment
+> was *measured* at 264pt against a 240pt ideal column, so it truncates from the
+> leading edge. The distinction the paragraph above asks for therefore lives in
+> **the SF Symbol, the `.help()` tooltip and the VoiceOver label**, which is what
+> slice 2 shipped: `.tree` took `list.bullet.indent` against `.canvas`'s
+> `square.on.circle` and `.manuscript`'s `doc.text`, and it is named
+> **"Structure"** rather than borrowing the document home's own name, because
+> `visibleSegments` appends the current selection and a screenplay reopened in
+> Plan on a restored `.scenes` would otherwise show two segments tooltipped
+> "Scenes" in a picker whose tooltip is its only text.
+>
+> And the pair this section worries about most — `canvas` against `research`,
+> the two that really do render an identical tree — **was already distinguished
+> before this slice**, by both signals: two different symbols and two different
+> names. What slice 2 had to get right was the *new* neighbour.
 
 > **Amendment, 2026-08-02 — slice 2 ships all four, and the redundancy is
 > deliberately slice 7's.** Denver, on first use: *"I'm not sure I see value in

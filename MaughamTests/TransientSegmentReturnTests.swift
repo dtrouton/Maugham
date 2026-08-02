@@ -247,14 +247,87 @@ final class ManuscriptForceCensusTests: XCTestCase {
          "                segment = .manuscript"),
     ]
 
+    /// **A second family, added by slice 2 task 9: the document home written
+    /// out by hand instead of asked for.**
+    ///
+    /// This is a READ rather than a force, which is why it is its own array —
+    /// nobody was moving the binder, they were asking where it was. Three sites
+    /// spelled it, in the two shapes below: the manuscript status footer
+    /// (`ProjectWindow.shouldShowStatusFooter`) and the Exports footer in both
+    /// toggles. Each is the union of `documentHome(for:)`'s answers over two
+    /// project types, so each accepted a segment its own project type never
+    /// offers and each would have needed editing by hand for a fifth type.
+    ///
+    /// The footer now asks `BinderSegment.showsManuscriptStatusFooter` (a
+    /// switch, because a future segment centring the editor has to be asked)
+    /// and both Exports gates ask `documentHome(for:)` (a derivation, because
+    /// "not the manuscript tree, so no Exports list" needs no asking). Neither
+    /// spelling is writable in these three files any more.
+    private static let handSpelledHomes: [(name: String, pattern: String, plant: String)] = [
+        ("the document home hand-spelled as a segment equality",
+         #"(?:binderSegment|segment) == \.(?:manuscript|scenes)\b"#,
+         "        guard binderSegment == .manuscript || binderSegment == .scenes else {"),
+    ]
+
     /// The control. A regex that matches nothing would make every assertion
     /// below vacuous, which is how an unfalsifiable census ships.
     func test_theCensusCanStillRecogniseAnOffender() throws {
-        for offender in Self.offenders {
+        for offender in Self.offenders + Self.handSpelledHomes {
             XCTAssertNotNil(
                 offender.plant.range(of: offender.pattern, options: .regularExpression),
                 "\(offender.name): the pattern no longer matches its own "
                 + "planted offender, so every assertion using it is vacuous")
+        }
+        // The other half of the control, and the reason this pattern is spelled
+        // with two named prefixes rather than a bare `== \.manuscript`:
+        // `loadProject` legitimately asks whether the RESTORED segment was
+        // `.manuscript` before coercing it through `documentHome(for:)` on a
+        // screenplay. A pattern wide enough to flag that would make the census
+        // permanently red and get itself deleted.
+        for offender in Self.handSpelledHomes {
+            XCTAssertNil(
+                "self.binderSegment = savedSegment == .manuscript"
+                    .range(of: offender.pattern, options: .regularExpression),
+                "\(offender.name): the pattern flags `loadProject`'s legitimate "
+                + "restore check, which is not an offender")
+        }
+    }
+
+    /// **The read half.** `test_noSiteForcesTheBinderOntoTheManuscript…` below
+    /// walks the same three files for the write shapes; this walks them for the
+    /// hand-spelled home.
+    func test_noSiteHandSpellsTheDocumentHomeInsteadOfAskingForIt() throws {
+        for path in ["Maugham/Views/ProjectWindow.swift",
+                     "Maugham/Views/BinderPaneToggle.swift",
+                     "Maugham/Views/CollectionBinderPaneToggle.swift"] {
+            let text = try source(path)
+            XCTAssertFalse(text.isEmpty, "\(path): read nothing")
+            for offender in Self.handSpelledHomes {
+                let hits = text.split(separator: "\n").filter {
+                    !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+                        && $0.range(of: offender.pattern,
+                                    options: .regularExpression) != nil
+                }
+                XCTAssertTrue(hits.isEmpty,
+                              "\(path): \(offender.name) — \(hits). Ask "
+                              + "`BinderSegment.documentHome(for:)` for the left "
+                              + "column's question and "
+                              + "`showsManuscriptStatusFooter` for the centre's.")
+            }
+        }
+    }
+
+    /// **And the other half a spelling census cannot see: that the gate is still
+    /// there at all.** Deleting the Exports condition outright leaves no wrong
+    /// spelling behind — the list simply renders under every segment, including
+    /// Plan's canvas. Both toggles are named rather than counted.
+    func test_bothTogglesStillGateExportsOnTheDocumentHome() throws {
+        for path in ["Maugham/Views/BinderPaneToggle.swift",
+                     "Maugham/Views/CollectionBinderPaneToggle.swift"] {
+            let text = try source(path)
+            XCTAssertTrue(text.contains("segment == .documentHome(for:"),
+                          "\(path): the Exports footer no longer gates on the "
+                          + "project's document home")
         }
     }
 

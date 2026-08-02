@@ -25,6 +25,8 @@ A persona bar sits in the window's toolbar, beside the title: **Plan** (⌘1), *
 
 **The two columns work differently, and it's worth knowing which way round.** Every right-pane mode has a shortcut, so a persona that doesn't *lead* with a mode still opens it on demand — ⌘⌥O for Outline, ⌘⌥R for Research, and so on. Binder segments have no shortcuts, so a segment a persona doesn't offer really isn't there until you switch persona.
 
+**Plan's left column has four tabs**: **Canvas** (the research tree beside the canvas, which is what you drag rows onto), **Structure** (your manuscript tree, with the canvas *still* in the middle — [Structure & the Binder](structure-and-binder.md) covers what you can do from there), **Research**, and **Palette**. Every tab in that picker is an icon; hover for its name.
+
 **Research and Palette are the two this affects**, and the same line runs through both: *making* that material is planning, *consulting* it is drafting. The binder's **Research** and **Palette** segments live in **Plan** (⌘1) — that's where you write a note or build up a card. While you're drafting, Author reads the same material in the right column instead: ⌘⌥R shows what the open chapter points at, ⌘⌥P keeps a palette card open beside your prose. Both are for reading; to *edit* a note or a card, hop to Plan and back. Author's binder is your manuscript, and Review and Publish stand on a single segment each until their own left-hand surfaces are built.
 
 ### The planning canvas

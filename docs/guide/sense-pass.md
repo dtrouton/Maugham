@@ -13,10 +13,12 @@ story is not "missing" sensory detail.
    project has one and any document can have its own — select the project row
    at the top of the binder for the book's, a chapter for that chapter's. That
    row is at the top of whichever list your project type shows there: chapters
-   in a novel, Pieces in a Collection, Scenes in a screenplay.
-   The Inspector's **Open Intent** button goes to the same place. Not having
-   one is a valid choice; it means you've decided this piece doesn't need the
-   apparatus.
+   in a novel, Pieces in a Collection, Scenes in a screenplay. Intent is a
+   **Plan** (⌘1) pane, and Plan's **Structure** tab is that same tree — so
+   declaring the book's intent and then each chapter's is one persona and one
+   column, without leaving Plan. The Inspector's **Open Intent** button goes to
+   the same place. Not having one is a valid choice; it means you've decided
+   this piece doesn't need the apparatus.
 2. **Gather** — build *palette cards* in the Palette segment — the palette
    icon in the binder's picker, in the **Plan** persona (⌘1). Every segment in
    that picker is an icon; hover for its name. One card per

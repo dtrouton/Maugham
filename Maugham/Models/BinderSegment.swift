@@ -97,6 +97,45 @@ public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
         }
     }
 
+    /// **Does the manuscript status footer belong under this segment?**
+    ///
+    /// `EditorStatusFooter` reports the writer's goal capsule, their live
+    /// session words, the paragraph id under the cursor and the current element
+    /// — all facts about a manuscript document — so it is silent on the canvas,
+    /// on Plan's tree, on research, on the palette and on the trash.
+    ///
+    /// **It is NOT `centresTheCanvas` inverted, and it is NOT "the centre column
+    /// is a document" either.** `.find` centres the document too —
+    /// `existingEditorSwitch` and `existingInspectorSwitch` both name
+    /// `.manuscript, .scenes, .find` in one arm — and the footer has never shown
+    /// there. Whether that is deliberate or an oversight from before find had a
+    /// centre column of its own is not something slice 2 can answer, so it is
+    /// recorded here rather than changed: the shipped rule is *the binder is on
+    /// the document home*, and `.find` is the case that makes the two readings
+    /// distinguishable. Naming this `centresTheDocument` and sharing it with
+    /// those two switches would either move the footer under find or put a
+    /// false name on the answer.
+    ///
+    /// **Nor is it `BinderPaneToggle`'s Exports gate**, which reads the same set
+    /// today and asks a different question — that one is about the LEFT column
+    /// (is the pane below the picker the manuscript tree?) and is derived from
+    /// `documentHome(for:)` rather than switched, because "not the Exports list"
+    /// is the right default for a segment that has not been thought about and
+    /// "not the status footer" is not.
+    ///
+    /// **Exhaustive with no `default:`** for `centresTheCanvas`'s reason: this
+    /// answered "no" for `.canvas` and again for `.tree` by inheriting a
+    /// hand-spelled `== .manuscript || == .scenes`, and both times it was right
+    /// by luck. M3's *"Pieces by review state"* left-hand surface is the near
+    /// case that would centre the editor and want the footer, and nothing but
+    /// the compiler would ask.
+    var showsManuscriptStatusFooter: Bool {
+        switch self {
+        case .manuscript, .scenes: return true
+        case .tree, .research, .palette, .canvas, .trash, .find: return false
+        }
+    }
+
     /// Runtime-gated, persona-independent segments that survive a persona
     /// switch: a writer mid-search or looking at the trash must not be
     /// ejected by switching persona. This is the single source both

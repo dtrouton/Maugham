@@ -62,10 +62,26 @@ struct BinderPaneToggle: View {
                     ProjectSearchView(store: store, isActive: $findActive)
                 }
             }
-            // Show the Exports footer alongside manuscript / scenes only —
-            // it's a publishing-pipeline surface, not relevant to Research /
-            // Trash / Find.
-            if (segment == .manuscript || segment == .scenes)
+            // The Exports footer belongs under the project's manuscript tree and
+            // nowhere else — it's a publishing-pipeline surface, not relevant to
+            // Research / Palette / Trash / Find.
+            //
+            // **`documentHome(for:)`, not the `.manuscript || .scenes` union
+            // this used to spell.** The union is that helper's answer over two
+            // project types at once, so on a screenplay it accepted a segment
+            // the screenplay picker does not offer and on a novel it accepted
+            // `.scenes` — and a fifth project type would have needed this line
+            // edited to stay right. Asking the helper makes that automatic.
+            //
+            // **Deliberately NOT `BinderSegment.showsManuscriptStatusFooter`**,
+            // which reads the same set today. That one is about the CENTRE
+            // column and is a switch, because a future segment centring the
+            // editor must be asked whether the footer follows. This one is
+            // about the LEFT column, and "no Exports list" is the right answer
+            // for any segment that is not the manuscript tree — including
+            // `.tree`, which IS the manuscript tree but sits in Plan, where a
+            // compile-output list is not what the writer is doing.
+            if segment == .documentHome(for: projectType)
                 && PublishStarter.isInitialized(in: store.url) {
                 Divider()
                 ExportsListView(projectURL: store.url)

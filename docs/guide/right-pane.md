@@ -19,13 +19,15 @@ Switching persona while sitting on a pane the destination doesn't offer falls ba
 
 Default in Author. Shows metadata for whatever's selected in the binder.
 
-**On the planning canvas** (Plan → Canvas) it shows whatever is selected there, in one of three forms:
+**On the planning canvas** — Plan's **Canvas** and **Structure** tabs both, since the canvas stays in the middle on either — it shows whatever is selected on the canvas, in one of three forms:
 
 - **A region** — its name, whether it's collapsed, the **Piece** it's associated with, which cards live in it and which only appear in it (with **Cite a Card** to add an appearance), **Promote…**, and a Delete Region button.
 - **A line** — its name, which is drawn on the line itself; clear the field and the name comes off. **Promote…**, and a Delete Line button. Both cards stay.
 - **A card** — its first line, its own **Piece** picker with a line reading where its promotions will go, what it has been promoted into (with an **Open** button that takes you to the note, or a note that what it produced is no longer in the project), **what its words are part of** if a region's promotion folded them into something — *Its words are in “Act II fog”*, with its own **Open**, and a line saying that promoting this card makes something new rather than rewriting that — and **Promote…**. A card can say both at once: what it became, and what it is part of. **If Claude put the card there it says so** — *From Claude.*, and *Read from “…”* when it names the page it was read off — up with the card's own facts rather than down among the promotions, because being Claude's is not something that happened *to* the card and must not read as a mark saying it has already been promoted. Your own cards say nothing there. There's no Delete button here: ⌫ on the canvas is how a card goes.
 
 Select nothing and it says so.
+
+**So in Plan the Inspector is the canvas's, even on the Structure tab** — the Inspector describes the middle column, and in Plan the middle column is the canvas whichever tab you're on. Clicking a chapter in Plan's Structure tree doesn't put that chapter's metadata here; it's the panes that are *about* a chapter that follow it — **Intent** (⌘⌥N) above all. Switch to Author (⌘2) for a chapter's own metadata.
 
 Both Piece pickers offer only pieces that can actually hold research, so nothing on either list can fail when you promote. A card left on **None** follows the region it lives in, and the line under its picker says so — *Chapter Three (from its region)* — rather than leaving you to work out where the note went. See [Getting Started → The planning canvas](getting-started.md#the-planning-canvas) and [→ Promoting](getting-started.md#promoting).
 
