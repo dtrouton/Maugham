@@ -63,7 +63,11 @@ struct SceneNavigatorPane: View {
             projectRow
             scriptRow
             ForEach(Array(summaries.enumerated()), id: \.offset) { _, summary in
+                // Inset under the two header rows above: a slugline is a place
+                // INSIDE the script, and the indent is what says so without a
+                // disclosure triangle the writer cannot collapse anyway.
                 sceneRow(for: summary)
+                    .padding(.leading, ProjectRowLabel.childIndent)
             }
         }
         .listStyle(.sidebar)

@@ -19,6 +19,24 @@ import SwiftUI
 /// and each site's doc comment says why its row is a row and not a control
 /// (tripwire 9).
 struct ProjectRowLabel: View {
+
+    /// How far the rows BENEATH a header row are inset, so the hierarchy reads
+    /// at a glance (Denver, 2026-08-02: *"so you can see they are hierarchically
+    /// below those"*).
+    ///
+    /// **It lives here for the same reason the glyph does** — three panes draw
+    /// this relationship and a writer sees one of them, so three separately
+    /// chosen inset values would drift without anyone being able to compare.
+    ///
+    /// **Applied to the CHILDREN, never as an outdent of the header.** A
+    /// sidebar `List` supplies its own leading inset and `DisclosureGroup`
+    /// supplies its own per-level indent; pulling a header left fights both and
+    /// lands differently in each pane, where pushing children right composes
+    /// with them. In `BinderView` that means the top level only — a group's own
+    /// children are already indented under it by SwiftUI, and adding this again
+    /// per level would compound.
+    static let childIndent: CGFloat = 14
+
     let title: String
 
     var body: some View {

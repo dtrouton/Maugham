@@ -75,6 +75,10 @@ struct CollectionPiecesPane: View {
                             targetId: piece.id,
                             position: position)
                     })
+                    // Inset under the project row above. Before the `.tag`, so
+                    // the padding is part of the row the List tags rather than a
+                    // wrapper around it.
+                    .padding(.leading, ProjectRowLabel.childIndent)
                     .tag(BinderSubject.item(piece.id))
                     .contextMenu {
                         Button("Rename") {

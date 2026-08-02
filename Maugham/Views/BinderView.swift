@@ -98,17 +98,30 @@ struct BinderView: View {
             .tag(BinderSubject.project)
     }
 
-    private func outline(items: [StructureItem]) -> some View {
-        ForEach(items) { item in
+    /// `depth` exists ONLY to place `ProjectRowLabel.childIndent`, and only at
+    /// the top level. Everything in this list sits under the project row, so the
+    /// top level is inset once; a group's own children are already indented
+    /// under it by `DisclosureGroup`, and adding the inset per level as the
+    /// recursion descends would compound it into a staircase.
+    ///
+    /// The inset goes on the whole `DisclosureGroup` rather than on its label,
+    /// so a group's children move with their group. Padding the label alone
+    /// leaves the children at the un-inset base — sitting to the LEFT of the row
+    /// they belong to, which is the opposite of what the indent is for.
+    private func outline(items: [StructureItem], depth: Int = 0) -> some View {
+        let indent = depth == 0 ? ProjectRowLabel.childIndent : 0
+        return ForEach(items) { item in
             if item.type == .group, let children = item.children {
                 DisclosureGroup {
-                    AnyView(outline(items: children))
+                    AnyView(outline(items: children, depth: depth + 1))
                 } label: {
                     row(for: item)
                 }
+                .padding(.leading, indent)
                 .tag(BinderSubject.item(item.id))
             } else {
                 row(for: item)
+                    .padding(.leading, indent)
                     .tag(BinderSubject.item(item.id))
             }
         }
