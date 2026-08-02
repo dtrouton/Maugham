@@ -530,6 +530,21 @@ The thread to pick up, so it is not re-derived:
   **research belonging to no piece still needs somewhere to be**, or it becomes
   unreachable in the view that replaced the one it was found in.
 - **Sequencing.** After slices 1–6, and specced then rather than now.
+- **Find comes with it, and that is Denver's ruling of 2026-08-02**, made when
+  slice 2's whole-branch review reported that `⌘⌥F` in Plan puts a fully editable
+  manuscript editor in the centre — in the persona whose own rule is that the
+  writer does not draft there — and that `ea26f62` had just given that editor the
+  goal capsule and the live word count.
+  *"That search also works across research notes, right? So this is a genuine
+  seam now."* It does: `ProjectSearchEngine` walks `manifest.structure` **and**
+  `manifest.research`, and every match already carries a `documentSource` the
+  centre column ignores. So find is not a Plan problem to be patched — it is a
+  surface spanning both halves of what slice 7 redesigns, and it already carries
+  a recorded routing gap of its own (clicking a research match shows the
+  manuscript, because the binder being on `.find` mounts the editor regardless of
+  match kind). Three questions, one design: **what the centre shows for a match,
+  which persona a search belongs to, and where closing it returns you.** Slice 2
+  fixed only the last of those, and only for leaving.
 
 **Not scheduled:** the rest of Publish's columns, which wait on M4's surfaces.
 
