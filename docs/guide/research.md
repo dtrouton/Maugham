@@ -2,6 +2,8 @@
 
 The binder's **Research** segment is for everything that isn't manuscript: character sheets, location photos, PDFs, web links, voice notes.
 
+**It's in the Plan persona** (⌘1) — making research is planning work. Author reads a document's research in the right column instead ([Research mode](right-pane.md#research-mode-r), ⌘⌥R), which is a preview: to edit a note, hop to Plan. Review and Publish carry research in neither column.
+
 - **New Text Note** — right-click + **New Text Note** to create a markdown note. Rename inline; the file on disk renames with it.
 - **Drag in from Finder** — drop images, PDFs, audio, text files. They land in `research/`.
 - **Paste an image** — Cmd-V into the research pane. Saved as `pasted-…png` next to your notes.

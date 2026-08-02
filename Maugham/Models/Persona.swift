@@ -220,6 +220,16 @@ public extension Persona {
     /// which gives each persona a Left surface: Plan "Research tree", Author
     /// "Binder", Review "Pieces by review state", Publish "Editions". One of
     /// those four surfaces does not exist yet (M1D builds the editions list), so the deviations are recorded at their cases below.
+    ///
+    /// **THIS REGISTRY AND `panes` FAIL DIFFERENTLY, and §6.1 of
+    /// `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md` is
+    /// where that was finally written down.** Every right-hand pane has a
+    /// `⌘⌥`-letter in `MaughamApp`'s View menu, so dropping a pane from `panes`
+    /// is a DEMOTION — ⌘⌥O still opens Outline in every persona. **There is no
+    /// keyboard route to a `BinderSegment` at all**, so dropping a segment from
+    /// here is a REMOVAL: the only route back is switching persona. §8's
+    /// "personas are lenses, never gates" is therefore true of one of the two
+    /// registries, and every subtraction below is made knowing which.
     func binderSegments(for projectType: ProjectType) -> [BinderSegment] {
         let home = BinderSegment.documentHome(for: projectType)
         switch self {
@@ -238,21 +248,57 @@ public extension Persona {
             // renders it, and ⌘2 is one keystroke away.
             return [.canvas, .research, .palette]
         case .author:
-            // §6.3 Left = "Binder". Exactly today's segment list, in today's
-            // order — the default persona must look unchanged to an upgrading
-            // writer.
-            return [home, .research, .palette]
+            // §6.3 Left = "Binder": the manuscript home and the palette wall.
+            //
+            // `.research` LEFT in slice 2 of the persona shell (§6.1). The
+            // argument is not convenience — it is that **the right-hand
+            // registry already said research is not Review's or Publish's
+            // business** (`.research` is a pane in Plan and Author and absent
+            // from both the others), so the left column was the half that
+            // disagreed. Editing research is making planning material, which is
+            // Plan's output under §2's rule, and Author keeps
+            // `LinkedResearchPane` on the right (⌘⌥R) for reading what the open
+            // chapter points at. Palette stays: a card is picked from the
+            // binder while drafting, and Plan and Author are the two making
+            // personas (`PersonaBinderSegmentTests.test_planAndAuthorAlwaysReachThePalette`).
+            //
+            // **THE ASYMMETRY THIS LEAVES, recorded because smoke meets it.**
+            // Two event routes still force `.research` in Author —
+            // `ProjectWindow.openResearchItem` (the **Open** button on a
+            // promoted canvas card) and `handleShowLatestMCPNote` (the **Show**
+            // button on the MCP note banner). Both still render, highlighted,
+            // because `BinderSegmentPicker.visibleSegments` appends the current
+            // selection; that is the lens-not-gate half working. But Author now
+            // has NO picker route in, two event routes in, and ⌘1 as the only
+            // way back out. Pinned by
+            // `PersonaBinderSegmentTests.test_aForcedResearchSegmentStillRendersInEveryPersona`.
+            return [home, .palette]
         case .review:
             // DELIBERATE DEVIATION: §6.3 Left = "Pieces by review state",
-            // which is not built. The ordinary binder stands in, and Palette
-            // drops out — it is a making surface, not an adjudicating one.
-            return [home, .research]
+            // which is not built. The ordinary binder stands in. Palette
+            // dropped out as a making surface rather than an adjudicating one,
+            // and `.research` followed it in slice 2 (§6.1) for the reason
+            // spelled at `.author` above — Review has no research pane on the
+            // right either, so nothing here disagrees with anything there.
+            //
+            // ONE SEGMENT, on purpose. The "a single button reads as broken
+            // chrome" worry recorded at `.publish` before is answered rather
+            // than ignored: this column is ALREADY a deviation standing in for
+            // an unbuilt surface, so a single entry makes the placeholder
+            // visible instead of disguising it, and M3 supplies the real second
+            // entry. Padding a picker with a segment that does not serve the
+            // persona is exactly what slice 1 refused to do for `.outline`.
+            return [home]
         case .publish:
             // DELIBERATE DEVIATION: §6.3 Left = "Editions", which M1D builds.
-            // Until then the binder stands in, plus Research so the picker is
-            // a choice rather than a single button reading as broken chrome —
-            // the same reasoning recorded at `.publish`'s `.inspector` pane.
-            return [home, .research]
+            // Until then the binder stands in, alone — `.research` left in
+            // slice 2 (§6.1), and with it the reason recorded here before
+            // ("plus Research so the picker is a choice rather than a single
+            // button reading as broken chrome"), which §6.1 overrules by name.
+            // See `.review` above for why one segment is the honest shape for a
+            // column that is standing in for an unbuilt surface; M4 supplies
+            // Publish's real second entry.
+            return [home]
         }
     }
 
@@ -261,7 +307,15 @@ public extension Persona {
     /// `PersonaBinderSegmentTests.test_everyPersonaBinderHome_isAmongItsOwnSegments`
     /// pins that for every persona × project type.
     func binderHome(for projectType: ProjectType) -> BinderSegment {
-        // `binderSegments` is never empty — every case above returns ≥2.
+        // `binderSegments` is never empty — every case above returns at least
+        // its own `home`, and `home` is what this falls back to anyway, so the
+        // two answers agree even if one day a case returns nothing.
+        //
+        // **There is no floor on THIS side and there deliberately is not one.**
+        // `PersonaPaneRegistryTests.test_everyPersona_offersAtLeastTwoPanes` is
+        // about the RIGHT-hand registry; slice 2 took Review and Publish to a
+        // single binder segment each on purpose (§6.1), so a ≥2 assertion here
+        // would be asserting a coincidence that has already stopped being true.
         binderSegments(for: projectType).first ?? BinderSegment.documentHome(for: projectType)
     }
 }

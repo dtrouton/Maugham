@@ -13,7 +13,7 @@ Pick a type, give the project a name, choose a folder (iCloud Drive is the defau
 
 The project opens in a three-pane window:
 
-- **Binder** (left) — the project structure (manuscript / research / find / trash). Drag-reorder items, right-click for menus.
+- **Binder** (left) — the project structure (manuscript and palette, plus Find and Trash when they apply). Drag-reorder items, right-click for menus. Which segments the picker offers depends on the persona — see below.
 - **Editor** (center) — the prose surface.
 - **Inspector** (right) — metadata for the selected item (synopsis, status, tags, word target, linked research).
 
@@ -22,6 +22,8 @@ Type a sentence. Quit Maugham (⌘Q). Relaunch. Your project is in Open Recent, 
 ### Personas
 
 A persona bar sits in the window's toolbar, beside the title: **Plan** (⌘1), **Author** (⌘2), **Review** (⌘3), **Publish** (⌘4). Each reconfigures all three columns around one stage of the work — Plan opens the planning canvas in the middle with your research tree beside it, Author is the default writing layout above, Review leads with Annotations, Publish leads with Visual Language. Nothing is required or gated: every persona is one keystroke away at any time, on any project, and switching never disables or hides your manuscript — it just changes which companion panes are offered. The bar hides along with the rest of the window chrome in focus mode (⌘\\). Each persona remembers where you left it — which binder segment and which right-pane mode — so switching away and back puts both columns exactly where they were, as long as the mode is one that persona offers. Outline is the exception: no persona offers it, so ⌘⌥O opens it anywhere and it's still there when you quit and reopen, but a persona switch lands you back on that persona's own modes. Each window remembers its own persona per project, so two windows on the same project can sit in different personas at once. See [Inspector, Research & Outline](right-pane.md) for which right-pane modes each persona offers.
+
+**The two columns work differently, and it's worth knowing which way round.** Every right-pane mode has a shortcut, so a persona that doesn't *lead* with a mode still opens it on demand — ⌘⌥O for Outline, ⌘⌥R for Research, and so on. Binder segments have no shortcuts, so a segment a persona doesn't offer really isn't there until you switch persona. **Research is the one this affects:** the binder's Research segment lives in **Plan** (⌘1), which is where planning material is made. While you're drafting, Author reads what the open chapter points at in the right column (⌘⌥R) instead; to *edit* a note, hop to Plan and back. Review and Publish stand on a single binder segment each until their own left-hand surfaces are built.
 
 ### The planning canvas
 

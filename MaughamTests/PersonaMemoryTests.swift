@@ -25,26 +25,32 @@ final class PersonaMemoryTests: XCTestCase {
 
     // MARK: - Recording and restoring
 
+    // NB: these use `.palette` for Author's non-home binder segment. They used
+    // `.research` until slice 2 of the persona shell took it off Author's left
+    // column (§6.1) — at which point a recorded `.research` would be dropped on
+    // restore and every one of them would have been asserting the FALLBACK
+    // while reading like a round trip.
+
     func test_record_thenRestore_returnsTheSameSegments() {
         var memory = PersonaMemory.empty
-        memory.record(persona: .author, binderSegment: .research, detailSegment: .tasks)
-        XCTAssertEqual(memory.restoredBinderSegment(for: .author, projectType: .novel), .research)
+        memory.record(persona: .author, binderSegment: .palette, detailSegment: .tasks)
+        XCTAssertEqual(memory.restoredBinderSegment(for: .author, projectType: .novel), .palette)
         XCTAssertEqual(memory.restoredDetailSegment(for: .author), .tasks)
     }
 
     func test_record_isPerPersona() {
         var memory = PersonaMemory.empty
-        memory.record(persona: .author, binderSegment: .research, detailSegment: .tasks)
-        memory.record(persona: .plan, binderSegment: .palette, detailSegment: .inbox)
-        XCTAssertEqual(memory.restoredBinderSegment(for: .author, projectType: .novel), .research)
-        XCTAssertEqual(memory.restoredBinderSegment(for: .plan, projectType: .novel), .palette)
+        memory.record(persona: .author, binderSegment: .palette, detailSegment: .tasks)
+        memory.record(persona: .plan, binderSegment: .research, detailSegment: .inbox)
+        XCTAssertEqual(memory.restoredBinderSegment(for: .author, projectType: .novel), .palette)
+        XCTAssertEqual(memory.restoredBinderSegment(for: .plan, projectType: .novel), .research)
         XCTAssertEqual(memory.restoredDetailSegment(for: .author), .tasks)
         XCTAssertEqual(memory.restoredDetailSegment(for: .plan), .inbox)
     }
 
     func test_record_overwritesThePreviousValueForThatPersona() {
         var memory = PersonaMemory.empty
-        memory.record(persona: .author, binderSegment: .research, detailSegment: .tasks)
+        memory.record(persona: .author, binderSegment: .palette, detailSegment: .tasks)
         memory.record(persona: .author, binderSegment: .manuscript, detailSegment: .inspector)
         XCTAssertEqual(memory.restoredBinderSegment(for: .author, projectType: .novel), .manuscript)
         XCTAssertEqual(memory.restoredDetailSegment(for: .author), .inspector)
@@ -55,10 +61,10 @@ final class PersonaMemoryTests: XCTestCase {
     func test_record_ignoresTransientBinderSegments() {
         for transient in [BinderSegment.find, .trash] {
             var memory = PersonaMemory.empty
-            memory.record(persona: .author, binderSegment: .research, detailSegment: .tasks)
+            memory.record(persona: .author, binderSegment: .palette, detailSegment: .tasks)
             memory.record(persona: .author, binderSegment: transient, detailSegment: .inspector)
             XCTAssertEqual(
-                memory.restoredBinderSegment(for: .author, projectType: .novel), .research,
+                memory.restoredBinderSegment(for: .author, projectType: .novel), .palette,
                 "\(transient) is a state passed through, not a surface to return to")
             XCTAssertEqual(memory.restoredDetailSegment(for: .author), .inspector,
                            "the right pane is still recorded — nothing transient there")
@@ -175,12 +181,24 @@ final class PersonaMemoryTests: XCTestCase {
 
     func test_decode_dropsUnknownSegmentValuesWithoutLosingTheRest() throws {
         // A newer build's segment name must cost only its own entry.
+        //
+        // The surviving binder entry is `"palette"`, not `"research"`. It was
+        // `"research"` until slice 2 of the persona shell took Research off
+        // Author's left column (§6.1) — and a segment Author no longer offers
+        // is filtered out on restore, so the entry would have come back as
+        // Author's HOME. That is the same value an entry lost to the decoder
+        // produces, so this test would have been unable to tell "dropped only
+        // the unknown key" from "dropped both" and would still have read green
+        // once its expectation was nudged to match.
         let json = Data("""
-        {"binder":{"plan":"moodboard","author":"research"},
+        {"binder":{"plan":"moodboard","author":"palette"},
          "detail":{"author":"telemetry","review":"history"}}
         """.utf8)
         let memory = try JSONDecoder().decode(PersonaMemory.self, from: json)
-        XCTAssertEqual(memory.restoredBinderSegment(for: .author, projectType: .novel), .research)
+        XCTAssertEqual(memory.restoredBinderSegment(for: .author, projectType: .novel), .palette)
+        XCTAssertNotEqual(Persona.author.binderHome(for: .novel), .palette,
+                          "the surviving value must differ from the fallback, or "
+                          + "the assertion above cannot see the difference")
         XCTAssertEqual(memory.restoredBinderSegment(for: .plan, projectType: .novel),
                        Persona.plan.binderHome(for: .novel))
         XCTAssertEqual(memory.restoredDetailSegment(for: .review), .history)
