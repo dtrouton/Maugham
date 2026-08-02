@@ -553,6 +553,44 @@ Two things this costs, both stated rather than discovered:
 the hop keeps your place within a session and loses it on quit. One field if
 that turns out to matter.
 
+**Palette follows research, decided 2026-08-02.** Denver, immediately after the
+research change: *"I'm not sure palette belongs in author if research doesn't."*
+It does not, and the parallel is exact — verified in the code rather than argued:
+the LEFT segment is `PaletteBinderList`, and selecting a card puts
+`PaletteCardEditor` in the **centre**; the RIGHT pane is `PalettePane`, whose own
+doc comment reads *"pick a palette card and write against it — **read-only**
+images, swatches, and sensory notes **beside the editor**."* Making palette
+material is planning; consulting it while drafting is Author, and the read-only
+pane was built for exactly that.
+
+**One warrant is weaker here and should not be overstated.** Research's argument
+was that the two registries *contradicted* each other. Palette's left set is a
+strict **subset** of its right set, so nothing disagrees — this is a principle
+applied further, not a defect corrected. Author becomes `[home]`.
+
+### 6.2 An observation to shake out later: Plan may not be a persona like the others
+
+*Denver, 2026-08-02, on deciding the above: "we will come back to the left hand
+panel — this might be telling us Plan is more different than we think."*
+
+With research and palette gone from it, the left column is **the manuscript in
+three personas and a set of planning surfaces in one**. Three of four personas
+stand on a single-segment picker; only Plan offers a choice. That is either
+exactly what the personas mean — Author, Review and Publish all work over the
+manuscript and differ in their right column, while Plan works over everything
+*around* it — or it is the left-hand picker having stopped earning its place
+outside Plan.
+
+**Deliberately not resolved now**, and the sequencing is the point: slice 2 gives
+Plan its tree and slice 7 reworks what a research view is. Both change what the
+left column *contains*, and judging whether the picker still earns its place
+before either has landed would be judging a shape that is still moving. Revisit
+**after slice 7**.
+
+Recorded because it is the kind of observation that gets re-derived from scratch
+three months later, and because a one-segment picker is measured to render fine
+(§6.1) — so nothing forces the question early.
+
 **Sequencing against M1A:** none of this starts until M1A has been smoked and
 its milestone is closed. Slice 4 and slice 5 both touch things M1A shipped —
 `IntentAffordanceRow` and per-document intent — so they want a settled base

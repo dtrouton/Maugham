@@ -214,6 +214,46 @@ Spec §6.1. `.author` → `[home, .palette]`, `.review` → `[home]`, `.publish`
 - Collateral, cosmetic, flag don't fix: ⌘⇧P "Toggle Research Preview" has no
   visible effect in Author once the segment is unreachable by picker.
 
+### Task 6b — palette leaves Author's left column too
+
+*Added 2026-08-02, immediately after task 6, on Denver's challenge: "I'm not sure
+palette belongs in author if research doesn't."*
+
+**Deliverable.** `.author` → `[home]`. Plan keeps `.palette`.
+
+**The parallel is exact and is verified, not argued.** The LEFT segment is
+`PaletteBinderList`, and selecting a card puts `PaletteCardEditor` in the
+**centre** — that is editing. The RIGHT pane is `PalettePane`, whose own doc
+comment reads *"pick a palette card and write against it — **read-only** images,
+swatches, and sensory notes **beside the editor**."* Making palette material is
+planning; consulting it while drafting is Author, and the read-only pane was
+built for that case.
+
+**Contracts.**
+
+- **Do not overstate the warrant, in the commit or the comment.** Research's
+  argument was that the two registries *contradicted* each other. Palette's left
+  set is a strict **subset** of its right set — nothing disagrees. This is a
+  principle applied further, not a defect corrected, and saying otherwise would
+  put a stronger reason in the code than the one that is true (§5.1's own lesson
+  about a comment stating a weaker reason than the real one, running the other
+  way).
+- **`PersonaBinderSegmentTests.test_planAndAuthorAlwaysReachThePalette` is named
+  for exactly this and must be ANSWERED, not edited.** Decide what remains true —
+  Author reaches the palette by `⌘⌥P` and by persona switch, not by its binder —
+  and make the test say that, or delete it with the argument recorded. Check
+  `test_paletteIsRendered_inEveryPersonaWhoseRegistryOffersIt` too.
+- **Author becomes a single-segment picker**, joining Review and Publish. Task 6
+  measured that shape renders correctly (24×24pt icon, selected, tooltipped) — do
+  not re-measure, but do sanity-check that Author specifically is not different.
+- ⌘⌥P must still reach `PalettePane` in Author. Verify rather than assume: an
+  unregistered *pane* stays reachable by shortcut, and that is the property the
+  writer is left with.
+
+**Not in scope**, and recorded in spec §6.2: whether a left-hand picker still
+earns its place in three personas that now show one segment. That is judged
+**after slice 7**, when the left column has stopped moving.
+
 ### Task 7 — structure creation from Plan's tree
 
 **Mostly a verification task, and that is the finding.** `BinderView` carries its
