@@ -384,6 +384,29 @@ the slice that makes Plan able to produce what §2 says it produces.
 **Slice 3 — the canvas highlight.** §4's three states, including the offer to
 bind. Depends on slice 2.
 
+> **Open question for slice 2, raised 2026-08-02 during slice 1's smoke: what
+> does a persona's CENTRE show when the subject is the project?**
+>
+> Denver, on hitting it in Author: *"the middle pane being select a document is
+> kind of annoying anyway — I'd been wondering if this should be an outline
+> view."*
+>
+> **Plan already has an answer and it is §4**: the project row shows the whole
+> board, undimmed. Author has no answer — it shows the `EditorHost` placeholder,
+> which is a true statement and an empty screen. The question is whether the
+> project subject should mean *"here is the whole thing"* in every persona rather
+> than only on the canvas, and an outline is the obvious candidate for Author.
+>
+> It belongs to slice 2 because slice 2 is already deciding what the centre does
+> as the tree's selection changes, and answering it twice would be how the two
+> answers drift. Note the pull the other way: `OutlinePane` is read-only and
+> §5 removed it from every persona's picker precisely because it cannot be the
+> structure surface Plan needs — so *"put the outline in the centre"* is not a
+> free reuse of an existing pane, and should be argued rather than assumed.
+>
+> **Not a blocker for slice 1.** The placeholder is pre-existing behaviour; the
+> project row only made it reachable more often.
+
 **Slice 4 — the Inspector dissolves** (§5.1). Each section to its persona, and
 the Publishing section becomes Publish's own pane. **Do not start this before
 slice 1**: the Intent affordance row only goes away once the tree can aim, and
