@@ -343,6 +343,94 @@ is registered only in Review today.
 Publish are not waiting to grow one; they do not have two jobs over one object,
 which is the only thing posture is for.
 
+### 5.0 The right column, audited — one order, four subsets
+
+*Amendment in force, 2026-08-03. This supersedes the per-persona lists in §5's
+table and its "Leaving, by persona" list for the RIGHT column. The left column is
+unchanged by this section.*
+
+The audit began with palette: it is a right pane in Plan **and** a left segment
+there, and the right one is `PalettePane`, whose own doc comment says *"pick a
+palette card and write against it — **read-only**"*. That is the pane built for
+Author, sitting in the persona that makes the cards.
+
+**The rule that fell out is sharper than "editing goes left".** Denver: *"visual
+language and intent we got wrong — they want to be authored in Plan from the
+left."* So:
+
+> **The left column is where a thing is AUTHORED. The right column is what you
+> glance at while authoring something else.**
+
+Plan authors intent, visual language, research notes and palette cards, so all
+four belong in its left column and none in its right. Author and Review *consult*
+intent; Author consults research and palette. Nothing consults its own output.
+
+#### The canonical order
+
+**One order for every persona.** Denver: *"it'll be confusing if I am always
+hunting for the right option in different modes, so the order should be one set
+and things just disappear or appear in it, and we have some common anchors."*
+
+> **Annotations · Inbox · Research · Palette · Intent · Visual Language · Tasks ·
+> Translation · History · Inspector**
+
+Three anchors: **Tasks** divides what you are working *with* from what is flowing
+*through*; **History** and **Inspector** close the row, Inspector outermost.
+
+**Inspector is last, and that is what keeps `defaultPane = panes.first`.** It was
+first in an earlier draft of this amendment, which would have made every persona
+land on Inspector and forced `panes` to become an order plus a separate default —
+two values that can disagree about where a persona opens. Moving it to the far
+end makes each persona's default fall out of membership alone, and it is still
+trivially findable because it is always at the same end.
+
+| Persona | Right column, in canonical order | Default (falls out) |
+|---|---|---|
+| **Plan** | Inbox · Tasks · History · Inspector | Inbox |
+| **Author** | Research · Palette · Intent · Tasks · History · Inspector | Research |
+| **Review** | Annotations · Intent · Tasks · History · Inspector | Annotations |
+| **Publish** | Visual Language · Tasks · Translation · History · Inspector | Visual Language |
+
+#### What moves, and why
+
+- **Plan loses Research, Palette, Intent and Visual Language** — it authors all
+  four on the left. It **gains History**, which is Denver's call and worth the
+  reason: *"which will make more sense when a future milestone versions research
+  notes, but even now I think it's a useful reference of the evolution of the
+  manuscript."*
+- **Review loses Palette** (that is authoring), **Visual Language** (that is
+  Publish's) and **Translation** — see below.
+- **Publish gains Translation**, and Tasks and History with it.
+- **Author is unchanged** in membership; only its order is normalised.
+
+#### Translation moves to Publish — a reversal of §5, recorded as one
+
+§5 said *"Translation moves to Review only. `TranslationReviewPane` is source text
+plus translator queries — adjudication, not building an edition."* **That is
+overturned.** Denver: *"I'm more convinced translation should be logically part of
+the publish flow. We are not changing the source, it's effectively a
+transformation for publish."*
+
+The argument that decides it is the one §5 missed: a translation **never mutates
+the manuscript** — it is a parallel, paragraph-keyed layer, and a coverage gate
+blocks a compile that would ship an incomplete edition. So the thing it belongs to
+is the edition, not the draft. Review adjudicates what will change the source;
+translation cannot.
+
+#### Parked, and it is a build rather than a registry line
+
+**Intent and Visual Language authored from Plan's LEFT column.** Today they are
+right-pane surfaces (`⌘⌥N`, `⌘⌥V`). As left segments each needs a `BinderSegment`
+case, a centre route, and a decision about what its left pane shows while you edit
+— presumably the tree, so the scope can be picked, which makes them the same shape
+as `.tree`: one pane, a different centre. **Deliberately deferred**, because it
+collides with §5.1 (the Inspector dissolves) and §5.2 (synopsis folds into intent),
+and because the registry half above is shippable without it.
+
+**Until it ships, intent and visual language are reachable in Plan only by their
+`⌘⌥` shortcuts**, which is a real cost of taking them off Plan's right column
+before the left-column home exists. That is the trade Denver accepted.
+
 ### 5.1 The Inspector dissolves
 
 The Inspector is the one pane the rule in §2 does not explain. Every other pane
