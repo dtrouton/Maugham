@@ -200,6 +200,62 @@ this never bit before the bar became permanent chrome.
   pre-existing behavior for the rest of `UIState`, not a new one this milestone
   introduced — noted so nobody rediscovers it as a surprise.
 
+## Amendment, 2026-08-03 — the registries were re-cut by the persona shell milestone
+
+*Appended, not rewritten. What this ADR decided on 2026-07-25 stands as the record
+of that decision; the paragraphs above are left exactly as they were, including the
+reasoning later overturned. Binding position:
+`docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`.*
+
+Three things this ADR states as fact are no longer true of the shipped code.
+
+**1. The two `DELIBERATE DEVIATION`s above are both gone, and neither unwound the
+way this ADR expected.**
+
+- **Publish's `.inspector`** is no longer a deviation from anything. §5.0 gives
+  Inspector to **all four** personas and puts it **last** in one canonical order,
+  which is what lets `defaultPane = panes.first` keep working — as the leftmost
+  anchor it would have landed every persona on Inspector and forced `panes` to
+  become an order *plus* a separate default. Its `documentedDeviations` entry was
+  deleted rather than re-argued: keeping it there with a better reason would have
+  preserved a false classification.
+  **And the reason recorded above — *"a single-button picker reads as broken
+  chrome, not restraint"* — was overruled before that**, during slice 1. It is
+  the weaker of two reasons, and §5.1 names that failure shape explicitly: a
+  comment stating a weaker reason than the real one is how a later reader acts on
+  the weaker one. The real reason Publish keeps Inspector is that
+  `InspectorPublishSection` is the app's **only** per-piece publish-config UI, so
+  removing it deletes the writer's table-of-contents control. That is now argued
+  at the `.publish` case, and it is why Inspector will be the last thing §5.1's
+  dissolution can take.
+- **Review's and Publish's left columns** are no longer the ordinary binder
+  standing in for unbuilt surfaces. Research and palette left the left column of
+  Author, Review and Publish entirely (§6.1), so those three personas now show a
+  single segment — their manuscript. Whether a left-hand picker still earns its
+  place in three one-segment personas is deliberately open until after the
+  research rework (§6.2).
+
+**2. "One entry in `panes`" is no longer the whole extension point.** A new
+right-pane surface must also take a place in the **canonical order**, which is
+transcribed once in `PersonaPaneRegistryTests` and asserted as a derivation:
+every persona's `panes` must equal that order filtered to its own members. Before
+2026-08-03 nothing asserted order at all — a permutation that kept every first
+element passed the entire suite while changing the picker for every writer, which
+was measured rather than supposed.
+
+**3. The pane set itself moved.** `.outline` is registered in no persona (a
+demotion, not a removal — `⌘⌥O` still opens it anywhere); `.intent` and
+`.visualLanguage` joined and then partly left again, and both are reachable in
+Plan by shortcut only until they gain a left-column home; and **`.translation`
+moved from Review to Publish**, reversing a written decision, because a
+translation never mutates the manuscript — it is a parallel paragraph-keyed layer
+behind a coverage gate, so it belongs to the edition rather than the draft.
+
+**What still holds, unchanged:** §1 (personas are lenses, never gates — every
+pane remains reachable by its `⌘⌥` letter in every persona, and slice 1 replaced
+a test that asserted the opposite), the registries being pure and table-driven,
+and the whole of §3's keyspace migration.
+
 ## References
 
 - Spec: `docs/superpowers/specs/2026-07-25-mode-based-ux-redesign-design.md` §6
