@@ -298,34 +298,46 @@ group id can never match a `boundPieceID` — only documents are bindable. Selec
 Part One and everything bound to any chapter beneath it lights together; the tree
 gains a zoom level the canvas can answer.
 
-**A binding sweep is an ordinary region draw with a binding on the end — no new
-rules.** Denver's ruling on the smoke, 2026-08-03: *"this should just follow the
-same rules as a region draw, we don't need to reinvent the wheel here, it should
-be consistent."*
+**A binding sweep ASSIGNS what it catches, and only creates when it catches
+nothing.** Denver's ruling on the smoke, 2026-08-03, after the first
+implementation built §4's sentence literally: *"my issue is it creates a new
+region which is pointless and a horrible user experience… it literally makes zero
+sense as a user experience."*
 
-Recorded because the first reaction was the opposite one — *"what's been given
-here is a plain old region draw that then goes over the top of existing
-regions??"* — and the three consequences below are the ones that prompted it.
-They are **accepted**, not unnoticed:
+**The sentence in §4 above — "sweep a region and it binds to that chapter" — is
+what caused it, and it is too narrow.** It describes only the empty-board case
+and was implemented exactly as written: a region minted and bound, laid on top of
+whatever was already there.
 
-- **A sweep that encloses an existing region makes a second region on top of
-  it.** `createRegion` says so already: *"two regions that overlap a lot are two
-  regions that overlap a lot."* Nothing refuses it, and refusing at release would
-  sweep out a large area and give nothing back with no signal why.
-- **Absorption still steals.** A card whose centre falls in the rect is re-homed
-  out of whatever region held it, because `join` removes it from its previous
-  one — the 2026-07-28 ruling that *"a card lives in one place, and drawing a box
-  around it is you saying where"*. That now applies while binding too.
-- **A sweep never re-binds an existing region.** Binding one that is already on
-  the board is the region inspector's Piece picker, which is shipped and
-  unchanged.
+> **One formula, used twice.** Membership already decides what is in a region by
+> asking whether a card's **centre** falls inside the rect. The sweep asks the
+> same question of everything it passes over, regions included. Denver: *"how we
+> decide what is in a region is the same formula as how we decide what gets
+> selected in a sweep."*
 
-So the two routes are complete and neither needs the drag to grow a third
-meaning: **sweep to make-and-bind, inspector to bind-what-is-already-there.** A
-sweep that *selected* existing cards and regions was considered and rejected —
-it would give one gesture two rules depending on the dim, and binding lives on a
-region, so it could not express "these three loose cards belong to Chapter Three"
-without minting a region anyway.
+| The sweep catches | What happens |
+|---|---|
+| One or more existing **regions** | those regions bind to the subject. **Nothing is created, nothing moves, nothing is stolen.** |
+| No region — bare canvas, loose cards | a region is created, absorbs by centre as always, and binds. §4's row-three case, unchanged. |
+| Nothing at all | a region is created and bound, as before. |
+
+**The bound area then undims** — Denver's, and it is the acceptance criterion
+rather than a nicety: the sweep must light what it just claimed **within the same
+gesture**, not after some unrelated change bumps the scene. That closes the loop
+under the writer's own cursor, and it is the only confirmation the gesture gives.
+
+**A consequence worth having on the record: the stealing goes away exactly where
+it would have bitten hardest.** Sweeping across a board that already has regions
+on it no longer re-homes their cards, because nothing is being created to steal
+them into. The 2026-07-28 ruling — *"a card lives in one place, and drawing a box
+around it is you saying where"* — still governs the create case, undimmed and
+dimmed alike.
+
+**The undimmed board is untouched.** With no document selected there is nothing
+to bind, so a sweep is a plain region draw exactly as it has always been.
+
+**And the inspector's Piece picker stays** as the way to bind or unbind one
+region deliberately, including unbinding — which a sweep cannot express.
 
 **But a sweep while a group is selected makes a plain region, and the standing
 text never appears for a group.** This is the one deliberate exception to the
