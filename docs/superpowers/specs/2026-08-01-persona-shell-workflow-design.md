@@ -431,6 +431,36 @@ and because the registry half above is shippable without it.
 `⌘⌥` shortcuts**, which is a real cost of taking them off Plan's right column
 before the left-column home exists. That is the trade Denver accepted.
 
+**And the parked item grows a second half, found during slice 2's smoke:
+visual language should be scoped like intent — project *or* a manuscript
+document.** Denver: *"am I right that visual language is only per project? Not
+per piece in a collection?"* He is right, and it is enforced twice: `StatementPane.
+effectiveScope` guards `case .intent` and returns `.project` for every other kind
+(*"the book has one look (§2.1)"*), and `StatementLookup.path(for:)` has a case for
+`(.visualLanguage, .project)` and none for `(.visualLanguage, .document)` — so
+there is no storage for one either.
+
+**The app already contradicts itself about this, and the writer's own book is the
+evidence.** Per-piece `style_file` exists in the publish pipeline, has its own
+section in `EmissionContract`, survives language-suffixing for translated
+editions, and is settable over MCP — and *Playlist Volume One* shipped **five**
+per-piece typographies. So the statement layer says a project has one look while
+the publish layer says each piece may look however it likes. For a Collection the
+publish layer is right: a Collection is not a book with one look, it is a set of
+works bound together.
+
+**Most of the shape already exists.** `Statement.Scope` carries `.document`, the
+manifest registry stores per-scope entries, and `intent/<slug>.md` demonstrates
+the storage. Missing: the lookup case, the pane's guard, and **the one real design
+question — what a piece's visual language means when the project also has one.**
+Inherit, override, or merge. There is a precedent worth copying rather than
+inventing: canvas promotion resolves a destination **by precedence** — the card's
+own, else its home region's, else the project's — and deliberately does not merge.
+
+It belongs here rather than in a slice of its own because both halves want the
+same thing: a tree-driven scope for a statement being authored from the left
+column. Specifying them apart would decide that twice.
+
 ### 5.1 The Inspector dissolves
 
 The Inspector is the one pane the rule in §2 does not explain. Every other pane
