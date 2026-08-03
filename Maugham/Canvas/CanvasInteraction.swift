@@ -619,6 +619,94 @@ struct CanvasInteraction {
             }?.id
     }
 
+    /// **The centre question, and there is exactly one of it.** A swept rect
+    /// catches a drawn thing when that thing's CENTRE is inside it.
+    ///
+    /// Extracted at Denver's ruling of 2026-08-03: *"how we decide what is in a
+    /// region is the same formula as how we decide what gets selected in a
+    /// sweep."* Persona-shell §4.1 turns that into a rule with two callers —
+    /// `absorbedNodes` asks it of a card's frame, `caughtRegions` asks it of a
+    /// region's — and the whole point of the ruling is that it is ONE rule.
+    /// Spelled twice they are free to drift, and the drift is invisible: a sweep
+    /// that catches a region it would not have absorbed a card at (or the
+    /// reverse) looks, on screen, like the surface simply behaving oddly.
+    ///
+    /// `CanvasRegionInteractionTests.test_theSweepAsksTheSameCentreQuestionOfA
+    /// CardAndOfARegion` runs the same frames through both callers and fails if
+    /// their answers ever part company.
+    static func isCaught(_ frame: CGRect, by rect: CGRect) -> Bool {
+        rect.contains(CGPoint(x: frame.midX, y: frame.midY))
+    }
+
+    /// Which REGIONS a swept rect catches — the same centre question
+    /// `absorbedNodes` asks of a card, asked of a region's frame (§4.1).
+    ///
+    /// **No exclusions, and that is deliberate.** `absorbedNodes` skips an
+    /// unmeasured card (no frame, so no centre) and a hidden one (not drawn at
+    /// all); neither case exists here. Every region has a frame, and a COLLAPSED
+    /// region is still drawn — a counted label bar the writer swept over — and
+    /// binding it moves nothing and hides nothing, so there is nothing for an
+    /// exclusion to protect. A second list of exceptions would be a second
+    /// formula, which is what the ruling is against.
+    ///
+    /// **No minimum-side floor either**, unlike `createRegion`: that floor exists
+    /// because AppKit opens a drag session on every mouse-down, so most clicks on
+    /// bare canvas arrive here as a twitch-sized rect. A twitch cannot catch a
+    /// region's centre — `begin` refuses to start a sweep inside any region's
+    /// frame, so the pointer began at least half a region away from any centre
+    /// it could reach.
+    static func caughtRegions(by rect: CGRect, in scene: CanvasScene) -> Set<CanvasRegionID> {
+        var caught: Set<CanvasRegionID> = []
+        for region in scene.unorderedRegions where isCaught(region.frame, by: rect) {
+            caught.insert(region.id)
+        }
+        return caught
+    }
+
+    /// What a sweep does, decided in one place over every input that changes the
+    /// answer (§4.1's amendment of 2026-08-03).
+    ///
+    /// **The bug this replaces:** §4's sentence *"sweep a region and it binds to
+    /// that chapter"* describes only the empty-board case, and was built exactly
+    /// as written — so a sweep across a board that already had regions on it laid
+    /// a third rectangle over the top and absorbed their cards out of them.
+    /// Denver, on the smoke: *"it literally makes zero sense as a user
+    /// experience."*
+    ///
+    /// A pure function rather than a branch inside `handleDrag` because it is a
+    /// ROUTING decision with three subjects and two board states, and the group
+    /// exception below is exactly the kind of rule that goes missing when it
+    /// lives inside a gesture handler — `CanvasRegionInteractionTests` asks it
+    /// all six.
+    enum SweepOutcome: Equatable {
+
+        /// Mint a region for the swept rect, absorbing by centre as always, and
+        /// bind it to `piece` if there is one. §4's row-three case, unchanged —
+        /// and the whole of what an undimmed board or a group ever gets.
+        case create(bindingTo: String?)
+
+        /// The sweep caught regions already on the board: **they** bind, and
+        /// nothing is created, moved or stolen. Never empty.
+        case bind(regions: Set<CanvasRegionID>, toPiece: String)
+    }
+
+    /// - **The board is undimmed** (`.wholeProject`): there is nothing to bind
+    ///   to, so a sweep is a plain region draw exactly as it always was.
+    /// - **A GROUP is selected**: also a plain region draw, and §4.1's one
+    ///   deliberate exception to the invariant. A `boundPieceID` holds a document
+    ///   id, so picking one of the group's children would be the canvas guessing
+    ///   at a piece the writer never named.
+    /// - **A piece is selected and the sweep caught regions**: those regions
+    ///   bind.
+    /// - **A piece is selected and it caught none**: create and bind.
+    static func sweepOutcome(for rect: CGRect, subject: CanvasSubject,
+                             in scene: CanvasScene) -> SweepOutcome {
+        guard case .piece(let piece) = subject else { return .create(bindingTo: nil) }
+        let caught = caughtRegions(by: rect, in: scene)
+        return caught.isEmpty ? .create(bindingTo: piece)
+                              : .bind(regions: caught, toPiece: piece)
+    }
+
     /// Which cards a rect swept on bare canvas takes in.
     ///
     /// **CREATION ABSORBS; transitions do not.** (Denver, 2026-07-28.) §4.2's
@@ -656,7 +744,7 @@ struct CanvasInteraction {
         var absorbed: Set<CanvasNodeID> = []
         for node in scene.unorderedNodes {
             guard !scene.isHidden(node.id), let frame = node.frame else { continue }
-            if rect.contains(CGPoint(x: frame.midX, y: frame.midY)) { absorbed.insert(node.id) }
+            if isCaught(frame, by: rect) { absorbed.insert(node.id) }
         }
         return absorbed
     }

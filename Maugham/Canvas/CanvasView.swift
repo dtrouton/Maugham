@@ -1919,51 +1919,82 @@ struct CanvasView: View {
             }
             let flick = interaction.end()
 
-            // Whether the sweep actually minted a region, read below. A sweep
-            // that minted nothing changed no part of the scene, and it must not
-            // be mistaken for one that did — see the bump in the `else` branch.
-            var mintedRegion = false
+            // Whether the sweep actually changed the scene, read below. A sweep
+            // that minted nothing and bound nothing changed no part of it, and it
+            // must not be mistaken for one that did — see the bump in the `else`
+            // branch, where BOTH shapes have to be counted or the area the writer
+            // just claimed stays dim.
+            var sweepChangedTheScene = false
 
             if let drawnRegion {
-                // A sweep under `minimumSide` mints nothing — which is what
-                // every single click on bare canvas is, since `applyMouseDown`
-                // opens a drag session on every mouse-down.
                 model.withScene(persist: false) { scene in
-                    if let id = CanvasInteraction.createRegion(drawnRegion, in: &scene) {
-                        model.selection = .region(id)
-                        // *** §4.1's invariant, and it is the whole of slice 3's
-                        // mode: while the board is dimmed a sweep binds to
-                        // whatever the tree names. *** INSIDE the same
-                        // `withScene` as the create and the selection, so one
-                        // ⌘Z takes back the region and its binding together —
-                        // the drop-join twenty lines down is the same shape for
-                        // the same reason. Anywhere else (a `mutate` of its own,
-                        // or the inspector's verb) is a SECOND step on the
-                        // stack: the writer presses ⌘Z, watches the box go,
-                        // presses it again expecting their last sentence back
-                        // and re-runs a binding change nothing can show them.
+                    // *** §4.1's invariant, and it is the whole of slice 3's
+                    // mode: while the board is dimmed a sweep binds to whatever
+                    // the tree names. *** The routing — assign what it caught, or
+                    // create — is `sweepOutcome`'s, decided over the swept rect,
+                    // the subject and the scene together. It is not re-spelled
+                    // here, and the group exception lives there rather than in
+                    // this handler, where it would be one `if` away from being
+                    // lost in a later edit.
+                    //
+                    // Both arms are INSIDE this one `withScene`, in the bracket
+                    // `.began` opened, so one ⌘Z takes back the whole act — the
+                    // region and its binding, or every binding the sweep made.
+                    // The drop-join twenty lines down is the same shape for the
+                    // same reason. Anywhere else (a `mutate` of its own, or the
+                    // inspector's verb) is a SECOND step on the stack: the writer
+                    // presses ⌘Z, watches the box go, presses it again expecting
+                    // their last sentence back and re-runs a binding change
+                    // nothing can show them.
+                    //
+                    // **Never `mutateFromInspector`** — this is inside
+                    // `handleDrag`'s own open bracket, and close-run-reopen would
+                    // end a gesture the writer is still holding (tripwire 32's
+                    // converse, censused in `TripwireGrepTests`).
+                    switch CanvasInteraction.sweepOutcome(for: drawnRegion,
+                                                          subject: subject, in: scene) {
+                    case .bind(let regions, let piece):
+                        // **Nothing is created, nothing moves, nothing is
+                        // stolen** — so there is no `join`, no absorb and no
+                        // re-homing on this path, which is precisely where the
+                        // stealing would have bitten hardest. Tripwire 31 is not
+                        // even in play: no geometry is being turned into
+                        // membership, only into a binding the writer aimed at.
                         //
-                        // **Never `mutateFromInspector`** — this is inside
-                        // `handleDrag`'s own open bracket, and close-run-reopen
-                        // would end a gesture the writer is still holding
-                        // (tripwire 32's converse, censused in
-                        // `TripwireGrepTests`).
-                        //
-                        // **Tripwire 31 licenses this because it is a
-                        // CREATION**, exactly as the absorption one line down in
-                        // `createRegion` is: there is no prior relationship to
-                        // break. It is not a licence for a move or a resize to
-                        // touch a binding.
-                        //
-                        // `.piece` only. A GROUP makes a plain region (§4.1, the
-                        // one deliberate exception): a `boundPieceID` holds a
-                        // document id, and choosing one of the group's children
-                        // would be the canvas guessing at a piece the writer
-                        // never named.
-                        if case .piece(let piece) = subject {
-                            RegionBinding.bind(id, toPiece: piece, in: &scene)
+                        // A region already bound to a DIFFERENT document is
+                        // re-bound rather than skipped — `caughtRegions` says so
+                        // at length, and `absorbedNodes` has ruled the same way
+                        // on the card version of the question since 2026-07-28.
+                        for region in regions {
+                            RegionBinding.bind(region, toPiece: piece, in: &scene)
                         }
-                        mintedRegion = true
+                        // The selection is deliberately NOT touched. Nothing was
+                        // created, so there is nothing new to hand the writer,
+                        // and several regions cannot be handed to a
+                        // single-subject inspector anyway. §4.1 names the undim
+                        // as *"the only confirmation the gesture gives"*.
+                        //
+                        // The bracket was named "New Region" at `.began`, before
+                        // the answer existed. Nothing was made, so say what was
+                        // done: the Edit menu reads *Undo Bind Region(s)*.
+                        model.renameGesture(regions.count == 1 ? "Bind Region"
+                                                              : "Bind Regions")
+                        sweepChangedTheScene = true
+                    case .create(let piece):
+                        // A sweep under `minimumSide` mints nothing — which is
+                        // what every single click on bare canvas is, since
+                        // `applyMouseDown` opens a drag session on every
+                        // mouse-down.
+                        //
+                        // **Tripwire 31 licenses the absorption inside
+                        // `createRegion` because it is a CREATION**: there is no
+                        // prior relationship to break. It is not a licence for a
+                        // move or a resize to touch membership or a binding.
+                        guard let id = CanvasInteraction.createRegion(drawnRegion,
+                                                                      in: &scene) else { break }
+                        model.selection = .region(id)
+                        if let piece { RegionBinding.bind(id, toPiece: piece, in: &scene) }
+                        sweepChangedTheScene = true
                     }
                 }
             } else if wasDrawingLine {
@@ -2083,8 +2114,17 @@ struct CanvasView: View {
                 // point, and a release over bare canvas makes no line — without
                 // this each one would sort the scene, copy every scrap's string
                 // and rebuild two cached lists in the other column.
-                let mintedSomething = mintedRegion || mintedLine != nil
-                if (drawnRegion == nil && !wasDrawingLine) || mintedSomething {
+                //
+                // **A sweep that BOUND without minting counts here too**, and
+                // that is §4.1's acceptance criterion rather than a nicety: the
+                // lit set is rebuilt from this counter, so a bind that skipped it
+                // would leave the region the writer just claimed dim until
+                // something unrelated moved. The whole confirmation the gesture
+                // gives is the undim, and it has to arrive inside the gesture.
+                // `sweepChangedTheScene` covers both shapes for exactly that
+                // reason — a `mintedRegion` here would have been true of one.
+                let changedSomething = sweepChangedTheScene || mintedLine != nil
+                if (drawnRegion == nil && !wasDrawingLine) || changedSomething {
                     model.bumpSceneRevision()
                 }
                 if let flick { momentum.launch(flick.id, velocity: flick.velocity) }

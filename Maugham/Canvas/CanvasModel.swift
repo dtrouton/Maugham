@@ -405,6 +405,7 @@ final class CanvasModel {
 
     func beginGesture(_ name: String) { undo.beginGesture(name) }
     func endGesture() { undo.endGesture() }
+    func renameGesture(_ name: String) { undo.renameGesture(name) }
     func breakGesture() { undo.breakGesture() }
     func mutate(_ name: String, _ body: (inout CanvasScene) -> Void) {
         undo.beginGesture(name)

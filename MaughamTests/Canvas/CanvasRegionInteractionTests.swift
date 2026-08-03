@@ -394,6 +394,180 @@ final class CanvasRegionInteractionTests: XCTestCase {
                        + "that says nothing about where it will be drawn")
     }
 
+    // MARK: - What a sweep CATCHES, and what it decides to do about it
+    //
+    // §4.1's amendment of 2026-08-03, after Denver's smoke: a sweep across a
+    // board that already had regions on it minted a third rectangle over the
+    // top and absorbed their cards out of them. *"It literally makes zero sense
+    // as a user experience."* The ruling is one formula used twice — the sweep
+    // asks the centre question of everything it passes over, regions included —
+    // and `sweepOutcome` is the routing, asked here over every input that
+    // changes its answer.
+
+    /// The centre decides for a region exactly as it does for a card, and both
+    /// directions are asserted for the reason the card version gives: "catches
+    /// everything it touches" and "catches nothing" both pass a one-sided one.
+    func test_aSweepCatchesTheRegionsWhoseCentreItCovers() {
+        let s = scene()
+        // r1 is (0,0)–(600,400), centre (300,200).
+        XCTAssertEqual(CanvasInteraction.caughtRegions(
+            by: CGRect(x: 100, y: 100, width: 400, height: 300), in: s), [r1])
+        XCTAssertEqual(CanvasInteraction.caughtRegions(
+            by: CGRect(x: 2_000, y: 2_000, width: 400, height: 300), in: s), [])
+    }
+
+    /// A region the sweep only clips keeps its binding — the same answer the
+    /// card version gives, and the same answer to §4.2's one-pixel absurdity.
+    func test_aSweepThatOnlyClipsARegionDoesNotCatchIt() {
+        let s = scene()
+        // Covers r1's left third and stops well short of its centre at x = 300.
+        XCTAssertEqual(CanvasInteraction.caughtRegions(
+            by: CGRect(x: 0, y: 0, width: 200, height: 500), in: s), [],
+                       "a sweep that merely overlaps a region claimed it")
+    }
+
+    /// **The anti-drift assertion, and it is what "one formula" means in code.**
+    ///
+    /// A card and a region are given the IDENTICAL rectangle, so any difference
+    /// in the two answers is a difference in the formula and can be nothing
+    /// else. Both callers go through `CanvasInteraction.isCaught`; re-spell
+    /// either one and a row here parts company.
+    ///
+    /// The two controls are what stop it being unfalsifiable: a predicate that
+    /// always said no, or always yes, would satisfy every equality below.
+    func test_theSweepAsksTheSameCentreQuestionOfACardAndOfARegion() {
+        // (100,100)–(340,180), centre (220,140).
+        let shape = CGRect(x: 100, y: 100, width: 240, height: 80)
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: a, kind: .scrap, origin: shape.origin,
+                            width: shape.width, cachedHeight: shape.height))
+        s.insertRegion(CanvasRegion(id: r1, label: "", frame: shape))
+
+        let wellInside = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let nowhereNear = CGRect(x: 2_000, y: 2_000, width: 400, height: 300)
+        XCTAssertEqual(CanvasInteraction.caughtRegions(by: wellInside, in: s), [r1],
+                       "control: this rect must catch, or every equality below is "
+                       + "satisfied by a predicate that always says no")
+        XCTAssertEqual(CanvasInteraction.caughtRegions(by: nowhereNear, in: s), [],
+                       "control: this rect must NOT catch, or every equality below "
+                       + "is satisfied by a predicate that always says yes")
+
+        let rects: [CGRect] = [
+            wellInside,
+            nowhereNear,
+            shape,                                             // exactly the frame
+            CGRect(x: 0, y: 0, width: 200, height: 300),       // clips it, centre out
+            CGRect(x: 219, y: 139, width: 2, height: 2),       // just the centre
+            CGRect(x: 221, y: 141, width: 400, height: 400),   // starts one past it
+        ]
+        for rect in rects {
+            XCTAssertEqual(CanvasInteraction.absorbedNodes(by: rect, in: s).contains(a),
+                           CanvasInteraction.caughtRegions(by: rect, in: s).contains(r1),
+                           "the card and the region occupy the same rectangle, and "
+                           + "\(rect) caught one but not the other — §4.1 is ONE "
+                           + "formula used twice and the two spellings have drifted")
+        }
+    }
+
+    /// **No exclusions, unlike `absorbedNodes`** — and a collapsed region is the
+    /// case that tests it. It is still drawn (a counted label bar the writer
+    /// swept over), and binding it moves nothing and hides nothing, so there is
+    /// nothing for an exclusion to protect. The card version skips a HIDDEN card
+    /// because absorbing it would move something invisible out of somewhere
+    /// invisible; no such cost exists here.
+    func test_aSweepCatchesACollapsedRegion() {
+        var s = scene()
+        s.updateRegion(r1) { $0.isCollapsed = true }
+        XCTAssertEqual(CanvasInteraction.caughtRegions(
+            by: CGRect(x: 100, y: 100, width: 400, height: 300), in: s), [r1],
+                       "a collapsed region was skipped: its bar is on screen and "
+                       + "the writer swept over it, and binding it neither moves "
+                       + "nor hides anything")
+    }
+
+    /// **The finding itself, at the level that decides it.** The sweep caught a
+    /// region, so that region binds and nothing is created.
+    func test_aSweepThatCatchesARegionAssignsRatherThanCreates() {
+        XCTAssertEqual(CanvasInteraction.sweepOutcome(
+            for: CGRect(x: 100, y: 100, width: 400, height: 300),
+            subject: .piece("ch1"), in: scene()),
+                       .bind(regions: [r1], toPiece: "ch1"),
+                       "the sweep passed over a region and still asked for a new "
+                       + "one — a third rectangle laid over what was already there")
+    }
+
+    /// **Every region it passed over, not just the first.** One act, and the
+    /// projection already unions across regions, so all of them are one piece's
+    /// context.
+    func test_aSweepCatchesEveryRegionItPassesOver() {
+        var s = scene()
+        let r2 = CanvasRegionID("r2")
+        // Centre (900,200) — inside the rect below, well clear of r1.
+        s.insertRegion(CanvasRegion(id: r2, label: "Act III",
+                                    frame: CGRect(x: 800, y: 100, width: 200, height: 200)))
+        XCTAssertEqual(CanvasInteraction.sweepOutcome(
+            for: CGRect(x: 0, y: 0, width: 1_200, height: 600),
+            subject: .piece("ch1"), in: s),
+                       .bind(regions: [r1, r2], toPiece: "ch1"))
+    }
+
+    /// §4's row three, unchanged: nothing was caught, so a region is minted and
+    /// bound.
+    func test_aSweepThatCatchesNoRegionCreatesAndBinds() {
+        XCTAssertEqual(CanvasInteraction.sweepOutcome(
+            for: CGRect(x: 2_000, y: 2_000, width: 400, height: 300),
+            subject: .piece("ch1"), in: scene()),
+                       .create(bindingTo: "ch1"))
+    }
+
+    /// **The undimmed board is untouched** (§4.1). With nothing selected there
+    /// is nothing to bind to, so a sweep is a plain region draw — *even when it
+    /// passes straight over a region*, which is the case the assign path could
+    /// leak into.
+    func test_aSweepOnAnUndimmedBoardCreatesEvenWhenItCatchesARegion() {
+        XCTAssertEqual(CanvasInteraction.sweepOutcome(
+            for: CGRect(x: 100, y: 100, width: 400, height: 300),
+            subject: .wholeProject, in: scene()),
+                       .create(bindingTo: nil),
+                       "the project row bound something, or refused to draw: on an "
+                       + "undimmed board a sweep is just a sweep")
+    }
+
+    /// **A group makes a plain region** — §4.1's one deliberate exception, and it
+    /// holds over a region as well as over bare canvas. A `boundPieceID` holds a
+    /// document id, so there is nothing a group's sweep could bind to.
+    func test_aSweepWithAGroupSelectedCreatesEvenWhenItCatchesARegion() {
+        XCTAssertEqual(CanvasInteraction.sweepOutcome(
+            for: CGRect(x: 100, y: 100, width: 400, height: 300),
+            subject: .group(["ch1", "ch2"]), in: scene()),
+                       .create(bindingTo: nil),
+                       "a sweep under a GROUP bound a region to one of the group's "
+                       + "chapters, or to the group — the canvas picked a piece the "
+                       + "writer never named")
+    }
+
+    /// **Sub-question, decided: a region already bound to ANOTHER document is
+    /// re-bound, not skipped.**
+    ///
+    /// The same ruling `absorbedNodes` made on the card version of this question
+    /// on 2026-07-28, for the same reason: skipping the ones already spoken for
+    /// gives a sweep that claimed some of what it passed over and not the rest,
+    /// with nothing on screen to say which — and the undim, which is *the only
+    /// confirmation the gesture gives*, would then be lit for the ones that took
+    /// and dim for the ones that did not, with no way to tell that from a miss.
+    /// You swept it, you meant it; and one ⌘Z puts it back.
+    func test_aSweepReclaimsARegionBoundToAnotherDocument() {
+        var s = scene()
+        RegionBinding.bind(r1, toPiece: "ch2", in: &s)
+        XCTAssertEqual(CanvasInteraction.sweepOutcome(
+            for: CGRect(x: 100, y: 100, width: 400, height: 300),
+            subject: .piece("ch1"), in: s),
+                       .bind(regions: [r1], toPiece: "ch1"),
+                       "the sweep passed over a region bound elsewhere and left it "
+                       + "alone — a silent no-op with the dim unchanged, which reads "
+                       + "on screen exactly like a sweep that missed")
+    }
+
     /// A new region takes the rect it was swept, not a default one — otherwise
     /// the writer sweeps out an area and gets a box somewhere else.
     func test_aNewRegionTakesTheSweptRect() {

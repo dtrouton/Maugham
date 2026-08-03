@@ -100,6 +100,48 @@ final class CanvasViewMountingTests: XCTestCase {
         try makeRoot()
     }
 
+    /// **A board that already has an arrangement on it** — which is the state
+    /// §4.1's assign case is about, and the one no other fixture here provides.
+    ///
+    /// - `r1` at (300,300)–(500,450), centre **(400,375)**.
+    /// - The fixture card at (320,330)–(560,368), centre **(440,349)**, living
+    ///   in `r1`. It overhangs `r1`'s right edge on purpose: membership is
+    ///   stored and geometry means nothing, so a test that watched a card
+    ///   neatly inside its region could not tell the two apart.
+    /// - A second card at (300,452)–(540,490), centre **(420,471)**, LOOSE —
+    ///   just below `r1`'s bottom edge, so it is inside the swept rect and in
+    ///   no region. It is what a create-instead-of-assign would absorb.
+    ///
+    /// Every centre is inside the rect swept from (280,280) to (600,500), and
+    /// (280,280) itself is outside every region — `CanvasInteraction.begin`
+    /// refuses to start a sweep inside one.
+    private func arrangedBoardRoot(bound piece: String? = nil) throws -> URL {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: scrapID, kind: .scrap, origin: CGPoint(x: 320, y: 330),
+                                width: 240, cachedHeight: 38))
+        scene.insert(CanvasNode(id: secondScrapID, kind: .scrap,
+                                origin: CGPoint(x: 300, y: 452),
+                                width: 240, cachedHeight: 38))
+        scene.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                        frame: CGRect(x: 300, y: 300, width: 200, height: 150),
+                                        homeMembers: [scrapID],
+                                        boundPieceID: piece))
+        return try projectRoot(scene: scene, scraps: [scrapID: scrapText,
+                                                      secondScrapID: secondScrapText])
+    }
+
+    /// Two unbound regions, far apart, both caught by a sweep from (60,60) to
+    /// (760,560) — `r1`'s centre is (175,160) and `r2`'s is (575,410). No cards:
+    /// what this fixture is for is *several regions bound in one act*.
+    private func twoRegionBoardRoot() throws -> URL {
+        var scene = CanvasScene()
+        scene.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act I",
+                                        frame: CGRect(x: 100, y: 100, width: 150, height: 120)))
+        scene.insertRegion(CanvasRegion(id: CanvasRegionID("r2"), label: "Act II",
+                                        frame: CGRect(x: 500, y: 350, width: 150, height: 120)))
+        return try projectRoot(scene: scene, scraps: [:])
+    }
+
     /// One measured card at (20,20)–(260,58), centre (140,39), and one region
     /// wherever the caller wants it — for the two tests that drag a region onto
     /// a card it must not absorb. The card is NOT a member: what those tests
@@ -2712,8 +2754,7 @@ final class CanvasViewMountingTests: XCTestCase {
                              + "until something unrelated happens to bump it")
     }
 
-    /// **One ⌘Z takes back the region and its binding together**, because they are
-    /// one act of the writer's.
+    /// **One ⌘Z takes back the whole act — in BOTH of the sweep's shapes.**
     ///
     /// `canUndo` going false afterwards is the assertion that matters: a bind
     /// written outside `handleDrag`'s open bracket — through `mutate`, or through
@@ -2721,8 +2762,20 @@ final class CanvasViewMountingTests: XCTestCase {
     /// stack. The writer presses ⌘Z once, watches the box go, presses it again
     /// expecting their last sentence back, and re-runs a binding change nothing
     /// on screen can show them.
+    ///
+    /// **Both shapes are here rather than in two tests** (§4.1's assign case,
+    /// added 2026-08-03) because they are one gesture with one rule, and a
+    /// parallel test is what lets a fix to one of them quietly stop covering the
+    /// other. The board this runs on already has a region and a resident card, so
+    /// shape one sweeps bare canvas clear of it and shape two sweeps across it.
+    ///
+    /// The Edit menu is read in both, and it says something different in each:
+    /// the bracket is named "New Region" at `.began`, before the sweep's answer
+    /// exists, so an assign that left that name would offer *Undo New Region* for
+    /// a gesture that made nothing.
     func test_oneUndoTakesBackTheSweptRegionAndItsBindingTogether() throws {
-        let root = try projectRoot()
+        let root = try arrangedBoardRoot()
+        let existing = CanvasRegionID("r1")
         let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
                                      paletteSwatchHexes: { [] },
                                      subject: .piece("ch1")))
@@ -2730,11 +2783,14 @@ final class CanvasViewMountingTests: XCTestCase {
         let manager = try XCTUnwrap(events.undoManager)
         XCTAssertFalse(manager.canUndo, "precondition: nothing on the stack yet")
 
+        // --- Shape one: the sweep MINTED. Bare canvas above and left of r1.
         drag(events, from: CGPoint(x: 320, y: 240),
              through: [CGPoint(x: 10, y: 10), CGPoint(x: 10, y: 10)])
         pump(1.0)
-        XCTAssertEqual(sceneOnDisk(root).regions.first?.boundPieceID, "ch1",
-                       "precondition: the sweep bound")
+        let afterMint = sceneOnDisk(root)
+        XCTAssertEqual(afterMint.regionCount, 2, "precondition: the sweep minted")
+        let minted = try XCTUnwrap(afterMint.unorderedRegions.first { $0.id != existing })
+        XCTAssertEqual(minted.boundPieceID, "ch1", "precondition: the sweep bound")
         XCTAssertTrue(manager.undoMenuItemTitle.contains("New Region"),
                       "the Edit menu offers \"\(manager.undoMenuItemTitle)\" — the "
                       + "binding was registered under a name of its own, so it is "
@@ -2743,10 +2799,34 @@ final class CanvasViewMountingTests: XCTestCase {
         manager.undo()
         pump(1.0)
 
-        XCTAssertEqual(sceneOnDisk(root).regionCount, 0, "⌘Z left the region behind")
+        XCTAssertEqual(sceneOnDisk(root).regionCount, 1, "⌘Z left the region behind")
         XCTAssertFalse(manager.canUndo,
                        "a second step is on the stack: the region and the binding "
                        + "were TWO ⌘Zs")
+
+        // --- Shape two: the sweep ASSIGNED, across r1's centre at (400,375).
+        drag(events, from: CGPoint(x: 280, y: 280),
+             through: [CGPoint(x: 600, y: 500), CGPoint(x: 600, y: 500)])
+        pump(1.0)
+        XCTAssertEqual(sceneOnDisk(root).region(existing)?.boundPieceID, "ch1",
+                       "precondition: the sweep bound what it caught")
+        XCTAssertTrue(manager.undoMenuItemTitle.contains("Bind Region"),
+                      "the Edit menu offers \"\(manager.undoMenuItemTitle)\" for a "
+                      + "gesture that created nothing — the bracket kept the name it "
+                      + "was given before the sweep's answer existed")
+
+        manager.undo()
+        pump(1.0)
+
+        let afterUndo = sceneOnDisk(root)
+        XCTAssertEqual(afterUndo.regionCount, 1,
+                       "the undo of an assign took a region away — the assign made "
+                       + "none, so it has none to take back")
+        XCTAssertNil(try XCTUnwrap(afterUndo.region(existing)).boundPieceID,
+                     "⌘Z left the binding behind")
+        XCTAssertFalse(manager.canUndo,
+                       "a second step is on the stack: binding what the sweep caught "
+                       + "is ONE act, and several regions bound at once are one too")
     }
 
     /// The second half of the invariant, and it is what keeps the mode legible:
@@ -2814,6 +2894,178 @@ final class CanvasViewMountingTests: XCTestCase {
         XCTAssertEqual(onDisk.unorderedRegions.filter { $0.boundPieceID == "ch1" }.count, 2,
                        "the second sweep did not bind — a chapter's context is every "
                        + "region bound to it, not the first one the writer drew")
+    }
+
+    // MARK: - §4.1's assign case: a sweep that catches regions binds them
+
+    /// **The smoke finding, 2026-08-03, on the delivery path.** Denver, sweeping
+    /// across a board that already had regions on it: *"my issue is it creates a
+    /// new region which is pointless and a horrible user experience… it literally
+    /// makes zero sense as a user experience."*
+    ///
+    /// §4.1's ruling is one formula used twice — the sweep asks the centre
+    /// question of everything it passes over, **regions included** — and every
+    /// assertion here is a different way of saying "nothing was created":
+    ///
+    /// - the region COUNT, which is the third rectangle laid over the other two;
+    /// - the resident card's home, which a minted region would have stolen by
+    ///   absorption (*"nothing is stolen"*);
+    /// - the loose card, which a minted region would have taken in.
+    ///
+    /// And the last pair is the acceptance criterion rather than a nicety: the
+    /// bound area **undims within the same gesture**. The lit set is rebuilt from
+    /// `sceneRevision`, so a bind that does not bump it leaves the region the
+    /// writer just claimed dim until something unrelated moves.
+    func test_aSweepAcrossExistingRegionsBindsThemAndCreatesNothing() throws {
+        let root = try arrangedBoardRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1")))
+        let events = try eventView(in: window)
+        let revisionBefore = model.sceneRevision
+
+        drag(events, from: CGPoint(x: 280, y: 280),
+             through: [CGPoint(x: 600, y: 500), CGPoint(x: 600, y: 500)])
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.regionCount, 1,
+                       "the sweep minted a region over the one it passed over — "
+                       + "§4.1: when the sweep catches a region, that region binds "
+                       + "and nothing is created")
+        let r1 = try XCTUnwrap(onDisk.region(CanvasRegionID("r1")),
+                               "the region the writer already had is gone")
+        XCTAssertEqual(r1.boundPieceID, "ch1",
+                       "the sweep caught this region's centre and did not bind it")
+        XCTAssertTrue(r1.livesHere(scrapID),
+                      "the card was stolen out of the region it lived in — the "
+                      + "assign path touches no membership at all")
+        XCTAssertNil(CanvasMembership.homeRegion(of: secondScrapID, in: onDisk),
+                     "a loose card inside the swept rect was absorbed, so something "
+                     + "was created after all")
+
+        let lit = CanvasHighlight.resolve(subject: .piece("ch1"), in: onDisk)
+        XCTAssertTrue(lit.regions.contains(r1.id),
+                      "the region the writer just bound is not in that chapter's lit "
+                      + "set, so it draws dimmed on a board dimmed to it")
+        XCTAssertTrue(lit.nodes.contains(scrapID),
+                      "the bound region's resident is not lit — a bound region's "
+                      + "residents ARE the piece's context (§4)")
+        XCTAssertGreaterThan(model.sceneRevision, revisionBefore,
+                             "the structural counter did not move on a sweep that "
+                             + "bound without minting, so the cached lit set is never "
+                             + "rebuilt and the area the writer just claimed stays "
+                             + "dim until something unrelated bumps it")
+    }
+
+    /// **Several regions at once, and it is ONE act** (§4.1) — because the sweep
+    /// asked one question of everything it passed over.
+    func test_aSweepAcrossTwoRegionsBindsBothAsOneStep() throws {
+        let root = try twoRegionBoardRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1")))
+        let events = try eventView(in: window)
+        let manager = try XCTUnwrap(events.undoManager)
+
+        drag(events, from: CGPoint(x: 60, y: 60),
+             through: [CGPoint(x: 760, y: 560), CGPoint(x: 760, y: 560)])
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.regionCount, 2, "the sweep minted a third region")
+        XCTAssertEqual(onDisk.unorderedRegions.filter { $0.boundPieceID == "ch1" }.count, 2,
+                       "the sweep bound only some of what it passed over, so the "
+                       + "board came back part lit and part dim with nothing to say "
+                       + "which")
+        XCTAssertTrue(manager.undoMenuItemTitle.contains("Bind Regions"),
+                      "the Edit menu offers \"\(manager.undoMenuItemTitle)\" for two "
+                      + "regions")
+
+        manager.undo()
+        pump(1.0)
+        XCTAssertEqual(sceneOnDisk(root).unorderedRegions.filter { $0.boundPieceID != nil }.count, 0,
+                       "one ⌘Z took back only one of the bindings")
+        XCTAssertFalse(manager.canUndo,
+                       "binding two regions cost two ⌘Zs — it is one act of the "
+                       + "writer's and one step on the stack")
+    }
+
+    /// **The undimmed board is untouched** (§4.1), on the delivery path: with
+    /// nothing selected there is nothing to bind, so a sweep across a region is a
+    /// plain region draw and the assign path does not leak into it.
+    ///
+    /// The resident card DOES move into the new region here, and that is the
+    /// 2026-07-28 creation-absorbs ruling working as designed rather than the
+    /// stealing §4.1 removed — something was created, so it absorbs.
+    func test_aSweepAcrossARegionOnAnUndimmedBoardStillDrawsANewOne() throws {
+        let root = try arrangedBoardRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .wholeProject))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 280, y: 280),
+             through: [CGPoint(x: 600, y: 500), CGPoint(x: 600, y: 500)])
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.regionCount, 2,
+                       "a sweep on the project row drew no region — the assign path "
+                       + "leaked onto an undimmed board, where there is nothing to "
+                       + "bind and a sweep is just a sweep")
+        XCTAssertNil(try XCTUnwrap(onDisk.region(CanvasRegionID("r1"))).boundPieceID,
+                     "a sweep on the whole board bound something: the dim IS the "
+                     + "mode indicator, so binding without one is invisible at the "
+                     + "moment it happens")
+    }
+
+    /// **A group still makes a plain region** (§4.1's one deliberate exception),
+    /// and it holds over a region as well as over bare canvas — a dimmed board
+    /// with Part One selected says *"here is everything under Part One"*, not
+    /// *"put something here"*, and a `boundPieceID` holds a document id.
+    func test_aSweepAcrossARegionWithAGroupSelectedStillDrawsANewOne() throws {
+        let root = try arrangedBoardRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .group(["ch1", "ch2"])))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 280, y: 280),
+             through: [CGPoint(x: 600, y: 500), CGPoint(x: 600, y: 500)])
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.regionCount, 2,
+                       "a sweep under a GROUP took the assign path — the dim there "
+                       + "means \"here is everything beneath this\", and there is "
+                       + "nothing a sweep could bind to")
+        XCTAssertNil(try XCTUnwrap(onDisk.region(CanvasRegionID("r1"))).boundPieceID,
+                     "a sweep under a GROUP bound a region to one of the group's "
+                     + "chapters — the canvas picked a piece the writer never named")
+    }
+
+    /// **A region already bound to ANOTHER document is re-bound, not skipped** —
+    /// the ruling, on the delivery path. `CanvasRegionInteractionTests`'
+    /// `test_aSweepReclaimsARegionBoundToAnotherDocument` carries the argument.
+    func test_aSweepReclaimsARegionAlreadyBoundToAnotherDocument() throws {
+        let root = try arrangedBoardRoot(bound: "ch2")
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1")))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 280, y: 280),
+             through: [CGPoint(x: 600, y: 500), CGPoint(x: 600, y: 500)])
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.regionCount, 1, "the sweep minted rather than reclaimed")
+        XCTAssertEqual(onDisk.region(CanvasRegionID("r1"))?.boundPieceID, "ch1",
+                       "the sweep passed over a region bound elsewhere and left it "
+                       + "alone — a silent no-op with the dim unchanged, which reads "
+                       + "on screen exactly like a sweep that missed")
     }
 
     // MARK: - The standing offer (§4's third row)

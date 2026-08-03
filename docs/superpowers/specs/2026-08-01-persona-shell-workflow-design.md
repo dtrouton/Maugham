@@ -326,6 +326,19 @@ rather than a nicety: the sweep must light what it just claimed **within the sam
 gesture**, not after some unrelated change bumps the scene. That closes the loop
 under the writer's own cursor, and it is the only confirmation the gesture gives.
 
+**A region already bound to a DIFFERENT document is re-bound, not skipped** —
+decided during the build, 2026-08-03, because §4.1 as written did not settle it
+and it falls out of the implementation otherwise. It is the ruling
+`absorbedNodes` already made about a *card* that lives in another region
+(2026-07-28), for the same reason: skipping the ones already spoken for gives a
+sweep that claimed some of what it passed over and not the rest, with nothing on
+screen to say which — and since the undim below is *the only confirmation the
+gesture gives*, a skip is indistinguishable from a miss. You swept it, you meant
+it, and one ⌘Z puts it back. **The selection is not touched on the assign path**,
+for the matching reason: nothing was created, so there is nothing new to hand the
+writer, and several regions cannot be handed to a single-subject inspector at
+all.
+
 **A consequence worth having on the record: the stealing goes away exactly where
 it would have bitten hardest.** Sweeping across a board that already has regions
 on it no longer re-homes their cards, because nothing is being created to steal
@@ -336,8 +349,19 @@ dimmed alike.
 **The undimmed board is untouched.** With no document selected there is nothing
 to bind, so a sweep is a plain region draw exactly as it has always been.
 
-**And the inspector's Piece picker stays** as the way to bind or unbind one
-region deliberately, including unbinding — which a sweep cannot express.
+**A sweep never RE-binds. A region that already has a binding is skipped** —
+Denver, 2026-08-03 — whether it is bound to this document or another one. So the
+assign path touches only regions whose binding is empty.
+
+That has one consequence worth spelling out, because getting it wrong reproduces
+the very defect this correction exists to fix: **a sweep that catches only
+already-bound regions binds nothing AND creates nothing.** *"I caught no bindable
+region"* is not *"I caught no region"*, and collapsing the two would drop a fresh
+rectangle on top of exactly the board Denver called a horrible user experience.
+
+**And the inspector's Piece picker stays** as the way to bind one region
+deliberately, to move it from one document to another, or to unbind it — the
+route that can express *"no"*, which a sweep cannot.
 
 **But a sweep while a group is selected makes a plain region, and the standing
 text never appears for a group.** This is the one deliberate exception to the

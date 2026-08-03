@@ -126,6 +126,30 @@ final class CanvasUndo {
         undoManager.endUndoGrouping()
     }
 
+    /// Rename the gesture already open, for the case where what the writer did
+    /// is only knowable at the END of it.
+    ///
+    /// **One caller, and it is the sweep** (persona-shell §4.1). A press opens
+    /// the bracket the moment `begin` picks a mode, and at that instant a sweep
+    /// is a sweep; whether it will mint a region or bind the ones it passes over
+    /// depends on where the pointer eventually goes and on what the tree names.
+    /// So "New Region" is fixed before the answer exists, and a step called
+    /// *Undo New Region* that took back a BINDING would describe an act the
+    /// writer did not perform.
+    ///
+    /// **It renames, it does not open, close or register.** Nothing about the
+    /// bracket moves, so this cannot be a route around `mutate` /
+    /// `mutateFromOutsideTheCanvas` — a caller with no gesture of its own gets
+    /// nothing at all, rather than a step of its own under a borrowed name.
+    ///
+    /// A NESTED gesture is left alone for the same reason `breakGesture`
+    /// declines there: the name belongs to whoever opened the outer bracket, and
+    /// renaming it from inside would relabel a step they are still building.
+    func renameGesture(_ name: String) {
+        guard depth == 1 else { return }
+        gestureName = name
+    }
+
     /// Close the open gesture and immediately open another under the same name.
     ///
     /// This is what gives a long visit to a scrap more than one ⌘Z. `endGesture`
