@@ -326,18 +326,19 @@ rather than a nicety: the sweep must light what it just claimed **within the sam
 gesture**, not after some unrelated change bumps the scene. That closes the loop
 under the writer's own cursor, and it is the only confirmation the gesture gives.
 
-**A region already bound to a DIFFERENT document is re-bound, not skipped** —
-decided during the build, 2026-08-03, because §4.1 as written did not settle it
-and it falls out of the implementation otherwise. It is the ruling
-`absorbedNodes` already made about a *card* that lives in another region
-(2026-07-28), for the same reason: skipping the ones already spoken for gives a
-sweep that claimed some of what it passed over and not the rest, with nothing on
-screen to say which — and since the undim below is *the only confirmation the
-gesture gives*, a skip is indistinguishable from a miss. You swept it, you meant
-it, and one ⌘Z puts it back. **The selection is not touched on the assign path**,
-for the matching reason: nothing was created, so there is nothing new to hand the
-writer, and several regions cannot be handed to a single-subject inspector at
-all.
+**The selection is not touched on the assign path** — decided during the build,
+2026-08-03, because §4.1 as written did not settle it and it falls out of the
+implementation otherwise. Nothing was created, so there is nothing new to hand
+the writer, and several regions bound at once cannot be handed to a
+single-subject inspector at all. The undim below is the confirmation.
+
+> **The implementer proposed the opposite of the ruling four paragraphs down —
+> that a region bound elsewhere should be RE-bound, on the grounds that
+> `absorbedNodes` rules that way about a card that already lives somewhere
+> (2026-07-28). Denver ruled against it the same day**, and the note is kept
+> because the analogy is the tempting part: absorbing a card *moves* it and the
+> writer can see it move, where a re-bind is invisible and unaskable-for — a
+> sweep cannot express *"no"*, so it must not be able to express *"instead"*.
 
 **A consequence worth having on the record: the stealing goes away exactly where
 it would have bitten hardest.** Sweeping across a board that already has regions

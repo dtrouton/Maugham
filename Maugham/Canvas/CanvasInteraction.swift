@@ -685,26 +685,57 @@ struct CanvasInteraction {
         /// and the whole of what an undimmed board or a group ever gets.
         case create(bindingTo: String?)
 
-        /// The sweep caught regions already on the board: **they** bind, and
-        /// nothing is created, moved or stolen. Never empty.
+        /// The sweep caught UNBOUND regions already on the board: **they** bind,
+        /// and nothing is created, moved or stolen. Never empty.
         case bind(regions: Set<CanvasRegionID>, toPiece: String)
+
+        /// The sweep caught regions and every one of them was already bound.
+        /// **Nothing happens at all** — no bind, and emphatically no create.
+        ///
+        /// This case exists because *"I caught no bindable region"* is not
+        /// *"I caught no region"*, and collapsing the two drops a fresh
+        /// rectangle on top of exactly the board Denver called a horrible user
+        /// experience. It is the whole reason this is a three-case enum rather
+        /// than an `isEmpty` test on a filtered set.
+        case doNothing
     }
 
     /// - **The board is undimmed** (`.wholeProject`): there is nothing to bind
-    ///   to, so a sweep is a plain region draw exactly as it always was.
+    ///   to, so a sweep is a plain region draw exactly as it always was — even
+    ///   over a region, because there is no assign path there to leak.
     /// - **A GROUP is selected**: also a plain region draw, and §4.1's one
     ///   deliberate exception to the invariant. A `boundPieceID` holds a document
     ///   id, so picking one of the group's children would be the canvas guessing
     ///   at a piece the writer never named.
-    /// - **A piece is selected and the sweep caught regions**: those regions
-    ///   bind.
-    /// - **A piece is selected and it caught none**: create and bind.
+    /// - **A piece is selected and it caught no region at all**: create and bind.
+    /// - **A piece is selected and it caught UNBOUND regions**: those bind.
+    /// - **A piece is selected and everything it caught was already bound**:
+    ///   nothing happens.
+    ///
+    /// **A sweep never RE-binds** (Denver, 2026-08-03) — a region that already
+    /// has a binding is skipped, whether it is bound to this document or to
+    /// another one, so the assign path touches only regions whose binding is
+    /// empty. Changing a binding stays deliberate: `RegionInspector`'s Piece
+    /// picker is the route that can move one region from one document to
+    /// another, and the only one that can express *"no"*, which a sweep cannot.
+    ///
+    /// **The trap is the last two bullets being one branch.** Filter the caught
+    /// set and then ask `isEmpty` to choose between bind and create, and a sweep
+    /// across a board of already-bound regions mints a new one over the top —
+    /// the original defect, arriving through the fix for it. The two emptinesses
+    /// are asked separately below and `CanvasRegionInteractionTests` plants that
+    /// exact collapse.
     static func sweepOutcome(for rect: CGRect, subject: CanvasSubject,
                              in scene: CanvasScene) -> SweepOutcome {
         guard case .piece(let piece) = subject else { return .create(bindingTo: nil) }
         let caught = caughtRegions(by: rect, in: scene)
-        return caught.isEmpty ? .create(bindingTo: piece)
-                              : .bind(regions: caught, toPiece: piece)
+        // FIRST emptiness: did the sweep pass over any region at all? Only a
+        // board with nothing under the rect gets a new rectangle.
+        guard !caught.isEmpty else { return .create(bindingTo: piece) }
+        // SECOND emptiness, and it can only ever choose between binding and
+        // doing nothing.
+        let bindable = caught.filter { scene.region($0)?.boundPieceID == nil }
+        return bindable.isEmpty ? .doNothing : .bind(regions: bindable, toPiece: piece)
     }
 
     /// Which cards a rect swept on bare canvas takes in.

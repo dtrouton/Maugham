@@ -3046,26 +3046,47 @@ final class CanvasViewMountingTests: XCTestCase {
                      + "chapters — the canvas picked a piece the writer never named")
     }
 
-    /// **A region already bound to ANOTHER document is re-bound, not skipped** —
-    /// the ruling, on the delivery path. `CanvasRegionInteractionTests`'
-    /// `test_aSweepReclaimsARegionBoundToAnotherDocument` carries the argument.
-    func test_aSweepReclaimsARegionAlreadyBoundToAnotherDocument() throws {
+    /// **A sweep never re-binds, and a sweep that can bind nothing creates
+    /// nothing** (Denver, 2026-08-03) — the ruling, on the delivery path.
+    /// `CanvasRegionInteractionTests` carries the argument and the sub-cases.
+    ///
+    /// The region-count assertion is the one that matters here rather than a
+    /// tidy-up: *"I caught no bindable region"* is not *"I caught no region"*,
+    /// and a sweep that fell through to the create arm would lay a fresh
+    /// rectangle over the board that produced the finding in the first place —
+    /// the defect arriving through its own fix.
+    ///
+    /// `canUndo` is the third assertion because the gesture must cost the writer
+    /// nothing at all: an act that changed no part of the scene must leave no
+    /// step behind for a later ⌘Z to spend itself on.
+    func test_aSweepCatchingOnlyAnAlreadyBoundRegionDoesNothingAtAll() throws {
         let root = try arrangedBoardRoot(bound: "ch2")
         let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
                                      paletteSwatchHexes: { [] },
                                      subject: .piece("ch1")))
         let events = try eventView(in: window)
+        let manager = try XCTUnwrap(events.undoManager)
 
         drag(events, from: CGPoint(x: 280, y: 280),
              through: [CGPoint(x: 600, y: 500), CGPoint(x: 600, y: 500)])
         pump(1.0)
 
         let onDisk = sceneOnDisk(root)
-        XCTAssertEqual(onDisk.regionCount, 1, "the sweep minted rather than reclaimed")
-        XCTAssertEqual(onDisk.region(CanvasRegionID("r1"))?.boundPieceID, "ch1",
-                       "the sweep passed over a region bound elsewhere and left it "
-                       + "alone — a silent no-op with the dim unchanged, which reads "
-                       + "on screen exactly like a sweep that missed")
+        XCTAssertEqual(onDisk.regionCount, 1,
+                       "the sweep could bind nothing and minted a region instead — "
+                       + "\"I caught no bindable region\" is not \"I caught no "
+                       + "region\", and this is the finding arriving through its "
+                       + "own fix")
+        XCTAssertEqual(try XCTUnwrap(onDisk.region(CanvasRegionID("r1"))).boundPieceID,
+                       "ch2",
+                       "the sweep took a region away from the document it was "
+                       + "already bound to — moving a binding is the Piece picker's "
+                       + "job, and a sweep cannot express the \"no\" that undoes it")
+        XCTAssertTrue(try XCTUnwrap(onDisk.region(CanvasRegionID("r1"))).livesHere(scrapID),
+                      "a card moved on a gesture that was supposed to change nothing")
+        XCTAssertFalse(manager.canUndo,
+                       "a gesture that changed no part of the scene left a step on "
+                       + "the stack, so the writer's next ⌘Z appears to do nothing")
     }
 
     // MARK: - The standing offer (§4's third row)

@@ -1961,10 +1961,10 @@ struct CanvasView: View {
                         // even in play: no geometry is being turned into
                         // membership, only into a binding the writer aimed at.
                         //
-                        // A region already bound to a DIFFERENT document is
-                        // re-bound rather than skipped — `caughtRegions` says so
-                        // at length, and `absorbedNodes` has ruled the same way
-                        // on the card version of the question since 2026-07-28.
+                        // Every region here is UNBOUND — `sweepOutcome` filtered
+                        // them, because a sweep never re-binds (Denver,
+                        // 2026-08-03). Moving a binding from one document to
+                        // another stays the inspector's Piece picker's job.
                         for region in regions {
                             RegionBinding.bind(region, toPiece: piece, in: &scene)
                         }
@@ -1995,6 +1995,19 @@ struct CanvasView: View {
                         model.selection = .region(id)
                         if let piece { RegionBinding.bind(id, toPiece: piece, in: &scene) }
                         sweepChangedTheScene = true
+                    case .doNothing:
+                        // Everything the sweep caught was already bound, so
+                        // there is nothing to bind and — the half that matters —
+                        // nothing to create either. Falling through to `.create`
+                        // here drops a fresh rectangle on top of a board that
+                        // already had regions on it, which is the defect §4.1
+                        // exists to remove, arriving through its own fix.
+                        //
+                        // `sweepChangedTheScene` stays false, so no
+                        // `sceneRevision` bump; the scene is untouched, so
+                        // `endGesture` registers no step. The gesture costs the
+                        // writer nothing at all.
+                        break
                     }
                 }
             } else if wasDrawingLine {

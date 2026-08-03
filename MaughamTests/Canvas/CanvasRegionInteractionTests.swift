@@ -546,26 +546,87 @@ final class CanvasRegionInteractionTests: XCTestCase {
                        + "writer never named")
     }
 
-    /// **Sub-question, decided: a region already bound to ANOTHER document is
-    /// re-bound, not skipped.**
+    /// **A sweep never RE-binds** (Denver, 2026-08-03): a region that already has
+    /// a binding is skipped, whether it is bound to this document or to another
+    /// one. Changing a binding stays deliberate — the inspector's Piece picker is
+    /// the route that can move one, and the only one that can say *"no"*.
     ///
-    /// The same ruling `absorbedNodes` made on the card version of this question
-    /// on 2026-07-28, for the same reason: skipping the ones already spoken for
-    /// gives a sweep that claimed some of what it passed over and not the rest,
-    /// with nothing on screen to say which — and the undim, which is *the only
-    /// confirmation the gesture gives*, would then be lit for the ones that took
-    /// and dim for the ones that did not, with no way to tell that from a miss.
-    /// You swept it, you meant it; and one ⌘Z puts it back.
-    func test_aSweepReclaimsARegionBoundToAnotherDocument() {
+    /// Both directions, because "skips everything already bound" and "binds
+    /// everything it catches" both pass a one-sided assertion.
+    func test_aSweepSkipsARegionThatIsAlreadyBoundToAnotherDocument() {
         var s = scene()
+        let swept = CGRect(x: 100, y: 100, width: 400, height: 300)
+        XCTAssertEqual(CanvasInteraction.sweepOutcome(for: swept,
+                                                      subject: .piece("ch1"), in: s),
+                       .bind(regions: [r1], toPiece: "ch1"),
+                       "control: while r1 is unbound the sweep binds it, so the "
+                       + "assertion below is about the existing binding and nothing "
+                       + "else")
+
         RegionBinding.bind(r1, toPiece: "ch2", in: &s)
+        XCTAssertEqual(CanvasInteraction.sweepOutcome(for: swept,
+                                                      subject: .piece("ch1"), in: s),
+                       .doNothing,
+                       "the sweep took a region away from the document it was "
+                       + "already bound to — moving a binding is the Piece picker's "
+                       + "job, and a sweep cannot express the \"no\" that would put "
+                       + "it back")
+    }
+
+    /// The same skip when the region is already bound to **this** document —
+    /// which changes nothing and must therefore also create nothing.
+    func test_aSweepSkipsARegionAlreadyBoundToTheSameDocument() {
+        var s = scene()
+        RegionBinding.bind(r1, toPiece: "ch1", in: &s)
         XCTAssertEqual(CanvasInteraction.sweepOutcome(
             for: CGRect(x: 100, y: 100, width: 400, height: 300),
             subject: .piece("ch1"), in: s),
-                       .bind(regions: [r1], toPiece: "ch1"),
-                       "the sweep passed over a region bound elsewhere and left it "
-                       + "alone — a silent no-op with the dim unchanged, which reads "
-                       + "on screen exactly like a sweep that missed")
+                       .doNothing)
+    }
+
+    /// **`"I caught no bindable region"` is not `"I caught no region"`, and this
+    /// is the test that says so.**
+    ///
+    /// It is the trap in the fix rather than in the original defect: filter the
+    /// caught set and then ask `isEmpty` to choose between binding and creating,
+    /// and a sweep across a board of already-bound regions mints a fresh
+    /// rectangle over the top — which is precisely the horrible user experience
+    /// §4.1 exists to remove, arriving through its own correction. The two
+    /// emptinesses are asked separately in `sweepOutcome`.
+    func test_aSweepCatchingOnlyBoundRegionsCreatesNothingEither() {
+        var s = scene()
+        let r2 = CanvasRegionID("r2")
+        s.insertRegion(CanvasRegion(id: r2, label: "Act III",
+                                    frame: CGRect(x: 800, y: 100, width: 200, height: 200)))
+        RegionBinding.bind(r1, toPiece: "ch2", in: &s)
+        RegionBinding.bind(r2, toPiece: "ch3", in: &s)
+
+        XCTAssertEqual(CanvasInteraction.sweepOutcome(
+            for: CGRect(x: 0, y: 0, width: 1_200, height: 600),
+            subject: .piece("ch1"), in: s),
+                       .doNothing,
+                       "the sweep caught two regions, could bind neither, and asked "
+                       + "for a NEW one — a third rectangle laid over the two the "
+                       + "writer already had, which is the defect this whole "
+                       + "correction removes")
+    }
+
+    /// A mixed sweep binds the unbound and leaves the bound alone. Not a third
+    /// rule — it is the two above meeting, and the case a filter written as an
+    /// all-or-nothing test would get wrong in one direction or the other.
+    func test_aMixedSweepBindsOnlyTheUnboundRegions() {
+        var s = scene()
+        let r2 = CanvasRegionID("r2")
+        s.insertRegion(CanvasRegion(id: r2, label: "Act III",
+                                    frame: CGRect(x: 800, y: 100, width: 200, height: 200)))
+        RegionBinding.bind(r1, toPiece: "ch2", in: &s)
+
+        XCTAssertEqual(CanvasInteraction.sweepOutcome(
+            for: CGRect(x: 0, y: 0, width: 1_200, height: 600),
+            subject: .piece("ch1"), in: s),
+                       .bind(regions: [r2], toPiece: "ch1"),
+                       "the sweep passed over one bound and one unbound region and "
+                       + "did not come back with exactly the unbound one")
     }
 
     /// A new region takes the rect it was swept, not a default one — otherwise
