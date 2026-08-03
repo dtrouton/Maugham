@@ -133,11 +133,25 @@ final class ManuscriptNavigationTests: XCTestCase {
     /// position is recorded, so ⌘1 returns the writer to the tree they were
     /// arranging — verified by feeding the memory this navigation produces back
     /// through the real persona switch.
+    ///
+    /// **The pane was `.visualLanguage` until §5.0's right-column re-cut, and
+    /// the swap is worth reading rather than skipping.** `PersonaMemory`
+    /// remembers a pane only if the persona's registry still offers it, so a
+    /// pane Plan reaches by shortcut alone — intent (⌘⌥N) and visual language
+    /// (⌘⌥V), both of which Plan now AUTHORS from the left column instead — is
+    /// deliberately not restored by ⌘1. That is the same rule that has always
+    /// dropped `.outline`, and it is the accepted cost of §5.0's parked build
+    /// rather than a defect this test should be pinning as correct. `.history`
+    /// is a pane Plan really carries, and the assertion below checks it is not
+    /// Plan's default so the restore cannot pass by falling back.
     func test_theDepartingPlanPositionIsRecordedSoCommand1ComesBack() throws {
+        XCTAssertNotEqual(DetailSegment.history, Persona.plan.defaultPane,
+                          "pick a non-default pane, or the restore assertion is "
+                          + "satisfied by the fallback")
         let destination = ManuscriptNavigation.destination(
             from: .plan,
             currentBinderSegment: .tree,
-            currentDetailSegment: .visualLanguage,
+            currentDetailSegment: .history,
             projectType: .novel,
             memory: .empty)
         let memory = try XCTUnwrap(
@@ -154,7 +168,7 @@ final class ManuscriptNavigationTests: XCTestCase {
         XCTAssertEqual(back.binderSegment, .tree,
                        "⌘1 must return the writer to the structure they were "
                        + "arranging, not to Plan's canvas home")
-        XCTAssertEqual(back.segment, .visualLanguage,
+        XCTAssertEqual(back.segment, .history,
                        "and to the pane they were reading it against")
     }
 

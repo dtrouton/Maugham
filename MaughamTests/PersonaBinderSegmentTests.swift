@@ -131,12 +131,23 @@ final class PersonaBinderSegmentTests: XCTestCase {
         }
     }
 
-    /// **`.research` is gone from the LEFT of the three drafting personas, and
-    /// nowhere else.** Stated as the whole row of the matrix rather than three
-    /// separate assertions, because §6.1's argument is about the two registries
-    /// agreeing: research is a left-column surface exactly where it is a
-    /// right-pane one, which is Plan.
-    func test_researchIsALeftSegmentOnlyWhereItIsAlsoAPane() {
+    /// **Research is AUTHORED on Plan's left and CONSULTED on Author's right,
+    /// and lives in neither column of Review or Publish.** Stated as the whole
+    /// row of both registries rather than as separate assertions, because the
+    /// claim is about how the two relate.
+    ///
+    /// **That relation flipped on 2026-08-03 and this test's name went with
+    /// it.** §6.1's argument was that the registries AGREE — research was a
+    /// left segment exactly where it was a right pane, which was Plan — and the
+    /// test was called `test_researchIsALeftSegmentOnlyWhereItIsAlsoAPane`.
+    /// §5.0 of `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`
+    /// takes the Research pane off Plan on the grounds that Plan authors
+    /// research, so the two registries are now COMPLEMENTS on this pane: making
+    /// it is Plan's left, reading it is Author's right. Both readings put
+    /// `.research` in exactly the same two places; only the sentence explaining
+    /// why changed, which is precisely the kind of claim a renamed test has to
+    /// carry rather than a comment.
+    func test_researchIsAuthoredOnPlansLeftAndConsultedOnAuthorsRight() {
         for type in ProjectType.allCases {
             for persona in Persona.allCases {
                 XCTAssertEqual(
@@ -146,14 +157,12 @@ final class PersonaBinderSegmentTests: XCTestCase {
                     + "on the left")
             }
         }
-        // The half of the claim that would otherwise go unchecked: Author still
-        // has the research PANE, so this was a move rather than an erasure —
-        // and Review and Publish have neither half, which is the agreement §6.1
-        // is about.
-        XCTAssertTrue(Persona.author.panes.contains(.research))
-        XCTAssertTrue(Persona.plan.panes.contains(.research))
-        XCTAssertFalse(Persona.review.panes.contains(.research))
-        XCTAssertFalse(Persona.publish.panes.contains(.research))
+        for persona in Persona.allCases {
+            XCTAssertEqual(
+                persona.panes.contains(.research), persona == .author,
+                "\(persona) — after §5.0 only Author offers the Research PANE; "
+                + "Plan makes research in the centre from its left segment")
+        }
     }
 
     /// **The asymmetry §6.1 leaves behind, pinned rather than described.**

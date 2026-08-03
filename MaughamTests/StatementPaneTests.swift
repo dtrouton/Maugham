@@ -31,25 +31,50 @@ final class StatementPaneTests: XCTestCase {
     /// M1A consumes, so a sweep that drops one names the milestone that added
     /// it.
     ///
-    /// **The milestone doing the dropping, as that comment asked for: the
-    /// persona shell, slice 1** (`docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`
-    /// §5, an amendment in force to §6.3). Intent leaves Publish. Publish is
-    /// where a finished book is made to look right; what the writing is going
-    /// for is read where the writing happens, and in Review where a draft is
-    /// compared against it. The assertion is not weakened to "at least one" —
-    /// it names the three, so re-adding a fourth is as loud as losing one.
-    func test_intentIsOfferedByEveryPersonaExceptPublish() {
+    /// **The milestones doing the dropping, as that comment asked for.**
+    ///
+    /// **The persona shell, slice 1** (§5 of
+    /// `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`, an
+    /// amendment in force to §6.3): intent left **Publish**. Publish is where a
+    /// finished book is made to look right; what the writing is going for is
+    /// read where the writing happens.
+    ///
+    /// **The right-column re-cut, 2026-08-03** (§5.0 of the same document,
+    /// which supersedes §5's per-persona lists here): intent leaves **Plan**
+    /// too, leaving Author and Review. The reason is not that Plan stopped
+    /// caring about intent — it is that **Plan AUTHORS intent**, and the thing
+    /// a persona authors belongs in its left column, while the right column is
+    /// what you glance at while authoring something else. Author and Review
+    /// consult it; Plan writes it.
+    ///
+    /// **The cost, recorded because it is real and temporary.** Intent's
+    /// left-column home in Plan is a build §5.0 deliberately parks (a
+    /// `BinderSegment` case, a centre route, and a decision about what the left
+    /// pane shows while you edit), so **until it ships intent is reachable in
+    /// Plan by ⌘⌥N only** — the pane opens, renders and stays selected, but
+    /// Plan's picker does not lead you to it and `PersonaMemory` will not keep
+    /// it across a persona switch. Denver accepted that trade explicitly.
+    ///
+    /// The assertion is not weakened to "at least one" — it names the two, so
+    /// re-adding a third is as loud as losing one.
+    func test_intentIsOfferedByAuthorAndReviewOnly() {
         XCTAssertEqual(
             Set(Persona.allCases.filter { $0.panes.contains(.intent) }),
-            [.plan, .author, .review])
+            [.author, .review])
     }
 
-    func test_visualLanguageIsOfferedByPlanReviewAndPublishOnly() {
+    /// §6.3 marked Visual language ● for Plan, Review and Publish and — for
+    /// Author. §5.0's re-cut leaves **Publish alone**: Plan authors the visual
+    /// language (same parked left-column build as intent above, same ⌘⌥V
+    /// escape hatch until it lands), and Review adjudicates prose rather than
+    /// how the book looks. Publish is where "how the book looks" is read, and
+    /// it is Publish's default pane.
+    func test_visualLanguageIsOfferedByPublishOnly() {
         XCTAssertEqual(
             Set(Persona.allCases.filter { $0.panes.contains(.visualLanguage) }),
-            [.plan, .review, .publish],
-            "§6.3 marks Visual language — for Author (the book has one look, and "
-            + "authoring is not where it is decided)")
+            [.publish],
+            "visual language is Publish's column now (§5.0); Plan authors it "
+            + "and reaches it with ⌘⌥V until its left-column home is built")
     }
 
     /// Each pane needs a `⌘⌥` letter of its own. The letters themselves are

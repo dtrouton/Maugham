@@ -61,6 +61,45 @@ public extension Persona {
     /// The right-pane segments this persona offers, in picker order. The first
     /// is the persona's default.
     ///
+    /// **ONE ORDER, FOUR SUBSETS.** §5.0 of
+    /// `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`
+    /// (2026-08-03) — an amendment that supersedes §5's per-persona lists for
+    /// the right column. Every case below is the SAME sequence with non-members
+    /// removed:
+    ///
+    ///     Annotations · Inbox · Research · Palette · Intent ·
+    ///     Visual Language · Tasks · Translation · History · Inspector
+    ///
+    /// Denver: *"it'll be confusing if I am always hunting for the right option
+    /// in different modes, so the order should be one set and things just
+    /// disappear or appear in it, and we have some common anchors."* Tasks
+    /// divides what you work *with* from what flows *through*; History and
+    /// Inspector close the row, Inspector outermost.
+    ///
+    /// **So a case below chooses MEMBERSHIP and never position.** The order is
+    /// transcribed once, in `PersonaPaneRegistryTests.canonicalPaneOrder`, and
+    /// `test_everyPersonasPanesAreTheCanonicalOrderFilteredToItsMembers`
+    /// compares all four against it — the first assertion of pane order the
+    /// suite has ever carried. Until 2026-08-03 order was asserted NOWHERE: a
+    /// reorder that kept every persona's first element passed the entire suite
+    /// while changing the picker for every writer.
+    ///
+    /// **`.inspector` is last so `defaultPane = panes.first` survives.** Each
+    /// persona's default falls out of membership plus that shared order and
+    /// nothing selects it. Inspector first, which an earlier draft of §5.0 had,
+    /// would land every persona on Inspector and force this property to become
+    /// an order plus a separate default — two values that can disagree about
+    /// where a persona opens.
+    ///
+    /// **The rule §5.0 sorts by is *what a persona authors*: the left column is
+    /// where a thing is made, the right is what you glance at while making
+    /// something else. Do NOT generalise that into a law about this registry.**
+    /// The audit behind §5.0 falsified the general form outright — eight of the
+    /// eleven right-hand panes write, and `LinkedResearchPane` creates notes,
+    /// files and links. What holds across the column is subject-taking panes
+    /// versus self-selecting browsers; make-left/consult-right is exactly right
+    /// for Palette and is argued pane by pane at the cases below.
+    ///
     /// THIS IS THE EXTENSION POINT. A milestone adding a right-pane surface
     /// adds its `DetailSegment` case and one entry here, and does not touch
     /// `ProjectWindow` or the picker at all.
@@ -75,34 +114,34 @@ public extension Persona {
     /// `docs/guide/reference.md`).
     ///
     /// The registry is the design's pane × persona matrix made executable, and
-    /// that matrix now has two documents. §6.3 of
+    /// that matrix now has three documents, each later than the last. §6.3 of
     /// `docs/superpowers/specs/2026-07-25-mode-based-ux-redesign-design.md` is
     /// the base; §5 of
-    /// `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md` is
-    /// **an amendment in force to it**, and where they disagree the amendment
-    /// wins. `PersonaPaneRegistryTests.test_everyPersona_matchesTheDesignMatrix`
+    /// `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`
+    /// amends it; **§5.0 of that same document supersedes §5's per-persona
+    /// lists for THIS registry**, and is what the four cases below transcribe.
+    /// The left column is untouched by it.
+    /// `PersonaPaneRegistryTests.test_everyPersona_matchesTheDesignMatrix`
     /// checks the whole table rather than a row at a time — the matrix was
     /// swept row-wise twice and lost a cell each time (Review's translation
     /// and palette, then Plan's tasks).
     ///
-    /// The amendment's departures, delivered by the persona shell's slice 1:
-    /// `.outline` leaves every persona, `.translation` and `.intent` leave
-    /// Publish, and `.history` joins Author. `.outline` leaves because the tree
-    /// shows structure and `OutlinePane` is read-only — it renders and sets the
-    /// selection but has no create, move or delete, so it cannot be the
-    /// structure surface Plan needs. **Leaving a registry is a demotion, not a
-    /// removal**: ⌘⌥O still binds unconditionally in `MaughamApp`'s View menu,
-    /// `DetailPaneToggle.visibleSegments(including:)` appends an unregistered
-    /// selection, and `segmentContent` still renders `OutlinePane`. Personas
-    /// are lenses, not gates.
+    /// **Leaving a registry is a demotion, not a removal**, and §5.0 leans on
+    /// that harder than any slice before it: ⌘⌥-letters bind unconditionally in
+    /// `MaughamApp`'s View menu, `DetailPaneToggle.visibleSegments(including:)`
+    /// appends an unregistered selection, and `segmentContent` renders every
+    /// case. So ⌘⌥N still writes intent in Plan and ⌘⌥L still opens the
+    /// translation pane in Review; what changed is which panes a persona *leads
+    /// you to*. Personas are lenses, not gates. (`.outline` is the one pane in
+    /// no registry at all — the tree shows structure and `OutlinePane` is
+    /// read-only, so it cannot be the structure surface Plan needs.)
     ///
-    /// Still owed to the amendment, and NOT slice 1's: `.tasks` leaves Plan,
-    /// and `.inspector` dissolves into per-persona sections (§5.1, slice 4).
-    /// They are listed in `PersonaPaneRegistryTests.notYetDelivered`, which is
-    /// the ledger — not this comment.
-    ///
-    /// One deliberate deviation, marked at its case below: Publish carries
-    /// `.inspector`, which §6.3 gives it as `—`.
+    /// Still owed to the design, and NOT this re-cut's: `.inspector` dissolves
+    /// into per-persona sections (§5.1, slice 4). §5.0 keeps it in all four
+    /// until then — it anchors the far end of the order — so it is listed in
+    /// `PersonaPaneRegistryTests.notYetDelivered`, the ledger, rather than
+    /// counted here. **Plan's `.tasks` came OFF that ledger**: §5 said Plan
+    /// loses it, §5.0 is later and gives it back, so it is design now.
     ///
     /// Reserved for later milestones of this redesign: `.diagnostics` →
     /// author; `.references` → author, review; `.editions` → publish.
@@ -111,75 +150,130 @@ public extension Persona {
     var panes: [DetailSegment] {
         switch self {
         case .plan:
-            // Primaries first, then the ○ cells: Tasks is planning-adjacent
-            // (what the writer intends to do next), Inspector is metadata.
-            // Intent and Visual Language are both ● here — planning is where a
-            // book's aim and its look are decided.
+            // Inbox · Tasks · History · Inspector.
             //
-            // `.outline` left in slice 1 of the persona shell: Plan is where
-            // structure gets built, and a read-only outline is not that.
-            return [.research, .palette, .inbox,
-                    .intent, .visualLanguage, .tasks, .inspector]
+            // **Plan lost Research, Palette, Intent and Visual Language in
+            // §5.0's re-cut, because Plan AUTHORS all four.** Research and
+            // Palette already have their left segments here, so those two are
+            // moves. Intent and Visual Language do NOT yet: §5.0 parks their
+            // left-column home as a build (a `BinderSegment` case each, a
+            // centre route, and a decision about what the left pane shows while
+            // you edit), and until it ships **they are reachable in Plan by
+            // ⌘⌥N and ⌘⌥V only**. That is a real cost, stated in §5.0 and
+            // accepted by Denver rather than overlooked.
+            //
+            // `.history` is NEW here and is Denver's call: *"which will make
+            // more sense when a future milestone versions research notes, but
+            // even now I think it's a useful reference of the evolution of the
+            // manuscript."*
+            //
+            // `.tasks` STAYS. §5 had Plan losing it; §5.0 is later and gives it
+            // back, so it is design rather than a departure owed — see
+            // `PersonaPaneRegistryTests.designMatrix`.
+            //
+            // **`.inspector` here is the CANVAS's inspector and can never be
+            // `InspectorView`, which is the reason it is worth keeping.**
+            // `ProjectWindow.inspectorRoute` tests `centresTheCanvas` before
+            // anything else, and both of Plan's canvas segments (`.canvas`,
+            // `.tree`) answer true, so ⌘⌥I in Plan inspects the selected
+            // region, line or card. A later reader who "fixes" this by
+            // expecting document metadata would be undoing that routing on
+            // purpose; a chapter's metadata is Author's (⌘2).
+            //
+            // **Defaulting to `.inbox` also closes a live defect** (the audit's
+            // finding A, recorded rather than fixed separately). Plan's default
+            // was `.research` → `LinkedResearchPane`, which needs a manuscript
+            // document; Plan lands on `.canvas`, whose left pane is the
+            // RESEARCH tree and never writes `selectedSubject`. So entering
+            // Plan on a fresh window showed "No document selected" with no
+            // control in either visible column able to change it.
+            //
+            // `.outline` left in slice 1: Plan is where structure gets built,
+            // and a read-only outline is not that.
+            return [.inbox, .tasks, .history, .inspector]
         case .author:
-            // Intent is ○: the chapter's aim is worth a glance while drafting,
-            // but Author leads with the document itself. Visual language is —
-            // for Author, and stays absent.
+            // Research · Palette · Intent · Tasks · History · Inspector.
             //
-            // `.history` joined in slice 1 of the persona shell. It takes
-            // `activeDocId` like any per-document pane and works wherever a
-            // document is selected; it was registered only in Review, so ⌘⌥H
-            // in Author summoned a pane that `PersonaMemory` then refused to
-            // keep. `.inspector` stays first — Author is the default persona
-            // and its landing pane must not move under an upgrading writer.
-            // `.history` goes last for the same reason: nothing above it moves.
-            return [.inspector, .research, .tasks, .palette, .intent, .history]
+            // **§5.0 changed Author's ORDER and not its membership.** This is
+            // the persona the right column was designed for: it consults what
+            // Plan authors — what the open chapter points at (⌘⌥R), a palette
+            // card beside the prose (⌘⌥P), the chapter's aim (⌘⌥N). Visual
+            // language is — for Author and stays absent.
+            //
+            // **Author's landing pane MOVES from Inspector to Research, and
+            // the reason recorded here before is overruled by name.** It read:
+            // *"`.inspector` stays first — Author is the default persona and
+            // its landing pane must not move under an upgrading writer."* §5.0
+            // answers it: one order shared by all four personas is worth more
+            // to a writer than one persona's landing pane holding still, and
+            // Inspector at the far end is the one position where every persona
+            // can find it. The same sentence is why `.history` is no longer
+            // pinned to the end.
+            //
+            // `.history` joined in slice 1 — it takes `activeDocId` like any
+            // per-document pane, and before that ⌘⌥H in Author summoned a pane
+            // `PersonaMemory` then refused to keep.
+            return [.research, .palette, .intent, .tasks, .history, .inspector]
         case .review:
-            // Order follows the review workflow: adjudicate notes, see what
-            // changed, check the translated edition, then the supporting
-            // lenses. Translation and Palette are ○ in the design's pane ×
-            // persona matrix (§6.3) — reviewing a translated edition IS a
-            // review activity, and `ProjectWindow` force-sets
-            // `detailSegment = .translation` on entering translation review.
+            // Annotations · Intent · Tasks · History · Inspector.
             //
             // Intent is ● here for the reason the milestone exists: review's
-            // job is to compare a draft against the intent you started with, so
-            // it sits with the notes and the diff rather than among the lenses.
-            // Visual language is ○. `.outline` left in slice 1 with every
-            // other persona's.
-            return [.annotations, .history, .intent, .translation,
-                    .inspector, .tasks, .palette, .visualLanguage]
+            // job is to compare a draft against the intent you started with.
+            // `.annotations` leads, which is the suite's one long-standing
+            // order constraint (`test_reviewPersona_leadsWithAnnotations`) and
+            // now also falls out of the canonical order.
+            //
+            // **§5.0 took three: Palette (authoring, so Plan's), Visual
+            // Language (Publish's), and Translation.** Translation is a
+            // reversal §5.0 records as one — §5 had just moved it HERE, calling
+            // it adjudication rather than edition-building, and Denver
+            // overturned that: *"I'm more convinced translation should be
+            // logically part of the publish flow. We are not changing the
+            // source, it's effectively a transformation for publish."* A
+            // translation never mutates the manuscript — it is a parallel,
+            // paragraph-keyed layer with a coverage gate on the compile — so
+            // what it belongs to is the edition. Review adjudicates what will
+            // change the source; translation cannot.
+            //
+            // **`ProjectWindow` still force-sets `detailSegment = .translation`
+            // on entering translation review, and that still works from any
+            // persona**: `DetailPaneToggle.visibleSegments(including:)` appends
+            // it and the picker renders it selected
+            // (`DetailPaneTogglePersonaTests
+            // .test_visibleSegments_includeTranslationWhenForcedOutsideItsPersonas`).
+            // Demotion, not removal.
+            //
+            // `.outline` left in slice 1 with every other persona's.
+            return [.annotations, .intent, .tasks, .history, .inspector]
         case .publish:
-            // Thin until M1D gives Publishing its own surfaces (editions,
-            // config). Visual language arrives here in M1A — §6.3 marks it ●
-            // for Publish, and Publish's column is where "how the book looks"
-            // is read.
+            // Visual Language · Tasks · Translation · History · Inspector.
             //
-            // `.translation` and `.intent` left in slice 1 of the persona
-            // shell. `TranslationReviewPane` is source text plus translator
-            // queries — adjudication, which is Review's job, not building an
-            // edition; and Publish is not where a book's aim is read.
+            // Visual language leads, and did before §5.0: §6.3 marks it ● for
+            // Publish and it is Publish's built work today. `.intent` left in
+            // slice 1 — Publish is not where a book's aim is read.
             //
-            // TWO CONSEQUENCES, stated so a reviewer does not have to
-            // rediscover them. **Publish's default pane moves from Translation
-            // to Visual Language**, because `defaultPane` is `panes.first`;
-            // that is the design — visual language IS Publish's built work
-            // today. And Publish now sits exactly on the two-pane floor
+            // **`.translation` ARRIVES here in §5.0, reversing the slice-1 move
+            // that had just taken it to Review** — the argument is Denver's and
+            // is spelled at `.review` above. Tasks and History come with it,
+            // and Publish stops sitting exactly on the two-pane floor
             // `PersonaPaneRegistryTests.test_everyPersona_offersAtLeastTwoPanes`
-            // asserts, so the `.inspector` deviation below stops being a
-            // nicety and becomes the only thing holding that floor.
+            // asserts.
             //
-            // DELIBERATE DEVIATION from §6.3, which marks Inspector `—` for
-            // Publish, and from the 2026-08-01 amendment, which dissolves it
-            // everywhere. It stays until the Publishing section becomes
-            // Publish's own pane (slice 4). The reason recorded here before —
-            // "without it the picker was a single button, which reads as
-            // broken chrome" — is TOO WEAK and the amendment (§5.1) says so by
-            // name: `InspectorPublishSection` is the only UI in the app for
-            // per-piece publish config (include in ToC, start-on, title
-            // override), so removing it now deletes the writer's
-            // table-of-contents control. A comment stating a weaker reason
-            // than the real one is how a later reader acts on the weaker one.
-            return [.visualLanguage, .inspector]
+            // **`.inspector` is no longer a DEVIATION** — §5.0's order gives it
+            // to all four personas, so Publish's copy is on
+            // `notYetDelivered` with everyone else's rather than in
+            // `documentedDeviations`. What is still Publish's alone is why it
+            // will be the LAST one §5.1 can dissolve:
+            // `InspectorPublishSection` is the only UI in the app for per-piece
+            // publish config (include in ToC, start-on, title override), so
+            // removing it before slice 4 gives Publish its own pane deletes the
+            // writer's table-of-contents control. The reason recorded here
+            // before slice 1 — "without it the picker was a single button,
+            // which reads as broken chrome" — is TOO WEAK, and it no longer
+            // holds at all now that Publish carries five panes; a comment
+            // stating a weaker reason than the real one is how a later reader
+            // acts on the weaker one.
+            return [.visualLanguage, .tasks, .translation, .history, .inspector]
         }
     }
 
@@ -274,18 +368,26 @@ public extension Persona {
             // `.research` LEFT in slice 2 task 6 of the persona shell (§6.1).
             // The argument is not convenience — it is that **the right-hand
             // registry already said research is not Review's or Publish's
-            // business** (`.research` is a pane in Plan and Author and absent
-            // from both the others), so the left column was the half that
-            // disagreed. Editing research is making planning material, which is
+            // business** (at the time `.research` was a pane in Plan and Author
+            // and absent from both the others; §5.0's re-cut has since taken it
+            // off Plan too, on the grounds that Plan AUTHORS research — the
+            // same conclusion from the other side), so the left column was the
+            // half that disagreed. Editing research is making planning
+            // material, which is
             // Plan's output under §2's rule, and Author keeps
             // `LinkedResearchPane` on the right (⌘⌥R) for reading what the open
             // chapter points at.
             //
             // **`.palette` followed in task 6b, on a WEAKER warrant — and the
-            // weaker one is what is written here.** Nothing disagreed: palette
-            // is a left segment in Plan and Author and a right pane in Plan,
-            // Author and Review, so the left set was a strict SUBSET of the
-            // right set. This is §6.1's principle applied further, not a
+            // weaker one is what is written here.** Nothing disagreed: at the
+            // time palette was a left segment in Plan and Author and a right
+            // pane in Plan, Author and Review, so the left set was a strict
+            // SUBSET of the right set. (§5.0's re-cut has since taken the
+            // palette PANE off Plan and Review, so the two registries now read
+            // as complements — made on Plan's left, consulted on Author's
+            // right. That is the same conclusion arrived at from the other
+            // side, and it does not disturb this case.) This is §6.1's
+            // principle applied further, not a
             // contradiction corrected. The principle: the left segment is
             // `PaletteBinderList` and picking a card puts `PaletteCardEditor`
             // in the CENTRE, which is making palette material; the right pane

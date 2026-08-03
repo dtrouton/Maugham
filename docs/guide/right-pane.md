@@ -4,20 +4,26 @@ The right column's modes are Inspector, Research, and Outline (covered on this p
 
 ### Panes are grouped by persona
 
-Each of the four personas (⌘1 Plan, ⌘2 Author, ⌘3 Review, ⌘4 Publish — see [Getting Started → Personas](getting-started.md#personas)) offers its own subset of these modes in the picker, in an order suited to that persona's work. A shortcut still opens its pane from any persona — it reveals the right column if it's hidden and switches to it — even one the current persona doesn't lead with:
+Each of the four personas (⌘1 Plan, ⌘2 Author, ⌘3 Review, ⌘4 Publish — see [Getting Started → Personas](getting-started.md#personas)) offers its own subset of these modes in the picker. A shortcut still opens its pane from any persona — it reveals the right column if it's hidden and switches to it — even one the current persona doesn't lead with:
 
-- **Plan** — Research, Palette, Inbox, Intent, Visual Language, Tasks, Inspector.
-- **Author** — Inspector, Research, Tasks, Palette, Intent, History.
-- **Review** — Annotations, History, Intent, Translation, Inspector, Tasks, Palette, Visual Language.
-- **Publish** — Visual Language, Inspector.
+- **Plan** — Inbox, Tasks, History, Inspector.
+- **Author** — Research, Palette, Intent, Tasks, History, Inspector.
+- **Review** — Annotations, Intent, Tasks, History, Inspector.
+- **Publish** — Visual Language, Tasks, Translation, History, Inspector.
 
-**Outline is in no persona's picker.** It's still there — ⌘⌥O opens it from any persona, and it stays selected while you use it — it just isn't one of the modes a persona leads you to. The binder is where structure lives.
+**There is one order, and modes appear and disappear within it.** Reading down the whole set: Annotations, Inbox, Research, Palette, Intent, Visual Language, Tasks, Translation, History, Inspector. Every persona above is that same sequence with the modes it doesn't offer taken out — so a mode never moves left or right of a mode it sits beside somewhere else, and you aren't hunting for it in a new place each time you change persona. Tasks marks the break between what you're working *with* and what's flowing *through*; History and Inspector always close the row, with Inspector on the far end.
+
+Each persona's default — the mode it opens on — is just the first one it offers: Inbox in Plan, Research in Author, Annotations in Review, Visual Language in Publish.
+
+**What a persona leads you to is not what it can reach.** The right column shows what you *consult* while making something else, so a persona doesn't lead you to a mode for the thing it's there to make: Plan writes research notes, palette cards, intent and visual language in its **left** column, and Author reads them in its right. Two of those four don't have their left-hand home yet — **Intent and Visual Language are still right-hand panes, and in Plan you reach them with ⌘⌥N and ⌘⌥V** rather than from the picker. They open, they work, and they stay selected while you use them; switch persona and come back and Plan is on its own modes again.
+
+**Outline is in no persona's picker at all.** Same story — ⌘⌥O opens it from any persona — it just isn't one of the modes a persona leads you to. The binder is where structure lives.
 
 Switching persona while sitting on a pane the destination doesn't offer falls back to that persona's default rather than blanking the pane. A pane no persona offers is the one thing that isn't remembered across a persona switch: summon Outline with ⌘⌥O, switch persona and come back, and you're on that persona's own mode again.
 
 ### Inspector mode (⌘⌥I)
 
-Default in Author. Shows metadata for whatever's selected in the binder.
+Last in every persona's picker, so it's always in the same place. Shows metadata for whatever's selected in the binder.
 
 **On the planning canvas** — Plan's **Canvas** and **Structure** tabs both, since the canvas stays in the middle on either — it shows whatever is selected on the canvas, in one of three forms:
 
@@ -40,7 +46,9 @@ Shows research for the current manuscript document in up to two sections:
 
 Click an item in either section → the pane swaps to a read-only Markdown preview, side-by-side with your editor. Back chevron returns to the list.
 
-The **+** button offers **Link Research…**, a picker sheet offering everything not already shown above, plus **New Note…**, **Add File…**, **Add Link…** to create research scoped to the open document. Dragging an item from the binder's Research segment onto this pane links it the same way — the binder's Research segment is in **Plan** (⌘1), which offers this pane too.
+This mode is **Author's** (⌘⌥R) — it's for reading what the open chapter points at while you draft. Writing the notes themselves is Plan's, in the binder's Research segment ([Research](research.md)).
+
+The **+** button offers **Link Research…**, a picker sheet offering everything not already shown above, plus **New Note…**, **Add File…**, **Add Link…** to create research scoped to the open document. Dragging an item from the binder's Research segment onto this pane links it the same way — that segment is in **Plan** (⌘1), so summon this pane there with **⌘⌥R** to have both on screen at once.
 
 Unlink: × on a row in **Linked**. Items in the automatic section have no × — untangle those by editing the piece/project structure itself, not the link.
 

@@ -14,9 +14,13 @@ story is not "missing" sensory detail.
    at the top of the binder for the book's, a chapter for that chapter's. That
    row is at the top of whichever list your project type shows there: chapters
    in a novel, Pieces in a Collection, the script and its scenes in a
-   screenplay. Intent is a **Plan** (⌘1) pane, and Plan's **Structure** tab is
-   that same tree — so declaring the book's intent and then each chapter's is
-   one persona and one column, without leaving Plan. (In a screenplay,
+   screenplay. Declaring intent is planning work, and Plan's **Structure** tab
+   is that same tree — so the book's intent and then each chapter's is one
+   persona and one column, without leaving Plan. **⌘⌥N is how you open it
+   there**: Plan's pane picker doesn't list Intent, because the right column is
+   for what you consult while making something else and intent is one of the
+   things Plan makes. The shortcut opens it in any persona, and it follows the
+   binder selection in all of them. (In a screenplay,
    selecting the project row or the **Script** row stays in Plan; clicking a
    *slugline* is a navigation into the script itself, so it takes you to
    **Author** — see [Structure & the Binder](structure-and-binder.md).) The

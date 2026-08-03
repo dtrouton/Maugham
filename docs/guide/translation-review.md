@@ -34,6 +34,12 @@ stale / missing), and any open translator queries for that language. Reply
 to a query right there — your answer folds back into the annotation the same
 way replying to any other Claude query does.
 
+It sits in **Publish**'s pane picker (⌘4): a translation never changes your
+source text — it's a parallel layer that an edition is compiled from — so it
+belongs with the editions rather than with the notes you adjudicate in
+Review. Entering translation review switches the right pane to it from
+whatever persona you're in, and ⌘⌥L opens it anywhere.
+
 ### Publishing a translated edition
 
 Ask Claude to compile with the language set (e.g. "compile the Spanish
