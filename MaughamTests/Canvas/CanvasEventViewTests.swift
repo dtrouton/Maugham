@@ -225,6 +225,61 @@ final class CanvasEventViewTests: XCTestCase {
                        "an unwired canvas swallows ⌫ rather than passing it on")
     }
 
+    /// Escape takes ⌫'s discipline exactly (§4.1): the canvas claims it when it
+    /// used it, and lets it travel on when it did not.
+    ///
+    /// **The un-claimed case is the one that matters here**, and it is not
+    /// tidiness. Escape means something to a great many responders above this
+    /// one — a sheet, a completion list, a find bar — and a canvas that ate every
+    /// Escape on an undimmed board would take it away from all of them while
+    /// looking, from inside this file, exactly like a canvas that handled it.
+    func test_anEscapeTheCanvasDidNotUseTravelsOnAndOneItUsedDoesNot() {
+        let v = view()
+        let beyond = KeyRecorder()
+        v.nextResponder = beyond
+
+        let escape = CanvasEventNSView.escape
+        v.onEscape = { false }
+        v.keyDown(with: key(escape))
+        XCTAssertEqual(beyond.keys, [escape],
+                       "an Escape the canvas refused was swallowed: on an undimmed "
+                       + "board, and while a scrap is open, Escape belongs to "
+                       + "whatever is above this view")
+
+        v.onEscape = { true }
+        v.keyDown(with: key(escape))
+        XCTAssertEqual(beyond.keys, [escape],
+                       "an Escape that DID clear the dim also travelled on, so "
+                       + "whatever is above the canvas acts on it as well")
+
+        // The state every view is in between `init` and `wire`.
+        v.onEscape = nil
+        v.keyDown(with: key(escape))
+        XCTAssertEqual(beyond.keys, [escape, escape],
+                       "an unwired canvas swallows Escape rather than passing it on")
+    }
+
+    /// The constant is the character AppKit actually sends, not a plausible one —
+    /// the same closed-loop risk `test_theTwoDeleteKeysAreTheOnesAppKitSends`
+    /// exists for. 0x1B is `NSEvent`'s Escape in `charactersIgnoringModifiers`.
+    func test_theEscapeConstantIsTheOneAppKitSends() {
+        XCTAssertEqual(CanvasEventNSView.escape.unicodeScalars.first?.value, 0x1B)
+        XCTAssertNotEqual(CanvasEventNSView.escape, CanvasEventNSView.backwardDelete)
+    }
+
+    /// A key the canvas has no opinion about is untouched by the two it does.
+    func test_anOrdinaryKeyIsNotClaimedByEitherHandler() {
+        let v = view()
+        let beyond = KeyRecorder()
+        v.nextResponder = beyond
+        v.onDeleteKey = { true }
+        v.onEscape = { true }
+        v.keyDown(with: key("e"))
+        XCTAssertEqual(beyond.keys, ["e"],
+                       "a plain keystroke was claimed by the canvas — the switch "
+                       + "matches more than the two keys it is about")
+    }
+
     // MARK: - The first link of the delivery chain
 
     /// **A click on the canvas takes first responder, and nothing asserted that

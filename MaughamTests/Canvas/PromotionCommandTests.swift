@@ -350,6 +350,7 @@ final class PromotionCommandTests: XCTestCase {
               ".modifier(CanvasClaudeArrivalModifier(",
               "itemIndex: Self.canvasItemIndex(in: store)",
               "subject: CanvasSubject.resolve(",
+              "selectTheProjectRow: { selectedSubject = .project }",
               "assetIngest: CanvasAssetIngest(",
               "captureDrop: CanvasCaptureDrop(",
               ".modifier(CanvasCollapseModifier(",
@@ -428,6 +429,20 @@ final class PromotionCommandTests: XCTestCase {
              + "on the canvas. It is also the only place the manifest reaches "
              + "the resolution: the canvas cannot tell a chapter from a group "
              + "without it, and a group resolved as a chapter lights nothing. "
+             + "`selectTheProjectRow: { selectedSubject = .project }` is slice "
+             + "3's way OUT of that dim (§4.1), and it is the defaulted-argument "
+             + "shape once more with a second job: `CanvasView"
+             + ".selectTheProjectRow` defaults to `{}`, which compiles and runs, "
+             + "so dropping the argument leaves every Escape test green — they "
+             + "count calls to a closure the test itself supplies — while the "
+             + "writer's only way out of a dimmed board is to go and find the "
+             + "project row with the mouse. The second job is the VALUE: §4.1 "
+             + "rules that Escape IS the keyboard spelling of that row, so this "
+             + "token pins that the window writes the same `BinderSubject` the "
+             + "row's own `.tag` carries rather than a second state that merely "
+             + "looks undimmed. `CanvasHighlightTests"
+             + ".test_escapeWritesTheSameSubjectTheProjectRowDoes` is the other "
+             + "half of that pair and reads `BinderView` for the row's side. "
              + "`.modifier(CanvasCollapseModifier(` is 1C-d Task 13's mount "
              + "line, and it is the mount-line shape a third time: the modifier "
              + "is a struct in THIS file, so deleting the one line that puts it "

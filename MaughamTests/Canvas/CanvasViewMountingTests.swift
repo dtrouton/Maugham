@@ -1883,6 +1883,17 @@ final class CanvasViewMountingTests: XCTestCase {
         CanvasStore(projectRoot: root).load().scraps
     }
 
+    /// A real Escape, built the way AppKit delivers one — 0x1B in
+    /// `charactersIgnoringModifiers`, which is what `CanvasEventNSView.keyDown`
+    /// switches on. Key code 53.
+    private func escapeKeyEvent(for window: NSWindow) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                         timestamp: ProcessInfo.processInfo.systemUptime,
+                         windowNumber: window.windowNumber, context: nil,
+                         characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}",
+                         isARepeat: false, keyCode: 53)!
+    }
+
     /// A real ⌫, built the way AppKit delivers one. `charactersIgnoringModifiers`
     /// is what `CanvasEventNSView.keyDown` switches on, so it is what this has to
     /// carry, and the window number is what lets `window.sendEvent(_:)` route it.
@@ -2650,6 +2661,377 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "it once, sees the box go, presses it again expecting "
                        + "their last edit back and instead re-runs a membership "
                        + "change they cannot see")
+    }
+
+    // MARK: - §4.1's invariant: while the board is dimmed, a sweep binds
+
+    /// **The whole of slice 3's mode, on the delivery path** (spec §4.1): the
+    /// tree names a chapter, the board dims, and the region the writer sweeps is
+    /// already bound to that chapter when they let go.
+    ///
+    /// The card the sweep took in is asserted as well as the binding, because the
+    /// two together are what the writer sees: a lit region holding lit cards.
+    /// `CanvasHighlight.resolve` is asked of the scene that reached DISK rather
+    /// than of the live view's private cache — what it proves is that the sweep
+    /// left behind a scene the dim will light, which is the half a binding
+    /// written in the wrong place would still get right and a binding written
+    /// nowhere would not.
+    func test_aSweptRegionBindsToTheDocumentTheTreeNames() throws {
+        let root = try projectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1")))
+        let events = try eventView(in: window)
+        let revisionBefore = model.sceneRevision
+
+        // Around the fixture's card at (20,20)–(260,58), centre (140,39).
+        drag(events, from: CGPoint(x: 320, y: 240),
+             through: [CGPoint(x: 10, y: 10), CGPoint(x: 10, y: 10)])
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        let region = try XCTUnwrap(onDisk.regions.first, "the sweep made no region at all")
+        XCTAssertEqual(region.boundPieceID, "ch1",
+                       "the board was dimmed to a chapter and the region the writer "
+                       + "swept came back unbound — §4.1's invariant is the whole "
+                       + "mode: while anything is dimmed a sweep binds, and there is "
+                       + "no second signal on screen saying whether it will")
+        XCTAssertTrue(region.livesHere(scrapID), "precondition: creation still absorbs")
+
+        let lit = CanvasHighlight.resolve(subject: .piece("ch1"), in: onDisk)
+        XCTAssertTrue(lit.regions.contains(region.id),
+                      "the region the writer just bound is not in that chapter's lit "
+                      + "set, so it draws dimmed on a board dimmed to it")
+        XCTAssertTrue(lit.nodes.contains(scrapID),
+                      "the card the sweep took in is not lit — a bound region's "
+                      + "residents ARE the piece's context (§4)")
+        XCTAssertGreaterThan(model.sceneRevision, revisionBefore,
+                             "the structural counter did not move, so the cached lit "
+                             + "set is never rebuilt and the new region stays dim "
+                             + "until something unrelated happens to bump it")
+    }
+
+    /// **One ⌘Z takes back the region and its binding together**, because they are
+    /// one act of the writer's.
+    ///
+    /// `canUndo` going false afterwards is the assertion that matters: a bind
+    /// written outside `handleDrag`'s open bracket — through `mutate`, or through
+    /// the inspector's verb, or after `endGesture` — leaves a SECOND step on the
+    /// stack. The writer presses ⌘Z once, watches the box go, presses it again
+    /// expecting their last sentence back, and re-runs a binding change nothing
+    /// on screen can show them.
+    func test_oneUndoTakesBackTheSweptRegionAndItsBindingTogether() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1")))
+        let events = try eventView(in: window)
+        let manager = try XCTUnwrap(events.undoManager)
+        XCTAssertFalse(manager.canUndo, "precondition: nothing on the stack yet")
+
+        drag(events, from: CGPoint(x: 320, y: 240),
+             through: [CGPoint(x: 10, y: 10), CGPoint(x: 10, y: 10)])
+        pump(1.0)
+        XCTAssertEqual(sceneOnDisk(root).regions.first?.boundPieceID, "ch1",
+                       "precondition: the sweep bound")
+        XCTAssertTrue(manager.undoMenuItemTitle.contains("New Region"),
+                      "the Edit menu offers \"\(manager.undoMenuItemTitle)\" — the "
+                      + "binding was registered under a name of its own, so it is "
+                      + "not part of the gesture the writer made")
+
+        manager.undo()
+        pump(1.0)
+
+        XCTAssertEqual(sceneOnDisk(root).regionCount, 0, "⌘Z left the region behind")
+        XCTAssertFalse(manager.canUndo,
+                       "a second step is on the stack: the region and the binding "
+                       + "were TWO ⌘Zs")
+    }
+
+    /// The second half of the invariant, and it is what keeps the mode legible:
+    /// **on an undimmed board a sweep is just a sweep.** The project row is the
+    /// way out of the dim (§4), so this is also what the way out is FOR.
+    func test_aSweepOnAnUndimmedBoardBindsNothing() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .wholeProject))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 320, y: 240),
+             through: [CGPoint(x: 10, y: 10), CGPoint(x: 10, y: 10)])
+        pump(1.0)
+
+        let region = try XCTUnwrap(sceneOnDisk(root).regions.first)
+        XCTAssertNil(region.boundPieceID,
+                     "a sweep on the whole board bound itself to something: the dim "
+                     + "IS the mode indicator, so binding without one makes the "
+                     + "binding invisible at the moment it happens")
+    }
+
+    /// **A group makes a PLAIN region** (§4.1) — the one deliberate exception to
+    /// the invariant. A dimmed board with Part One selected says *"here is
+    /// everything under Part One"*, not *"put something here"*, and there is
+    /// nothing a sweep could bind to: a `boundPieceID` only ever holds a document
+    /// id, and picking one of the group's children would be the canvas guessing.
+    func test_aSweepWithAGroupSelectedMakesAPlainRegion() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .group(["ch1", "ch2"])))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 320, y: 240),
+             through: [CGPoint(x: 10, y: 10), CGPoint(x: 10, y: 10)])
+        pump(1.0)
+
+        let region = try XCTUnwrap(sceneOnDisk(root).regions.first)
+        XCTAssertNil(region.boundPieceID,
+                     "a sweep under a GROUP bound the region to one of the group's "
+                     + "chapters — the canvas picked a piece the writer never named")
+    }
+
+    /// **A second sweep binds too**, and nothing downstream needs teaching: the
+    /// projection already unions across regions, so both regions' residents are
+    /// one piece's context.
+    func test_aSecondSweepBindsToTheSameDocument() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1")))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 320, y: 240),
+             through: [CGPoint(x: 10, y: 10), CGPoint(x: 10, y: 10)])
+        pump(0.3)
+        drag(events, from: CGPoint(x: 420, y: 300),
+             through: [CGPoint(x: 700, y: 500), CGPoint(x: 700, y: 500)])
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.regionCount, 2, "precondition: two sweeps, two regions")
+        XCTAssertEqual(onDisk.unorderedRegions.filter { $0.boundPieceID == "ch1" }.count, 2,
+                       "the second sweep did not bind — a chapter's context is every "
+                       + "region bound to it, not the first one the writer drew")
+    }
+
+    // MARK: - The standing offer (§4's third row)
+
+    /// **The offer is really on screen**, read in pixels — which is the only
+    /// instrument available: which arm of a `_ConditionalContent` renders cannot
+    /// be asserted, and a `Text` in an `NSHostingView` is not a view a
+    /// descendant walk can find. `CanvasBindingOfferTests` owns the RULE; this
+    /// owns "anything mounts it, and nothing draws over it".
+    ///
+    /// It also owns **standing-ness**: the second reading is taken a second of
+    /// wall clock later, which is where a self-dismissing notification would
+    /// already have gone. The offer is state-derived and has nowhere to keep a
+    /// timer, so this is belt and braces — but it is the assertion that fails if
+    /// somebody later gives it one (§4.1, constitution: nothing is pushed).
+    func test_theStandingOfferIsOnScreenForADocumentWithNothingBound() throws {
+        let root = try emptyProjectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1")))
+        let hosted = try XCTUnwrap(window.contentView)
+        pump(0.3)
+
+        // The middle of the 800×600 stack, where centred chrome lands. The
+        // canvas is empty, so anything found here is the offer.
+        let middle = CGRect(x: 180, y: 265, width: 440, height: 70)
+        XCTAssertGreaterThan(try ink(in: middle, of: hosted), 0,
+                             "a chapter with nothing bound dims the whole board and "
+                             + "the canvas says nothing at all — the one state where "
+                             + "a dim reads as a dead end (§4)")
+
+        waitOut(1.0)
+        XCTAssertGreaterThan(try ink(in: middle, of: hosted), 0,
+                             "the offer went away on its own: it is STANDING chrome "
+                             + "and the state it belongs to has not changed, so a "
+                             + "writer who looked away has lost it for good")
+    }
+
+    /// The control, and it is half of what makes the reading above mean
+    /// anything: the same box is bare on the project row. The offer is not
+    /// canvas furniture.
+    func test_theStandingOfferIsAbsentOnTheProjectRow() throws {
+        let root = try emptyProjectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .wholeProject))
+        let hosted = try XCTUnwrap(window.contentView)
+        pump(0.3)
+        XCTAssertEqual(try ink(in: CGRect(x: 180, y: 265, width: 440, height: 70),
+                               of: hosted), 0,
+                       "the canvas offers to bind a region while the whole board is "
+                       + "undimmed — the offer belongs to one state and is standing "
+                       + "furniture otherwise")
+    }
+
+    /// **§4.1's group ruling, at the pixels.** `CanvasHighlight.litNothing` is
+    /// true here — nothing under the group is bound — so a mount that read one
+    /// signal instead of two would draw the offer, and only the second signal
+    /// stops it. The rule is unit-tested; this is the half that proves the VIEW
+    /// asks for both.
+    func test_theStandingOfferIsAbsentUnderAGroup() throws {
+        let root = try emptyProjectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .group(["ch1", "ch2"])))
+        let hosted = try XCTUnwrap(window.contentView)
+        pump(0.3)
+        XCTAssertEqual(try ink(in: CGRect(x: 180, y: 265, width: 440, height: 70),
+                               of: hosted), 0,
+                       "the offer appeared under a group — a sweep there makes a "
+                       + "PLAIN region, so the offer promises something the gesture "
+                       + "does not do")
+    }
+
+    // MARK: - Escape, the keyboard spelling of the project row (§4.1)
+
+    /// **Escape belongs to the mounted editor, and this is the case that had to
+    /// be driven rather than reasoned about.**
+    ///
+    /// §4.1: *"If the writer is typing in a card, Escape belongs to the text
+    /// view; the canvas may only see it when no editor is mounted. Breaking
+    /// editing to add a shortcut is not a trade this slice makes."* The key is
+    /// posted through `window.sendEvent(_:)` — the real routing — with the canvas
+    /// deliberately given first responder first, so the test starts from the state
+    /// where Escape WOULD have reached the canvas and shows that entering a scrap
+    /// takes it away again.
+    func test_escapeInsideAMountedScrapNeverReachesTheDim() throws {
+        var asked = 0
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1"),
+                                     selectTheProjectRow: { asked += 1 }))
+        let events = try eventView(in: window)
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 600, y: 500), in: window)
+        XCTAssertTrue(window.firstResponder === events,
+                      "precondition: the canvas holds the keyboard, so an Escape "
+                      + "now would reach it")
+
+        _ = try doubleClickTheScrap(in: window)
+        let editor = try XCTUnwrap(
+            firstDescendant(NSTextView.self, in: try XCTUnwrap(window.contentView)))
+        XCTAssertTrue(window.firstResponder === editor,
+                      "precondition: the editor holds first responder")
+
+        window.sendEvent(escapeKeyEvent(for: window))
+        pump(0.3)
+
+        XCTAssertEqual(asked, 0,
+                       "Escape inside a scrap cleared the dim: the writer pressed "
+                       + "the key that cancels what they are typing and the window's "
+                       + "subject changed under them instead")
+        XCTAssertTrue(window.firstResponder === editor,
+                      "the editor lost first responder to an Escape it should have "
+                      + "handled itself")
+        XCTAssertEqual(editor.string, scrapText, "the words are untouched")
+    }
+
+    /// The same refusal at the one moment the responder chain does NOT protect
+    /// it: a scrap is open while the event view still holds the keyboard.
+    ///
+    /// That window is real and this file's own source records it — a press opens
+    /// a gesture at `.began` and holds it, and the turn after a double-click has
+    /// "Edit Scrap" open while this view is still first responder (see the
+    /// `undoManager:` note in `CanvasView.body`, and `deleteSelection`'s
+    /// `isInGesture` guard, which exists because ⌫ found exactly this). So the key
+    /// is delivered STRAIGHT to the event view: not a shortcut around the routing,
+    /// but the state the routing can genuinely be in.
+    func test_escapeIsRefusedWhileAScrapIsOpenEvenIfTheCanvasStillHoldsTheKey() throws {
+        var asked = 0
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1"),
+                                     selectTheProjectRow: { asked += 1 }))
+        let events = try eventView(in: window)
+        _ = try doubleClickTheScrap(in: window)
+
+        events.keyDown(with: escapeKeyEvent(for: window))
+        pump(0.2)
+
+        XCTAssertEqual(asked, 0,
+                       "the canvas cleared the dim while a scrap was open — Escape "
+                       + "is the writer cancelling what they are typing, and it must "
+                       + "lose to the editor by a guard as well as by the responder "
+                       + "chain")
+        XCTAssertEqual(events.onEscape?(), false,
+                       "the canvas refused the Escape and CLAIMED it anyway, so the "
+                       + "key stops here instead of travelling on to whatever the "
+                       + "writer was actually cancelling")
+    }
+
+    /// **Escape on a dimmed board asks for the project row**, which is §4.1's
+    /// whole ruling: it is the keyboard spelling of that row, not a second state
+    /// that resembles it. What the window then DOES with the ask is
+    /// `ProjectWindow`'s — and that it writes the same value the row's own `.tag`
+    /// carries is pinned in `PromotionCommandTests`' wiring census.
+    func test_escapeOnADimmedBoardAsksForTheProjectRow() throws {
+        var asked = 0
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1"),
+                                     selectTheProjectRow: { asked += 1 }))
+        let events = try eventView(in: window)
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 600, y: 500), in: window)
+
+        window.sendEvent(escapeKeyEvent(for: window))
+        pump(0.3)
+
+        XCTAssertEqual(asked, 1,
+                       "Escape on a dimmed board did nothing — the dim is a state "
+                       + "the writer deliberately enters and must be able to leave "
+                       + "(Denver: \"I like the ability to keep sweeping but it "
+                       + "needs a way out\")")
+    }
+
+    /// A GROUP dims the board too, so Escape is its way out as well — the dim is
+    /// what Escape answers, not the kind of thing selected.
+    func test_escapeLeavesTheDimAGroupPutTheBoardIn() throws {
+        var asked = 0
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .group(["ch1", "ch2"]),
+                                     selectTheProjectRow: { asked += 1 }))
+        let events = try eventView(in: window)
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 600, y: 500), in: window)
+
+        window.sendEvent(escapeKeyEvent(for: window))
+        pump(0.3)
+        XCTAssertEqual(asked, 1, "a group dims the board and Escape did not lift it")
+    }
+
+    /// **On an undimmed board Escape is a no-op, not an error**, and it must not
+    /// be claimed: there is nothing to leave, and Escape means something to
+    /// plenty of responders above this one.
+    func test_escapeOnAnUndimmedBoardIsANoOp() throws {
+        var asked = 0
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .wholeProject,
+                                     selectTheProjectRow: { asked += 1 }))
+        let events = try eventView(in: window)
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 600, y: 500), in: window)
+
+        window.sendEvent(escapeKeyEvent(for: window))
+        pump(0.3)
+        XCTAssertEqual(asked, 0,
+                       "Escape on a board that is not dimmed asked the window to "
+                       + "change its subject — a keystroke that does something "
+                       + "invisible is worse than one that does nothing")
+        XCTAssertEqual(events.onEscape?(), false,
+                       "the canvas claimed an Escape it did nothing with. Nothing on "
+                       + "screen can show that, and every responder above the canvas "
+                       + "that wanted the key — a sheet, a find bar — stops getting "
+                       + "it")
     }
 
     /// **A scrap made inside a region belongs to it**, on the delivery path.

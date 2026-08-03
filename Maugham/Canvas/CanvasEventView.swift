@@ -50,6 +50,15 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// value is the whole of `keyDown`'s decision below — see it for why the
     /// canvas must not claim a key it did not use.
     var onDeleteKey: (() -> Bool)?
+    /// Escape, with the canvas holding first responder — §4.1's *"Escape is the
+    /// keyboard spelling of the project row"*.
+    ///
+    /// **It returns whether the canvas used it**, for `onDeleteKey`'s reason and
+    /// one more of its own: Escape means something to a great many responders
+    /// above this view — a sheet, a completion list, a find bar — so a canvas
+    /// that claimed every Escape on an undimmed board would take it away from all
+    /// of them and look, from in here, exactly like one that handled it.
+    var onEscape: (() -> Bool)?
 
     private var isDragging = false
 
@@ -275,10 +284,28 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// `CanvasEventViewTests.test_aDeleteThatDeletedNothingTravelsOnAndOneThatDeletedDoesNot`
     /// goes red, which is what actually stops a tidy-up: a warning in a file this
     /// size is easy to walk past.
+    /// **Escape joins ⌫ here and takes its whole discipline** (§4.1) — including
+    /// the part that matters most: an Escape the canvas did not use travels on.
+    /// The canvas refuses it on an undimmed board and while a scrap is open, and
+    /// in both of those states somebody above wants it.
+    ///
+    /// **The editor wins by TWO independent mechanisms and needs both.** The
+    /// mounted `NSTextView` sits in front of this view and takes first responder,
+    /// so while the writer is typing the key never arrives here at all — that is
+    /// the mechanism, and `CanvasViewMountingTests
+    /// .test_escapeInsideAMountedScrapNeverReachesTheDim` drives it rather than
+    /// asserting it from the shape of the hierarchy. The second is `CanvasView`'s
+    /// own guard on a mounted editor, and it covers the window the first one does
+    /// not: a scrap can be open while THIS view still holds the keyboard (see the
+    /// `undoManager:` note in `CanvasView.body` — the same window that made
+    /// `deleteSelection` need its `isInGesture` guard).
     override func keyDown(with event: NSEvent) {
         switch event.charactersIgnoringModifiers {
         case Self.backwardDelete, Self.forwardDelete:
             if onDeleteKey?() == true { return }
+            super.keyDown(with: event)
+        case Self.escape:
+            if onEscape?() == true { return }
             super.keyDown(with: event)
         default:
             super.keyDown(with: event)
@@ -292,6 +319,11 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// itself.
     static let backwardDelete = String(UnicodeScalar(UInt8(NSDeleteCharacter)))
     static let forwardDelete = String(UnicodeScalar(UInt32(NSDeleteFunctionKey))!)
+    /// Escape as `charactersIgnoringModifiers` reports it. AppKit has no named
+    /// constant for it (`NSDeleteCharacter`'s neighbours stop short of it), so
+    /// the scalar is spelled once here and asserted against 0x1B in
+    /// `CanvasEventViewTests` rather than trusted.
+    static let escape = String(UnicodeScalar(UInt8(0x1B)))
 }
 
 /// Bridges `CanvasEventNSView` into SwiftUI. Transparent — it contributes no
@@ -303,6 +335,8 @@ struct CanvasEventView: NSViewRepresentable {
     var onDrag: (CGPoint, CanvasDragPhase, Bool) -> Void
     /// Returns whether anything was deleted — see `CanvasEventNSView.keyDown`.
     var onDeleteKey: () -> Bool
+    /// Returns whether the canvas used the Escape — see the same.
+    var onEscape: () -> Bool
     var undoManager: UndoManager?
 
     func makeNSView(context: Context) -> CanvasEventNSView {
@@ -324,6 +358,7 @@ struct CanvasEventView: NSViewRepresentable {
         v.onClick = onClick
         v.onDrag = onDrag
         v.onDeleteKey = onDeleteKey
+        v.onEscape = onEscape
         v.canvasUndoManager = undoManager
     }
 }

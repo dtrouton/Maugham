@@ -1177,6 +1177,16 @@ struct ProjectWindow: View {
                    // on the canvas's, which re-evaluates per drag frame.
                    subject: CanvasSubject.resolve(selectedSubject,
                                                   in: store.manifest.structure),
+                   // Spec §4.1: Escape is the keyboard spelling of the project
+                   // row, so it writes the value that row's own `.tag` carries
+                   // (`BinderView.projectRow`) into the same `@State` on the
+                   // same synchronous path. Not a state that resembles the
+                   // row's — the same one, which is what makes the persisted UI
+                   // state, the tree's highlight and the canvas's subject agree
+                   // by construction. The canvas is handed this ask rather than
+                   // a binding: it gets the ANSWER (`CanvasSubject`) and never
+                   // the question.
+                   selectTheProjectRow: { selectedSubject = .project },
                    itemIndex: Self.canvasItemIndex(in: store),
                    // The canvas's asset well (1C-d Task 11): a photograph
                    // dropped from the Finder or a browser is ingested into

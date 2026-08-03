@@ -311,11 +311,26 @@ the true thing is being said. The writer can expand it.
 
 **The offer is standing text on the canvas, not a banner.** It is state-derived
 and persists for as long as an unbound document is selected, so a self-dismissing
-notification is the wrong shape twice over. The pattern to follow already exists —
-the empty canvas's own *"Double-click to add a scrap"* is a standing instruction
-rather than an interruption. And the banner route walks into a defect already on
-the record: three `.overlay(alignment: .top)` banners share that window and two on
-screen at once draw over each other, with one banner host named as its own slice.
+notification is the wrong shape twice over. And the banner route walks into a
+defect already on the record: three `.overlay(alignment: .top)` banners share that
+window and two on screen at once draw over each other, with one banner host named
+as its own slice.
+
+> **Correction, 2026-08-03 — there was no visual precedent to copy, and this
+> paragraph claimed one.** It cited the empty canvas's *"Double-click to add a
+> scrap"* as an existing standing instruction. **That string is
+> `CanvasAccessibility.emptyCanvasValue` and is drawn nowhere**; a sighted writer
+> opening an empty canvas is shown nothing at all. Found by slice 3's implementer,
+> who checked the claim against the tree rather than inheriting it.
+>
+> The *shape* was still right — a standing instruction rather than an
+> interruption — but the offer's placement and dosage were new decisions rather
+> than a mirror of a shipped surface, which is worth knowing when judging them.
+>
+> **And the empty canvas is now the obvious sibling**: this slice puts the first
+> visible standing text on that surface, while a writer opening Plan for the first
+> time still meets a blank rectangle with the instruction spoken to VoiceOver and
+> shown to nobody.
 
 ---
 

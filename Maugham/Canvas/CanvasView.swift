@@ -93,6 +93,27 @@ struct CanvasView: View {
     /// `PromotionCommandTests`.
     var subject: CanvasSubject = .wholeProject
 
+    /// The way OUT of the dim, asked for from the canvas: Escape (§4.1, *"Escape
+    /// is the keyboard spelling of the project row"*).
+    ///
+    /// **A one-way ask rather than a `Binding`, and the name is the contract.**
+    /// §4.1 does not say Escape produces a state like the project row's; it says
+    /// it IS that row, so the window answers it by writing the value the row's
+    /// own `.tag` carries and everything downstream — the canvas's subject, the
+    /// persisted UI state, the tree's own highlight — is then identical by
+    /// construction rather than by resemblance. Handing down a
+    /// `Binding<BinderSubject?>` instead would give the canvas the window's
+    /// selection to read as well, which is exactly what tasks 1–3 kept it away
+    /// from: the canvas is handed the ANSWER (`CanvasSubject`), never the
+    /// question.
+    ///
+    /// Defaulted and censused for `itemIndex`'s reasons — `{}` is a real state
+    /// that compiles and runs, so dropping the argument at the one production
+    /// site would leave every test here green while Escape did nothing. The
+    /// census is in `PromotionCommandTests`, and it pins the VALUE the window
+    /// writes as well as the wiring.
+    var selectTheProjectRow: () -> Void = {}
+
     /// Item id → title, kind and thumbnail path, for every research item in the
     /// project — built in `ProjectWindow` beside `pieceChoices` and handed down.
     ///
@@ -429,6 +450,19 @@ struct CanvasView: View {
                 }
             }
 
+            // §4's third row: a document with nothing bound (`CanvasBindingOffer`).
+            //
+            // **Beneath the event view on purpose.** It needs no
+            // `.allowsHitTesting(false)` there — the transparent
+            // `CanvasEventNSView` above it takes every click, exactly as it does
+            // over the drawn `Canvas` — and `CanvasCompositionTests` counts the
+            // two opt-outs above this line, so adding a third would say the
+            // ground or the drawn layer had stopped opting out. It also keeps
+            // the mounted editor frontmost with nothing between them.
+            if CanvasBindingOffer.isOffered(subject: subject, highlight: highlight) {
+                CanvasBindingOfferView()
+            }
+
             CanvasEventView(
                 camera: $camera,
                 onClick: { viewPoint, clickCount in
@@ -440,6 +474,7 @@ struct CanvasView: View {
                                shiftHeld: shiftHeld)
                 },
                 onDeleteKey: { deleteSelection() },
+                onEscape: { escapeAsksForTheWholeBoard() },
                 // The bare manager, vended down the responder chain so ⌘Z with
                 // nothing focused runs the canvas stack rather than the window's.
                 //
@@ -1643,6 +1678,33 @@ struct CanvasView: View {
         return true
     }
 
+    /// **Escape: the way out of the dim** (§4.1). Returns whether the canvas used
+    /// the key — see `CanvasEventNSView.keyDown`.
+    ///
+    /// Two refusals, and neither is defensive:
+    ///
+    /// - **A mounted scrap keeps its Escape.** §4.1 rules that the canvas may
+    ///   only see the key with no editor mounted, and the responder chain
+    ///   delivers that on its own for as long as the editor holds first
+    ///   responder. This guard covers the window it does not: a scrap can be open
+    ///   while the event view still has the keyboard, which is the same window
+    ///   `deleteSelection`'s `isInGesture` guard exists for.
+    /// - **An undimmed board has nothing to leave**, so the key travels on.
+    ///   Escape means something to a great many responders above this one and a
+    ///   canvas that swallowed every one of them would look identical from here.
+    ///
+    /// It does not clear the canvas SELECTION, and that is what "the keyboard
+    /// spelling of the project row" means taken literally: clicking that row
+    /// leaves the selected card selected, so this must too. It asks the window to
+    /// name the project and stops there — the dim, the standing text and the
+    /// sweep's binding all follow from the subject, so there is exactly one
+    /// thing to change.
+    private func escapeAsksForTheWholeBoard() -> Bool {
+        guard editingNodeID == nil, subject.dimsTheBoard else { return false }
+        selectTheProjectRow()
+        return true
+    }
+
     // MARK: - Drags
 
     /// What the Edit menu will call this gesture. The writer reads these — the
@@ -1866,9 +1928,41 @@ struct CanvasView: View {
                 // A sweep under `minimumSide` mints nothing — which is what
                 // every single click on bare canvas is, since `applyMouseDown`
                 // opens a drag session on every mouse-down.
-                model.withScene(persist: false) {
-                    if let id = CanvasInteraction.createRegion(drawnRegion, in: &$0) {
+                model.withScene(persist: false) { scene in
+                    if let id = CanvasInteraction.createRegion(drawnRegion, in: &scene) {
                         model.selection = .region(id)
+                        // *** §4.1's invariant, and it is the whole of slice 3's
+                        // mode: while the board is dimmed a sweep binds to
+                        // whatever the tree names. *** INSIDE the same
+                        // `withScene` as the create and the selection, so one
+                        // ⌘Z takes back the region and its binding together —
+                        // the drop-join twenty lines down is the same shape for
+                        // the same reason. Anywhere else (a `mutate` of its own,
+                        // or the inspector's verb) is a SECOND step on the
+                        // stack: the writer presses ⌘Z, watches the box go,
+                        // presses it again expecting their last sentence back
+                        // and re-runs a binding change nothing can show them.
+                        //
+                        // **Never `mutateFromInspector`** — this is inside
+                        // `handleDrag`'s own open bracket, and close-run-reopen
+                        // would end a gesture the writer is still holding
+                        // (tripwire 32's converse, censused in
+                        // `TripwireGrepTests`).
+                        //
+                        // **Tripwire 31 licenses this because it is a
+                        // CREATION**, exactly as the absorption one line down in
+                        // `createRegion` is: there is no prior relationship to
+                        // break. It is not a licence for a move or a resize to
+                        // touch a binding.
+                        //
+                        // `.piece` only. A GROUP makes a plain region (§4.1, the
+                        // one deliberate exception): a `boundPieceID` holds a
+                        // document id, and choosing one of the group's children
+                        // would be the canvas guessing at a piece the writer
+                        // never named.
+                        if case .piece(let piece) = subject {
+                            RegionBinding.bind(id, toPiece: piece, in: &scene)
+                        }
                         mintedRegion = true
                     }
                 }

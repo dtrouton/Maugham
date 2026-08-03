@@ -306,6 +306,45 @@ final class CanvasHighlightTests: XCTestCase {
                              + "stopped walking the scene and this fixture is lying")
     }
 
+    // MARK: - The way out (§4.1)
+
+    /// **Escape and the project row must produce the same state, not two states
+    /// that look alike** — and this is where that can be seen, because it is a
+    /// claim about two files and no runtime test in this repo hosts the real
+    /// `ProjectWindow`.
+    ///
+    /// §4.1 does not say Escape produces something equivalent to the project
+    /// row; it says it *is* that row. So the assertion is value identity at the
+    /// source: `BinderView`'s row carries `BinderSubject.project` on its `.tag`
+    /// and the window's Escape wiring writes `BinderSubject.project` into the
+    /// same `@State` through the same synchronous path. Everything downstream —
+    /// the canvas's `CanvasSubject`, the persisted UI state, the tree's own
+    /// highlight, the metrics zeroing in that `.onChange` — then agrees by
+    /// construction rather than by two implementations resembling each other.
+    ///
+    /// The behavioural half is one line and is asserted below it: whatever else
+    /// changes, that value must resolve to the undimmed board.
+    func test_escapeWritesTheSameSubjectTheProjectRowDoes() throws {
+        let row = CanvasSourceCensus.commentsStripped(
+            try CanvasSourceCensus.source(at: "Maugham/Views/BinderView.swift"))
+        XCTAssertTrue(row.contains(".tag(BinderSubject.project)"),
+                      "the project row no longer tags `BinderSubject.project`, so "
+                      + "the value Escape writes is no longer the row's value — "
+                      + "whichever of the two moved, they have to move together")
+
+        let window = CanvasSourceCensus.commentsStripped(
+            try CanvasSourceCensus.source(at: "Maugham/Views/ProjectWindow.swift"))
+        XCTAssertTrue(window.contains("selectTheProjectRow: { selectedSubject = .project }"),
+                      "the canvas's way out of the dim does not write "
+                      + "`.project` into the window's subject. §4.1: Escape IS the "
+                      + "keyboard spelling of the project row — a second value that "
+                      + "merely undims would leave the tree still showing a chapter "
+                      + "selected while the board says otherwise")
+
+        XCTAssertEqual(CanvasSubject.resolve(.project, in: structure()), .wholeProject,
+                       "and the value both of them write is the undimmed board")
+    }
+
     // MARK: -
 
     /// The text between `Canvas {` and the matching close brace — the per-frame
