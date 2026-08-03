@@ -298,6 +298,35 @@ group id can never match a `boundPieceID` — only documents are bindable. Selec
 Part One and everything bound to any chapter beneath it lights together; the tree
 gains a zoom level the canvas can answer.
 
+**A binding sweep is an ordinary region draw with a binding on the end — no new
+rules.** Denver's ruling on the smoke, 2026-08-03: *"this should just follow the
+same rules as a region draw, we don't need to reinvent the wheel here, it should
+be consistent."*
+
+Recorded because the first reaction was the opposite one — *"what's been given
+here is a plain old region draw that then goes over the top of existing
+regions??"* — and the three consequences below are the ones that prompted it.
+They are **accepted**, not unnoticed:
+
+- **A sweep that encloses an existing region makes a second region on top of
+  it.** `createRegion` says so already: *"two regions that overlap a lot are two
+  regions that overlap a lot."* Nothing refuses it, and refusing at release would
+  sweep out a large area and give nothing back with no signal why.
+- **Absorption still steals.** A card whose centre falls in the rect is re-homed
+  out of whatever region held it, because `join` removes it from its previous
+  one — the 2026-07-28 ruling that *"a card lives in one place, and drawing a box
+  around it is you saying where"*. That now applies while binding too.
+- **A sweep never re-binds an existing region.** Binding one that is already on
+  the board is the region inspector's Piece picker, which is shipped and
+  unchanged.
+
+So the two routes are complete and neither needs the drag to grow a third
+meaning: **sweep to make-and-bind, inspector to bind-what-is-already-there.** A
+sweep that *selected* existing cards and regions was considered and rejected —
+it would give one gesture two rules depending on the dim, and binding lives on a
+region, so it could not express "these three loose cards belong to Chapter Three"
+without minting a region anyway.
+
 **But a sweep while a group is selected makes a plain region, and the standing
 text never appears for a group.** This is the one deliberate exception to the
 invariant above, and it is worth stating because it looks like a contradiction: a
