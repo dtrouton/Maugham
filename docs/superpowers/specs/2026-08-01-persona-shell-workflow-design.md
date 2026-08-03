@@ -267,6 +267,56 @@ deliberately leave, not a flash on every click.
 otherwise read as a dead end. It must be refusable without nagging (constitution:
 nothing is pushed).
 
+### 4.1 Amendment, 2026-08-03 — the four things §4 did not answer
+
+*Written before slice 3, after a reconnaissance pass over the built canvas. Each
+was a question §4's table could not settle.*
+
+**The invariant, and it is the whole design in one line:**
+
+> **While anything is dimmed, a sweep binds to whatever the tree names. On an
+> undimmed board, a sweep is just a sweep.**
+
+That is what makes this a visible mode rather than a hidden one. There is no
+second state to explain and nothing to remember: if the board is filtered, a
+sweep will bind; if it is not, it will not. Denver: *"I like the ability to keep
+sweeping but it needs a way out."*
+
+**Escape is the keyboard spelling of the project row.** §4 already makes the
+project row *"the way out of the dim"*; Escape does the same thing — clears the
+dim, and with it the binding mode. The way back in is to click the chapter again.
+No new concept, and no third state that is dimmed-but-not-arming, which would be
+indistinguishable on screen from one that is.
+
+**Escape must lose to the mounted scrap editor.** If the writer is typing in a
+card, Escape belongs to the text view; the canvas may only see it when no editor
+is mounted. Breaking editing to add a shortcut is not a trade this slice makes.
+
+**A group lights the union of its children's bindings.** §4 says "a chapter", but
+the tree selects a `BinderSubject.item(id)`, which may name a **group**, and a
+group id can never match a `boundPieceID` — only documents are bindable. Select
+Part One and everything bound to any chapter beneath it lights together; the tree
+gains a zoom level the canvas can answer.
+
+**But a sweep while a group is selected makes a plain region, and the standing
+text never appears for a group.** This is the one deliberate exception to the
+invariant above, and it is worth stating because it looks like a contradiction: a
+dimmed board with a group selected means *"here is everything under Part One"*,
+not *"put something here"*. There is nothing a sweep could bind to.
+
+**A lit region that is collapsed stays as it is.** It lights one rectangle and no
+cards, which is close to "nothing bound" on screen — but a collapsed region
+already draws a counted label bar and already speaks its summary to VoiceOver, so
+the true thing is being said. The writer can expand it.
+
+**The offer is standing text on the canvas, not a banner.** It is state-derived
+and persists for as long as an unbound document is selected, so a self-dismissing
+notification is the wrong shape twice over. The pattern to follow already exists —
+the empty canvas's own *"Double-click to add a scrap"* is a standing instruction
+rather than an interruption. And the banner route walks into a defect already on
+the record: three `.overlay(alignment: .top)` banners share that window and two on
+screen at once draw over each other, with one banner host named as its own slice.
+
 ---
 
 ## 5. The columns
