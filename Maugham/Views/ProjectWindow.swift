@@ -1169,6 +1169,14 @@ struct ProjectWindow: View {
     ) -> some View {
         CanvasView(model: canvasModel, projectRoot: store.url,
                    paletteSwatchHexes: { store.paletteSwatchHexes() },
+                   // Spec §4: selecting in the tree changes what the canvas
+                   // shows. Resolved HERE because telling a chapter from a
+                   // group needs `manifest.structure`, which the canvas does
+                   // not hold and should not start holding — the same reason
+                   // `itemIndex` below is built on this body path rather than
+                   // on the canvas's, which re-evaluates per drag frame.
+                   subject: CanvasSubject.resolve(selectedSubject,
+                                                  in: store.manifest.structure),
                    itemIndex: Self.canvasItemIndex(in: store),
                    // The canvas's asset well (1C-d Task 11): a photograph
                    // dropped from the Finder or a browser is ingested into

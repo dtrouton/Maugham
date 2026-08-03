@@ -1,0 +1,328 @@
+import XCTest
+import MaughamCore
+@testable import Maugham
+
+/// Spec §4 and §4.1 — what the tree's selection lights on the canvas, and the
+/// one thing about it that no assertion on its MEMBERS can see: that it is
+/// derived once per structural change rather than once per frame.
+final class CanvasHighlightTests: XCTestCase {
+
+    private let r1 = CanvasRegionID("r1")
+    private let r2 = CanvasRegionID("r2")
+    private let r3 = CanvasRegionID("r3")
+    private let a = CanvasNodeID("a")
+    private let b = CanvasNodeID("b")
+    private let c = CanvasNodeID("c")
+    private let d = CanvasNodeID("d")
+
+    private func scene() -> CanvasScene {
+        var s = CanvasScene()
+        for id in [a, b, c, d] {
+            s.insert(CanvasNode(id: id, kind: .scrap, origin: .zero,
+                                width: 240, cachedHeight: 80))
+        }
+        for (i, id) in [r1, r2, r3].enumerated() {
+            s.insertRegion(CanvasRegion(id: id, label: "R\(i)",
+                                        frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
+        }
+        return s
+    }
+
+    // MARK: - What the tree names (`CanvasSubject`)
+
+    /// `Part One` holds `ch1` and a nested group holding `ch2`; `loose` sits
+    /// outside it. The nesting is the point — §4.1's *"everything bound to any
+    /// chapter beneath it"* is a subtree, not a child list.
+    private func structure() -> [StructureItem] {
+        [StructureItem(id: "part-1", title: "Part One", type: .group, children: [
+            StructureItem(id: "ch1", title: "One", type: .document, path: "One.md"),
+            StructureItem(id: "inner", title: "Inner", type: .group, children: [
+                StructureItem(id: "ch2", title: "Two", type: .document, path: "Two.md")
+            ])
+         ]),
+         StructureItem(id: "loose", title: "Loose", type: .document, path: "Loose.md")]
+    }
+
+    func test_theProjectRowAndNoSelectionBothMeanTheWholeBoard() {
+        XCTAssertEqual(CanvasSubject.resolve(.project, in: structure()), .wholeProject)
+        XCTAssertEqual(CanvasSubject.resolve(nil, in: structure()), .wholeProject,
+                       "a window nobody has clicked in has not entered the dim")
+        XCTAssertFalse(CanvasSubject.wholeProject.dimsTheBoard)
+    }
+
+    func test_aDocumentResolvesToItsOwnPiece() {
+        XCTAssertEqual(CanvasSubject.resolve(.item("ch2"), in: structure()), .piece("ch2"))
+        XCTAssertTrue(CanvasSubject.resolve(.item("ch2"), in: structure()).dimsTheBoard)
+    }
+
+    /// §4.1: a group is the union of its children's bindings, and the union has
+    /// to reach a chapter that is a grandchild.
+    func test_aGroupResolvesToEveryDocumentBeneathItIncludingNestedOnes() {
+        XCTAssertEqual(CanvasSubject.resolve(.item("part-1"), in: structure()),
+                       .group(["ch1", "ch2"]),
+                       "`inner`'s chapter is under Part One and must light with it; "
+                       + "a child-list walk finds only `ch1`")
+        XCTAssertEqual(CanvasSubject.resolve(.item("inner"), in: structure()),
+                       .group(["ch2"]),
+                       "control: the nested group on its own names only its own child")
+    }
+
+    /// The group carries no group ids — `boundPieceID` can only ever hold a
+    /// document id, so a group id in this list would be a piece nothing can
+    /// match and the union would be silently wrong rather than empty.
+    func test_aGroupNamesNoGroups() {
+        XCTAssertFalse(CanvasSubject.resolve(.item("part-1"), in: structure())
+            .pieces.contains("inner"))
+    }
+
+    func test_anIdTheTreeCannotFindNamesNoPiecesAndStillDimsTheBoard() {
+        let subject = CanvasSubject.resolve(.item("gone"), in: structure())
+        XCTAssertEqual(subject, .group([]))
+        XCTAssertTrue(subject.dimsTheBoard,
+                      "the tree named something; the board is filtered even though "
+                      + "nothing answers to it")
+    }
+
+    // MARK: - What lights (`CanvasHighlight`)
+
+    func test_theProjectRowDimsNothingAtAll() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        RegionBinding.bind(r1, toPiece: "ch1", in: &s)
+        let h = CanvasHighlight.resolve(subject: .wholeProject, in: s)
+        XCTAssertFalse(h.isFiltering)
+        XCTAssertFalse(h.isDimmed(node: b), "a card nothing binds is still not dimmed")
+        XCTAssertFalse(h.isDimmed(region: r2))
+        XCTAssertFalse(h.litNothing, "the project row is not the empty state")
+    }
+
+    /// §4 row two, both halves — and the second half is the one the projection
+    /// cannot give you.
+    func test_aBoundChapterLightsItsRegionsAndTheirResidents() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        CanvasMembership.addAppearance(b, to: r1, in: &s)
+        CanvasMembership.join(c, home: r2, in: &s)
+        RegionBinding.bind(r1, toPiece: "ch1", in: &s)
+
+        let h = CanvasHighlight.resolve(subject: .piece("ch1"), in: s)
+        XCTAssertFalse(h.isDimmed(node: a), "a resident of the bound region is lit")
+        XCTAssertFalse(h.isDimmed(region: r1), "the bound REGION lights too — the "
+                       + "projection returns cards only, so this half is a second "
+                       + "derivation and is the one that goes missing")
+        XCTAssertTrue(h.isDimmed(node: b), "a VISITOR is cited, not owned (§4.4)")
+        XCTAssertTrue(h.isDimmed(node: c), "control: another region's resident")
+        XCTAssertTrue(h.isDimmed(region: r2))
+        XCTAssertFalse(h.litNothing)
+    }
+
+    func test_aChapterWithNothingBoundDimsEverythingAndSaysSo() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        RegionBinding.bind(r1, toPiece: "ch1", in: &s)
+
+        let h = CanvasHighlight.resolve(subject: .piece("ch2"), in: s)
+        XCTAssertTrue(h.isDimmed(node: a))
+        XCTAssertTrue(h.isDimmed(region: r1))
+        XCTAssertTrue(h.litNothing, "§4 row three — the state that offers the next move")
+    }
+
+    /// A bound region with no residents is still something the subject owns, so
+    /// it is NOT the offer-to-bind state — offering a fresh region while one is
+    /// already bound and lit would be the offer contradicting the board.
+    func test_aBoundButEmptyRegionIsNotTheNothingBoundState() {
+        var s = scene()
+        RegionBinding.bind(r1, toPiece: "ch1", in: &s)
+        let h = CanvasHighlight.resolve(subject: .piece("ch1"), in: s)
+        XCTAssertTrue(h.nodes.isEmpty)
+        XCTAssertFalse(h.litNothing)
+        XCTAssertFalse(h.isDimmed(region: r1))
+    }
+
+    /// §4.1's group rule, over the derivation rather than over the resolution:
+    /// two chapters, two regions, one selection.
+    func test_aGroupLightsTheUnionOfItsChildrensBindings() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        CanvasMembership.join(b, home: r2, in: &s)
+        CanvasMembership.join(c, home: r3, in: &s)
+        RegionBinding.bind(r1, toPiece: "ch1", in: &s)
+        RegionBinding.bind(r2, toPiece: "ch2", in: &s)
+        RegionBinding.bind(r3, toPiece: "loose", in: &s)
+
+        let h = CanvasHighlight.resolve(
+            subject: CanvasSubject.resolve(.item("part-1"), in: structure()), in: s)
+        XCTAssertEqual(h.nodes, [a, b], "the nested chapter's card lights with the group's")
+        XCTAssertEqual(h.regions, [r1, r2])
+        XCTAssertTrue(h.isDimmed(node: c), "control: a chapter OUTSIDE the group stays dimmed")
+        XCTAssertTrue(h.isDimmed(region: r3))
+    }
+
+    /// Two regions bound to the same piece union, which is the projection's own
+    /// rule reaching the dim rather than being re-derived here.
+    func test_twoRegionsBoundToOneChapterBothLight() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        CanvasMembership.join(b, home: r2, in: &s)
+        RegionBinding.bind(r1, toPiece: "ch1", in: &s)
+        RegionBinding.bind(r2, toPiece: "ch1", in: &s)
+        let h = CanvasHighlight.resolve(subject: .piece("ch1"), in: s)
+        XCTAssertEqual(h.nodes, [a, b])
+        XCTAssertEqual(h.regions, [r1, r2])
+    }
+
+    // MARK: - Lines
+
+    func test_aLineLightsOnlyWhenBothOfItsEndsDo() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        CanvasMembership.join(b, home: r1, in: &s)
+        RegionBinding.bind(r1, toPiece: "ch1", in: &s)
+        s.insertLine(CanvasLine(id: CanvasLineID("inside"), from: a, to: b))
+        s.insertLine(CanvasLine(id: CanvasLineID("leaving"), from: a, to: c))
+        s.insertLine(CanvasLine(id: CanvasLineID("outside"), from: c, to: d))
+
+        let h = CanvasHighlight.resolve(subject: .piece("ch1"), in: s)
+        XCTAssertFalse(h.isDimmed(line: CanvasLineID("inside")),
+                       "a dimmed line between two lit cards cuts the lit cluster in two")
+        XCTAssertTrue(h.isDimmed(line: CanvasLineID("leaving")),
+                      "one end outside the subject's context")
+        XCTAssertTrue(h.isDimmed(line: CanvasLineID("outside")))
+    }
+
+    // MARK: - Hidden residents (recon §7)
+
+    /// The projection counts a collapsed region's residents; the draw culls
+    /// them. Nothing needs special-casing — but the two disagree, which is why
+    /// nothing in this slice puts a COUNT of the lit set on screen.
+    func test_theLitSetIncludesTheResidentsOfACollapsedRegion() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        RegionBinding.bind(r1, toPiece: "ch1", in: &s)
+        s.updateRegion(r1) { $0.isCollapsed = true }
+
+        let h = CanvasHighlight.resolve(subject: .piece("ch1"), in: s)
+        XCTAssertTrue(h.nodes.contains(a))
+        XCTAssertTrue(s.isHidden(a), "…and the draw never sees it, which is the disagreement")
+    }
+
+    // MARK: - Tripwire 30: derived once per structural change, never per frame
+    //
+    // The members above are all a `Set.contains` away from being right whether
+    // the set is built once or 120 times a second, so no assertion on them can
+    // see this. `CanvasAccessibility`'s cached element list is the precedent and
+    // its own guard is the shape these follow.
+
+    private func canvasViewSource() throws -> String {
+        try CanvasSourceCensus.source(at: "Maugham/Canvas/CanvasView.swift")
+    }
+
+    /// The offender, planted: what the lazy version of this looks like. If the
+    /// predicates below cannot catch it written out, they are not guarding
+    /// anything.
+    private let plantedOffender = """
+        var body: some View {
+            TimelineView(.animation) { context in
+                Canvas { cx, size in
+                    let highlight = CanvasHighlight.resolve(subject: subject, in: model.scene)
+                    CanvasRenderer.draw(scene: model.scene, highlight: highlight, into: &cx)
+                }
+            }
+        }
+        """
+
+    /// Everything between `Canvas {` and the end of that closure runs at
+    /// 60–120 Hz through every straighten, coast and drag.
+    func test_theLitSetIsNotDerivedInsideTheDrawClosure() throws {
+        XCTAssertFalse(try drawClosure(of: canvasViewSource()).contains("CanvasHighlight.resolve"),
+                       "the lit set walks every region and unions every region's "
+                       + "homeMembers — derived here it does that once per frame")
+
+        // The companion, and it is the whole point: the same predicate over the
+        // lazy version has to come back positive, or the assertion above passes
+        // for any file at all.
+        XCTAssertTrue(drawClosure(of: plantedOffender).contains("CanvasHighlight.resolve"),
+                      "the slicer is not reading the draw closure — this test cannot fail")
+    }
+
+    /// …and it is rebuilt from the STRUCTURAL counter, never the redraw one.
+    func test_theLitSetIsRebuiltOnTheStructuralCounterAndTheSubject() throws {
+        let src = CanvasSourceCensus.commentsStripped(try canvasViewSource())
+        XCTAssertTrue(src.contains(".onChange(of: sceneRevision) { _, _ in rebuildHighlight() }"),
+                      "the bindings and the membership move with the scene")
+        XCTAssertTrue(src.contains(".onChange(of: subject, initial: true) "
+                                   + "{ _, _ in rebuildHighlight() }"),
+                      "…and what the tree names moves with a click. Without this "
+                      + "trigger the dim is right once and then stale for the "
+                      + "rest of the session")
+        XCTAssertFalse(src.contains(".onChange(of: revision"),
+                       "`revision` ticks once per animation frame — keying the lit "
+                       + "set on it is the same defect with an extra step")
+    }
+
+    /// One writer. A third call site on a per-frame path would be invisible on
+    /// screen, because the answer would be right every time.
+    func test_theLitSetHasExactlyOneWriter() throws {
+        let src = CanvasSourceCensus.commentsStripped(try canvasViewSource())
+        XCTAssertEqual(
+            src.components(separatedBy: "highlight = CanvasHighlight.resolve").count - 1, 1,
+            "`highlight` is resolved somewhere other than `rebuildHighlight()`")
+        XCTAssertEqual(src.components(separatedBy: "rebuildHighlight()").count - 1, 3,
+                       "the declaration and exactly TWO callers — the two "
+                       + "`.onChange`s above. A third is a per-frame path or a "
+                       + "second answer to when the dim changes")
+    }
+
+    /// The cost, measured rather than asserted about — this is why the two
+    /// source guards above are worth their weight. A canvas at the probe's
+    /// supported size, derived once.
+    func test_theDerivationIsScenePropertionalAndSoMustNotRideAFrame() {
+        var s = CanvasScene()
+        let regionCount = 40
+        let perRegion = CanvasPerformanceProbeTests.supportedNodeCount / regionCount
+        for r in 0..<regionCount {
+            let region = CanvasRegionID("r\(r)")
+            s.insertRegion(CanvasRegion(id: region, label: "R\(r)",
+                                        frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
+            for n in 0..<perRegion {
+                let id = CanvasNodeID("n\(r)-\(n)")
+                s.insert(CanvasNode(id: id, kind: .scrap, origin: .zero,
+                                    width: 240, cachedHeight: 80))
+                CanvasMembership.join(id, home: region, in: &s)
+            }
+            RegionBinding.bind(region, toPiece: "ch\(r)", in: &s)
+        }
+
+        let start = Date()
+        let h = CanvasHighlight.resolve(
+            subject: .group((0..<regionCount).map { "ch\($0)" }), in: s)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertEqual(h.nodes.count, regionCount * perRegion)
+        // Not a performance bound — a statement of the shape. Once per gesture
+        // this is nothing; once per frame at 120 Hz it is the whole budget.
+        XCTAssertGreaterThan(elapsed, 0,
+                             "if this ever measures as free, the derivation has "
+                             + "stopped walking the scene and this fixture is lying")
+    }
+
+    // MARK: -
+
+    /// The text between `Canvas {` and the matching close brace — the per-frame
+    /// region of `body`. Brace-counted rather than line-sliced so an added
+    /// modifier cannot move the boundary.
+    private func drawClosure(of source: String) -> String {
+        guard let open = source.range(of: "Canvas { cx, size in") else { return "" }
+        var depth = 1
+        var out = ""
+        for ch in source[open.upperBound...] {
+            if ch == "{" { depth += 1 }
+            if ch == "}" {
+                depth -= 1
+                if depth == 0 { break }
+            }
+            out.append(ch)
+        }
+        return out
+    }
+}

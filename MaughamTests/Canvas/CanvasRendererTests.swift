@@ -765,7 +765,7 @@ final class CanvasRendererTests: XCTestCase {
         let page = try Self.render(size: viewSize) { cx in
             CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                 layouts: [node.id: layout],
-                                scraps: [:], items: .empty, selection: nil,
+                                scraps: [:], items: .empty, selection: nil, highlight: .undimmed,
                                 visibleEditorNodeID: nil,
                                 straighten: CanvasFocusStraighten(),
                                 pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -828,7 +828,7 @@ final class CanvasRendererTests: XCTestCase {
             let page = try Self.render(size: viewSize) { cx in
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [id: layout],
-                                    scraps: [:], items: .empty, selection: nil,
+                                    scraps: [:], items: .empty, selection: nil, highlight: .undimmed,
                                     visibleEditorNodeID: visibleEditor,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -859,7 +859,7 @@ final class CanvasRendererTests: XCTestCase {
             try Self.render(size: viewSize) { cx in
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [id: layout],
-                                    scraps: [:], items: .empty, selection: nil,
+                                    scraps: [:], items: .empty, selection: nil, highlight: .undimmed,
                                     visibleEditorNodeID: id,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -918,7 +918,7 @@ final class CanvasRendererTests: XCTestCase {
             try Self.render(size: viewSize) { cx in
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [:],
-                                    scraps: [:], items: items, selection: nil,
+                                    scraps: [:], items: items, selection: nil, highlight: .undimmed,
                                     visibleEditorNodeID: nil,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -1001,7 +1001,7 @@ final class CanvasRendererTests: XCTestCase {
             try Self.render(size: viewSize) { cx in
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [:],
-                                    scraps: [:], items: items, selection: nil,
+                                    scraps: [:], items: items, selection: nil, highlight: .undimmed,
                                     visibleEditorNodeID: nil,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -1054,7 +1054,7 @@ final class CanvasRendererTests: XCTestCase {
             return try Self.render(size: viewSize) { cx in
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [:],
-                                    scraps: [:], items: items, selection: nil,
+                                    scraps: [:], items: items, selection: nil, highlight: .undimmed,
                                     visibleEditorNodeID: nil,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -1110,7 +1110,7 @@ final class CanvasRendererTests: XCTestCase {
             return (try Self.render(size: viewSize) { cx in
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [:],
-                                    scraps: [:], items: .empty, selection: nil,
+                                    scraps: [:], items: .empty, selection: nil, highlight: .undimmed,
                                     visibleEditorNodeID: nil,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)

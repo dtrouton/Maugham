@@ -301,6 +301,27 @@ Three shipping tools get it wrong, three different ways, and the third is the on
 
 ---
 
+## The dim — what the tree's selection lights *(slice 3, spec §4 and its §4.1 amendment)*
+
+**Selecting in Plan's tree filters the board.** The project row (and no selection at all) leaves everything undimmed; a chapter lights its bound regions and their resident cards; a group lights the union of its children's bindings; everything else recedes. Three types carry it and each has one job:
+
+- **`CanvasSubject`** — what the tree names, resolved *against the manifest* into pieces: `.wholeProject`, `.piece(id)`, `.group([ids])`. **Resolved in `ProjectWindow` and handed to `CanvasView` as a `let`.** `BinderSubject.item(id)` deliberately does not encode document-vs-group, so telling them apart needs `manifest.structure`, which the canvas does not hold — the same reason `itemIndex` is built on the window's body path (tripwire 4). **Anything that is not a manuscript document is a group of its descendant documents**, including an id the tree cannot find, which is a group of none.
+- **`CanvasHighlight`** — the lit sets, and every question it answers is a `Set.contains`. The cards come from `RegionBinding.references(forPiece:in:)`, which this **calls rather than re-derives** — it is the projection's second production caller and is censused by name in `RegionBindingTests`. The **regions** are a second derivation: the projection dissolves them away and returns a flat card set, so "its bound regions *and* their resident cards" needs both halves. A **line** is lit when both its ends are; a **tether** when its region and its node are; a **chip** follows the card it stands for, not the region it is drawn in.
+- **`CanvasRenderer.draw(highlight:)`** — a parameter beside `selection`, for `selection`'s reason: a non-scene, non-camera fact the view resolves and the renderer derives nothing from.
+
+**It is cached on `sceneRevision` AND the subject, and that is tripwire 30.** The derivation walks every region and unions every region's `homeMembers`; `body` runs per scroll event, per drag frame and per momentum tick. `CanvasView.rebuildHighlight()` is its only writer, called from those two `.onChange`s and nowhere else — `axElements` is the precedent one modifier up, and keying either on `revision` is the same defect with an extra step.
+
+**The dim is de-emphasis and never disabling.** A dimmed card is still hit-tested, still selectable, and **its selection ring is drawn at full strength** — a selection the writer cannot find is worse than no dim. The sweep and the pending line are never dimmed either: they are the live gesture, not part of the scene being filtered.
+
+**Alpha is REPLACED, never multiplied** — `CanvasMaterial.dimmedAlpha(lit:)` is `min(lit, dimmedOpacity)` and every dimmed alpha on the surface goes through it or through `CanvasRenderer.alpha(_:dimmed:)`. This is `tetherOpacity`'s own lesson one slice on: the dim meets four different starting alphas (card paper at 1, a chip at `chipOpacity` (0.75), a tether at `tetherOpacity` (0.30), the region wash at `lightRegionWash` (0.55, 0.52, 0.44, 0.07)), and a multiplier takes the two quietest of them to nothing. Two consequences are measurements rather than special cases, and both are pinned in `CanvasHighlightRenderTests`:
+
+- **The region wash is left exactly where it is**, because it is already quieter than the dim — so a dimmed region keeps the *area* it draws while its outline, its title and its cards recede. A bare replacement would have made the dimmed wash **louder** than the lit one.
+- **The card's border is left alone too**, on the same measurement: `separatorColor` resolves to alpha 0.098 in both appearances.
+
+`textInk(_:dimmed:)` exists because `secondaryLabelColor` and `tertiaryLabelColor` carry their own alpha — `.opacity()` on either is a product; `withAlphaComponent` replaces. **A card's WORDS are the one part of it SwiftUI does not draw** (`ScrapLayout.draw` goes through `withCGContext`), so they are the part an implementer can dim everything else and still miss.
+
+---
+
 ## Promotion
 
 **A promotion is a SNAPSHOT, and the mark it leaves is provenance rather than a link.** `CanvasNode.promotedItemID` and `CanvasRegion.promotedItemID` record what a thing produced; nothing syncs afterwards in either direction, and there is no reconciler because none is promised. **The region row is the one-sentence reason**: promoting a region joins six cards' text into one palette card while all six stay on the canvas, so a copy at a moment is already what §6 describes — a scrap that moved its words *out* would give one verb two rules. A promoted card and its note drifting apart is the design (spec §6.1's 2026-07-28 amendment), not a defect. See [ADR 0026 §9](../../docs/adr/0026-planning-canvas-rendering.md).
@@ -527,6 +548,7 @@ Pass the ground the **same live camera `@State`** the draw pass uses. A stale or
 | how far a human thing must lean before **straight can mean Claude** | `minimumTiltDegrees` (the dead band around zero; bounded above by `maximumTiltDegrees`) |
 | how strongly a card says **Claude put me here** | `lightClaudeCardPaper`, `darkClaudeCardPaper` (cooler than the writer's paper, and darker in dark) |
 | how strongly a line says it | `lightClaudeLineStroke`, `darkClaudeLineStroke` |
+| how far a dimmed thing recedes (§4) | `dimmedOpacity` (0.22) — applied by `dimmedAlpha(lit:)`, which is a `min` and never a product |
 
 **Light and dark are two materials, not one texture inverted** (§7.1: "Dark: slate under a lamp… Paper is a light-mode idea"). Every knob that differs is a *pair*, and `CanvasGroundTests.test_theTwoAppearancesAreCalibratedSeparately` stops a tidy-up collapsing them — light was signed off on 2026-07-26 and dark was recalibrated on 2026-07-27; putting dark's hotter grain on light undoes an approval.
 

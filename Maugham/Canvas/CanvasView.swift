@@ -73,6 +73,26 @@ struct CanvasView: View {
     /// would do file I/O per render. The canvas pulls it once, on appear.
     let paletteSwatchHexes: () -> [String]
 
+    /// What the window's tree names, resolved against the manifest by
+    /// `ProjectWindow` (spec §4). Selecting a chapter lights what is bound to it
+    /// and dims the rest of the board.
+    ///
+    /// **A `let` handed in, and NOT a stored property on `CanvasModel`.** The
+    /// model is `@Observable` with the whole scene in one property that every
+    /// drag frame writes, which is exactly why the right-hand column reads
+    /// nothing off it; a value that has nothing to do with the scene, written
+    /// from the other column, would make the inspector a writer into the drag
+    /// loop's object. Here it is an input to one *view* of that state, which is
+    /// what everything else on this side of the declaration list is.
+    ///
+    /// Defaulted for `itemIndex`'s reason (~70 test hosts, no window between
+    /// them) and censused for `itemIndex`'s reason too: `.wholeProject` is a
+    /// real state that compiles and runs, so dropping the argument at the one
+    /// production site would leave every canvas test green while the tree's
+    /// selection changed nothing the writer can see. The census is in
+    /// `PromotionCommandTests`.
+    var subject: CanvasSubject = .wholeProject
+
     /// Item id → title, kind and thumbnail path, for every research item in the
     /// project — built in `ProjectWindow` beside `pieceChoices` and handed down.
     ///
@@ -231,6 +251,21 @@ struct CanvasView: View {
     /// a zoom does not invalidate them at all.
     @State private var axElements: [CanvasAXElement] = []
 
+    /// What the tree's subject lights, and by omission what is dimmed (§4).
+    ///
+    /// **Cached here for the reason the element list above is cached here**, and
+    /// it is the same defect one primitive over: resolving it walks every region
+    /// and unions every region's `homeMembers`, and `body` runs on every scroll
+    /// event, every drag frame and every momentum tick. Keying it on `revision`
+    /// would be that defect with an extra step.
+    ///
+    /// Its inputs are the scene's bindings, its membership and the tree's
+    /// subject — so it is rebuilt on `sceneRevision` (the inspector's bind, a
+    /// drop-join and a swept region all bump it; drag and coast frames
+    /// deliberately do not) **and** on `subject`, which moves on a click rather
+    /// than on a frame.
+    @State private var highlight = CanvasHighlight.undimmed
+
     /// What an external drop could not do, shown in an alert.
     ///
     /// **An alert and not a fourth transient banner.** Three
@@ -329,6 +364,7 @@ struct CanvasView: View {
                                         scraps: model.scraps,
                                         items: itemPresentation,
                                         selection: model.selection,
+                                        highlight: highlight,
                                         visibleEditorNodeID: visibleEditorNodeID,
                                         straighten: straighten,
                                         pendingRegionDraw: sweep,
@@ -505,6 +541,14 @@ struct CanvasView: View {
             axElements = CanvasAccessibility.elements(scene: model.scene, scraps: model.scraps,
                                                       items: itemPresentation)
         }
+        // §4's lit set — the STRUCTURAL counter and the SUBJECT, never
+        // `revision`. Two triggers because it has two inputs and they move on
+        // different occasions: the bindings and the membership change with the
+        // scene, and what the tree names changes with a click in the other
+        // column. `initial: true` sits on the subject's, which fires at mount
+        // and covers a window restored onto a chapter.
+        .onChange(of: sceneRevision) { _, _ in rebuildHighlight() }
+        .onChange(of: subject, initial: true) { _, _ in rebuildHighlight() }
         // The manifest moved under a canvas that did not: the writer renamed the
         // research note a card points at, or deleted it. Nothing on the canvas
         // changed, so no structural counter budged — and the card would show the
@@ -781,6 +825,15 @@ struct CanvasView: View {
         if let parked = model.takePendingReveal() {
             model.onRevealRequested?(parked)
         }
+    }
+
+    /// Re-derive §4's lit set. **The only writer of `highlight`**, and it is
+    /// called from the two `.onChange`s in `body` and from nowhere else — a
+    /// third call site on a per-frame path is the whole of what tripwire 30
+    /// forbids here, and it would be invisible on screen because the answer
+    /// would be right every time.
+    private func rebuildHighlight() {
+        highlight = CanvasHighlight.resolve(subject: subject, in: model.scene)
     }
 
     /// Build a layout per scrap and fill in the derived heights the model needs

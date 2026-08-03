@@ -654,6 +654,14 @@ final class RegionBindingTests: XCTestCase {
     ///   `piece_references`, so the two rules are on the wire rather than in a
     ///   doc comment nothing reads. It CALLS the function rather than deriving
     ///   the rule a second time, which is tripwire 19's reasoning one layer down.
+    /// - `CanvasHighlight.swift` *(slice 3)* — the DIM. §4's *"its bound regions
+    ///   and their resident cards lit; everything else dimmed"* is this
+    ///   projection made visible in the app rather than only over MCP, and it
+    ///   consumes it for the *cards* half only: the projection dissolves the
+    ///   regions away, so which regions light is a second derivation that file
+    ///   owns. It calls rather than re-derives for the reason above, and the
+    ///   failure re-deriving produces is on screen: `home ∪ appearances` lights
+    ///   a card merely visiting a bound region.
     ///
     /// The reference rail is **M2's** (umbrella spec §10 — the intent strip,
     /// pinned references and the assistant column), so a `RegionInspector` or
@@ -669,7 +677,7 @@ final class RegionBindingTests: XCTestCase {
             }
             .map(\.name)
             .sorted()
-        XCTAssertEqual(callers, ["CanvasTools.swift"],
+        XCTAssertEqual(callers, ["CanvasHighlight.swift", "CanvasTools.swift"],
                        "if this is ever empty again, the two rules below §4.4 are "
                        + "reachable only from this file and every other reader "
                        + "re-derives them wrongly. If it grows, the new caller is a "

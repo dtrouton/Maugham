@@ -349,6 +349,7 @@ final class PromotionCommandTests: XCTestCase {
               "items: ProjectWindow.canvasItemIndex(in: store)",
               ".modifier(CanvasClaudeArrivalModifier(",
               "itemIndex: Self.canvasItemIndex(in: store)",
+              "subject: CanvasSubject.resolve(",
               "assetIngest: CanvasAssetIngest(",
               "captureDrop: CanvasCaptureDrop(",
               ".modifier(CanvasCollapseModifier(",
@@ -418,6 +419,15 @@ final class PromotionCommandTests: XCTestCase {
              + "turns every inbox row dragged onto the canvas into a refusal "
              + "alert. It is also the only place the window hands the canvas an "
              + "`InboxStore` at all. "
+             + "`subject: CanvasSubject.resolve(` is slice 3's dim, and it is "
+             + "the defaulted-argument shape a fourth time: `CanvasView.subject` "
+             + "defaults to `.wholeProject`, which is a real state — the project "
+             + "row — so dropping this argument compiles, runs, and leaves every "
+             + "`CanvasHighlightTests` assertion green over a pure function "
+             + "while clicking a chapter in Plan's tree changes nothing at all "
+             + "on the canvas. It is also the only place the manifest reaches "
+             + "the resolution: the canvas cannot tell a chapter from a group "
+             + "without it, and a group resolved as a chapter lights nothing. "
              + "`.modifier(CanvasCollapseModifier(` is 1C-d Task 13's mount "
              + "line, and it is the mount-line shape a third time: the modifier "
              + "is a struct in THIS file, so deleting the one line that puts it "

@@ -443,6 +443,42 @@ enum CanvasMaterial {
     /// where half the cards are selected.
     static let promotedMarkOpacity: CGFloat = 0.45
 
+    // MARK: - The dim (§4)
+
+    /// **The alpha a dimmed thing draws at — the alpha, not a factor on it.**
+    ///
+    /// One number for the whole surface, because a dim is one statement: *this
+    /// is not what the tree named.* A card, a region's outline, a line, a tether
+    /// and a chip all land on this value rather than each keeping a scaled
+    /// version of its own dosage, so "how loud is the dim" is one knob the
+    /// writer can move by eye. **Quieter dim:** lower it.
+    ///
+    /// **It is applied by `dimmedAlpha(lit:)` and never by multiplication**, and
+    /// that is this file's oldest lesson rather than a preference — see
+    /// `tetherOpacity`, where `0.35 × 0.30` shipped a line nobody could see. A
+    /// dim meets four different starting alphas on this canvas (card paper at 1,
+    /// the region wash at 0.07–0.09, a chip at 0.75, a tether at 0.30) and a
+    /// multiplier makes the two quietest of them disappear entirely — which is
+    /// the one thing a de-emphasis may not do, because a dimmed card is still
+    /// clickable, still selectable, and still where the writer left it.
+    ///
+    /// It sits below every text dosage on this surface — `secondaryLabelColor`
+    /// at ~0.5 and `tertiaryLabelColor` at ~0.26 — and above nothing except the
+    /// region wash, which `dimmedAlpha(lit:)` therefore leaves alone.
+    /// `CanvasHighlightRenderTests` pins both ends of that.
+    static let dimmedOpacity: CGFloat = 0.22
+
+    /// The alpha a dimmed thing draws at, given the alpha it draws at when lit.
+    ///
+    /// **`min`, and the `min` is load-bearing in one place.** A bare replacement
+    /// would *raise* the region wash — it is authored at 0.07–0.09, well under
+    /// the dim — so a dimmed region would carry a stronger wash than a lit one,
+    /// which is the signal running backwards. A product would take it to 0.015
+    /// and the region's area would vanish. `min` says the honest thing: a dim
+    /// can make something quieter and can never make it louder, and a thing
+    /// already quieter than the dim is left where it is.
+    static func dimmedAlpha(lit: CGFloat) -> CGFloat { min(lit, dimmedOpacity) }
+
     // MARK: - The sweep
 
     /// The outline under the pointer while a region is being drawn.

@@ -182,6 +182,58 @@ enum CanvasRenderer {
     static let sweepStroke: NSColor = CanvasMaterial.dynamic(light: CanvasMaterial.lightSweepStroke,
                                                              dark: CanvasMaterial.darkSweepStroke)
 
+    /// The region's two materials when the region is dimmed (§4).
+    ///
+    /// **A pair apiece, built from the same literals by the same rule**, because
+    /// these are the two colours on this surface that carry their own alpha —
+    /// and a pair, not a single value, so `dimmedAlpha`'s `min` is applied to
+    /// each appearance's OWN dosage rather than to whichever one a reader
+    /// happened to have in mind. That is what makes the wash's outcome a
+    /// measurement instead of a special case: 0.07 and 0.09 are both under the
+    /// dim, so `dimmedRegionWash` resolves to exactly `regionWash` in both
+    /// appearances and a dimmed region keeps the area it draws — while the
+    /// outline, the label and the cards inside it recede.
+    static let dimmedRegionWash: NSColor = CanvasMaterial.dynamic(
+        light: CanvasMaterial.lightRegionWash.withAlphaComponent(
+            CanvasMaterial.dimmedAlpha(lit: CanvasMaterial.lightRegionWash.alphaComponent)),
+        dark: CanvasMaterial.darkRegionWash.withAlphaComponent(
+            CanvasMaterial.dimmedAlpha(lit: CanvasMaterial.darkRegionWash.alphaComponent)))
+    static let dimmedRegionStroke: NSColor = CanvasMaterial.dynamic(
+        light: CanvasMaterial.lightRegionStroke.withAlphaComponent(
+            CanvasMaterial.dimmedAlpha(lit: CanvasMaterial.lightRegionStroke.alphaComponent)),
+        dark: CanvasMaterial.darkRegionStroke.withAlphaComponent(
+            CanvasMaterial.dimmedAlpha(lit: CanvasMaterial.darkRegionStroke.alphaComponent)))
+
+    static func regionWash(dimmed: Bool) -> NSColor { dimmed ? dimmedRegionWash : regionWash }
+    static func regionStroke(dimmed: Bool) -> NSColor { dimmed ? dimmedRegionStroke : regionStroke }
+
+    /// The alpha to draw at, given the dosage this thing carries when lit.
+    ///
+    /// **Every dimmed alpha on this surface goes through here**, so there is one
+    /// answer to "how is the dim applied" rather than one per primitive — and so
+    /// that the thing the answer must never be (a product; see
+    /// `CanvasMaterial.dimmedOpacity`) is unspellable at the call sites.
+    static func alpha(_ lit: CGFloat, dimmed: Bool) -> CGFloat {
+        dimmed ? CanvasMaterial.dimmedAlpha(lit: lit) : lit
+    }
+
+    /// Secondary text — a region's label, a chip's title, an item's caption, a
+    /// line's label — dimmed or not.
+    ///
+    /// **`withAlphaComponent` and never `.opacity()`, and that is the whole
+    /// point of this helper.** These label colours carry their own alpha —
+    /// measured 0.498 / 0.549 for secondary and 0.259 / 0.247 for tertiary,
+    /// light and dark — so `.opacity(dimmedOpacity)` on either is a PRODUCT and
+    /// lands at 0.11 or 0.06: text the writer cannot read on a card they can
+    /// still click. `withAlphaComponent` REPLACES the alpha and keeps the
+    /// colour's per-appearance resolution, so this is `dimmedAlpha(lit:)`'s
+    /// answer for both — both dosages are above the dim, which
+    /// `CanvasHighlightRenderTests` pins so a system change cannot quietly turn
+    /// the replacement into an amplification.
+    static func textInk(_ lit: NSColor, dimmed: Bool) -> Color {
+        Color(nsColor: dimmed ? lit.withAlphaComponent(CanvasMaterial.dimmedOpacity) : lit)
+    }
+
     /// A line's ink, resolved per appearance from the pair in `CanvasMaterial`.
     /// Authored at full alpha there so `lineOpacity` is applied once, here.
     static let lineStroke: NSColor = CanvasMaterial.dynamic(light: CanvasMaterial.lightLineStroke,
@@ -795,6 +847,18 @@ enum CanvasRenderer {
     /// glyphs — the jump §7A.5 was written to prevent. `CanvasView` derives this
     /// argument and the editor's own visibility from ONE property, so they
     /// cannot flip on different frames.
+    /// `highlight` is spec §4's dim, and it is a parameter here for exactly
+    /// `selection`'s reason: a non-scene, non-camera fact the VIEW resolves and
+    /// hands down, with this file deriving nothing from it. It is asked per
+    /// object and answered by set membership — the derivation is
+    /// scene-proportional and lives in `CanvasHighlight.resolve`, cached on the
+    /// structural counter (tripwire 30). **The dim is de-emphasis and never
+    /// disabling**: a dimmed card is still hit-tested, still selectable, and its
+    /// selection chrome is drawn at full strength on purpose, because a
+    /// selection the writer cannot find is worse than no dim at all. The sweep
+    /// and the pending line are never dimmed either — they are the writer's live
+    /// gesture rather than part of the scene being filtered.
+    ///
     /// Five passes, and the order is the design:
     ///
     /// 1. **Regions, BENEATH everything.** §4 makes a region *where the cards
@@ -834,6 +898,7 @@ enum CanvasRenderer {
                      scraps: [CanvasNodeID: String],
                      items: CanvasItemPresentation,
                      selection: CanvasSelection?,
+                     highlight: CanvasHighlight,
                      visibleEditorNodeID: CanvasNodeID?,
                      straighten: CanvasFocusStraighten,
                      pendingRegionDraw: CGRect?,
@@ -847,11 +912,13 @@ enum CanvasRenderer {
         let regions = scene.regions
 
         for region in visibleRegions(regions, camera: camera, viewSize: viewSize) {
-            drawRegion(region, in: scene, isSelected: selection == .region(region.id), on: cx)
+            drawRegion(region, in: scene, isSelected: selection == .region(region.id),
+                       isDimmed: highlight.isDimmed(region: region.id), on: cx)
         }
 
         for line in visibleLines(in: scene, camera: camera, viewSize: viewSize) {
-            drawLine(line, isSelected: selection == .line(line.id), on: cx)
+            drawLine(line, isSelected: selection == .line(line.id),
+                     isDimmed: highlight.isDimmed(line: line.id), on: cx)
         }
 
         for node in visibleNodes(in: scene, camera: camera, viewSize: viewSize) {
@@ -862,13 +929,27 @@ enum CanvasRenderer {
                      item: items.item(for: node.id),
                      angle: drawnAngle(for: node, straighten: straighten),
                      isSelected: selection == .node(node.id),
+                     isDimmed: highlight.isDimmed(node: node.id),
                      on: cx)
         }
 
-        for tether in tethers(in: scene, regions: regions) { drawTether(tether, on: cx) }
+        // A tether explains that this card lives in that region, so it is lit
+        // only when both ends are — and since every resident of a lit region is
+        // itself lit, asking both is belt and braces rather than two rules.
+        for tether in tethers(in: scene, regions: regions) {
+            drawTether(tether,
+                       isDimmed: highlight.isDimmed(region: tether.region)
+                           || highlight.isDimmed(node: tether.node),
+                       on: cx)
+        }
+        // A chip follows the CARD it stands for and not the region it is drawn
+        // in: a chip is a reference to a card living elsewhere, and drawing the
+        // reference dimmed while the card itself is lit would say the same card
+        // is two things at once.
         for chip in appearanceChips(in: scene, regions: regions) {
             drawChip(chip,
                      title: chipTitle(for: chip.node, in: scene, scraps: scraps, items: items),
+                     isDimmed: highlight.isDimmed(node: chip.node),
                      on: cx)
         }
 
@@ -889,6 +970,7 @@ enum CanvasRenderer {
     /// next thing drawn.
     private static func drawLine(_ line: CanvasDrawnLine,
                                  isSelected: Bool,
+                                 isDimmed: Bool,
                                  on cx: GraphicsContext) {
         var path = Path()
         path.move(to: line.from)
@@ -899,10 +981,14 @@ enum CanvasRenderer {
         // backing rather than a statement about the line, an unlabelled line has
         // none at all, and tinting it would make a labelled Claude line say so
         // twice while an unlabelled one said it once.
+        // The dim REPLACES the line's own dosage rather than scaling it — a
+        // selected line is at 1 and an unselected one at 0.6, and a product
+        // would put the two at different depths of the same dim.
         cx.stroke(path,
                   with: .color(Color(nsColor: line.author == .claude ? claudeLineStroke
                                                                      : lineStroke)
-                      .opacity(isSelected ? 1 : CanvasMaterial.lineOpacity)),
+                      .opacity(alpha(isSelected ? 1 : CanvasMaterial.lineOpacity,
+                                     dimmed: isDimmed))),
                   lineWidth: isSelected ? CanvasMaterial.selectedLineWidth
                                         : CanvasMaterial.lineWidth)
 
@@ -912,11 +998,11 @@ enum CanvasRenderer {
         guard let label = line.label, !box.isEmpty else { return }
         let pill = Path(roundedRect: box, cornerRadius: box.height / 2)
         cx.fill(pill, with: .color(Color(nsColor: cardPaper)
-            .opacity(CanvasMaterial.lineLabelOpacity)))
+            .opacity(alpha(CanvasMaterial.lineLabelOpacity, dimmed: isDimmed))))
 
         var text = cx.resolve(Text(label)
             .font(.system(size: CanvasMaterial.lineLabelFontSize)))
-        text.shading = .color(Color(nsColor: .secondaryLabelColor))
+        text.shading = .color(textInk(.secondaryLabelColor, dimmed: isDimmed))
         cx.drawLayer { inner in
             // Clipped, so a label the per-character estimate under-measured is
             // truncated rather than spilling onto the ground beside the pill.
@@ -1006,6 +1092,7 @@ enum CanvasRenderer {
     private static func drawRegion(_ region: CanvasRegion,
                                    in scene: CanvasScene,
                                    isSelected: Bool,
+                                   isDimmed: Bool,
                                    on context: GraphicsContext) {
         var cx = context
         // ONE definition of the rotation, shared with the card — about the rect's
@@ -1016,7 +1103,8 @@ enum CanvasRenderer {
 
         let shape = Path(roundedRect: region.frame,
                          cornerRadius: CanvasMaterial.regionCornerRadius)
-        cx.fill(shape, with: .color(Color(nsColor: regionWash)))
+        let wash = regionWash(dimmed: isDimmed)
+        cx.fill(shape, with: .color(Color(nsColor: wash)))
 
         // The chrome bar is the only part of a region a writer can grab, so it
         // is the only part that is drawn as a surface rather than as an area —
@@ -1024,7 +1112,7 @@ enum CanvasRenderer {
         let chrome = CanvasRegionMetrics.chromeRect(in: region.frame)
         cx.drawLayer { bar in
             bar.clip(to: shape)
-            bar.fill(Path(chrome), with: .color(Color(nsColor: regionWash)))
+            bar.fill(Path(chrome), with: .color(Color(nsColor: wash)))
 
             // The promoted stripe, on the chrome bar because that is the only
             // part of a region reliably on screen when it is collapsed. It is
@@ -1040,18 +1128,21 @@ enum CanvasRenderer {
             if region.promotedItemID != nil {
                 bar.fill(Path(promotedMarkRect(inRegionChrome: region.frame)),
                          with: .color(Color(nsColor: cardInk)
-                                          .opacity(CanvasMaterial.promotedMarkOpacity)))
+                                          .opacity(alpha(CanvasMaterial.promotedMarkOpacity,
+                                                         dimmed: isDimmed))))
             }
         }
 
+        // The SELECTED stroke is never dimmed — see `draw`: a de-emphasis that
+        // hides the selection is a de-emphasis the writer cannot work through.
         cx.stroke(shape,
                   with: .color(Color(nsColor: isSelected
                                      ? CanvasMaterial.regionSelectedStroke
-                                     : regionStroke)),
+                                     : regionStroke(dimmed: isDimmed))),
                   lineWidth: isSelected ? 2 : 1)
 
         var label = cx.resolve(Text(region.displayLabel).font(.system(size: 11, weight: .medium)))
-        label.shading = .color(Color(nsColor: .secondaryLabelColor))
+        label.shading = .color(textInk(.secondaryLabelColor, dimmed: isDimmed))
         let labelOrigin = CanvasRegionMetrics.labelOrigin(in: region.frame)
         cx.draw(label, at: labelOrigin, anchor: .topLeading)
 
@@ -1060,7 +1151,7 @@ enum CanvasRenderer {
             // goes BESIDE the label rather than in the middle of nothing.
             var summary = cx.resolve(Text(collapsedSummary(for: region.id, in: scene))
                 .font(.system(size: 11)))
-            summary.shading = .color(Color(nsColor: .tertiaryLabelColor))
+            summary.shading = .color(textInk(.tertiaryLabelColor, dimmed: isDimmed))
             cx.draw(summary,
                     at: CGPoint(x: labelOrigin.x + label.measure(in: chrome.size).width
                                 + CanvasRegionMetrics.labelInset,
@@ -1069,7 +1160,7 @@ enum CanvasRenderer {
         }
 
         cx.fill(regionResizeHandle(in: region.frame),
-                with: .color(Color(nsColor: regionStroke)))
+                with: .color(Color(nsColor: regionStroke(dimmed: isDimmed))))
     }
 
     /// The region's resize mark — the triangle below the hypotenuse of
@@ -1093,13 +1184,17 @@ enum CanvasRenderer {
     /// The alpha is REPLACED rather than multiplied — `regionStroke` already
     /// carries 0.30–0.35, and multiplying by `tetherOpacity` would give ~0.10,
     /// which is a line the writer cannot see at all.
-    private static func drawTether(_ tether: Tether, on cx: GraphicsContext) {
+    private static func drawTether(_ tether: Tether, isDimmed: Bool, on cx: GraphicsContext) {
         var path = Path()
         path.move(to: tether.from)
         path.addLine(to: tether.to)
+        // The dim replaces `tetherOpacity` for the reason the comment above
+        // gives for `tetherOpacity` replacing the stroke's own alpha: this is
+        // the faintest line on the canvas, and it is one product away from
+        // nothing at all.
         cx.stroke(path,
-                  with: .color(Color(nsColor: regionStroke
-                      .withAlphaComponent(CanvasMaterial.tetherOpacity))),
+                  with: .color(Color(nsColor: regionStroke.withAlphaComponent(
+                      alpha(CanvasMaterial.tetherOpacity, dimmed: isDimmed)))),
                   style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
     }
 
@@ -1127,22 +1222,27 @@ enum CanvasRenderer {
     ///   geometry to keep in step.
     private static func drawChip(_ chip: AppearanceChip,
                                  title: String,
+                                 isDimmed: Bool,
                                  on cx: GraphicsContext) {
         var hairline = Path()
         hairline.move(to: CGPoint(x: chip.frame.midX, y: chip.frame.midY))
         hairline.addLine(to: chip.homeAnchor)
         cx.stroke(hairline,
-                  with: .color(Color(nsColor: regionStroke
-                      .withAlphaComponent(CanvasMaterial.tetherOpacity))),
+                  with: .color(Color(nsColor: regionStroke.withAlphaComponent(
+                      alpha(CanvasMaterial.tetherOpacity, dimmed: isDimmed)))),
                   style: StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
 
         let shape = Path(roundedRect: chip.frame, cornerRadius: chipHeight / 2)
+        // 0.75 REPLACED and not scaled: a chip is already "same paper, less of
+        // it", and the two dosages multiplied would put a dimmed chip below the
+        // dimmed card it stands for.
         cx.fill(shape, with: .color(Color(nsColor: cardPaper)
-            .opacity(CanvasMaterial.chipOpacity)))
-        cx.stroke(shape, with: .color(Color(nsColor: regionStroke)), lineWidth: 0.5)
+            .opacity(alpha(CanvasMaterial.chipOpacity, dimmed: isDimmed))))
+        cx.stroke(shape, with: .color(Color(nsColor: regionStroke(dimmed: isDimmed))),
+                  lineWidth: 0.5)
 
         var text = cx.resolve(Text(title).font(.system(size: 10)))
-        text.shading = .color(Color(nsColor: .secondaryLabelColor))
+        text.shading = .color(textInk(.secondaryLabelColor, dimmed: isDimmed))
         cx.drawLayer { inner in
             inner.clip(to: shape)
             inner.draw(text,
@@ -1170,6 +1270,7 @@ enum CanvasRenderer {
                                  item: CanvasItemPresentation.Item?,
                                  angle: Angle,
                                  isSelected: Bool,
+                                 isDimmed: Bool,
                                  on cx: GraphicsContext) {
         let shape = Path(roundedRect: frame, cornerRadius: 3)
         // Resolved once — see `paper(for:)`. The caster below and the fill under
@@ -1190,11 +1291,19 @@ enum CanvasRenderer {
         // white caster is invisible in light mode and a faint light fringe
         // around every card in dark mode — the light-mode skeuomorph pasted
         // into the dark that `cardPaper` exists to avoid.
+        // §4's dim, applied by REPLACING the paper's alpha rather than scaling
+        // anything — every card's paper is opaque, so the dimmed card is drawn
+        // at exactly `dimmedOpacity` whether it is the writer's paper or
+        // Claude's cooler one, and the two stay distinguishable at the dim.
+        let paperAlpha = alpha(1, dimmed: isDimmed)
         card.drawLayer { shadow in
-            shadow.addFilter(.shadow(color: .black.opacity(0.18), radius: 3, x: 1, y: 2))
-            shadow.fill(shape, with: .color(Color(nsColor: paper)))
+            // The drop scales with the card: a full-strength shadow under a
+            // ghosted card is a hole with nothing over it.
+            shadow.addFilter(.shadow(color: .black.opacity(alpha(0.18, dimmed: isDimmed)),
+                                     radius: 3, x: 1, y: 2))
+            shadow.fill(shape, with: .color(Color(nsColor: paper).opacity(paperAlpha)))
         }
-        card.fill(shape, with: .color(Color(nsColor: paper)))
+        card.fill(shape, with: .color(Color(nsColor: paper).opacity(paperAlpha)))
 
         // ONE border for both kinds since 1C-d, and the dashes are gone with the
         // placeholder they belonged to. An item node drew a dashed 1 pt stroke to
@@ -1204,6 +1313,11 @@ enum CanvasRenderer {
         // "not really a card" would contradict it. Spec §8A.2's reproduction
         // corollary is the reason this had to become a real card: a photographed
         // page and the scraps read off it have to be comparable **by looking**.
+        // **Not dimmed, and that is the `min` rule's answer rather than an
+        // omission** (`CanvasMaterial.dimmedAlpha`): `separatorColor` resolves
+        // to alpha 0.098 in both appearances, already less than half the dim, so
+        // a dimmed thing drawn in it is left where it is. The card's paper is
+        // what recedes; its outline was never loud enough to.
         card.stroke(shape, with: .color(Color(nsColor: .separatorColor)), lineWidth: 0.5)
 
         // Drawn OVER the kind's own border rather than replacing it.
@@ -1271,7 +1385,8 @@ enum CanvasRenderer {
                 inner.clip(to: shape)
                 inner.fill(Path(promotedMarkRect(inCard: frame)),
                            with: .color(Color(nsColor: cardInk)
-                                            .opacity(CanvasMaterial.promotedMarkOpacity)))
+                                            .opacity(alpha(CanvasMaterial.promotedMarkOpacity,
+                                                           dimmed: isDimmed))))
             }
         }
 
@@ -1279,7 +1394,8 @@ enum CanvasRenderer {
         // See mark 3 in the block above: this and `CanvasInteraction.begin`'s
         // corner test are one decision, so a kind test here needs one there.
         card.fill(resizeHandle(in: frame),
-                  with: .color(Color(nsColor: .separatorColor).opacity(0.8)))
+                  with: .color(Color(nsColor: .separatorColor)
+                      .opacity(alpha(0.8, dimmed: isDimmed))))
 
         switch node.kind {
         case .scrap:
@@ -1289,14 +1405,30 @@ enum CanvasRenderer {
             card.drawLayer { inner in
                 inner.clip(to: shape)
                 inner.withCGContext { cg in
+                    // The words are drawn by TextKit straight into this CG
+                    // context (`ScrapLayout.draw`), so the alpha is set on the
+                    // thing that actually strokes the glyphs. The ink is
+                    // `cardInk` at full strength, so this is a replacement like
+                    // every other dim on this surface and not a product.
+                    //
+                    // **`inner.opacity = …` on the enclosing layer works too —
+                    // measured, not assumed** (2026-08-03: planted as the
+                    // counterfactual and `test_aDimmedCardsWordsDimWithIt` stayed
+                    // green, so the plant is recorded here rather than as a
+                    // warning that would have been false). This spelling is kept
+                    // because it names the context the glyphs are actually drawn
+                    // into; the two are interchangeable at this call site and
+                    // neither is a trap.
                     cg.saveGState()
+                    cg.setAlpha(alpha(1, dimmed: isDimmed))
                     cg.translateBy(x: origin.x, y: origin.y)
                     layout.draw(into: cg, at: .zero)
                     cg.restoreGState()
                 }
             }
         case .item:
-            drawItemContent(item, inCard: frame, clippedTo: shape, on: card)
+            drawItemContent(item, inCard: frame, clippedTo: shape,
+                            isDimmed: isDimmed, on: card)
         }
     }
 
@@ -1323,6 +1455,7 @@ enum CanvasRenderer {
     private static func drawItemContent(_ item: CanvasItemPresentation.Item?,
                                         inCard frame: CGRect,
                                         clippedTo shape: Path,
+                                        isDimmed: Bool,
                                         on card: GraphicsContext) {
         guard let item else { return }
 
@@ -1332,20 +1465,28 @@ enum CanvasRenderer {
                 // Clipped to the CARD, so a card being drawn at the floor height
                 // while its picture decodes never leaks pixels onto the ground.
                 inner.clip(to: shape)
+                // The one place on this surface a LAYER's opacity is the right
+                // instrument: a photograph carries no dosage of its own to
+                // replace, so setting the layer to the dim is a replacement in
+                // the only sense available to a bitmap.
+                inner.opacity = alpha(1, dimmed: isDimmed)
                 inner.draw(Image(decorative: picture, scale: 1), in: rect)
             }
         }
 
         // Resolved for its natural SIZE, then fitted: an SF Symbol is not square,
         // and drawing one into a square box stretches every glyph that is not.
-        let glyph = card.resolve(Image(systemName: item.facts.glyph))
-        card.draw(glyph,
-                  in: CanvasCardMetrics.fit(glyph.size,
-                                            in: CanvasCardMetrics.itemGlyphBox(inCard: frame)))
+        var glyphContext = card
+        glyphContext.opacity = alpha(1, dimmed: isDimmed)
+        let glyph = glyphContext.resolve(Image(systemName: item.facts.glyph))
+        glyphContext.draw(glyph,
+                          in: CanvasCardMetrics.fit(
+                            glyph.size,
+                            in: CanvasCardMetrics.itemGlyphBox(inCard: frame)))
 
         var title = card.resolve(
             Text(item.facts.title).font(.system(size: CanvasCardMetrics.itemLabelFontSize)))
-        title.shading = .color(Color(nsColor: .secondaryLabelColor))
+        title.shading = .color(textInk(.secondaryLabelColor, dimmed: isDimmed))
         card.drawLayer { inner in
             // A title longer than the card is truncated by the card's own edge
             // rather than running onto the ground beside it.
