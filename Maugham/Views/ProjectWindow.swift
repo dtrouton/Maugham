@@ -411,7 +411,7 @@ struct ProjectWindow: View {
     private var resolvedRole: CollaborationRole { collaborator?.role ?? .unknown }
 
     /// Effective review posture: combines the resolved role with the manual
-    /// ⌘⌥R toggle. `lockEditing` is the hard floor — a reviewer/unknown is locked
+    /// ⌘⌥⇧R toggle. `lockEditing` is the hard floor — a reviewer/unknown is locked
     /// regardless of the toggle, so the manual flag can never unlock the text.
     private var effectivePosture: ReviewPosturePolicy.Effective {
         ReviewPosturePolicy.effective(
@@ -1091,7 +1091,7 @@ struct ProjectWindow: View {
                     store.resolveDocumentId(forTitle: title)
                 },
                 // Role-driven posture flows entirely through the EditorControl
-                // model (ADR 0017): an author's manual ⌘⌥R drives the render; a
+                // model (ADR 0017): an author's manual ⌘⌥⇧R drives the render; a
                 // reviewer/unknown is FORCED into review render AND hard-locked
                 // (lockEditing) via `effectivePosture` mirrored into the control.
                 control: editorControl
@@ -2182,7 +2182,7 @@ private struct RewindModifier: ViewModifier {
 /// Focus-posture wiring (distraction-free chrome + WF1 review posture), pulled
 /// off `ProjectWindow.body` to keep the inline modifier chain under SwiftUI's
 /// body type-check ceiling (the extracted-ViewModifier pattern; see
-/// `Maugham/Views/AREA.md`). Handles ⌘\ no-chrome and ⌘⌥R review (key-window
+/// `Maugham/Views/AREA.md`). Handles ⌘\ no-chrome and ⌘⌥⇧R review (key-window
 /// only) and persists both flags to UIState.
 private struct FocusPostureModifier: ViewModifier {
     let window: NSWindow?

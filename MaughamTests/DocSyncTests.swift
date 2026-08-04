@@ -102,19 +102,45 @@ final class DocSyncTests: XCTestCase {
 
     // MARK: - Test 2: DetailPaneToggle keyboard-shortcut tokens vs reference.md
 
-    /// Enumerates `.keyboardShortcut("N", modifiers: [.command, .option])`
-    /// occurrences in a source string, returning each as a `⌘⌥N` token.
+    /// Enumerates `.keyboardShortcut("N", modifiers: [ … ])` occurrences whose
+    /// modifier list contains **both** `.command` and `.option`, returning each
+    /// as a `⌘⌥N` token — or `⌘⌥⇧N` when the list also carries `.shift`.
     /// Uppercased: `KeyEquivalent` source literals for letters are lowercase
     /// (`"i"`, `"r"`, …, matching the pre-existing `"a"` for Annotations),
     /// but every doc/cheatsheet in this repo displays the macOS-conventional
     /// uppercase letter (`⌘⌥I`, `⌘N`, …) — digits pass through unaffected.
+    ///
+    /// **The modifier list is parsed as a SET, not matched as a literal, and
+    /// that widening is this test's whole reason for existing in its current
+    /// shape.** The original pattern spelled `\[\.command,\s*\.option\]`
+    /// verbatim, so `[.command, .option, .shift]` did not match and
+    /// **Toggle Review Mode (⌘⌥⇧R) shipped documented nowhere in
+    /// `docs/guide/`** — the `2026-07-25-persona-shell.md` plan asked for the
+    /// shortcut row to be amended `⌘⌥R` → `⌘⌥⇧R`, what landed REPLACED that row
+    /// with `⌘⌥R | Research pane`, and the guard could not see the difference.
+    /// The plan flagged the blind spot at the time and nobody widened it.
+    ///
+    /// A set also means a modifier list written in another order
+    /// (`[.option, .command]`) is in scope, which a literal pattern would miss
+    /// the same silent way.
     static func extractCommandOptionShortcutTokens(from sourceText: String) -> [String] {
         guard let regex = try? NSRegularExpression(
-            pattern: #"\.keyboardShortcut\("([^"]+)",\s*modifiers:\s*\[\.command,\s*\.option\]\)"#
+            pattern: #"\.keyboardShortcut\("([^"]+)",\s*modifiers:\s*\[([^\]]*)\]\)"#
         ) else { return [] }
         let ns = sourceText as NSString
         let matches = regex.matches(in: sourceText, range: NSRange(location: 0, length: ns.length))
-        return matches.map { "⌘⌥" + ns.substring(with: $0.range(at: 1)).uppercased() }
+        return matches.compactMap { match in
+            let key = ns.substring(with: match.range(at: 1))
+            let modifiers = Set(
+                ns.substring(with: match.range(at: 2))
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) })
+            guard modifiers.contains(".command"), modifiers.contains(".option") else { return nil }
+            // ⌘⌥⇧ is the order the roadmap, ADR 0025 and the View menu all
+            // spell it in; a token in any other order would never be found in
+            // the docs even when the row is there.
+            return "⌘⌥" + (modifiers.contains(".shift") ? "⇧" : "") + key.uppercased()
+        }
     }
 
     /// Returns the subset of `tokens` that do NOT appear anywhere in `docText`.
@@ -139,12 +165,21 @@ final class DocSyncTests: XCTestCase {
         // it — the very failure mode this repoint exists to avoid. Assert a
         // floor, not equality: MaughamApp.swift also carries non-pane ⌘⌥
         // bindings (⌘⌥0 inspector column, ⌘⌥F find in project, ⌘⌥Z restore),
-        // so the count exceeds `DetailSegment.allCases`. ⌘⌥⇧R does not match: its
-        // modifier list is [.command, .option, .shift].
+        // so the count exceeds `DetailSegment.allCases`.
         XCTAssertGreaterThanOrEqual(tokens.count, DetailSegment.allCases.count,
                                     "extracted \(tokens.count) ⌘⌥ shortcuts — expected at least "
                                     + "one per DetailSegment case; a regex that matches nothing "
                                     + "makes this whole test vacuous")
+        // The CONTROL for the widening, and the reason it is asserted against
+        // the real source rather than a fixture: a floor on the count cannot
+        // tell a widened extractor from the narrow one, because ⌘⌥⇧R is a
+        // single token on top of a set that already cleared the floor. Narrow
+        // the modifier match back to a literal `[.command, .option]` and this
+        // line goes red, which is exactly what did NOT happen when the row went
+        // missing.
+        XCTAssertTrue(tokens.contains("⌘⌥⇧R"),
+                      "The extractor no longer sees Toggle Review Mode's "
+                      + "[.command, .option, .shift] binding. Found: \(tokens).")
 
         let referenceMd = try readFile("docs/guide/reference.md")
         let missing = Self.missingTokens(tokens, in: referenceMd)
@@ -170,6 +205,75 @@ final class DocSyncTests: XCTestCase {
         let missing = Self.missingTokens(tokens, in: referenceMd)
         XCTAssertEqual(missing, ["⌘⌥9"],
             "Self-check expected the planted ⌘⌥9 token to be reported missing from the real reference.md.")
+    }
+
+    /// Self-check for the widening itself: a planted `.shift`-carrying binding
+    /// is extracted as `⌘⌥⇧9` and reported missing from the real docs.
+    ///
+    /// Separate from the plant above because that one would pass unchanged
+    /// against the NARROW extractor — it plants `[.command, .option]`, which the
+    /// old pattern matched. A plant that does not fire is the finding, and the
+    /// finding here is that nothing in the suite exercised the modifier list
+    /// that Toggle Review Mode actually uses.
+    func test_shortcutCheckWouldFireOnAPlantedShiftCarryingOffender() throws {
+        let plantedSource = """
+        Button("Toggle Something") { }
+            .keyboardShortcut("9", modifiers: [.command, .option, .shift])
+        Button("Reordered Modifiers") { }
+            .keyboardShortcut("8", modifiers: [.option, .command])
+        """
+        let tokens = Self.extractCommandOptionShortcutTokens(from: plantedSource)
+        XCTAssertEqual(tokens, ["⌘⌥⇧9", "⌘⌥8"],
+            "Self-check: the widened parser should take the shift-carrying binding "
+            + "as ⌘⌥⇧9 and the reordered list as ⌘⌥8. Got: \(tokens).")
+
+        let referenceMd = try readFile("docs/guide/reference.md")
+        XCTAssertEqual(Self.missingTokens(tokens, in: referenceMd), ["⌘⌥⇧9", "⌘⌥8"],
+            "Self-check expected both planted tokens to be reported missing from the "
+            + "real reference.md.")
+
+        // …and the converse, so the widening is not a wall that reports
+        // everything: the real ⌘⌥⇧R now IS documented, and must not report.
+        XCTAssertEqual(Self.missingTokens(["⌘⌥⇧R"], in: referenceMd), [],
+            "⌘⌥⇧R (Toggle Review Mode) is missing from docs/guide/reference.md's "
+            + "shortcut table.")
+    }
+
+    /// **The second surface, and `reference.md` is the one that sends readers to
+    /// it**: *\"The full list lives in the in-app cheatsheet: ⌘/ → Keyboard tab.\"*
+    /// That cheatsheet is `KeyboardShortcuts.all`, hand-maintained by its own
+    /// doc comment's admission, and it had the same hole — Toggle Review Mode
+    /// appeared in neither. A guard on only the page that defers to the full
+    /// list is half a guard.
+    ///
+    /// Read as a value rather than parsed as text, because it is compiled into
+    /// the app this test already imports.
+    func test_paneShortcutsDocumentedInTheInAppCheatsheet() throws {
+        let sourceText = try readFile("Maugham/MaughamApp.swift")
+        let tokens = Self.extractCommandOptionShortcutTokens(from: sourceText)
+        XCTAssertGreaterThanOrEqual(tokens.count, DetailSegment.allCases.count,
+                                    "extracted \(tokens.count) ⌘⌥ shortcuts — a regex that "
+                                    + "matches nothing makes this test vacuous")
+
+        let cheatsheet = KeyboardShortcuts.all.flatMap(\.items).map(\.shortcut)
+        XCTAssertFalse(cheatsheet.isEmpty,
+                       "KeyboardShortcuts.all lists nothing — this check would be vacuous.")
+
+        let missing = tokens.filter { !cheatsheet.contains($0) }
+        XCTAssertTrue(missing.isEmpty,
+            "MaughamApp.swift defines keyboard shortcut(s) \(missing) that the in-app "
+            + "cheatsheet (⌘/ → Keyboard, `KeyboardShortcuts.all`) does not list — and "
+            + "docs/guide/reference.md points readers at that cheatsheet as the full "
+            + "list. Cheatsheet entries: \(cheatsheet).")
+    }
+
+    /// Self-check: a token the cheatsheet genuinely does not carry is reported.
+    func test_theCheatsheetCheckWouldFireOnAPlantedOffender() {
+        let cheatsheet = KeyboardShortcuts.all.flatMap(\.items).map(\.shortcut)
+        XCTAssertEqual(["⌘⌥⇧9"].filter { !cheatsheet.contains($0) }, ["⌘⌥⇧9"],
+            "Self-check expected a planted ⌘⌥⇧9 to be absent from the real cheatsheet.")
+        XCTAssertEqual(["⌘⌥⇧R"].filter { !cheatsheet.contains($0) }, [],
+            "Self-check: the real ⌘⌥⇧R must be present, or the guard is a wall.")
     }
 
     // MARK: - Test 3: DetailSegment case names mentioned in right-pane.md

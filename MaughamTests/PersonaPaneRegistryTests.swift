@@ -205,6 +205,149 @@ final class PersonaPaneRegistryTests: XCTestCase {
         XCTAssertEqual(Persona.review.defaultPane, .annotations)
     }
 
+    // MARK: - Why Review keeps the Inspector
+
+    /// The files allowed to write `StructureItem.status` — the draft / revising
+    /// / final field — through `ProjectStore.updateInspector`.
+    ///
+    /// Both are Inspector surfaces: `InspectorView` is what
+    /// `ProjectWindow.existingInspectorSwitch` renders under Review's binder
+    /// home, and `PieceInspector` is the arm `inspectorRoute` takes instead on a
+    /// Collection. That is the whole argument for `.inspector` being in
+    /// `Persona.review.panes`, and it is stronger than the one the shared
+    /// `panes` doc comment gives ("it anchors the far end of the order").
+    static let statusWritingFiles: Set<String> = [
+        "InspectorView.swift",
+        "PieceInspector.swift",
+    ]
+
+    /// Where `updateInspector` is DECLARED. Excluded from the census because a
+    /// declaration is not a writer — the store is the one channel every writer
+    /// goes through, which is what makes the census meaningful in the first
+    /// place. Named rather than pattern-matched so moving the declaration
+    /// somewhere else fails loudly here.
+    static let statusWriteDefiner = "ProjectStore+Metadata.swift"
+
+    /// Every production file that calls `updateInspector(` with a `status:`
+    /// argument, by file name.
+    ///
+    /// A census rather than a warning: the reasoning at `Persona.swift`'s
+    /// `.review` case rests on this set having exactly these two members, so a
+    /// third writer must force the argument to be re-made rather than quietly
+    /// falsifying a comment nobody re-reads.
+    ///
+    /// **The argument list is read to its balanced close paren, not to the end
+    /// of the line.** `InspectorView` spreads its call over four lines with
+    /// `status:` on the last of them, so a line-based matcher silently misses
+    /// the primary writer and reports a one-member census — which would have
+    /// made this guard argue the opposite of the truth while staying green.
+    private func statusWriterCensus() throws -> Set<String> {
+        let sourceDir = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // MaughamTests/
+            .deletingLastPathComponent()          // repo root
+            .appendingPathComponent("Maugham", isDirectory: true)
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var found: Set<String> = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            guard url.lastPathComponent != Self.statusWriteDefiner else { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            // Comment-only lines are dropped first so a doc comment naming the
+            // call is never a hit.
+            let code = text.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+            var rest = Substring(code)
+            while let call = rest.range(of: "updateInspector(") {
+                var depth = 1
+                var idx = call.upperBound
+                while idx < rest.endIndex, depth > 0 {
+                    if rest[idx] == "(" { depth += 1 } else if rest[idx] == ")" { depth -= 1 }
+                    idx = rest.index(after: idx)
+                }
+                if rest[call.upperBound..<idx].range(of: "status:") != nil {
+                    found.insert(url.lastPathComponent)
+                }
+                rest = rest[idx...]
+            }
+        }
+        return found
+    }
+
+    /// **Review keeps `.inspector` because the Inspector is the only place a
+    /// writer can set the field Review is about.**
+    ///
+    /// `StructureItem.status` (draft / revising / final) is written by exactly
+    /// two controls, both of them Inspector arms, and by no MCP tool —
+    /// `ProjectTools` reads it and never writes it. Drop `.inspector` from
+    /// Review and the persona for adjudicating a draft cannot record the
+    /// verdict; the writer has to switch persona to mark a chapter final.
+    ///
+    /// The census is the load-bearing half. Asserting only that Review lists
+    /// `.inspector` would pass just as happily under the cosmetic warrant the
+    /// comment used to give, and it is the warrant — not the entry — that
+    /// nearly cost a shipped control twice on this milestone.
+    func test_reviewKeepsTheInspectorBecauseItIsTheOnlyPlaceStatusIsWritten() throws {
+        XCTAssertTrue(Persona.review.panes.contains(.inspector),
+            "Review must offer the Inspector: it is the only surface that writes "
+            + "StructureItem.status, the field Review adjudicates.")
+
+        XCTAssertEqual(try statusWriterCensus(), Self.statusWritingFiles,
+            "The set of files writing StructureItem.status has changed.\n\n"
+            + "`Persona.swift`'s `.review` case argues for keeping `.inspector` on "
+            + "the grounds that these two files — both Inspector arms, reached via "
+            + "`ProjectWindow.inspectorRoute`'s `.segment` and `.collectionPiece` "
+            + "routes — are the ONLY places a writer can set draft/revising/final.\n\n"
+            + "If you have added a status writer somewhere else, that argument is "
+            + "now weaker or wrong. Re-make it at the `.review` case; do not just "
+            + "add a name to the expectation above.")
+    }
+
+    /// The census must be able to fail, and must be reading real code.
+    ///
+    /// Both halves matter: a walker that found nothing would make the set
+    /// comparison above pass only by accident of also being empty, and a
+    /// matcher that took every `updateInspector` call would sweep in the
+    /// synopsis/wordTarget/pageTarget writers and stop being about status at
+    /// all — `PieceInspector` calls it four times and only one carries
+    /// `status:`.
+    func test_theStatusWriterCensusIsReadingRealCodeAndCanFail() throws {
+        let census = try statusWriterCensus()
+        XCTAssertFalse(census.isEmpty,
+            "The census found no status writers at all — it is reading nothing, "
+            + "and the comparison above is vacuous.")
+        XCTAssertTrue(census.contains("InspectorView.swift"),
+            "The census must see InspectorView, whose call spans four lines with "
+            + "`status:` on the last. If this fails, the matcher has gone back to "
+            + "reading one line at a time and is blind to the primary writer.")
+        XCTAssertFalse(census.contains("ProjectTools.swift"),
+            "ProjectTools only READS status. If it appears here the census is "
+            + "matching reads, and a widening of MCP's write surface would slip "
+            + "past it.")
+
+        // The one excluded file must still be the DECLARATION. Without this,
+        // the exclusion is a hole: move the declaration and `statusWriteDefiner`
+        // starts silently exempting whatever file inherits the name.
+        let definer = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Stores/\(Self.statusWriteDefiner)")
+        XCTAssertTrue(
+            try String(contentsOf: definer, encoding: .utf8).contains("func updateInspector("),
+            "\(Self.statusWriteDefiner) is excluded from the census as the place "
+            + "`updateInspector` is declared, but it no longer declares it — the "
+            + "exclusion is now exempting a file for no reason.")
+
+        // Planted offender: a third file writing status would be reported, and
+        // would not equal the expectation.
+        var planted = census
+        planted.insert("SomeNewPane.swift")
+        XCTAssertNotEqual(planted, Self.statusWritingFiles,
+            "Self-check: a third status writer must disagree with the expectation.")
+    }
+
     // MARK: - The whole matrix, not a row at a time
 
     /// The design's pane × persona matrix, transcribed. Both `●` (primary) and

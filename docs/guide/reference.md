@@ -11,6 +11,8 @@ The ones you'll use most:
 | `⌘N` | New project |
 | `⌘O` | Open project |
 | `⌘S` | Save flash (autosave is automatic) |
+| `⌘⇧S` | Save Checkpoint As… — a named checkpoint you can find again |
+| `⌘⇧↩` | Promote… — turn the canvas selection into a durable artifact |
 | `⌘Z` | Undo (text, annotation action, task, checkbox, or History Rewind) |
 | `⌘⇧Z` | Redo |
 | `⌘,` | Settings |
@@ -22,10 +24,11 @@ The ones you'll use most:
 | `⌘⌥Z` | Restore last deleted item |
 | `⌘\\` | Toggle focus mode (on the canvas, also collapses both side columns) |
 | `⌘⇧F` | Toggle full-screen focus (turns focus mode on, so the canvas collapses too) |
-| `⌘1` | Plan mode |
-| `⌘2` | Author mode |
-| `⌘3` | Review mode |
-| `⌘4` | Publish mode |
+| `⌘1` | Plan persona |
+| `⌘2` | Author persona |
+| `⌘3` | Review persona |
+| `⌘4` | Publish persona |
+| `⌘⌥⇧R` | Toggle Review Mode — the annotate-only posture, see [Annotations & Suggestions](annotations-and-suggestions.md#review-mode--reading-your-own-draft-cold) |
 | `⌘⌥I` | Inspector pane |
 | `⌘⌥R` | Research pane |
 | `⌘⌥O` | Outline pane |
@@ -39,6 +42,8 @@ The ones you'll use most:
 | `⌘⌥0` | Toggle inspector column |
 | `⌘⇧P` | Toggle Research preview |
 | `⌘/` | Syntax + keyboard reference |
+
+**Two different things are called "review", and only the shortcut tells them apart.** `⌘3` is the **Review persona** — a window layout that leads with the Annotations pane. `⌘⌥⇧R` is **Toggle Review Mode** — a posture of the *editor* that makes your manuscript read-only and puts you in the reviewer's seat. They're independent: you can turn Review Mode on in any persona, and the Review persona doesn't turn it on for you.
 
 ## On-disk layout
 

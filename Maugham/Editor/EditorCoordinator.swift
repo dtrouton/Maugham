@@ -33,7 +33,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// read-only because the current user is NOT an author of it (an iCloud
     /// reviewer, or the still-resolving `.unknown` role). Distinct from
     /// `isReviewMode`: that is a soft, toggleable render posture an author opts
-    /// into; this is the floor that the membrane ANDs in so a reviewer's ⌘⌥R can
+    /// into; this is the floor that the membrane ANDs in so a reviewer's ⌘⌥⇧R can
     /// flip the review render but can NEVER unlock text mutation. Threaded
     /// ONE-WAY from ProjectWindow → EditorHost → EditorSurface (tripwires 2 & 6);
     /// nothing reads it back. Use `setLockEditing(_:)` to flip it.
@@ -209,10 +209,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// legacy scroll-to-paragraph behaviour).
     private var annotationNavigateObserver: NSObjectProtocol?
 
-    /// Observer token for `maughamToggleReviewMode` (⌘⌥R). Flips the membrane
+    /// Observer token for `maughamToggleReviewMode` (⌘⌥⇧R). Flips the membrane
     /// SYNCHRONOUSLY in the key window's coordinator so `isReviewMode` is correct
     /// before the next key event — closing the race where a fast Enter pressed
-    /// right after ⌘⌥R slipped a newline through `shouldChangeTextIn` before the
+    /// right after ⌘⌥⇧R slipped a newline through `shouldChangeTextIn` before the
     /// SwiftUI render round-trip pushed the new posture (Bug B). `ProjectWindow`
     /// still toggles `isReviewModeOn` on the SAME notification (source of truth
     /// for the indicator + annotation derive + persistence); the model-driven
@@ -417,7 +417,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// every one there has ever been. M1A's statement panes are the first case
     /// of a SECOND `EditorSurface` alive in the same window at the same time,
     /// and every one of those commands is about the document in the centre
-    /// column: without this the intent pane flips into review chrome on ⌘⌥R,
+    /// column: without this the intent pane flips into review chrome on ⌘⌥⇧R,
     /// moves its caret when the writer clicks a scene in the navigator, and
     /// goes read-only when the manuscript enters translation review.
     var respondsToWindowCommands: Bool = true
@@ -521,7 +521,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             let pid = note.userInfo?["paragraph_id"] as? String
             self.navigateToAnnotation(id: annId, fallbackParagraphId: pid, in: textView)
         }
-        // This NC receiver exists deliberately (Editor AREA.md, Bug B): ⌘⌥R
+        // This NC receiver exists deliberately (Editor AREA.md, Bug B): ⌘⌥⇧R
         // flips the review membrane SYNCHRONOUSLY on the coordinator so the very
         // next keystroke already sees the toggled value — a `control.*` mirror
         // would land a frame later. Key-window scoping is now the helper's
@@ -535,7 +535,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             self.setReviewMode(!self.isReviewMode)
         }
         // Translation review (Task 13): flip the read-only membrane
-        // synchronously on the key window's coordinator, exactly as ⌘⌥R does
+        // synchronously on the key window's coordinator, exactly as ⌘⌥⇧R does
         // above. Language + surface swap stay EditorHost's; this only governs
         // the membrane so the next keystroke is already blocked (or unblocked).
         translationEnterObserver = MaughamEvent.observe(

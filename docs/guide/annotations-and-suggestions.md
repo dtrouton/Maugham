@@ -1,6 +1,18 @@
 # Annotations & Suggestions
 
-Claude can add two kinds of annotations to your manuscript: text notes (comments) and suggested changes (edit proposals). Both appear in the **Annotations pane** (⌘⌥A).
+Claude can add two kinds of annotations to your manuscript: text notes (comments) and suggested changes (edit proposals). Both appear in the **Annotations pane** (⌘⌥A). You can leave annotations yourself too — that's Review Mode, below.
+
+### Review Mode — reading your own draft cold
+
+**View → Toggle Review Mode (⌘⌥⇧R)** puts the editor into an annotate-only posture. Your manuscript goes **read-only**: you can select, scroll and copy, but you can't type into it. A **REVIEWING · your name** pill appears at the top of the text column, and it stays visible even in focus mode (⌘\\) — with the rest of the chrome gone, the pill *is* the chrome telling you which posture you're in.
+
+The point is to stop you fixing things. Select a span and a small toolbar appears above it with three buttons — **Comment**, **Suggest**, **Query** — each opening a one-line composer right there. Comment and Query start empty. Suggest starts pre-filled with the text you selected, and you edit it into the replacement you'd want; what lands is a suggestion against that exact span, the same shape Claude's `add_suggested_change` produces, and you accept or reject it later the same way. Everything you write this way goes into the Annotations pane alongside Claude's, attributed to **Your name (for review comments)** from Settings (⌘,) → General — your macOS account name if you've left it blank.
+
+Press ⌘⌥⇧R again to leave. Nothing is lost either way — the annotations are ordinary annotations.
+
+**On a manuscript shared for review, this isn't yours to choose.** If Maugham resolves you as a *reviewer* on someone else's shared project rather than an author, Review Mode is forced on and the read-only lock is a floor, not a posture: ⌘⌥⇧R still flips the review chrome, but it can never unlock the text. Annotating is the whole of what a reviewer can do to another writer's manuscript, by design. The same holds for the moment before Maugham has worked out who you are — it starts locked and opens up once your role resolves, rather than offering you editing affordances and snatching them back.
+
+**Not to be confused with the Review persona (⌘3)**, which is a window layout — it leads with the Annotations pane, and it does *not* turn Review Mode on. The two are independent; ⌘⌥⇧R works in any persona.
 
 ### Suggestions
 

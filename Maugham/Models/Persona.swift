@@ -244,6 +244,34 @@ public extension Persona {
             // Demotion, not removal.
             //
             // `.outline` left in slice 1 with every other persona's.
+            //
+            // **`.inspector` is here for a reason of its own, and the shared
+            // doc comment's — "it anchors the far end of the order" — is not
+            // it.** That warrant is cosmetic, and a cosmetic warrant is what
+            // this milestone has now twice come within one edit of acting on
+            // (see `.publish` below, and §5.1 of the persona-shell spec, which
+            // records the near-miss). Written down here so the next reader
+            // cannot delete this entry on the weaker one.
+            //
+            // The real reason: **the Inspector is the only place in the app a
+            // writer can set `StructureItem.status`** — the draft/revising/
+            // final field that Review is *about*. In Review the left column is
+            // `binderHome` (`.manuscript`, or `.scenes` on a screenplay);
+            // neither `centresTheCanvas`, so `ProjectWindow.inspectorRoute`
+            // returns `.collectionPiece` on a Collection and `.segment`
+            // otherwise, and both arms land on a status control:
+            // `PieceInspector.statusSection` and `InspectorView`'s Status
+            // picker. Those two are the only callers of
+            // `ProjectStore.updateInspector(… status:)`, and no MCP tool writes
+            // the field — `ProjectTools` only reads it. Take `.inspector` off
+            // Review and the persona whose job is adjudicating a draft's state
+            // cannot record that state; the writer has to leave for another
+            // persona to mark the chapter final.
+            //
+            // Pinned by `PersonaPaneRegistryTests
+            // .test_reviewKeepsTheInspectorBecauseItIsTheOnlyPlaceStatusIsWritten`,
+            // whose census goes red if a third status writer appears — at which
+            // point this argument needs re-making, not patching.
             return [.annotations, .intent, .tasks, .history, .inspector]
         case .publish:
             // Visual Language · Tasks · Translation · History · Inspector.

@@ -146,7 +146,7 @@ struct EditorSurfaceConfiguration {
     /// `StatementEditorMountTests`:
     ///
     /// - **It answers no window commands.** Every observer
-    ///   `EditorCoordinator`'s init registers — the ⌘⌥R review membrane, scene /
+    ///   `EditorCoordinator`'s init registers — the ⌘⌥⇧R review membrane, scene /
     ///   find-match / paragraph / annotation navigation, the translation
     ///   membrane — is about the manuscript, and all of them are gated at the
     ///   one funnel they share (`EditorCoordinator.respondsToWindowCommands`).

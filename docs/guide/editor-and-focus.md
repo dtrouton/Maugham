@@ -16,6 +16,7 @@ Maugham is built for focused writing sessions. The chrome gets out of your way.
 
 - **⌘\\ — Toggle focus mode.** Hides the title bar and toolbar; just text and gutters. On the planning canvas it also collapses both side columns, giving the canvas the whole window. Press it again and the binder comes back and the right-hand pane returns to the visibility you had before you collapsed. It never moves a column anywhere else.
 - **⌘⇧F — Toggle full-screen focus.** Enters full-screen with no chrome — which includes the canvas collapse above, since full-screen focus turns focus mode on.
+- **⌘⌥⇧R — Toggle Review Mode.** Not a focus feature but the other posture the editor has: the manuscript goes read-only and you annotate it instead of fixing it, with a REVIEWING pill at the top of the column that stays put even in focus mode. See [Review Mode](annotations-and-suggestions.md#review-mode--reading-your-own-draft-cold).
 - **Typewriter scrolling** (Settings → Editor → Focus) — keeps the active line at the vertical center of the viewport as you type.
 - **Sentence focus** — only the current sentence is full color; the rest dims. Forces you forward.
 - **Paragraph focus** — same idea, paragraph granularity.

@@ -12,11 +12,11 @@ enum EditorEditPolicy {
     /// review posture (annotate-only).
     ///
     /// Three independent reasons block mutation:
-    ///   - `isReviewMode`: the user is manually reviewing (⌘⌥R) — a soft,
+    ///   - `isReviewMode`: the user is manually reviewing (⌘⌥⇧R) — a soft,
     ///     toggleable posture an author opts into.
     ///   - `lockEditing`: the user is NOT an author of this manuscript (an
     ///     iCloud reviewer, or the still-resolving `.unknown` role). This is the
-    ///     hard floor: it cannot be toggled off, so a reviewer's ⌘⌥R can flip the
+    ///     hard floor: it cannot be toggled off, so a reviewer's ⌘⌥⇧R can flip the
     ///     review RENDER but never unlock the text. The membrane is the authority
     ///     here — the manual toggle never wins over the role lock.
     ///   - `isTranslationReview`: the editor is displaying a derived translated

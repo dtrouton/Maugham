@@ -1,9 +1,17 @@
 import SwiftUI
 
 /// A small, tasteful pill shown at the top of the editor content column while
-/// review mode (⌘⌥R) is engaged. It is the *only* visible feedback that the
-/// writing surface has switched into the read-only annotation posture, so it
-/// is shown even in no-chrome mode — it IS the chrome for review.
+/// review mode (**⌘⌥⇧R**, View → Toggle Review Mode) is engaged. It is the
+/// *only* visible feedback that the writing surface has switched into the
+/// read-only annotation posture, so it is shown even in no-chrome mode — it IS
+/// the chrome for review.
+///
+/// **Not the ⌘3 Review persona**, which is a window layout and does not engage
+/// this posture. The two ship the same word: `PersonaBar.accessibilityLabel`
+/// says "Review mode, Command 3" and the View menu says "Toggle Review Mode".
+/// `docs/guide/reference.md` carries the disambiguation for writers.
+/// This comment said ⌘⌥R until 2026-08-04, a shortcut that has meant the
+/// Research pane since the persona shell.
 ///
 /// Pure, one-way SwiftUI: reads the collaborator name, writes nothing back.
 /// The warm terracotta/amber tint mirrors `ReviewPalette`'s review accent so
