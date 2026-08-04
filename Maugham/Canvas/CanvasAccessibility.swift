@@ -244,11 +244,71 @@ enum CanvasAccessibility {
     /// where the two signals diverge.
     static let claudeTerm = "from Claude"
 
+    /// **What a de-emphasised element says, and it is deliberately not the word
+    /// the surface uses for it.**
+    ///
+    /// The drawn signal is `CanvasMaterial.dimmedOpacity`, everything here calls
+    /// it the dim, and "dimmed" is nevertheless the one word this may not be:
+    /// macOS speaks *dimmed* for a control whose `AXEnabled` is false — a greyed
+    /// menu item, a button that cannot be pressed. This surface's contract is the
+    /// exact opposite and is stated in three places (spec §4, `draw`'s own doc
+    /// comment, AREA.md): **the dim is de-emphasis and never disabling.** A
+    /// dimmed card is still hit-tested, still selectable, still editable, and its
+    /// selection ring is drawn at full strength. Borrowing the system's word for
+    /// *unavailable* would tell a listener the one thing about these cards that
+    /// is untrue.
+    ///
+    /// So it names the MEANING rather than the appearance, which is
+    /// `claudeTerm`'s precedent one primitive over: the drawn signal there is a
+    /// 1° lean and the spoken term is "from Claude", not "leaning". What the dim
+    /// means is that this element is not part of what the tree names — and the
+    /// tree is the **binder**, which is what the guide calls that column
+    /// throughout ("the pane follows what you have selected in the binder").
+    /// Naming the cause is also what makes it actionable: the way out is the
+    /// binder's project row, or Escape.
+    ///
+    /// **"Selection" is safe here and was checked rather than assumed.** The
+    /// canvas has a selection of its own, and this label does not mention it —
+    /// `CanvasSelection` reaches an assistive client through no channel at all
+    /// today, so the word is unclaimed in this tree. If a future slice announces
+    /// the canvas's own selection, these two collide and this is the one to
+    /// re-word: the binder's is the state that belongs to another column.
+    ///
+    /// Lower-case like its three siblings even though it is spoken first;
+    /// VoiceOver does not announce case, and the constants read as one set.
+    static let dimmedTerm = "outside the binder's selection"
+
     /// **The one ordering rule for every label on this surface.** The kind,
     /// then what it is called, then where it came from, then the durable facts
-    /// in the order they were added.
+    /// in the order they were added — and, ahead of all of it, the one thing
+    /// here that is not a fact about the object at all.
     ///
-    /// The kind stays FIRST because `CanvasAXRole` never reaches an assistive
+    /// **`dimmed` is window state and takes no place IN that sequence.** The
+    /// list is ordered by durability, descending: a kind never changes, a name
+    /// rarely, provenance never, and the marks a thing has collected since sit
+    /// last. Lit-ness has no durability whatever — it changes when the writer
+    /// clicks a different row in a different column, with nothing about the card
+    /// touched — so appended it would be heard as one more durable fact,
+    /// "promoted" and "outside the binder's selection" arriving in the same
+    /// breath as though they were the same kind of statement about the card.
+    ///
+    /// It goes FIRST, and the second reason is the one that decides it. A
+    /// listener skimming a filtered board is listening for the elements that do
+    /// **not** carry the term, and everything after the kind is variable in
+    /// length — a name, a provenance, a mark, `connectionPhrase`'s list of line
+    /// labels, and then the writer's whole sentence in the value. Spoken last,
+    /// the discriminating word arrives only for a listener who hears every card
+    /// out to the end, which is the opposite of what a de-emphasis is for.
+    /// Appended it is also ambiguous rather than merely late: it lands
+    /// immediately after a comma-joined list of line names and reads as one more
+    /// line, called "outside the binder's selection".
+    ///
+    /// The signature's order is the spoken order, deliberately, so a call site
+    /// cannot express a different one.
+    ///
+    /// The kind stays first **of the facts about the object** — the dim is the
+    /// only thing spoken ahead of it, and it is not one of them — because
+    /// `CanvasAXRole` never reaches an assistive
     /// client — see `elements`. A name follows it, because kind-plus-name is how
     /// a primitive identifies itself and splitting the two with anything else
     /// makes the name sound like an afterthought (and in the ordinary Claude
@@ -261,13 +321,14 @@ enum CanvasAccessibility {
     /// built its own array until 2026-07-30, and the moment provenance had to
     /// join it there were two copies of this ordering with nothing holding them
     /// together.
-    private static func label(_ kind: String,
+    private static func label(dimmed: Bool,
+                              _ kind: String,
                               named name: String? = nil,
                               fromClaude: Bool,
                               promoted: Bool,
                               connectedBy lines: [CanvasLine]? = nil,
                               collapsed: Bool = false) -> String {
-        var parts = [kind]
+        var parts = dimmed ? [dimmedTerm, kind] : [kind]
         if let name { parts.append(name) }
         if fromClaude { parts.append(claudeTerm) }
         if promoted { parts.append(promotedTerm) }
@@ -292,9 +353,24 @@ enum CanvasAccessibility {
     /// required token in `CanvasView.swift` rather than left to a compiler that
     /// cannot see a default going missing
     /// (`CanvasCompositionTests.test_theViewHandsItsResolvedItemFactsToBothConsumers`).
+    /// `highlight` is spec §4's dim, and it reaches here for the reason `items`
+    /// does: **the drawn card and the spoken card must not be able to disagree**.
+    /// It is the same resolved value `CanvasRenderer.draw` is handed, computed
+    /// once by `CanvasView.rebuildHighlightAndTree()` and given to both in the
+    /// same pass — not read from that view's `@State` a second time, which is how
+    /// the tree would come to describe the board as it was before the last tree
+    /// click.
+    ///
+    /// It defaults to `.undimmed` for `items`' reason and carries `items`' hazard
+    /// with it: `.undimmed` is a legitimate value rather than a sentinel, so a
+    /// production call site that lost the argument would compile, run, and
+    /// announce every card on a filtered board as though nothing were dimmed.
+    /// `CanvasHighlightTests`' source census is what watches that, since nothing
+    /// in the type system can.
     static func elements(scene: CanvasScene,
                          scraps: [CanvasNodeID: String],
-                         items: CanvasItemPresentation = .empty) -> [CanvasAXElement] {
+                         items: CanvasItemPresentation = .empty,
+                         highlight: CanvasHighlight = .undimmed) -> [CanvasAXElement] {
         let connections = connections(in: scene)
         // Regions first into the list, but the ORDER is decided by `rowOrdered`
         // over everything together — a region's frame starts at or above-left of
@@ -347,7 +423,16 @@ enum CanvasAccessibility {
                 // depends on what the writer happened to call the region is a
                 // term no listener can rely on, and a renamed region — the case
                 // with the real hole — is precisely where it would vanish.
-                label: label(regionKind,
+                //
+                // **And whether the tree's selection names it** (§4, slice 3).
+                // A region carries the dim on three surfaces at once — its wash
+                // keeps its area while its outline, its title and its cards
+                // recede — and all three are inaudible. The polarity is the
+                // drawn signal's own: the DIMMED element is the marked one, so a
+                // lit region on a filtered board sounds like a region on an
+                // unfiltered one, exactly as it looks like one.
+                label: label(dimmed: highlight.isDimmed(region: region.id),
+                             regionKind,
                              named: region.displayLabel,
                              fromClaude: region.author == .claude,
                              promoted: region.promotedItemID != nil,
@@ -371,7 +456,14 @@ enum CanvasAccessibility {
                 let text = scraps[node.id] ?? ""
                 elements.append(CanvasAXElement(
                     id: .node(node.id), role: .scrap,
-                    label: label("Scrap",
+                    // The dim is said on the card as well as on the region,
+                    // because this tree is FLAT — `claudeTerm`'s ruling, and it
+                    // holds here for the same reason: a card is not a child of
+                    // its region, so a listener walking card to card can reach a
+                    // dimmed card without ever passing anything that would have
+                    // said so.
+                    label: label(dimmed: highlight.isDimmed(node: node.id),
+                                 "Scrap",
                                  fromClaude: node.author == .claude,
                                  promoted: node.promotedItemID != nil,
                                  connectedBy: connections[node.id]),
@@ -417,7 +509,13 @@ enum CanvasAccessibility {
                     // second wording for that distinction was rejected — see
                     // `claudeTerm`. One phrase every primitive uses beats two the
                     // listener has to keep apart.
-                    label: label(itemKind,
+                    //
+                    // The dim reads off the NODE here, not off whatever it
+                    // stands for: `CanvasHighlight` answers about the card on
+                    // the canvas, and a research item can be referenced by a lit
+                    // card and a dimmed one at once.
+                    label: label(dimmed: highlight.isDimmed(node: node.id),
+                                 itemKind,
                                  fromClaude: node.author == .claude,
                                  promoted: node.promotedItemID != nil
                                      && node.kind.carriesAMark,

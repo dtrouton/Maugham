@@ -1026,6 +1026,208 @@ final class CanvasAccessibilityTests: XCTestCase {
         XCTAssertEqual(CanvasAccessibility.claudeTerm, "from Claude")
     }
 
+    // MARK: - The dim is audible (§4, slice 3 task 7)
+
+    /// A scene where `ch1` owns `r1` and the card in it, and `loose` sits on
+    /// bare canvas outside every region. Under `.piece("ch1")` the region and
+    /// `home` are lit; `loose` and `r2` are dimmed.
+    private func boundScene() -> CanvasScene {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("home"), kind: .scrap,
+                            origin: CGPoint(x: 40, y: 40), width: 240, cachedHeight: 80))
+        s.insert(CanvasNode(id: CanvasNodeID("loose"), kind: .scrap,
+                            origin: CGPoint(x: 40, y: 400), width: 240, cachedHeight: 80))
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                    frame: CGRect(x: 0, y: 0, width: 600, height: 200)))
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("r2"), label: "Elsewhere",
+                                    frame: CGRect(x: 0, y: 360, width: 600, height: 200)))
+        CanvasMembership.join(CanvasNodeID("home"), home: CanvasRegionID("r1"), in: &s)
+        RegionBinding.bind(CanvasRegionID("r1"), toPiece: "ch1", in: &s)
+        return s
+    }
+
+    private func filtered() -> CanvasHighlight {
+        CanvasHighlight.resolve(subject: .piece("ch1"), in: boundScene())
+    }
+
+    private func label(of id: String, under highlight: CanvasHighlight) throws -> String {
+        let elements = CanvasAccessibility.elements(scene: boundScene(), scraps: [:],
+                                                    highlight: highlight)
+        return try XCTUnwrap(elements.first { $0.id.raw == id },
+                             "\(id) is not in the tree at all, so there is no label to "
+                             + "read — see the removal test below")
+            .label
+    }
+
+    /// **The deliverable, and ADR 0026 §10 is the precedent exactly.** Claude's
+    /// cards got a spoken term because a lean is inaudible; a dim is inaudible by
+    /// the same argument, and until this test the whole of §4 reached a VoiceOver
+    /// user as nothing at all.
+    ///
+    /// Both halves, because either alone is satisfied by an implementation that
+    /// says the term everywhere or nowhere.
+    func test_aDimmedCardSaysSoAndALitOneDoesNot() throws {
+        let highlight = filtered()
+        XCTAssertTrue(try label(of: "loose", under: highlight)
+                        .contains(CanvasAccessibility.dimmedTerm),
+                      "the whole of §4 is inaudible: a card the tree's selection "
+                      + "does not name is drawn at \(CanvasMaterial.dimmedOpacity) "
+                      + "alpha and announced identically to one it does")
+        XCTAssertFalse(try label(of: "home", under: highlight)
+                        .contains(CanvasAccessibility.dimmedTerm),
+                      "a LIT card says it is dimmed — the term is being said "
+                      + "unconditionally, which tells a listener nothing")
+    }
+
+    /// The control that decides the POLARITY, and it is the reason the term marks
+    /// the dimmed rather than the lit.
+    ///
+    /// On an undimmed board every element is silent about the dim, exactly as
+    /// every element is drawn at full strength. Marking the LIT ones instead
+    /// would leave a dimmed card and a card on an unfiltered board sounding
+    /// identical — an ambiguity the sighted channel does not have, since a dimmed
+    /// card plainly *looks* different from an undimmed one. Marked this way round
+    /// the only pair that collides is lit-vs-undimmed, which is the pair that
+    /// collides on screen too.
+    func test_anUndimmedBoardSaysNothingAboutTheDimAtAll() throws {
+        for id in ["home", "loose", "region:r1", "region:r2"] {
+            XCTAssertFalse(try label(of: id, under: .undimmed)
+                            .contains(CanvasAccessibility.dimmedTerm),
+                           "\(id) announces a dim on a board where nothing is dimmed")
+        }
+    }
+
+    /// **Every primitive says it for itself, because the tree is FLAT** — the
+    /// ruling `claudeTerm` already carries (Denver, 2026-07-30). `rowOrdered`
+    /// interleaves regions and cards by position and a card is not a child of its
+    /// region, so a term spoken only on the region leaves cards reachable in
+    /// silence.
+    ///
+    /// The members are named rather than counted: a card, an item node and a
+    /// region, all dimmed, all in one scene.
+    func test_aDimmedCardAnItemNodeAndARegionEachSayItForThemselves() throws {
+        var s = boundScene()
+        s.insert(CanvasNode(id: .item("r-9"), kind: .item(.project(id: "r-9")),
+                            origin: CGPoint(x: 40, y: 420), width: 180, cachedHeight: 120))
+        let highlight = CanvasHighlight.resolve(subject: .piece("ch1"), in: s)
+        let elements = CanvasAccessibility.elements(scene: s, scraps: [:], highlight: highlight)
+
+        for id in ["loose", "item:r-9", "region:r2"] {
+            let element = try XCTUnwrap(elements.first { $0.id.raw == id },
+                                        "\(id) is not in the tree at all")
+            XCTAssertTrue(element.label.contains(CanvasAccessibility.dimmedTerm),
+                          "\(id) is drawn dim and says nothing about it: \(element.label)")
+        }
+        let lit = try XCTUnwrap(elements.first { $0.id.raw == "region:r1" })
+        XCTAssertFalse(lit.label.contains(CanvasAccessibility.dimmedTerm),
+                       "the control: the bound region is lit and must stay silent")
+    }
+
+    /// **The term comes FIRST, ahead of the kind, and it is the one thing in this
+    /// label that is not a fact about the object.**
+    ///
+    /// Two reasons, and the second is the one that cannot be argued round. A
+    /// listener skimming a filtered board is listening for the cards that do
+    /// *not* carry the term — so the discriminating word has to arrive before the
+    /// variable-length material (a name, a provenance, a mark, a list of line
+    /// labels, and then the writer's whole sentence in the value), or every card
+    /// has to be heard to the end before it can be skipped. And appended, it
+    /// lands immediately after `connectionPhrase`'s comma-joined list of line
+    /// names, where it reads as one more line called "outside the binder's
+    /// selection".
+    ///
+    /// The whole string is asserted rather than the prefix alone, so this is one
+    /// ordering rule with a new head rather than a second rule.
+    func test_theDimmedTermIsSpokenAheadOfTheKindAndTheRestIsUnchanged() throws {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                            width: 240, cachedHeight: 80, promotedItemID: "res-a",
+                            author: .claude))
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                    frame: CGRect(x: -20, y: -20, width: 600, height: 400),
+                                    isCollapsed: true, promotedItemID: "res-fog",
+                                    author: .claude))
+        // Nothing is bound, so a subject that names anything dims all of it.
+        let highlight = CanvasHighlight.resolve(subject: .piece("ch1"), in: s)
+        let elements = CanvasAccessibility.elements(scene: s, scraps: [:], highlight: highlight)
+
+        let region = try XCTUnwrap(elements.first { $0.role == .region },
+                                   "the region is not in the tree at all")
+        XCTAssertEqual(region.label,
+                       "\(CanvasAccessibility.dimmedTerm), "
+                       + "\(CanvasAccessibility.regionKind), Act II fog, "
+                       + "\(CanvasAccessibility.claudeTerm), "
+                       + "\(CanvasAccessibility.promotedTerm), "
+                       + "\(CanvasAccessibility.collapsedTerm)")
+
+        var flat = CanvasScene()
+        flat.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                               width: 240, cachedHeight: 80, promotedItemID: "res-a",
+                               author: .claude))
+        let card = try XCTUnwrap(
+            CanvasAccessibility.elements(
+                scene: flat, scraps: [:],
+                highlight: CanvasHighlight.resolve(subject: .piece("ch1"), in: flat)).first,
+            "the card is not in the tree at all")
+        XCTAssertEqual(card.label,
+                       "\(CanvasAccessibility.dimmedTerm), Scrap, "
+                       + "\(CanvasAccessibility.claudeTerm), "
+                       + "\(CanvasAccessibility.promotedTerm)",
+                       "the head of the label must be the same head on both, or "
+                       + "there are two ordering rules on one surface")
+    }
+
+    /// **The word may not be the system's word for UNAVAILABLE**, and "dimmed" is
+    /// exactly that word: macOS speaks it for a control whose `AXEnabled` is
+    /// false — a greyed-out menu item, a disabled button — so a card announced as
+    /// "dimmed" is a card a VoiceOver user is told they cannot use.
+    ///
+    /// This surface's contract is the opposite and is stated in three places
+    /// (§4's plan, `CanvasRenderer.draw`'s doc comment, AREA.md): **the dim is
+    /// de-emphasis and never disabling** — a dimmed card is still hit-tested,
+    /// still selectable, still editable, and its selection ring is drawn at full
+    /// strength. So the term names what the dim MEANS rather than what it looks
+    /// like, which is `claudeTerm`'s own precedent one primitive over: the drawn
+    /// signal there is a 1° lean and the spoken term is "from Claude", not
+    /// "leaning".
+    func test_theSpokenTermIsNotTheSystemsWordForUnavailable() {
+        XCTAssertFalse(CanvasAccessibility.dimmedTerm.isEmpty,
+                       "an empty term is a silent dim wearing a constant")
+        for word in ["dimmed", "disabled", "unavailable", "greyed", "grayed"] {
+            XCTAssertFalse(CanvasAccessibility.dimmedTerm.lowercased().contains(word),
+                           "\"\(word)\" is how an assistive client says a control "
+                           + "cannot be used, and a dimmed card can be clicked, "
+                           + "selected, dragged and typed into")
+        }
+    }
+
+    /// **The counterfactual, planted: the dim as a REMOVAL.**
+    ///
+    /// Dropping dimmed nodes from `elements` is available, is cheaper, and would
+    /// pass every "a lit card and a dimmed card sound different" assertion above
+    /// — they would sound different because one of them would not exist. It is
+    /// the wrong answer: the dim is de-emphasis for a sighted writer and a
+    /// removal would make it a disappearance for a listener, on a card that is
+    /// still clickable, still selectable and still holding the writer's words.
+    ///
+    /// The value is asserted beside the count because a half-hearted version of
+    /// the same mistake keeps the element and blanks it, which reaches a listener
+    /// as the same loss.
+    func test_aDimmedCardIsStillReachableAndStillReadsOutItsWords() throws {
+        let words = "The falls at night."
+        let elements = CanvasAccessibility.elements(
+            scene: boundScene(), scraps: [CanvasNodeID("loose"): words],
+            highlight: filtered())
+        XCTAssertEqual(elements.count, 4,
+                       "both cards and both regions must be in the tree — a dim that "
+                       + "removes elements is a disappearance for a listener where it "
+                       + "is a de-emphasis for everyone else")
+        let loose = try XCTUnwrap(elements.first { $0.id.raw == "loose" })
+        XCTAssertEqual(loose.value, words,
+                       "a dimmed card kept its element and lost its words, which "
+                       + "reaches a listener as the same removal")
+    }
+
     private func accessibilitySource() throws -> String {
         try String(contentsOf: URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

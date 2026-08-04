@@ -565,25 +565,25 @@ struct CanvasView: View {
             Button("OK", role: .cancel) {}
         }
         .onAppear { load() }
-        // The STRUCTURAL counter, never `revision`.
+        // §4's lit set AND the accessibility tree that speaks it — the STRUCTURAL
+        // counter and the SUBJECT, never `revision`. Two triggers because there
+        // are two inputs and they move on different occasions: the bindings and
+        // the membership change with the scene, and what the tree names changes
+        // with a click in the other column.
         //
-        // `initial: true` is belt and braces rather than the load path: `load()`
-        // ends in `rebuildLayouts()`, which bumps this counter, so the loaded
-        // canvas reaches the tree either way. It is here so that a scene which
-        // somehow arrives without a bump still has an accessible canvas rather
-        // than a silent one — the failure this whole layer exists to prevent.
-        .onChange(of: sceneRevision, initial: true) { _, _ in
-            axElements = CanvasAccessibility.elements(scene: model.scene, scraps: model.scraps,
-                                                      items: itemPresentation)
-        }
-        // §4's lit set — the STRUCTURAL counter and the SUBJECT, never
-        // `revision`. Two triggers because it has two inputs and they move on
-        // different occasions: the bindings and the membership change with the
-        // scene, and what the tree names changes with a click in the other
-        // column. `initial: true` sits on the subject's, which fires at mount
-        // and covers a window restored onto a chapter.
-        .onChange(of: sceneRevision) { _, _ in rebuildHighlight() }
-        .onChange(of: subject, initial: true) { _, _ in rebuildHighlight() }
+        // ONE handler, deliberately, and never one of these each — see
+        // `rebuildHighlightAndTree()`. A tree rebuilt from a trigger of its own
+        // reads the `@State` `highlight` at whatever moment SwiftUI runs it, and
+        // nothing orders two handlers on one update pass.
+        //
+        // `initial: true` sits on the subject's, which fires at mount: it covers
+        // a window restored onto a chapter, and it is what guarantees a scene
+        // arriving without a structural bump still has an accessible canvas
+        // rather than a silent one — the failure this whole layer exists to
+        // prevent. (`load()` ends in `rebuildLayouts()`, which bumps the counter,
+        // so the ordinary path reaches both either way.)
+        .onChange(of: sceneRevision) { _, _ in rebuildHighlightAndTree() }
+        .onChange(of: subject, initial: true) { _, _ in rebuildHighlightAndTree() }
         // The manifest moved under a canvas that did not: the writer renamed the
         // research note a card points at, or deleted it. Nothing on the canvas
         // changed, so no structural counter budged — and the card would show the
@@ -862,13 +862,39 @@ struct CanvasView: View {
         }
     }
 
-    /// Re-derive §4's lit set. **The only writer of `highlight`**, and it is
-    /// called from the two `.onChange`s in `body` and from nowhere else — a
-    /// third call site on a per-frame path is the whole of what tripwire 30
-    /// forbids here, and it would be invisible on screen because the answer
-    /// would be right every time.
-    private func rebuildHighlight() {
-        highlight = CanvasHighlight.resolve(subject: subject, in: model.scene)
+    /// Re-derive §4's lit set **and the accessibility tree that speaks it**, from
+    /// ONE resolution, in one pass.
+    ///
+    /// **The only writer of `highlight`** and the only writer of `axElements`,
+    /// called from the two `.onChange`s in `body` and from nowhere else — a third
+    /// call site on a per-frame path is the whole of what tripwire 30 forbids
+    /// here, and it would be invisible on screen because the answer would be
+    /// right every time.
+    ///
+    /// **The two rebuilds are one function because they were nearly two, and the
+    /// two-function shape has a hole with no symptom.** The tree used to be
+    /// rebuilt from its own `.onChange(of: sceneRevision)`; once a label depends
+    /// on the dim it depends on the subject too, so that trigger needed the
+    /// subject as well — and a *second* `.onChange` reading the `@State`
+    /// `highlight` reads whatever value that property holds when SwiftUI happens
+    /// to run it. SwiftUI does not order two handlers on the same update pass,
+    /// and there is no third trigger to correct it, so a tree built before the
+    /// dim was re-resolved describes the board as it was **before the writer's
+    /// last click, for as long as nothing else moves the scene**. Resolving into
+    /// a local and handing the same value to both makes the stale read
+    /// unspellable rather than unlikely, and it is the same guarantee `items`
+    /// already has one layer down: the card a writer looks at and the sentence a
+    /// listener hears cannot come to different conclusions about the same board.
+    ///
+    /// The tree costs a sort of the whole scene and a copy of every scrap's
+    /// string, so it rides `sceneRevision` exactly as it did — never `revision`,
+    /// which every animation frame bumps. Rebuilding it on a subject change as
+    /// well is new work, and it is once per tree click.
+    private func rebuildHighlightAndTree() {
+        let resolved = CanvasHighlight.resolve(subject: subject, in: model.scene)
+        highlight = resolved
+        axElements = CanvasAccessibility.elements(scene: model.scene, scraps: model.scraps,
+                                                  items: itemPresentation, highlight: resolved)
     }
 
     /// Build a layout per scrap and fill in the derived heights the model needs

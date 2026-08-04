@@ -248,10 +248,11 @@ final class CanvasHighlightTests: XCTestCase {
     /// …and it is rebuilt from the STRUCTURAL counter, never the redraw one.
     func test_theLitSetIsRebuiltOnTheStructuralCounterAndTheSubject() throws {
         let src = CanvasSourceCensus.commentsStripped(try canvasViewSource())
-        XCTAssertTrue(src.contains(".onChange(of: sceneRevision) { _, _ in rebuildHighlight() }"),
-                      "the bindings and the membership move with the scene")
+        XCTAssertTrue(
+            src.contains(".onChange(of: sceneRevision) { _, _ in rebuildHighlightAndTree() }"),
+            "the bindings and the membership move with the scene")
         XCTAssertTrue(src.contains(".onChange(of: subject, initial: true) "
-                                   + "{ _, _ in rebuildHighlight() }"),
+                                   + "{ _, _ in rebuildHighlightAndTree() }"),
                       "…and what the tree names moves with a click. Without this "
                       + "trigger the dim is right once and then stale for the "
                       + "rest of the session")
@@ -265,12 +266,87 @@ final class CanvasHighlightTests: XCTestCase {
     func test_theLitSetHasExactlyOneWriter() throws {
         let src = CanvasSourceCensus.commentsStripped(try canvasViewSource())
         XCTAssertEqual(
-            src.components(separatedBy: "highlight = CanvasHighlight.resolve").count - 1, 1,
-            "`highlight` is resolved somewhere other than `rebuildHighlight()`")
-        XCTAssertEqual(src.components(separatedBy: "rebuildHighlight()").count - 1, 3,
+            src.components(separatedBy: "CanvasHighlight.resolve").count - 1, 1,
+            "`highlight` is resolved somewhere other than `rebuildHighlightAndTree()`")
+        XCTAssertEqual(src.components(separatedBy: "rebuildHighlightAndTree()").count - 1, 3,
                        "the declaration and exactly TWO callers — the two "
                        + "`.onChange`s above. A third is a per-frame path or a "
                        + "second answer to when the dim changes")
+    }
+
+    // MARK: - …and the tree that SPEAKS it is derived from the same value
+    //
+    // Task 7. `CanvasAccessibility.label` now carries `dimmedTerm`, so every
+    // label on this surface depends on the dim — which means the accessibility
+    // rebuild depends on the SUBJECT, which it never did before.
+
+    /// **The stale-read shape, ruled out structurally rather than hoped against.**
+    ///
+    /// The available two-function shape is: leave the tree on its own
+    /// `.onChange`, give that trigger the subject as well, and let it read the
+    /// `@State` `highlight`. It is one line smaller and it has a hole with no
+    /// symptom — SwiftUI orders no two handlers on one update pass, so the tree
+    /// can be built from the highlight as it stood **before** the click that
+    /// triggered it, and nothing rebuilds it again until the scene next moves.
+    /// The labels would then describe the previous selection for the rest of the
+    /// session, silently, on a surface whose whole visible behaviour is correct.
+    ///
+    /// So the assertion is that the resolution is a LOCAL handed to both, and the
+    /// discriminator is the one thing the broken shape must contain: the tree's
+    /// call reading the property. `highlight: highlight` is legitimate at the
+    /// DRAW site — `body` reading `@State` is what `body` is for — so the scan is
+    /// of the `elements(…)` call's own arguments and not of the file.
+    func test_theTreeAndTheDimAreDerivedFromOneResolvedValue() throws {
+        let src = CanvasSourceCensus.commentsStripped(try canvasViewSource())
+        XCTAssertEqual(src.components(separatedBy: "axElements = ").count - 1, 1,
+                       "the accessibility tree has more than one writer, so one of "
+                       + "them is deriving the dim a second time")
+
+        let call = try elementsCall(in: src)
+        XCTAssertTrue(call.contains("highlight:"),
+                      "the tree is built without the dim at all — `elements` takes it "
+                      + "with an `.undimmed` DEFAULT, so dropping the argument "
+                      + "compiles, runs, and announces every card on a filtered board "
+                      + "as though nothing were dimmed")
+        XCTAssertFalse(call.contains("highlight: highlight"),
+                       "the tree reads the `@State` rather than the value just "
+                       + "resolved beside it: on the pass where the subject changes "
+                       + "that property may still hold the previous board, and no "
+                       + "later trigger corrects it")
+    }
+
+    /// The companion, and it is the whole point of the assertion above: the same
+    /// slicer over the lazy version has to come back with the property read, or
+    /// the test passes for any file at all.
+    func test_theOneValueScanCatchesTheStaleReadWrittenOut() throws {
+        let planted = """
+            .onChange(of: sceneRevision) { _, _ in rebuildHighlight() }
+            .onChange(of: subject, initial: true) { _, _ in rebuildHighlight() }
+            private func rebuildTree() {
+                axElements = CanvasAccessibility.elements(scene: model.scene,
+                                                          scraps: model.scraps,
+                                                          items: itemPresentation,
+                                                          highlight: highlight)
+            }
+            """
+        XCTAssertTrue(try elementsCall(in: planted).contains("highlight: highlight"),
+                      "the slicer is not reading the call's arguments — the "
+                      + "assertion it serves cannot fail")
+    }
+
+    /// The arguments of the one `CanvasAccessibility.elements(…)` call.
+    ///
+    /// Naive to the first `)` on purpose: this call has no nested parentheses,
+    /// and a slicer that balanced them would be more code than the thing it
+    /// guards. If an argument ever grows a call of its own, this is what has to
+    /// be taught about it — a slice that ran short would fail quietly in the
+    /// direction that passes.
+    private func elementsCall(in source: String) throws -> String {
+        let opening = try XCTUnwrap(source.range(of: "CanvasAccessibility.elements("),
+                                    "nothing builds the accessibility tree at all")
+        let rest = source[opening.upperBound...]
+        let close = try XCTUnwrap(rest.range(of: ")"), "the call never closes")
+        return String(rest[..<close.lowerBound])
     }
 
     /// The cost, measured rather than asserted about — this is why the two

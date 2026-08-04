@@ -1659,6 +1659,123 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "it, so bumping the counter buys nothing")
     }
 
+    // MARK: - The dim is audible (§4, slice 3 task 7)
+
+    /// A project holding a region bound to `ch1` with `s1` living in it, and `s2`
+    /// loose on bare canvas outside every region. Under `.piece("ch1")` the first
+    /// is lit and the second is dimmed.
+    private func boundRegionProjectRoot() throws -> URL {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: scrapID, kind: .scrap, origin: CGPoint(x: 60, y: 60),
+                                width: 240, cachedHeight: 60))
+        scene.insert(CanvasNode(id: secondScrapID, kind: .scrap,
+                                origin: CGPoint(x: 60, y: 420), width: 240, cachedHeight: 60))
+        scene.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                        frame: CGRect(x: 20, y: 20, width: 400, height: 300),
+                                        homeMembers: [scrapID]))
+        RegionBinding.bind(CanvasRegionID("r1"), toPiece: "ch1", in: &scene)
+        return try projectRoot(scene: scene, scraps: [scrapID: scrapText,
+                                                      secondScrapID: secondScrapText])
+    }
+
+    /// The label an assistive client would actually be handed for a card.
+    private func axLabel(ofCardValued value: String, in window: NSWindow) throws -> String {
+        let element = try axCard(valued: value, in: try axTree(in: window))
+        return try XCTUnwrap(axString(element, "accessibilityLabel"),
+                             "the card publishes no label at all")
+    }
+
+    /// Swap the subject the way the window does — a new `let` on the same view,
+    /// in the same place in the hierarchy, so the canvas's `@State` survives it
+    /// exactly as it does when the writer clicks a row in the binder.
+    @MainActor
+    private func retarget(_ window: NSWindow, at subject: CanvasSubject) throws {
+        let hosting = try XCTUnwrap(window.contentView as? NSHostingView<CanvasView>,
+                                    "the window is not hosting a CanvasView, so there "
+                                    + "is no subject to change")
+        hosting.rootView.subject = subject
+        pump()
+    }
+
+    /// **The deliverable, through the tree an assistive client actually walks.**
+    ///
+    /// `CanvasAccessibilityTests` asks `elements` directly; this asks the
+    /// published tree after a real tree click, which is the only place the
+    /// question "does a label go stale when the subject moves" can be asked at
+    /// all. The rebuild used to trigger on `sceneRevision` alone — nothing on
+    /// this path bumps it, so the labels would be the undimmed ones for the rest
+    /// of the session while the board in front of the writer was plainly filtered.
+    @MainActor
+    func test_aTreeClickMakesTheDimAudibleWithoutTouchingTheScene() throws {
+        let window = host(CanvasView(model: CanvasModel(),
+                                     projectRoot: try boundRegionProjectRoot(),
+                                     paletteSwatchHexes: { [] }))
+
+        XCTAssertFalse(try axLabel(ofCardValued: secondScrapText, in: window)
+                        .contains(CanvasAccessibility.dimmedTerm),
+                       "precondition: the board mounts on the project row, where "
+                       + "nothing is dimmed and nothing may say it is")
+
+        try retarget(window, at: .piece("ch1"))
+
+        XCTAssertTrue(try axLabel(ofCardValued: secondScrapText, in: window)
+                        .contains(CanvasAccessibility.dimmedTerm),
+                      "the writer selected a chapter, the board dimmed, and the card "
+                      + "outside it is announced exactly as it was before — the "
+                      + "labels are keyed on the scene alone and no scene changed")
+        XCTAssertFalse(try axLabel(ofCardValued: scrapText, in: window)
+                        .contains(CanvasAccessibility.dimmedTerm),
+                       "the card living in the bound region is lit and says it is "
+                       + "dimmed, so the term is being said unconditionally")
+
+        try retarget(window, at: .wholeProject)
+        XCTAssertFalse(try axLabel(ofCardValued: secondScrapText, in: window)
+                        .contains(CanvasAccessibility.dimmedTerm),
+                       "Escape and the project row are the way out of the dim, and "
+                       + "the way out is inaudible: the label kept the term after the "
+                       + "board undimmed")
+    }
+
+    /// The same staleness from the SCENE's side, and the one shape a source scan
+    /// cannot settle: a binding arriving from the **other column** while the
+    /// canvas sits filtered.
+    ///
+    /// `RegionInspector.commitBinding` is mirrored exactly — `mutateFromInspector`
+    /// then `bumpSceneRevision()`. Under the two-`.onChange` shape this is the
+    /// pass where the tree can be built from the previous dim, because both
+    /// handlers fire on the same counter and nothing orders them; here one
+    /// resolution feeds both, so the card the writer just claimed stops saying it
+    /// is outside the selection in the same pass that lights it.
+    @MainActor
+    func test_aBindFromTheOtherColumnRelightsTheLabelsAndNotOnlyTheCanvas() throws {
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: try boundRegionProjectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        try retarget(window, at: .piece("ch2"))
+
+        XCTAssertTrue(try axLabel(ofCardValued: scrapText, in: window)
+                        .contains(CanvasAccessibility.dimmedTerm),
+                      "precondition: nothing is bound to ch2, so the whole board is "
+                      + "dimmed and this test has something to watch change")
+
+        model.mutateFromInspector("Bind Region") { scene in
+            RegionBinding.bind(CanvasRegionID("r1"), toPiece: "ch2", in: &scene)
+        }
+        model.bumpSceneRevision()
+        pump()
+
+        XCTAssertFalse(try axLabel(ofCardValued: scrapText, in: window)
+                        .contains(CanvasAccessibility.dimmedTerm),
+                       "the region was bound to the selected chapter and its resident "
+                       + "card is drawn lit while still announcing itself as outside "
+                       + "the selection — the tree was built from the dim as it stood "
+                       + "before the bind")
+        XCTAssertTrue(try axLabel(ofCardValued: secondScrapText, in: window)
+                        .contains(CanvasAccessibility.dimmedTerm),
+                       "the control: the loose card was never bound to anything and "
+                       + "must still say so")
+    }
+
     /// Decision 1, asked of the published tree rather than of the list.
     /// `CanvasAccessibilityTests.test_offscreenNodesAreStillInTheTree` proves
     /// `elements` returns the far card; that says nothing about whether SwiftUI
