@@ -20,6 +20,9 @@ private let _statementEditorLog = Logger(
 /// is what keeps this from being the second text mirror tripwire 6 forbids —
 /// `text` has exactly one source at any instant.
 ///
+/// **Words with no file yet belong to the SCOPE they were typed for, not to the
+/// pane that was showing it** (issue #21). See `typedBeforeItsFileExisted`.
+///
 /// It is a reference type on purpose. `EditorSurface.makeCoordinator()` captures
 /// its `Binding` **once**, at mount; a binding closing over a `@State Document?`
 /// would keep writing to the nil it saw then. Routing through this box is what
@@ -33,7 +36,40 @@ final class StatementTextTarget {
     /// its registration from `ProjectStore` without threading the id through a
     /// second piece of view state.
     private(set) var statementID: String?
-    private(set) var draft = ""
+
+    /// The words typed for a scope whose file does not exist yet, **keyed by the
+    /// scope they were typed for**.
+    ///
+    /// Still one copy of any given run of characters, and still not the second
+    /// text mirror tripwire 6 forbids: an entry is *removed* in the same
+    /// statement that writes it into a `Document` (`deposit`), so the words are
+    /// here or in the file and never in both, and `text` reads exactly one of
+    /// them at any instant. Two entries are two different scopes' words, which is
+    /// not a mirror of anything.
+    ///
+    /// **Keyed rather than a single `draft`, and that is the whole of issue
+    /// #21.** A single value had to be emptied when the pane moved on, and
+    /// `reconcile`'s `release()` emptied it *mid-mint* — while the detached
+    /// `Task` that was creating the file for those very characters was still in
+    /// flight. Type one character into a chapter with no intent, click another
+    /// row, and the statement was created and the character was not in it. No
+    /// error, nothing in the op log.
+    ///
+    /// Keyed, there is nothing to empty. `draft` reads the entry for the scope
+    /// the pane is on NOW, so the outgoing scope's words stop being *visible* the
+    /// moment `wantedScope` moves — which is all `release()` was ever trying to
+    /// achieve — while the words themselves wait, under their own scope's name,
+    /// for the mint that is already on its way to collect them. The obvious
+    /// repair (snapshot the draft at `mintAndBind` and hand it to `bind`) is the
+    /// one this deliberately is not: a snapshot is a value that keeps describing
+    /// what the box held at a past instant, which is the exact family of defect
+    /// this file has produced seven of.
+    ///
+    /// An entry outliving a FAILED mint is correct rather than a leak: the pane
+    /// returning to that scope shows those words again and the next keystroke
+    /// retries the mint, which is what `onUnboundWrite` firing on every write is
+    /// for.
+    private var typedBeforeItsFileExisted: [String: String] = [:]
 
     /// The scope key this box is currently FOR, or nil when the pane has left.
     ///
@@ -46,6 +82,9 @@ final class StatementTextTarget {
     /// without `.id()`, deliberately), so the answer to "who owns you now"
     /// belongs on the thing being written into rather than on a view value a
     /// superseded task holds a copy of.
+    ///
+    /// It is also the key `draft` reads and `write` files under: the scope this
+    /// box is FOR is, by definition, the scope the writer's keystrokes are for.
     var wantedScope: String?
 
     /// Fired on every write that lands in `draft` — i.e. while the statement
@@ -57,6 +96,23 @@ final class StatementTextTarget {
     /// What the editor shows. One source at a time: the Document once bound,
     /// the pre-mint draft before that.
     var text: String { document?.displayText ?? draft }
+
+    /// The words typed for the scope this box is currently FOR, and not yet in
+    /// any file. Empty for a scope nobody has typed into, and empty for a box
+    /// that has left (`leave()` clears `wantedScope`) — the words of the scope it
+    /// left are still in the map, addressed by their own name.
+    var draft: String {
+        guard let wantedScope else { return "" }
+        return typedBeforeItsFileExisted[wantedScope] ?? ""
+    }
+
+    /// Whether any words are waiting for `scope`'s file to exist.
+    ///
+    /// A predicate rather than an accessor on purpose: nothing outside this box
+    /// takes the text out except by handing over the `Document` it goes into.
+    func hasWordsWaiting(for scope: String) -> Bool {
+        !(typedBeforeItsFileExisted[scope] ?? "").isEmpty
+    }
 
     /// The statement whose **live** `Document` this box holds, or nil.
     ///
@@ -83,66 +139,89 @@ final class StatementTextTarget {
             document.setFullText(newText)
             return
         }
-        draft = newText
+        guard let wantedScope else {
+            // Unreachable while the editor is mounted: `reconcile` sets
+            // `wantedScope` before `resolvedScope`, and `resolvedScope` is the
+            // whole mount condition, so a surface that can be typed into always
+            // has a scope to file its words under. Logged rather than assumed,
+            // because the alternative is a keystroke with nowhere to go.
+            _statementEditorLog.error(
+                "a statement keystroke arrived with no scope to file it under")
+            return
+        }
+        typedBeforeItsFileExisted[wantedScope] = newText
         guard !newText.isEmpty else { return }
         onUnboundWrite?()
     }
 
-    /// Bind the loaded `Document`.
+    /// Put the words typed for `scope` into the file that now exists for it, and
+    /// take them out of the box in the same statement.
     ///
-    /// `carryingDraft` is true only for the mint the writer's own keystroke
-    /// triggered — the words typed before the file existed belong in its first
-    /// op. It must be false when binding a statement that already has content,
-    /// or an empty draft would overwrite what the writer wrote last week.
+    /// **Appended to whatever the document already holds; never a replacement.**
+    /// `setFullText` is whole-text replacement, and this used to hand it the
+    /// draft alone on the stated grounds that a just-minted statement's document
+    /// is empty — which was true while the pane was the only thing that could
+    /// create one. **M1A Task 7 made the canvas a second creator**, and
+    /// `createStatement` is idempotent: a promotion into a scope this pane is
+    /// mounted on but has not bound (no statement existed when `reconcile` ran,
+    /// and nothing re-runs it) creates the statement WITH the promoted card in
+    /// it, and the writer's next keystroke arrives here as a one-character draft.
+    /// Replacing left them holding that character and nothing else. **No timing
+    /// window is involved** — promote, leave, come back, type.
     ///
-    /// **A carried draft is APPENDED to whatever the document already holds; it
-    /// never replaces it.** `setFullText` is whole-text replacement, and this
-    /// line used to hand it the draft alone on the stated grounds that a
-    /// just-minted statement's document is empty — which was true while the pane
-    /// was the only thing that could create one. **M1A Task 7 made the canvas a
-    /// second creator**, and `createStatement` is idempotent: a promotion into a
-    /// scope this pane is mounted on but has not bound (no statement existed when
-    /// `reconcile` ran, and nothing re-runs it) creates the statement WITH the
-    /// promoted card in it, and the writer's next keystroke arrives here as a
-    /// one-character draft. Replacing left them holding that character and
-    /// nothing else. **No timing window is involved** — promote, leave, come
-    /// back, type.
+    /// **Addressed by scope, which is what makes it safe to call from every
+    /// arrival** (issue #21). It used to be a `carryingDraft` flag on `bind`, and
+    /// a flag is a claim about *whose* words are in the box that the box itself
+    /// could not check: the caller had to be right. Keyed, the box answers — a
+    /// deposit for one scope cannot take another scope's words even if the pane
+    /// has moved twice since, and a scope with nothing waiting is a no-op, so the
+    /// caller no longer has to know which case it is in.
+    func deposit(into document: Document, for scope: String) {
+        guard let words = typedBeforeItsFileExisted.removeValue(forKey: scope),
+              !words.isEmpty else { return }
+        let existing = document.displayText
+        document.setFullText(existing.isEmpty ? words : existing + "\n\n" + words)
+    }
+
+    /// Bind the loaded `Document` for `scope`, and hand it whatever was typed
+    /// for that scope before it existed.
     ///
     /// It is fixed here rather than at `mintAndBind` because this is the one
     /// place a draft meets a document: the caller-side fix ("look the statement
-    /// up first and pass `carryingDraft: false`") closes the one door that
-    /// exists today and throws the writer's keystroke away doing it, while this
-    /// keeps both texts and closes the door for the next creator too. In the
-    /// case this was written for — a genuinely new statement, whose file is
-    /// empty scaffolding — the behaviour is unchanged, byte for byte.
+    /// up first and don't carry the draft") closes the one door that exists today
+    /// and throws the writer's keystroke away doing it, while this keeps both
+    /// texts and closes the door for the next creator too. In the case this was
+    /// written for — a genuinely new statement, whose file is empty scaffolding —
+    /// the behaviour is unchanged, byte for byte.
     ///
     /// (`reconcile`'s own comment describes this failure arriving through a
     /// different door: a stale `resolvedScope` leaving the pane bound to
     /// nothing over real content. That door is closed by clearing the marker;
     /// this one cannot be, because the pane's belief was true when it formed.)
-    func bind(_ document: Document, id: String, carryingDraft: Bool) {
-        if carryingDraft, !draft.isEmpty {
-            let existing = document.displayText
-            document.setFullText(
-                existing.isEmpty ? draft : existing + "\n\n" + draft)
-        }
-        draft = ""
+    func bind(_ document: Document, id: String, for scope: String) {
+        deposit(into: document, for: scope)
         self.document = document
         self.statementID = id
     }
 
-    /// Let go of the previous scope's `Document` and its draft.
+    /// Let go of the previous scope's `Document`.
     ///
     /// Called only while the pane is showing its placeholder — i.e. after the
     /// scope changed and before the new one has resolved. Calling it while the
     /// editor is mounted would put an empty surface over real content, and the
-    /// next keystroke would write the empty draft into the wrong statement.
-    /// **The caller must have closed the document first**; this only drops the
-    /// reference.
+    /// next keystroke would write into the wrong statement. **The caller must
+    /// have closed the document first**; this only drops the reference.
+    ///
+    /// **It no longer empties the draft, and that is issue #21's fix at this
+    /// end.** It used to, and the words it emptied were the ones a mint was at
+    /// that moment creating a file for — the one instant they existed nowhere
+    /// else. Nothing needs emptying now: `reconcile` has already moved
+    /// `wantedScope` on, so `draft` reads the new scope's entry (empty, for a
+    /// scope nobody has typed into) and the outgoing scope's words are addressed
+    /// by their own name until their mint collects them.
     func release() {
         document = nil
         statementID = nil
-        draft = ""
     }
 }
 
@@ -174,7 +253,22 @@ struct StatementEditorHost: View {
     /// all. `nil` until the first reconcile, and re-derived on every scope
     /// change. It is the whole mount condition; see `shouldMount`.
     @State private var resolvedScope: String?
-    @State private var isMinting = false
+    /// The scopes with a mint in flight — **a set rather than a flag, for the
+    /// same reason the words are keyed** (issue #21).
+    ///
+    /// It stops a burst of keystrokes from starting a second attempt at the same
+    /// statement. It was a `Bool`, which made that claim about the HOST: while
+    /// one scope's mint was in flight (parked behind a promotion on the open
+    /// gate, say) a keystroke into a second undeclared scope started no mint at
+    /// all, and its words waited in the box for a collector that a second
+    /// keystroke would have to summon. A writer typing on has one; a writer who
+    /// types one word and clicks away does not, and that is the whole shape of
+    /// this issue.
+    ///
+    /// Two mints in flight for two scopes share nothing: each holds its own
+    /// statement's open gate, each deposits under its own scope's name, and
+    /// `loadMayBind` can be true for at most one of them.
+    @State private var mintingScopes: Set<String> = []
     @State private var editorControl = EditorControl()
     @State private var isDropTargeted = false
     /// Why the last picture did not land, or nil.
@@ -485,8 +579,8 @@ struct StatementEditorHost: View {
         // then a lie that survives: `.task(id:)` restarts when the writer returns
         // to that scope, the guard above sees a match and does nothing, and
         // `shouldMount` says yes over an emptied target. The pane shows the
-        // writer's existing intent as EMPTY, and the first keystroke mints
-        // `carryingDraft: true` over it — one character replacing the lot
+        // writer's existing intent as EMPTY, and the first keystroke mints and
+        // deposits over it — one character replacing the lot
         // (`test_aFailedScopeChangeDoesNotLeaveTheOldScopeLookingResolved`,
         // which reproduced exactly that before this line existed). The two
         // cancellation exits reach the same place holding another scope's
@@ -524,16 +618,17 @@ struct StatementEditorHost: View {
             // the scope counts as resolved only if its Document really loaded. A
             // failed load leaves the placeholder up rather than an empty editor
             // whose first keystroke would mint a draft over the writer's prose.
-            guard await load(statement, carryingDraft: false, for: key) else { return }
+            guard await load(statement, for: key) else { return }
         }
         guard !Task.isCancelled else { return }
         resolvedScope = key
     }
 
     /// The first keystroke into an undeclared scope. Find-or-create is
-    /// idempotent, so a second arrival cannot mint a second file; `isMinting`
-    /// stops a burst of keystrokes from starting a second attempt, and a failed
-    /// attempt is retried by the next keystroke rather than losing the words.
+    /// idempotent, so a second arrival cannot mint a second file;
+    /// `mintingScopes` stops a burst of keystrokes from starting a second
+    /// attempt at the same scope, and a failed attempt is retried by the next
+    /// keystroke rather than losing the words.
     ///
     /// **Its destination is named here, before either suspension.** Nothing
     /// cancels this `Task` — it is detached from the `.task(id:)` that `reconcile`
@@ -544,14 +639,14 @@ struct StatementEditorHost: View {
     /// every scope, so the keystroke that got here belongs to the scope this
     /// value names.
     private func mintAndBind() {
-        guard !isMinting, target.document == nil else { return }
         let wanted = scopeKey
-        isMinting = true
+        guard !mintingScopes.contains(wanted), target.document == nil else { return }
+        mintingScopes.insert(wanted)
         Task { @MainActor in
-            defer { isMinting = false }
+            defer { mintingScopes.remove(wanted) }
             do {
                 let created = try await store.createStatement(kind: kind, scope: scope)
-                _ = await load(created, carryingDraft: true, for: wanted)
+                _ = await load(created, for: wanted)
             } catch {
                 _statementEditorLog.error(
                     "Could not create statement: \(error, privacy: .public)")
@@ -578,9 +673,23 @@ struct StatementEditorHost: View {
     /// path even though both loads wanted the same scope, so `loadMayBind`
     /// cannot see it (`gateArrival`). `loadMayBind`, after it, asks whether the
     /// pane still wants this scope at all.
+    ///
+    /// **Both refusals are about BINDING, and neither is about the words**
+    /// (issue #21). Every arrival here — bound, already bound, or turned away —
+    /// deposits whatever was typed for `wanted` into `wanted`'s own file, because
+    /// that is where those characters were always going: the pane is only where
+    /// they were typed. A refusal that also dropped them was the loss, and it had
+    /// two shapes. `loadMayBind` refuses a mint whose pane has left (`⌘⌥N` tears
+    /// this host down, so `release()` never runs and the words are in an orphaned
+    /// box) and used to close the file it had just created without writing them
+    /// into it. `gateArrival` refuses one whose box another scope's `Document`
+    /// has taken — the ordinary case of clicking onto a chapter that HAS an
+    /// intent — and refuses *before* the load, so it has no `Document` to deposit
+    /// into at all; that one loads its own, deposits, and closes it, and does so
+    /// only when there are words waiting, so a refusal with nothing to deliver
+    /// still costs no file I/O.
     @discardableResult
-    private func load(_ statement: Statement, carryingDraft: Bool,
-                      for wanted: String) async -> Bool {
+    private func load(_ statement: Statement, for wanted: String) async -> Bool {
         // **Held across the load AND the registration**, so that the window
         // between "the registry says nobody has this" and "I have registered
         // mine" is not one a transient writer can open a second `Document` in.
@@ -592,18 +701,40 @@ struct StatementEditorHost: View {
         // a suspension like any other and the box may have been filled while we
         // queued — by this host's OTHER load, which is the only other thing that
         // can fill it. See `gateArrival`: `alreadyBound` is a success with
-        // nothing to do (the caller's destination is already there), and it is
+        // nothing to LOAD (the caller's destination is already there), and it is
         // returned rather than loaded because a second `Document` on this path
         // is the whole defect.
         //
-        // No draft can be stranded by returning here: `bind` empties `draft`,
-        // and `write` stops feeding it the moment the box holds a `Document`,
-        // so a box that is full has an empty draft by construction.
-        switch Self.gateArrival(liveStatementID: target.liveStatementID,
-                                loading: statement.id) {
+        // **No arm returns without delivering the words** (issue #21).
+        //
+        // `refuse` is the door: somebody else's live `Document` has the box,
+        // which is a reason not to BIND and no reason to lose a keystroke — the
+        // ordinary case is clicking from a chapter with no intent onto one that
+        // has an intent, and it is turned away BEFORE the load, so it has no
+        // `Document` to deposit into. It opens this statement's own under the
+        // gate it is already holding, deposits, and closes it below. Only when
+        // words are waiting, so a refusal with nothing to deliver still costs no
+        // file I/O — and `Document.load` bootstraps, which is a write.
+        //
+        // `alreadyBound` is belt rather than a door, and the difference is worth
+        // stating so nobody later reads it as a fixed bug: nothing can be waiting
+        // for `wanted` here today. `write` files words only while the box holds
+        // no `Document`, and the load that filled the box deposited on its way in
+        // (`bind`), so a full box has an empty entry by construction. It is here
+        // because that argument is about `bind`, one function away, and the cost
+        // of being wrong about it is a writer's sentence.
+        //
+        // A planted offender for each of the two real refusals is in
+        // `StatementDraftHandoffTests`; the deposit below is the one they share.
+        let arrival = Self.gateArrival(liveStatementID: target.liveStatementID,
+                                       loading: statement.id)
+        switch arrival {
         case .load: break
-        case .alreadyBound: return true
-        case .refuse: return false
+        case .alreadyBound:
+            if let bound = target.document { target.deposit(into: bound, for: wanted) }
+            return true
+        case .refuse:
+            guard target.hasWordsWaiting(for: wanted) else { return false }
         }
         do {
             let document = try await Document.load(
@@ -611,13 +742,18 @@ struct StatementEditorHost: View {
                 device: Self.deviceId,
                 session: Self.sessionId,
                 presenter: documentStore.presenter)
-            guard Self.loadMayBind(loadedScope: wanted,
+            guard arrival == .load,
+                  Self.loadMayBind(loadedScope: wanted,
                                    paneWants: target.wantedScope,
                                    cancelled: Task.isCancelled) else {
+                // Refused the binding, not the writing. The deposit and the close
+                // are both inside the open gate, so nothing can open a second
+                // `Document` on this path between them.
+                target.deposit(into: document, for: wanted)
                 await document.close()
                 return false
             }
-            target.bind(document, id: statement.id, carryingDraft: carryingDraft)
+            target.bind(document, id: statement.id, for: wanted)
             // **Announce it, or a promotion opens a second `Document` on this
             // path** (M1A Task 7). A statement is in no `DocumentStore` registry
             // by design, so this is the only way anything else can find the one
@@ -782,12 +918,12 @@ struct StatementEditorHost: View {
     /// editor goes on showing its empty `draft` until the pane is next opened on
     /// that scope, when `makeNSView` seeds it from the `Document`. Calling
     /// `mintAndBind` here to close that gap was written, measured and removed: it
-    /// binds, but **no body pass follows** (nothing in `body` reads `isMinting`,
+    /// binds, but **no body pass follows** (nothing in `body` reads `mintingScopes`,
     /// so writing it invalidates nothing), leaving a bound `Document` holding the
     /// ref behind a text view holding "" — and the writer's next keystroke then
     /// goes through the binding as `setFullText("a")` and **takes the ref with
-    /// it**. Unbound, the same keystroke lands in `draft` and
-    /// `bind(carryingDraft: true)` MERGES it with what the document already has.
+    /// it**. Unbound, the same keystroke lands in `draft` and the mint's
+    /// `deposit` MERGES it with what the document already has.
     /// The gap is a picture you cannot see yet; the fix for it was a picture you
     /// lose.
     ///

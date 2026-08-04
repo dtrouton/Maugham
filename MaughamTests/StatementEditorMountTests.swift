@@ -670,11 +670,34 @@ final class StatementEditorMountTests: XCTestCase {
         let onChapter = try fixture.textView(in: window)
         await fixture.type("y", into: onChapter)
         try await fixture.settle(window)
-        XCTAssertEqual(fixture.derivedText(forDocId: projectIntent.id), prose,
+        // **This asserted `prose` for a whole milestone, and that expectation was
+        // wrong** (issue #21). It was written to pin one claim — the "y" typed
+        // under the chapter's header must not reach the project's intent — but
+        // equality against `prose` alone also pinned the loss of the "x" typed
+        // *while the pane was showing the project*, which the superseded mint
+        // then threw away. Those characters were always going to this statement:
+        // the writer typed them here, and the pane moving on is not un-typing
+        // them. The refusal is about BINDING, and it says nothing about where the
+        // words go — so the mint now deposits into the file it created and closes
+        // it, and this expectation carries both halves explicitly.
+        XCTAssertEqual(fixture.derivedText(forDocId: projectIntent.id),
+                       prose + "\n\nx",
+                       "the project's intent must hold its prose and the "
+                       + "character typed into the pane while it was showing the "
+                       + "project, and nothing else")
+        XCTAssertFalse(fixture.derivedText(forDocId: projectIntent.id).contains("y"),
                        "typing under the CHAPTER's header rewrote the PROJECT's "
                        + "intent — the mint bound its Document into the box the "
                        + "next scope is using, and no cancellation ever arrives "
                        + "on that path to stop it")
+        // …and the "y" is not merely absent from the project's intent, it is in
+        // the chapter's. An assertion that only says where it is NOT passes when
+        // it is nowhere at all.
+        let chapterIntent = try XCTUnwrap(
+            fixture.store.statement(kind: .intent, scope: .document(docId)),
+            "the keystroke under the chapter's header minted no statement, so "
+            + "the assertion above cannot tell scoping from a second loss")
+        XCTAssertEqual(fixture.derivedText(forDocId: chapterIntent.id), "y")
     }
 
     /// The other half of that same door: the writer comes BACK.
@@ -778,11 +801,19 @@ final class StatementEditorMountTests: XCTestCase {
                        "and nothing closed the one it displaced: its "
                        + "`PendingBuffer` is still live on the writer's file, "
                        + "which is the loss the open gate exists to prevent")
-        XCTAssertEqual(try fixture.textView(in: window).string, prose,
+        // **`prose` was the wrong expectation here too** (issue #21), for the
+        // same reason and through the same door: the "x" was typed into this
+        // pane while it showed this scope, and `reconcile`'s `release()` used to
+        // empty it out from under the mint that was creating its file. The pane
+        // returning is what makes this arm different from the one above — the
+        // mint may bind — and either way the character belongs in the statement
+        // the writer typed it into.
+        XCTAssertEqual(try fixture.textView(in: window).string, prose + "\n\nx",
                        "the pane never came back off its placeholder, or came "
                        + "back empty over the writer's prose — a load that "
                        + "declines to open a second `Document` must still leave "
-                       + "the scope resolved")
+                       + "the scope resolved, showing the prose AND the character "
+                       + "typed before the pane moved")
     }
 
     /// The rule itself, over the whole product of its inputs — the file's own
@@ -851,7 +882,7 @@ final class StatementEditorMountTests: XCTestCase {
 
         let target = StatementTextTarget()
         XCTAssertNil(target.liveStatementID, "an empty box named a statement")
-        target.bind(document, id: statement.id, carryingDraft: false)
+        target.bind(document, id: statement.id, for: "intent|project")
         XCTAssertEqual(target.liveStatementID, statement.id)
 
         await document.close()
