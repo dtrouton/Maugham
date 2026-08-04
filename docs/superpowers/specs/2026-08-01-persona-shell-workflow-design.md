@@ -722,6 +722,46 @@ that comment, which would have deleted the writer's table-of-contents control. A
 comment that states a weaker reason than the real one is how a later reader acts
 on the weaker one.
 
+> **Amendment, 2026-08-04 — §5.1 and §5.2 merge, and the merged slice is PARKED.
+> Denver: *"these are good objections and change the ROI."*** Reconnaissance
+> against the tree at `66efecd` (three slices after the table above was verified)
+> found the section's central claim false, and the work is not worth its cost
+> until a dependency it never recorded is met.
+>
+> **1. "Only Publishing needs a surface of its own" is false, four times over.**
+> As specced, dissolving the drawer deletes the ONLY editor for **Status**
+> (`InspectorView.swift:25-31`, `PieceInspector.swift:86-101` — the only two
+> writable sites; it is *readable* in `BinderRow`, `OutlineTable`, `CorkboardGrid`,
+> `PieceRow` and `get_outline`), **Tags**, **word target** and **page target**.
+> That is precisely the failure this section already records for Publishing —
+> *"which would have deleted the writer's table-of-contents control"* — arriving
+> four more times. Status would become a field Claude reads, the binder draws, and
+> no writer can set.
+>
+> **2. "Tags → Plan" is not merely unbuilt, it is structurally unavailable.**
+> Plan's `.inspector` resolves to the CANVAS inspector on both its tabs
+> (`ProjectWindow.inspectorRoute`), and `docs/guide/right-pane.md:36` states that
+> as intended: *"in Plan the Inspector is the canvas's, even on the Structure
+> tab… Switch to Author (⌘2) for a chapter's own metadata."* A destination table
+> cannot name a pane that cannot receive.
+>
+> **3. The `.inspector` SEGMENT cannot be deleted, and §5.1 describes two of its
+> five contents.** The other three are `RegionInspectorPane` (Plan's whole canvas
+> inspector, reached by ⌘⌥I), `InspectorResearchPanel`, and two
+> `ContentUnavailableView` arms. "The Inspector dissolves" is about `InspectorView`
+> and `PieceInspector`, never the segment.
+>
+> **The dependency nobody recorded: Status's destination is slice 6's surface.**
+> §6.3's "pieces by review state" is unbuilt (`Persona.review.binderSegments`
+> returns `[home]`), and `BinderSegment.swift:156` calls it **M3's**. So the
+> dissolution should follow Review's left column, not precede it — which is also
+> the order that lets Status move rather than die.
+>
+> **What survives as independently worth doing**, if this is picked up piecemeal:
+> the Publish config pane (the one destination that is a pure build with no open
+> design question, and what lets `.inspector` leave Publish's registry), and the
+> synopsis fold — though the fold has two findings of its own, below.
+
 ### 5.2 Synopsis folds into intent
 
 Synopsis is what the chapter *is*; per-document intent is what you are *going
@@ -748,6 +788,47 @@ it.
 **Existing synopses must migrate into each document's intent**, in the shape M1A's
 adoption already established: content arrives as a bootstrap op through
 `Document.load`, so it has history from the migration forward rather than none.
+
+> **Amendment, 2026-08-04 — two findings against the list above, from the same
+> reconnaissance.** Parked with §5.1; recorded because both were verified and both
+> would have been discovered mid-implementation otherwise.
+>
+> **The reader list is incomplete, and the claim it supports is false.** Beyond the
+> five named, `StructureItem.synopsis` is read by **`OutlineTable.swift:52`** (a
+> `TableColumn("Synopsis")`) and **`CorkboardGrid.swift:38-45`** (the card body,
+> with an explicit `Text("No synopsis")` empty state). So *"`get_outline` … is the
+> only consumer that outlives the dissolution"* is wrong: there are three, and two
+> are on screen. `OutlinePane` is in no persona's registry but ⌘⌥O opens it from
+> every persona, and `docs/guide/structure-and-binder.md:36` sells the link by
+> name — *"**Synopsis** — short summary. Shows in the Outline view."* Folding
+> therefore **blanks a corkboard and a table column**, and poses a question this
+> section never asks: a statement is a whole `Document`, while a card and a cell
+> want one line. That choice belongs to three readers and must be made once —
+> and the cheap source (`ProjectStore.statementText(of:)`) falls through to a
+> cache whose validity token `stat`s the doc's op-log file set, so calling it per
+> card per redraw is tripwire 4.
+>
+> **The migration must CLEAR `item.synopsis`, and this is the cheap option rather
+> than the risky one.** Clearing makes it idempotent by construction — a moved
+> synopsis is empty, so there is nothing to move next launch, and no run-once gate
+> is needed. NOT clearing re-appends on every launch unless gated on the schema
+> version, and a bump to 5 is refused by `decodeGuardingSchema` on the Mac **and
+> the phone** (`MaughamPhone/Storage/ProjectsBrowser.swift:101`;
+> `MaughamCoreTests/StatementTests.swift:64` asserts the refusal today) — so every
+> un-updated phone could not open the project at all, a forced paired release for
+> a migration the phone never displays. The cost of clearing is that recovery runs
+> through the statement's op log rather than a Trash entry, which is a real
+> difference from the adoption precedent (`ProjectStore+StatementAdoption.swift:241-243`
+> chose *trashed, not deleted* — but it had a file to trash and this has none).
+>
+> Also verified: `promotePieceToProject` **already** carries the intent statement
+> (`carriedIntent`/`carriedStatements`) alongside `synopsis: piece.synopsis`, so
+> after the fold that argument is dead or duplicated; and the `.synopsis` grep trap
+> this section names is **fourteen** files, not three — the Fountain element type
+> reaches `ElementGutterView`, `ScreenplayCycle`, `ScreenplayLineMutator`,
+> `ScreenplayMode`, `FountainScript`, `FountainTokenizer`, `ScreenplayElement`,
+> `ScreenplayEmphasis`, `ScreenplayUppercase` and the phone's `FountainLineStyle`
+> besides.
 
 ### 5.3 Publish is mostly unbuilt, and this records what it needs
 

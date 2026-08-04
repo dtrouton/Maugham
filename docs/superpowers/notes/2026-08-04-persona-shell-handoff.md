@@ -27,10 +27,43 @@ the implementation is fine, slicing the RELEASE is not.
 | 2 — Plan's tree | **done, smoked** |
 | — the right-pane audit | **done, smoked** (not a numbered slice; it came out of slice 2's smoke) |
 | 3 — the canvas highlight | **done, reviewed, smoked, pushed** |
-| 4 — the Inspector dissolves | not started |
-| 5 — synopsis folds into intent | not started |
-| 6 — Review's posture | not started |
+| 4 + 5 — the Inspector dissolves, synopsis folds into intent | **merged, then PARKED** — see below |
+| 6 — Review's posture | not started, **and it now comes first** |
 | 7 — research becomes a view | not started, **deliberately unspecced** |
+
+**Seven slices was over-cut, and 4/5 was the worst of it** (Denver, 2026-08-04:
+*"this seems silly, is there any reason to have so many slices?"*). Synopsis IS an
+Inspector section, so handing it to a later slice was a seam through the middle of
+one change: slice 4 alone would have ended with an Inspector that had "dissolved"
+and was still on screen holding a single field — a state nobody would ever smoke,
+because it would never ship. They were merged.
+
+**Then the merged slice was parked, on the reconnaissance rather than on
+appetite** — Denver: *"these are good objections and change the ROI."* Full
+findings are in spec §5.1's and §5.2's 2026-08-04 amendments; the short version:
+
+- **§5.1's central claim is false.** Dissolving the drawer deletes the ONLY editor
+  for Status, Tags, word target and page target — the same failure §5.1 already
+  records for Publishing, four more times. Status would become a field Claude
+  reads, the binder draws, and no writer can set.
+- **"Tags → Plan" is structurally unavailable**, not merely unbuilt: Plan's
+  `.inspector` IS the canvas inspector on both tabs, and the guide states that as
+  intended.
+- **Status's destination is slice 6's surface**, unbuilt and called M3's by
+  `BinderSegment.swift`. So the dissolution follows Review's column rather than
+  preceding it — which is also the order in which Status moves rather than dies.
+
+**What is still worth doing on its own**, if this is picked up piecemeal: the
+Publish config pane (the only destination that is a pure build with no open design
+question, and what lets `.inspector` leave Publish's registry), and the synopsis
+fold — whose own two findings are in §5.2's amendment, including that it blanks a
+corkboard and an outline column, and that its migration must CLEAR the manifest
+field or force a schema bump the phone refuses.
+
+**The lesson, and it is the milestone's own, one layer up:** a spec table verified
+three slices ago is a stale reading, and the reconnaissance that catches that is
+worth more than the slice it cancels. Nothing here was wasted; the spec is now
+right.
 
 Slice 3's smoke found two things, both fixed and both in `main`: **Escape did not
 reach the dim unless the canvas held the keyboard** (in full screen the first
@@ -39,8 +72,18 @@ was already bound**, so the never-re-bind ruling read as a silent refusal.
 
 ## Do this first
 
-**Slice 4 — the Inspector dissolves.** Everything that was owed before it is now
-closed: issue #21, the dangling subject, and slice 3's own review findings.
+**Slice 6 — Review's posture.** It moved to the front when 4+5 parked, and the
+order is now load-bearing rather than arbitrary: slice 6 builds Review's left
+column, which is where the Inspector's **Status** field was always going. Build it
+first and Status can move; build the dissolution first and Status dies.
+
+**Before slice 6 starts, confirm §5's palette / visual-language contradiction**
+rather than inheriting it — the three-column table and the "Leaving, by persona"
+list disagree, and the delta list is recorded as normative. That is a stated
+ruling a reader can falsify, which on this milestone has been right every time.
+
+Everything that was owed before slice 4 is closed regardless: issue #21, the
+dangling subject, and slice 3's own review findings.
 
 Task 7 shipped `dimmedTerm` — *"outside the binder's selection"*, spoken FIRST,
 ahead of the kind — and collapsed the two rebuilds into `rebuildHighlightAndTree()`
