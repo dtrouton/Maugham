@@ -250,17 +250,16 @@ struct EditorSurface: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isContinuousSpellCheckingEnabled = true
-        // Inline prediction (macOS Sonoma+) rewrites text behind the scenes
-        // via marked-text ranges. It races with our paragraph-anchor parsing
-        // and produces "deleted text after cursor" symptoms when the user
-        // edits in a way that contradicts a pending prediction — AppKit
-        // reverts the user's edit, then we replay our shorter displayText
-        // through applyExternalText and wipe the full content. Turn it off;
-        // focused-writing users want their own words, not an OS-suggested
-        // completion.
-        if #available(macOS 14.0, *) {
-            textView.inlinePredictionType = .no
-        }
+        // Inline prediction rewrites text behind the scenes via marked-text
+        // ranges. It races with our paragraph-anchor parsing and produces
+        // "deleted text after cursor" symptoms when the user edits in a way
+        // that contradicts a pending prediction — AppKit reverts the user's
+        // edit, then we replay our shorter displayText through
+        // applyExternalText and wipe the full content. Turn it off; focused-
+        // writing users want their own words, not an OS-suggested completion.
+        // (Was wrapped in `if #available(macOS 14.0, *)` until the deployment
+        // target became macOS 26 on 2026-08-04 — the check was always true.)
+        textView.inlinePredictionType = .no
         textView.delegate = context.coordinator
         textView.string = text
         // Let the text view fill the scroll view's width; centering happens

@@ -37,7 +37,12 @@ jobs:
   # ---------------------------------------------------------------------------
   mac-tests:
     name: Mac tests (Maugham scheme)
-    runs-on: macos-15
+    # macos-26 (image is macOS 26.5.2) — the app's deployment target is macOS
+    # 26, so it cannot launch on macos-15 at all. It also ends a real gap: the
+    # runner used to be two majors behind the only machine anyone develops or
+    # ships on, and AppKit/SwiftUI layout differs enough between them that
+    # mounted-view tests measured on 26.5 failed here and nowhere else.
+    runs-on: macos-26
     # Recent green runs finish in ~7 min; 30 caps a hung simulator/process well
     # below the 6 h GitHub default (which would burn macOS-runner minutes).
     timeout-minutes: 30
@@ -49,16 +54,17 @@ jobs:
           # .git/config (env-block injection defence, per CI-hardening notes).
           persist-credentials: false
 
-      - name: Set up Xcode 26.3
+      - name: Set up Xcode 26.6
         # Pinned to a specific version (NOT latest-stable) so an unexpected
         # Xcode bump can't silently break the gate between releases. The pin is
-        # 26.3 because that is the newest Xcode the macos-15 runner has installed
-        # (26.5 exists only on the developer machine — pinning it would fail the
-        # runner; see commit a20e0da). SHA is the canonical commit for
-        # maxim-lobanov/setup-xcode v1.7.0.
+        # 26.6 because that is what the developer machine runs (verified with
+        # `xcodebuild -version`, 2026-08-04) — the macos-26 image carries 26.0.1
+        # through 26.6, so matching the dev toolchain is finally possible; it was
+        # not on macos-15, which topped out at 26.3 (see commit a20e0da, now
+        # superseded). SHA is the canonical commit for setup-xcode v1.7.0.
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
-          xcode-version: '26.3'
+          xcode-version: '26.6'
 
       - name: Print Xcode + SDK info
         run: |
@@ -274,7 +280,8 @@ jobs:
   # ---------------------------------------------------------------------------
   concurrency-warnings:
     name: Strict-concurrency warning scan
-    runs-on: macos-15
+    # Builds the Mac app, so it follows the macOS 26 deployment target.
+    runs-on: macos-26
     # Build-only, no sim; 30 min is ample and caps a hung build.
     timeout-minutes: 30
     steps:
@@ -283,12 +290,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Xcode 26.3
-        # 26.3 = newest Xcode on the macos-15 runner (26.5 is dev-machine-only;
-        # pinning it would fail the runner — commit a20e0da).
+      - name: Set up Xcode 26.6
+        # 26.6 = the developer machine's Xcode, available on macos-26. Keep this
+        # in step with the mac-tests job above.
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
-          xcode-version: '26.3'
+          xcode-version: '26.6'
 
       - name: Install the Metal toolchain
         # See the identical step in mac-tests. This job builds the Maugham scheme

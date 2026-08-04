@@ -10,11 +10,12 @@ permissions:
 
 jobs:
   release:
-    # macos-15 (or newer) gives access to Xcode 17.x + the macOS 26 SDK,
-    # which is what the developer machine uses. SwiftUI's selection-state
-    # styling differs between SDKs (the macOS 26 SDK renders the "Liquid
-    # Glass" idiom; older SDKs render flatter), so matching SDKs matters.
-    runs-on: macos-15
+    # macos-26 (image is macOS 26.5.2). The app's deployment target is macOS 26,
+    # so the Test step below cannot even launch it on macos-15. Matching the
+    # developer machine's OS also matters for what this job SHIPS: SwiftUI's
+    # selection-state styling differs between SDKs (the macOS 26 SDK renders the
+    # "Liquid Glass" idiom; older SDKs render flatter).
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -27,15 +28,15 @@ jobs:
           # pushes back to git, so don't leave the token in .git/config.
           persist-credentials: false
 
-      - name: Set up Xcode 26.3
+      - name: Set up Xcode 26.6
         # Pinned (NOT latest-stable) so an unexpected Xcode bump on the runner
-        # can't silently change the toolchain between releases. 26.3 is the newest
-        # Xcode the macos-15 runner has installed (26.5/26.6 exist only on the
-        # developer machine — pinning those would fail the runner; commit a20e0da).
-        # Matches ci.yml so CI and release build with the same toolchain.
+        # can't silently change the toolchain between releases. 26.6 is the
+        # developer machine's Xcode (verified 2026-08-04), and the macos-26 image
+        # carries it, so what ships is finally built with the toolchain it was
+        # written against. Matches ci.yml so CI and release build identically.
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
-          xcode-version: '26.3'
+          xcode-version: '26.6'
 
       - name: Print Xcode + SDK info
         run: |

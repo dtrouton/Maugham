@@ -2,14 +2,21 @@ name: Maugham
 options:
   bundleIdPrefix: com.maugham
   deploymentTarget:
-    macOS: "14.0"
+    # macOS 26. Raised from 14.0 on 2026-08-04: the binder's segmented picker
+    # lays out differently below 26 (it FILLS its container instead of hugging
+    # its content, so a one-segment Review/Publish picker stretched the whole
+    # 240pt column and read as a header rather than a control — the exact
+    # "broken chrome" BinderSegmentPickerMountTests exists to catch). The floor
+    # was never deliberately 14; it was the default nobody revisited, and CI
+    # was the only place the app ever ran on an older OS.
+    macOS: "26.0"
     iOS: "17.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: "-"
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
@@ -116,7 +123,9 @@ targets:
     settings:
       base:
         PRODUCT_NAME: maugham-mcp
-        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        # Ships inside the app bundle, so it can never run anywhere the app
+        # cannot — one floor, matching `settings.base`.
+        MACOSX_DEPLOYMENT_TARGET: "26.0"
         SWIFT_VERSION: "5.10"
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "-"

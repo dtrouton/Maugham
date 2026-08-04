@@ -52,7 +52,7 @@ Active development. The current state of what's shipped and what's open lives in
 
 ### Build
 
-Requires macOS 14+, Xcode 15+, and `xcodegen`:
+Requires macOS 26+, Xcode 26+, and `xcodegen`:
 
     brew install xcodegen
 

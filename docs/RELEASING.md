@@ -67,11 +67,19 @@ this is how a green local test run shipped a broken Release build to CI on the v
 `release.yml`, `phone-release.yml`) now pin the same toolchain so CI and the two
 release pipelines build identically and can't drift between releases:
 
-- **Xcode `26.3`** via `maxim-lobanov/setup-xcode` (was `latest-stable` in the
-  release workflows). 26.3 is the newest Xcode the `macos-15` runner has
-  installed — 26.5/26.6 exist only on the developer machine and pinning them
-  would fail the runner (commit `a20e0da`). If GitHub updates the runner image
-  and 26.3 disappears, the setup step fails loudly; bump all three files together.
+- **Xcode `26.6`** via `maxim-lobanov/setup-xcode` (was `latest-stable` in the
+  release workflows). 26.6 is the developer machine's Xcode, and since
+  2026-08-04 the Mac jobs run on the `macos-26` runner (image macOS 26.5.2),
+  which carries 26.0.1 through 26.6 — so what CI gates and what release ships
+  are finally built with the toolchain the code was written against. The old
+  `26.3` pin was a `macos-15` ceiling (commit `a20e0da`, now superseded): the
+  runner was two majors behind the only machine anyone develops on, and AppKit
+  layout differs enough between them that mounted-view tests measured on 26.5
+  failed on CI and nowhere else. If GitHub updates the image and 26.6
+  disappears, the setup step fails loudly; bump all files together.
+  **`phone-tests` and `phone-release.yml` stay on `macos-15` / Xcode `26.3`** —
+  they build only the iOS app, whose floor is iOS 17 and which the macOS
+  deployment target does not touch.
 - **xcodegen pinned to a specific released binary** (xcodegen 2.45.4) instead of
   the floating `brew install xcodegen`. Each workflow downloads the official
   `xcodegen.zip` release asset, verifies its `sha256`
