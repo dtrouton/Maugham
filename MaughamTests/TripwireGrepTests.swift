@@ -1853,8 +1853,18 @@ final class TripwireGrepTests: XCTestCase {
     /// no paren at all — and a pattern of `.withScene(` sails straight past the
     /// worst case in the list. Caught by the self-check below, which is why that
     /// companion exists.
+    ///
+    /// **`renameGesture` is here because a verb this census does not know is a
+    /// verb it cannot report.** Slice 3 added it (`CanvasUndo.renameGesture`,
+    /// forwarded by `CanvasModel`) for the sweep, whose name is only knowable at
+    /// the end of the gesture. A file in another column calling **only** that verb
+    /// produced an empty verb set, never entered the dictionary, and passed — the
+    /// blind spot this list's own doc comment warns about, arriving through a new
+    /// member rather than a new spelling. It is an inside verb on the same terms
+    /// as the others: it does nothing at all at depth 0, so an outside caller
+    /// reaching for it has silently written no undo step and no name.
     private static let canvasInsideVerbs = [
-        "mutate", "beginGesture", "endGesture", "breakGesture",
+        "mutate", "beginGesture", "endGesture", "breakGesture", "renameGesture",
         "withScene", "setScrapText", "removeScrapText",
     ]
     private static let canvasOutsideVerb = "mutateFromInspector"
@@ -2079,8 +2089,26 @@ final class TripwireGrepTests: XCTestCase {
         }
         """.write(to: tmp.appendingPathComponent("Unrelated.swift"),
                   atomically: true, encoding: .utf8)
+        try """
+        struct CanvasSweepCommands {
+            let model: CanvasModel
+            func finish() {
+                // The verb the census could not see until slice 3's fix round:
+                // ONLY renameGesture, so the file's verb set was empty and it
+                // never entered the dictionary at all.
+                model.renameGesture("Bind Region")
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("CanvasSweepCommands.swift"),
+                  atomically: true, encoding: .utf8)
 
         let census = try canvasBracketCensus(in: tmp)
+        XCTAssertEqual(census["CanvasSweepCommands.swift"], ["renameGesture"],
+            "Self-check: a file whose ONLY bracket verb is `renameGesture` must "
+            + "enter the census. A verb missing from `canvasInsideVerbs` produces "
+            + "an empty set, and an empty set is dropped rather than reported — "
+            + "so the offender passes and looks exactly like a file that never "
+            + "touched the bracket.")
         XCTAssertEqual(census["CanvasMenuCommands.swift"], ["mutate"],
             "Self-check: the planted inside-verb call site should be caught.")
         XCTAssertEqual(census["RegionInspector.swift"], [Self.canvasOutsideVerb],

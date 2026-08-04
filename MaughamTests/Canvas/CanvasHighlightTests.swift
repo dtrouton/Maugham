@@ -75,12 +75,41 @@ final class CanvasHighlightTests: XCTestCase {
             .pieces.contains("inner"))
     }
 
-    func test_anIdTheTreeCannotFindNamesNoPiecesAndStillDimsTheBoard() {
+    /// **An id that resolves to NOTHING is not a subject.**
+    ///
+    /// This asserted `.group([])` and a dimmed board for slice 3, and that was
+    /// wrong for the same reason `ProjectWindow.restoredSubject`'s document
+    /// fallback was: a deletion is not a deliberate entry into the dim. Delete
+    /// the chapter the canvas is filtered on and the board went dark with no lit
+    /// set, no offer — `CanvasBindingOffer.isOffered` guards `case .piece` and
+    /// correctly refuses a group — and nothing on screen saying why.
+    ///
+    /// The two cases the old answer conflated are now apart, and the split is
+    /// what makes `.group`'s own doc comment true again: a group that really
+    /// holds no documents still dims (below), because the tree names something
+    /// that exists.
+    func test_anIdTheTreeCannotFindIsNoSubjectAtAllAndDimsNothing() {
         let subject = CanvasSubject.resolve(.item("gone"), in: structure())
+        XCTAssertEqual(subject, .wholeProject)
+        XCTAssertFalse(subject.dimsTheBoard,
+                       "the id names nothing, so nobody chose this filter — a "
+                       + "dimmed board with no lit set and no offer is a dead end "
+                       + "the writer cannot read or leave")
+    }
+
+    /// The control, and the half that must NOT move: a group that resolves and
+    /// holds no manuscript document still dims. The tree names something real,
+    /// the writer clicked it, and §4.1's *"everything under Part One"* is an
+    /// honest answer even when the answer is nothing.
+    func test_aGroupThatRESOLVESAndHoldsNoDocumentsStillDimsTheBoard() {
+        let empty = [StructureItem(id: "empty", title: "Part Two",
+                                   type: .group, children: [])]
+        let subject = CanvasSubject.resolve(.item("empty"), in: empty)
         XCTAssertEqual(subject, .group([]))
         XCTAssertTrue(subject.dimsTheBoard,
-                      "the tree named something; the board is filtered even though "
-                      + "nothing answers to it")
+                      "an empty group is a selection the writer made; collapsing it "
+                      + "into the unresolvable case would undim a board they "
+                      + "deliberately filtered")
     }
 
     // MARK: - What lights (`CanvasHighlight`)

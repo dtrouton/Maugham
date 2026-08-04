@@ -470,9 +470,11 @@ final class CanvasRegionInteractionTests: XCTestCase {
     }
 
     /// **No exclusions, unlike `absorbedNodes`** — and a collapsed region is the
-    /// case that tests it. It is still drawn (a counted label bar the writer
-    /// swept over), and binding it moves nothing and hides nothing, so there is
-    /// nothing for an exclusion to protect. The card version skips a HIDDEN card
+    /// case that tests it. It is still drawn at its own frame — `drawRegion`
+    /// fills `Path(roundedRect: region.frame)` whatever `isCollapsed` says, and
+    /// collapsing empties the interior and puts a count beside the label — so the
+    /// centre it is caught by is the centre of what the writer swept over, and
+    /// binding it moves nothing and hides nothing. The card version skips a HIDDEN card
     /// because absorbing it would move something invisible out of somewhere
     /// invisible; no such cost exists here.
     func test_aSweepCatchesACollapsedRegion() {

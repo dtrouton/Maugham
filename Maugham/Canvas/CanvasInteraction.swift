@@ -644,10 +644,13 @@ struct CanvasInteraction {
     /// **No exclusions, and that is deliberate.** `absorbedNodes` skips an
     /// unmeasured card (no frame, so no centre) and a hidden one (not drawn at
     /// all); neither case exists here. Every region has a frame, and a COLLAPSED
-    /// region is still drawn — a counted label bar the writer swept over — and
-    /// binding it moves nothing and hides nothing, so there is nothing for an
-    /// exclusion to protect. A second list of exceptions would be a second
-    /// formula, which is what the ruling is against.
+    /// region is still drawn at that frame — `drawRegion` fills
+    /// `Path(roundedRect: region.frame)` whatever `isCollapsed` says, and
+    /// collapsing only empties the interior and puts a count beside the label —
+    /// so the centre this catches by is the centre of what the writer swept
+    /// over. Binding it moves nothing and hides nothing either, so there is
+    /// nothing for an exclusion to protect. A second list of exceptions would be
+    /// a second formula, which is what the ruling is against.
     ///
     /// **No minimum-side floor either**, unlike `createRegion`: that floor exists
     /// because AppKit opens a drag session on every mouse-down, so most clicks on

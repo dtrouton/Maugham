@@ -55,38 +55,74 @@ final class SubjectRestoreTests: XCTestCase {
     }
 
     /// Shape 3 — an id naming something deleted since the file was written.
-    /// Falls to the first document, exactly as it did before.
-    func test_anIdNoLongerInTheStructureFallsToTheFirstDocument() {
+    ///
+    /// **This used to fall to the first document, and that expectation was
+    /// wrong.** It was inert for as long as the fallback only decided what the
+    /// editor showed; slice 3 gave the same value to the canvas, where it is the
+    /// difference between an undimmed board and a filtered one. A window that
+    /// opens already filtered on a chapter nobody clicked shows the writer a
+    /// dark board and a standing offer naming a document that appears nowhere on
+    /// screen — and Plan's `.canvas` binder segment has no subject picker in it,
+    /// so there is nothing to click to get back out.
+    func test_anIdNoLongerInTheStructureRestoresTheProject() {
         XCTAssertEqual(
             ProjectWindow.restoredSubject(saved: .item("gone"), in: structure()),
-            .item("doc-1"))
+            .project,
+            "an id naming a deleted item is not a choice the writer made; the "
+            + "dim is entered by a click and never by opening a window")
     }
 
-    /// Shape 4 — no selection recorded at all.
-    func test_noSavedSelectionFallsToTheFirstDocument() {
+    /// Shape 4 — no selection recorded at all. Same ruling, same reason: nobody
+    /// has clicked in this window yet.
+    func test_noSavedSelectionRestoresTheProject() {
         XCTAssertEqual(
             ProjectWindow.restoredSubject(saved: nil, in: structure()),
-            .item("doc-1"))
+            .project,
+            "a window nobody has clicked in has entered no selection, and "
+            + "picking one for them names a chapter on the canvas they did not "
+            + "choose — the next sweep then binds to it silently")
     }
 
-    // MARK: - The edges of "the first document"
+    // MARK: - The edges of the fallback
 
-    /// A structure of groups only has no document to fall to. `nil` back means
-    /// *no answer*, and `load()` leaves the selection alone rather than clearing
-    /// it — the behaviour of the `else if let first` this replaced.
-    func test_aStructureWithNoDocumentGivesNoAnswer() {
+    /// A structure with no document in it, which used to be the one shape with
+    /// no answer at all. `.project` is in no structure, so it is now always
+    /// available — and `restoredSubject` returns a subject rather than an
+    /// optional one, which is why `load()` no longer has an `if let`.
+    func test_aStructureWithNoDocumentStillHasAnAnswer() {
         let groupsOnly = [StructureItem(id: "grp", title: "Part One",
                                         type: .group, children: [])]
-        XCTAssertNil(ProjectWindow.restoredSubject(saved: nil, in: groupsOnly))
-        XCTAssertNil(ProjectWindow.restoredSubject(saved: .item("gone"), in: groupsOnly))
+        XCTAssertEqual(ProjectWindow.restoredSubject(saved: nil, in: groupsOnly),
+                       .project)
+        XCTAssertEqual(ProjectWindow.restoredSubject(saved: .item("gone"), in: groupsOnly),
+                       .project)
     }
 
-    /// …but the PROJECT still restores out of an empty structure. It is the one
-    /// subject that does not need a document to exist, which is what makes the
-    /// project row a way out of an empty binder rather than another dead end.
+    /// The PROJECT restores out of an empty structure too. It is the one subject
+    /// that does not need a document to exist, which is what makes the project
+    /// row a way out of an empty binder rather than another dead end — and now
+    /// also what makes it a landing every project can offer.
     func test_theProjectRestoresEvenWithAnEmptyStructure() {
         XCTAssertEqual(ProjectWindow.restoredSubject(saved: .project, in: []),
                        .project)
+    }
+
+    /// **The joint test, and the one that would have caught the original.**
+    ///
+    /// Neither half is wrong on its own: `restoredSubject` returning a document
+    /// is a defensible answer for an editor, and `CanvasSubject.resolve` turning
+    /// a document into a filtered board is exactly §4. The defect only exists
+    /// where they meet, which is `ProjectWindow`'s body handing one to the
+    /// other — so it is asserted across the seam rather than inside either side.
+    func test_aFreshWindowLandsOnAnUNDIMMEDBoard() {
+        for saved in [BinderSubject?.none, .item("gone")] {
+            let restored = ProjectWindow.restoredSubject(saved: saved,
+                                                         in: structure())
+            XCTAssertFalse(
+                CanvasSubject.resolve(restored, in: structure()).dimsTheBoard,
+                "opening a project put the canvas into the dim with no click: "
+                + "saved \(String(describing: saved)) restored as \(restored)")
+        }
     }
 
     // MARK: - Through a real file
@@ -134,9 +170,10 @@ final class SubjectRestoreTests: XCTestCase {
     /// **What an older build does with a file this one wrote**, confirmed after
     /// the change rather than inherited from the plan: the project subject is
     /// written under its own key, so a build that only knows `selectedItemId`
-    /// reads no selection and falls to the first document — the same landing a
-    /// deleted item gets. Modelled by feeding the old rule the old key.
-    func test_anOlderBuildReadingTheProjectFileLandsOnTheFirstDocument() throws {
+    /// reads no selection and runs its own fallback — the first document, since
+    /// that is the rule that build ships. This build's answer for the same file
+    /// is the project, and the downgrade is therefore visible rather than silent.
+    func test_anOlderBuildReadingTheProjectFileFindsNoIdToRestore() throws {
         var state = UIState.empty
         state.selectedSubject = .project
         let object = try JSONSerialization.jsonObject(
@@ -144,9 +181,9 @@ final class SubjectRestoreTests: XCTestCase {
         XCTAssertNil(object?["selectedItemId"] as? String,
                      "an older build would restore an id that is in no structure")
 
-        // What that build then does: no id, so the old validation fails and the
-        // fallback runs. Same answer as this build's `saved: nil`.
+        // What THIS build does with the same absence, which is the rule under
+        // test: the project, not a chapter nobody chose.
         XCTAssertEqual(ProjectWindow.restoredSubject(saved: nil, in: structure()),
-                       .item("doc-1"))
+                       .project)
     }
 }

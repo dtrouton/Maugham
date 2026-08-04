@@ -1764,24 +1764,40 @@ struct ProjectWindow: View {
     /// |---|---|
     /// | the project flag | `.project` |
     /// | a bare id still in the structure | that item, unchanged |
-    /// | a bare id naming a deleted item | the first document |
-    /// | nothing at all | the first document |
+    /// | a bare id naming a deleted item | `.project` |
+    /// | nothing at all | `.project` |
     ///
-    /// `nil` back means **no answer** — a structure with no document in it — and
-    /// the caller leaves the selection alone rather than clearing it.
+    /// **The last two answered "the first document" until slice 3's review, and
+    /// that was wrong** — Denver's ruling: *the dim must only ever be entered by
+    /// a click*. It was inert for as long as the restored subject only decided
+    /// what the editor opened; slice 3 hands the same value to the canvas, where
+    /// a document subject FILTERS the board. A window restoring a chapter nobody
+    /// chose therefore opened in Plan onto a fully dimmed canvas, with a standing
+    /// offer naming a document that appears nowhere on screen and no subject
+    /// picker in the `.canvas` binder segment to climb back out of — and the next
+    /// sweep silently bound a region to that chapter.
+    ///
+    /// The accepted trade, stated rather than worked around: a fresh window in
+    /// Author opens with **no document in the editor**. `.project` was not
+    /// expressible before the binder grew a project row; now that it is, it is
+    /// the honest answer to "the writer has not chosen anything".
+    ///
+    /// The answer is never absent, which is why this returns a subject rather
+    /// than an optional one: `.project` is in no structure and so is available
+    /// even for a structure with no document in it — the one shape that used to
+    /// have no answer at all.
     ///
     /// A pure function rather than four lines inside `load()`: this is a routing
     /// decision, the failure is silent, and `load()` is unreachable from a test.
     static func restoredSubject(saved: BinderSubject?,
-                                in structure: [StructureItem]) -> BinderSubject? {
+                                in structure: [StructureItem]) -> BinderSubject {
         switch saved {
         case .project:
             return .project
         case .item(let id) where TreeWalk.contains(id: id, in: structure):
             return .item(id)
         case .item, nil:
-            return TreeWalk.first(in: structure, where: { $0.type == .document })
-                .map { BinderSubject.item($0.id) }
+            return .project
         }
     }
 
@@ -1891,13 +1907,11 @@ struct ProjectWindow: View {
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
 
             // Seed UI state from disk (or defaults), through the one rule that
-            // decides where a freshly opened window lands. `nil` back means
-            // "no answer" — an empty structure — and leaves the selection alone,
-            // exactly as the `else if let first` this replaced did.
-            if let restored = Self.restoredSubject(
-                saved: ds.uiState.selectedSubject, in: s.manifest.structure) {
-                self.selectedSubject = restored
-            }
+            // decides where a freshly opened window lands. There is always an
+            // answer — `.project` needs no document to exist — so there is
+            // nothing to leave alone and no `if let` here.
+            self.selectedSubject = Self.restoredSubject(
+                saved: ds.uiState.selectedSubject, in: s.manifest.structure)
             self.isNoChromeOn = ds.uiState.isNoChromeOn
             self.isReviewModeOn = ds.uiState.isReviewModeOn
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible

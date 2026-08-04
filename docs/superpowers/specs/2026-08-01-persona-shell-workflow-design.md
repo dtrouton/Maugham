@@ -238,6 +238,32 @@ made special here.
 a document intent AND a project intent at all is a design question, and this
 amendment does not answer it. `StatementPane.effectiveScope` is untouched.
 
+**Third amendment, 2026-08-04 (slice 3 whole-branch review, Critical).
+A freshly opened window lands on the PROJECT.** `ProjectWindow.restoredSubject`
+fell back to the first document whenever `ui-state.json` held no subject or held
+an id since deleted. That was inert while the restored subject only decided what
+the editor opened; §4 below gives the same value to the canvas, where a document
+subject *filters the board*. So opening any existing project and pressing ⌘1 put
+the writer in front of a fully dimmed canvas with a standing offer naming a
+document that appears nowhere on screen — Plan's `.canvas` segment has no subject
+picker in it — and the next sweep bound a region to a chapter they never chose.
+
+**Denver's ruling: the fallback returns `.project`. The dim is entered by a click
+and by nothing else.** The trade is explicit and is the open question above
+arriving in a new place: a fresh window in Author now opens with **no document in
+the editor**, because the blank centre column is what `.project` means today.
+`.project` was not expressible before slice 1 gave the tree a project row; now
+that it is, it is the honest answer to *"the writer has not chosen anything"*,
+and a plausible-but-unchosen landing is the failure mode nobody reports.
+
+The same ruling settles the canvas's own copy of the question (slice 3 review,
+M2): `CanvasSubject.resolve` mapped an id the tree cannot find to `.group([])`,
+which dims everything and lights nothing while the offer — correctly, for a
+group — stays silent. An id resolving to *nothing* is not a subject and now
+resolves to the whole board. A group that **does** resolve and holds no documents
+still dims: the writer clicked a row that exists, and §4.1's *"everything under
+Part One"* is an honest answer even when the answer is nothing.
+
 ---
 
 ## 4. What the canvas does when the tree selection changes
@@ -372,8 +398,10 @@ not *"put something here"*. There is nothing a sweep could bind to.
 
 **A lit region that is collapsed stays as it is.** It lights one rectangle and no
 cards, which is close to "nothing bound" on screen — but a collapsed region
-already draws a counted label bar and already speaks its summary to VoiceOver, so
-the true thing is being said. The writer can expand it.
+already draws its label and a count beside it (in its own full rectangle: only
+the *interior* is emptied, which is what `caughtRegions` is caught by) and
+already speaks its summary to VoiceOver, so the true thing is being said. The
+writer can expand it.
 
 **The offer is standing text on the canvas, not a banner.** It is state-derived
 and persists for as long as an unbound document is selected, so a self-dismissing

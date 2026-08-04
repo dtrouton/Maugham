@@ -2,6 +2,7 @@ import XCTest
 import AppKit
 import ApplicationServices
 import SwiftUI
+import MaughamCore
 @testable import Maugham
 
 /// `CanvasCompositionTests` reads this view's source. These tests run it: a real
@@ -1774,6 +1775,48 @@ final class CanvasViewMountingTests: XCTestCase {
                         .contains(CanvasAccessibility.dimmedTerm),
                        "the control: the loose card was never bound to anything and "
                        + "must still say so")
+    }
+
+    /// **A subject naming a DELETED document, driven rather than reasoned about.**
+    ///
+    /// The subject is built the way the window builds it — `CanvasSubject.resolve`
+    /// over a structure the id is not in — because that conversion is where the
+    /// defect was: an unresolvable id mapped to `.group([])`, which dims
+    /// everything and lights nothing, while `CanvasBindingOffer.isOffered` guards
+    /// `case .piece` and so (correctly, for a group) says nothing. Delete the
+    /// chapter the canvas is filtered on and the board went dark with no lit set,
+    /// no offer and no account of why.
+    ///
+    /// Read through the published tree because that is where "the board is
+    /// dimmed" is observable at all from outside the view: `highlight` is
+    /// `@State` on `CanvasView` and the drawn dim is pixels. The control below
+    /// the ruling is what keeps this from being vacuous — the same fixture, the
+    /// same window, an id that DOES resolve, and the dim is audible again.
+    @MainActor
+    func test_aSubjectNamingADeletedDocumentDimsNothing() throws {
+        let structure = [
+            StructureItem(id: "ch1", title: "One", type: .document, path: "One.md"),
+            StructureItem(id: "ch2", title: "Two", type: .document, path: "Two.md")]
+        let window = host(CanvasView(
+            model: CanvasModel(), projectRoot: try boundRegionProjectRoot(),
+            paletteSwatchHexes: { [] },
+            subject: CanvasSubject.resolve(.item("ch3"), in: structure)))
+
+        XCTAssertFalse(try axLabel(ofCardValued: secondScrapText, in: window)
+                        .contains(CanvasAccessibility.dimmedTerm),
+                       "the writer deleted the chapter this canvas was filtered on "
+                       + "and every card went dim — nothing is lit, nothing is "
+                       + "offered, and the tree no longer holds the row that would "
+                       + "undo it")
+        XCTAssertFalse(try axLabel(ofCardValued: scrapText, in: window)
+                        .contains(CanvasAccessibility.dimmedTerm))
+
+        try retarget(window, at: CanvasSubject.resolve(.item("ch2"), in: structure))
+        XCTAssertTrue(try axLabel(ofCardValued: secondScrapText, in: window)
+                        .contains(CanvasAccessibility.dimmedTerm),
+                      "control: an id that RESOLVES still filters the board, so the "
+                      + "reading above is about the unresolvable id and not about "
+                      + "this window never dimming at all")
     }
 
     /// Decision 1, asked of the published tree rather than of the list.

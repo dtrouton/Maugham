@@ -21,16 +21,28 @@ import MaughamCore
 /// So the resolution happens once, where the manifest already is, and what
 /// reaches the canvas is the answer rather than the question.
 ///
-/// **`.group` is what a subject that is not a manuscript document resolves to**,
-/// including an id the tree cannot find at all — which resolves to a group of no
-/// pieces. That is the honest reading rather than a defensive one: a subject
-/// naming nothing bindable lights nothing and can bind nothing, which is exactly
-/// what §4.1 says a group does.
+/// **`.group` is what a subject naming something that is not a manuscript
+/// document resolves to** — a real row in the tree, holding no documents or a
+/// hundred. It lights nothing and can bind nothing, which is exactly what §4.1
+/// says a group does.
+///
+/// **An id the tree cannot find at all is a different case, and conflating the
+/// two was slice 3's M2.** It used to resolve to `.group([])` as well, on the
+/// reading that a subject naming nothing bindable behaves like an empty group.
+/// The two are indistinguishable *inside* this type and completely different on
+/// screen: delete the chapter the canvas is filtered on and the board went fully
+/// dim with no lit set, no `CanvasBindingOffer` (which guards `case .piece` and
+/// so refuses a group — correctly for a group, silently for this) and nothing
+/// saying why. An unresolvable id is not a subject at all: nobody clicked it,
+/// because the thing they clicked no longer exists. It resolves to
+/// `.wholeProject`, on the same principle as `ProjectWindow.restoredSubject`'s
+/// ruling — **the dim is entered by a click**, and a deletion is not one.
 enum CanvasSubject: Hashable {
 
     /// §4 row one: the whole board, undimmed. Also what *no* selection resolves
-    /// to — the dim is a state the writer deliberately enters, and a window that
-    /// has not been clicked in yet has not entered it.
+    /// to, and what an id naming nothing resolves to — the dim is a state the
+    /// writer deliberately enters, and neither a window that has not been
+    /// clicked in nor a row that has been deleted is an entry into it.
     case wholeProject
 
     /// A manuscript document, by `StructureItem.id`. The only thing a region's
@@ -77,7 +89,10 @@ enum CanvasSubject: Hashable {
         case nil, .project:
             return .wholeProject
         case .item(let id):
-            guard let item = TreeWalk.find(id: id, in: structure) else { return .group([]) }
+            // An id naming nothing is not a subject — see this type's own doc
+            // comment. NOT `.group([])`: that is a row the writer selected, and
+            // it must keep dimming.
+            guard let item = TreeWalk.find(id: id, in: structure) else { return .wholeProject }
             switch item.type {
             case .document:
                 return .piece(id)
