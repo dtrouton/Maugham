@@ -766,6 +766,7 @@ final class CanvasRendererTests: XCTestCase {
             CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                 layouts: [node.id: layout],
                                 scraps: [:], items: .empty, selection: nil, highlight: .undimmed,
+                                pieceTitles: .empty,
                                 visibleEditorNodeID: nil,
                                 straighten: CanvasFocusStraighten(),
                                 pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -829,6 +830,7 @@ final class CanvasRendererTests: XCTestCase {
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [id: layout],
                                     scraps: [:], items: .empty, selection: nil, highlight: .undimmed,
+                                    pieceTitles: .empty,
                                     visibleEditorNodeID: visibleEditor,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -860,6 +862,7 @@ final class CanvasRendererTests: XCTestCase {
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [id: layout],
                                     scraps: [:], items: .empty, selection: nil, highlight: .undimmed,
+                                    pieceTitles: .empty,
                                     visibleEditorNodeID: id,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -919,6 +922,7 @@ final class CanvasRendererTests: XCTestCase {
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [:],
                                     scraps: [:], items: items, selection: nil, highlight: .undimmed,
+                                    pieceTitles: .empty,
                                     visibleEditorNodeID: nil,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -1002,6 +1006,7 @@ final class CanvasRendererTests: XCTestCase {
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [:],
                                     scraps: [:], items: items, selection: nil, highlight: .undimmed,
+                                    pieceTitles: .empty,
                                     visibleEditorNodeID: nil,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -1055,6 +1060,7 @@ final class CanvasRendererTests: XCTestCase {
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [:],
                                     scraps: [:], items: items, selection: nil, highlight: .undimmed,
+                                    pieceTitles: .empty,
                                     visibleEditorNodeID: nil,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)
@@ -1111,6 +1117,7 @@ final class CanvasRendererTests: XCTestCase {
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
                                     layouts: [:],
                                     scraps: [:], items: .empty, selection: nil, highlight: .undimmed,
+                                    pieceTitles: .empty,
                                     visibleEditorNodeID: nil,
                                     straighten: CanvasFocusStraighten(),
                                     pendingRegionDraw: nil, pendingLine: nil, into: &cx)

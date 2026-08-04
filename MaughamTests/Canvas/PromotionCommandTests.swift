@@ -350,6 +350,7 @@ final class PromotionCommandTests: XCTestCase {
               ".modifier(CanvasClaudeArrivalModifier(",
               "itemIndex: Self.canvasItemIndex(in: store)",
               "subject: CanvasSubject.resolve(",
+              "pieceTitles: Self.canvasPieceTitles(in: store)",
               "selectTheProjectRow: { selectedSubject = .project }",
               "assetIngest: CanvasAssetIngest(",
               "captureDrop: CanvasCaptureDrop(",
@@ -429,6 +430,19 @@ final class PromotionCommandTests: XCTestCase {
              + "on the canvas. It is also the only place the manifest reaches "
              + "the resolution: the canvas cannot tell a chapter from a group "
              + "without it, and a group resolved as a chapter lights nothing. "
+             + "`pieceTitles: Self.canvasPieceTitles(in: store)` is §4.2's "
+             + "borrowed name (2026-08-04), and it is the defaulted-argument "
+             + "shape a fifth time: `CanvasView.pieceTitles` defaults to "
+             + "`.empty`, which is a real state — a canvas hosted without a "
+             + "window — so dropping this argument compiles, runs, and leaves "
+             + "every `CanvasBoundPieceTests` assertion green over a pure "
+             + "function while every dimmed region on the writer's canvas is "
+             + "drawn and announced as \"Missing piece\" beside a binder showing "
+             + "the chapter in front of them. Worse than silence: the resolution "
+             + "cannot tell a deleted piece from a table that was never handed "
+             + "over, and it must not — a `nil` there is the case §4.2 turns on. "
+             + "It is also the only place the manifest's STRUCTURE reaches the "
+             + "canvas at all. "
              + "`selectTheProjectRow: { selectedSubject = .project }` is slice "
              + "3's way OUT of that dim (§4.1), and it is the defaulted-argument "
              + "shape once more with a second job: `CanvasView"

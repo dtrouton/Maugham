@@ -1188,6 +1188,15 @@ struct ProjectWindow: View {
                    // the question.
                    selectTheProjectRow: { selectedSubject = .project },
                    itemIndex: Self.canvasItemIndex(in: store),
+                   // Spec §4.2: on a dimmed board a region bound to another
+                   // document draws that document's name, so the writer can tell
+                   // the rectangle a sweep will bind from the one where it will
+                   // silently do nothing. Resolved HERE for `itemIndex`'s reason
+                   // — the walk belongs on this body, which re-evaluates per
+                   // manifest change, not on the canvas's, which re-evaluates per
+                   // drag frame — and the canvas gets the ANSWER, never the
+                   // manifest.
+                   pieceTitles: Self.canvasPieceTitles(in: store),
                    // The canvas's asset well (1C-d Task 11): a photograph
                    // dropped from the Finder or a browser is ingested into
                    // `canvas_assets/` here and nowhere else, so every route
@@ -1562,18 +1571,31 @@ struct ProjectWindow: View {
             pieces: Self.pieceChoices(in: store),
             // Deferred — walked only when a promoted card is selected.
             artifactTitle: { Self.artifactTitle($0, in: store) },
-            // Deferred, and asked even less often: only when an association
-            // names a piece `pieceChoices` does not hold. **The whole structure,
-            // not the routable subset** — this is what tells an association whose
-            // piece is GONE from one whose piece is in the writer's binder and
-            // simply keeps no research of its own, which the inspectors called
-            // "Missing piece · ref-1" while the refusal named it. Spelled exactly
-            // as `PromotionPiece.resolve` spells it, so the pane and the refusal
-            // read the same tree.
-            pieceTitle: { id in
-                TreeWalk.collect(in: store.manifest.structure,
-                                 where: { $0.id == id }).first?.title
-            },
+            // Only asked when an association names a piece `pieceChoices` does
+            // not hold. **The whole structure, not the routable subset** — this is
+            // what tells an association whose piece is GONE from one whose piece
+            // is in the writer's binder and simply keeps no research of its own,
+            // which the inspectors called "Missing piece · ref-1" while the
+            // refusal named it.
+            //
+            // **It reads the canvas's own table since §4.2, and that is the
+            // point.** This was a `TreeWalk.collect` of its own; the canvas now
+            // needs the same lookup to draw a dimmed region's borrowed name, and
+            // two walks of one tree are two answers to "does this piece still
+            // exist" with nothing keeping them together. `ScrapInspector
+            // .unoffered` is a function of exactly this lookup, so sharing the
+            // table is sharing the resolution — which is the only half worth
+            // sharing: `PieceAssociation.label` is a Form row's voice and says
+            // things about promotion ROUTING that are true in the pane and
+            // false-by-irrelevance on a chrome bar (see `CanvasPieceTitles`).
+            //
+            // Still deferred, and it costs what it always cost: `TreeWalk.collect`
+            // walks the whole structure whether it filters to one id or to all of
+            // them, so this is the same walk with a dictionary built on the end of
+            // it, asked only on the miss. What changed is that there is one
+            // SPELLING of "which pieces exist and what are they called" rather
+            // than two.
+            pieceTitle: { Self.canvasPieceTitles(in: store).title(of: $0) },
             onOpenResearchItem: openPromotedArtifact,
             // A region's member list names item nodes too — a Claude region holds
             // the page its scraps were read off — so the pane resolves a title
@@ -1622,6 +1644,23 @@ struct ProjectWindow: View {
     /// `CanvasItemIndex`'s own doc comment carries why.
     static func canvasItemIndex(in store: ProjectStore) -> CanvasItemIndex {
         CanvasItemIndex.over(research: store.manifest.research)
+    }
+
+    /// What a dimmed region on the canvas says it already belongs to (§4.2), and
+    /// what the region inspector resolves an unofferable binding through.
+    ///
+    /// **Built HERE, beside `pieceChoices` and `canvasItemIndex`, on exactly
+    /// their terms** — this body reads `store.manifest` and so re-evaluates when
+    /// the manifest changes, and it does not read `canvasModel.scene`, so it is
+    /// not on the canvas's drag loop. Building it inside `CanvasView` would put a
+    /// walk of the whole structure on a body that re-evaluates every drag, coast
+    /// and straighten frame (tripwire 4).
+    ///
+    /// The third index over one manifest, and the first over `structure` rather
+    /// than `research`; `CanvasPieceTitles` carries why it is the whole tree and
+    /// not `pieceChoices`' routable subset.
+    static func canvasPieceTitles(in store: ProjectStore) -> CanvasPieceTitles {
+        CanvasPieceTitles.over(structure: store.manifest.structure)
     }
 
     /// Navigate to a research item in the right pane: switch to Research and

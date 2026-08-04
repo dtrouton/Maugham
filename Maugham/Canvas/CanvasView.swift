@@ -134,6 +134,24 @@ struct CanvasView: View {
     /// would otherwise let wiring go missing with nothing red.
     var itemIndex: CanvasItemIndex = .empty
 
+    /// Piece id → the title the binder shows, for every row in the project —
+    /// built in `ProjectWindow` beside `pieceChoices` and handed down, exactly as
+    /// `itemIndex` is and for its reasons (§4.2).
+    ///
+    /// **What it is for is one sentence**: on a dimmed board a region bound to a
+    /// piece other than the subject draws that piece's name, so the writer can
+    /// tell the rectangle a sweep will bind from the one where it will silently
+    /// do nothing. The canvas is handed the ANSWER and never the question — it
+    /// holds no manifest, and `CanvasPieceTitles` carries why at length.
+    ///
+    /// Defaulted for `itemIndex`'s reason (~70 test hosts, no window between
+    /// them) and censused for `itemIndex`'s reason too: `.empty` is a real state
+    /// that compiles and runs, so dropping the argument at the one production
+    /// site would name every bound region "Missing piece" on the writer's canvas
+    /// while the binder shows the chapter in front of them. The census is in
+    /// `CanvasBoundPieceTests`.
+    var pieceTitles: CanvasPieceTitles = .empty
+
     /// The canvas's asset well, handed in by `ProjectWindow` — the two halves of
     /// `ProjectStore.ingestCanvasAsset`, which is what gives a photograph dropped
     /// from the Finder or a browser a home the writer cannot tidy away.
@@ -386,6 +404,7 @@ struct CanvasView: View {
                                         items: itemPresentation,
                                         selection: model.selection,
                                         highlight: highlight,
+                                        pieceTitles: pieceTitles,
                                         visibleEditorNodeID: visibleEditorNodeID,
                                         straighten: straighten,
                                         pendingRegionDraw: sweep,
@@ -590,6 +609,18 @@ struct CanvasView: View {
         // so the ordinary path reaches both either way.)
         .onChange(of: sceneRevision) { _, _ in rebuildHighlightAndTree() }
         .onChange(of: subject, initial: true) { _, _ in rebuildHighlightAndTree() }
+        // …and a THIRD input, for §4.2's borrowed name: the writer renamed the
+        // chapter a dimmed region is bound to. The DRAWN name follows for free —
+        // `pieceTitles` is a property of this view, so a new value re-runs `body`
+        // — but the spoken one is cached in `axElements` against the two counters
+        // above, neither of which moves when a manifest title changes, so without
+        // this the region is announced under the old title for the rest of the
+        // session. That is tripwire 22's rule (key on the thing that identifies
+        // it, not on an id that outlives a rename) arriving on a name, and
+        // `itemIndex.fingerprint` below is the same trigger for the same reason
+        // one primitive over. Keyed on the FINGERPRINT and never on the map: a
+        // dictionary comparison per body pass is what the key exists to avoid.
+        .onChange(of: pieceTitles.fingerprint) { _, _ in rebuildHighlightAndTree() }
         // The manifest moved under a canvas that did not: the writer renamed the
         // research note a card points at, or deleted it. Nothing on the canvas
         // changed, so no structural counter budged — and the card would show the
@@ -872,10 +903,13 @@ struct CanvasView: View {
     /// ONE resolution, in one pass.
     ///
     /// **The only writer of `highlight`** and the only writer of `axElements`,
-    /// called from the two `.onChange`s in `body` and from nowhere else — a third
-    /// call site on a per-frame path is the whole of what tripwire 30 forbids
-    /// here, and it would be invisible on screen because the answer would be
-    /// right every time.
+    /// called from the three `.onChange`s in `body` and from nowhere else — a
+    /// fourth call site on a per-frame path is the whole of what tripwire 30
+    /// forbids here, and it would be invisible on screen because the answer would
+    /// be right every time. (It was two triggers until §4.2 gave the spoken
+    /// region a piece TITLE to carry; a manifest rename moves neither the scene
+    /// nor the subject, so the third trigger is the only thing that can refresh
+    /// it. Count the `.onChange`s, not this sentence.)
     ///
     /// **The two rebuilds are one function because they were nearly two, and the
     /// two-function shape has a hole with no symptom.** The tree used to be
@@ -900,7 +934,8 @@ struct CanvasView: View {
         let resolved = CanvasHighlight.resolve(subject: subject, in: model.scene)
         highlight = resolved
         axElements = CanvasAccessibility.elements(scene: model.scene, scraps: model.scraps,
-                                                  items: itemPresentation, highlight: resolved)
+                                                  items: itemPresentation, highlight: resolved,
+                                                  pieceTitles: pieceTitles)
     }
 
     /// Build a layout per scrap and fill in the derived heights the model needs

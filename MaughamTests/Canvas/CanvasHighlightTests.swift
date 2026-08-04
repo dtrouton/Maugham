@@ -297,10 +297,17 @@ final class CanvasHighlightTests: XCTestCase {
         XCTAssertEqual(
             src.components(separatedBy: "CanvasHighlight.resolve").count - 1, 1,
             "`highlight` is resolved somewhere other than `rebuildHighlightAndTree()`")
-        XCTAssertEqual(src.components(separatedBy: "rebuildHighlightAndTree()").count - 1, 3,
-                       "the declaration and exactly TWO callers — the two "
-                       + "`.onChange`s above. A third is a per-frame path or a "
-                       + "second answer to when the dim changes")
+        XCTAssertEqual(src.components(separatedBy: "rebuildHighlightAndTree()").count - 1, 4,
+                       "the declaration and exactly THREE callers — the two "
+                       + "`.onChange`s above and `.onChange(of: pieceTitles"
+                       + ".fingerprint)`. A fourth is a per-frame path or a "
+                       + "second answer to when the dim changes. **It was two "
+                       + "callers until §4.2 (2026-08-04)**: a region bound "
+                       + "elsewhere now speaks a piece TITLE, and a manifest "
+                       + "rename moves neither the scene nor the subject, so "
+                       + "nothing else can refresh the cached tree — see "
+                       + "`CanvasBoundPieceTests"
+                       + ".test_theSpokenTreeIsRebuiltWhenAPieceIsRenamed`")
     }
 
     // MARK: - …and the tree that SPEAKS it is derived from the same value

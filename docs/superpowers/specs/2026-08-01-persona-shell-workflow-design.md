@@ -426,6 +426,46 @@ as its own slice.
 > time still meets a blank rectangle with the instruction spoken to VoiceOver and
 > shown to nobody.
 
+### 4.2 Amendment, 2026-08-04 — a dimmed region says whose it is
+
+*From slice 3's smoke. Denver: "it's a bit annoying that there is no indication
+of what's already bound on dim — the silent refusal to bind is confusing."*
+
+**The dim conflates two states whose behaviour under the gesture is opposite.**
+A dimmed region is either *unbound* — where a sweep creates and binds, §4.1's
+whole invariant — or *bound to a different piece*, where the never-re-bind ruling
+means the sweep does nothing at all: no bind, no region, no explanation. The
+writer cannot tell them apart, so they cannot predict what the gesture will do,
+and the standing offer goes on saying nothing is bound to *this* document while
+the rectangle under the cursor plainly belongs to another one.
+
+**A region bound to a piece other than the subject draws that piece's name beside
+its own label, and only while the board is dimmed.** Three rulings, all Denver's:
+
+- **On the region, not in an overlay.** The fact is about one rectangle and
+  belongs on it. A panel would also be a fourth `.overlay(alignment: .top)`, and
+  §4.1's task-6 note already records that three share that window and two of them
+  draw over each other.
+- **Only the regions bound ELSEWHERE.** A lit region is bound to the piece the
+  tree already names, so labelling it repeats the binder. The absence of a name on
+  a dimmed region therefore means exactly one thing: *a sweep here will work*.
+- **No response on the refusal itself.** Prevention, not explanation — the name is
+  visible before the gesture starts, so the refusal stops being mysterious without
+  anything being pushed at the writer (constitution: nothing is pushed). This is
+  the smallest change that closes the smoke item, and it leaves the one gesture
+  with no confirmation still having none, deliberately.
+
+**It must be audible.** ADR 0026 §10 and slice 3's own task 7 are the precedent
+twice over: a drawn name is invisible to an assistive client, and this one carries
+the reason a gesture will refuse. It belongs in `CanvasAccessibility`'s region arm
+on the same terms `dimmedTerm` does.
+
+The canvas is handed a resolved id→title map, the way `itemIndex` is — it gets the
+answer, never the question (§4.1's task-1 principle). `RegionInspector` already
+resolves a bound piece the picker cannot offer (a deleted chapter) through
+`ScrapInspector.unoffered`; that case has an answer here too and must not read as
+an unbound region.
+
 ---
 
 ## 5. The columns

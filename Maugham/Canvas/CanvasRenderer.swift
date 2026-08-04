@@ -806,6 +806,78 @@ enum CanvasRenderer {
         return line.isEmpty ? CanvasAccessibility.emptyScrapValue : line
     }
 
+    /// What separates a region's own label from the name of the piece it belongs
+    /// to (§4.2). A mark rather than a gap: at the same size and the same ink,
+    /// "Act II fog Chapter Two" reads as one title the writer never typed.
+    static let borrowedNameSeparator = "· "
+
+    /// The mark an elided run ends with. A constant so the tests assert what
+    /// ships, exactly as `CanvasAccessibility`'s terms are.
+    static let ellipsis = "…"
+
+    /// **Shorten `string` until it fits `width`, and mark that it was shortened.**
+    ///
+    /// **A truncated STRING and never a clipped context, and that is measured
+    /// rather than preferred.** Two spellings were tried first and both were
+    /// abandoned on the same evidence (2026-08-04): drawing a `ResolvedText`
+    /// `in:` a narrow rect **wraps** to a second line rather than eliding, and a
+    /// second line of 11 pt does not fit in a 24 pt bar; and clipping the context
+    /// the text is drawn on — whether through `drawLayer` or by clipping a copy —
+    /// makes two renders of the SAME region differ by two pixels, reproducibly,
+    /// which `CanvasAuthorRenderTests.test_aClaudeRegionIsDrawnSquareAndTheWriters
+    /// IsNot`'s control caught. Every drawn-output fixture on this surface is a
+    /// diff between two renders, so clipped text would put a permanent noise
+    /// floor under all of them. An ellipsis is also simply better than a sliced
+    /// glyph.
+    ///
+    /// A binary search rather than a walk, so a long label costs a handful of
+    /// measurements rather than one per character — and `measuring` is injected so
+    /// this can be tested as arithmetic, with nothing rendering.
+    static func elide(_ string: String, to width: CGFloat,
+                      measuring: (String) -> CGFloat) -> String {
+        guard measuring(string) > width else { return string }
+        guard width > 0 else { return "" }
+        // The largest prefix whose elided form still fits. `lo` is known to fit
+        // (the empty prefix plus the mark is the smallest thing this can return,
+        // and a bar too narrow even for that gets the mark alone rather than a
+        // fragment that reads as a word).
+        var lo = 0, hi = string.count
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            let candidate = String(string.prefix(mid)) + ellipsis
+            if measuring(candidate) <= width { lo = mid } else { hi = mid - 1 }
+        }
+        return String(string.prefix(lo)) + ellipsis
+    }
+
+    /// **How much of the chrome bar the region's OWN label may use, given what
+    /// the borrowed name needs beside it.**
+    ///
+    /// The rule this expresses is §4.2's truncation decision, and the runs are
+    /// ordered by what the writer cannot recover elsewhere: a narrow region loses
+    /// its card count before the name of the piece it belongs to (the count comes
+    /// back by expanding it, and VoiceOver says it in the value), and never that
+    /// name before its own label (the label the writer chose and can read in the
+    /// inspector; the borrowed name is available nowhere else at the moment the
+    /// gesture is being aimed). So **the region's own label yields and the
+    /// borrowed name does not.**
+    ///
+    /// It is a `static func` over its inputs for this directory's stated reason —
+    /// a decision one level above a primitive is exactly where unreachable halves
+    /// have shipped here before — and it is the only place the two insets are
+    /// arithmetic rather than a draw position.
+    ///
+    /// With nothing borrowed the label keeps the whole bar, which is what it has
+    /// always had. With something borrowed, the leftover is the bar minus that
+    /// name minus one inset between them; clamped at zero, because a negative
+    /// width flips the clip rect and draws the label straight over the name it
+    /// was supposed to yield to.
+    static func regionLabelWidthBudget(in frame: CGRect, borrowedWidth: CGFloat) -> CGFloat {
+        let bar = frame.width - 2 * CanvasRegionMetrics.labelInset
+        guard borrowedWidth > 0 else { return max(0, bar) }
+        return max(0, bar - borrowedWidth - CanvasRegionMetrics.labelInset)
+    }
+
     /// What a collapsed region says it is holding. §7/§10 answer crowding by
     /// collapsing rather than by minting more canvases — so a collapsed region
     /// that showed an empty interior would read as an empty region.
@@ -859,6 +931,13 @@ enum CanvasRenderer {
     /// and the pending line are never dimmed either — they are the writer's live
     /// gesture rather than part of the scene being filtered.
     ///
+    /// `pieceTitles` is §4.2's answer and arrives on `highlight`'s exact terms: a
+    /// resolved, non-scene fact the VIEW is handed and this file derives nothing
+    /// from. It is asked once per visible region and answered by a dictionary
+    /// lookup — the manifest walk behind it is `ProjectWindow`'s, on a body that
+    /// re-evaluates per manifest change rather than per frame (tripwire 4). Only
+    /// `drawRegion` reads it, and only for a region the dim has already marked.
+    ///
     /// Five passes, and the order is the design:
     ///
     /// 1. **Regions, BENEATH everything.** §4 makes a region *where the cards
@@ -899,6 +978,7 @@ enum CanvasRenderer {
                      items: CanvasItemPresentation,
                      selection: CanvasSelection?,
                      highlight: CanvasHighlight,
+                     pieceTitles: CanvasPieceTitles,
                      visibleEditorNodeID: CanvasNodeID?,
                      straighten: CanvasFocusStraighten,
                      pendingRegionDraw: CGRect?,
@@ -912,8 +992,14 @@ enum CanvasRenderer {
         let regions = scene.regions
 
         for region in visibleRegions(regions, camera: camera, viewSize: viewSize) {
+            let isDimmed = highlight.isDimmed(region: region.id)
             drawRegion(region, in: scene, isSelected: selection == .region(region.id),
-                       isDimmed: highlight.isDimmed(region: region.id), on: cx)
+                       isDimmed: isDimmed,
+                       // §4.2. Resolved through the ONE predicate the spoken
+                       // label also calls, so the drawn region and the announced
+                       // region cannot disagree about whose it is.
+                       boundElsewhere: pieceTitles.boundElsewhere(region, isDimmed: isDimmed),
+                       on: cx)
         }
 
         for line in visibleLines(in: scene, camera: camera, viewSize: viewSize) {
@@ -1006,6 +1092,17 @@ enum CanvasRenderer {
         cx.drawLayer { inner in
             // Clipped, so a label the per-character estimate under-measured is
             // truncated rather than spilling onto the ground beside the pill.
+            //
+            // **This is the surviving instance of the thing `elide`'s doc comment
+            // measured, and it is left deliberately rather than overlooked**
+            // (2026-08-04). Clipping the context text is drawn on makes two
+            // renders of the same content differ by two pixels, reproducibly —
+            // so any future drawn-output fixture that diffs two renders of a
+            // LABELLED LINE carries a noise floor, and would read as a real
+            // difference. Nothing compares two such renders today, which is the
+            // only reason this is not already failing. §4.2's region bar took the
+            // string-elision route instead; if a fixture ever needs a stable line
+            // label, this is the site to convert, and `elide` is the shape.
             inner.clip(to: pill)
             inner.draw(text, at: CGPoint(x: box.midX, y: box.midY), anchor: .center)
         }
@@ -1093,6 +1190,7 @@ enum CanvasRenderer {
                                    in scene: CanvasScene,
                                    isSelected: Bool,
                                    isDimmed: Bool,
+                                   boundElsewhere: String?,
                                    on context: GraphicsContext) {
         var cx = context
         // ONE definition of the rotation, shared with the card — about the rect's
@@ -1141,22 +1239,71 @@ enum CanvasRenderer {
                                      : regionStroke(dimmed: isDimmed))),
                   lineWidth: isSelected ? 2 : 1)
 
-        var label = cx.resolve(Text(region.displayLabel).font(.system(size: 11, weight: .medium)))
+        let labelFont = Font.system(size: 11, weight: .medium)
+        let runFont = Font.system(size: 11)
+        var label = cx.resolve(Text(region.displayLabel).font(labelFont))
         label.shading = .color(textInk(.secondaryLabelColor, dimmed: isDimmed))
         let labelOrigin = CanvasRegionMetrics.labelOrigin(in: region.frame)
-        cx.draw(label, at: labelOrigin, anchor: .topLeading)
 
-        if region.isCollapsed {
-            // A collapsed region's interior is empty by design, so the count
-            // goes BESIDE the label rather than in the middle of nothing.
-            var summary = cx.resolve(Text(collapsedSummary(for: region.id, in: scene))
-                .font(.system(size: 11)))
-            summary.shading = .color(textInk(.tertiaryLabelColor, dimmed: isDimmed))
-            cx.draw(summary,
-                    at: CGPoint(x: labelOrigin.x + label.measure(in: chrome.size).width
-                                + CanvasRegionMetrics.labelInset,
-                                y: labelOrigin.y),
-                    anchor: .topLeading)
+        // **The ordinary region — nothing borrowed, not collapsed — draws its
+        // label on exactly the path it always took**: one draw, no measure, no
+        // elision, and no behaviour changed for a board that is not filtered.
+        // Everything below is for a bar carrying MORE than one run.
+        if boundElsewhere == nil && !region.isCollapsed {
+            cx.draw(label, at: labelOrigin, anchor: .topLeading)
+        } else {
+            // Measuring one candidate string. Only ever called for a bar with two
+            // or three runs on it, and inside `elide` only while a run overflows.
+            func width(_ string: String, _ font: Font) -> CGFloat {
+                cx.resolve(Text(string).font(font)).measure(in: chrome.size).width
+            }
+
+            // §4.2's borrowed name, resolved before the label is placed because it
+            // is what decides how much of the bar the label gets. **Drawn in the
+            // label's own ink and never a step fainter**: it is the one thing on a
+            // dimmed region that has to be READ, and `CanvasHighlightRenderTests`
+            // exists because the two quietest dosages on this surface are one
+            // product away from nothing.
+            //
+            // The name is elided against the WHOLE bar, and the label against
+            // what is left — which is the yield, and `regionLabelWidthBudget` is
+            // the arithmetic.
+            let bar = region.frame.width - 2 * CanvasRegionMetrics.labelInset
+            let borrowed = boundElsewhere.map {
+                elide("\(borrowedNameSeparator)\($0)", to: bar) { width($0, runFont) }
+            }
+            let borrowedWidth = borrowed.map { width($0, runFont) } ?? 0
+            let budget = regionLabelWidthBudget(in: region.frame,
+                                                borrowedWidth: borrowedWidth)
+
+            var labelWidth = width(region.displayLabel, labelFont)
+            if labelWidth > budget {
+                let short = elide(region.displayLabel, to: budget) { width($0, labelFont) }
+                label = cx.resolve(Text(short).font(labelFont))
+                label.shading = .color(textInk(.secondaryLabelColor, dimmed: isDimmed))
+                labelWidth = width(short, labelFont)
+            }
+            cx.draw(label, at: labelOrigin, anchor: .topLeading)
+
+            var x = labelOrigin.x + labelWidth
+            if let borrowed {
+                x += CanvasRegionMetrics.labelInset
+                var text = cx.resolve(Text(borrowed).font(runFont))
+                text.shading = .color(textInk(.secondaryLabelColor, dimmed: isDimmed))
+                cx.draw(text, at: CGPoint(x: x, y: labelOrigin.y), anchor: .topLeading)
+                x += borrowedWidth
+            }
+
+            if region.isCollapsed {
+                // A collapsed region's interior is empty by design, so the count
+                // goes BESIDE the label rather than in the middle of nothing.
+                var summary = cx.resolve(Text(collapsedSummary(for: region.id, in: scene))
+                    .font(runFont))
+                summary.shading = .color(textInk(.tertiaryLabelColor, dimmed: isDimmed))
+                cx.draw(summary,
+                        at: CGPoint(x: x + CanvasRegionMetrics.labelInset, y: labelOrigin.y),
+                        anchor: .topLeading)
+            }
         }
 
         cx.fill(regionResizeHandle(in: region.frame),

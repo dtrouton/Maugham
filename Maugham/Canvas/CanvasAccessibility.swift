@@ -278,6 +278,26 @@ enum CanvasAccessibility {
     /// VoiceOver does not announce case, and the constants read as one set.
     static let dimmedTerm = "outside the binder's selection"
 
+    /// **What a dimmed region says about the piece it already belongs to**
+    /// (§4.2, 2026-08-04).
+    ///
+    /// A function rather than a bare constant, so the tests assert the phrase
+    /// that ships rather than reassembling it — `regionKind`'s reason, and this
+    /// one has a second: the piece's name is the payload, and a listener has to
+    /// hear the term and the name as one clause or "bound to" arrives attached to
+    /// whatever the last comma introduced.
+    ///
+    /// Denver reversed on this one, and the reversal is the reason it exists.
+    /// Skipping it looked cheap because a drawn name is only a convenience — but
+    /// the name carries **the reason a gesture will refuse**, so a VoiceOver user
+    /// without it gets a sweep that silently does nothing and no way to discover
+    /// why. That is `claudeTerm`'s and `dimmedTerm`'s case a third time: a signal
+    /// available only to sighted writers on a surface §7A.6 calls non-optional in
+    /// a writing tool.
+    ///
+    /// Lower-case like its siblings even though it is spoken second.
+    static func boundElsewhereTerm(_ piece: String) -> String { "bound to \(piece)" }
+
     /// **The one ordering rule for every label on this surface.** The kind,
     /// then what it is called, then where it came from, then the durable facts
     /// in the order they were added — and, ahead of all of it, the one thing
@@ -322,13 +342,30 @@ enum CanvasAccessibility {
     /// join it there were two copies of this ordering with nothing holding them
     /// together.
     private static func label(dimmed: Bool,
+                              boundElsewhere: String? = nil,
                               _ kind: String,
                               named name: String? = nil,
                               fromClaude: Bool,
                               promoted: Bool,
                               connectedBy lines: [CanvasLine]? = nil,
                               collapsed: Bool = false) -> String {
-        var parts = dimmed ? [dimmedTerm, kind] : [kind]
+        var parts = dimmed ? [dimmedTerm] : []
+        // **§4.2, and it sits BESIDE the dim rather than in the sequence below**,
+        // on `dimmed`'s own two arguments. It has no durability at all — it is
+        // spoken only while another column's selection excludes this region, and
+        // it goes silent the moment the writer clicks the piece it names — so
+        // appended it would be heard as one more durable fact about the
+        // rectangle. And it is the second half of the one question a listener
+        // skimming a filtered board is asking: *where can I sweep?* The drawn
+        // answer is the presence of a name; spoken after the kind, the name, the
+        // provenance, the marks and `connectionPhrase`'s list of line labels, it
+        // would reach only a listener who hears every region out to the end.
+        //
+        // Its non-nil-ness already implies the dim — `CanvasPieceTitles
+        // .boundElsewhere` is the one resolver and returns nil for a lit region —
+        // which is why there is no second guard here to disagree with it.
+        if let boundElsewhere { parts.append(boundElsewhereTerm(boundElsewhere)) }
+        parts.append(kind)
         if let name { parts.append(name) }
         if fromClaude { parts.append(claudeTerm) }
         if promoted { parts.append(promotedTerm) }
@@ -367,10 +404,19 @@ enum CanvasAccessibility {
     /// announce every card on a filtered board as though nothing were dimmed.
     /// `CanvasHighlightTests`' source census is what watches that, since nothing
     /// in the type system can.
+    ///
+    /// `pieceTitles` is §4.2's, and it arrives on `highlight`'s terms and carries
+    /// `highlight`'s hazard: `.empty` is a legitimate value rather than a
+    /// sentinel, so a production call site that lost the argument would compile,
+    /// run, and announce every region on a filtered board as belonging to
+    /// "Missing piece" — the drawn card and the spoken card disagreeing, which is
+    /// what handing both the same resolved value exists to prevent.
+    /// `CanvasBoundPieceTests`' source census is what watches that.
     static func elements(scene: CanvasScene,
                          scraps: [CanvasNodeID: String],
                          items: CanvasItemPresentation = .empty,
-                         highlight: CanvasHighlight = .undimmed) -> [CanvasAXElement] {
+                         highlight: CanvasHighlight = .undimmed,
+                         pieceTitles: CanvasPieceTitles = .empty) -> [CanvasAXElement] {
         let connections = connections(in: scene)
         // Regions first into the list, but the ORDER is decided by `rowOrdered`
         // over everything together — a region's frame starts at or above-left of
@@ -378,6 +424,7 @@ enum CanvasAccessibility {
         // out before its contents without a special case for it.
         var elements: [CanvasAXElement] = scene.unorderedRegions.map { region in
             let residents = CanvasMembership.residents(of: region.id, in: scene).count
+            let isDimmed = highlight.isDimmed(region: region.id)
             return CanvasAXElement(
                 id: .region(region.id), role: .region,
                 // **The kind rides in the LABEL, because `role` never reaches an
@@ -431,7 +478,16 @@ enum CanvasAccessibility {
                 // drawn signal's own: the DIMMED element is the marked one, so a
                 // lit region on a filtered board sounds like a region on an
                 // unfiltered one, exactly as it looks like one.
-                label: label(dimmed: highlight.isDimmed(region: region.id),
+                //
+                // **And, when the dim marks it, WHOSE it already is** (§4.2).
+                // The dim tells a listener this region is not part of what the
+                // tree names; this tells them why, which is the difference
+                // between a sweep that will work here and one that will do
+                // nothing at all. Resolved through the same predicate the draw
+                // pass calls, so the two cannot disagree.
+                label: label(dimmed: isDimmed,
+                             boundElsewhere: pieceTitles.boundElsewhere(region,
+                                                                        isDimmed: isDimmed),
                              regionKind,
                              named: region.displayLabel,
                              fromClaude: region.author == .claude,
