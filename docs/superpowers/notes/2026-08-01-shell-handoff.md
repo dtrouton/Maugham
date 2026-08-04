@@ -80,7 +80,13 @@ Review now, Author at M2.
    `TranslationCoverage` is the Fountain element type**, not
    `StructureItem.synopsis`. An over-eager grep will eat it.
 
-## A ruling still open, and it is a words-loss — [issue #21](https://github.com/dtrouton/Maugham/issues/21)
+## ~~A ruling still open~~ — [issue #21](https://github.com/dtrouton/Maugham/issues/21), **FIXED 2026-08-04**
+
+*Left below as written, because the reasoning for the deferral was right and the
+fix vindicated it: the shape it refused really was the wrong one. What shipped
+keys the words by SCOPE instead — see the 2026-08-04 handoff. It turned out to be
+four mechanisms rather than the two the reconnaissance found, and two tests, not
+one, had pinned the loss as current behaviour.*
 
 Found by the tidy pass and deliberately **not** fixed, with a reason worth
 respecting:

@@ -54,13 +54,21 @@ changed is who reads its answer.
 
 ## Then, before slice 4 and slice 6 respectively
 
-- **Issue #21** — a mint-race words-loss in `StatementEditorHost`, deliberately
-  unfixed and owed a decision **before slice 4 touches that file**. The
-  reconnaissance found it is **two mechanisms, not one**: `⌘⌥N`/`⌘⌥V` are separate
-  `case` arms, so that route *tears the host down* and `release()` never runs. A
-  fix aimed only at `release()` closes one of two. And the test that observes it
-  **pins the loss as current behaviour** — a correct fix turns it red, which is the
-  signal, not a regression.
+- ~~**Issue #21**~~ — **FIXED 2026-08-04**, before slice 4 reached that file.
+  Words with no file yet now belong to the **scope** they were typed for, not to
+  the pane that was showing it: `draft` became `typedBeforeItsFileExisted`, keyed
+  by scope key, and `release()` no longer touches the words at all. `carryingDraft`
+  is gone — it was a claim about *whose* words were in the box that the box could
+  not check. **Not** a second copy of the text (tripwire 6): `deposit` removes the
+  entry and writes it into the `Document` in one statement, so a run of characters
+  is in the map or the file and never both. **It was four mechanisms, not two** —
+  the two the reconnaissance found, plus `gateArrival`'s `.refuse` arm (clicking
+  onto a chapter that HAS an intent, refused before the load with no `Document` to
+  deposit into), plus `isMinting` being one host-level `Bool`, which meant a
+  keystroke into a second undeclared scope while another mint was in flight started
+  no mint at all. **Two** tests pinned the loss, not one. Still owed: the smoke —
+  type one character into an Intent pane on a chapter with no intent, click another
+  chapter, come back, and the character should be there.
 - **A deleted item leaves the window's subject dangling, at three sites and only
   one of them repairs it.** Found by slice 3's fix round while checking M2's blast
   radius, and **wider than the review filed it**. `BinderView.subject(_:afterDeleting:)`
@@ -129,7 +137,15 @@ every one who did on this milestone was right.
 - **Do not `git add -A` while a subagent is working.** `0c1930c` describes a spec
   change and carries 663 lines of code because I did.
 
-## Smoke items still owed on slice 3
+## Smoke items still owed on slice 3 — and one on issue #21
+
+**Issue #21, and it is one gesture:** open the Intent pane (`⌘⌥N`) on a chapter
+with **no intent yet**, type one character, and *immediately* click another
+chapter — do not wait. Come back. The character should be there. Then the same
+thing with `⌘⌥V` instead of the click, which is the door that tears the host down
+rather than the one that calls `release()`. Worth doing twice because the two
+routes were separate defects and only one of them was in the original diagnosis.
+
 
 - Sweeping across a region bound to a **different** chapter does nothing at all —
   no bind, no region, no explanation — while the standing offer still says nothing
