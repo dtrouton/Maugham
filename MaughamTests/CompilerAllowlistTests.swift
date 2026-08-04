@@ -44,6 +44,7 @@ final class CompilerAllowlistTests: XCTestCase {
             "clear_piece_style",
             "initialize_publish_template",
             "republish",
+            "preview_compile",
             "compile",
             "compile_cancel"
         ])
@@ -83,6 +84,7 @@ final class CompilerAllowlistTests: XCTestCase {
             "clear_piece_style",
             "initialize_publish_template",
             "republish",
+            "preview_compile",
             "compile",
             "compile_cancel"
         ])

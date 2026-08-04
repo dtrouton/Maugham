@@ -25,7 +25,6 @@ public enum CompilerAllowlist {
         "mcp__maugham__list_publish_files",
         "mcp__maugham__read_publish_file",
         "mcp__maugham__read_publish_image",
-        "mcp__maugham__preview_compile",
         "mcp__maugham__compile_status",
         "mcp__maugham__list_publications",
         "mcp__maugham__read_publication_page",
