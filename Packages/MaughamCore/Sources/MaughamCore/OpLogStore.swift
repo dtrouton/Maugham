@@ -140,7 +140,18 @@ public final class OpLogStore {
     /// Tail size above which a device's live per-doc file is sealed into an
     /// immutable compressed segment (ADR 0016 / growth spec §5.2). Default
     /// confirmed against the M0 baseline (spec §9.1).
-    public static let segmentSealThreshold = 512 * 1024
+    ///
+    /// `nonisolated`: unlike the class it lives on, this constant has no
+    /// isolation requirement of its own — it's an immutable `Sendable` `Int`
+    /// that touches no actor state. Without the annotation it inherits
+    /// `OpLogStore`'s `@MainActor`, and `sealTailIfNeeded`'s default-argument
+    /// expression `= OpLogStore.segmentSealThreshold` is evaluated in a
+    /// nonisolated context regardless of the enclosing type's isolation (the
+    /// same default-argument behaviour found fixing the `Maugham/Updates/`
+    /// warnings) — so referencing a `@MainActor`-isolated static from there
+    /// warns. `nonisolated` states the true fact about the constant rather
+    /// than routing around the default-argument quirk.
+    public nonisolated static let segmentSealThreshold = 512 * 1024
 
     /// Seal THIS device's live tail for `docId` into the next-numbered
     /// `.mzseg` segment, iff the tail exceeds `threshold` bytes. Returns the
