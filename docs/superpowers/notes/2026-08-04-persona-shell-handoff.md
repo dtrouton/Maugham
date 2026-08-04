@@ -15,29 +15,32 @@ draft and all three overturn something in it.
 
 ## State
 
-`main` is at **`860a679`**. **Pushed only as far as `c3fc110`** — everything from
-slice 3 is local, and it should stay local until the smoke passes. **No tag.**
-The paired Mac + phone release is still deferred by choice until the shell work
-lands.
+**Slice 3 is done, reviewed, SMOKED AND PASSED, and pushed.** `main` was pushed to
+**`32cf7ef`** on 2026-08-04; the correctness work that followed the smoke is local
+after it. **No tag** — the paired Mac + phone release is still deferred by choice
+until the shell work lands, which is [[feedback-ship-whole-milestones]]: slicing
+the implementation is fine, slicing the RELEASE is not.
 
 | Slice | State |
 |---|---|
 | 1 — the subject-picker | **done, smoked** |
 | 2 — Plan's tree | **done, smoked** |
 | — the right-pane audit | **done, smoked** (not a numbered slice; it came out of slice 2's smoke) |
-| 3 — the canvas highlight | **done, reviewed, findings fixed. Not smoked.** |
+| 3 — the canvas highlight | **done, reviewed, smoked, pushed** |
 | 4 — the Inspector dissolves | not started |
 | 5 — synopsis folds into intent | not started |
 | 6 — Review's posture | not started |
 | 7 — research becomes a view | not started, **deliberately unspecced** |
 
+Slice 3's smoke found two things, both fixed and both in `main`: **Escape did not
+reach the dim unless the canvas held the keyboard** (in full screen the first
+press left full screen instead), and **a dimmed board gave no indication of what
+was already bound**, so the never-re-bind ruling read as a silent refusal.
+
 ## Do this first
 
-**Smoke slice 3.** It is code-complete, reviewed and green (**4249 Mac tests, 3
-failures — the two known wall-clock MCP flakes, 0 in isolation**; Release build
-succeeded), and it has never been run by a human. The smoke list is at the bottom
-of this note and it is longer than usual: two of its items are judgement calls
-the review deliberately declined to settle from the alpha values.
+**Slice 4 — the Inspector dissolves.** Everything that was owed before it is now
+closed: issue #21, the dangling subject, and slice 3's own review findings.
 
 Task 7 shipped `dimmedTerm` — *"outside the binder's selection"*, spoken FIRST,
 ahead of the kind — and collapsed the two rebuilds into `rebuildHighlightAndTree()`
@@ -52,7 +55,18 @@ no task owned — see the commit `860a679`. Its shape is worth carrying forward:
 consumer read it.** Nothing about `restoredSubject` changed in slice 3; what
 changed is who reads its answer.
 
-## Then, before slice 4 and slice 6 respectively
+## Still open, and neither is speculative
+
+- **`selectedResearchId` and `selectedPaletteCardId` are not swept.** The subject
+  fix validates against `manifest.structure` only; those two are separate `@State`
+  in the same window over different id spaces, **and the research tree has a
+  delete**. It is the same defect one tree over. Slice 7 turns research into a
+  view, so it should be closed before then rather than by then.
+- **§5's palette / visual-language contradiction** — the three-column table and
+  the "Leaving, by persona" list disagree. Recorded with the delta list as
+  normative; **slice 6 must confirm rather than inherit that reading.**
+
+## Closed on 2026-08-04 — kept for the diagnoses, which were wrong in instructive ways
 
 - ~~**Issue #21**~~ — **FIXED 2026-08-04**, before slice 4 reached that file.
   Words with no file yet now belong to the **scope** they were typed for, not to
@@ -69,9 +83,25 @@ changed is who reads its answer.
   no mint at all. **Two** tests pinned the loss, not one. Still owed: the smoke —
   type one character into an Intent pane on a chapter with no intent, click another
   chapter, come back, and the character should be there.
-- **A deleted item leaves the window's subject dangling, at three sites and only
-  one of them repairs it.** Found by slice 3's fix round while checking M2's blast
-  radius, and **wider than the review filed it**. `BinderView.subject(_:afterDeleting:)`
+- ~~**A deleted item leaves the window's subject dangling, at three sites and only
+  one of them repairs it.**~~ — **FIXED 2026-08-04.** Denver's ruling: validate on
+  structure change, in `ProjectWindow`. `SubjectValidationModifier` watches a
+  fingerprint over the SET of structure ids and calls the same
+  `ProjectWindow.validSubject` the restore calls, so the containment question is
+  asked in one place and a dangling subject becomes `.project` at every moment
+  rather than `.project` on open and `nil` at runtime.
+  `BinderView.subject(_:afterDeleting:)` and its call site are gone. Two guards
+  keep the sweep out of `load()`'s own window — the structure *appearing* is not
+  the structure changing, and a sweep repairs a subject rather than choosing one
+  — because a sweep in that gap would write `.project` through `updateUIState`
+  into the very `ui-state.json` value `load()` has not read yet, and every reopen
+  would land on the project row. **The finding inside the fix**: every mounted
+  test attached the modifier itself and so stayed green with the window not
+  attaching it at all (measured), which is the unreachable-half shape again — the
+  attachment is now asserted where it is made. The record below is the diagnosis
+  as filed.
+
+  `BinderView.subject(_:afterDeleting:)`
   has one caller, `BinderView.deleteItem`. `deleteStructureItem` has three:
   `BinderView.deleteItem`, `CollectionPiecesPane.swift:95` (the piece context menu's
   Delete) and `ReferencePieceInspector.swift:71` (Remove). The latter two never run
@@ -83,9 +113,6 @@ changed is who reads its answer.
   what `activeItemID`/`activeDocId` hand the editor, History, Tasks and the annotation
   arms. **It wants one shared answer across the three sites** — its own piece of work,
   and it should be decided before slice 4 rather than ridden.
-- **§5's palette / visual-language contradiction** — the three-column table and
-  the "Leaving, by persona" list disagree. Recorded with the delta list as
-  normative; **slice 6 must confirm rather than inherit that reading.**
 
 ## What this milestone has taught, and it is one lesson three ways
 
@@ -137,23 +164,45 @@ every one who did on this milestone was right.
 - **Do not `git add -A` while a subagent is working.** `0c1930c` describes a spec
   change and carries 663 lines of code because I did.
 
-## Smoke items still owed on slice 3 — and one on issue #21
+## Smoke — slice 3's list is discharged; this is what is owed NEXT
 
-**Issue #21, and it is one gesture:** open the Intent pane (`⌘⌥N`) on a chapter
-with **no intent yet**, type one character, and *immediately* click another
-chapter — do not wait. Come back. The character should be there. Then the same
-thing with `⌘⌥V` instead of the click, which is the door that tears the host down
-rather than the one that calls `release()`. Worth doing twice because the two
-routes were separate defects and only one of them was in the original diagnosis.
+**Slice 3 was smoked and passed on 2026-08-04.** Two items on the list below came
+back as real finds and both are fixed in `main`; they are struck through rather
+than deleted, because the shape of each is worth carrying.
 
+**Owed now, and none of it has been run by a human — it all landed after the
+push.** The subject sweep is the behavioural one and its two cases are exactly the
+ones no test could have been trusted to speak for:
 
-- Sweeping across a region bound to a **different** chapter does nothing at all —
-  no bind, no region, no explanation — while the standing offer still says nothing
-  is bound. Correct per the never-re-bind ruling, and the one gesture in this
-  design with no confirmation of any kind.
-- **Escape only reaches the canvas when the canvas has focus**, exactly like ⌫.
-  Click a chapter in the tree and the keyboard is in the sidebar, so Escape there
-  does nothing until one click lands on the canvas.
+- **Delete a GROUP that contains the chapter you have selected.** The window must
+  move to the project row rather than sitting on a chapter that no longer exists.
+  This is the case the old rule got wrong: it compared ids, and a group's children
+  do not carry the group's id.
+- **On a Collection, delete the piece you have selected**, from the piece context
+  menu and from the reference inspector's Remove. Neither site repaired anything
+  before, so both dangled in the direct case.
+- **Rename and reorder the selected item, and drag it to a new parent.** Nothing
+  should move. The sweep is keyed on the SET of ids so those cannot fire it — but
+  a selection quietly jumping during a drag would be a worse bug than the one this
+  fixed, so it is worth one pass by hand.
+- **Publish something.** The `ProjectStoreASTSource` change is an isolation
+  annotation with no behavioural intent, but it sits under PDF and EPUB compiles,
+  and "no behavioural intent" is a claim rather than an observation.
+
+~~**Issue #21**~~ — smoked and passed as part of slice 3's pass: one character
+into an Intent pane on a chapter with no intent, click away immediately, come
+back, and it is there. Both routes.
+
+- ~~Sweeping across a region bound to a **different** chapter does nothing at all —
+  no bind, no region, no explanation.~~ **Found, and fixed** (`32cf7ef`): a dimmed
+  region bound elsewhere now names the piece it belongs to, so the refusal is
+  predictable before the gesture rather than explained after it. The rule that
+  falls out: **no name on a dimmed region means a sweep there will work.**
+- ~~**Escape only reaches the canvas when the canvas has focus.**~~ **Found in full
+  screen, and fixed** (`5da41a1`): the first press left full screen. It was never
+  about full screen — an unhandled Escape simply travels up the responder chain,
+  and `NSWindow` is the first thing that wants it. A window-scoped local monitor
+  now sees it before any window does.
 - A lit region that is **collapsed** lights one rectangle and no cards.
 - **A dimmed card being edited shows ghost paper under full-strength live text.**
   The mounted `NSTextView` receives no dim while `drawCard` draws the paper at
