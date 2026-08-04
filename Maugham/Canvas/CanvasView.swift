@@ -475,6 +475,12 @@ struct CanvasView: View {
                 },
                 onDeleteKey: { deleteSelection() },
                 onEscape: { escapeAsksForTheWholeBoard() },
+                // The one condition `CanvasEscapeMonitor` is installed under —
+                // and it is the SUBJECT's dim rather than
+                // `escapeAsksForTheWholeBoard`'s full answer, because the monitor
+                // asks that closure at event time anyway. What this decides is
+                // only how long an app-global monitor exists.
+                dimsTheBoard: subject.dimsTheBoard,
                 // The bare manager, vended down the responder chain so ⌘Z with
                 // nothing focused runs the canvas stack rather than the window's.
                 //

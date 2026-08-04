@@ -50,8 +50,13 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// value is the whole of `keyDown`'s decision below — see it for why the
     /// canvas must not claim a key it did not use.
     var onDeleteKey: (() -> Bool)?
-    /// Escape, with the canvas holding first responder — §4.1's *"Escape is the
-    /// keyboard spelling of the project row"*.
+    /// Escape — §4.1's *"Escape is the keyboard spelling of the project row"*.
+    ///
+    /// **Not "with the canvas holding first responder", and that correction IS
+    /// the 2026-08-04 fix.** This is called from `CanvasEscapeMonitor`, which sees
+    /// the key wherever the keyboard is, because the ordinary way into the dim
+    /// leaves the keyboard in the sidebar. `keyDown` below no longer has an
+    /// Escape arm at all — see it.
     ///
     /// **It returns whether the canvas used it**, for `onDeleteKey`'s reason and
     /// one more of its own: Escape means something to a great many responders
@@ -59,6 +64,53 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// that claimed every Escape on an undimmed board would take it away from all
     /// of them and look, from in here, exactly like one that handled it.
     var onEscape: (() -> Bool)?
+
+    /// Whether the tree's subject dims the board — the one condition
+    /// `CanvasEscapeMonitor` is installed under.
+    ///
+    /// **Installed only while dimmed, and that is a narrowing rather than an
+    /// optimisation.** A local monitor is app-global; the fewer moments one
+    /// exists, the fewer moments it can be wrong in. The dim is also the only
+    /// state Escape has anything to do on this surface, so the condition and the
+    /// behaviour are the same condition.
+    var boardIsDimmed = false {
+        didSet {
+            guard boardIsDimmed != oldValue else { return }
+            syncEscapeMonitor()
+        }
+    }
+
+    /// Owned by this view, so it dies with it — `deinit` on the monitor is the
+    /// backstop under the two explicit removals below. A leaked monitor is
+    /// invisible until it eats a key in a window that no longer has a canvas.
+    private let escapeMonitor = CanvasEscapeMonitor()
+
+    /// The install/remove pairing, in one place so the two can never drift.
+    ///
+    /// The block captures `self` WEAKLY and reads the window at event time: the
+    /// monitor must not keep this view alive, and a view that moves to another
+    /// window must not go on answering for the old one.
+    private func syncEscapeMonitor() {
+        guard boardIsDimmed, window != nil else {
+            escapeMonitor.remove()
+            return
+        }
+        escapeMonitor.install(window: { [weak self] in self?.window },
+                              canvasUsesIt: { [weak self] in self?.onEscape?() ?? false })
+    }
+
+    /// A view with no window has no Escape to answer for, and a view SwiftUI has
+    /// torn out of the hierarchy arrives here with a nil window — which is what
+    /// makes removal deterministic rather than a matter of when this object is
+    /// collected.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        syncEscapeMonitor()
+    }
+
+    /// Test-only reader for the pairing above. `isInstalled` is unobservable from
+    /// outside AppKit, and an install/remove bug is silent by construction.
+    var hasEscapeMonitorInstalled: Bool { escapeMonitor.isInstalled }
 
     private var isDragging = false
 
@@ -284,28 +336,34 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// `CanvasEventViewTests.test_aDeleteThatDeletedNothingTravelsOnAndOneThatDeletedDoesNot`
     /// goes red, which is what actually stops a tidy-up: a warning in a file this
     /// size is easy to walk past.
-    /// **Escape joins ⌫ here and takes its whole discipline** (§4.1) — including
-    /// the part that matters most: an Escape the canvas did not use travels on.
-    /// The canvas refuses it on an undimmed board and while a scrap is open, and
-    /// in both of those states somebody above wants it.
+    /// **ESCAPE IS DELIBERATELY ABSENT from this switch, and removing it was the
+    /// second half of the 2026-08-04 fix.**
     ///
-    /// **The editor wins by TWO independent mechanisms and needs both.** The
-    /// mounted `NSTextView` sits in front of this view and takes first responder,
-    /// so while the writer is typing the key never arrives here at all — that is
-    /// the mechanism, and `CanvasViewMountingTests
-    /// .test_escapeInsideAMountedScrapNeverReachesTheDim` drives it rather than
-    /// asserting it from the shape of the hierarchy. The second is `CanvasView`'s
-    /// own guard on a mounted editor, and it covers the window the first one does
-    /// not: a scrap can be open while THIS view still holds the keyboard (see the
-    /// `undoManager:` note in `CanvasView.body` — the same window that made
-    /// `deleteSelection` need its `isInGesture` guard).
+    /// It was here, and it was UNREACHABLE. `escapeAsksForTheWholeBoard()` only
+    /// ever returns true on a dimmed board; a dimmed board is the one state
+    /// `CanvasEscapeMonitor` is installed in; and a monitor runs from
+    /// `NSApplication.sendEvent(_:)` **before** the event reaches any window, let
+    /// alone this view's first-responder claim. So every Escape the arm could
+    /// have claimed was already consumed one layer up, and every Escape that got
+    /// past the monitor was one the canvas had just declined — which the arm then
+    /// declined again and passed to `super`, exactly as `default` does. This
+    /// directory has found three unreachable halves by counting callers and keeps
+    /// none of them: an arm that cannot run is a claim about behaviour that no
+    /// test can falsify.
+    ///
+    /// `CanvasEventViewTests.test_escapeIsNotHandledHereBecauseTheMonitorIsWhatRuns`
+    /// pins the absence, and it is paired rather than trusted:
+    /// `CanvasViewMountingTests` drives the same key through `NSApp.sendEvent(_:)`
+    /// and watches the dim lift, so between them exactly one mechanism runs and
+    /// the tests name which.
+    ///
+    /// ⌫ keeps its arm because nothing changed for it: it is meaningful only with
+    /// a canvas selection, which only a click on this view can make, so the
+    /// responder chain is the right filter for it and the wrong one for Escape.
     override func keyDown(with event: NSEvent) {
         switch event.charactersIgnoringModifiers {
         case Self.backwardDelete, Self.forwardDelete:
             if onDeleteKey?() == true { return }
-            super.keyDown(with: event)
-        case Self.escape:
-            if onEscape?() == true { return }
             super.keyDown(with: event)
         default:
             super.keyDown(with: event)
@@ -323,6 +381,11 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// constant for it (`NSDeleteCharacter`'s neighbours stop short of it), so
     /// the scalar is spelled once here and asserted against 0x1B in
     /// `CanvasEventViewTests` rather than trusted.
+    ///
+    /// It stays on this type although `keyDown` no longer reads it: its one
+    /// reader is `CanvasEscapeMonitor.disposition`, and the value belongs beside
+    /// the two delete characters it is a peer of rather than beside the one call
+    /// site of the moment.
     static let escape = String(UnicodeScalar(UInt8(0x1B)))
 }
 
@@ -337,6 +400,16 @@ struct CanvasEventView: NSViewRepresentable {
     var onDeleteKey: () -> Bool
     /// Returns whether the canvas used the Escape — see the same.
     var onEscape: () -> Bool
+    /// Whether the tree's subject dims the board, and so whether
+    /// `CanvasEscapeMonitor` is installed — see `CanvasEventNSView.boardIsDimmed`.
+    ///
+    /// **Deliberately NOT defaulted.** Every other input here is required, and
+    /// this one carries the most silent failure of the set: `false` is a real
+    /// state that compiles and runs, and a call site that dropped the argument
+    /// would leave the monitor uninstalled forever — Escape doing nothing on a
+    /// dimmed board, with every test in this file green. The compiler is the
+    /// census for a one-call-site view.
+    var dimsTheBoard: Bool
     var undoManager: UndoManager?
 
     func makeNSView(context: Context) -> CanvasEventNSView {
@@ -359,6 +432,18 @@ struct CanvasEventView: NSViewRepresentable {
         v.onDrag = onDrag
         v.onDeleteKey = onDeleteKey
         v.onEscape = onEscape
+        // Assigned AFTER `onEscape`: the flag's `didSet` installs the monitor,
+        // and a monitor installed against an unwired callback would decline every
+        // Escape until the next update pass.
+        v.boardIsDimmed = dimsTheBoard
         v.canvasUndoManager = undoManager
+    }
+
+    /// SwiftUI's own teardown hook, and the earliest deterministic one — the view
+    /// is dismantled before it is deallocated, and `viewDidMoveToWindow` fires
+    /// only if AppKit actually pulls it out of a window first. Removing here as
+    /// well as there costs nothing (`remove()` is idempotent) and closes the gap.
+    static func dismantleNSView(_ v: CanvasEventNSView, coordinator: ()) {
+        v.boardIsDimmed = false
     }
 }

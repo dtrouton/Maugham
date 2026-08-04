@@ -225,38 +225,61 @@ final class CanvasEventViewTests: XCTestCase {
                        "an unwired canvas swallows ⌫ rather than passing it on")
     }
 
-    /// Escape takes ⌫'s discipline exactly (§4.1): the canvas claims it when it
-    /// used it, and lets it travel on when it did not.
+    /// **`keyDown` does not handle Escape, and that absence is the 2026-08-04
+    /// fix rather than an omission.**
     ///
-    /// **The un-claimed case is the one that matters here**, and it is not
-    /// tidiness. Escape means something to a great many responders above this
-    /// one — a sheet, a completion list, a find bar — and a canvas that ate every
-    /// Escape on an undimmed board would take it away from all of them while
-    /// looking, from inside this file, exactly like a canvas that handled it.
-    func test_anEscapeTheCanvasDidNotUseTravelsOnAndOneItUsedDoesNot() {
+    /// This test used to assert an Escape arm here. The arm was unreachable: the
+    /// canvas only ever answers Escape on a dimmed board, a dimmed board is the
+    /// one state `CanvasEscapeMonitor` is installed in, and a local monitor runs
+    /// from `NSApplication.sendEvent(_:)` — before any window, let alone this
+    /// view's first-responder claim. So it could only ever see keys the canvas
+    /// had already declined, which it then passed to `super`, exactly as
+    /// `default` does.
+    ///
+    /// **It is asserted rather than deleted**, because "the monitor handles this
+    /// now" is the kind of claim that survives in a comment long after somebody
+    /// puts the arm back for symmetry with ⌫. Every Escape reaching this method
+    /// travels on, whatever the canvas would have said about it.
+    func test_escapeIsNotHandledHereBecauseTheMonitorIsWhatRuns() {
         let v = view()
         let beyond = KeyRecorder()
         v.nextResponder = beyond
 
         let escape = CanvasEventNSView.escape
-        v.onEscape = { false }
-        v.keyDown(with: key(escape))
-        XCTAssertEqual(beyond.keys, [escape],
-                       "an Escape the canvas refused was swallowed: on an undimmed "
-                       + "board, and while a scrap is open, Escape belongs to "
-                       + "whatever is above this view")
-
         v.onEscape = { true }
         v.keyDown(with: key(escape))
         XCTAssertEqual(beyond.keys, [escape],
-                       "an Escape that DID clear the dim also travelled on, so "
-                       + "whatever is above the canvas acts on it as well")
+                       "`keyDown` claimed an Escape. Two mechanisms now answer the "
+                       + "same key under the same condition and only one of them "
+                       + "can run — see the argument on `keyDown`, and "
+                       + "`CanvasViewMountingTests"
+                       + ".test_theEventViewNoLongerHandlesEscapeItselfBecauseTheMonitorDoes`, "
+                       + "which drives the same thing through a mounted canvas")
 
-        // The state every view is in between `init` and `wire`.
+        v.onEscape = { false }
+        v.keyDown(with: key(escape))
+        XCTAssertEqual(beyond.keys, [escape, escape])
+
         v.onEscape = nil
         v.keyDown(with: key(escape))
-        XCTAssertEqual(beyond.keys, [escape, escape],
-                       "an unwired canvas swallows Escape rather than passing it on")
+        XCTAssertEqual(beyond.keys, [escape, escape, escape])
+    }
+
+    /// The monitor's install/remove pairing, from this view's side: it follows
+    /// `boardIsDimmed`, and a view with no window installs nothing at all.
+    ///
+    /// A view built here has never been in a window, which is exactly the state
+    /// that must not arm an app-global key monitor — one that outlives its canvas
+    /// is invisible until it eats a key in a window that has no canvas in it.
+    @MainActor
+    func test_aCanvasWithNoWindowNeverArmsTheEscapeMonitor() {
+        let v = view()
+        XCTAssertFalse(v.hasEscapeMonitorInstalled, "precondition")
+        v.boardIsDimmed = true
+        XCTAssertFalse(v.hasEscapeMonitorInstalled,
+                       "a canvas that is in no window armed an app-global monitor")
+        v.boardIsDimmed = false
+        XCTAssertFalse(v.hasEscapeMonitorInstalled)
     }
 
     /// The constant is the character AppKit actually sends, not a plausible one —

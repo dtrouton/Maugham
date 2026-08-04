@@ -62,7 +62,14 @@ final class CanvasViewMountingTests: XCTestCase {
     /// result.
     private let rewrappingScrapText = "the falls at night seen from the road below the town"
 
+    /// A test's own planted key monitors. Removed here rather than at the end of
+    /// each test because a leaked one eats Escapes for the rest of the suite, and
+    /// an eaten Escape is exactly the defect these tests are about.
+    private var probeTokens: [Any] = []
+
     override func tearDown() {
+        for token in probeTokens { NSEvent.removeMonitor(token) }
+        probeTokens.removeAll()
         windows.removeAll()
         for root in roots { try? FileManager.default.removeItem(at: root) }
         roots.removeAll()
@@ -206,20 +213,89 @@ final class CanvasViewMountingTests: XCTestCase {
     }
 
     @discardableResult
-    private func host(_ view: CanvasView) -> NSWindow {
+    private func host(_ view: CanvasView) -> CanvasHostWindow {
         let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
         let hosting = NSHostingView(rootView: view)
         hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
+        let window = CanvasHostWindow(contentRect: frame, styleMask: [.titled],
+                                      backing: .buffered, defer: false)
         window.contentView = hosting
         windows.append(window)
         // The timeline that drives the straighten only advances when the window
         // is producing frames.
-        window.orderFront(nil)
+        //
+        // **Key, not merely ordered front** — measured 2026-08-04:
+        // `NSApp.sendEvent(_:)` routes a key event to the KEY window and drops it
+        // when there is none, so with `orderFront` alone every assertion about an
+        // Escape REACHING this window is vacuously true.
+        window.makeKeyAndOrderFront(nil)
         hosting.layoutSubtreeIfNeeded()
         pump()
         return window
+    }
+
+    /// A canvas with a rename `TextField` beside it in the same window — the
+    /// binder's inline rename (tripwire 16) reduced to the one thing that matters
+    /// to a key monitor: a real AppKit text responder in the window the dim is in.
+    @discardableResult
+    private func hostBesideARenameField(_ view: CanvasView) -> CanvasHostWindow {
+        let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let hosting = NSHostingView(rootView: CanvasBesideARenameField(canvas: view))
+        hosting.frame = frame
+        let window = CanvasHostWindow(contentRect: frame, styleMask: [.titled],
+                                      backing: .buffered, defer: false)
+        window.contentView = hosting
+        windows.append(window)
+        // Key for the reason `host` records.
+        window.makeKeyAndOrderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        pump()
+        return window
+    }
+
+    /// A canvas whose subject the test can change afterwards — the tree selecting
+    /// the project row, from outside. `CanvasView.subject` is a value handed in on
+    /// every body pass, so nothing else can drive an undim for real.
+    @discardableResult
+    private func hostSwitchable(subject: MutableSubject,
+                                root: URL,
+                                selectTheProjectRow: @escaping () -> Void) -> CanvasHostWindow {
+        let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let hosting = NSHostingView(rootView: CanvasWithASwitchableSubject(
+            subject: subject, model: CanvasModel(), root: root,
+            selectTheProjectRow: selectTheProjectRow))
+        hosting.frame = frame
+        let window = CanvasHostWindow(contentRect: frame, styleMask: [.titled],
+                                      backing: .buffered, defer: false)
+        window.contentView = hosting
+        windows.append(window)
+        // Key for the reason `host` records.
+        window.makeKeyAndOrderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        pump()
+        return window
+    }
+
+    /// A counterfactual monitor — what a production monitor missing a guard would
+    /// do, in the same position, read by the same instrument.
+    ///
+    /// This is what makes the two scope/guard tests falsifiable: without a plant
+    /// they pass identically against a monitor that was never installed.
+    ///
+    /// **Order-independent, and that is not free.** Local monitor invocation order
+    /// is NOT stable — measured 2026-08-04 on macOS 26.5, the same two monitors
+    /// installed in the same order in one process were invoked B,A and then A,B.
+    /// So nothing here may depend on running before or after the production one.
+    /// It does not have to: ANY monitor returning nil stops the event before a
+    /// window sees it, and the window is what `CanvasHostWindow` counts.
+    private func plantAMonitor(_ decide: @escaping (NSEvent) -> NSEvent?) {
+        let token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.charactersIgnoringModifiers == CanvasEventNSView.escape else {
+                return event
+            }
+            return decide(event)
+        }
+        if let token { probeTokens.append(token) }
     }
 
     private func firstDescendant<T: NSView>(_ type: T.Type, in view: NSView) -> T? {
@@ -3333,6 +3409,12 @@ final class CanvasViewMountingTests: XCTestCase {
     /// deliberately given first responder first, so the test starts from the state
     /// where Escape WOULD have reached the canvas and shows that entering a scrap
     /// takes it away again.
+    ///
+    /// **Delivered through `NSApp.sendEvent(_:)` since 2026-08-04, and the change
+    /// is not cosmetic.** Escape now runs through `CanvasEscapeMonitor`, and a
+    /// local monitor is invoked from the APPLICATION's dispatch — `window
+    /// .sendEvent(_:)` bypasses it entirely, so the old spelling of this test
+    /// would pass against a canvas that ate every Escape in the app.
     func test_escapeInsideAMountedScrapNeverReachesTheDim() throws {
         var asked = 0
         let root = try projectRoot()
@@ -3352,9 +3434,14 @@ final class CanvasViewMountingTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === editor,
                       "precondition: the editor holds first responder")
 
-        window.sendEvent(escapeKeyEvent(for: window))
+        NSApp.sendEvent(escapeKeyEvent(for: window))
         pump(0.3)
 
+        XCTAssertEqual(window.escapesDelivered, 1,
+                       "the canvas SWALLOWED the writer's Escape instead of "
+                       + "declining it. The dim not lifting is not enough — a key "
+                       + "eaten silently and a key passed on look identical from "
+                       + "the subject, and this one has to reach the editor")
         XCTAssertEqual(asked, 0,
                        "Escape inside a scrap cleared the dim: the writer pressed "
                        + "the key that cancels what they are typing and the window's "
@@ -3372,9 +3459,13 @@ final class CanvasViewMountingTests: XCTestCase {
     /// a gesture at `.began` and holds it, and the turn after a double-click has
     /// "Edit Scrap" open while this view is still first responder (see the
     /// `undoManager:` note in `CanvasView.body`, and `deleteSelection`'s
-    /// `isInGesture` guard, which exists because ⌫ found exactly this). So the key
-    /// is delivered STRAIGHT to the event view: not a shortcut around the routing,
-    /// but the state the routing can genuinely be in.
+    /// `isInGesture` guard, which exists because ⌫ found exactly this).
+    ///
+    /// **The guard is what this test is about, and since 2026-08-04 it is the
+    /// SECOND of the two things that would have to fail.** The monitor declines a
+    /// text responder before it ever asks the canvas, so the assertion on
+    /// `onEscape()` below is the one that reaches the guard — it calls the
+    /// canvas's own answer directly, with a scrap genuinely open.
     func test_escapeIsRefusedWhileAScrapIsOpenEvenIfTheCanvasStillHoldsTheKey() throws {
         var asked = 0
         let root = try projectRoot()
@@ -3385,9 +3476,13 @@ final class CanvasViewMountingTests: XCTestCase {
         let events = try eventView(in: window)
         _ = try doubleClickTheScrap(in: window)
 
-        events.keyDown(with: escapeKeyEvent(for: window))
+        NSApp.sendEvent(escapeKeyEvent(for: window))
         pump(0.2)
 
+        XCTAssertEqual(window.escapesDelivered, 1,
+                       "the Escape was swallowed with a scrap open — the writer "
+                       + "pressed the key that cancels what they are typing and "
+                       + "nothing at all received it")
         XCTAssertEqual(asked, 0,
                        "the canvas cleared the dim while a scrap was open — Escape "
                        + "is the writer cancelling what they are typing, and it must "
@@ -3414,7 +3509,7 @@ final class CanvasViewMountingTests: XCTestCase {
         let events = try eventView(in: window)
         clickAndFocusTheCanvas(events, at: CGPoint(x: 600, y: 500), in: window)
 
-        window.sendEvent(escapeKeyEvent(for: window))
+        NSApp.sendEvent(escapeKeyEvent(for: window))
         pump(0.3)
 
         XCTAssertEqual(asked, 1,
@@ -3422,6 +3517,53 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "the writer deliberately enters and must be able to leave "
                        + "(Denver: \"I like the ability to keep sweeping but it "
                        + "needs a way out\")")
+    }
+
+    /// **THE SMOKE FIND (2026-08-04), and the only test in this file that starts
+    /// from the state the writer is actually in.**
+    ///
+    /// The ordinary way into the dim is clicking a chapter in Plan's tree, which
+    /// leaves the keyboard in the SIDEBAR. Every other Escape test above focuses
+    /// the canvas first, so all of them pass against a canvas that can only hear
+    /// Escape when it already holds the keyboard — which is exactly the defect:
+    /// in full screen the first Escape left full screen and only the second lifted
+    /// the dim, because the key travelled up the responder chain unhandled and
+    /// `NSWindow` was the first thing on it that wanted Escape. Full screen was
+    /// never the culprit; outside it the same press was equally lost and merely
+    /// looked like nothing happening.
+    ///
+    /// So the canvas has NOTHING focused here, and the event goes through
+    /// `NSApp.sendEvent(_:)` rather than `window.sendEvent(_:)` — measured
+    /// 2026-08-04, a local monitor is invoked from the APPLICATION's dispatch and
+    /// `window.sendEvent` bypasses it entirely, so the window-level spelling every
+    /// other test in this section uses cannot see this mechanism at all.
+    func test_escapeLeavesTheDimWithTheKeyboardSomewhereElseEntirely() throws {
+        var asked = 0
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1"),
+                                     selectTheProjectRow: { asked += 1 }))
+        let events = try eventView(in: window)
+        // `nil` makes the WINDOW first responder — the canvas has never been
+        // clicked, which is the state clicking a chapter in the tree leaves.
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertFalse(window.firstResponder === events,
+                       "precondition: the canvas must NOT hold the keyboard, or "
+                       + "this test measures the path that already worked")
+
+        NSApp.sendEvent(escapeKeyEvent(for: window))
+        pump(0.3)
+
+        XCTAssertEqual(asked, 1,
+                       "Escape did not lift the dim with the keyboard in the "
+                       + "sidebar — the writer clicks a chapter, the board dims, "
+                       + "and the key that leaves it reaches nothing")
+        XCTAssertEqual(window.escapesDelivered, 0,
+                       "the dim lifted but the key travelled on to the window as "
+                       + "well, which is the smoke find itself: in full screen "
+                       + "NSWindow takes it and the writer leaves full screen at "
+                       + "the same moment their board undims")
     }
 
     /// A GROUP dims the board too, so Escape is its way out as well — the dim is
@@ -3436,7 +3578,7 @@ final class CanvasViewMountingTests: XCTestCase {
         let events = try eventView(in: window)
         clickAndFocusTheCanvas(events, at: CGPoint(x: 600, y: 500), in: window)
 
-        window.sendEvent(escapeKeyEvent(for: window))
+        NSApp.sendEvent(escapeKeyEvent(for: window))
         pump(0.3)
         XCTAssertEqual(asked, 1, "a group dims the board and Escape did not lift it")
     }
@@ -3454,7 +3596,7 @@ final class CanvasViewMountingTests: XCTestCase {
         let events = try eventView(in: window)
         clickAndFocusTheCanvas(events, at: CGPoint(x: 600, y: 500), in: window)
 
-        window.sendEvent(escapeKeyEvent(for: window))
+        NSApp.sendEvent(escapeKeyEvent(for: window))
         pump(0.3)
         XCTAssertEqual(asked, 0,
                        "Escape on a board that is not dimmed asked the window to "
@@ -3465,6 +3607,217 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "screen can show that, and every responder above the canvas "
                        + "that wanted the key — a sheet, a find bar — stops getting "
                        + "it")
+    }
+
+    // MARK: - What a monitor can break (2026-08-04)
+
+    /// **THE SHARPEST HAZARD THE MONITOR CREATES, driven rather than reasoned
+    /// about.**
+    ///
+    /// The binder's inline rename (tripwire 16) uses Escape to CANCEL the rename,
+    /// and a writer can be renaming a chapter while the board is dimmed — indeed
+    /// that is the ordinary state, since clicking the chapter is what dimmed it.
+    /// A monitor eats the key wherever the keyboard is, so a monitor without a
+    /// text-responder guard takes the cancel away from every rename in the window.
+    ///
+    /// A real SwiftUI `TextField` beside a real canvas in one window, focused for
+    /// real. What holds first responder afterwards is the window's FIELD EDITOR
+    /// rather than the field — which is why the production guard tests `NSText`
+    /// and not `NSTextView`, and why that was measured here instead of read off
+    /// the hierarchy.
+    func test_theMonitorDoesNotEatTheEscapeThatCancelsAnInlineRename() throws {
+        var asked = 0
+        let root = try projectRoot()
+        let window = hostBesideARenameField(
+            CanvasView(model: CanvasModel(), projectRoot: root,
+                       paletteSwatchHexes: { [] },
+                       subject: .piece("ch1"),
+                       selectTheProjectRow: { asked += 1 }))
+        let events = try eventView(in: window)
+        XCTAssertTrue(events.hasEscapeMonitorInstalled,
+                      "precondition: the monitor is installed. Without this the "
+                      + "assertions below pass against a canvas that never watched "
+                      + "for Escape at all")
+        let field = try XCTUnwrap(
+            firstDescendant(NSTextField.self, in: try XCTUnwrap(window.contentView)),
+            "the rename field never reached the hierarchy, so this test would "
+            + "measure a canvas standing on its own")
+        XCTAssertTrue(window.makeFirstResponder(field),
+                      "precondition: the writer is renaming a chapter")
+        pump()
+        XCTAssertTrue(CanvasEscapeMonitor.isEditingText(window.firstResponder),
+                      "precondition: the thing holding the keyboard must be one the "
+                      + "production predicate recognises as text — if this fails the "
+                      + "predicate is wrong about the responder AppKit really "
+                      + "installs, which is the whole point of driving it")
+
+        NSApp.sendEvent(escapeKeyEvent(for: window))
+        pump(0.3)
+
+        XCTAssertEqual(window.escapesDelivered, 1,
+                       "the dimmed board ate the Escape that cancels an inline "
+                       + "rename — the writer is renaming a chapter, presses the key "
+                       + "that takes it back, and nothing happens")
+        XCTAssertEqual(asked, 0,
+                       "the dim lifted out from under a rename: the writer cancelled "
+                       + "a title and the window changed its subject instead")
+
+        // **The offender, planted and driven down the same wire.** A monitor
+        // without the text-responder guard, installed after the probe so it runs
+        // before it. If this does not eat the Escape the assertion above is not
+        // measuring the guard at all.
+        plantAMonitor { _ in nil }
+        NSApp.sendEvent(escapeKeyEvent(for: window))
+        pump(0.3)
+        XCTAssertEqual(window.escapesDelivered, 1,
+                       "the planted guardless monitor did NOT eat the rename's "
+                       + "Escape, so this test cannot tell a guarded monitor from "
+                       + "an unguarded one and proves nothing about either")
+    }
+
+    /// **Scope: one window's dim must not reach into another's.**
+    ///
+    /// A local monitor is APP-global, which is the whole reason tripwire 21 exists
+    /// on this codebase — an unscoped delivery has shipped the same defect three
+    /// times. With two projects open, an Escape addressed to the other window must
+    /// travel on untouched.
+    func test_aDimmedBoardDoesNotEatEscapeInAnotherWindow() throws {
+        var asked = 0
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1"),
+                                     selectTheProjectRow: { asked += 1 }))
+        let events = try eventView(in: window)
+        XCTAssertTrue(events.hasEscapeMonitorInstalled,
+                      "precondition: the monitor is installed, or nothing below is "
+                      + "about scope")
+        let other = CanvasHostWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 200),
+                                     styleMask: [.titled], backing: .buffered, defer: false)
+        windows.append(other)
+        // The OTHER window is the key one — the writer clicked into their second
+        // project and pressed Escape there, which is the whole scenario.
+        other.makeKeyAndOrderFront(nil)
+
+        NSApp.sendEvent(escapeKeyEvent(for: other))
+        pump(0.3)
+
+        XCTAssertEqual(other.escapesDelivered, 1,
+                       "the canvas in ONE window swallowed an Escape addressed to "
+                       + "ANOTHER — with two projects open, every sheet, find bar "
+                       + "and rename in the second window loses its Escape")
+        XCTAssertEqual(asked, 0,
+                       "the other window's Escape changed this window's subject")
+
+        // **The offender, planted and driven down the same wire**: the monitor
+        // without its window check, which is what an app-global monitor is if
+        // nobody scopes it (tripwire 21). It must eat this one.
+        plantAMonitor { _ in nil }
+        NSApp.sendEvent(escapeKeyEvent(for: other))
+        pump(0.3)
+        XCTAssertEqual(other.escapesDelivered, 1,
+                       "the planted unscoped monitor let the other window's Escape "
+                       + "through, so the assertion above would pass whether the "
+                       + "production monitor were scoped or not")
+    }
+
+    /// **The monitor exists only while the board is dimmed, and going undimmed
+    /// takes it away.**
+    ///
+    /// Driven through a real subject change rather than by reading
+    /// `hasEscapeMonitorInstalled` alone: the flag says a monitor is installed,
+    /// the probe says whether it is still eating keys, and only the pair rules out
+    /// a `remove()` that clears the token while leaving AppKit's block behind.
+    func test_theMonitorIsInstalledOnlyWhileTheBoardIsDimmed() throws {
+        var asked = 0
+        let root = try projectRoot()
+        let subject = MutableSubject()
+        let window = hostSwitchable(subject: subject, root: root,
+                                    selectTheProjectRow: { asked += 1 })
+        let events = try eventView(in: window)
+        XCTAssertTrue(events.hasEscapeMonitorInstalled,
+                      "precondition: a dimmed board installs the monitor")
+
+        NSApp.sendEvent(escapeKeyEvent(for: window))
+        pump(0.3)
+        XCTAssertEqual(asked, 1, "precondition: the dimmed board answers Escape")
+        XCTAssertEqual(window.escapesDelivered, 0, "precondition: and consumes it")
+
+        subject.value = .wholeProject
+        pump(0.3)
+        XCTAssertFalse(events.hasEscapeMonitorInstalled,
+                       "the monitor outlived the dim — an app-global key eater with "
+                       + "nothing left to do")
+
+        NSApp.sendEvent(escapeKeyEvent(for: window))
+        pump(0.3)
+        XCTAssertEqual(asked, 1, "an undimmed board answered Escape anyway")
+        XCTAssertEqual(window.escapesDelivered, 1,
+                       "the removed monitor is still consuming keys, so `remove()` "
+                       + "cleared its token and left AppKit holding the block")
+    }
+
+    /// **And it does not outlive the VIEW.** A leaked monitor is invisible until
+    /// it eats a key in a window that no longer has a canvas — the failure mode
+    /// with no symptom on the surface that caused it.
+    func test_theMonitorDoesNotOutliveTheCanvas() throws {
+        var asked = 0
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1"),
+                                     selectTheProjectRow: { asked += 1 }))
+        let events = try eventView(in: window)
+        XCTAssertTrue(events.hasEscapeMonitorInstalled, "precondition")
+
+        // The canvas leaves the window — the pane swap, the persona switch, the
+        // window closing. SwiftUI dismantles the representable and AppKit pulls
+        // the view out of its window.
+        window.contentView = NSView(frame: window.frame)
+        pump(0.3)
+        XCTAssertFalse(events.hasEscapeMonitorInstalled,
+                       "the monitor survived the canvas leaving the window")
+
+        NSApp.sendEvent(escapeKeyEvent(for: window))
+        pump(0.3)
+        XCTAssertEqual(window.escapesDelivered, 1,
+                       "a canvas that is no longer on screen is still eating the "
+                       + "writer's Escape")
+        XCTAssertEqual(asked, 0)
+    }
+
+    /// **Exactly one mechanism runs, and this names which.**
+    ///
+    /// `CanvasEventNSView.keyDown` had an Escape arm and it is gone: on a dimmed
+    /// board the monitor consumes the key one layer above the responder chain, so
+    /// the arm could never run. This test drives the key STRAIGHT into the event
+    /// view — the delivery the arm existed for, with the canvas holding first
+    /// responder on a dimmed board — and shows nothing happens. Paired with
+    /// `test_escapeLeavesTheDimWithTheKeyboardSomewhereElseEntirely`, which shows
+    /// the monitor doing the work, the pair is what a comment claiming "the arm is
+    /// redundant" cannot be.
+    func test_theEventViewNoLongerHandlesEscapeItselfBecauseTheMonitorDoes() throws {
+        var asked = 0
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1"),
+                                     selectTheProjectRow: { asked += 1 }))
+        let events = try eventView(in: window)
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 600, y: 500), in: window)
+        XCTAssertEqual(events.onEscape?(), true,
+                       "precondition: the board IS dimmed and the canvas WOULD "
+                       + "answer, so a still-live keyDown arm would lift the dim "
+                       + "below and this test would be measuring nothing")
+        asked = 0
+
+        events.keyDown(with: escapeKeyEvent(for: window))
+        pump(0.3)
+
+        XCTAssertEqual(asked, 0,
+                       "`keyDown` still handles Escape. Two mechanisms answer the "
+                       + "same key under the same condition and only one of them "
+                       + "can ever run — see the argument on `keyDown`")
     }
 
     /// **A scrap made inside a region belongs to it**, on the delivery path.
@@ -5365,5 +5718,69 @@ final class CanvasViewMountingTests: XCTestCase {
                        "measured but not clickable — which is the same failure the "
                        + "writer meets, reached through hit testing instead of the "
                        + "draw pass")
+    }
+}
+
+/// A canvas with a rename field beside it — see `hostBesideARenameField`.
+///
+/// `HStack` and not `ZStack`: the field must be reachable and focusable, not
+/// stacked under a canvas that fills the window.
+private struct CanvasBesideARenameField: View {
+    let canvas: CanvasView
+
+    var body: some View {
+        HStack(spacing: 0) {
+            TextField("rename", text: .constant("Chapter One"))
+                .frame(width: 160)
+            canvas
+        }
+    }
+}
+
+/// The tree's subject, changeable from a test. `@Observable` rather than a
+/// `@State` the test cannot reach: what has to be driven is a subject change
+/// arriving from OUTSIDE the canvas, which is how the real one arrives.
+@Observable
+final class MutableSubject {
+    var value: CanvasSubject = .piece("ch1")
+}
+
+private struct CanvasWithASwitchableSubject: View {
+    let subject: MutableSubject
+    let model: CanvasModel
+    let root: URL
+    let selectTheProjectRow: () -> Void
+
+    var body: some View {
+        CanvasView(model: model, projectRoot: root, paletteSwatchHexes: { [] },
+                   subject: subject.value, selectTheProjectRow: selectTheProjectRow)
+    }
+}
+
+/// **The instrument for "the Escape travelled on", and it is a WINDOW rather
+/// than a second monitor for a measured reason.**
+///
+/// A key the canvas declined and a key it silently swallowed are identical from
+/// every other vantage point in these tests: both leave the subject unchanged.
+/// The first draft read the difference off a probe monitor installed before the
+/// canvas, on the belief that local monitors run most-recently-installed first.
+/// **They do not run in a stable order at all** — measured 2026-08-04 on macOS
+/// 26.5, the same two monitors installed in the same order twice in one process
+/// were invoked B,A and then A,B, and the suite failed intermittently in three
+/// different tests before that was measured rather than assumed.
+///
+/// What IS deterministic: a monitor returning `nil` stops the event before ANY
+/// window sees it. So the window's own `sendEvent` is the honest counter, and it
+/// is also the truer question — `NSWindow` is precisely the responder that took
+/// the writer's first Escape out of full screen.
+final class CanvasHostWindow: NSWindow {
+    private(set) var escapesDelivered = 0
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown,
+           event.charactersIgnoringModifiers == CanvasEventNSView.escape {
+            escapesDelivered += 1
+        }
+        super.sendEvent(event)
     }
 }
