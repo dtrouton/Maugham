@@ -751,11 +751,21 @@ on the weaker one.
 > `ContentUnavailableView` arms. "The Inspector dissolves" is about `InspectorView`
 > and `PieceInspector`, never the segment.
 >
-> **The dependency nobody recorded: Status's destination is slice 6's surface.**
-> §6.3's "pieces by review state" is unbuilt (`Persona.review.binderSegments`
-> returns `[home]`), and `BinderSegment.swift:156` calls it **M3's**. So the
-> dissolution should follow Review's left column, not precede it — which is also
-> the order that lets Status move rather than die.
+> **Status has no destination, and — corrected 2026-08-04, later the same day —
+> that is NOT a dependency on slice 6.** This amendment first said the dissolution
+> should follow Review's left column, "the order that lets Status move rather than
+> die". Slice 6's own reconnaissance disproved it: **status is writable in Review
+> today**, at ⌘⌥I, in the `.inspector` pane Review already carries
+> (`ProjectWindow.inspectorRoute` → `existingInspectorSwitch` → `InspectorView`,
+> or `PieceInspector` on a Collection). §6's *"using the status field slice 4
+> freed"* has it backwards in the same way: **slice 4 frees nothing slice 6 needs.**
+>
+> The real relationship runs one way only. A status-grouped list is a **reader**;
+> the two writable sites are the two this slice would delete. So the dissolution
+> needs *somewhere to set status* before it can proceed — which a queue does not
+> automatically provide, and which the recon's own recommendation (a row context
+> menu calling `updateInspector(id:status:)`) would. Nothing about the ordering of
+> the slices follows from it.
 >
 > **What survives as independently worth doing**, if this is picked up piecemeal:
 > the Publish config pane (the one destination that is a pure build with no open
@@ -918,6 +928,64 @@ shape change. Independent of the shell slices; depends on nothing but M1A.
 and its left column becomes "pieces by review state" using the status field slice
 4 freed. Best done alongside or just before M3, the milestone that gives Review
 its named passes.
+
+> **CLOSED, 2026-08-04, on its own reconnaissance.** Denver's ruling: close it as
+> specced and fold the queue into M3. It was two independently shippable builds
+> under one number, and they go different ways.
+>
+> **The posture half is closed.** Three reasons, each verified against the tree:
+>
+> - **The posture table in §5 is stale in three cells, and building it literally
+>   would reverse two of §5.0's shipped rulings** — palette came off Review as
+>   *"that is authoring"*, and translation moved to Publish. Derived honestly from
+>   §5.0's actual Review set and §2's one stated rule, the delta is **two panes**
+>   (`.tasks`, `.history`), with `.annotations` changing its rendering rather than
+>   its membership. A small return for a second registry dimension.
+> - **Its only reachable input is undocumented.** ⌘⌥⇧R appears in no guide page
+>   (being fixed separately — see below). The role half that would make posture
+>   matter to anyone but the author needs a second Apple ID on an iCloud share and
+>   is recorded UNVERIFIED (`memory/project_collaboration_wf1.md`), so `role` is
+>   `.author` for every project reachable today and `manualReview` is the only live
+>   input.
+> - **M3 re-cuts the axis.** Named editorial passes are the n-valued version of the
+>   same "two jobs over one object" structure §2 built posture for. A two-valued
+>   rule gets rewritten; only an order-preserving filter over an opaque value would
+>   survive, and that is a mechanism without a use until M3 supplies one.
+>
+> **The queue half — "pieces by review state" — goes to M3**, which is what
+> `BinderSegment.swift:156`, `Persona.swift:432` and
+> `PersonaBinderSegmentTests:123` already assume, and what §6's own hedge
+> (*"alongside or just before M3"*) allows. It is the more valuable half — a
+> surface a writer would use daily, and unblocked today — but its companions
+> (per-pass readiness, named passes, intent↔draft comparison) are all M3's, and
+> two readers of one status field designed apart is how they come to disagree.
+>
+> **Three things M3 inherits, recorded so they are not rediscovered:**
+>
+> - **The ejection trap.** `Persona.showsManuscriptDocuments(for:)` is
+>   `binderSegments(for:).contains(documentHome(for:))`, and
+>   `ManuscriptNavigation.destination` guards on it: if Review's left column
+>   *replaces* `[home]` rather than joining it, clicking an annotation, history or
+>   task row throws the writer into Author. `Persona.swift:479-483` names that
+>   failure in advance — *"a reviewer ejected into Author cannot adjudicate — the
+>   one job Review exists for"*.
+> - **A queue must ship with a way to SET status**, or it is a strictly worse
+>   `OutlineTable` (which already has a status swatch and is reachable from Review
+>   by ⌘⌥O). The cheap shape is a row context menu calling
+>   `updateInspector(id:status:)`; drag-between-groups should be refused, because
+>   the same gesture already means reorder in the binder.
+> - **It is a new view, not a filter over `BinderView`** — which answers the
+>   umbrella spec §12's open question in the more expensive direction. Grouping by
+>   status flattens the hierarchy and removes reorder-by-drag, so a chapter under
+>   Part One and one under Part Two land in the same group with nothing saying
+>   where they came from. Open: what a Collection's **reference** pieces do there,
+>   given their status is explicitly cleared on convert-to-reference.
+>
+> **§5's palette / visual-language contradiction needed no ruling after all.**
+> Slice 6 was told to confirm rather than inherit it; doing so found §5.0 — later
+> than both the table and the delta list — had already superseded *both sides* for
+> exactly those two cells, and the code shipped §5.0's answer. The question was
+> settled on 2026-08-03 and the amendment asking for confirmation is spent.
 
 **Slice 7 — research becomes a view rather than a folder tree.** Denver's
 addition, 2026-08-02, **deliberately left unspecced until slices 1–6 have
