@@ -179,10 +179,13 @@ public enum Deriver {
     }
 
     /// Whether an op of this kind mutates the derived manuscript text.
-    /// `internal` (not `private`) so the schema-evolution tests can assert the
-    /// `.unknown` op is inert. The exhaustive switch is the compile-forcing
-    /// gate for future kinds (ADR 0015).
-    static func appliesToManuscript(_ kind: OpKind) -> Bool {
+    /// `public` because derive is no longer the only reader: the compiler's
+    /// `DeltaBuilder` asks the same question of the same op stream, and a
+    /// target-local copy of this switch would be free to drift out of the
+    /// compile-forcing gate below. The exhaustive switch is that gate for
+    /// future kinds (ADR 0015); the schema-evolution tests assert `.unknown`
+    /// is inert through it.
+    public static func appliesToManuscript(_ kind: OpKind) -> Bool {
         switch kind {
         case .typingBurst, .bootstrap, .externalEdit,
              .checkpointRestore, .claudeAccept, .claudeAcceptRevert:
