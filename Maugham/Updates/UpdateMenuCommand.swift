@@ -6,12 +6,18 @@ import MaughamCore
 /// a `.sheet` — `.sheet` on a Commands Button has no host view to render into.
 public let updateWindowID = "update-check"
 
+/// `@MainActor` + nil-default-then-fallback-in-body: same shape and same
+/// reason as `UpdateBannerView`'s doc comment — a default-argument
+/// expression referencing `.shared` (a `@MainActor`-isolated static) warns
+/// regardless of the enclosing type's isolation, at this project's
+/// concurrency-checking level.
+@MainActor
 public struct UpdateMenuCommand: Commands {
     @ObservedObject var checker: UpdateChecker
     @Environment(\.openWindow) private var openWindow
 
-    public init(checker: UpdateChecker = .shared) {
-        self.checker = checker
+    public init(checker: UpdateChecker? = nil) {
+        self.checker = checker ?? .shared
     }
 
     public var body: some Commands {

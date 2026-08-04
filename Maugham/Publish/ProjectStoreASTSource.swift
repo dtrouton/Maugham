@@ -14,8 +14,25 @@ import MaughamCore
 /// Collection references (`pieceKind == .reference`) are skipped in v1 —
 /// publishing a project that references other projects produces only the
 /// loose pieces' content. Cross-project recursion is a follow-up.
+///
+/// **The conformance to `ProjectASTBuilder.Source` is itself `@MainActor`,
+/// not just the type.** `orderedPieces()` reads `projectStore.manifest` and
+/// `projectStore.documentStore` — both `@MainActor`-isolated on `ProjectStore`
+/// — synchronously, with no `await`. Marking only the struct `@MainActor`
+/// (dropping the isolated-conformance annotation) leaves the *protocol
+/// requirement* looking nonisolated from outside, which is unsound: the
+/// existential `any ProjectASTBuilder.Source` that `PDFCompiler`/
+/// `EPUBCompiler`/`CompileOrchestrator` carry across an `await` (into
+/// `CompileJobManager`, itself an `actor`) is not guaranteed to resume on the
+/// main actor, so a synchronous call into main-actor state through it would
+/// be a real data race. `: @MainActor ProjectASTBuilder.Source` (SE-0470
+/// isolated conformances) makes the conformance itself carry the isolation,
+/// so the existential enforces it rather than silently permitting an
+/// off-actor call — this is why the fix is in the conformance clause and not
+/// a `nonisolated` on `orderedPieces()`, which would not type-check against a
+/// body that touches `ProjectStore`.
 @MainActor
-public struct ProjectStoreASTSource: ProjectASTBuilder.Source {
+public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
 
     public let projectStore: ProjectStore
 

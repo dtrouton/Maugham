@@ -130,7 +130,14 @@ public struct MCPResponse: Codable, Equatable {
 }
 
 /// Type-erased JSON for `params` and `result` round-tripping.
-public enum AnyJSON: Codable, Equatable {
+///
+/// `Sendable` is explicit rather than inferred: every case's payload (`Bool`,
+/// `Int`, `Double`, `String`, `[AnyJSON]`, `[String: AnyJSON]`) is already
+/// `Sendable`, but a `public` enum doesn't pick up implicit `Sendable`
+/// conformance across module boundaries the way an internal one can — leaving
+/// it off cost `MCPError.ToolErrorPayload.fields` its own `Sendable`
+/// conformance (Swift 6 warning) despite carrying nothing unsafe.
+public enum AnyJSON: Codable, Equatable, Sendable {
     case null
     case bool(Bool)
     case int(Int)

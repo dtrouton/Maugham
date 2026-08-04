@@ -1,12 +1,18 @@
 import SwiftUI
 import AppKit
 
+/// `@MainActor` + nil-default-then-fallback-in-body: same shape and same
+/// reason as `UpdateBannerView`'s doc comment — a default-argument
+/// expression referencing `.shared` (a `@MainActor`-isolated static) warns
+/// regardless of the enclosing type's isolation, at this project's
+/// concurrency-checking level.
+@MainActor
 public struct UpdateSheet: View {
     @ObservedObject var checker: UpdateChecker
     let dismiss: () -> Void
 
-    public init(checker: UpdateChecker = .shared, dismiss: @escaping () -> Void) {
-        self.checker = checker
+    public init(checker: UpdateChecker? = nil, dismiss: @escaping () -> Void) {
+        self.checker = checker ?? .shared
         self.dismiss = dismiss
     }
 

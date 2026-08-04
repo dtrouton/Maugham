@@ -1,12 +1,29 @@
 import SwiftUI
 import AppKit
 
+/// `@MainActor` explicit on the type: `init` is not a `View` protocol
+/// requirement (only `body` is), so nothing else isolates it, and the
+/// `checker` default below needs `.shared` reachable from init's body.
+@MainActor
 public struct UpdateBannerView: View {
     @ObservedObject var checker: UpdateChecker
     @AppStorage("UpdateBanner.dismissedVersions") private var dismissedCSV: String = ""
 
-    public init(checker: UpdateChecker = .shared) {
-        self.checker = checker
+    /// The parameter defaults to `nil`, not `.shared`, and the fallback lives
+    /// in the init body instead. A default-argument *expression* is
+    /// evaluated in a nonisolated context regardless of the enclosing type's
+    /// declared isolation — confirmed by a minimal repro (`@MainActor` on
+    /// both the type and a singleton `static let`, default arg still warns)
+    /// against this project's concurrency-checking level (`minimal`, since
+    /// `project.yml` sets no `SWIFT_STRICT_CONCURRENCY`; only
+    /// `-strict-concurrency=complete` — a wider build-setting change, not a
+    /// fix to this file — resolves it at the default-arg site). Moving the
+    /// `.shared` read into the body makes it ordinary MainActor-isolated init
+    /// code, sidestepping the default-argument slot entirely.
+    /// `UpdateMenuCommand`/`UpdateSheet` share the same shape and the same
+    /// fix.
+    public init(checker: UpdateChecker? = nil) {
+        self.checker = checker ?? .shared
     }
 
     public var body: some View {
