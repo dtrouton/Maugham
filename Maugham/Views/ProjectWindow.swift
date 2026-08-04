@@ -268,6 +268,8 @@ struct ProjectWindow: View {
         .onChange(of: binderSegment) { _, newValue in
             documentStore?.updateUIState { $0.binderSegment = newValue }
         }
+        .modifier(SubjectValidationModifier(store: store,
+                                            selectedSubject: $selectedSubject))
         .modifier(SessionAndNavigationModifier(
             documentStore: documentStore,
             store: store,
@@ -1786,8 +1788,21 @@ struct ProjectWindow: View {
         BinderSubject.activeDocId(for: selectedSubject)
     }
 
-    /// Where a freshly opened window lands, given what `ui-state.json` held and
-    /// the structure that file's ids are supposed to name.
+    /// Whether the window's subject still names something, and what it becomes
+    /// when it does not.
+    ///
+    /// **One containment question, asked at two moments.** It was written for
+    /// the first — where a freshly opened window lands, given what
+    /// `ui-state.json` held and the structure that file's ids are supposed to
+    /// name — and `SubjectValidationModifier` asks it again on every structure
+    /// change, because a subject can stop naming a row long after the window
+    /// opened. A second spelling of the rule for the runtime moment would be
+    /// free to disagree with this one about the two cases below that are easy to
+    /// get wrong (`.project`, and a group taking its children with it), which is
+    /// exactly how it would go wrong: `BinderView` used to hold one, and it
+    /// answered *"is the subject the row I deleted?"* rather than *"is the
+    /// subject still in the structure?"* — the same question for a document and
+    /// a different one for a group.
     ///
     /// **`.project` is valid precisely because it is in no structure.** The
     /// validation this replaces was a bare `TreeWalk.contains` over the subject's
@@ -1828,9 +1843,16 @@ struct ProjectWindow: View {
     ///
     /// A pure function rather than four lines inside `load()`: this is a routing
     /// decision, the failure is silent, and `load()` is unreachable from a test.
-    static func restoredSubject(saved: BinderSubject?,
-                                in structure: [StructureItem]) -> BinderSubject {
-        switch saved {
+    ///
+    /// **The `nil` row is the restore's answer, not the sweep's.** A window
+    /// nobody has clicked in gets `.project` on open; a window whose writer has
+    /// deselected is left alone, because the sweep REPAIRS a subject and does
+    /// not choose one. That guard lives at the sweep's call site rather than
+    /// here — see `SubjectValidationModifier`, where it is also what keeps the
+    /// sweep out of `load()`'s own window.
+    static func validSubject(_ subject: BinderSubject?,
+                             in structure: [StructureItem]) -> BinderSubject {
+        switch subject {
         case .project:
             return .project
         case .item(let id) where TreeWalk.contains(id: id, in: structure):
@@ -1949,8 +1971,8 @@ struct ProjectWindow: View {
             // decides where a freshly opened window lands. There is always an
             // answer — `.project` needs no document to exist — so there is
             // nothing to leave alone and no `if let` here.
-            self.selectedSubject = Self.restoredSubject(
-                saved: ds.uiState.selectedSubject, in: s.manifest.structure)
+            self.selectedSubject = Self.validSubject(
+                ds.uiState.selectedSubject, in: s.manifest.structure)
             self.isNoChromeOn = ds.uiState.isNoChromeOn
             self.isReviewModeOn = ds.uiState.isReviewModeOn
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible

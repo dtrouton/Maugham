@@ -35,7 +35,7 @@ import MaughamCore
 /// so refuses a group — correctly for a group, silently for this) and nothing
 /// saying why. An unresolvable id is not a subject at all: nobody clicked it,
 /// because the thing they clicked no longer exists. It resolves to
-/// `.wholeProject`, on the same principle as `ProjectWindow.restoredSubject`'s
+/// `.wholeProject`, on the same principle as `ProjectWindow.validSubject`'s
 /// ruling — **the dim is entered by a click**, and a deletion is not one.
 enum CanvasSubject: Hashable {
 

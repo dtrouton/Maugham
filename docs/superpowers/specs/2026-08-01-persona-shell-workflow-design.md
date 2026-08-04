@@ -239,7 +239,9 @@ a document intent AND a project intent at all is a design question, and this
 amendment does not answer it. `StatementPane.effectiveScope` is untouched.
 
 **Third amendment, 2026-08-04 (slice 3 whole-branch review, Critical).
-A freshly opened window lands on the PROJECT.** `ProjectWindow.restoredSubject`
+A freshly opened window lands on the PROJECT.** `ProjectWindow.validSubject`
+(named `restoredSubject` when this amendment was written; it acquired a second
+caller on 2026-08-04 — see the fourth amendment — and the name followed)
 fell back to the first document whenever `ui-state.json` held no subject or held
 an id since deleted. That was inert while the restored subject only decided what
 the editor opened; §4 below gives the same value to the canvas, where a document
@@ -263,6 +265,26 @@ group — stays silent. An id resolving to *nothing* is not a subject and now
 resolves to the whole board. A group that **does** resolve and holds no documents
 still dims: the writer clicked a row that exists, and §4.1's *"everything under
 Part One"* is an honest answer even when the answer is nothing.
+
+**Fourth amendment, 2026-08-04. The same question, asked continuously.** The
+third amendment settled where a window *lands*; a subject can stop naming a row
+long after that. The repair lived in `BinderView.deleteItem` and asked *"is the
+subject the row I deleted?"*, which is the same question as *"is the subject
+still in the structure?"* for a document and a different one for a group —
+deleting a group takes its children with it and the selected child's id is not
+the group's. It was also one of three callers of `deleteStructureItem`; the
+piece context menu and the reference-piece inspector repaired nothing.
+
+**Denver's ruling: validate on structure change, in `ProjectWindow`.** One
+`.onChange`, keyed on the SET of structure ids, calling the same
+`validSubject` the restore calls — so there is one containment question and one
+answer to it, and a dangling subject becomes `.project` at any moment rather
+than `.project` on open and `nil` at runtime. Nothing for a caller to remember,
+and it covers the deletions a list of sites cannot: a cross-device merge, an
+external edit, whatever comes next. The typed-helper-plus-census alternative
+(tripwire 14's shape) and the tolerant-readers alternative were weighed and
+rejected. `SubjectValidationModifier` carries the derivation of the trigger, and
+of the two guards that keep it out of `load()`'s window.
 
 ---
 

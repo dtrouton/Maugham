@@ -183,21 +183,13 @@ final class BinderProjectRowTests: XCTestCase {
 
     // MARK: - The delete path
 
-    /// Deleting something else in the tree must not take the project subject
-    /// with it. `BinderView.deleteItem` is the ONE site in the app that sets the
-    /// selection to `nil`.
-    func test_deletingAnotherItemLeavesTheProjectSubjectAlone() {
-        XCTAssertEqual(BinderView.subject(.project, afterDeleting: "doc-1"),
-                       .project)
-        XCTAssertEqual(BinderView.subject(.item("doc-2"), afterDeleting: "doc-1"),
-                       .item("doc-2"))
-    }
-
-    /// …and deleting the item that IS the subject still clears it, unchanged.
-    func test_deletingTheSelectedItemStillClearsTheSelection() {
-        XCTAssertNil(BinderView.subject(.item("doc-1"), afterDeleting: "doc-1"))
-        XCTAssertNil(BinderView.subject(nil, afterDeleting: "doc-1"))
-    }
+    // `BinderView` no longer holds a rule for what the subject becomes after a
+    // delete — it held one that answered "is the subject the row I deleted?",
+    // which is a different question from "is the subject still there?" the
+    // moment the deleted row is a group. The rule and its tests moved whole to
+    // `SubjectValidationTests`, including the two this section used to carry:
+    // the project subject surviving somebody else's delete, and the selected
+    // item's own delete moving the window off it.
 
     // MARK: - Fixtures
 

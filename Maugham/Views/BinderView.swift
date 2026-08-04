@@ -239,31 +239,19 @@ struct BinderView: View {
         }
     }
 
+    /// **No subject repair here.** It used to clear `selectedSubject` when the
+    /// deleted id WAS the subject, which is the right answer for a document and
+    /// the wrong one for a group — `TreeWalk.remove` takes the group's children
+    /// with it, and the selected child's id is not the group's, so the subject
+    /// survived naming a row that was gone. It was also one of three callers of
+    /// `deleteStructureItem` and the only one that repaired anything. The rule
+    /// now watches the structure instead: `SubjectValidationModifier`.
     private func deleteItem(id: String) async {
         do {
             try await store.deleteStructureItem(id: id)
-            selectedSubject = Self.subject(selectedSubject, afterDeleting: id)
         } catch {
             pendingError = error.localizedDescription
         }
-    }
-
-    /// What the window's subject becomes when `deletedId` leaves the structure.
-    ///
-    /// **Only the deleted item's own subject is cleared.** This is the one site
-    /// in the app that sets the selection to `nil`, and with a project row above
-    /// the tree it now has a value it must leave alone: `.project` names nothing
-    /// in the structure, so no delete can invalidate it, and clearing it would
-    /// silently move the window off a subject the writer chose while they were
-    /// tidying up somewhere else.
-    ///
-    /// The `nil` it does still return is no longer a dead end — the project row
-    /// is in the list even when the structure is empty, so deleting the last
-    /// document leaves a subject one click away rather than a window with
-    /// nothing selectable in it.
-    static func subject(_ subject: BinderSubject?,
-                        afterDeleting deletedId: String) -> BinderSubject? {
-        subject == .item(deletedId) ? nil : subject
     }
 
     private func handleDrop(
