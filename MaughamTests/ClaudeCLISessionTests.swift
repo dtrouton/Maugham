@@ -122,7 +122,8 @@ final class ClaudeCLISessionTests: XCTestCase {
         cli: URL?,
         isEnabled: @escaping () -> Bool = { true },
         idleTimeout: TimeInterval = 600,
-        runTimeout: TimeInterval = 20
+        runTimeout: TimeInterval = 20,
+        locator: (@Sendable () -> URL?)? = nil
     ) -> ClaudeCLISession {
         ClaudeCLISession(
             model: "haiku",
@@ -130,7 +131,33 @@ final class ClaudeCLISessionTests: XCTestCase {
             cliOverride: cli,
             isEnabled: isEnabled,
             idleTimeout: idleTimeout,
-            runTimeout: runTimeout)
+            runTimeout: runTimeout,
+            locator: locator ?? { nil })
+    }
+
+    /// Records what the injected locator saw, from whatever thread ran it.
+    private final class LocatorProbe: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _calls = 0
+        private var _ranOnMainThread = false
+        private let answer: URL?
+
+        init(answer: URL?) { self.answer = answer }
+
+        var calls: Int { lock.lock(); defer { lock.unlock() }; return _calls }
+        var ranOnMainThread: Bool {
+            lock.lock(); defer { lock.unlock() }; return _ranOnMainThread
+        }
+
+        func locate() -> URL? {
+            lock.lock()
+            _calls += 1
+            // A login-shell probe blocks; if it ever runs here, the whole app
+            // window is frozen for its duration.
+            if Thread.isMainThread { _ranOnMainThread = true }
+            lock.unlock()
+            return answer
+        }
     }
 
     /// Number of lines in `url`, or 0 when it does not exist.
@@ -357,6 +384,146 @@ final class ClaudeCLISessionTests: XCTestCase {
             dServers[BuildVariant.current.mcpServerKey] as? [String: Any])
         XCTAssertNil(dEntry["env"],
             "the default socket wants no env override")
+    }
+
+    /// Locating the CLI must not run on the main actor. The fallback shells out
+    /// to a login shell that sources the writer's profile — on a real machine
+    /// that is hundreds of milliseconds to seconds of frozen window, and it
+    /// would be paid again on every respawn.
+    func test_cliResolutionNeverRunsOnTheMainActor() async throws {
+        let cli = try makeFakeCLI(mode: .normal)
+        let probe = LocatorProbe(answer: cli)
+        let session = makeSession(cli: nil, locator: { probe.locate() })
+
+        let event = await session.send(message: "hello", systemPreamble: nil)
+
+        XCTAssertEqual(event, .resultText("FAKE RESULT"),
+            "the probe path must still produce a working session")
+        XCTAssertGreaterThan(probe.calls, 0, "the locator should have been consulted")
+        XCTAssertFalse(probe.ranOnMainThread,
+            "the CLI probe blocks; running it on the main actor freezes the app")
+
+        session.shutdown()
+    }
+
+    /// The answer is kept for the session. Death, cancel, timeout and a toggle
+    /// cycle all respawn, and none of them should re-pay for a login shell.
+    func test_cliResolutionIsCachedAcrossRespawns() async throws {
+        let cli = try makeFakeCLI(mode: .dieFirst)
+        let probe = LocatorProbe(answer: cli)
+        let session = makeSession(cli: nil, locator: { probe.locate() })
+
+        // First send dies mid-turn, so the second one respawns.
+        let died = await session.send(message: "one", systemPreamble: nil)
+        guard case .failed(.sessionDied) = died else {
+            return XCTFail("expected .sessionDied, got \(died)")
+        }
+        let healed = await session.send(message: "two", systemPreamble: nil)
+        XCTAssertEqual(healed, .resultText("FAKE RESULT"))
+        XCTAssertEqual(lineCount(counterURL), 2, "the second send must have respawned")
+
+        XCTAssertEqual(probe.calls, 1,
+            "the resolved CLI must be reused by the respawn, not probed again")
+
+        session.shutdown()
+    }
+
+    /// Resolving the CLI suspends, which opens a window that did not exist when
+    /// resolution was synchronous: a `shutdown` can land while a send is
+    /// off-main. It must not come back and spawn a process moments after the
+    /// session was told to stop.
+    func test_shutdownDuringCLIResolutionNeverSpawns() async throws {
+        let cli = try makeFakeCLI(mode: .normal)
+        let session = makeSession(cli: nil, locator: {
+            Thread.sleep(forTimeInterval: 0.3)   // a login shell, in miniature
+            return cli
+        })
+
+        async let pending = session.send(message: "hello", systemPreamble: nil)
+        let claimed = await waitUntil { session.isRunning }
+        XCTAssertTrue(claimed, "the turn should be claimed before resolution finishes")
+        XCTAssertFalse(session.hasLiveProcess, "nothing is spawned until the CLI resolves")
+
+        session.shutdown()
+        let event = await pending
+
+        guard case .failed = event else {
+            return XCTFail("a send interrupted by shutdown must fail, got \(event)")
+        }
+        XCTAssertFalse(session.hasLiveProcess)
+        let spawned = await waitUntil(0.6) { self.lineCount(self.counterURL) > 0 }
+        XCTAssertFalse(spawned,
+            "a session shut down mid-resolution must never spawn the CLI")
+    }
+
+    /// The same window, seen from the other side: the second send must be
+    /// refused rather than spawning over the first, even though the first has
+    /// not stored its continuation yet.
+    func test_aSecondSendDuringCLIResolutionIsRefused() async throws {
+        let cli = try makeFakeCLI(mode: .normal)
+        let session = makeSession(cli: nil, locator: {
+            Thread.sleep(forTimeInterval: 0.3)
+            return cli
+        })
+
+        async let firstRun = session.send(message: "one", systemPreamble: nil)
+        let claimed = await waitUntil { session.isRunning }
+        XCTAssertTrue(claimed)
+
+        let second = await session.send(message: "two", systemPreamble: nil)
+        guard case .failed(.sessionDied(let detail)) = second else {
+            return XCTFail("expected a refusal, got \(second)")
+        }
+        XCTAssertTrue(detail.contains("already in flight"), "got detail: \(detail)")
+
+        let firstEvent = await firstRun
+        XCTAssertEqual(firstEvent, .resultText("FAKE RESULT"),
+            "the first turn must be unharmed by the refusal")
+        XCTAssertEqual(lineCount(counterURL), 1, "exactly one process")
+
+        session.shutdown()
+    }
+
+    /// The retired-process guard: a callback carrying a dead spawn's generation
+    /// must not resolve the turn that replaced it. Without it a kill-and-respawn
+    /// lets the corpse answer for the live run — the writer would see the
+    /// cancelled turn's diagnostics attributed to the new one.
+    func test_aRetiredProcessCannotResolveTheLiveTurn() async throws {
+        let cli = try makeFakeCLI(mode: .slowWhileFlagged)
+        try Data().write(to: slowFlagURL)
+        let session = makeSession(cli: cli)
+
+        // A first process, alive and mid-turn: capture the generation its
+        // reader callbacks carry.
+        async let first = session.send(message: "first", systemPreamble: nil)
+        let firstStarted = await waitUntil { session.isRunning }
+        XCTAssertTrue(firstStarted, "the first turn should be in flight")
+        let retiredGeneration = session.currentGeneration
+
+        // Kill it, then start a turn that stays in flight on a fresh process.
+        session.cancelCurrentRun()
+        _ = await first
+        async let live = session.send(message: "second", systemPreamble: nil)
+        let inFlight = await waitUntil { session.isRunning }
+        XCTAssertTrue(inFlight, "the second turn should be in flight")
+        XCTAssertNotEqual(session.currentGeneration, retiredGeneration,
+            "the respawn must have moved the generation on")
+
+        // The corpse speaks.
+        session.deliverAsIfFromProcess(
+            line: #"{"type":"result","result":"STALE ANSWER FROM THE DEAD PROCESS"}"#,
+            generation: retiredGeneration)
+
+        XCTAssertTrue(session.isRunning,
+            "a retired process's result must not end the live turn")
+
+        // The live process answers for itself.
+        try FileManager.default.removeItem(at: slowFlagURL)
+        let event = await live
+        XCTAssertEqual(event, .resultText("FAKE RESULT"),
+            "the live turn must resolve with its OWN process's result")
+
+        session.shutdown()
     }
 
     /// The invocation is the one the spike measured, and the system preamble

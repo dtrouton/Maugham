@@ -15,9 +15,18 @@ import MaughamCore
 /// - Death mid-run fails that run once; the next run starts a fresh session.
 ///
 /// All state lives on the main actor. The blocking pipe read runs on
-/// `FileHandle`'s own queue and hands whole lines back over a `Task`, so the
-/// main actor never waits on the subprocess — the `TectonicInvoker` discipline
+/// `FileHandle`'s own queue and hands whole lines back over a `Task`; locating
+/// the CLI runs off-main too, because a login-shell probe can take seconds. The
+/// main actor never waits on a subprocess — the `TectonicInvoker` discipline
 /// (`Maugham/Publish/TectonicInvoker.swift`), one process longer-lived.
+///
+/// **The owner must call `shutdown()`.** Releasing a live session does NOT kill
+/// its `claude`: `deinit` is nonisolated and cannot touch main-actor state, and
+/// deallocating a `Process` neither signals nor reaps the child. An
+/// un-shut-down session leaks a real, billing, API-calling process for as long
+/// as it survives its closed stdin. Every teardown path Tasks 6–7 wire —
+/// toggle-off, project close, app quit, window/persona teardown, and error
+/// paths — has to reach `shutdown()`; this type cannot defend itself.
 @MainActor
 final class ClaudeCLISession: CompilerRunner {
 
@@ -26,6 +35,9 @@ final class ClaudeCLISession: CompilerRunner {
     private let model: String
     private let mcpConfigPath: URL
     private let cliOverride: URL?
+    /// Finds `claude` when no override is given. Runs OFF the main actor
+    /// (hence `@Sendable`) because the fallback shells out.
+    private let locator: @Sendable () -> URL?
     /// Reads `UserPreferences.mcpEnabled`. Consulted before *every* spawn.
     private let isEnabled: () -> Bool
     private let idleTimeout: TimeInterval
@@ -54,29 +66,58 @@ final class ClaudeCLISession: CompilerRunner {
     /// Remembered so a respawn re-applies the session's system prompt.
     private var lastPreamble: String?
 
+    /// Resolved once per session and reused by every respawn — locating the
+    /// CLI can cost a login shell, and death/cancel/timeout/toggle cycles all
+    /// respawn. Only a SUCCESS is cached: a writer who installs `claude`
+    /// mid-session should not have to restart the app.
+    private var resolvedCLI: URL?
+
     private(set) var isRunning = false
 
     /// Test seam: whether a subprocess is currently held and alive.
     var hasLiveProcess: Bool { process?.isRunning == true }
+
+    /// Test seam: the generation a spawn's reader callbacks carry.
+    var currentGeneration: Int { generation }
+
+    /// Test seam: deliver a stream line exactly as the reader installed for
+    /// `generation` would.
+    ///
+    /// A stale callback cannot be arranged from outside — `teardown` nils the
+    /// handler, so the only real window is a callback already enqueued on the
+    /// main actor, which no test can schedule deterministically. This is the
+    /// same call the reader makes with the generation frozen into its closure
+    /// at spawn (`installReader`), so a test can pin the guard that stops a
+    /// retired process from resolving the live turn.
+    func deliverAsIfFromProcess(line: String, generation gen: Int) {
+        receive(line: line, generation: gen)
+    }
 
     init(model: String,
          mcpConfigPath: URL,
          cliOverride: URL?,
          isEnabled: @escaping () -> Bool,
          idleTimeout: TimeInterval = 600,
-         runTimeout: TimeInterval = 120) {
+         runTimeout: TimeInterval = 120,
+         locator: @escaping @Sendable () -> URL? = { ClaudeCLISession.locateCLI() }) {
         self.model = model
         self.mcpConfigPath = mcpConfigPath
         self.cliOverride = cliOverride
         self.isEnabled = isEnabled
         self.idleTimeout = idleTimeout
         self.runTimeout = runTimeout
+        self.locator = locator
     }
 
     deinit {
-        // `deinit` is nonisolated; the timers hold only weak references and the
-        // subprocess is reaped when the last reference to `Process` drops. A
-        // synchronous teardown here would need main-actor hops we cannot make.
+        // Nothing to clean up here, and that is a liability rather than a
+        // design: `deinit` is nonisolated and cannot touch this class's
+        // main-actor state, so it cannot terminate the child. Dropping a
+        // `Process` does not signal or reap the OS process it wrapped — a
+        // session released without `shutdown()` ORPHANS a live `claude` until
+        // it notices its closed stdin, which is behaviour of the real CLI we
+        // have not verified. The timers hold only weak references, so those do
+        // die with the session. See the type's doc comment.
     }
 
     // MARK: - CompilerRunner
@@ -89,26 +130,54 @@ final class ClaudeCLISession: CompilerRunner {
             teardown()
             return .failed(.disabledByToggle)
         }
-        guard inFlight == nil else {
+        // `isRunning` and not just `inFlight`: resolving the CLI suspends, and
+        // the continuation that sets `inFlight` is stored only after it. A
+        // second send arriving in that window would otherwise sail past this
+        // guard and spawn over the first.
+        guard !isRunning, inFlight == nil else {
             return .failed(.sessionDied(detail: "a run is already in flight"))
         }
         if let systemPreamble { lastPreamble = systemPreamble }
 
-        if let failure = ensureProcess() {
+        // Claim the turn synchronously, before the first suspension point.
+        runToken &+= 1
+        let token = runToken
+        let epoch = generation
+        idleTask?.cancel()
+        idleTask = nil
+        isRunning = true
+
+        guard let cli = await resolveCLI() else {
+            isRunning = false
+            return .failed(.cliNotFound)
+        }
+        // Both can have changed while we were off-main: the writer may have
+        // turned Claude off, or shut the session down, mid-probe. `generation`
+        // moves on every teardown, so it detects a shutdown/cancel that landed
+        // in the window — without this the session would spawn a process
+        // moments after being told to stop.
+        guard generation == epoch, runToken == token else {
+            isRunning = false
+            return .failed(.sessionDied(detail: "session shut down"))
+        }
+        guard isEnabled() else {
+            isRunning = false
+            teardown()
+            return .failed(.disabledByToggle)
+        }
+
+        if let failure = ensureProcess(cli: cli) {
+            isRunning = false
             return .failed(failure)
         }
         guard let stdin = stdinHandle else {
+            isRunning = false
             return .failed(.sessionDied(detail: "no stdin on the spawned CLI"))
         }
         guard let payload = Self.userMessageLine(message) else {
+            isRunning = false
             return .failed(.unusableOutput)
         }
-
-        idleTask?.cancel()
-        idleTask = nil
-        runToken &+= 1
-        let token = runToken
-        isRunning = true
 
         let event = await withCheckedContinuation { (cont: CheckedContinuation<CompilerRunEvent, Never>) in
             inFlight = cont
@@ -126,18 +195,26 @@ final class ClaudeCLISession: CompilerRunner {
             armRunTimeout(token: token)
         }
 
-        armIdleTimer()
+        // Only while a process still stands. A turn resolved BY a teardown —
+        // shutdown, cancel, timeout, death — must not re-arm the idle timer it
+        // just cancelled; `send` cannot otherwise tell "a real turn ended" from
+        // "you were shut down out from under me".
+        if process != nil { armIdleTimer() }
         return event
     }
 
     func cancelCurrentRun() {
-        guard inFlight != nil else { return }
+        // `isRunning`, not `inFlight`: a send still resolving its CLI has no
+        // continuation yet, and must still be stoppable — `teardown` moves
+        // `generation`, which is what aborts it after its suspension.
+        guard isRunning else { return }
         let token = runToken
         // stream-json offers no mid-turn interrupt: ending the turn means
         // ending the process. The next send respawns (the brief's sanctioned
         // implementation — the contract is that the next send works).
         teardown()
         resolve(.failed(.sessionDied(detail: "cancelled")), token: token)
+        isRunning = false
     }
 
     func shutdown() {
@@ -146,17 +223,16 @@ final class ClaudeCLISession: CompilerRunner {
         idleTask = nil
         teardown()
         resolve(.failed(.sessionDied(detail: "session shut down")), token: token)
+        isRunning = false
     }
 
     // MARK: - Spawn
 
     /// Ensure a live subprocess, spawning lazily. Returns a failure when one
     /// could not be had; `nil` on success.
-    private func ensureProcess() -> CompilerRunFailure? {
+    private func ensureProcess(cli: URL) -> CompilerRunFailure? {
         if let process, process.isRunning { return nil }
         teardown()
-
-        guard let cli = resolveCLI() else { return .cliNotFound }
 
         let proc = Process()
         proc.executableURL = cli
@@ -175,7 +251,12 @@ final class ClaudeCLISession: CompilerRunner {
         let gen = generation
         installReader(on: stdout.fileHandleForReading, generation: gen)
         // Drain stderr so a chatty CLI cannot fill the pipe and wedge itself.
-        stderr.fileHandleForReading.readabilityHandler = { fh in _ = fh.availableData }
+        // The EOF guard is not optional: once the child's stderr closes, GCD
+        // reports the fd continuously readable, and a handler that never
+        // unregisters itself spins that queue until teardown happens to nil it.
+        stderr.fileHandleForReading.readabilityHandler = { fh in
+            if fh.availableData.isEmpty { fh.readabilityHandler = nil }
+        }
 
         do {
             try proc.run()
@@ -230,12 +311,27 @@ final class ClaudeCLISession: CompilerRunner {
 
     // MARK: - Locating the CLI
 
-    private func resolveCLI() -> URL? {
+    /// Resolve the CLI once per session, off the main actor.
+    ///
+    /// The fallback shells out to a login shell, which on a real machine sources
+    /// nvm/pyenv/oh-my-zsh and can take hundreds of milliseconds to seconds.
+    /// Run inline on the main actor that is a frozen window and a spinning
+    /// beachball, and it would run again on every respawn — so it goes to a
+    /// detached task and its answer is kept.
+    private func resolveCLI() async -> URL? {
+        if let resolvedCLI { return resolvedCLI }
         if let cliOverride {
-            return FileManager.default.isExecutableFile(atPath: cliOverride.path)
-                ? cliOverride : nil
+            guard FileManager.default.isExecutableFile(atPath: cliOverride.path) else {
+                return nil
+            }
+            resolvedCLI = cliOverride
+            return cliOverride
         }
-        return Self.locateCLI()
+        let locator = self.locator
+        let found = await Task.detached(priority: .userInitiated) { locator() }.value
+        // Only a success is cached — see `resolvedCLI`.
+        if let found { resolvedCLI = found }
+        return found
     }
 
     /// Find `claude` the way the writer's shell would.
@@ -246,7 +342,9 @@ final class ClaudeCLISession: CompilerRunner {
     /// machine that plainly has one. Well-known install locations are checked
     /// first (no subprocess), then a *login* shell is asked, which sources the
     /// writer's profile and therefore sees their real PATH.
-    static func locateCLI() -> URL? {
+    /// `nonisolated` on purpose: this is the thing that must never run on the
+    /// main actor, and the compiler should enforce that rather than a comment.
+    nonisolated static func locateCLI() -> URL? {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let candidates = [
             home.appendingPathComponent(".local/bin/claude"),
@@ -266,7 +364,7 @@ final class ClaudeCLISession: CompilerRunner {
     /// Run `command` in a login shell and return its trimmed first line of
     /// stdout, or nil. Mirrors `UpdateInstaller.python3Available()`'s probe,
     /// widened to capture the path rather than only the exit status.
-    private static func loginShellProbe(_ command: String) -> String? {
+    nonisolated private static func loginShellProbe(_ command: String) -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
         p.arguments = ["-lc", command]
