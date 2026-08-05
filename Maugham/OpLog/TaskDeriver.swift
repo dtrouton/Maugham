@@ -136,7 +136,13 @@ public enum TaskDeriver {
                     status: .open,
                     createdAt: op.at,
                     createdBySession: op.provenance?.sessionId,
-                    anchorDocId: op.docId)
+                    anchorDocId: op.docId,
+                    // A promoted diagnostic (M2 Task 9) carries the ¶ it was
+                    // raised against in the op's `changes` entry — an anchor,
+                    // never an edit, the shape `AnnotationDeriver` already
+                    // reads. A task typed into the pane has no entry and stays
+                    // document-scoped.
+                    anchorParagraphId: op.changes.first?.paragraphId)
 
             case .taskStatusChange:
                 guard let id = op.provenance?.taskId,
@@ -353,11 +359,13 @@ public enum TaskDeriver {
         for seed in paneSeedsSorted {
             // Pane tasks anchored to the doc they were created in. For the
             // project log (docId == "__project__"), `seed.anchorDocId` is
-            // "__project__" — caller decides how to surface it.
+            // "__project__" — caller decides how to surface it. A promoted
+            // diagnostic narrows that to the ¶ it was raised against.
             all.append(WriterTask(
                 id: seed.id,
                 kind: .paneCreated,
-                anchor: TaskAnchor(docId: seed.anchorDocId, paragraphId: nil),
+                anchor: TaskAnchor(docId: seed.anchorDocId,
+                                   paragraphId: seed.anchorParagraphId),
                 body: seed.body,
                 status: seed.status,
                 priority: seed.priority,
@@ -401,6 +409,7 @@ public enum TaskDeriver {
         let createdAt: Date
         let createdBySession: String?
         let anchorDocId: String
+        let anchorParagraphId: String?
     }
 
     /// Holds lifecycle overrides keyed by synthetic (inline / fountain) id —

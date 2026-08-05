@@ -415,7 +415,8 @@ struct DetailPaneToggle<Inspector: View>: View {
                     ds?.document(forDocId: activeDocId)?.paragraph(id: paragraphId)
                 },
                 compilerModel: compilerModel,
-                onCompilerModelChange: onCompilerModelChange)
+                onCompilerModelChange: onCompilerModelChange,
+                activeDocument: { [weak ds] in ds?.document(forDocId: activeDocId) })
         } else {
             ContentUnavailableView(
                 "Select a document",

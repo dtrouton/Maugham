@@ -241,7 +241,9 @@ final class TasksPaneIntegrationTests: XCTestCase {
         XCTAssertNotNil(task.anchor, "anchor exists (the doc id)")
         XCTAssertEqual(task.anchor?.docId, doc.docId)
         XCTAssertNil(task.anchor?.paragraphId,
-            "pane-created tasks have no paragraph anchor")
+            "a task typed into the pane has no paragraph anchor. A pane-created "
+            + "task CAN carry one since M2's promote-to-task, which passes "
+            + "`paragraphId:` — this is about the path that does not")
 
         // And the project-scope variant via ProjectStore.
         let (url, _) = try makeProject()

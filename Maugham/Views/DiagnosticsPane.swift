@@ -19,6 +19,15 @@ struct DiagnosticsPane: View {
     let currentText: (String) -> String?
     let compilerModel: CompilerModelChoice
     var onCompilerModelChange: (CompilerModelChoice) -> Void = { _ in }
+    /// The document a promoted note becomes a task on — `TasksPane.activeDoc()`'s
+    /// idiom, a closure rather than a `Document` so this view still holds no
+    /// editor state (tripwires 3, 6). Defaulted so the callers that only read
+    /// notes keep compiling; a `nil` return means there is nothing to promote
+    /// onto, and the note is left where it is rather than dismissed into
+    /// nowhere.
+    var activeDocument: @MainActor () -> Document? = { nil }
+
+    @Environment(\.undoManager) private var undoManager
 
     // MARK: - Reads
 
@@ -226,14 +235,16 @@ struct DiagnosticsPane: View {
                         DiagnosticRow(
                             diagnostic: driftNote, isDrift: true,
                             onJump: {},
-                            onOpenIntent: { MaughamEvent.postDetailSegment(.intent) })
+                            onOpenIntent: { MaughamEvent.postDetailSegment(.intent) },
+                            onPromote: { promote(driftNote) })
                         Divider()
                     }
                     ForEach(anchoredNotes) { diagnostic in
                         DiagnosticRow(
                             diagnostic: diagnostic, isDrift: false,
                             onJump: { jump(diagnostic) },
-                            onOpenIntent: { MaughamEvent.postDetailSegment(.intent) })
+                            onOpenIntent: { MaughamEvent.postDetailSegment(.intent) },
+                            onPromote: { promote(diagnostic) })
                         Divider()
                     }
                 }
@@ -281,6 +292,25 @@ struct DiagnosticsPane: View {
         diagnostic.anchor?.paragraphId
     }
 
+    /// Turn a note into a durable task and take it off the pane.
+    ///
+    /// The two halves are deliberately asymmetric about undo. The task is one
+    /// undo step — `createPaneTask` registers its own inverse, so ⌘Z takes it
+    /// back. The dismissal is not undoable, and that is intended rather than
+    /// missing: the diagnostics sidecar is per-device derived state with no
+    /// undo of its own, and a note that still stands is raised again by the
+    /// next run. A ⌘Z that resurrected it would be claiming the compiler had
+    /// re-checked something it has not looked at since.
+    private func promote(_ diagnostic: Diagnostic) {
+        guard let document = activeDocument() else { return }
+        document.createPaneTask(
+            body: DiagnosticPromotion.taskBody(for: diagnostic, run: lastRun),
+            parentTaskId: nil,
+            paragraphId: diagnostic.anchor?.paragraphId,
+            undoManager: undoManager)
+        diagnostics.dismiss(diagnostic.id, docId: docId)
+    }
+
     private func jump(_ diagnostic: Diagnostic) {
         // Reuses `AnnotationsPane.jump`'s event rather than a copy — span
         // precision is that pane's alone; a diagnostic anchors a whole
@@ -298,6 +328,7 @@ private struct DiagnosticRow: View {
     let isDrift: Bool
     let onJump: () -> Void
     let onOpenIntent: () -> Void
+    let onPromote: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -313,10 +344,19 @@ private struct DiagnosticRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
-            if isDrift {
-                Button("Open Intent", action: onOpenIntent)
+            // Promote is on every row, drift included — a drift note is the one
+            // most worth keeping, and it lands as a document-scoped task
+            // because there is no ¶ under it to carry.
+            HStack(spacing: 6) {
+                if isDrift {
+                    Button("Open Intent", action: onOpenIntent)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+                Button("Promote to Task", action: onPromote)
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .help("Keep this note as a task on the document.")
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
