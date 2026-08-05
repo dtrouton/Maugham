@@ -120,6 +120,46 @@ final class DiagnosticsStoreTests: XCTestCase {
             store2.live(docId: docId, currentText: { _ in "steady" }), [diag])
     }
 
+    /// What a run lost survives the relaunch, because "Nothing to flag." is a
+    /// claim the pane makes off the sidecar long after the run.
+    func test_roundTrip_carriesWhatTheRunDiscarded() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docDropped"
+
+        var run = makeRun()
+        run.droppedDangling = 3
+        DiagnosticsStore(projectRoot: project, device: device)
+            .replace(run: run, diagnostics: [], docId: docId)
+
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: docId)
+        XCTAssertEqual(reopened.lastRun(docId: docId)?.droppedDangling, 3)
+    }
+
+    /// A sidecar written before the field existed decodes as zero rather than
+    /// failing the whole file — an undecodable sidecar reads as empty, which
+    /// would tell the writer their document had never been checked.
+    func test_aSidecarWithoutTheDiscardCountStillLoads() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docLegacy"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("""
+            {"diagnostics":[],"run":{"at":"2026-08-04T09:00:00Z","deltaSummary":"1 new, 0 revised",
+            "id":"01JABC","lastOpId":"op1","model":"sonnet"}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        XCTAssertEqual(store.lastRun(docId: docId)?.model, "sonnet",
+            "the record must still load")
+        XCTAssertEqual(store.lastRun(docId: docId)?.droppedDangling, 0)
+    }
+
     func test_corruptSidecar_readsAsEmpty_neverThrows() throws {
         let project = try makeProject()
         let device = DeviceSlug.make(from: "test-mac")

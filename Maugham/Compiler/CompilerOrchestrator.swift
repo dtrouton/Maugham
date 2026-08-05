@@ -279,7 +279,11 @@ final class CompilerOrchestrator {
                 // the whole document.
                 lastOpId: delta.newestOpId ?? marker,
                 deltaSummary: Self.summary(of: delta),
-                intentSnapshot: intentSnapshot)
+                intentSnapshot: intentSnapshot,
+                // Carried, not swallowed. A run whose every note named a
+                // paragraph the writer has since changed accepts nothing, and
+                // without this the pane would wear the seal over it.
+                droppedDangling: outcome.droppedDangling)
             diagnostics?.replace(run: run, diagnostics: notes, docId: docId)
             if let intentHash, let runner {
                 sentIntent[docId] = (intentHash, runner.sessionEpoch)

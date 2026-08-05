@@ -58,11 +58,12 @@ final class DiagnosticsPaneTests: XCTestCase {
                   body: body, category: category, runId: ULID.generate())
     }
 
-    private func makeRun(model: String = "sonnet", lastOpId: String? = "op1") -> CompilerRun {
+    private func makeRun(model: String = "sonnet", lastOpId: String? = "op1",
+                         droppedDangling: Int = 0) -> CompilerRun {
         let wholeSecond = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         return CompilerRun(id: ULID.generate(), at: wholeSecond, model: model,
                            lastOpId: lastOpId, deltaSummary: "1 new, 0 revised \u{00b6}",
-                           intentSnapshot: nil)
+                           intentSnapshot: nil, droppedDangling: droppedDangling)
     }
 
     // MARK: - Header state (pure — no mount)
@@ -406,6 +407,58 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(DiagnosticsPane.emptyState(for: .neverRun).title, "Not checked yet")
         XCTAssertEqual(DiagnosticsPane.emptyState(for: .clean(lastRun: makeRun())).title,
                        "Nothing to flag.")
+    }
+
+    // MARK: - A run that lost every note it raised
+
+    /// **The adjacent case to a failed run.** The compiler returned three real
+    /// notes against paragraphs the writer has since changed, ingest dropped
+    /// all three, and nothing was accepted — so the pane, reading only the note
+    /// count, showed the seal and a clean bill over a check that did flag
+    /// things. The clean run's line now says what it lost.
+    func test_aRunThatDiscardedEveryNote_saysSoInsteadOfAClaimingCleanBill() {
+        let run = makeRun(droppedDangling: 3)
+        let line = DiagnosticsPane.headerCopy(for: .clean(lastRun: run))
+
+        XCTAssertTrue(line.contains("Nothing to flag."),
+            "the run genuinely raised nothing that could be placed")
+        XCTAssertTrue(
+            line.contains("3 notes arrived against paragraphs that have changed "
+                          + "and were discarded"),
+            "got: \(line)")
+        XCTAssertFalse(line.lowercased().contains("unknown paragraph"),
+            "the parser's vocabulary is not the writer's, and it reads as their fault")
+
+        let empty = DiagnosticsPane.emptyState(for: .clean(lastRun: run))
+        XCTAssertNotEqual(empty.symbol, "checkmark.seal",
+            "the seal is for a run with nothing to say, not one that was mistranscribed")
+        XCTAssertNotEqual(empty.symbol, "exclamationmark.triangle",
+            "…and it is not a failure either — nothing here is alarming")
+        XCTAssertTrue(empty.description.contains("3 notes arrived"), "got: \(empty.description)")
+    }
+
+    /// The converse, so the clause cannot creep onto every clean run: a
+    /// genuinely clean one — nothing raised, nothing discarded — keeps the seal
+    /// and says nothing more.
+    func test_aGenuinelyCleanRunKeepsTheSealAndSaysNothingMore() {
+        let run = makeRun(droppedDangling: 0)
+        let line = DiagnosticsPane.headerCopy(for: .clean(lastRun: run))
+
+        XCTAssertTrue(line.hasPrefix("Nothing to flag."))
+        XCTAssertFalse(line.contains("discarded"), "got: \(line)")
+        XCTAssertEqual(DiagnosticsPane.emptyState(for: .clean(lastRun: run)).symbol,
+                       "checkmark.seal")
+    }
+
+    /// One note is not "1 notes", and the singular is the common case.
+    func test_theDiscardedSentenceCountsInTheWritersEnglish() {
+        XCTAssertNil(DiagnosticsPane.discardedNotesSentence(0))
+        XCTAssertEqual(
+            DiagnosticsPane.discardedNotesSentence(1),
+            "1 note arrived against a paragraph that has changed and was discarded")
+        XCTAssertEqual(
+            DiagnosticsPane.discardedNotesSentence(2),
+            "2 notes arrived against paragraphs that have changed and were discarded")
     }
 
     // MARK: - Cancel (real running state, real button)

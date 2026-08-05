@@ -484,6 +484,51 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertNil(notes.first?.anchor)
     }
 
+    /// **A run that lost every note it raised records that it did.** The model
+    /// returned three real notes against paragraphs the writer has since
+    /// changed; ingest correctly drops all three and accepts nothing. Counted
+    /// and then discarded, that run is indistinguishable in the store from one
+    /// with nothing to say, and the pane puts the seal on it — the compiler
+    /// looked, spoke, and was mistranscribed.
+    func test_aRunWhoseNotesAllDangledRecordsWhatItLost() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText("""
+            {"diagnostics":[{"paragraph_id":"gone1","body":"Two beats, not three."},
+                            {"paragraph_id":"gone2","body":"The tense slips here."},
+                            {"paragraph_id":"gone3","body":"This repeats the last line."}]}
+            """)
+        // No paragraph the notes name is still in the document.
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            liveParagraphText: { _, _ in nil })
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(
+            harness.diagnostics.live(docId: docId, currentText: { _ in nil }).count, 0,
+            "nothing could be placed, so nothing is live")
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.droppedDangling, 3,
+            "the run record carries what the ingest lost, or the pane cannot "
+            + "tell this from a clean bill")
+    }
+
+    /// The converse: a run that placed everything it raised lost nothing, so
+    /// the clean-run line has nothing to append.
+    func test_aRunThatPlacedItsNotesRecordsNoLoss() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            #"{"diagnostics":[{"paragraph_id":"a1b2","body":"Two beats, not three."}]}"#)
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.droppedDangling, 0)
+    }
+
     // MARK: - What is not a failure
 
     /// **The writer's own actions are not errors.** Cancel, project close, the

@@ -186,20 +186,49 @@ struct DiagnosticsPane: View {
         return false
     }
 
-    private var headerLine: String {
+    private var headerLine: String { Self.headerCopy(for: state) }
+
+    /// The header's one line, per state. Static and exhaustive for
+    /// `emptyState`'s reason: every sentence the pane can say is then assertable
+    /// without mounting anything.
+    static func headerCopy(for state: HeaderState) -> String {
         switch state {
         case .neverRun:
             return "Not checked yet \u{2014} press \u{2318}R to check your writing."
         case .idle(let run):
-            return "Last checked \(Self.relative(run.at)) \u{00b7} \(run.deltaSummary)"
+            return "Last checked \(relative(run.at)) \u{00b7} \(run.deltaSummary)"
         case .running:
             return "Checking\u{2026}"
         case .nothingNew:
             return "Nothing new since the last check."
         case .failed(let failure, _):
-            return Self.failureCopy(failure)
+            return failureCopy(failure)
         case .clean(let run):
-            return "Nothing to flag. Last checked \(Self.relative(run.at))."
+            let line = "Nothing to flag. Last checked \(relative(run.at))."
+            // Appended rather than interleaved: the standing sentence is the
+            // one the writer reads at a glance, and this is the footnote to it.
+            guard let discarded = discardedNotesSentence(run.droppedDangling) else {
+                return line
+            }
+            return "\(line) (\(discarded))"
+        }
+    }
+
+    /// **What a run lost, said plainly and without alarm** — or `nil` when it
+    /// lost nothing, which is what keeps the clean bill clean.
+    ///
+    /// One spelling, read by the header and by the empty state, because two
+    /// copies of a sentence about the same number are two things that can
+    /// disagree. It names what happened (the paragraphs moved) rather than what
+    /// Maugham could not do about it: "unknown paragraphs" is the parser's
+    /// vocabulary, and to the writer it reads as an error they caused.
+    static func discardedNotesSentence(_ count: Int) -> String? {
+        switch count {
+        case ..<1: return nil
+        case 1: return "1 note arrived against a paragraph that has changed "
+            + "and was discarded"
+        default: return "\(count) notes arrived against paragraphs that have "
+            + "changed and were discarded"
         }
     }
 
@@ -289,6 +318,12 @@ struct DiagnosticsPane: View {
     /// looked, and the header is already carrying the honest sentence about
     /// why. Repeating it here would be the pane saying the same thing twice
     /// under a checkmark that contradicts it.
+    ///
+    /// **Nor does a run that lost every note it raised.** That is the adjacent
+    /// case rather than the same one: it looked, it spoke, and Maugham could
+    /// not place what it said. The seal is for a run that came back with
+    /// nothing to say — 0 raised and 0 discarded — so a discard takes the
+    /// checkmark off without borrowing the failure's warning triangle.
     static func emptyState(
         for state: HeaderState
     ) -> (title: String, symbol: String, description: String) {
@@ -302,6 +337,9 @@ struct DiagnosticsPane: View {
         case .failed:
             return ("No notes", "exclamationmark.triangle",
                     "The last check didn't finish, so there are none from it.")
+        case .clean(let run) where discardedNotesSentence(run.droppedDangling) != nil:
+            return ("Nothing to flag.", "circle.dashed",
+                    (discardedNotesSentence(run.droppedDangling) ?? "") + ".")
         case .idle, .nothingNew, .clean:
             // `.idle` is unreachable here — `headerState` returns `.clean` for
             // a last run with no live notes — but it is named rather than

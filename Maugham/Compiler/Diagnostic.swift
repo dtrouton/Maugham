@@ -32,4 +32,41 @@ struct CompilerRun: Codable, Equatable, Sendable {
     var lastOpId: String?
     let deltaSummary: String       // e.g. "3 new, 2 revised ¶"
     let intentSnapshot: String?    // what the run checked against
+    /// How many notes this run raised that Maugham could not place —
+    /// `DiagnosticIngest.Outcome.droppedDangling`, carried rather than counted
+    /// and dropped.
+    ///
+    /// **It is the difference between a clean bill and a silent one.** A run
+    /// whose every note named a paragraph that has since changed accepts
+    /// nothing, and a pane reading only `accepted.isEmpty` puts the seal and
+    /// "Nothing to flag." over a check that did flag things. The compiler
+    /// looked, spoke, and was mistranscribed; the surface says so.
+    var droppedDangling: Int = 0
+
+    init(id: String, at: Date, model: String, lastOpId: String?,
+         deltaSummary: String, intentSnapshot: String?, droppedDangling: Int = 0) {
+        self.id = id
+        self.at = at
+        self.model = model
+        self.lastOpId = lastOpId
+        self.deltaSummary = deltaSummary
+        self.intentSnapshot = intentSnapshot
+        self.droppedDangling = droppedDangling
+    }
+
+    /// Hand-written for one field: a sidecar written before `droppedDangling`
+    /// existed decodes as zero rather than failing the whole file. The
+    /// synthesised decoder does not fall back to a property's default, and a
+    /// throw here reads to the writer as a document that was never checked
+    /// (`DiagnosticsStore.load` treats an undecodable file as empty).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        at = try c.decode(Date.self, forKey: .at)
+        model = try c.decode(String.self, forKey: .model)
+        lastOpId = try c.decodeIfPresent(String.self, forKey: .lastOpId)
+        deltaSummary = try c.decode(String.self, forKey: .deltaSummary)
+        intentSnapshot = try c.decodeIfPresent(String.self, forKey: .intentSnapshot)
+        droppedDangling = try c.decodeIfPresent(Int.self, forKey: .droppedDangling) ?? 0
+    }
 }
