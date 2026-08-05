@@ -80,23 +80,42 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    /// Owned by this view, so it dies with it — `deinit` on the monitor is the
-    /// backstop under the two explicit removals below. A leaked monitor is
-    /// invisible until it eats a key in a window that no longer has a canvas.
-    private let escapeMonitor = CanvasEscapeMonitor()
-
-    /// The install/remove pairing, in one place so the two can never drift.
+    /// **The window's arbiter, not a monitor of this view's own** *(2026-08-05,
+    /// Task 5 review finding 1)*.
     ///
-    /// The block captures `self` WEAKLY and reads the window at event time: the
-    /// monitor must not keep this view alive, and a view that moves to another
-    /// window must not go on answering for the old one.
+    /// This used to be `private let escapeMonitor = CanvasEscapeMonitor()`, and
+    /// the assistant column (M2 §6.2) then armed a SECOND instance on the same
+    /// window whenever a writer studied a reference in Plan. Local `NSEvent`
+    /// monitors run most-recently-installed-first and a consumed key
+    /// short-circuits the rest, so whichever armed last silently starved the
+    /// other — arbitration by action order rather than by decision.
+    /// `WindowEscapeArbiter` holds the one monitor per window and offers the key
+    /// to its consumers in a declared priority order; the dim is second, behind
+    /// the column.
+    ///
+    /// Held weakly and cleared on resign, so `hasEscapeMonitorInstalled` still
+    /// answers *"is the canvas watching"* rather than *"is anything watching"*.
+    private weak var escapeArbiter: WindowEscapeArbiter?
+
+    /// The register/resign pairing, in one place so the two can never drift.
+    ///
+    /// The claim captures `self` WEAKLY: the arbiter outlives this view, and a
+    /// view SwiftUI has torn out must not go on answering. A dead consumer's
+    /// claim returns false, which passes the offer down the list rather than
+    /// swallowing the key.
     private func syncEscapeMonitor() {
-        guard boardIsDimmed, window != nil else {
-            escapeMonitor.remove()
+        guard boardIsDimmed, let window else {
+            escapeArbiter?.resign(.canvasDim)
+            escapeArbiter = nil
             return
         }
-        escapeMonitor.install(window: { [weak self] in self?.window },
-                              canvasUsesIt: { [weak self] in self?.onEscape?() ?? false })
+        let arbiter = WindowEscapeArbiter.arbiter(for: window)
+        // A view that moved windows must stop answering for the old one.
+        if let previous = escapeArbiter, previous !== arbiter {
+            previous.resign(.canvasDim)
+        }
+        arbiter.register(.canvasDim, claim: { [weak self] in self?.onEscape?() ?? false })
+        escapeArbiter = arbiter
     }
 
     /// A view with no window has no Escape to answer for, and a view SwiftUI has
@@ -108,9 +127,18 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
         syncEscapeMonitor()
     }
 
-    /// Test-only reader for the pairing above. `isInstalled` is unobservable from
-    /// outside AppKit, and an install/remove bug is silent by construction.
-    var hasEscapeMonitorInstalled: Bool { escapeMonitor.isInstalled }
+    /// Test-only reader for the pairing above: **is this canvas watching for
+    /// Escape.** `isInstalled` is unobservable from outside AppKit, and a
+    /// register/resign bug is silent by construction.
+    ///
+    /// Both halves are load-bearing since the arbiter landed. The registration
+    /// alone would read true after the window's monitor had gone; the armed flag
+    /// alone would read true because the assistant column happened to be open on
+    /// the same window.
+    var hasEscapeMonitorInstalled: Bool {
+        guard let escapeArbiter else { return false }
+        return escapeArbiter.isRegistered(.canvasDim) && escapeArbiter.isArmed
+    }
 
     private var isDragging = false
 

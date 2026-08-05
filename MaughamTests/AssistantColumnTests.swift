@@ -18,6 +18,13 @@ import MaughamCore
 /// - **It goes with the chrome.** ⌘\ means "nothing but my prose", and a
 ///   reference column that survived it would be the loudest thing left on
 ///   screen.
+/// - **Escape is arbitrated, not raced.** The column and the canvas's dim are
+///   two overlays reachable on one window, and both want the key. They register
+///   as consumers of the window's ONE `WindowEscapeArbiter` — the same
+///   *instance*, which is the correction Task 5's review forced: this file used
+///   to say "the same monitor the canvas uses" while creating a second one, and
+///   `NSEvent` local monitors resolve last-armed-first, so the two silently
+///   starved each other in an order nobody chose.
 @MainActor
 final class AssistantColumnTests: XCTestCase {
 
@@ -232,57 +239,239 @@ final class AssistantColumnTests: XCTestCase {
             .appendingPathComponent("Maugham/Views/AssistantColumn.swift")
     }
 
-    // MARK: - Contract: Escape dismisses
+    // MARK: - Contract: Escape dismisses, and it ARBITRATES
 
-    /// **Escape is delivered by the window-scoped local monitor, and by the same
-    /// one the canvas uses** — not by a `.keyboardShortcut(.cancelAction)`,
-    /// which is a key equivalent and would preempt the binder's inline rename
-    /// (tripwire 16) and the find bar in every window the column is open in.
-    /// `CanvasEscapeMonitor.disposition` already declines a text responder, a
-    /// foreign window and a non-Escape key; reusing it is what buys those three
-    /// refusals rather than re-deriving them.
-    func test_theMonitorIsInstalledOnlyWhileSomethingIsStudied() {
+    /// **Escape is delivered by a window-scoped local monitor, and the column is
+    /// the highest-priority consumer of the ONE the window holds** — not by a
+    /// `.keyboardShortcut(.cancelAction)`, which is a key equivalent and would
+    /// preempt the binder's inline rename (tripwire 16) and the find bar in every
+    /// window the column is open in. `CanvasEscapeMonitor.disposition` already
+    /// declines a text responder, a foreign window and a non-Escape key; going
+    /// through `WindowEscapeArbiter` is what buys those three refusals rather
+    /// than re-deriving them.
+    ///
+    /// **A real `NSWindow`, not `nil`.** The arbiter is keyed by window, and the
+    /// version of this suite that passed `{ nil }` could not have caught the
+    /// defect the arbiter exists to fix.
+    func test_theColumnWatchesOnlyWhileSomethingIsStudied() {
+        let window = makeWindow()
         let escape = AssistantColumnEscape()
         let model = AssistantColumnModel()
 
-        escape.sync(model: model, window: { nil })
+        escape.sync(model: model, window: window)
         XCTAssertFalse(escape.isInstalled,
                        "with nothing studied the column must eat no keys at all")
 
         model.study(aPin())
-        escape.sync(model: model, window: { nil })
+        escape.sync(model: model, window: window)
         XCTAssertTrue(escape.isInstalled)
 
         model.dismiss()
-        escape.sync(model: model, window: { nil })
+        escape.sync(model: model, window: window)
         XCTAssertFalse(escape.isInstalled,
-                       "a monitor left installed goes on swallowing Escape in a window "
-                       + "with no column in it")
+                       "a consumer left registered goes on swallowing Escape in a "
+                       + "window with no column in it")
+        escape.stop()
     }
 
-    /// The monitor's action is a dismissal, and it is read through the model at
-    /// EVENT time rather than captured at install time — a closure over a value
-    /// captured once is how a second study would go on dismissing the first.
-    func test_theMonitorsActionDismissesWhateverIsStudiedNow() {
+    /// The action is a dismissal, and it is read through the model at EVENT time
+    /// rather than captured at registration — a closure over a value captured
+    /// once is how a second study would go on dismissing the first.
+    func test_theEscapeActionDismissesWhateverIsStudiedNow() {
+        let window = makeWindow()
         let escape = AssistantColumnEscape()
         let model = AssistantColumnModel()
         model.study(aPin())
-        escape.sync(model: model, window: { nil })
+        escape.sync(model: model, window: window)
 
         model.study(PinnedReference(id: "res-other", kind: .research(itemId: "res-other"),
                                     title: "Another"))
         XCTAssertTrue(escape.performEscape(), "the column claims the key while it exists")
         XCTAssertNil(model.studied)
+        escape.stop()
     }
 
     func test_escapeIsRefusedWhenNothingIsStudied() {
+        let window = makeWindow()
         let escape = AssistantColumnEscape()
         let model = AssistantColumnModel()
-        escape.sync(model: model, window: { nil })
+        escape.sync(model: model, window: window)
 
         XCTAssertFalse(escape.performEscape(),
                        "with no column open the key must travel on — a great many "
                        + "responders above want Escape")
+        escape.stop()
+    }
+
+    // MARK: - Contract: two overlays, one window, a decided order
+
+    /// **The composition the Task 5 review found nobody had tested.**
+    ///
+    /// In Plan, clicking a chapter in the tree dims the canvas (slice 3) and ⌘⌥E
+    /// then clicking a pin opens the assistant column. Before the arbiter each
+    /// owned its own `CanvasEscapeMonitor`; local `NSEvent` monitors run
+    /// most-recently-installed-first and a consumed key short-circuits the rest,
+    /// so whichever armed LAST took Escape and the other never saw it — decided
+    /// by the writer's action order rather than by anyone.
+    ///
+    /// The rule now: **one Escape sends the reference back and leaves the dim
+    /// alone; the next lifts the dim.**
+    func test_theFirstEscapeTakesTheColumnAndLeavesTheDim() {
+        let window = makeWindow()
+        let arbiter = WindowEscapeArbiter.arbiter(for: window)
+        let escape = AssistantColumnEscape()
+        let model = AssistantColumnModel()
+        var dimLifted = 0
+
+        model.study(aPin())
+        escape.sync(model: model, window: window)
+        arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
+
+        XCTAssertTrue(arbiter.offerEscape(), "the key is used by one of the two")
+        XCTAssertNil(model.studied, "the first Escape must send the reference back")
+        XCTAssertEqual(dimLifted, 0,
+                       "the first Escape reached the dim as well — one press resolving "
+                       + "both overlays is exactly what the priority order is for")
+
+        XCTAssertTrue(arbiter.offerEscape(), "the second press is the dim's")
+        XCTAssertEqual(dimLifted, 1)
+
+        escape.stop()
+        arbiter.resign(.canvasDim)
+    }
+
+    /// **The same answer in both arming orders**, which is the difference between
+    /// a decision and an accident. The pre-arbiter mechanism gave opposite
+    /// answers to these two, and nothing said which was intended.
+    func test_theOrderTheTwoArmInDoesNotDecideWhoGetsTheKey() {
+        for dimFirst in [true, false] {
+            let window = makeWindow()
+            let arbiter = WindowEscapeArbiter.arbiter(for: window)
+            let escape = AssistantColumnEscape()
+            let model = AssistantColumnModel()
+            var dimLifted = 0
+
+            model.study(aPin())
+            if dimFirst {
+                arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
+                escape.sync(model: model, window: window)
+            } else {
+                escape.sync(model: model, window: window)
+                arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
+            }
+
+            arbiter.offerEscape()
+            XCTAssertNil(model.studied, "dim armed first: \(dimFirst)")
+            XCTAssertEqual(dimLifted, 0, "dim armed first: \(dimFirst)")
+
+            escape.stop()
+            arbiter.resign(.canvasDim)
+        }
+    }
+
+    /// A consumer that declines passes the offer down rather than swallowing the
+    /// key — the column with nothing studied must not starve the dim.
+    func test_aDecliningConsumerPassesTheOfferOn() {
+        let window = makeWindow()
+        let arbiter = WindowEscapeArbiter.arbiter(for: window)
+        var dimLifted = 0
+        arbiter.register(.assistantColumn, claim: { false })
+        arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
+
+        XCTAssertTrue(arbiter.offerEscape())
+        XCTAssertEqual(dimLifted, 1)
+
+        arbiter.resign(.assistantColumn)
+        arbiter.resign(.canvasDim)
+    }
+
+    /// An Escape nobody claims travels on. Without this the arbiter would be a
+    /// key-eater wearing an arbiter's name.
+    func test_anEscapeNoConsumerClaimsIsDeclined() {
+        let window = makeWindow()
+        let arbiter = WindowEscapeArbiter.arbiter(for: window)
+        arbiter.register(.assistantColumn, claim: { false })
+        XCTAssertFalse(arbiter.offerEscape())
+        arbiter.resign(.assistantColumn)
+    }
+
+    /// **The census over the priority list.** The order is the design statement;
+    /// a case appended without deciding where it belongs is the defect this
+    /// whole mechanism was introduced to remove, and `allCases` order is what
+    /// `offerEscape` walks.
+    func test_theEscapePriorityOrderIsTheDeclaredOne() {
+        XCTAssertEqual(WindowEscapeArbiter.Consumer.allCases,
+                       [.assistantColumn, .canvasDim],
+                       "the assistant column precedes the canvas dim: the column is "
+                       + "something the writer opened one gesture ago, the dim is a "
+                       + "consequence of a selection made earlier. A new consumer needs "
+                       + "a position argued at the enum, not appended here.")
+    }
+
+    /// The monitor is removed only when the LAST consumer leaves — a window with
+    /// one overlay still open must go on watching. Removing on the first resign
+    /// would silently un-arm the dim the moment a reference was dismissed.
+    func test_theWindowKeepsWatchingUntilTheLastConsumerLeaves() {
+        let window = makeWindow()
+        let arbiter = WindowEscapeArbiter.arbiter(for: window)
+        arbiter.register(.assistantColumn, claim: { false })
+        arbiter.register(.canvasDim, claim: { false })
+        XCTAssertTrue(arbiter.isArmed)
+
+        arbiter.resign(.assistantColumn)
+        XCTAssertTrue(arbiter.isArmed,
+                      "the dim is still up and the window stopped watching for Escape")
+
+        arbiter.resign(.canvasDim)
+        XCTAssertFalse(arbiter.isArmed,
+                       "a monitor left behind goes on running for a window with no "
+                       + "overlay in it")
+        XCTAssertFalse(WindowEscapeArbiter.arbiter(for: window).isArmed,
+                       "the table handed back an arbiter that is still armed — the "
+                       + "entry outlived its last consumer")
+    }
+
+    /// The shared table must not accumulate. A leaked entry is a monitor block
+    /// still running for a window nobody has an overlay in — invisible until it
+    /// eats a key, which is the same failure `CanvasEscapeMonitor`'s own token
+    /// discipline exists to prevent, one level up.
+    func test_theArbiterTableDoesNotAccumulateArmedWindows() {
+        let before = WindowEscapeArbiter.armedWindowCount
+        let window = makeWindow()
+        let arbiter = WindowEscapeArbiter.arbiter(for: window)
+        arbiter.register(.assistantColumn, claim: { false })
+        XCTAssertEqual(WindowEscapeArbiter.armedWindowCount, before + 1)
+
+        arbiter.resign(.assistantColumn)
+        XCTAssertEqual(WindowEscapeArbiter.armedWindowCount, before,
+                       "an armed arbiter survived its last consumer")
+    }
+
+    /// **A real Escape, through `NSApp.sendEvent`** — the delivery path, because
+    /// `NSWindow.sendEvent` bypasses local monitors entirely and a test written
+    /// that way cannot see this mechanism at all
+    /// (`CanvasEscapeMonitor`'s own doc records the measurement).
+    func test_aRealEscapeThroughTheApplicationReachesTheColumnFirst() throws {
+        let window = makeWindow()
+        window.makeKeyAndOrderFront(nil)
+        let arbiter = WindowEscapeArbiter.arbiter(for: window)
+        let escape = AssistantColumnEscape()
+        let model = AssistantColumnModel()
+        var dimLifted = 0
+
+        model.study(aPin())
+        escape.sync(model: model, window: window)
+        arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
+
+        NSApp.sendEvent(escapeKeyEvent(for: window))
+        pump(0.3)
+
+        XCTAssertNil(model.studied,
+                     "a real Escape did not reach the column through the monitor")
+        XCTAssertEqual(dimLifted, 0, "and it must not have reached the dim as well")
+
+        escape.stop()
+        arbiter.resign(.canvasDim)
     }
 
     // MARK: - Contract: it mounts, and the close button dismisses
@@ -364,6 +553,28 @@ final class AssistantColumnTests: XCTestCase {
         windows.append(window)
         pump()
         return window
+    }
+
+    /// A bare window for the escape tests. Tracked like a mounted one so
+    /// `tearDown` empties it — a window outliving its test keeps an arbiter
+    /// entry alive in the shared table.
+    private func makeWindow() -> NSWindow {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = NSView(frame: .zero)
+        windows.append(window)
+        return window
+    }
+
+    /// A real Escape, built the way AppKit delivers one —
+    /// `CanvasViewMountingTests.escapeKeyEvent`'s shape, and the window number is
+    /// what lets the local monitor's own-window refusal recognise it.
+    private func escapeKeyEvent(for window: NSWindow) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                         timestamp: ProcessInfo.processInfo.systemUptime,
+                         windowNumber: window.windowNumber, context: nil,
+                         characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}",
+                         isARepeat: false, keyCode: 53)!
     }
 
     private func pump(_ seconds: TimeInterval = 0.2) {

@@ -224,61 +224,92 @@ struct AssistantColumn: View {
 
 // MARK: - Escape
 
-/// **Escape closes the column, delivered by the window-scoped local monitor the
-/// canvas already uses.**
+/// **Escape closes the column, as the highest-priority consumer of the window's
+/// one `WindowEscapeArbiter`** — the same *instance* the canvas's dim registers
+/// with, not merely the same class.
+///
+/// That distinction is the whole of Task 5's review finding 1, and it was
+/// materially wrong here for one commit. This type owned a
+/// `CanvasEscapeMonitor()` of its own while `CanvasEventNSView` owned another,
+/// and the comment claimed the canvas's monitor was being reused. Both are
+/// armable on one window by an ordinary route (dim the board by selecting a
+/// chapter in Plan's tree, then ⌘⌥E and click a pin); local `NSEvent` monitors
+/// run most-recently-installed-first and a consumed key short-circuits the rest,
+/// so whichever armed LAST took Escape and the other never saw it. The arbiter
+/// makes the order a decision — see `WindowEscapeArbiter.Consumer`, where the
+/// column deliberately precedes the dim.
 ///
 /// The obvious alternative — a `.keyboardShortcut(.cancelAction)` on the close
 /// button — is a *key equivalent*, which AppKit consults before the responder
 /// chain: with the column open, Escape would stop cancelling the binder's inline
 /// rename (tripwire 16) and stop dismissing the find bar, in every window. That
 /// is precisely the hazard `CanvasEscapeMonitor.disposition`'s third refusal
-/// exists for, and reusing that decision is what buys it here rather than
-/// re-deriving three refusals (not-Escape, not-our-window, a text responder is
-/// editing) that have already been measured against a real field editor.
+/// exists for, and going through the arbiter is what buys those refusals here
+/// rather than re-deriving three that have already been measured against a real
+/// field editor.
 ///
-/// The monitor is installed **only while a reference is up**, so a window with
-/// no column in it eats no keys at all.
+/// This consumer registers **only while a reference is up**, so a window with no
+/// column in it is never asked.
 @MainActor
 final class AssistantColumnEscape {
-    private let monitor = CanvasEscapeMonitor()
 
-    /// **Both are read at EVENT time and refreshed by every `sync`**, and
-    /// neither is captured into the monitor's closure. `CanvasEscapeMonitor
-    /// .install` is idempotent, so the FIRST call's closure is the one that
-    /// sticks: a model captured by value there would go on dismissing a
-    /// reference the writer replaced ten minutes ago, and a window captured
-    /// while `ProjectWindow`'s `WindowAccessor` had not yet reported one would
-    /// scope the monitor to `nil` forever — which
-    /// `CanvasEscapeMonitor.disposition`'s second refusal reads as "not our
-    /// window" and declines every key.
+    /// **Read at EVENT time through `self`, and refreshed by every `sync`.** The
+    /// arbiter's claim closure captures this object and nothing else, so a model
+    /// captured by value — which `CanvasEscapeMonitor.install`'s idempotence
+    /// would have frozen at the first call — cannot go on dismissing a reference
+    /// the writer replaced ten minutes ago.
     private weak var model: AssistantColumnModel?
-    private var windowSource: () -> NSWindow? = { nil }
 
-    var isInstalled: Bool { monitor.isInstalled }
+    /// The arbiter this consumer is currently registered with, or nil. Held
+    /// weakly: the table in `WindowEscapeArbiter` owns them, keyed by window.
+    private weak var arbiter: WindowEscapeArbiter?
 
-    /// Install or remove to match the model. Idempotent in both directions, so
-    /// the mounting site can call it from an `.onChange` without tracking what
-    /// it did last.
-    func sync(model: AssistantColumnModel, window: @escaping () -> NSWindow?) {
+    /// **Is THIS consumer watching** — registered, and on a window whose monitor
+    /// is armed. Both halves matter: the registration alone would read true after
+    /// the window's monitor had gone, and the armed flag alone would read true
+    /// merely because the canvas's dim was up on the same window.
+    var isInstalled: Bool {
+        guard let arbiter else { return false }
+        return arbiter.isRegistered(.assistantColumn) && arbiter.isArmed
+    }
+
+    /// Register or resign to match the model. Idempotent in both directions, so
+    /// the mounting site can call it from an `.onChange` without tracking what it
+    /// did last.
+    ///
+    /// **The window is a value rather than a closure now**, because the arbiter
+    /// is keyed by window: a consumer has to be registered with a particular
+    /// one, and moving means resigning from the old. `ProjectWindow`'s
+    /// `WindowAccessor` reports its window asynchronously, so the mounting site
+    /// syncs on the window changing as well as on the studied reference — which
+    /// also closes the review's finding 3 (the previous comment claimed the
+    /// window was read at event time when it was really read at last-sync time).
+    func sync(model: AssistantColumnModel, window: NSWindow?) {
         self.model = model
-        self.windowSource = window
-        guard model.studied != nil else {
-            monitor.remove()
+        guard model.studied != nil, let window else {
+            stop()
             return
         }
-        monitor.install(window: { [weak self] in self?.windowSource() },
-                        canvasUsesIt: { [weak self] in self?.performEscape() ?? false })
+        let target = WindowEscapeArbiter.arbiter(for: window)
+        if let previous = arbiter, previous !== target {
+            previous.resign(.assistantColumn)
+        }
+        target.register(.assistantColumn, claim: { [weak self] in
+            self?.performEscape() ?? false
+        })
+        arbiter = target
     }
 
-    /// Give the key back unconditionally — the window is going away.
+    /// Give the key back — nothing is studied, or the window is going away.
     func stop() {
-        model = nil
-        monitor.remove()
+        arbiter?.resign(.assistantColumn)
+        arbiter = nil
     }
 
-    /// What the monitor does with an Escape it has been offered: dismiss and
-    /// claim the key, or decline it so it travels on. `@discardableResult` and
-    /// internal so the decision is assertable without an `NSEvent`.
+    /// What the arbiter's offer does: dismiss and claim the key, or decline it so
+    /// the offer passes down to the next consumer and, failing all of them,
+    /// travels on. `@discardableResult` and internal so the decision is
+    /// assertable without an `NSEvent`.
     @discardableResult
     func performEscape() -> Bool {
         guard let model, model.studied != nil else { return false }
@@ -286,9 +317,10 @@ final class AssistantColumnEscape {
         return true
     }
 
-    // No `deinit` of its own: `remove()` is main-actor-isolated and `deinit` is
-    // not, and `CanvasEscapeMonitor`'s own `deinit` already removes the token —
-    // which is the one teardown path that cannot be reached on demand.
+    // No `deinit` of its own: `resign` is main-actor-isolated and `deinit` is
+    // not. A consumer that vanished without resigning leaves a claim whose
+    // `[weak self]` returns false, which passes the offer on rather than
+    // swallowing the key — inert, not wrong.
 }
 
 // MARK: - Mounting
@@ -333,7 +365,14 @@ struct AssistantColumnModifier: ViewModifier {
             content
         }
         .onChange(of: assistant.studied?.id) { _, _ in
-            escape.sync(model: assistant, window: { window })
+            escape.sync(model: assistant, window: window)
+        }
+        // **The window as well as the reference**, because the arbiter is keyed
+        // by window: `WindowAccessor` reports one asynchronously after mount, and
+        // a window that arrived after the first sync would otherwise leave the
+        // column registered nowhere.
+        .onChange(of: window) { _, _ in
+            escape.sync(model: assistant, window: window)
         }
         .onChange(of: activeDocId) { _, _ in assistant.dismiss() }
         .onDisappear { escape.stop() }
