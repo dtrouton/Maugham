@@ -241,6 +241,17 @@ final class ClaudeCLISession: CompilerRunner {
         proc.arguments = Self.arguments(
             model: model, mcpConfigPath: mcpConfigPath, preamble: lastPreamble)
         proc.environment = ProcessInfo.processInfo.environment
+        // Defence in depth behind `--tools ""`. An unset `currentDirectoryURL`
+        // inherits Maugham's own, which for a launched `.app` is `/` and for a
+        // debug run is the developer's checkout — either way a directory the
+        // writer's work can sit under. The session's own config directory holds
+        // nothing but the bridge config it was handed. Created rather than
+        // assumed: `Process.run` throws on a cwd that does not exist, and that
+        // would reach the writer as "Claude Code isn't installed".
+        let workingDirectory = mcpConfigPath.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(
+            at: workingDirectory, withIntermediateDirectories: true)
+        proc.currentDirectoryURL = workingDirectory
 
         let stdin = Pipe()
         let stdout = Pipe()
@@ -281,6 +292,18 @@ final class ClaudeCLISession: CompilerRunner {
     /// prepended to the first user message: verified 2026-08-04 to compose with
     /// `-p` + stream-json in both directions, and it governs the whole session
     /// rather than one turn, which is what the caller means by "preamble".
+    ///
+    /// **The membrane is two flags, and the enumerated one is the weaker
+    /// half.** `--allowedTools` removes nothing: it pre-approves the tools it
+    /// names so they skip the permission prompt. Under `-p` that does leave
+    /// Bash/Edit/Write unreachable, because they would prompt — but the
+    /// built-in Read/Glob/Grep never prompt inside the working directory, so
+    /// the allowlist alone leaves the spawned model free to read any file it
+    /// can reach. `--tools ""` empties the built-in set, and it is what makes
+    /// "no file access" true rather than intended. Verified live against
+    /// `claude` 2.1.222 on 2026-08-05 in both directions, and separately that
+    /// `--tools ""` does not disturb the MCP tools, which arrive through
+    /// `--mcp-config` rather than from the built-in set.
     static func arguments(model: String, mcpConfigPath: URL, preamble: String?) -> [String] {
         var args = [
             "-p",
@@ -289,7 +312,8 @@ final class ClaudeCLISession: CompilerRunner {
             "--verbose",
             "--model", model,
             "--mcp-config", mcpConfigPath.path,
-            "--strict-mcp-config"
+            "--strict-mcp-config",
+            "--tools", ""
         ]
         if let preamble, !preamble.isEmpty {
             args += ["--append-system-prompt", preamble]

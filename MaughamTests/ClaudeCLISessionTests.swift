@@ -49,6 +49,8 @@ final class ClaudeCLISessionTests: XCTestCase {
     private var argsURL: URL { tempDir.appendingPathComponent("args") }
     /// One line per fake-CLI process exit.
     private var exitsURL: URL { tempDir.appendingPathComponent("exits") }
+    /// The working directory the most recent spawn was given, resolved.
+    private var cwdURL: URL { tempDir.appendingPathComponent("cwd") }
     /// While this file exists, a `slowWhileFlagged` fixture withholds its answer.
     private var slowFlagURL: URL { tempDir.appendingPathComponent("be-slow") }
 
@@ -75,6 +77,7 @@ final class ClaudeCLISessionTests: XCTestCase {
         COUNTER="\(counterURL.path)"
         ARGS="\(argsURL.path)"
         EXITS="\(exitsURL.path)"
+        CWD="\(cwdURL.path)"
         FLAG="\(slowFlagURL.path)"
         MODE="\(mode.rawValue)"
 
@@ -84,6 +87,7 @@ final class ClaudeCLISessionTests: XCTestCase {
         echo "spawn" >> "$COUNTER"
         N=$(wc -l < "$COUNTER" | tr -d ' ')
         printf '%s\\n' "$@" > "$ARGS"
+        pwd -P > "$CWD"
 
         if [ "$MODE" = "dieFirst" ] && [ "$N" -eq 1 ]; then
           IFS= read -r _line
@@ -605,14 +609,31 @@ final class ClaudeCLISessionTests: XCTestCase {
     /// rides on `--append-system-prompt` (verified 2026-08-04 to compose with
     /// `-p` + stream-json in both directions) rather than being smuggled into
     /// the first user message.
+    ///
+    /// **`--tools ""` is the membrane's other half and the reason this test is
+    /// not cosmetic.** `--allowedTools` removes nothing — it pre-approves the
+    /// tools it names so they skip the permission prompt, and Claude Code's
+    /// built-in Read/Glob/Grep do not prompt inside the working directory, so
+    /// the enumerated MCP list alone leaves the spawned model able to read any
+    /// file on the machine. Verified live against `claude` 2.1.222 on
+    /// 2026-08-05, both directions: the same invocation returned a scratch
+    /// file's contents without the flag and answered "CANNOT" with it, and a
+    /// composed `--tools "" --mcp-config --allowedTools` turn still reached
+    /// `mcp__maugham__list_projects`. The empty value is the whole point of the
+    /// flag, which is why the argv is parsed here without dropping blanks.
     func test_spawnArgumentsMatchTheSpike() async throws {
         let cli = try makeFakeCLI(mode: .normal)
         let session = makeSession(cli: cli)
 
         _ = await session.send(message: "hello", systemPreamble: "BE TERSE")
 
-        let argv = try String(contentsOf: argsURL, encoding: .utf8)
-            .split(separator: "\n").map(String.init)
+        // `components`, not `split`: `split` discards empty subsequences, which
+        // is exactly the argument this test exists to see. The fixture writes a
+        // trailing newline, so one empty element at the end is the printf's,
+        // not an argument's.
+        var argv = try String(contentsOf: argsURL, encoding: .utf8)
+            .components(separatedBy: "\n")
+        if argv.last?.isEmpty == true { argv.removeLast() }
 
         for flag in ["-p", "--verbose", "--strict-mcp-config"] {
             XCTAssertTrue(argv.contains(flag), "missing \(flag) in \(argv)")
@@ -630,6 +651,19 @@ final class ClaudeCLISessionTests: XCTestCase {
         XCTAssertEqual(value(after: "--allowedTools"),
                        CompilerAllowlist.cliArguments()[1],
                        "the allowlist is Task 4's, passed through whole")
+        XCTAssertEqual(value(after: "--tools"), "",
+                       "--allowedTools only pre-approves; --tools \"\" is what "
+                       + "removes the built-in Read/Glob/Grep")
+
+        // The subprocess must not stand in the writer's project: the built-ins
+        // are gone, and its cwd is a directory with nothing of theirs in it.
+        let cwd = try String(contentsOf: cwdURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(
+            URL(fileURLWithPath: cwd).resolvingSymlinksInPath().path,
+            tempDir.appendingPathComponent("mcp.json")
+                .deletingLastPathComponent().resolvingSymlinksInPath().path,
+            "the session runs in its own config directory, never an inherited cwd")
 
         session.shutdown()
     }

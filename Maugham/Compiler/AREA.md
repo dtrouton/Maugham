@@ -131,6 +131,19 @@ is the resumed session id, not the process.
   write, no statement-writing tool exists in the allowlist **or the catalog**,
   and each of those has a planted-offender companion so none of them can be
   quietly unfalsifiable.
+- **The membrane is TWO flags, and the census guards only the stronger half.**
+  `--allowedTools` removes nothing — it pre-approves what it names so those
+  tools skip the permission prompt. Under `-p` that does leave Bash/Edit/Write
+  unreachable, because they would prompt, but the built-in Read/Glob/Grep never
+  prompt inside the working directory, so an enumerated list on its own leaves
+  the spawned model free to read any file it can reach. `--tools ""` is what
+  empties the built-in set; `currentDirectoryURL` is set to the session's own
+  config directory behind it so an inherited cwd is not the writer's project
+  either. The whole-branch review proved the gap live before the flag landed —
+  a perfect allowlist and a model reading an arbitrary file off disk in the
+  same invocation. `ClaudeCLISessionTests.test_spawnArgumentsMatchTheSpike`
+  asserts both, and it parses argv with `components` rather than `split`
+  because the flag's value is the empty string.
 
 ## The intent loop, both directions
 
