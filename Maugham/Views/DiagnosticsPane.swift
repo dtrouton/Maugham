@@ -107,9 +107,11 @@ struct DiagnosticsPane: View {
     /// Derives the header's state from the orchestrator's run state, the
     /// last-run record, and how many notes are currently live.
     ///
-    /// `runState` wins whenever it describes something that just happened
-    /// (`.running` for THIS doc, `.nothingNew`, `.failed`); otherwise the
-    /// state is read off what is on disk, which is what makes a reopened
+    /// `runState` wins whenever it describes something that just happened **to
+    /// this document** — the `where` clause is on all three run-describing
+    /// cases and not only on `.running`, because the run state is per-window
+    /// while this pane is per-document. Anything about another document falls
+    /// through to what is on disk here, which is also what makes a reopened
     /// project show its last answer rather than reverting to "never run".
     static func headerState(
         runState: CompilerOrchestrator.RunState,
@@ -118,11 +120,11 @@ struct DiagnosticsPane: View {
         docId: String
     ) -> HeaderState {
         switch runState {
-        case .running(let runningDocId) where runningDocId == docId:
+        case .running(let runDocId) where runDocId == docId:
             return .running
-        case .nothingNew(let at):
+        case .nothingNew(let runDocId, let at) where runDocId == docId:
             return .nothingNew(at: at)
-        case .failed(let failure, let at):
+        case .failed(let runDocId, let failure, let at) where runDocId == docId:
             return .failed(failure, at: at)
         default:
             guard let lastRun else { return .neverRun }

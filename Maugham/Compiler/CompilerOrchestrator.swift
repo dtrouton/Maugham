@@ -24,11 +24,20 @@ final class CompilerOrchestrator {
     /// the pane can say which of the two it is — a writer who presses ⌘R and
     /// sees the previous run's notes unchanged has no way to tell "checked,
     /// nothing new" from "the key did nothing".
+    ///
+    /// **Every state that describes a run names the document it ran on.** The
+    /// surface is per-document and this state is per-window, so a case without
+    /// a `docId` is a claim with nowhere to check it against: ⌘R on chapter 1
+    /// reports "nothing new", the writer clicks chapter 2, and chapter 2's
+    /// header says the compiler found nothing new in a document it never read —
+    /// indefinitely, since the state only moves on the next run. A failure is
+    /// the same defect with a red line painted over another document's
+    /// perfectly good notes. `.idle` carries none because it claims nothing.
     enum RunState: Equatable {
         case idle
         case running(docId: String)
-        case nothingNew(at: Date)
-        case failed(CompilerRunFailure, at: Date)
+        case nothingNew(docId: String, at: Date)
+        case failed(docId: String, failure: CompilerRunFailure, at: Date)
     }
 
     /// What one run reads off the live `Document`, captured at the keystroke.
@@ -157,7 +166,7 @@ final class CompilerOrchestrator {
             if let newest = delta.newestOpId {
                 diagnostics.advanceMarker(to: newest, docId: docId)
             }
-            runState = .nothingNew(at: Date())
+            runState = .nothingNew(docId: docId, at: Date())
             return
         }
 
@@ -173,7 +182,9 @@ final class CompilerOrchestrator {
 
         guard let runner = ensureRunner(model: environment.model) else {
             runState = .failed(
-                .sessionDied(detail: "the compiler's bridge config could not be written"),
+                docId: docId,
+                failure: .sessionDied(
+                    detail: "the compiler's bridge config could not be written"),
                 at: Date())
             return
         }
@@ -241,7 +252,9 @@ final class CompilerOrchestrator {
             // The marker and the intent hash are both left exactly where they
             // were. A run that produced nothing checked nothing — advance
             // either and the next run describes a session that never read it.
-            runState = failure.isTheWritersOwnDoing ? .idle : .failed(failure, at: Date())
+            runState = failure.isTheWritersOwnDoing
+                ? .idle
+                : .failed(docId: docId, failure: failure, at: Date())
 
         case .resultText(let text):
             let runId = ULID.generate()
@@ -251,7 +264,7 @@ final class CompilerOrchestrator {
                     self?.environment?.liveParagraphText(docId, paragraphId)
                 })
             else {
-                runState = .failed(.unusableOutput, at: Date())
+                runState = .failed(docId: docId, failure: .unusableOutput, at: Date())
                 return
             }
 

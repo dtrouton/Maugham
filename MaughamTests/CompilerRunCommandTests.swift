@@ -310,10 +310,13 @@ final class CompilerRunCommandTests: XCTestCase {
         settle()
 
         XCTAssertEqual(runner.sends.count, 0)
-        guard case .nothingNew = harness.orchestrator.runState else {
+        guard case .nothingNew(let stateDocId, _) = harness.orchestrator.runState else {
             return XCTFail("expected the idle 'nothing new' variant, got "
                            + "\(harness.orchestrator.runState)")
         }
+        XCTAssertEqual(stateDocId, docId,
+            "the state names the document it is about — a pane on another "
+            + "document must not read it as its own")
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.configURL.path),
                        "…and no session config, because no session was wanted")
     }
@@ -416,10 +419,14 @@ final class CompilerRunCommandTests: XCTestCase {
 
         XCTAssertNil(harness.diagnostics.lastOpId(docId: docId),
                      "a run that never produced a result checked nothing")
-        guard case .failed(let failure, _) = harness.orchestrator.runState else {
+        guard case .failed(let stateDocId, let failure, _) = harness.orchestrator.runState
+        else {
             return XCTFail("expected a reported failure, got \(harness.orchestrator.runState)")
         }
         XCTAssertEqual(failure, .timedOut)
+        XCTAssertEqual(stateDocId, docId,
+            "the failure belongs to the document it was raised on — otherwise a "
+            + "red line follows the writer to a document that never ran")
 
         // The same document, the same delta, a run that comes back.
         runner.nextEvent = .resultText(
@@ -450,7 +457,7 @@ final class CompilerRunCommandTests: XCTestCase {
         settle()
 
         XCTAssertNil(harness.diagnostics.lastOpId(docId: docId))
-        guard case .failed(let failure, _) = harness.orchestrator.runState else {
+        guard case .failed(_, let failure, _) = harness.orchestrator.runState else {
             return XCTFail("expected a reported failure, got \(harness.orchestrator.runState)")
         }
         XCTAssertEqual(failure, .unusableOutput)
@@ -705,7 +712,7 @@ final class CompilerRunCommandTests: XCTestCase {
         settle()
         harness.orchestrator.shutdown()
 
-        guard case .failed(let failure, _) = harness.orchestrator.runState else {
+        guard case .failed(_, let failure, _) = harness.orchestrator.runState else {
             return XCTFail("the failure was erased by an unrelated teardown")
         }
         XCTAssertEqual(failure, .cliNotFound)

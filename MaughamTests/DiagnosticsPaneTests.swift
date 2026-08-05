@@ -99,14 +99,40 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_headerState_nothingNew() {
         let at = Date()
         let state = DiagnosticsPane.headerState(
-            runState: .nothingNew(at: at), lastRun: makeRun(), noteCount: 3, docId: "d1")
+            runState: .nothingNew(docId: "d1", at: at), lastRun: makeRun(),
+            noteCount: 3, docId: "d1")
         XCTAssertEqual(state, .nothingNew(at: at))
+    }
+
+    /// "Nothing new since the last check." is a claim about ONE document. Said
+    /// over another one it describes a check that document never had — and it
+    /// stands until the next run, because nothing else moves the run state.
+    func test_headerState_nothingNewForAnotherDocFallsThroughToLastRun() {
+        let run = makeRun()
+        let state = DiagnosticsPane.headerState(
+            runState: .nothingNew(docId: "other-doc", at: Date()), lastRun: run,
+            noteCount: 0, docId: "d1")
+        XCTAssertEqual(state, .clean(lastRun: run),
+            "another document's empty delta must not speak for this one")
+    }
+
+    /// The same leak, at its worst: chapter 1's check dies, the writer clicks
+    /// chapter 2, and a red failure line is painted over chapter 2's perfectly
+    /// good notes.
+    func test_headerState_failedForAnotherDocFallsThroughToLastRun() {
+        let run = makeRun()
+        let state = DiagnosticsPane.headerState(
+            runState: .failed(docId: "doc-a", failure: .cliNotFound, at: Date()),
+            lastRun: run, noteCount: 2, docId: "doc-b")
+        XCTAssertEqual(state, .idle(lastRun: run),
+            "a failure belongs to the document it was raised on")
     }
 
     func test_headerState_failedWithHonestCopy() {
         let at = Date()
         let state = DiagnosticsPane.headerState(
-            runState: .failed(.cliNotFound, at: at), lastRun: nil, noteCount: 0, docId: "d1")
+            runState: .failed(docId: "d1", failure: .cliNotFound, at: at),
+            lastRun: nil, noteCount: 0, docId: "d1")
         XCTAssertEqual(state, .failed(.cliNotFound, at: at))
 
         XCTAssertTrue(DiagnosticsPane.failureCopy(.cliNotFound).contains("Claude Code isn't installed"))
