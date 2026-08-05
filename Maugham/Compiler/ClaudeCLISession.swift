@@ -148,7 +148,7 @@ final class ClaudeCLISession: CompilerRunner {
         isRunning = true
 
         guard let cli = await resolveCLI() else {
-            isRunning = false
+            relinquish(token: token)
             return .failed(.cliNotFound)
         }
         // Both can have changed while we were off-main: the writer may have
@@ -157,25 +157,25 @@ final class ClaudeCLISession: CompilerRunner {
         // in the window — without this the session would spawn a process
         // moments after being told to stop.
         guard generation == epoch, runToken == token else {
-            isRunning = false
+            relinquish(token: token)
             return .failed(.sessionDied(detail: "session shut down"))
         }
         guard isEnabled() else {
-            isRunning = false
+            relinquish(token: token)
             teardown()
             return .failed(.disabledByToggle)
         }
 
         if let failure = ensureProcess(cli: cli) {
-            isRunning = false
+            relinquish(token: token)
             return .failed(failure)
         }
         guard let stdin = stdinHandle else {
-            isRunning = false
+            relinquish(token: token)
             return .failed(.sessionDied(detail: "no stdin on the spawned CLI"))
         }
         guard let payload = Self.userMessageLine(message) else {
-            isRunning = false
+            relinquish(token: token)
             return .failed(.unusableOutput)
         }
 
@@ -485,6 +485,26 @@ final class ClaudeCLISession: CompilerRunner {
     }
 
     // MARK: - Resolution, timers, teardown
+
+    /// Drop this turn's claim on the session — but only while it still holds
+    /// it. A `send` that has been superseded must touch NOTHING.
+    ///
+    /// `send` suspends before it stores its continuation (resolving the CLI can
+    /// cost a login shell), so a cancelled turn can still be sitting in that
+    /// window when its replacement claims the session. Resetting `isRunning`
+    /// unconditionally on the way out lets the stale turn clear the live one's
+    /// claim, and `cancelCurrentRun` — which reads `isRunning` — then silently
+    /// no-ops against a real process, leaving the writer no way to stop a run
+    /// short of the run timeout. This is `resolve`'s token discipline applied
+    /// to the branches that never reach `resolve`.
+    ///
+    /// Deliberately NOT used by `cancelCurrentRun`/`shutdown`: those are
+    /// session-level verbs, not one turn's, and mean "nothing is running" no
+    /// matter whose turn it was.
+    private func relinquish(token: Int) {
+        guard token == runToken else { return }
+        isRunning = false
+    }
 
     private func resolve(_ event: CompilerRunEvent, token: Int) {
         guard token == runToken, let cont = inFlight else { return }

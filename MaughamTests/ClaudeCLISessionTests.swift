@@ -135,6 +135,34 @@ final class ClaudeCLISessionTests: XCTestCase {
             locator: locator ?? { nil })
     }
 
+    /// A locator whose FIRST call is held open until the test lets it go, so a
+    /// test can decide which of two overlapping probes finishes first. Later
+    /// calls answer immediately.
+    private final class GatedLocator: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _calls = 0
+        private let firstCallGate = DispatchSemaphore(value: 0)
+        private let answer: URL
+
+        init(answer: URL) { self.answer = answer }
+
+        var calls: Int { lock.lock(); defer { lock.unlock() }; return _calls }
+
+        func locate() -> URL? {
+            lock.lock()
+            _calls += 1
+            let isFirst = _calls == 1
+            lock.unlock()
+            // Safe to block: the locator runs in a detached task, never on the
+            // main actor — which `test_cliResolutionNeverRunsOnTheMainActor`
+            // is the standing proof of.
+            if isFirst { firstCallGate.wait() }
+            return answer
+        }
+
+        func releaseFirstCall() { firstCallGate.signal() }
+    }
+
     /// Records what the injected locator saw, from whatever thread ran it.
     private final class LocatorProbe: @unchecked Sendable {
         private let lock = NSLock()
@@ -426,6 +454,53 @@ final class ClaudeCLISessionTests: XCTestCase {
             "the resolved CLI must be reused by the respawn, not probed again")
 
         session.shutdown()
+    }
+
+    /// A superseded turn must not clear the claim of the turn that replaced it.
+    ///
+    /// The chain: turn A suspends on a cold CLI probe; a cancel lands; turn B
+    /// retries, wins its own probe, spawns and is genuinely running; only then
+    /// does A's stale probe come back. If A resets `isRunning` on its way out
+    /// without checking it still owns the turn, it clears B's claim — and the
+    /// next `cancelCurrentRun`, aimed at B's real process, silently does
+    /// nothing. The writer would press cancel on a live run and watch it keep
+    /// going until the run timeout.
+    func test_aSupersededTurnCannotDisarmCancelForTheLiveOne() async throws {
+        let cli = try makeFakeCLI(mode: .slowWhileFlagged)
+        try Data().write(to: slowFlagURL)   // keeps turn B in flight
+        let locator = GatedLocator(answer: cli)
+        let session = makeSession(cli: nil, locator: { locator.locate() })
+
+        // Turn A: suspended inside its probe, claim taken, no continuation yet.
+        async let turnA = session.send(message: "A", systemPreamble: nil)
+        let aProbing = await waitUntil { locator.calls >= 1 }
+        XCTAssertTrue(aProbing, "turn A should be inside the probe")
+        XCTAssertTrue(session.isRunning)
+
+        // Cancel A while it is still resolving, then start turn B.
+        session.cancelCurrentRun()
+        async let turnB = session.send(message: "B", systemPreamble: nil)
+        let bRunning = await waitUntil { session.hasLiveProcess && session.isRunning }
+        XCTAssertTrue(bRunning, "turn B should have spawned and be in flight")
+
+        // Now let A's stale probe come back.
+        locator.releaseFirstCall()
+        let aEvent = await turnA
+        guard case .failed = aEvent else {
+            return XCTFail("the superseded turn must fail, got \(aEvent)")
+        }
+
+        XCTAssertTrue(session.isRunning,
+            "the superseded turn must not clear the live turn's claim")
+
+        // The real proof: a cancel aimed at B must actually reach B.
+        session.cancelCurrentRun()
+        let bEvent = await turnB
+        guard case .failed(.sessionDied(let detail)) = bEvent, detail == "cancelled" else {
+            return XCTFail("cancel must reach the live turn, got \(bEvent)")
+        }
+        XCTAssertFalse(session.isRunning)
+        XCTAssertFalse(session.hasLiveProcess)
     }
 
     /// Resolving the CLI suspends, which opens a window that did not exist when
