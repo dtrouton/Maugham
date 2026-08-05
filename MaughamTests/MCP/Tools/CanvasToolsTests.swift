@@ -490,12 +490,37 @@ final class CanvasToolsTests: XCTestCase {
                        + "canvas — pooled, this would be all three cards")
     }
 
+    /// **M2 widening** (`RegionBinding.references(forPiece:in:)`'s new second
+    /// clause): a card's own `boundPieceID` is now a reference source too,
+    /// unioned in alongside a region's residents rather than reported only as
+    /// a promotion destination. `bbbb` here is loose — no home region at all,
+    /// let alone one bound to `piece-3` — so only its own association puts it
+    /// in this piece's context; `aaaa` is the control that the region-residency
+    /// source this test does not touch is still live.
+    func test_aSelfBoundCardJoinsTheRegionsResidents() async throws {
+        let (url, store, registry, id) = try await registeredProject("SelfBound")
+        let model = attached(to: store, at: url)
+        model.withScene { scene in
+            scene.insert(node("aaaa"))
+            scene.insert(node("bbbb", y: 200, piece: "piece-3"))
+            scene.insertRegion(boundRegion("r1", toPiece: "piece-3", home: ["aaaa"]))
+        }
+
+        let result = try await call(registry, id)
+
+        XCTAssertEqual(references(result, "piece-3"), ["aaaa", "bbbb"],
+                       "bbbb is loose and cited by no region at all — its own "
+                       + "association is what makes it this piece's context")
+    }
+
     /// **The control, and it can fail.** A card carries a piece association of
     /// its own (§6.2 — where a promotion *from* that card lands), which is a
-    /// different relationship from a region's binding and is not a reference.
-    /// Keyed off every `bound_piece_id` on the wire rather than off the regions'
-    /// bindings, this response would carry a `piece-7` entry for a piece no
-    /// region has been drawn around.
+    /// different relationship from a region's binding and is not a reference
+    /// on its own — it only widens the set of a piece SOME REGION is already
+    /// bound to (the test above). Here no region binds to `piece-7` at all, so
+    /// `list_canvas` never enumerates it and the association alone cannot
+    /// conjure an entry — `pieceReferences(in:)` keys strictly off
+    /// `CanvasRegion.boundPieceID`.
     func test_aPieceWithNoBoundRegionReportsNoReferences() async throws {
         let (url, store, registry, id) = try await registeredProject("Unbound")
         let model = attached(to: store, at: url)

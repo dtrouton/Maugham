@@ -107,6 +107,29 @@ final class RegionBindingTests: XCTestCase {
         XCTAssertEqual(RegionBinding.references(forPiece: "piece-3", in: starved), [b])
     }
 
+    /// M2's widening: a card's OWN `boundPieceID` (§6.2's association) now
+    /// makes it a reference too, alongside a region's binding (§4.4's). The
+    /// card here is loose — no home region at all — and the piece has no
+    /// region bound to it either, so the old region-only rule would report
+    /// nothing.
+    func test_aCardBoundByItselfIsReferenced() {
+        var s = scene()
+        s.setBoundPiece("piece-3", for: a)
+        XCTAssertEqual(RegionBinding.references(forPiece: "piece-3", in: s), [a])
+    }
+
+    /// Union, dedupe: a card that is BOTH a resident of a bound region AND
+    /// self-bound to the same piece must appear once, not twice — the
+    /// contract is a `Set`, but a naive `+` of the two sources would still
+    /// pass a `[CanvasNodeID]` equality check by accident.
+    func test_selfBoundResidentIsNotDoubled() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        RegionBinding.bind(r1, toPiece: "piece-3", in: &s)
+        s.setBoundPiece("piece-3", for: a)
+        XCTAssertEqual(RegionBinding.references(forPiece: "piece-3", in: s), [a])
+    }
+
     // MARK: - The inspector, which is the only way any of this is reachable
 
     func test_renamingThroughTheInspectorIsOneUndoStepAndReachesDisk() {
