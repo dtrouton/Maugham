@@ -248,8 +248,8 @@ struct AssistantColumn: View {
 /// rather than re-deriving three that have already been measured against a real
 /// field editor.
 ///
-/// This consumer registers **only while a reference is up**, so a window with no
-/// column in it is never asked.
+/// This consumer registers **only while there is a column on screen** — which is
+/// `AssistantColumn.isPresented` and not `studied != nil`; see `sync`.
 @MainActor
 final class AssistantColumnEscape {
 
@@ -259,6 +259,12 @@ final class AssistantColumnEscape {
     /// would have frozen at the first call — cannot go on dismissing a reference
     /// the writer replaced ten minutes ago.
     private weak var model: AssistantColumnModel?
+
+    /// The window's chrome flag, refreshed by every `sync` and read at event time
+    /// beside the model, for the same reason the model is: a claim answering from
+    /// a value frozen at registration answers about a window state that has since
+    /// changed.
+    private var isNoChromeOn = false
 
     /// The arbiter this consumer is currently registered with, or nil. Held
     /// weakly: the table in `WindowEscapeArbiter` owns them, keyed by window.
@@ -273,9 +279,29 @@ final class AssistantColumnEscape {
         return arbiter.isRegistered(.assistantColumn) && arbiter.isArmed
     }
 
-    /// Register or resign to match the model. Idempotent in both directions, so
-    /// the mounting site can call it from an `.onChange` without tracking what it
-    /// did last.
+    /// **The one spelling of "is there a column"** — `AssistantColumn.isPresented`,
+    /// the same pure function the mounting site's `if` asks. Both the
+    /// registration and the event-time claim go through it, because a second
+    /// condition written out here is exactly how the two diverged.
+    private var isColumnPresented: Bool {
+        AssistantColumn.isPresented(studied: model?.studied, isNoChromeOn: isNoChromeOn)
+    }
+
+    /// Register or resign to match **the column's presentation**. Idempotent in
+    /// both directions, so the mounting site can call it from an `.onChange`
+    /// without tracking what it did last.
+    ///
+    /// **`isNoChromeOn` and not merely `studied`, and that is the whole of final
+    /// review C1.** Whether the column is on screen is
+    /// `AssistantColumn.isPresented`, which vetoes on the chrome flag; whether it
+    /// held an Escape claim used to be `studied != nil`, and nothing dismisses the
+    /// studied reference when the flag flips — deliberately, since the column is
+    /// meant to come back when the chrome does. So under ⌘\ or ⌘⇧F (which sets
+    /// the same flag on the way into full screen, `ProjectWindow.toggleFullScreen`)
+    /// an **invisible** column held the window's highest-priority claim: in full
+    /// screen the exit key silently discarded the reference and left full screen
+    /// alone; in Plan the dimmed board needed two presses, the first spent on
+    /// nothing the writer could see. Both conditions are now the one function.
     ///
     /// **The window is a value rather than a closure now**, because the arbiter
     /// is keyed by window: a consumer has to be registered with a particular
@@ -284,9 +310,10 @@ final class AssistantColumnEscape {
     /// syncs on the window changing as well as on the studied reference — which
     /// also closes the review's finding 3 (the previous comment claimed the
     /// window was read at event time when it was really read at last-sync time).
-    func sync(model: AssistantColumnModel, window: NSWindow?) {
+    func sync(model: AssistantColumnModel, window: NSWindow?, isNoChromeOn: Bool) {
         self.model = model
-        guard model.studied != nil, let window else {
+        self.isNoChromeOn = isNoChromeOn
+        guard isColumnPresented, let window else {
             stop()
             return
         }
@@ -312,7 +339,7 @@ final class AssistantColumnEscape {
     /// assertable without an `NSEvent`.
     @discardableResult
     func performEscape() -> Bool {
-        guard let model, model.studied != nil else { return false }
+        guard let model, isColumnPresented else { return false }
         model.dismiss()
         return true
     }
@@ -364,18 +391,24 @@ struct AssistantColumnModifier: ViewModifier {
             }
             content
         }
-        .onChange(of: assistant.studied?.id) { _, _ in
-            escape.sync(model: assistant, window: window)
-        }
+        // **Every input the presentation rule reads gets an `.onChange`**, and
+        // the three call one function so a fourth input cannot be added to
+        // `isPresented` and forgotten here. `isNoChromeOn` is the one that was
+        // missing (final review C1): ⌘\ and ⌘⇧F take the column off screen
+        // without touching what is studied, and the claim used to stay behind.
+        .onChange(of: assistant.studied?.id) { _, _ in syncEscape() }
         // **The window as well as the reference**, because the arbiter is keyed
         // by window: `WindowAccessor` reports one asynchronously after mount, and
         // a window that arrived after the first sync would otherwise leave the
         // column registered nowhere.
-        .onChange(of: window) { _, _ in
-            escape.sync(model: assistant, window: window)
-        }
+        .onChange(of: window) { _, _ in syncEscape() }
+        .onChange(of: isNoChromeOn) { _, _ in syncEscape() }
         .onChange(of: activeDocId) { _, _ in assistant.dismiss() }
         .onDisappear { escape.stop() }
+    }
+
+    private func syncEscape() {
+        escape.sync(model: assistant, window: window, isNoChromeOn: isNoChromeOn)
     }
 
     /// A draggable divider. `.resizeLeftRight` on hover, because a divider that

@@ -258,16 +258,16 @@ final class AssistantColumnTests: XCTestCase {
         let escape = AssistantColumnEscape()
         let model = AssistantColumnModel()
 
-        escape.sync(model: model, window: window)
+        escape.sync(model: model, window: window, isNoChromeOn: false)
         XCTAssertFalse(escape.isInstalled,
                        "with nothing studied the column must eat no keys at all")
 
         model.study(aPin())
-        escape.sync(model: model, window: window)
+        escape.sync(model: model, window: window, isNoChromeOn: false)
         XCTAssertTrue(escape.isInstalled)
 
         model.dismiss()
-        escape.sync(model: model, window: window)
+        escape.sync(model: model, window: window, isNoChromeOn: false)
         XCTAssertFalse(escape.isInstalled,
                        "a consumer left registered goes on swallowing Escape in a "
                        + "window with no column in it")
@@ -282,7 +282,7 @@ final class AssistantColumnTests: XCTestCase {
         let escape = AssistantColumnEscape()
         let model = AssistantColumnModel()
         model.study(aPin())
-        escape.sync(model: model, window: window)
+        escape.sync(model: model, window: window, isNoChromeOn: false)
 
         model.study(PinnedReference(id: "res-other", kind: .research(itemId: "res-other"),
                                     title: "Another"))
@@ -295,12 +295,97 @@ final class AssistantColumnTests: XCTestCase {
         let window = makeWindow()
         let escape = AssistantColumnEscape()
         let model = AssistantColumnModel()
-        escape.sync(model: model, window: window)
+        escape.sync(model: model, window: window, isNoChromeOn: false)
 
         XCTAssertFalse(escape.performEscape(),
                        "with no column open the key must travel on — a great many "
                        + "responders above want Escape")
         escape.stop()
+    }
+
+    // MARK: - Contract: the claim lives exactly as long as the column does
+
+    /// **Chrome × Escape — the composition the final review found nobody had
+    /// crossed** (C1). Both halves were individually tested: `isPresented`
+    /// vetoes on `isNoChromeOn` (`test_theColumnGoesWithTheChrome`) and the
+    /// consumer registers while something is studied
+    /// (`test_theColumnWatchesOnlyWhileSomethingIsStudied`). Neither asked what
+    /// happens when the flag flips with a pin still up.
+    ///
+    /// It happens by a documented keystroke: ⌘\ takes the chrome, and ⌘⇧F sets
+    /// the same flag on the way INTO full screen (`ProjectWindow.toggleFullScreen`,
+    /// marked intended). Nothing dismisses the studied pin when the flag flips,
+    /// deliberately — the column is meant to come back when the chrome does. So a
+    /// consumer keyed on `studied != nil` alone is an INVISIBLE column holding the
+    /// window's highest-priority Escape claim: in full screen the exit key
+    /// silently discarded the reference and left full screen alone, and in Plan
+    /// the dimmed board needed two presses, the first spent on nothing the writer
+    /// could see.
+    func test_anInvisibleColumnHoldsNoClaimOnEscape() {
+        let window = makeWindow()
+        let arbiter = WindowEscapeArbiter.arbiter(for: window)
+        let escape = AssistantColumnEscape()
+        let model = AssistantColumnModel()
+        var dimLifted = 0
+
+        model.study(aPin())
+        escape.sync(model: model, window: window, isNoChromeOn: false)
+        XCTAssertTrue(escape.isInstalled)
+
+        // ⌘\ (or ⌘⇧F). The column leaves the screen; its claim must leave with it.
+        escape.sync(model: model, window: window, isNoChromeOn: true)
+        XCTAssertFalse(escape.isInstalled,
+                       "a column nobody can see is holding the window's "
+                       + "highest-priority Escape claim")
+        XCTAssertFalse(escape.performEscape(),
+                       "the offer must be declined so the key passes on")
+        XCTAssertNotNil(model.studied,
+                        "Escape discarded the studied reference while the column was "
+                        + "off screen — the writer sees nothing happen and finds the "
+                        + "pin gone when the chrome comes back")
+
+        // And the next consumer down gets it on the FIRST press, not the second.
+        arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
+        XCTAssertTrue(arbiter.offerEscape())
+        XCTAssertEqual(dimLifted, 1,
+                       "the dim needed two Escapes: the first was eaten by a column "
+                       + "that was not on screen")
+        XCTAssertNotNil(model.studied)
+        arbiter.resign(.canvasDim)
+
+        // Chrome back: the column returns, and so does its claim, with the same
+        // reference still up.
+        escape.sync(model: model, window: window, isNoChromeOn: false)
+        XCTAssertTrue(escape.isInstalled,
+                      "the column came back with the chrome and its Escape did not")
+        XCTAssertNotNil(model.studied)
+        XCTAssertTrue(escape.performEscape())
+        XCTAssertNil(model.studied)
+        escape.stop()
+    }
+
+    /// **Registered exactly when there is a column**, asked over the product of
+    /// the two inputs and stated against `isPresented` itself rather than a
+    /// second copy of the rule — the two conditions diverging is what C1 *was*.
+    func test_theConsumerIsRegisteredExactlyWhenThereIsAColumn() {
+        for pin in [nil, aPin()] {
+            for noChrome in [false, true] {
+                let window = makeWindow()
+                let escape = AssistantColumnEscape()
+                let model = AssistantColumnModel()
+                if let pin { model.study(pin) }
+
+                escape.sync(model: model, window: window, isNoChromeOn: noChrome)
+                XCTAssertEqual(
+                    escape.isInstalled,
+                    AssistantColumn.isPresented(studied: model.studied,
+                                                isNoChromeOn: noChrome),
+                    "the Escape claim and the column disagree about whether there "
+                    + "is a column: studied \(pin?.id ?? "nil"), isNoChromeOn "
+                    + "\(noChrome)")
+                escape.stop()
+            }
+        }
     }
 
     // MARK: - Contract: two overlays, one window, a decided order
@@ -324,7 +409,7 @@ final class AssistantColumnTests: XCTestCase {
         var dimLifted = 0
 
         model.study(aPin())
-        escape.sync(model: model, window: window)
+        escape.sync(model: model, window: window, isNoChromeOn: false)
         arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
 
         XCTAssertTrue(arbiter.offerEscape(), "the key is used by one of the two")
@@ -354,9 +439,9 @@ final class AssistantColumnTests: XCTestCase {
             model.study(aPin())
             if dimFirst {
                 arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
-                escape.sync(model: model, window: window)
+                escape.sync(model: model, window: window, isNoChromeOn: false)
             } else {
-                escape.sync(model: model, window: window)
+                escape.sync(model: model, window: window, isNoChromeOn: false)
                 arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
             }
 
@@ -460,7 +545,7 @@ final class AssistantColumnTests: XCTestCase {
         var dimLifted = 0
 
         model.study(aPin())
-        escape.sync(model: model, window: window)
+        escape.sync(model: model, window: window, isNoChromeOn: false)
         arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
 
         NSApp.sendEvent(escapeKeyEvent(for: window))
