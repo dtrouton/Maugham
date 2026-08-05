@@ -51,17 +51,22 @@ extension CompilerOrchestrator.Environment {
                 documentStore?.document(forDocId: docId)?.paragraph(id: paragraphId)
             },
             intent: { [weak store] docId in
-                guard let store else { return (nil, projectScopeLabel) }
-                if let piece = store.statement(kind: .intent, scope: .document(docId)) {
-                    return (store.statementText(of: piece),
-                            documentScopeLabel(forDocId: docId, in: store))
+                // `ProjectStore.effectiveIntent(forDocId:)` — the piece-first,
+                // project-fallback resolution, shared with the intent strip
+                // (M2 §6.1) rather than spelled twice. A strip showing the
+                // chapter's intent while the run was briefed on the book's is
+                // a lie about what Claude was told.
+                guard let store,
+                      let resolved = store.effectiveIntent(forDocId: docId) else {
+                    // Absence is valid and mints nothing (M1A's rule). The
+                    // prompt simply carries no intent section.
+                    return (nil, projectScopeLabel)
                 }
-                if let project = store.statement(kind: .intent, scope: .project) {
-                    return (store.statementText(of: project), projectScopeLabel)
-                }
-                // Absence is valid and mints nothing (M1A's rule). The prompt
-                // simply carries no intent section.
-                return (nil, projectScopeLabel)
+                let label: String = {
+                    guard case .document = resolved.scope else { return projectScopeLabel }
+                    return documentScopeLabel(forDocId: docId, in: store)
+                }()
+                return (store.statementText(of: resolved), label)
             },
             pinnedListing: { [weak store] docId in
                 guard let store else { return [] }

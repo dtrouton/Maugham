@@ -981,6 +981,20 @@ struct ProjectWindow: View {
                         elementLabel: elementLabelForFooter)
                 }
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                // **Applied FIRST of the three top insets, which is what puts it
+                // nearest the prose.** `safeAreaInset` places each inset outside
+                // the content it wraps, so the last one applied ends up furthest
+                // from the editor: the read-only trap is the outermost line, the
+                // review banner sits under it, and the strip is directly over
+                // the writing. That is the order the surfaces want — the two
+                // banners are notices about the WINDOW's posture and belong with
+                // the chrome, and the strip is a running head belonging to the
+                // page.
+                if let line = intentStripLine {
+                    IntentStrip(line: line)
+                }
+            }
             .safeAreaInset(edge: .top) {
                 // Reflect the EFFECTIVE posture, not just the manual toggle: a
                 // reviewer (or still-resolving unknown) always shows REVIEWING;
@@ -999,6 +1013,44 @@ struct ProjectWindow: View {
                 }
             }
             .navigationSplitViewColumnWidth(min: 480, ideal: 720)
+    }
+
+    /// The intent strip's line, or nil for no strip (M2 §6.1).
+    ///
+    /// **`EditorStatusFooter`'s twin, and gated the same way**: Author only, and
+    /// gone with the chrome under ⌘\. The decision itself is
+    /// `IntentStrip.line(store:docId:persona:isNoChromeOn:)` rather than a
+    /// condition written out here, so it can be asked over the product of its
+    /// inputs by a test instead of only down the path this property takes.
+    ///
+    /// The freshness is SwiftUI's own observation: the resolver reads the
+    /// statement's live `Document` through `ProjectStore.statementText(of:)`, so
+    /// a change made in the Intent pane invalidates this body with no event and
+    /// no poll.
+    ///
+    /// **`activeDocId` carries the no-selection sentinel and that is correct
+    /// here** — no manuscript document means no document-scope intent to find,
+    /// so the resolution falls to the project's, which is the right answer for a
+    /// window whose subject is the project.
+    ///
+    /// **One divergence is known and accepted rather than fixed.** Clicking the
+    /// strip posts a bare `postDetailSegment(.intent)`, and the Intent pane
+    /// resolves its own scope from the binder selection
+    /// (`StatementPane.effectiveScope`), which never falls back — so a chapter
+    /// with no intent of its own shows the *project's* line in the strip and
+    /// opens the *chapter's* empty editor on click. Landing on the fallback
+    /// scope instead would need Open-sets-scope machinery, which is the reverted
+    /// three-round M1A work (`openPromotedArtifact`, `Maugham/Canvas/AREA.md`)
+    /// and not a ride-along. The click is still the right one — the writer who
+    /// pressed a project-scope line while a chapter is selected is one keystroke
+    /// from writing that chapter's own intent, which is the thing they would
+    /// want to do next. `IntentStripTests` pins the divergence so it is a
+    /// recorded position rather than a surprise.
+    private var intentStripLine: String? {
+        guard let store else { return nil }
+        return IntentStrip.line(
+            store: store, docId: activeDocId,
+            persona: persona, isNoChromeOn: isNoChromeOn)
     }
 
     private var shouldShowStatusFooter: Bool {
