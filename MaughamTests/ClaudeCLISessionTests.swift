@@ -30,6 +30,10 @@ final class ClaudeCLISessionTests: XCTestCase {
         /// Exit non-zero after consuming the first stdin line, on the FIRST
         /// spawn only. A second spawn behaves like `normal`.
         case dieFirst
+        /// Say why on stderr, then exit non-zero — the shape of an expired
+        /// login. The last line written is blank, so a test can tell "the last
+        /// line" from "the last line with something on it".
+        case dieWithStderr
         /// Withhold the answer for as long as the `slow` flag file exists.
         ///
         /// Deliberately keyed on a file the TEST owns rather than on the
@@ -92,6 +96,14 @@ final class ClaudeCLISessionTests: XCTestCase {
         if [ "$MODE" = "dieFirst" ] && [ "$N" -eq 1 ]; then
           IFS= read -r _line
           exit 3
+        fi
+
+        if [ "$MODE" = "dieWithStderr" ]; then
+          IFS= read -r _line
+          echo "Loading configuration" >&2
+          echo "Invalid API key - Please run /login" >&2
+          echo "" >&2
+          exit 1
         fi
 
         while IFS= read -r _line; do
@@ -317,6 +329,42 @@ final class ClaudeCLISessionTests: XCTestCase {
             "the next send must start a fresh session")
         XCTAssertEqual(lineCount(counterURL), 2)
 
+        session.shutdown()
+    }
+
+    /// **A death that said why carries the why** (spec §8). The case the spec
+    /// names is an expired login: without this the writer presses ⌘R and reads
+    /// "the CLI exited with status 1", which is honest and names nothing they
+    /// can act on. The last non-empty line is the one that carries — a CLI
+    /// says what it was doing first and what went wrong last, and it often
+    /// signs off with a blank line.
+    func test_aDeathThatSaidWhyCarriesItsLastWord() async throws {
+        let cli = try makeFakeCLI(mode: .dieWithStderr)
+        let session = makeSession(cli: cli)
+
+        let event = await session.send(message: "hello", systemPreamble: nil)
+
+        guard case .failed(.sessionDied(let detail)) = event else {
+            return XCTFail("expected .sessionDied, got \(event)")
+        }
+        XCTAssertTrue(detail.contains("status 1"), "got: \(detail)")
+        XCTAssertTrue(detail.contains("Invalid API key - Please run /login"),
+                      "the essence of stderr is missing from: \(detail)")
+        XCTAssertFalse(detail.contains("Loading configuration"),
+                       "one line, not a log: \(detail)")
+
+        session.shutdown()
+    }
+
+    /// The converse: a process that went quietly gets the bare sentence and no
+    /// invented cause.
+    func test_aSilentDeathSaysOnlyWhatItKnows() async throws {
+        let cli = try makeFakeCLI(mode: .dieFirst)
+        let session = makeSession(cli: cli)
+
+        let event = await session.send(message: "hello", systemPreamble: nil)
+
+        XCTAssertEqual(event, .failed(.sessionDied(detail: "the CLI exited with status 3")))
         session.shutdown()
     }
 

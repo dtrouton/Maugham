@@ -50,6 +50,11 @@ final class ClaudeCLISession: CompilerRunner {
     /// Retained so the pipe outlives the handler that reads it.
     private var stdoutPipe: Pipe?
     private var stderrPipe: Pipe?
+    /// The last few lines the current process wrote to stderr. Spec §8's
+    /// "the essence of stderr": when the CLI dies without answering — an
+    /// expired login is the case the spec names — "the CLI exited with status
+    /// 1" is honest and names nothing the writer can act on.
+    private var stderrTail: StderrTail?
 
     private var inFlight: CheckedContinuation<CompilerRunEvent, Never>?
     private var runTimeoutTask: Task<Void, Never>?
@@ -263,12 +268,15 @@ final class ClaudeCLISession: CompilerRunner {
         generation &+= 1
         let gen = generation
         installReader(on: stdout.fileHandleForReading, generation: gen)
-        // Drain stderr so a chatty CLI cannot fill the pipe and wedge itself.
-        // The EOF guard is not optional: once the child's stderr closes, GCD
-        // reports the fd continuously readable, and a handler that never
-        // unregisters itself spins that queue until teardown happens to nil it.
+        // Drain stderr so a chatty CLI cannot fill the pipe and wedge itself —
+        // and keep the tail of what it drains, which is all `receiveEOF` has to
+        // say WHY a death happened. The EOF guard is not optional: once the
+        // child's stderr closes, GCD reports the fd continuously readable, and
+        // a handler that never unregisters itself spins that queue until
+        // teardown happens to nil it.
+        let tail = StderrTail()
         stderr.fileHandleForReading.readabilityHandler = { fh in
-            if fh.availableData.isEmpty { fh.readabilityHandler = nil }
+            if tail.consume(from: fh) { fh.readabilityHandler = nil }
         }
 
         do {
@@ -283,6 +291,7 @@ final class ClaudeCLISession: CompilerRunner {
         stdinHandle = stdin.fileHandleForWriting
         stdoutPipe = stdout
         stderrPipe = stderr
+        stderrTail = tail
         return nil
     }
 
@@ -476,12 +485,40 @@ final class ClaudeCLISession: CompilerRunner {
         let token = runToken
         let hadRun = inFlight != nil
         let status = process.map { $0.isRunning ? nil : $0.terminationStatus } ?? nil
+        // Read before `teardown` drops the pipe. Only for a nonzero exit — a
+        // clean one has nothing to explain, and only that case is safe to read
+        // synchronously: a non-nil status means the process is gone, so its
+        // write end is closed and `availableData` returns at EOF rather than
+        // waiting for a writer that no longer exists.
+        let essence = (status ?? 0) != 0 ? stderrEssence() : nil
         teardown()
         if hadRun {
-            let detail = status.map { "the CLI exited with status \($0)" }
-                ?? "the CLI closed its output"
+            let detail: String
+            if let status {
+                detail = essence.map { "the CLI exited with status \(status): \($0)" }
+                    ?? "the CLI exited with status \(status)"
+            } else {
+                detail = "the CLI closed its output"
+            }
             resolve(.failed(.sessionDied(detail: detail)), token: token)
         }
+    }
+
+    /// The last thing the dying process said, or `nil` if it went quietly.
+    ///
+    /// The handler runs on `FileHandle`'s queue and may not have seen the final
+    /// write yet — stdout's EOF and stderr's readability are two independent
+    /// deliveries with no ordering between them — so this finishes the read
+    /// itself rather than reporting whatever happened to have arrived. Both
+    /// paths read *inside* `StderrTail`'s lock, so the drain and a handler
+    /// still in flight cannot both be inside `availableData` at once.
+    private func stderrEssence() -> String? {
+        guard let handle = stderrPipe?.fileHandleForReading, let tail = stderrTail else {
+            return nil
+        }
+        handle.readabilityHandler = nil
+        tail.drain(from: handle)
+        return tail.lastNonEmptyLine()
     }
 
     enum StreamLine: Equatable {
@@ -590,6 +627,73 @@ final class ClaudeCLISession: CompilerRunner {
         stdinHandle = nil
         stdoutPipe = nil
         stderrPipe = nil
+        stderrTail = nil
+    }
+}
+
+/// The tail of a process's stderr — about the last 10 lines, capped at 2 KB.
+///
+/// Bounded on purpose: this exists so a death can name its cause, not so the
+/// session can hold a log. A CLI that writes a megabyte of progress chatter
+/// before failing costs the same two kilobytes as one that writes a sentence.
+///
+/// `@unchecked Sendable` for `LineAccumulator`'s reason: every access is under
+/// `lock`, and `FileHandle`'s readability handler is a `@Sendable` closure that
+/// must not capture mutable state. Unlike `LineAccumulator` it performs the
+/// *read* under the lock too, so the synchronous drain at EOF cannot race a
+/// handler still in flight for the same bytes.
+private final class StderrTail: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = Data()
+    private let byteLimit = 2048
+    private let lineLimit = 10
+
+    /// Take whatever `handle` has ready. Returns `true` at EOF, which is the
+    /// signal for the handler to unregister itself.
+    func consume(from handle: FileHandle) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let chunk = handle.availableData
+        guard !chunk.isEmpty else { return true }
+        buffer.append(chunk)
+        trimLocked()
+        return false
+    }
+
+    /// Everything left, up to EOF. **Only safe once the writer is gone** — see
+    /// `ClaudeCLISession.stderrEssence`.
+    func drain(from handle: FileHandle) {
+        while !consume(from: handle) {}
+    }
+
+    /// The last line with something on it. `String(decoding:)` rather than the
+    /// failable initialiser: the byte cap can cut a multi-byte character in
+    /// half, and a replacement character somewhere off the front of a tail is
+    /// better than losing the sentence.
+    func lastNonEmptyLine() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return String(decoding: buffer, as: UTF8.self)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .last { !$0.isEmpty }
+    }
+
+    private func trimLocked() {
+        if buffer.count > byteLimit {
+            buffer = Data(buffer.suffix(byteLimit))
+        }
+        var newlines = 0
+        var index = buffer.endIndex
+        while index > buffer.startIndex {
+            index = buffer.index(before: index)
+            guard buffer[index] == UInt8(ascii: "\n") else { continue }
+            newlines += 1
+            if newlines > lineLimit {
+                buffer = Data(buffer[buffer.index(after: index)...])
+                return
+            }
+        }
     }
 }
 
