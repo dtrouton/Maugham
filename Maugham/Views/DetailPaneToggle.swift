@@ -41,6 +41,12 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// keeps compiling with the defaults below.
     let compilerModel: CompilerModelChoice
     var onCompilerModelChange: (CompilerModelChoice) -> Void = { _ in }
+    /// Which pinned reference the writer has promoted into the assistant column
+    /// (M2 §6.2). An object rather than a `Binding` because the shelf is in this
+    /// column and the column it promotes into is the window's CENTRE one — see
+    /// `AssistantColumnModel`. Optional so a caller that surfaces no References
+    /// segment (the `StatementMountFixture` probes) can omit it.
+    let assistant: AssistantColumnModel?
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// Local transcription exists only on Apple Silicon (see DocumentStore.makeTranscriber).
@@ -72,6 +78,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         diagnosticsStore: DiagnosticsStore? = nil,
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
+        assistant: AssistantColumnModel? = nil,
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -93,6 +100,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.diagnosticsStore = diagnosticsStore
         self.compilerModel = compilerModel
         self.onCompilerModelChange = onCompilerModelChange
+        self.assistant = assistant
         self.inspectorContent = inspectorContent
     }
 
@@ -398,6 +406,28 @@ struct DetailPaneToggle<Inspector: View>: View {
             statementPane(kind: .visualLanguage)
         case .diagnostics:
             diagnosticsPane
+        case .references:
+            referencesPane
+        }
+    }
+
+    /// The shelf (M2 §6.2). The pinned set is assembled off the body path in a
+    /// `.task` — a manifest walk plus a canvas read is not something a `body`
+    /// may do (tripwire 4) — and re-assembled on the three signals that can
+    /// change it: the document, the manifest (a link added, a note renamed) and
+    /// the canvas's structural revision.
+    @ViewBuilder
+    private var referencesPane: some View {
+        if let projectURL, let assistant,
+           activeDocId != BinderSubject.noDocumentSubject {
+            ReferencesPaneHost(store: store, projectURL: projectURL,
+                               docId: activeDocId, assistant: assistant)
+        } else {
+            ContentUnavailableView(
+                "Select a document",
+                systemImage: "pin",
+                description: Text("Open a manuscript to see what it's pinned to."))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

@@ -57,46 +57,10 @@ struct PalettePane: View {
                 .padding(.horizontal, 8).padding(.vertical, 6)
                 Divider()
                 if let card = selectedCard {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 12) {
-                            ForEach(Array(images.enumerated()), id: \.offset) { _, image in
-                                Image(nsImage: image)
-                                    .resizable().aspectRatio(contentMode: .fit)
-                                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                            }
-                            if !card.swatches.isEmpty {
-                                HStack(spacing: 4) {
-                                    ForEach(card.swatches, id: \.self) { hex in
-                                        if let rgb = PaletteCard.color(fromHex: hex) {
-                                            RoundedRectangle(cornerRadius: 3)
-                                                .fill(Color(red: rgb.r, green: rgb.g, blue: rgb.b))
-                                                .frame(width: 20, height: 20)
-                                                .help(hex)
-                                        }
-                                    }
-                                }
-                            }
-                            ForEach(Array(Self.groupedNotes(card.notes).enumerated()),
-                                    id: \.offset) { _, group in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Label(
-                                        group.sense?.rawValue.capitalized ?? "Notes",
-                                        systemImage: group.sense.map(Self.senseSymbol(for:))
-                                            ?? "ellipsis")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                    ForEach(Array(group.notes.enumerated()), id: \.offset) { _, note in
-                                        Text(note.text).font(.callout)
-                                    }
-                                }
-                            }
-                            if !card.body.isEmpty {
-                                Divider()
-                                Text(card.body).font(.callout)
-                            }
-                        }
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                    // The card itself is `PaletteCardReadView`'s, shared with
+                    // the assistant column (M2 §6.2). This pane keeps the
+                    // picker and the two reloads; the drawing has one home.
+                    PaletteCardReadView(card: card, images: images)
                 }
             }
         }

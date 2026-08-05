@@ -106,7 +106,7 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// time, which is the whole argument for having one.
     static let canonicalPaneOrder: [DetailSegment] = [
         .diagnostics, .annotations, .inbox, .research, .palette, .intent,
-        .visualLanguage, .tasks, .translation, .history, .inspector
+        .references, .visualLanguage, .tasks, .translation, .history, .inspector
     ]
 
     /// **The order guard, and it is the first assertion of pane ORDER this
@@ -168,7 +168,7 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// Only the guard above sees it. A plant that does not fire is the finding.
     func test_theOrderGuardCatchesAReorderThatKeepsEveryFirstElement() {
         let offender: [DetailSegment] = [.diagnostics, .intent, .research, .palette,
-                                         .tasks, .history, .inspector]
+                                         .references, .tasks, .history, .inspector]
 
         // The plant is honest: a permutation of Author's own panes, not a
         // membership change wearing a permutation's clothes.
@@ -195,6 +195,21 @@ final class PersonaPaneRegistryTests: XCTestCase {
         XCTAssertFalse(Persona.author.panes.contains(.annotations))
         XCTAssertTrue(Persona.author.panes.contains(.diagnostics))
         XCTAssertFalse(Persona.review.panes.contains(.diagnostics))
+    }
+
+    /// References is the one M2 pane both writing personas carry, and the
+    /// asymmetry with Diagnostics above is the design's: a compiler run is the
+    /// fast loop and belongs to whoever is drafting, while what a piece is
+    /// pinned to is equally a question when adjudicating whether the draft used
+    /// it (§6.3 marks it ● for Author and ○ for Review).
+    func test_referencesServeBothWritingPersonasAndNeitherOfTheOthers() {
+        XCTAssertTrue(Persona.author.panes.contains(.references))
+        XCTAssertTrue(Persona.review.panes.contains(.references))
+        XCTAssertFalse(Persona.plan.panes.contains(.references),
+                       "Plan is where the pinned set is MADE — clustered on the canvas "
+                       + "and linked in the tree — which is the left column's, not a "
+                       + "pane's (§5.0's make-left/consult-right rule)")
+        XCTAssertFalse(Persona.publish.panes.contains(.references))
     }
 
     /// The suite's oldest order constraint, and until 2026-08-03 its only one.
@@ -355,10 +370,10 @@ final class PersonaPaneRegistryTests: XCTestCase {
 
     /// The design's pane × persona matrix, transcribed. Both `●` (primary) and
     /// `○` (available) mean the segment belongs to that persona; `—` means
-    /// absent. Only segments that have a `DetailSegment` case today —
-    /// Diagnostics, References and Editions belong to later milestones and are
-    /// listed as reserved in `Persona.panes`. Intent and Visual language joined
-    /// in M1A.
+    /// absent. Only segments that have a `DetailSegment` case today — Editions
+    /// belongs to a later milestone and is listed as reserved in
+    /// `Persona.panes`. Intent and Visual Language joined in M1A; Diagnostics
+    /// and References in M2.
     ///
     /// **Three documents make this table, each later than the last, and the
     /// transcription's authority moved again on 2026-08-03.** The base is §6.3
@@ -375,13 +390,15 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// - **Plan** — Inbox · Tasks · History · Inspector. It loses Research,
     ///   Palette, Intent and Visual Language: Plan authors all four, and
     ///   authoring is the left column's.
-    /// - **Author** — Diagnostics · Research · Palette · Intent · Tasks ·
-    ///   History · Inspector. Membership unchanged at §5.0; only the order
-    ///   moved. `.diagnostics` itself is M2 Task 8's addition, after this
-    ///   table's other four rows were transcribed — it had no `DetailSegment`
-    ///   case at the time, so it could not appear here yet either.
-    /// - **Review** — Annotations · Intent · Tasks · History · Inspector. It
-    ///   loses Palette, Visual Language and Translation.
+    /// - **Author** — Diagnostics · Research · Palette · Intent · References ·
+    ///   Tasks · History · Inspector. Membership unchanged at §5.0; only the
+    ///   order moved. `.diagnostics` and `.references` are M2's additions, both
+    ///   made after this table's other four rows were transcribed — neither had
+    ///   a `DetailSegment` case at the time, so neither could appear here yet
+    ///   either. References is §6.3's `●` for Author.
+    /// - **Review** — Annotations · Intent · References · Tasks · History ·
+    ///   Inspector. It loses Palette, Visual Language and Translation, and
+    ///   gains References, which §6.3 marks `○` here.
     /// - **Publish** — Visual Language · Tasks · Translation · History ·
     ///   Inspector. Translation arrives, reversing §5's move of it to Review.
     ///
@@ -397,8 +414,9 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// matrix no document contains.
     private static let designMatrix: [Persona: Set<DetailSegment>] = [
         .plan: [.inbox, .tasks, .history],
-        .author: [.diagnostics, .research, .palette, .intent, .tasks, .history],
-        .review: [.annotations, .intent, .tasks, .history],
+        .author: [.diagnostics, .research, .palette, .intent, .references,
+                  .tasks, .history],
+        .review: [.annotations, .intent, .references, .tasks, .history],
         .publish: [.visualLanguage, .tasks, .translation, .history]
     ]
 

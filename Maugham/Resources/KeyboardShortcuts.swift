@@ -70,6 +70,7 @@ public enum KeyboardShortcuts {
             Entry(label: "Intent pane", shortcut: "⌘⌥N"),
             Entry(label: "Visual Language pane", shortcut: "⌘⌥V"),
             Entry(label: "Diagnostics pane", shortcut: "⌘⌥D"),
+            Entry(label: "References pane", shortcut: "⌘⌥E"),
             Entry(label: "Toggle inspector column", shortcut: "⌘⌥0"),
         ]),
         Category(category: "Help", items: [

@@ -1,17 +1,17 @@
 # Inspector, Research & Outline
 
-The right column's modes are Inspector, Research, and Outline (covered on this page), plus Tasks, Annotations, History, Inbox, Palette, Translation, Intent, Visual Language, and Diagnostics (each covered elsewhere, or at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
+The right column's modes are Inspector, Research, and Outline (covered on this page), plus Tasks, Annotations, History, Inbox, Palette, Translation, Intent, Visual Language, Diagnostics, and References (each covered elsewhere, or at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
 
 ### Panes are grouped by persona
 
 Each of the four personas (⌘1 Plan, ⌘2 Author, ⌘3 Review, ⌘4 Publish — see [Getting Started → Personas](getting-started.md#personas)) offers its own subset of these modes in the picker. A shortcut still opens its pane from any persona — it reveals the right column if it's hidden and switches to it — even one the current persona doesn't lead with:
 
 - **Plan** — Inbox, Tasks, History, Inspector.
-- **Author** — Diagnostics, Research, Palette, Intent, Tasks, History, Inspector.
-- **Review** — Annotations, Intent, Tasks, History, Inspector.
+- **Author** — Diagnostics, Research, Palette, Intent, References, Tasks, History, Inspector.
+- **Review** — Annotations, Intent, References, Tasks, History, Inspector.
 - **Publish** — Visual Language, Tasks, Translation, History, Inspector.
 
-**There is one order, and modes appear and disappear within it.** Reading down the whole set: Diagnostics, Annotations, Inbox, Research, Palette, Intent, Visual Language, Tasks, Translation, History, Inspector. Every persona above is that same sequence with the modes it doesn't offer taken out — so a mode never moves left or right of a mode it sits beside somewhere else, and you aren't hunting for it in a new place each time you change persona. Tasks marks the break between what you're working *with* and what's flowing *through*; History and Inspector always close the row, with Inspector on the far end.
+**There is one order, and modes appear and disappear within it.** Reading down the whole set: Diagnostics, Annotations, Inbox, Research, Palette, Intent, References, Visual Language, Tasks, Translation, History, Inspector. Every persona above is that same sequence with the modes it doesn't offer taken out — so a mode never moves left or right of a mode it sits beside somewhere else, and you aren't hunting for it in a new place each time you change persona. Tasks marks the break between what you're working *with* and what's flowing *through*; History and Inspector always close the row, with Inspector on the far end.
 
 Each persona's default — the mode it opens on — is just the first one it offers: Inbox in Plan, Diagnostics in Author, Annotations in Review, Visual Language in Publish.
 
@@ -95,3 +95,16 @@ The gear menu picks the model a check runs against — **Fast**, **Standard**, o
 **A clean check says so plainly.** No notes to raise reads *"Nothing to flag."* — not silence, not a green checkmark standing in for an answer.
 
 **A note you answer becomes intent.** Press **Answer** on a note, say why the thing it flagged is deliberate, and press Return: your sentence is added to that piece's intent statement and the note goes away, so the next check reads what you just told it rather than raising the same thing again. **Promote to Task** keeps a note instead — as a real task on the document, which syncs and survives where the notes don't. Full walkthrough: [Checking Your Writing](compiler.md).
+
+### References mode (⌘⌥E)
+
+**What this piece is pinned to**, as a shelf of thumbnails and titles — Author's and Review's. It's not a browser: there's no search and no tree, because the list is short by design. Two things put something on it, and they're the two ways a piece acquires context in Maugham:
+
+- **Research you linked to this document** — the Research pane's own **Link** action (⌘⌥R).
+- **Cards you clustered for it on the planning canvas** — anything sitting inside a region bound to this piece, plus any single card you bound to the piece directly.
+
+Research notes, PDFs, recordings, links, palette cards, photographs and loose canvas scraps all appear; a photograph shows a thumbnail, everything else shows the same kind glyph the canvas draws it with. If you delete something, it simply leaves the shelf — you'll never see a row that's only an id.
+
+**Click a pin and it opens as a column beside your prose.** One at a time: clicking another swaps it, clicking the same one again sends it back, and Escape closes it. Drag the divider to set the width — it's remembered per project. The column squeezes your writing column while it's open and gives the width straight back when it isn't, and it goes away with everything else under ⌘\.
+
+**This is the same set Claude is briefed on.** When you press ⌘R the compiler is told what this piece is pinned to, by name — so what you see on the shelf is what it can go and read.

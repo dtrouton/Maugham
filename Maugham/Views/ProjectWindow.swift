@@ -100,6 +100,11 @@ struct ProjectWindow: View {
     /// column reads the run the centre column's ⌘R started. Wired in `load()`,
     /// where the stores exist; torn down in `.onDisappear`.
     @State private var compiler = CompilerOrchestrator()
+
+    /// The assistant column's subject and width (M2 §6.2). Owned here rather
+    /// than in either column because the References pane that fills it is in the
+    /// window's RIGHT column and the column itself is in the CENTRE.
+    @State private var assistant = AssistantColumnModel()
     /// Raw share snapshot kept alongside `collaborator` for the pill's hover
     /// diagnostics (the `.help()` tooltip), so the resolver stays the single
     /// read path.
@@ -1012,6 +1017,22 @@ struct ProjectWindow: View {
                     ViewOnlyShareNotice()
                 }
             }
+            // The studied reference, between the binder and the prose (M2 §6.2).
+            // Applied OUTSIDE the three top insets on purpose: the strip and the
+            // two banners belong to the page, and the column stands beside the
+            // whole of it. One line, because this body has no expression budget
+            // under the Release type-checker — delete it and every token in
+            // `AssistantColumn.swift` is still present, every test still green,
+            // and clicking a pin does nothing visible.
+            .modifier(AssistantColumnModifier(
+                store: store, projectURL: url, documentStore: documentStore,
+                window: window, isNoChromeOn: isNoChromeOn,
+                activeDocId: activeDocId, assistant: assistant))
+            // Unchanged, and deliberately: the column SQUEEZES the centred
+            // writing column while it exists (spec §6.2) rather than widening
+            // the window's content column, which would push the binder shut
+            // instead. The clamp on `assistant.width` is what keeps the prose a
+            // column rather than a margin.
             .navigationSplitViewColumnWidth(min: 480, ideal: 720)
     }
 
@@ -1549,7 +1570,8 @@ struct ProjectWindow: View {
                 compilerModel = newValue
                 compiler.updateModel(newValue.claudeModel)
                 documentStore.updateUIState { $0.compilerModel = newValue }
-            }
+            },
+            assistant: assistant
         ) {
             switch Self.inspectorRoute(binderSegment: binderSegment,
                                        projectType: store.manifest.type) {
@@ -2065,6 +2087,10 @@ struct ProjectWindow: View {
             // The compiler, wired here for the canvas model's reason: the
             // stores exist at this point and a view body may not read one.
             self.compilerModel = ds.uiState.compilerModel
+            // The width only; nothing is studied when a window opens, and
+            // restoring a subject would put a reference column over the prose
+            // before the writer had asked for anything.
+            self.assistant.width = ds.uiState.assistantColumnWidth
             compiler.configure(
                 environment: .production(
                     store: s, documentStore: ds, projectURL: url,

@@ -51,6 +51,38 @@ public struct UIState: Codable, Equatable, Sendable {
     /// of the version skew read cleanly, which is what the constant is for.
     public var compilerModel: CompilerModelChoice
 
+    /// How wide the assistant column is when a reference is being studied
+    /// (M2 §6.2, Plan 2 Task 5).
+    ///
+    /// **No schema bump**, for `compilerModel`'s reason: one additive key with
+    /// a default, so a file written without it decodes to
+    /// `defaultAssistantColumnWidth` and an older build ignores a key it has
+    /// never heard of.
+    ///
+    /// **Every way in is clamped, including the decode.** The drag is one
+    /// writer of this field and a hand-edited `ui-state.json` is the other, and
+    /// only one of them has a gesture with a limit — so the clamp lives with the
+    /// stored value rather than in the view, and a 4000 pt column cannot be
+    /// restored into a window that has no room for it.
+    public var assistantColumnWidth: Double
+
+    /// The width a project that has never been dragged opens at. Wide enough to
+    /// read a research note's paragraphs at the editor's own measure, narrow
+    /// enough that the prose beside it is still a column rather than a margin.
+    public static let defaultAssistantColumnWidth: Double = 340
+
+    /// **The floor is a legibility floor, not a layout one.** Below ~260 pt a
+    /// research note's paragraphs break every four or five words and the column
+    /// stops being a thing you can study — which is the only reason it exists.
+    /// The ceiling keeps the writing column the wider of the two at the window's
+    /// own minimum (`ProjectWindow`'s `minWidth: 980`).
+    public static let assistantColumnWidthRange: ClosedRange<Double> = 260...620
+
+    public static func clampedAssistantColumnWidth(_ width: Double) -> Double {
+        min(max(width, assistantColumnWidthRange.lowerBound),
+            assistantColumnWidthRange.upperBound)
+    }
+
     public init(
         schemaVersion: Int = UIState.currentSchemaVersion,
         selectedSubject: BinderSubject? = nil,
@@ -62,7 +94,8 @@ public struct UIState: Codable, Equatable, Sendable {
         isReviewModeOn: Bool = false,
         persona: Persona = .default,
         personaMemory: PersonaMemory = .empty,
-        compilerModel: CompilerModelChoice = .standard
+        compilerModel: CompilerModelChoice = .standard,
+        assistantColumnWidth: Double = UIState.defaultAssistantColumnWidth
     ) {
         self.schemaVersion = schemaVersion
         self.selectedSubject = selectedSubject
@@ -75,6 +108,8 @@ public struct UIState: Codable, Equatable, Sendable {
         self.persona = persona
         self.personaMemory = personaMemory
         self.compilerModel = compilerModel
+        self.assistantColumnWidth =
+            UIState.clampedAssistantColumnWidth(assistantColumnWidth)
     }
 
     public static let empty = UIState()
@@ -83,7 +118,7 @@ public struct UIState: Codable, Equatable, Sendable {
         case schemaVersion, selectedItemId, selectedSubjectIsProject,
              isNoChromeOn, binderSegment,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
-             persona, personaMemory, compilerModel
+             persona, personaMemory, compilerModel, assistantColumnWidth
     }
 
     /// Hand-written because `selectedSubject` is not stored the way it is
@@ -109,6 +144,7 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(persona, forKey: .persona)
         try c.encode(personaMemory, forKey: .personaMemory)
         try c.encode(compilerModel, forKey: .compilerModel)
+        try c.encode(assistantColumnWidth, forKey: .assistantColumnWidth)
     }
 
     public init(from decoder: Decoder) throws {
@@ -136,6 +172,10 @@ public struct UIState: Codable, Equatable, Sendable {
             (try? c.decode(PersonaMemory.self, forKey: .personaMemory)) ?? .empty
         self.compilerModel =
             (try? c.decode(CompilerModelChoice.self, forKey: .compilerModel)) ?? .standard
+        // Clamped on the way IN as well as on the way out — see the property.
+        self.assistantColumnWidth = UIState.clampedAssistantColumnWidth(
+            (try? c.decode(Double.self, forKey: .assistantColumnWidth))
+                ?? UIState.defaultAssistantColumnWidth)
         // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
         // v0.3.1 (dead-code sweep). JSONDecoder ignores unknown keys, so old
         // ui-state.json files load cleanly. Cursor restore actually flows

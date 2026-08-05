@@ -41,6 +41,7 @@ The ones you'll use most:
 | `⌘⌥N` | Intent pane |
 | `⌘⌥V` | Visual Language pane |
 | `⌘⌥D` | Diagnostics pane — the compiler's notes on what you've written |
+| `⌘⌥E` | References pane — what this piece is pinned to |
 | `⌘⌥0` | Toggle inspector column |
 | `⌘⇧P` | Toggle Research preview |
 | `⌘/` | Syntax + keyboard reference |

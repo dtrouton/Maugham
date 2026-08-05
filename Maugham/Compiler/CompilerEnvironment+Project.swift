@@ -70,22 +70,15 @@ extension CompilerOrchestrator.Environment {
             },
             pinnedListing: { [weak store] docId in
                 guard let store else { return [] }
-                // The SAME attached-or-sidecar discriminator `list_canvas`
-                // reads through — a compiler run must not disagree with
-                // Claude's own `list_canvas` call about which canvas is real
-                // (`CanvasTools.swift`'s doc comment on `ListCanvasTool`).
-                let read = CanvasClaudeWrite.readScene(store: store, projectRoot: projectURL)
-                let items = CanvasItemIndex.over(research: store.manifest.research)
-                // `linkedResearchIds`, not `StructureItem.links` — the latter
-                // is `InspectorLinksSection`'s unrelated document-to-document
-                // backlink field (`draftLinks`); `ProjectStore.linkResearch`
-                // (the writer's actual "link research to this document"
-                // action) writes `linkedResearchIds`, and only that field
-                // resolves against a research id.
-                let links = store.linkedResearchIds(forDocumentId: docId)
-                return PinnedReferences.pinned(
-                    forDocId: docId, links: links, scene: read.scene,
-                    scraps: read.scraps, items: items
+                // `PinnedReferenceResolver`, which the References pane and the
+                // assistant column also call (M2 Plan 2 Task 5). A run must not
+                // be briefed on a different set from the one the writer is
+                // looking at, and the assembly is where that could diverge —
+                // the attached-or-sidecar scene discriminator, the manifest
+                // index, and `linkedResearchIds` rather than
+                // `StructureItem.links`. See that file for what each costs.
+                return PinnedReferenceResolver.pins(
+                    forDocId: docId, store: store, projectRoot: projectURL
                 ).map(Self.pinnedListingLine)
             },
             paletteListing: { [weak store] in

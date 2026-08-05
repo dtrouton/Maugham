@@ -18,6 +18,7 @@ public enum DetailSegment: String, Codable, Equatable, Sendable, CaseIterable {
     case intent          // m1a-spine: what you're going for (⌘⌥N)
     case visualLanguage  // m1a-spine: how the book looks (⌘⌥V)
     case diagnostics     // m2-compiler-loop: the compiler's notes (⌘⌥D)
+    case references      // m2-author-surfaces: what this piece is pinned to (⌘⌥E)
 }
 
 // MARK: - Presentation
@@ -42,6 +43,10 @@ public extension DetailSegment {
         case .intent: return "target"
         case .visualLanguage: return "photo.on.rectangle.angled"
         case .diagnostics: return "checkmark.seal"
+        // A pin, because that is the word the design uses for what this pane
+        // holds — the piece's *pinned* set — and the shelf is a row of things
+        // pinned up beside the desk rather than a folder of them.
+        case .references: return "pin"
         }
     }
 
@@ -59,6 +64,7 @@ public extension DetailSegment {
         case .intent: return "Intent — what you're going for, here or across the project (⌘⌥N)"
         case .visualLanguage: return "Visual Language — how the book looks (⌘⌥V)"
         case .diagnostics: return "Diagnostics — the compiler's notes on what you've written (⌘⌥D)"
+        case .references: return "References — what this piece is pinned to (⌘⌥E)"
         }
     }
 }

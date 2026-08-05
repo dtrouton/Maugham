@@ -143,11 +143,10 @@ public extension Persona {
     /// counted here. **Plan's `.tasks` came OFF that ledger**: §5 said Plan
     /// loses it, §5.0 is later and gives it back, so it is design now.
     ///
-    /// Reserved for later milestones of this redesign: `.references` →
-    /// author, review; `.editions` → publish. (`.intent` and
-    /// `.visualLanguage` were reserved here too and are consumed as of M1A;
-    /// `.diagnostics` was reserved here too and is consumed as of M2 Task 8 —
-    /// their §6.3 cells are below.)
+    /// Reserved for later milestones of this redesign: `.editions` → publish.
+    /// (`.intent` and `.visualLanguage` were reserved here too and are consumed
+    /// as of M1A; `.diagnostics` as of M2 Task 8; `.references` as of M2 Plan
+    /// 2's Task 5 — their §6.3 cells are below.)
     var panes: [DetailSegment] {
         switch self {
         case .plan:
@@ -193,8 +192,8 @@ public extension Persona {
             // and a read-only outline is not that.
             return [.inbox, .tasks, .history, .inspector]
         case .author:
-            // Diagnostics · Research · Palette · Intent · Tasks · History ·
-            // Inspector.
+            // Diagnostics · Research · Palette · Intent · References · Tasks ·
+            // History · Inspector.
             //
             // **§5.0 changed Author's ORDER and not its membership.** This is
             // the persona the right column was designed for: it consults what
@@ -226,9 +225,27 @@ public extension Persona {
             // — the two loops the design separates (Diagnostics fast, serving
             // Author; Annotations durable, serving Review) each get the front
             // of their one persona's row.
-            return [.diagnostics, .research, .palette, .intent, .tasks, .history, .inspector]
+            //
+            // **`.references` joined in M2 Plan 2's Task 5, immediately after
+            // `.intent`, and that position is an argument rather than the next
+            // free slot.** §6.3 marks it ● for Author, and the pane holds the
+            // union of the research the writer LINKED to this document and the
+            // cards they clustered for it on the canvas
+            // (`PinnedReferences.pinned`) — the same set the compiler is
+            // briefed on. Beside Intent it puts what the piece is *going for*
+            // next to what it is *made of*, which is the pair a writer consults
+            // together, and keeps both on the working-with side of Tasks.
+            return [.diagnostics, .research, .palette, .intent, .references,
+                    .tasks, .history, .inspector]
         case .review:
-            // Annotations · Intent · Tasks · History · Inspector.
+            // Annotations · Intent · References · Tasks · History · Inspector.
+            //
+            // **`.references` is ○ rather than ● here (§6.3), and it is in for
+            // Intent's reason applied one step further.** Review compares a
+            // draft against the intent it started from; the pinned set is what
+            // that intent was to be built out of, so a reviewer asking whether
+            // a chapter used what it was pointed at has the shelf without
+            // leaving the persona. It does not lead — adjudicating does.
             //
             // Intent is ● here for the reason the milestone exists: review's
             // job is to compare a draft against the intent you started with.
@@ -285,7 +302,7 @@ public extension Persona {
             // .test_reviewKeepsTheInspectorBecauseItIsTheOnlyPlaceStatusIsWritten`,
             // whose census goes red if a third status writer appears — at which
             // point this argument needs re-making, not patching.
-            return [.annotations, .intent, .tasks, .history, .inspector]
+            return [.annotations, .intent, .references, .tasks, .history, .inspector]
         case .publish:
             // Visual Language · Tasks · Translation · History · Inspector.
             //
