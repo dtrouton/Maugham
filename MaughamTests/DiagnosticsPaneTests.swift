@@ -626,6 +626,8 @@ final class DiagnosticsPaneTests: XCTestCase {
             },
             liveParagraphText: { _, _ in "The fog came." },
             intent: { _ in (nil, "this document") },
+            pinnedListing: { _ in [] },
+            paletteListing: { [] },
             writeMCPConfig: { self.temp.url.appendingPathComponent("compiler-mcp.json") },
             makeRunner: { _, _ in runner },
             onRunAcknowledged: {})

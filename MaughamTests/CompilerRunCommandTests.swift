@@ -117,7 +117,9 @@ final class CompilerRunCommandTests: XCTestCase {
         runner: SpyRunner,
         reading: CompilerOrchestrator.DocumentReading?,
         intentText: String? = "Cold, and never wistful.",
-        liveParagraphText: @escaping (String, String) -> String? = { _, _ in "The fog came." }
+        liveParagraphText: @escaping (String, String) -> String? = { _, _ in "The fog came." },
+        pinnedListing: @escaping (String) -> [String] = { _ in [] },
+        paletteListing: @escaping () -> [String] = { [] }
     ) throws -> Harness {
         let root = try makeProjectRoot()
         let diagnostics = DiagnosticsStore(
@@ -133,6 +135,8 @@ final class CompilerRunCommandTests: XCTestCase {
                 reading: { id in id == self.docId ? live.value : nil },
                 liveParagraphText: liveParagraphText,
                 intent: { _ in (intentText, "this chapter") },
+                pinnedListing: pinnedListing,
+                paletteListing: paletteListing,
                 writeMCPConfig: {
                     try Data("{}".utf8).write(to: configURL, options: .atomic)
                     return configURL
@@ -703,6 +707,256 @@ final class CompilerRunCommandTests: XCTestCase {
             XCTAssertEqual(send.preamble,
                            CompilerPrompt.sessionSystemPreamble(projectId: "p-1"))
         }
+    }
+
+    // MARK: - Context listings (what the writer pinned)
+
+    /// The two listings reach the assembled prompt, each under its own
+    /// section, when the environment has something to say.
+    func test_nonEmptyListingsReachThePromptWithTheirSections() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            pinnedListing: { _ in ["Sarah (res-sarah) — read_document"] },
+            paletteListing: { ["Act II fog (res-card)"] })
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = runner.sends[0].message
+        XCTAssertTrue(message.contains("Pinned references"))
+        XCTAssertTrue(message.contains("Sarah (res-sarah) — read_document"))
+        XCTAssertTrue(message.contains("Palette cards"))
+        XCTAssertTrue(message.contains("Act II fog (res-card)"))
+    }
+
+    /// The converse: nothing pinned, nothing in the palette — both sections
+    /// are absent, not present-and-empty. This is the harness default, so
+    /// every other test in this file already exercises this path; this one
+    /// names it.
+    func test_emptyListingsOmitTheirSectionsFromThePrompt() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = runner.sends[0].message
+        XCTAssertFalse(message.contains("Pinned references"))
+        XCTAssertFalse(message.contains("Palette cards"))
+    }
+
+    /// **The intent hash is tracked per document, not per session.** One warm
+    /// session serves every document the writer visits in the window, so a
+    /// single last-sent hash would let a switch between two documents corrupt
+    /// the elision: document B's run would compare against document A's hash
+    /// (masked whenever the two intents differ, which is the trap), and a
+    /// later run back on A would wrongly re-send its whole intent — or worse,
+    /// wrongly elide it — because the tracker remembers the wrong document.
+    func test_intentHashIsPerDocument_notPerSession() throws {
+        let runner = SpyRunner()
+        let root = try makeProjectRoot()
+        let diagnostics = DiagnosticsStore(
+            projectRoot: root, device: DeviceSlug.make(from: "test-mac"))
+        let configURL = root.appendingPathComponent("compiler-mcp.json")
+        let docA = "doc-a", docB = "doc-b"
+        let intentFor: [String: String] = [docA: "Intent A.", docB: "Intent B."]
+
+        func reading(_ docId: String, opId: String, paragraphId: String, text: String)
+        -> CompilerOrchestrator.DocumentReading {
+            CompilerOrchestrator.DocumentReading(
+                ops: [Op(opId: opId, docId: docId, at: Date(), device: "macA", session: "s",
+                        kind: .bootstrap,
+                        changes: [.init(paragraphId: paragraphId, prior: nil, next: text)],
+                        sequence: nil)],
+                paragraphs: [paragraphId: text], sequence: [paragraphId])
+        }
+
+        let readingA = Box(reading(docA, opId: "opA1", paragraphId: "aaaa", text: "Doc A, part one."))
+        let readingB = Box(reading(docB, opId: "opB1", paragraphId: "bbbb", text: "Doc B, part one."))
+
+        let orchestrator = CompilerOrchestrator()
+        orchestrator.configure(
+            environment: CompilerOrchestrator.Environment(
+                projectId: "p-1",
+                model: "test-model",
+                reading: { id in
+                    id == docA ? readingA.value : (id == docB ? readingB.value : nil)
+                },
+                liveParagraphText: { _, _ in nil },
+                intent: { (intentFor[$0], "this chapter") },
+                pinnedListing: { _ in [] },
+                paletteListing: { [] },
+                writeMCPConfig: {
+                    try Data("{}".utf8).write(to: configURL, options: .atomic)
+                    return configURL
+                },
+                makeRunner: { _, _ in runner },
+                onRunAcknowledged: {}),
+            diagnostics: diagnostics)
+
+        orchestrator.runRequested(docId: docA)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertTrue(runner.sends[0].message.contains("Intent A."),
+                      "document A's first run sends its intent whole")
+
+        orchestrator.runRequested(docId: docB)
+        awaitSends(2, on: runner)
+        settle()
+        XCTAssertTrue(runner.sends[1].message.contains("Intent B."),
+                      "document B's first run must send its own intent whole — "
+                      + "it has never been sent, whatever A just sent")
+
+        // More writing on A, so the third run has a non-empty delta.
+        readingA.value = reading(docA, opId: "opA2", paragraphId: "cccc", text: "Doc A, part two.")
+        orchestrator.runRequested(docId: docA)
+        awaitSends(3, on: runner)
+        settle()
+        XCTAssertTrue(runner.sends[2].message.contains("unchanged since last run"),
+                      "document A's hash was recorded on run 1 and must still be "
+                      + "found on run 3 — a session-wide tracker would have "
+                      + "overwritten it with document B's hash on run 2")
+        XCTAssertFalse(runner.sends[2].message.contains("Intent A."),
+                       "…so the elided run must not carry the full text either")
+    }
+
+    // MARK: - Production wiring (real store, real closures)
+
+    /// A project on disk with one document linked to a plain research note
+    /// and a palette card. `res-card`'s own file is deliberately never
+    /// written — `test_productionPaletteListingReadsTheManifestNotTheFile`
+    /// depends on that absence.
+    private func makeListingsProjectRoot() throws -> URL {
+        let root = try makeProjectRoot()
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("research/palette"), withIntermediateDirectories: true)
+        try "Chapter prose.\n".write(
+            to: root.appendingPathComponent("manuscript/ch1.md"),
+            atomically: true, encoding: .utf8)
+        try "The falls at night.\n".write(
+            to: root.appendingPathComponent("research/the-falls-at-night.md"),
+            atomically: true, encoding: .utf8)
+        let card = ResearchItem(id: "res-card", title: "Act II fog", type: .asset,
+                                kind: .document, path: "research/palette/act-ii-fog.md")
+        let group = ResearchItem(id: "res-palette", title: "Palette", type: .group,
+                                 path: PaletteConvention.folderPath,
+                                 children: [card], role: .paletteGroup)
+        let note = ResearchItem(id: "res-note", title: "The falls at night", type: .asset,
+                                kind: .document, path: "research/the-falls-at-night.md")
+        let chapter = StructureItem(id: "ch-1", title: "Chapter 1", type: .document,
+                                    path: "manuscript/ch1.md",
+                                    linkedResearchIds: ["res-note", "res-card"])
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [chapter], research: [group, note])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: root.appendingPathComponent("project.maugham.json"))
+        return root
+    }
+
+    private func makeProductionEnvironment(
+        store: ProjectStore, documentStore: DocumentStore, root: URL
+    ) -> CompilerOrchestrator.Environment {
+        CompilerOrchestrator.Environment.production(
+            store: store, documentStore: documentStore, projectURL: root,
+            preferences: UserPreferences(
+                defaults: UserDefaults(suiteName: "CompilerListings-\(UUID())")!),
+            onRunAcknowledged: {})
+    }
+
+    /// Each pinned kind names the tool that fetches its full contents — a
+    /// research note through `read_document`, a palette card through its own
+    /// tool, because `CompilerPrompt`'s section header names only the first.
+    func test_productionPinnedListingNamesTheFetchToolPerKind() async throws {
+        let root = try makeListingsProjectRoot()
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+
+        let lines = environment.pinnedListing("ch-1")
+
+        XCTAssertTrue(lines.contains("The falls at night (res-note) — read_document"),
+                      "a plain research note fetches through read_document; got \(lines)")
+        XCTAssertTrue(lines.contains("Act II fog (res-card) — read_palette_card"),
+                      "a palette card is told apart by position, not id shape, and "
+                      + "fetches through its own tool; got \(lines)")
+    }
+
+    /// **The regression this task's research caught.** `StructureItem.links`
+    /// is `InspectorLinksSection`'s document-to-document backlink field —
+    /// unrelated despite the name — and `ProjectStore.linkResearch` (the
+    /// writer's actual "link this research to this document" action) never
+    /// touches it; it writes `linkedResearchIds`. A fixture that sets only
+    /// `.links` must pin nothing, proving the wiring reads the field
+    /// production actually writes.
+    func test_productionPinnedListingIgnoresTheUnrelatedLinksField() async throws {
+        let root = try makeProjectRoot()
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("research"), withIntermediateDirectories: true)
+        try "Prose.\n".write(
+            to: root.appendingPathComponent("manuscript/ch1.md"),
+            atomically: true, encoding: .utf8)
+        try "Sarah.\n".write(
+            to: root.appendingPathComponent("research/sarah.md"),
+            atomically: true, encoding: .utf8)
+        let sarah = ResearchItem(id: "res-sarah", title: "Sarah", type: .asset,
+                                 kind: .document, path: "research/sarah.md")
+        let chapter = StructureItem(id: "ch-1", title: "Chapter 1", type: .document,
+                                    path: "manuscript/ch1.md", links: ["res-sarah"])
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [chapter], research: [sarah])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: root.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+
+        XCTAssertEqual(environment.pinnedListing("ch-1"), [],
+                       "`.links` is not the research-linking field; only "
+                       + "linkedResearchIds may pin")
+    }
+
+    /// The palette listing is sourced from the manifest index
+    /// (`PaletteLookup.paletteCards`), not `ProjectStore.loadPaletteCards()`
+    /// (`list_palette_cards`'s own path, which parses each card's markdown
+    /// file). `res-card`'s file was never written by the fixture; a listing
+    /// that read files would come back empty or throw.
+    func test_productionPaletteListingReadsTheManifestNotTheFile() async throws {
+        let root = try makeListingsProjectRoot()
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+
+        XCTAssertEqual(environment.paletteListing(), ["Act II fog (res-card)"])
+    }
+
+    /// The weak-capture discipline (`CompilerEnvironment+Project.swift`'s own
+    /// stated reason): a window closed mid-run must answer empty, honestly,
+    /// rather than crash on a deallocated store.
+    func test_productionListingsAreEmptyOnceTheStoreIsGone() async throws {
+        let root = try makeListingsProjectRoot()
+        var store: ProjectStore? = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        let environment = makeProductionEnvironment(
+            store: store!, documentStore: documentStore, root: root)
+
+        store = nil
+
+        XCTAssertEqual(environment.pinnedListing("ch-1"), [])
+        XCTAssertEqual(environment.paletteListing(), [])
     }
 
     // MARK: - Teardown

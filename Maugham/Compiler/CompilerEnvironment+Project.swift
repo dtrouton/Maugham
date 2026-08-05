@@ -63,6 +63,37 @@ extension CompilerOrchestrator.Environment {
                 // simply carries no intent section.
                 return (nil, projectScopeLabel)
             },
+            pinnedListing: { [weak store] docId in
+                guard let store else { return [] }
+                // The SAME attached-or-sidecar discriminator `list_canvas`
+                // reads through — a compiler run must not disagree with
+                // Claude's own `list_canvas` call about which canvas is real
+                // (`CanvasTools.swift`'s doc comment on `ListCanvasTool`).
+                let read = CanvasClaudeWrite.readScene(store: store, projectRoot: projectURL)
+                let items = CanvasItemIndex.over(research: store.manifest.research)
+                // `linkedResearchIds`, not `StructureItem.links` — the latter
+                // is `InspectorLinksSection`'s unrelated document-to-document
+                // backlink field (`draftLinks`); `ProjectStore.linkResearch`
+                // (the writer's actual "link research to this document"
+                // action) writes `linkedResearchIds`, and only that field
+                // resolves against a research id.
+                let links = store.linkedResearchIds(forDocumentId: docId)
+                return PinnedReferences.pinned(
+                    forDocId: docId, links: links, scene: read.scene,
+                    scraps: read.scraps, items: items
+                ).map(Self.pinnedListingLine)
+            },
+            paletteListing: { [weak store] in
+                guard let store else { return [] }
+                // `PaletteLookup.paletteCards(in:)` reads the manifest only —
+                // no file parse — which is what makes this cheap enough to
+                // resolve on every run rather than `ProjectStore.loadPalette
+                // Cards()` (`list_palette_cards`'s own path), which parses
+                // each card's markdown file for fields this listing does not
+                // need (kind, swatches, notes).
+                return PaletteLookup.paletteCards(in: store.manifest.research)
+                    .map { "\($0.title) (\($0.id))" }
+            },
             writeMCPConfig: {
                 try ClaudeCLISession.writeMCPConfig(
                     bridgeBinary: bridgeBinary,
@@ -97,6 +128,29 @@ extension CompilerOrchestrator.Environment {
         forDocId docId: String, in store: ProjectStore
     ) -> String {
         TreeWalk.find(id: docId, in: store.manifest.structure)?.title ?? "this document"
+    }
+
+    // MARK: - Pinned-reference formatting
+
+    /// One pinned reference as the run's context listing shows it — title,
+    /// id, and the tool that fetches its full contents.
+    ///
+    /// `CompilerPrompt`'s section header already says "fetch full contents
+    /// with read_document" for the whole pinned section, which predates the
+    /// palette/photo/scrap kinds landing in the same union (Task 2). A kind
+    /// whose real tool differs from the header's blanket claim says so on its
+    /// own line rather than leave the header's claim uncorrected — a
+    /// `.photo` pin has no read tool at all yet (Task 2's noted gap: Claude
+    /// cannot see an owned picture's pixels), and a `.scrap`'s words are
+    /// already inside `list_canvas`'s own response, not `read_document`'s.
+    private static func pinnedListingLine(_ pin: PinnedReference) -> String {
+        let base = "\(pin.title) (\(pin.id))"
+        switch pin.kind {
+        case .research: return "\(base) — read_document"
+        case .palette: return "\(base) — read_palette_card"
+        case .scrap: return "\(base) — list_canvas"
+        case .photo: return "\(base) — no read tool yet, title only"
+        }
     }
 
     // MARK: - The session's bridge config

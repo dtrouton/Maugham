@@ -80,7 +80,13 @@ enum PinnedReferences {
     ///   - docId: the document's id, which is the same string a region or a
     ///     card carries as its `boundPieceID` (`CanvasPieceTitles.over` builds
     ///     its table from `StructureItem.id`).
-    ///   - links: `StructureItem.links` — research item ids the writer linked.
+    ///   - links: `ProjectStore.linkedResearchIds(forDocumentId:)` — research
+    ///     item ids the writer linked. **Not** `StructureItem.links`, which is
+    ///     `InspectorLinksSection`'s unrelated document-to-document backlink
+    ///     field; `linkResearch(researchId:toDocumentId:)` is the only write
+    ///     path into `linkedResearchIds`, and it never touches `.links`
+    ///     (found wiring this into the compiler, Task 3 — the two fields
+    ///     share no reader or writer despite the near-identical name).
     ///   - scene: nil when the project's Plan side has never been opened, which
     ///     is a real state and not an error; the links still pin.
     ///   - scraps: `CanvasModel.scraps`. Required rather than defaulted: a

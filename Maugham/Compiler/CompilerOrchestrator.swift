@@ -77,6 +77,16 @@ final class CompilerOrchestrator {
         /// The intent this document answers to, piece-first, and what to call
         /// its scope in the prompt.
         var intent: @MainActor (String) -> (text: String?, scopeLabel: String)
+        /// What the writer pinned beside this document — linked research
+        /// unioned with the canvas cluster (`PinnedReferences`, §7.2) — as
+        /// "title (id) — tool" lines. Empty is a valid answer (nothing
+        /// pinned, or the Plan side never opened); `CompilerPrompt` omits the
+        /// whole section rather than showing nothing.
+        var pinnedListing: @MainActor (String) -> [String]
+        /// Every card in the project's palette, "title (id)" — independent
+        /// of the document, because the palette is project-wide vocabulary
+        /// rather than something pinned per-piece.
+        var paletteListing: @MainActor () -> [String]
         /// Writes the per-session `--mcp-config` file and returns its path. The
         /// orchestrator owns the file's life from here (see `ensureRunner`).
         var writeMCPConfig: @MainActor () throws -> URL
@@ -175,10 +185,11 @@ final class CompilerOrchestrator {
             projectId: environment.projectId,
             intentText: intentText,
             intentScopeLabel: scopeLabel,
-            // Plan 2 wires the pinned union and the palette (spec §3.3); the
+            // Empty is a real answer (nothing pinned, no palette cards); the
             // prompt omits an empty section by design, so this is a smaller
             // prompt rather than a broken one.
-            pinnedListing: [], paletteListing: [])
+            pinnedListing: environment.pinnedListing(docId),
+            paletteListing: environment.paletteListing())
 
         guard let runner = ensureRunner(model: environment.model) else {
             runState = .failed(
