@@ -29,6 +29,24 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// per-paragraph freshness entries the Translation segment reads (ADR 0017).
     /// Optional so callers that don't surface translation review can omit it.
     let editorControl: EditorControl?
+    /// The window's compiler (M2) — optional so callers that don't surface the
+    /// Diagnostics segment (the `StatementMountFixture` probes, in particular)
+    /// can omit it. `diagnosticsStore` is `orchestrator.diagnostics` at the
+    /// caller's boundary rather than re-read here, so the two cannot disagree
+    /// about which store a run replaces into.
+    let compilerOrchestrator: CompilerOrchestrator?
+    let diagnosticsStore: DiagnosticsStore?
+    /// The gear menu's persisted choice, and the write-back when it changes —
+    /// a value + closure rather than a `Binding` so every existing call site
+    /// keeps compiling with the defaults below.
+    let compilerModel: CompilerModelChoice
+    var onCompilerModelChange: (CompilerModelChoice) -> Void = { _ in }
+    /// Which pinned reference the writer has promoted into the assistant column
+    /// (M2 §6.2). An object rather than a `Binding` because the shelf is in this
+    /// column and the column it promotes into is the window's CENTRE one — see
+    /// `AssistantColumnModel`. Optional so a caller that surfaces no References
+    /// segment (the `StatementMountFixture` probes) can omit it.
+    let assistant: AssistantColumnModel?
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// Local transcription exists only on Apple Silicon (see DocumentStore.makeTranscriber).
@@ -56,6 +74,11 @@ struct DetailPaneToggle<Inspector: View>: View {
         docPaths: [String: String] = [:],
         documentStore: DocumentStore? = nil,
         editorControl: EditorControl? = nil,
+        compilerOrchestrator: CompilerOrchestrator? = nil,
+        diagnosticsStore: DiagnosticsStore? = nil,
+        compilerModel: CompilerModelChoice = .standard,
+        onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
+        assistant: AssistantColumnModel? = nil,
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -73,6 +96,11 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.docPaths = docPaths
         self.documentStore = documentStore
         self.editorControl = editorControl
+        self.compilerOrchestrator = compilerOrchestrator
+        self.diagnosticsStore = diagnosticsStore
+        self.compilerModel = compilerModel
+        self.onCompilerModelChange = onCompilerModelChange
+        self.assistant = assistant
         self.inspectorContent = inspectorContent
     }
 
@@ -214,8 +242,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         return segments
     }
 
-    /// How many segment-widths to shift the inbox unread badge left from the
-    /// trailing edge of `segments`, or nil when that list has no inbox.
+    /// How many segment-widths to shift `badged`'s unread badge left from the
+    /// trailing edge of `segments`, or nil when that list does not show it.
     ///
     /// SwiftUI's segmented Picker cannot badge a segment directly, so the
     /// badge is overlaid top-trailing and shifted. This was previously the
@@ -227,8 +255,13 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// value `ForEach` walks, so badge and picker cannot be computed from
     /// different lists. Re-deriving here was how the literal-drift bug got
     /// back in one level up.
-    static func badgeOffset(in segments: [DetailSegment]) -> Int? {
-        guard let index = segments.firstIndex(of: .inbox) else { return nil }
+    ///
+    /// **Takes the badged segment rather than assuming `.inbox`** as of M2
+    /// Task 8: Diagnostics carries a badge too, and the two can be on screen
+    /// together even though no persona registers both — ⌘⌥B in Author appends
+    /// `.inbox` to a picker that already leads with `.diagnostics`.
+    static func badgeOffset(of badged: DetailSegment, in segments: [DetailSegment]) -> Int? {
+        guard let index = segments.firstIndex(of: badged) else { return nil }
         return segments.count - 1 - index
     }
 
@@ -256,6 +289,14 @@ struct DetailPaneToggle<Inspector: View>: View {
         store.documentStore?.inboxStore.entries.count ?? 0
     }
 
+    /// Notes a compiler run landed for the open document while the writer was
+    /// somewhere else — the same discoverability argument as `inboxCount`, for
+    /// the one pane whose content arrives without being asked for a second
+    /// time. Cleared by `DiagnosticsPane` the moment it is on screen.
+    private var diagnosticsUnreadCount: Int {
+        diagnosticsStore?.unreadCount(docId: activeDocId) ?? 0
+    }
+
     // MARK: - Picker
 
     /// The one list this picker renders — segment order, badge offset and
@@ -275,40 +316,56 @@ struct DetailPaneToggle<Inspector: View>: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        // Unread badge over the inbox segment. SwiftUI's segmented Picker can't
-        // badge a segment directly, so we overlay top-trailing and shift left by
-        // however many equal-width segments sit to the right of inbox in THIS
+        // Unread badges. SwiftUI's segmented Picker can't badge a segment
+        // directly, so we overlay top-trailing and shift left by however many
+        // equal-width segments sit to the right of the badged one in THIS
         // persona's picker — derived from `pickerSegments` itself, never a
-        // literal and never a re-derivation (see `badgeOffset(in:)`).
-        // Anchored on the bare picker (before padding)
-        // so the width the GeometryReader measures divides evenly across the
-        // segments. Hidden at zero, and absent entirely in personas without an
-        // inbox; capped at 99+.
+        // literal and never a re-derivation (see `badgeOffset(of:in:)`).
+        // Anchored on the bare picker (before padding) so the width the
+        // GeometryReader measures divides evenly across the segments. Each is
+        // hidden at zero and absent entirely where its segment is; capped at
+        // 99+.
         .overlay(alignment: .topTrailing) {
-            if inboxCount > 0, let shift = Self.badgeOffset(in: pickerSegments) {
-                GeometryReader { geo in
-                    let segmentWidth = geo.size.width / CGFloat(max(pickerSegments.count, 1))
-                    inboxBadge
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                        .offset(x: -CGFloat(shift) * segmentWidth)
-                }
-            }
+            badge(over: .inbox, count: inboxCount, tint: .red,
+                  help: "\(inboxCount) new capture\(inboxCount == 1 ? "" : "s") "
+                      + "in the inbox (\u{2318}\u{2325}B)")
+        }
+        .overlay(alignment: .topTrailing) {
+            // Accent rather than the inbox's red: these are craft notes on
+            // prose the writer chose to have checked, not something wrong.
+            // The register is the same one the pane's own copy keeps.
+            badge(over: .diagnostics, count: diagnosticsUnreadCount, tint: .accentColor,
+                  help: "\(diagnosticsUnreadCount) new "
+                      + "note\(diagnosticsUnreadCount == 1 ? "" : "s") "
+                      + "from the last check (\u{2318}\u{2325}D)")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
     }
 
-    private var inboxBadge: some View {
-        Text(inboxCount > 99 ? "99+" : "\(inboxCount)")
-            .font(.caption2.weight(.bold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(.red, in: Capsule())
-            .padding(.trailing, 10)
-            .padding(.top, 2)
-            .allowsHitTesting(false)
-            .help("\(inboxCount) new capture\(inboxCount == 1 ? "" : "s") in the inbox (⌘⌥B)")
+    /// One unread badge over `segment`, or nothing when the count is zero or
+    /// this picker does not render that segment.
+    @ViewBuilder
+    private func badge(
+        over segment: DetailSegment, count: Int, tint: Color, help: String
+    ) -> some View {
+        if count > 0, let shift = Self.badgeOffset(of: segment, in: pickerSegments) {
+            GeometryReader { geo in
+                let segmentWidth = geo.size.width / CGFloat(max(pickerSegments.count, 1))
+                Text(count > 99 ? "99+" : "\(count)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(tint, in: Capsule())
+                    .padding(.trailing, 10)
+                    .padding(.top, 2)
+                    .allowsHitTesting(false)
+                    .help(help)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .offset(x: -CGFloat(shift) * segmentWidth)
+            }
+        }
     }
 
     // MARK: - Content routing
@@ -347,6 +404,59 @@ struct DetailPaneToggle<Inspector: View>: View {
             statementPane(kind: .intent)
         case .visualLanguage:
             statementPane(kind: .visualLanguage)
+        case .diagnostics:
+            diagnosticsPane
+        case .references:
+            referencesPane
+        }
+    }
+
+    /// The shelf (M2 §6.2). The pinned set is assembled off the body path in a
+    /// `.task` — a manifest walk plus a canvas read is not something a `body`
+    /// may do (tripwire 4) — and re-assembled on the three signals that can
+    /// change it: the document, the manifest (a link added, a note renamed) and
+    /// the canvas's structural revision.
+    @ViewBuilder
+    private var referencesPane: some View {
+        if let projectURL, let assistant,
+           activeDocId != BinderSubject.noDocumentSubject {
+            ReferencesPaneHost(store: store, projectURL: projectURL,
+                               docId: activeDocId, assistant: assistant)
+        } else {
+            ContentUnavailableView(
+                "Select a document",
+                systemImage: "pin",
+                description: Text("Open a manuscript to see what it's pinned to."))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var diagnosticsPane: some View {
+        if let ds = documentStore,
+           let compilerOrchestrator,
+           let diagnosticsStore,
+           activeDocId != BinderSubject.noDocumentSubject {
+            DiagnosticsPane(
+                orchestrator: compilerOrchestrator,
+                diagnostics: diagnosticsStore,
+                docId: activeDocId,
+                currentText: { [weak ds] paragraphId in
+                    ds?.document(forDocId: activeDocId)?.paragraph(id: paragraphId)
+                },
+                compilerModel: compilerModel,
+                onCompilerModelChange: onCompilerModelChange,
+                activeDocument: { [weak ds] in ds?.document(forDocId: activeDocId) },
+                // The answer flow's destination (M2 Task 10). Passed rather
+                // than reached for, so the pane still holds no store of its
+                // own and a caller that has none simply offers no Answer.
+                store: store)
+        } else {
+            ContentUnavailableView(
+                "Select a document",
+                systemImage: "checkmark.seal",
+                description: Text("Open a manuscript, then press \u{2318}R to check your writing."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

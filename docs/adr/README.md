@@ -48,6 +48,8 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0024](0024-translation-layer.md) | Translation layer: a second Claude-parallel data plane | Accepted | 2026-07-22 |
 | [0025](0025-persona-shell.md) | Persona shell: four optional lenses over one project (Plan/Author/Review/Publish) | Accepted | 2026-07-25 |
 | [0026](0026-planning-canvas-rendering.md) | Planning canvas: a drawn surface with one mounted editor | Accepted | 2026-07-26 |
+| [0027](0027-the-compiler-and-the-editor-boundary.md) | The compiler and the editor boundary: output location is identity, invocation locality is a position | Accepted | 2026-08-05 |
+| [0028](0028-maugham-goes-outbound.md) | Maugham goes outbound: spawning `claude -p`, and what still holds when it does | Accepted | 2026-08-05 |
 
 ## How to write a new ADR
 

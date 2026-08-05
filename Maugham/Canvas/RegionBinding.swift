@@ -37,19 +37,33 @@ enum RegionBinding {
         scene.region(region)?.boundPieceID
     }
 
-    /// **Residents only.** A visitor is cited, not owned — bind on appearances
-    /// and two regions sharing a card would each claim it as their piece's
-    /// context (§4.4). Unioned across regions, because more than one region may
-    /// bind to the same piece and each contributes what lives in it.
+    /// **Residents only, for a REGION's binding.** A visitor is cited, not
+    /// owned — bind on appearances and two regions sharing a card would each
+    /// claim it as their piece's context (§4.4). Unioned across regions,
+    /// because more than one region may bind to the same piece and each
+    /// contributes what lives in it.
     ///
     /// `CanvasMembership.residents` rather than `homeMembers` directly, so a
     /// stale id in a hand-edited sidecar cannot become a pinned reference to a
     /// card that is not on the canvas.
+    ///
+    /// **M2 widening: a card's OWN `boundPieceID` (§6.2's association) is a
+    /// second source**, unioned in alongside the region-residency source
+    /// above — a card the writer has explicitly tied to a piece is that
+    /// piece's context whether or not it lives inside a region bound to the
+    /// same piece. This does not touch the region rule: a card merely
+    /// *visiting* a bound region still owes its presence to nothing but its
+    /// own `boundPieceID`, so `test_aVisitingCardIsNotOneOfThePiecesReferences`
+    /// stays green untouched.
     static func references(forPiece piece: String, in scene: CanvasScene) -> Set<CanvasNodeID> {
-        scene.unorderedRegions
+        let fromRegions = scene.unorderedRegions
             .filter { $0.boundPieceID == piece }
             .reduce(into: Set<CanvasNodeID>()) {
                 $0.formUnion(CanvasMembership.residents(of: $1.id, in: scene))
             }
+        let selfBound = scene.unorderedNodes
+            .filter { $0.boundPieceID == piece }
+            .map(\.id)
+        return fromRegions.union(selfBound)
     }
 }

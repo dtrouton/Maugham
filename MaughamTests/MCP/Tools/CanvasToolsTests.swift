@@ -407,7 +407,8 @@ final class CanvasToolsTests: XCTestCase {
 
     // MARK: - The reference projection
 
-    /// The node ids reported for a piece, or nil when no region binds to it.
+    /// The node ids reported for a piece, or nil when nothing binds to it —
+    /// no region, and no card of its own.
     private func references(_ result: ListCanvasTool.Result,
                             _ piece: String) -> [String]? {
         result.piece_references.first { $0.piece_id == piece }?.node_ids
@@ -490,35 +491,81 @@ final class CanvasToolsTests: XCTestCase {
                        + "canvas — pooled, this would be all three cards")
     }
 
-    /// **The control, and it can fail.** A card carries a piece association of
-    /// its own (§6.2 — where a promotion *from* that card lands), which is a
-    /// different relationship from a region's binding and is not a reference.
-    /// Keyed off every `bound_piece_id` on the wire rather than off the regions'
-    /// bindings, this response would carry a `piece-7` entry for a piece no
-    /// region has been drawn around.
-    func test_aPieceWithNoBoundRegionReportsNoReferences() async throws {
+    /// **M2 widening** (`RegionBinding.references(forPiece:in:)`'s new second
+    /// clause): a card's own `boundPieceID` is now a reference source too,
+    /// unioned in alongside a region's residents rather than reported only as
+    /// a promotion destination. `bbbb` here is loose — no home region at all,
+    /// let alone one bound to `piece-3` — so only its own association puts it
+    /// in this piece's context; `aaaa` is the control that the region-residency
+    /// source this test does not touch is still live.
+    func test_aSelfBoundCardJoinsTheRegionsResidents() async throws {
+        let (url, store, registry, id) = try await registeredProject("SelfBound")
+        let model = attached(to: store, at: url)
+        model.withScene { scene in
+            scene.insert(node("aaaa"))
+            scene.insert(node("bbbb", y: 200, piece: "piece-3"))
+            scene.insertRegion(boundRegion("r1", toPiece: "piece-3", home: ["aaaa"]))
+        }
+
+        let result = try await call(registry, id)
+
+        XCTAssertEqual(references(result, "piece-3"), ["aaaa", "bbbb"],
+                       "bbbb is loose and cited by no region at all — its own "
+                       + "association is what makes it this piece's context")
+    }
+
+    /// **Fix round 1's correction.** Before the enumeration widened, this test
+    /// used a self-bound-only card (`piece-7`, no region ever bound to it) to
+    /// assert `nil` — exactly the case the enumeration now reports an entry
+    /// for (`test_aSelfBoundCardWithNoBoundRegionIsReferenced`, below). What
+    /// stays true is the *genuinely* unbound case: a piece neither a region
+    /// nor a card names at all gets no entry. `piece-7` here is the true
+    /// control — the wire lists nothing for it because nothing on the canvas
+    /// ever mentions it, not because of a rule excluding a relationship.
+    func test_aPieceNothingBindsToReportsNoReferences() async throws {
         let (url, store, registry, id) = try await registeredProject("Unbound")
         let model = attached(to: store, at: url)
         model.withScene { scene in
-            scene.insert(node("aaaa", piece: "piece-7"))
+            scene.insert(node("aaaa"))
             scene.insert(node("bbbb", y: 200))
             scene.insertRegion(boundRegion("r1", toPiece: "piece-3", home: ["bbbb"]))
         }
 
         let result = try await call(registry, id)
 
-        let loose = try XCTUnwrap(reported(result, "aaaa"))
-        XCTAssertEqual(loose.bound_piece_id, "piece-7",
-                       "precondition: the card really does carry an association of "
-                       + "its own, or there is nothing here to wrongly promote into "
-                       + "a reference")
         XCTAssertNil(references(result, "piece-7"),
-                     "a card's own association says where a promotion from it "
-                     + "lands; it does not make that card its own piece's context. "
-                     + "Only a region's binding does (§4.4)")
+                     "nothing on this canvas — no region, no card — ever names "
+                     + "piece-7, so it gets no entry at all")
         XCTAssertEqual(references(result, "piece-3"), ["bbbb"],
                        "the control: a piece some region IS bound to is reported, "
-                       + "so the nil above is a rule and not an empty projection")
+                       + "so the nil above is about absence and not a blanket rule")
+    }
+
+    /// **The positive case fix round 1 asked for.** A card can be the ONLY
+    /// thing that names a piece — no region drawn around it at all — and the
+    /// enumeration must still surface it, or Claude reading `piece_references`
+    /// and the app reading `RegionBinding.references` directly would disagree
+    /// about whether this card is the piece's context. That disagreement is
+    /// the whole reason the wire enumeration moved with the projection instead
+    /// of staying keyed on `CanvasRegion.boundPieceID` alone.
+    func test_aSelfBoundCardWithNoBoundRegionIsReferenced() async throws {
+        let (url, store, registry, id) = try await registeredProject("SelfBoundOnly")
+        let model = attached(to: store, at: url)
+        model.withScene { scene in
+            scene.insert(node("aaaa", piece: "piece-7"))
+            scene.insert(node("bbbb", y: 200))
+        }
+
+        let result = try await call(registry, id)
+
+        let loose = try XCTUnwrap(reported(result, "aaaa"))
+        XCTAssertEqual(loose.bound_piece_id, "piece-7",
+                       "precondition: the card really does carry an association "
+                       + "of its own, or there is nothing here to widen the "
+                       + "enumeration with")
+        XCTAssertEqual(references(result, "piece-7"), ["aaaa"],
+                       "no region was ever drawn around piece-7 — the card's own "
+                       + "association is the only source, and it is enough")
     }
 
     /// A region bound to a piece the writer has not filled yet is a different

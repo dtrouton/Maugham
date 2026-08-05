@@ -33,6 +33,7 @@ public enum KeyboardShortcuts {
             // particular is a primary canvas verb with a great deal of
             // documentation and had no entry on either surface.
             Entry(label: "Save Checkpoint As…",     shortcut: "⌘⇧S"),
+            Entry(label: "Check Writing",           shortcut: "⌘R"),
             Entry(label: "Promote…",                shortcut: "⌘⇧↩"),
             Entry(label: "Project Settings…",       shortcut: "⌘⇧,"),
         ]),
@@ -68,6 +69,8 @@ public enum KeyboardShortcuts {
             Entry(label: "Translation pane", shortcut: "⌘⌥L"),
             Entry(label: "Intent pane", shortcut: "⌘⌥N"),
             Entry(label: "Visual Language pane", shortcut: "⌘⌥V"),
+            Entry(label: "Diagnostics pane", shortcut: "⌘⌥D"),
+            Entry(label: "References pane", shortcut: "⌘⌥E"),
             Entry(label: "Toggle inspector column", shortcut: "⌘⌥0"),
         ]),
         Category(category: "Help", items: [

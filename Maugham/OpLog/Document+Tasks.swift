@@ -243,19 +243,35 @@ extension Document {
     /// preview `WriterTask`; the real derived task lands via the deriver on
     /// the next `tasks(filter:)` call (and matches this preview field-for-
     /// field by construction).
+    ///
+    /// - Parameter paragraphId: the `¶` the task is about, when there is one.
+    ///   Defaulted to `nil` because a task typed into the pane is about the
+    ///   document, not about whatever paragraph happened to be under the
+    ///   cursor; the promote-a-diagnostic path (M2 Task 9) is what passes it.
+    ///   **The anchor rides the op's EXISTING `changes` field** — an anchor
+    ///   plus a text snapshot, never an edit, exactly the shape a
+    ///   paragraph-scoped annotation already uses (`addAnnotation`'s
+    ///   comment/query arm). `.taskCreate` is non-manuscript
+    ///   (`Deriver.appliesToManuscript`), so the entry is never folded into
+    ///   derived text and `DeltaBuilder` skips it on the same test. No new
+    ///   provenance key, no wire-format change, no schema bump.
     @discardableResult
     public func createPaneTask(
-        body: String, parentTaskId: String?, undoManager: UndoManager? = nil
+        body: String, parentTaskId: String?, paragraphId: String? = nil,
+        undoManager: UndoManager? = nil
     ) -> WriterTask {
         let opId = ULID.generate()
         let priority = lowestPriorityForDoc() + 1.0
         let parentField: String? = parentTaskId
+        let changes: [Op.ParagraphChange] = paragraphId.map {
+            [.init(paragraphId: $0, prior: paragraphs[$0], next: "")]
+        } ?? []
         let op = Op(
             opId: opId,
             docId: docId, at: Date(),
             device: device, session: session,
             kind: .taskCreate,
-            changes: [], sequence: nil,
+            changes: changes, sequence: nil,
             provenance: Op.Provenance(
                 sessionId: session,
                 taskId: opId,
@@ -266,7 +282,7 @@ extension Document {
         appendTaskOpInternal(op)
         let preview = WriterTask(
             id: opId, kind: .paneCreated,
-            anchor: TaskAnchor(docId: docId, paragraphId: nil),
+            anchor: TaskAnchor(docId: docId, paragraphId: paragraphId),
             body: body, status: .open, priority: priority,
             parentTaskId: parentTaskId,
             createdAt: op.at,
@@ -301,7 +317,8 @@ extension Document {
                 },
                 redo: { [weak undoManager] doc in
                     doc.createPaneTask(
-                        body: body, parentTaskId: parentTaskId, undoManager: undoManager)
+                        body: body, parentTaskId: parentTaskId,
+                        paragraphId: paragraphId, undoManager: undoManager)
                 })
         }
         return preview

@@ -142,6 +142,16 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 Divider()
+                // The compiler's one trigger (spec §3.1). Plain ⌘R, verified
+                // unbound 2026-08-04: the two other "r" bindings carry ⌘⌥⇧
+                // (Toggle Review Mode) and ⌘⌥ (Research pane). Beside Save
+                // because it acknowledges in Save's register — a sub-second
+                // flash and nothing else.
+                Button("Check Writing") {
+                    MaughamEvent.postCompilerRun()
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                Divider()
                 FocusedRestoreButton()
                 Divider()
                 Button("Tidy All Filenames") {
@@ -240,6 +250,12 @@ struct MaughamApp: App {
                     .keyboardShortcut("n", modifiers: [.command, .option])
                 Button("Visual Language") { postSegment(.visualLanguage) }
                     .keyboardShortcut("v", modifiers: [.command, .option])
+                Button("Diagnostics") { postSegment(.diagnostics) }
+                    .keyboardShortcut("d", modifiers: [.command, .option])
+                // ⌘⌥R is Research's, so References takes the letter §6.3 of the
+                // redesign assigned it: "E references".
+                Button("References") { postSegment(.references) }
+                    .keyboardShortcut("e", modifiers: [.command, .option])
                 #if MAUGHAM_DEV_BUILD
                 // Scene-storage spike instrument (ADR 0021): logs how many
                 // EditorCoordinators are still alive. Close a project window,

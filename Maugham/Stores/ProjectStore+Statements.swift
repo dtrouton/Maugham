@@ -146,6 +146,32 @@ extension ProjectStore {
         StatementLookup.statement(in: manifest.statements, kind: kind, scope: scope)
     }
 
+    /// The intent that **applies to** a document: the document's own if it has
+    /// one, else the project's, else none.
+    ///
+    /// **One spelling, because two readers of "which intent applies here" can
+    /// disagree and nothing on screen would say so.** The compiler briefs a run
+    /// with this resolution (`CompilerEnvironment+Project`'s `intent` closure)
+    /// and the intent strip shows the writer the line it produces
+    /// (`IntentStrip.line(store:docId:…)`); a strip reading the chapter's while
+    /// the run was briefed on the book's is a lie about what Claude was told.
+    /// The scope that resolved rides back on `Statement.scope`, which is what
+    /// the compiler's prompt label is derived from.
+    ///
+    /// **Not `StatementPane.effectiveScope`, and not a rival to it.** That one
+    /// answers "which scope is this window's subject *about*" from the binder
+    /// selection alone, and never falls back — a chapter with no intent yet
+    /// resolves to `.document(id)` there, because the pane's empty editor is
+    /// what mints one. This one answers "which intent should be *read*", where
+    /// absence is the whole reason the project's exists. A reader wanting the
+    /// pane's answer must not use this, and vice versa.
+    ///
+    /// Absence is valid and mints nothing (M1A's rule).
+    func effectiveIntent(forDocId docId: String) -> Statement? {
+        statement(kind: .intent, scope: .document(docId))
+            ?? statement(kind: .intent, scope: .project)
+    }
+
     /// Find-or-create the statement for a scope. **Idempotent**: called twice
     /// for the same `(kind, scope)` it returns the same statement and creates no
     /// second file.

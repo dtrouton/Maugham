@@ -12,6 +12,7 @@ The ones you'll use most:
 | `⌘O` | Open project |
 | `⌘S` | Save flash (autosave is automatic) |
 | `⌘⇧S` | Save Checkpoint As… — a named checkpoint you can find again |
+| `⌘R` | Check Writing — ask Claude for notes on what you've written since the last check |
 | `⌘⇧↩` | Promote… — turn the canvas selection into a durable artifact |
 | `⌘Z` | Undo (text, annotation action, task, checkbox, or History Rewind) |
 | `⌘⇧Z` | Redo |
@@ -39,6 +40,8 @@ The ones you'll use most:
 | `⌘⌥L` | Translation pane |
 | `⌘⌥N` | Intent pane |
 | `⌘⌥V` | Visual Language pane |
+| `⌘⌥D` | Diagnostics pane — the compiler's notes on what you've written |
+| `⌘⌥E` | References pane — what this piece is pinned to |
 | `⌘⌥0` | Toggle inspector column |
 | `⌘⇧P` | Toggle Research preview |
 | `⌘/` | Syntax + keyboard reference |

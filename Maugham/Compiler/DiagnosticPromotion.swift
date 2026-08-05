@@ -1,0 +1,65 @@
+import Foundation
+
+/// **What a promoted note says once it is a task** (M2 Task 9).
+///
+/// A diagnostic lives in a per-device sidecar that the next run wholly
+/// supersedes. A task is op-logged, syncs, and survives — so a note the writer
+/// wants to keep is promoted rather than answered twice. What survives with it
+/// is the note's own words plus one line of provenance: who raised it, when,
+/// in which model, and against what the writing was being read.
+///
+/// Pure and static so every clause is a direct assertion — the composition is
+/// the interesting part, and it should not need a mounted pane to check.
+enum DiagnosticPromotion {
+
+    /// How much of the intent's first line the provenance line carries. Long
+    /// enough to recognise the intent, short enough that the record stays one
+    /// line under the note it belongs to.
+    static let intentExcerptLimit = 60
+
+    /// The task body: the note, then a blank line, then the record.
+    ///
+    /// **The ¶ id is deliberately absent.** It rides the task's anchor
+    /// (`Document.createPaneTask(paragraphId:)`), which is what makes the task
+    /// navigable; repeating it here would put plumbing in front of a writer
+    /// reading their own list.
+    ///
+    /// Without a run record there is no provenance to claim, and the note's
+    /// words stand alone rather than gaining a line with holes in it.
+    static func taskBody(for diagnostic: Diagnostic, run: CompilerRun?) -> String {
+        guard let run else { return diagnostic.body }
+        var record = "\u{2014} compiler, \(dateStamp(run.at)), \(run.model)"
+        if let excerpt = intentExcerpt(run.intentSnapshot) {
+            record += ", checked against: \u{201C}\(excerpt)\u{201D}"
+        }
+        return diagnostic.body + "\n\n" + record
+    }
+
+    /// The intent's first non-empty line, cut at `intentExcerptLimit` with the
+    /// cut made visible. `nil` when the run checked against no intent at all —
+    /// the clause is then omitted rather than rendered with empty quotes.
+    static func intentExcerpt(_ intentSnapshot: String?) -> String? {
+        guard let intentSnapshot else { return nil }
+        let firstLine = intentSnapshot
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty }
+        guard let firstLine else { return nil }
+        guard firstLine.count > intentExcerptLimit else { return firstLine }
+        return String(firstLine.prefix(intentExcerptLimit)) + "\u{2026}"
+    }
+
+    /// `yyyy-MM-dd` in the writer's own calendar. A fixed, sortable stamp
+    /// rather than a localised phrase: this is a record inside a durable task
+    /// that may be read months later, next to notes written on other days.
+    static func dateStamp(_ date: Date) -> String {
+        formatter.string(from: date)
+    }
+
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+}

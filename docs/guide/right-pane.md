@@ -1,19 +1,19 @@
 # Inspector, Research & Outline
 
-The right column's modes are Inspector, Research, and Outline (covered on this page), plus Tasks, Annotations, History, Inbox, Palette, Translation, Intent, and Visual Language (each covered elsewhere, or at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
+The right column's modes are Inspector, Research, and Outline (covered on this page), plus Tasks, Annotations, History, Inbox, Palette, Translation, Intent, Visual Language, Diagnostics, and References (each covered elsewhere, or at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
 
 ### Panes are grouped by persona
 
 Each of the four personas (⌘1 Plan, ⌘2 Author, ⌘3 Review, ⌘4 Publish — see [Getting Started → Personas](getting-started.md#personas)) offers its own subset of these modes in the picker. A shortcut still opens its pane from any persona — it reveals the right column if it's hidden and switches to it — even one the current persona doesn't lead with:
 
 - **Plan** — Inbox, Tasks, History, Inspector.
-- **Author** — Research, Palette, Intent, Tasks, History, Inspector.
-- **Review** — Annotations, Intent, Tasks, History, Inspector.
+- **Author** — Diagnostics, Research, Palette, Intent, References, Tasks, History, Inspector.
+- **Review** — Annotations, Intent, References, Tasks, History, Inspector.
 - **Publish** — Visual Language, Tasks, Translation, History, Inspector.
 
-**There is one order, and modes appear and disappear within it.** Reading down the whole set: Annotations, Inbox, Research, Palette, Intent, Visual Language, Tasks, Translation, History, Inspector. Every persona above is that same sequence with the modes it doesn't offer taken out — so a mode never moves left or right of a mode it sits beside somewhere else, and you aren't hunting for it in a new place each time you change persona. Tasks marks the break between what you're working *with* and what's flowing *through*; History and Inspector always close the row, with Inspector on the far end.
+**There is one order, and modes appear and disappear within it.** Reading down the whole set: Diagnostics, Annotations, Inbox, Research, Palette, Intent, References, Visual Language, Tasks, Translation, History, Inspector. Every persona above is that same sequence with the modes it doesn't offer taken out — so a mode never moves left or right of a mode it sits beside somewhere else, and you aren't hunting for it in a new place each time you change persona. Tasks marks the break between what you're working *with* and what's flowing *through*; History and Inspector always close the row, with Inspector on the far end.
 
-Each persona's default — the mode it opens on — is just the first one it offers: Inbox in Plan, Research in Author, Annotations in Review, Visual Language in Publish.
+Each persona's default — the mode it opens on — is just the first one it offers: Inbox in Plan, Diagnostics in Author, Annotations in Review, Visual Language in Publish.
 
 **What a persona leads you to is not what it can reach.** The right column shows what you *consult* while making something else, so a persona doesn't lead you to a mode for the thing it's there to make: Plan writes research notes, palette cards, intent and visual language in its **left** column, and Author reads them in its right. Two of those four don't have their left-hand home yet — **Intent and Visual Language are still right-hand panes, and in Plan you reach them with ⌘⌥N and ⌘⌥V** rather than from the picker. They open, they work, and they stay selected while you use them; switch persona and come back and Plan is on its own modes again.
 
@@ -79,3 +79,32 @@ How the book looks — typography, cover direction, the references you're steeri
 **It takes pictures as well as words.** Drop image files onto the strip at the bottom of the pane, or paste one straight into the editor with ⌘V. Either way the picture is copied into a `visual-language_assets/` folder beside the document — your original stays where it is — and a Markdown image reference is added to the text, which you can move, caption or delete like any other line. Anything that isn't a picture is turned away and says so. Intent doesn't take pictures; it's prose about the writing.
 
 **Claude reads this pane when it writes your book's design.** Ask it to author or revise a PDF/EPUB template and it reads what you've written here first, including a list of the images you've referenced — so the typography comes from your description rather than its own taste, and the sixth piece still matches the first five. Write it in your own words; there's no format to hit.
+
+### Diagnostics mode (⌘⌥D)
+
+The compiler's notes on the open document — Author's own pane, and its default. Press ⌘R ("Check Writing") to ask Claude for notes on what you've written since the last check; the header line says what happened last, and while a check is running you can press **Cancel**.
+
+Each note carries a category, the note itself, and an excerpt of the paragraph it's about — click a note to jump to that paragraph in the editor. A **drift** note — when the compiler thinks what you've written has drifted from your stated intent — is pinned at the top, with an **Open Intent** button that takes you straight to it.
+
+**Notes that arrive while you're looking elsewhere put a count on the picker**, the way new captures do on the Inbox — a check finished somewhere you weren't watching, and the count clears the moment you open the pane.
+
+**A note goes stale the moment its paragraph changes.** Edit the text a note is about and the note quietly drops out — nothing to dismiss, nothing left pointing at words that no longer exist.
+
+The gear menu picks the model a check runs against — **Fast**, **Standard**, or **Deep** — and the choice is remembered per project.
+
+**A clean check says so plainly.** No notes to raise reads *"Nothing to flag."* — not silence, not a green checkmark standing in for an answer.
+
+**A note you answer becomes intent.** Press **Answer** on a note, say why the thing it flagged is deliberate, and press Return: your sentence is added to that piece's intent statement and the note goes away, so the next check reads what you just told it rather than raising the same thing again. **Promote to Task** keeps a note instead — as a real task on the document, which syncs and survives where the notes don't. Full walkthrough: [Checking Your Writing](compiler.md).
+
+### References mode (⌘⌥E)
+
+**What this piece is pinned to**, as a shelf of thumbnails and titles — Author's and Review's. It's not a browser: there's no search and no tree, because the list is short by design. Two things put something on it, and they're the two ways a piece acquires context in Maugham:
+
+- **Research you linked to this document** — the Research pane's own **Link** action (⌘⌥R).
+- **Cards you clustered for it on the planning canvas** — anything sitting inside a region bound to this piece, plus any single card you bound to the piece directly.
+
+Research notes, PDFs, recordings, links, palette cards, photographs and loose canvas scraps all appear; a photograph shows a thumbnail, everything else shows the same kind glyph the canvas draws it with. If you delete something, it simply leaves the shelf — you'll never see a row that's only an id.
+
+**Click a pin and it opens as a column beside your prose.** One at a time: clicking another swaps it, clicking the same one again sends it back, and Escape closes it. Drag the divider to set the width — it's remembered per project. The column squeezes your writing column while it's open and gives the width straight back when it isn't, and it goes away with everything else under ⌘\.
+
+**This is the same set Claude is briefed on.** When you press ⌘R the compiler is told what this piece is pinned to, by name — so what you see on the shelf is what it can go and read.

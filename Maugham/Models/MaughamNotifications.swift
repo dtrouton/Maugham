@@ -45,6 +45,12 @@ extension Notification.Name {
     /// value) — or opens exactly one window if none is open yet. Harmless
     /// duplication at worst. OK.
     public static let maughamOpenProject = Notification.Name("maugham.openProject")
+    /// Scope: .keyWindow — "Check Writing" (⌘R). The compiler's one trigger:
+    /// the key window asks its `CompilerOrchestrator` to check the active
+    /// document. A command, not a data event — a background window running
+    /// against its own document would spend a real API call on prose nobody is
+    /// looking at.
+    public static let maughamRunCompiler = Notification.Name("maugham.run.compiler")
     public static let maughamToggleNoChrome = Notification.Name("maugham.toggleNoChrome")
     public static let maughamToggleReviewMode = Notification.Name("maugham.toggleReviewMode")
     /// Posted by the Translation Review menu command (`.keyWindow`, menu-command

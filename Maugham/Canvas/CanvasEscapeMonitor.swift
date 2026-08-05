@@ -43,6 +43,19 @@ import AppKit
 /// A local monitor is app-global and is the widest-reaching thing on this
 /// surface, so `disposition(of:ourWindow:canvasUsesIt:)` — the whole decision,
 /// pure and testable — declines four ways before it consumes anything. See it.
+///
+/// ### Who may own one (2026-08-05)
+///
+/// **`WindowEscapeArbiter`, and nothing else.** Escape reaches two overlays by
+/// this mechanism now — the dimmed board and the assistant column (M2 §6.2) —
+/// and for one commit each owned an instance of its own. Local monitors run
+/// most-recently-installed-first and a consumed key short-circuits the rest, so
+/// two instances on one window meant whichever armed LAST took the key and the
+/// other never saw it: arbitration by the writer's action order rather than by
+/// anyone's decision. The arbiter holds **one instance per window** and offers
+/// the event to registered consumers in a declared priority order. A third
+/// surface wanting Escape registers a consumer there; it does not construct one
+/// of these.
 @MainActor
 final class CanvasEscapeMonitor {
 

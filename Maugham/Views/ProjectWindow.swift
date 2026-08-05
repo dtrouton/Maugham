@@ -33,6 +33,14 @@ struct ProjectWindow: View {
     @State private var metrics: EditorMetrics =
         EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
     @State private var showingSaveFlash: Bool = false
+    /// The run key's own acknowledgment (M2 §3.1) — the same overlay, its own
+    /// binding, because ⌘S and ⌘R can be pressed a second apart and one flash
+    /// showing the other's word is worse than two.
+    @State private var showingCompilerFlash: Bool = false
+    /// The Diagnostics pane's gear menu (M2 Task 8), seeded from
+    /// `UIState.compilerModel` at `load()` and written back through
+    /// `updateUIState` on change — the `outlineLayout` pattern.
+    @State private var compilerModel: CompilerModelChoice = .standard
     /// What this window's tree names — the window's single subject (spec §3).
     /// Typed rather than a `String?` so no site can answer "is this a manuscript
     /// document?" by accident; see `BinderSubject`.
@@ -87,6 +95,16 @@ struct ProjectWindow: View {
     /// draws — and region labels do not live in the manifest, so a `ProjectStore`
     /// could not carry them.
     @State private var canvasModel = CanvasModel()
+    /// The compiler's run state and its warm `claude` session (M2). Owned here
+    /// for the canvas model's reason: the Diagnostics pane in the right-hand
+    /// column reads the run the centre column's ⌘R started. Wired in `load()`,
+    /// where the stores exist; torn down in `.onDisappear`.
+    @State private var compiler = CompilerOrchestrator()
+
+    /// The assistant column's subject and width (M2 §6.2). Owned here rather
+    /// than in either column because the References pane that fills it is in the
+    /// window's RIGHT column and the column itself is in the CENTRE.
+    @State private var assistant = AssistantColumnModel()
     /// Raw share snapshot kept alongside `collaborator` for the pill's hover
     /// diagnostics (the `.help()` tooltip), so the resolver stays the single
     /// read path.
@@ -113,6 +131,11 @@ struct ProjectWindow: View {
                 }
                 .overlay(alignment: .top) {
                     SaveFlashOverlay(isShowing: $showingSaveFlash)
+                }
+                .overlay(alignment: .top) {
+                    SaveFlashOverlay(isShowing: $showingCompilerFlash,
+                                     label: "Checking\u{2026}",
+                                     systemImage: "text.magnifyingglass")
                 }
                 .overlay(alignment: .top) {
                     if let title = mcpBanner.title {
@@ -202,11 +225,20 @@ struct ProjectWindow: View {
             // `.task(id: url)` won't re-fire for the same url, so a live blank
             // would stick.
             if !MaughamEvent.isLive(window) {
+                // Before the stores drop: the orchestrator's environment holds
+                // closures over both of them, so a session left configured here
+                // would keep the whole project graph alive in the husk — and
+                // its `claude` subprocess alive with it.
+                compiler.detach()
                 store = nil
                 documentStore = nil
                 lastParsedScript = nil
             }
         }
+        .modifier(CompilerRunModifier(orchestrator: compiler,
+                                      window: window,
+                                      activeDocId: activeDocId,
+                                      mcpEnabled: userPreferences.mcpEnabled))
         .onKeyWindowCommand(.maughamToggleFullScreen, window: window) { _ in
             toggleFullScreen()
         }
@@ -954,6 +986,20 @@ struct ProjectWindow: View {
                         elementLabel: elementLabelForFooter)
                 }
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                // **Applied FIRST of the three top insets, which is what puts it
+                // nearest the prose.** `safeAreaInset` places each inset outside
+                // the content it wraps, so the last one applied ends up furthest
+                // from the editor: the read-only trap is the outermost line, the
+                // review banner sits under it, and the strip is directly over
+                // the writing. That is the order the surfaces want — the two
+                // banners are notices about the WINDOW's posture and belong with
+                // the chrome, and the strip is a running head belonging to the
+                // page.
+                if let line = intentStripLine {
+                    IntentStrip(line: line)
+                }
+            }
             .safeAreaInset(edge: .top) {
                 // Reflect the EFFECTIVE posture, not just the manual toggle: a
                 // reviewer (or still-resolving unknown) always shows REVIEWING;
@@ -971,7 +1017,65 @@ struct ProjectWindow: View {
                     ViewOnlyShareNotice()
                 }
             }
+            // The studied reference, between the binder and the prose (M2 §6.2).
+            // Applied OUTSIDE the three top insets on purpose: the strip and the
+            // two banners belong to the page, and the column stands beside the
+            // whole of it. One line, because this body has no expression budget
+            // under the Release type-checker — delete it and every token in
+            // `AssistantColumn.swift` is still present, every test still green,
+            // and clicking a pin does nothing visible.
+            .modifier(AssistantColumnModifier(
+                store: store, projectURL: url, documentStore: documentStore,
+                window: window, isNoChromeOn: isNoChromeOn,
+                activeDocId: activeDocId, assistant: assistant))
+            // Unchanged, and deliberately: the column SQUEEZES the centred
+            // writing column while it exists (spec §6.2) rather than widening
+            // the window's content column, which would push the binder shut
+            // instead. The clamp on `assistant.width` is what keeps the prose a
+            // column rather than a margin.
             .navigationSplitViewColumnWidth(min: 480, ideal: 720)
+    }
+
+    /// The intent strip's line, or nil for no strip (M2 §6.1).
+    ///
+    /// **`EditorStatusFooter`'s twin, and gated the same way**: Author only, and
+    /// gone with the chrome under ⌘\. The decision itself is
+    /// `IntentStrip.line(store:docId:persona:isNoChromeOn:)` rather than a
+    /// condition written out here, so it can be asked over the product of its
+    /// inputs by a test instead of only down the path this property takes.
+    ///
+    /// The freshness is SwiftUI's own observation **while the statement is open
+    /// in a pane**: the resolver prefers the statement's live `Document` through
+    /// `ProjectStore.statementText(of:)`, so a change made in the Intent pane
+    /// invalidates this body with no event and no poll. A CLOSED statement's
+    /// text comes from `derivedCache`, which is `@ObservationIgnored` — an
+    /// append to one lands on the next body pass instead. See
+    /// `IntentStrip.line(store:docId:persona:isNoChromeOn:)` for the boundary and
+    /// the one visible case.
+    ///
+    /// **`activeDocId` carries the no-selection sentinel and that is correct
+    /// here** — no manuscript document means no document-scope intent to find,
+    /// so the resolution falls to the project's, which is the right answer for a
+    /// window whose subject is the project.
+    ///
+    /// **One divergence is known and accepted rather than fixed.** Clicking the
+    /// strip posts a bare `postDetailSegment(.intent)`, and the Intent pane
+    /// resolves its own scope from the binder selection
+    /// (`StatementPane.effectiveScope`), which never falls back — so a chapter
+    /// with no intent of its own shows the *project's* line in the strip and
+    /// opens the *chapter's* empty editor on click. Landing on the fallback
+    /// scope instead would need Open-sets-scope machinery, which is the reverted
+    /// three-round M1A work (`openPromotedArtifact`, `Maugham/Canvas/AREA.md`)
+    /// and not a ride-along. The click is still the right one — the writer who
+    /// pressed a project-scope line while a chapter is selected is one keystroke
+    /// from writing that chapter's own intent, which is the thing they would
+    /// want to do next. `IntentStripTests` pins the divergence so it is a
+    /// recorded position rather than a surprise.
+    private var intentStripLine: String? {
+        guard let store else { return nil }
+        return IntentStrip.line(
+            store: store, docId: activeDocId,
+            persona: persona, isNoChromeOn: isNoChromeOn)
     }
 
     private var shouldShowStatusFooter: Bool {
@@ -1462,7 +1566,16 @@ struct ProjectWindow: View {
             session: _checkpointSessionId,
             docPaths: Self.documentPaths(in: store.manifest.structure),
             documentStore: documentStore,
-            editorControl: editorControl
+            editorControl: editorControl,
+            compilerOrchestrator: compiler,
+            diagnosticsStore: compiler.diagnostics,
+            compilerModel: compilerModel,
+            onCompilerModelChange: { newValue in
+                compilerModel = newValue
+                compiler.updateModel(newValue.claudeModel)
+                documentStore.updateUIState { $0.compilerModel = newValue }
+            },
+            assistant: assistant
         ) {
             switch Self.inspectorRoute(binderSegment: binderSegment,
                                        projectType: store.manifest.type) {
@@ -1944,6 +2057,17 @@ struct ProjectWindow: View {
         }
     }
 
+    /// ⌘R's acknowledgment. Shorter than ⌘S's: this one says the key was heard,
+    /// and the pane says the rest.
+    @MainActor
+    private func showCompilerFlash() {
+        showingCompilerFlash = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(700))
+            await MainActor.run { showingCompilerFlash = false }
+        }
+    }
+
     private func handleShowLatestMCPNote() {
         guard let id = mcpBanner.latestId else { return }
         binderSegment = .research
@@ -1964,6 +2088,22 @@ struct ProjectWindow: View {
             s.liveCanvas = canvasModel
             self.store = s
             self.documentStore = ds
+            // The compiler, wired here for the canvas model's reason: the
+            // stores exist at this point and a view body may not read one.
+            self.compilerModel = ds.uiState.compilerModel
+            // The width only; nothing is studied when a window opens, and
+            // restoring a subject would put a reference column over the prose
+            // before the writer had asked for anything.
+            self.assistant.width = ds.uiState.assistantColumnWidth
+            compiler.configure(
+                environment: .production(
+                    store: s, documentStore: ds, projectURL: url,
+                    preferences: userPreferences,
+                    model: ds.uiState.compilerModel.claudeModel,
+                    onRunAcknowledged: { showCompilerFlash() }),
+                diagnostics: DiagnosticsStore(
+                    projectRoot: url,
+                    device: DeviceSlug.make(from: MacDeviceID.current)))
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
 
