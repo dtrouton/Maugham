@@ -133,6 +133,75 @@ final class CompilerAllowlistTests: XCTestCase {
         }
     }
 
+    // MARK: - The answer is the WRITER's (M2 Task 10)
+
+    /// **Only the writer's own hand puts words into a statement.**
+    ///
+    /// Task 10 gives an answered diagnostic a route into the piece's intent —
+    /// through `IntentAppendPerformer`, driven by a writer typing into a field.
+    /// The compiler's Claude reads that intent every run (`read_craft_intent`,
+    /// `read_visual_language`) and must never be able to write it: a model that
+    /// could edit the standard it is judged against can quietly move the
+    /// standard until nothing it wrote is ever flagged again. That is the
+    /// planning plane's line (`Maugham/MCP/AREA.md` tripwire 4) arriving on the
+    /// surface M2 built.
+    ///
+    /// **Asserted twice over, because the allowlist is the weaker half.** The
+    /// allowlist restricts the compiler's own spawned session; the CATALOG is
+    /// what any MCP client — Claude Desktop, Claude Code, a peer — can reach.
+    /// A statement-writing tool that exists but is merely absent from this
+    /// allowlist would be a write path for every OTHER client, so the catalog
+    /// is checked too.
+    func test_noStatementWritingToolExistsAnywhereClaudeCanReach() {
+        let offenders = Self.statementWriters(in: CompilerAllowlist.tools.map {
+            String($0.dropFirst("mcp__maugham__".count))
+        })
+        XCTAssertTrue(
+            offenders.isEmpty,
+            "the compiler must not be able to write the intent it is judged against. "
+            + "Found in the allowlist: \(offenders.sorted().joined(separator: ", "))")
+
+        // `{ $0.method }` rather than `\.method`: `MCPToolCatalog.all` is an
+        // array of existentials, and a key path over one crashes SILGen on
+        // this toolchain (Xcode 26.6). The rest of this file already spells it
+        // this way.
+        let inCatalog = Self.statementWriters(in: MCPToolCatalog.all.map { $0.method })
+        XCTAssertTrue(
+            inCatalog.isEmpty,
+            "no statement-writing tool may exist in the catalog at all \u{2014} an "
+            + "allowlist omission would still leave the write reachable by every "
+            + "other MCP client. Found: \(inCatalog.sorted().joined(separator: ", "))")
+    }
+
+    /// The control. Without it the census above passes for a predicate that
+    /// matches nothing at all, and a real statement writer would ship green.
+    func test_theStatementCensusWouldCatchAWriteToIntent() {
+        let planted = ["read_craft_intent", "write_craft_intent", "list_projects"]
+        XCTAssertEqual(
+            Self.statementWriters(in: planted), ["write_craft_intent"],
+            "the predicate must catch a hypothetical statement writer \u{2014} and must "
+            + "NOT catch the READER beside it, which ships and is allowlisted")
+    }
+
+    /// A tool name that would put words into a statement.
+    ///
+    /// Names rather than a list of known-bad spellings: the risk is a tool that
+    /// does not exist yet, so an enumeration of today's catalog would be a
+    /// census that can never fire. `craft_intent` and `visual_language` are the
+    /// two statement kinds (`Statement.Kind`); `statement` catches a tool named
+    /// after the primitive itself.
+    private static func statementWriters(in names: [String]) -> Set<String> {
+        let subjects = ["craft_intent", "visual_language", "statement", "intent"]
+        let verbs = ["write_", "add_", "set_", "append_", "update_", "edit_", "delete_"]
+        var found: Set<String> = []
+        for name in names {
+            let namesAStatement = subjects.contains { name.contains($0) }
+            let isAWrite = verbs.contains { name.hasPrefix($0) }
+            if namesAStatement && isAWrite { found.insert(name) }
+        }
+        return found
+    }
+
     // MARK: - Argument Format Test
 
     func test_cliArgumentsReturnsCorrectFormat() {

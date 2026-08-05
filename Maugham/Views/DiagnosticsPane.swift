@@ -26,8 +26,21 @@ struct DiagnosticsPane: View {
     /// onto, and the note is left where it is rather than dismissed into
     /// nowhere.
     var activeDocument: @MainActor () -> Document? = { nil }
+    /// The project the answer flow writes an intent statement into (M2 Task
+    /// 10). Optional, and its absence is what takes the **Answer** action off
+    /// every row rather than leaving one that presses into nowhere — see
+    /// `canAnswer`.
+    var store: ProjectStore? = nil
 
     @Environment(\.undoManager) private var undoManager
+
+    /// Per note: an answer in flight, and the sentence the last one refused
+    /// with. Both live on the pane rather than in `DiagnosticRow` because the
+    /// commit is asynchronous and the row that started it is gone on success —
+    /// a row owning its own in-flight flag could only clear it by outliving
+    /// the thing that clears it.
+    @State private var answering: Set<String> = []
+    @State private var answerFailures: [String: String] = [:]
 
     // MARK: - Reads
 
@@ -234,17 +247,30 @@ struct DiagnosticsPane: View {
                     if let driftNote {
                         DiagnosticRow(
                             diagnostic: driftNote, isDrift: true,
+                            // **Never for drift, and that is the rule rather
+                            // than a defaulted `false`.** Drift is not about a
+                            // paragraph — its action is Open Intent, where the
+                            // writer edits the statement whole. A reply field
+                            // here would be a second door into the same room,
+                            // and the narrower one.
+                            canAnswer: false,
+                            isSubmitting: false, answerFailure: nil,
                             onJump: {},
                             onOpenIntent: { MaughamEvent.postDetailSegment(.intent) },
-                            onPromote: { promote(driftNote) })
+                            onPromote: { promote(driftNote) },
+                            onAnswer: { _ in })
                         Divider()
                     }
                     ForEach(anchoredNotes) { diagnostic in
                         DiagnosticRow(
                             diagnostic: diagnostic, isDrift: false,
+                            canAnswer: store != nil,
+                            isSubmitting: answering.contains(diagnostic.id),
+                            answerFailure: answerFailures[diagnostic.id],
                             onJump: { jump(diagnostic) },
                             onOpenIntent: { MaughamEvent.postDetailSegment(.intent) },
-                            onPromote: { promote(diagnostic) })
+                            onPromote: { promote(diagnostic) },
+                            onAnswer: { answer($0, to: diagnostic) })
                         Divider()
                     }
                 }
@@ -311,6 +337,61 @@ struct DiagnosticsPane: View {
         diagnostics.dismiss(diagnostic.id, docId: docId)
     }
 
+    // MARK: - The answer (M2 Task 10)
+
+    /// **Write the writer's answer into the piece's intent, and take the note
+    /// off the pane once it is there** — the loop this milestone exists for.
+    ///
+    /// A `static` taking everything it touches, so the whole of it is a direct
+    /// test against a real `ProjectStore` and a real `DiagnosticsStore`. SwiftUI
+    /// exposes no way to deliver a Return keystroke into a hosted `TextField`'s
+    /// editor, so a commit written inline in the field's `.onSubmit` would be
+    /// the one part of this path nothing could drive.
+    ///
+    /// **The dismissal is conditional on the write, and the order is the
+    /// contract.** A note dismissed before the append could lose both the note
+    /// and the answer to one refusal; dismissed after, the worst case is a note
+    /// the writer answers twice. Returns the refusal's own sentence, or `nil`.
+    ///
+    /// Asymmetric about undo for `promote`'s reason: the answer is an op in the
+    /// statement's log and ⌘Z reaches it there, while the dismissal is
+    /// per-device derived state with no undo of its own — a ⌘Z that resurrected
+    /// the note would claim the compiler had re-checked something it has not
+    /// looked at since.
+    static func commitAnswer(
+        _ text: String, to diagnostic: Diagnostic, docId: String,
+        store: ProjectStore, diagnostics: DiagnosticsStore
+    ) async -> String? {
+        do {
+            try await IntentAppendPerformer.append(
+                answer: text, forDocId: docId, store: store)
+        } catch {
+            return error.localizedDescription
+        }
+        diagnostics.dismiss(diagnostic.id, docId: docId)
+        return nil
+    }
+
+    private func answer(_ text: String, to diagnostic: Diagnostic) {
+        // Unreachable from the UI — `canAnswer` is `store != nil`, so no row
+        // without one offers the action — and it refuses rather than asserting,
+        // because a caller that got here has a writer's sentence in hand and
+        // nothing to gain from a crash.
+        guard let store else { return }
+        answerFailures[diagnostic.id] = nil
+        answering.insert(diagnostic.id)
+        Task {
+            let failure = await Self.commitAnswer(
+                text, to: diagnostic, docId: docId, store: store,
+                diagnostics: diagnostics)
+            answering.remove(diagnostic.id)
+            // Only on failure: on success the row is gone with the note, and
+            // an entry for a note nobody can see would surface on the next run
+            // that happened to mint the same id.
+            answerFailures[diagnostic.id] = failure
+        }
+    }
+
     private func jump(_ diagnostic: Diagnostic) {
         // Reuses `AnnotationsPane.jump`'s event rather than a copy — span
         // precision is that pane's alone; a diagnostic anchors a whole
@@ -326,9 +407,24 @@ struct DiagnosticsPane: View {
 private struct DiagnosticRow: View {
     let diagnostic: Diagnostic
     let isDrift: Bool
+    /// Whether this row offers the **Answer** action at all. False for drift,
+    /// and false with no project to write into.
+    let canAnswer: Bool
+    /// An answer of this row's already on its way to the intent statement.
+    let isSubmitting: Bool
+    /// What the last answer refused with, or `nil`. Its arrival is what tells
+    /// the row the round trip is over and the field is the writer's again.
+    let answerFailure: String?
     let onJump: () -> Void
     let onOpenIntent: () -> Void
     let onPromote: () -> Void
+    let onAnswer: (String) -> Void
+
+    /// The field is REVEALED rather than standing: a text box under every note
+    /// is a form, and the pane's register is a margin note.
+    @State private var isAnswering = false
+    @State private var draft = ""
+    @FocusState private var fieldFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -353,15 +449,88 @@ private struct DiagnosticRow: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                 }
+                if canAnswer && !isAnswering {
+                    Button("Answer", action: reveal)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Say why this is deliberate. It goes into your intent, "
+                              + "and the next check reads it.")
+                }
                 Button("Promote to Task", action: onPromote)
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .help("Keep this note as a task on the document.")
             }
+            if isAnswering { replyField }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .contentShape(Rectangle())
-        .onTapGesture { onJump() }
+        // The tap-to-jump must not fire from inside the field the writer is
+        // typing in — `onTapGesture` on the row would otherwise scroll the
+        // editor out from under them mid-sentence.
+        .onTapGesture { if !isAnswering { onJump() } }
+    }
+
+    /// **Understated on purpose.** A plain field with a prompt rather than a
+    /// bordered box with a Send button: the writer is answering a margin note,
+    /// not filling in a form, and this pane's whole register is that nothing on
+    /// it nags.
+    @ViewBuilder
+    private var replyField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TextField("Why is this deliberate?", text: $draft)
+                .textFieldStyle(.plain)
+                .font(.callout)
+                .focused($fieldFocused)
+                .disabled(isSubmitting)
+                .onSubmit { commit() }
+                .onExitCommand { cancel() }
+            if let answerFailure {
+                Text(answerFailure)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Reveal the field and put the caret in it. The deferral is tripwire 16's:
+    /// a single `DispatchQueue.main.async` tick loses the race with SwiftUI's
+    /// own focus pass, and a field the writer has to click into is an action
+    /// that only half happened. `BinderRow.claimFocus()` is the canonical
+    /// spelling.
+    private func reveal() {
+        isAnswering = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(30))
+            fieldFocused = true
+        }
+    }
+
+    /// **The words go up and the field stays open** — closing it is not this
+    /// method's job. The pane owns the round trip: on success the note is
+    /// dismissed and this whole row goes with it, and on failure the row stays
+    /// exactly as it is with the draft still in it, because a commit that
+    /// emptied the field would take the writer's sentence with it on the one
+    /// path where they still need it.
+    ///
+    /// Return on an untouched field is a cancel rather than a refusal: nothing
+    /// was said, so there is nothing to report.
+    private func commit() {
+        let words = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty else {
+            cancel()
+            return
+        }
+        onAnswer(words)
+    }
+
+    /// Escape: the field goes away and nothing is written. The draft goes with
+    /// it — the writer said no.
+    private func cancel() {
+        isAnswering = false
+        fieldFocused = false
+        draft = ""
     }
 
     /// A short, single-line excerpt of the anchored paragraph — not the whole

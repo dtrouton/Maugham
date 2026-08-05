@@ -416,7 +416,11 @@ struct DetailPaneToggle<Inspector: View>: View {
                 },
                 compilerModel: compilerModel,
                 onCompilerModelChange: onCompilerModelChange,
-                activeDocument: { [weak ds] in ds?.document(forDocId: activeDocId) })
+                activeDocument: { [weak ds] in ds?.document(forDocId: activeDocId) },
+                // The answer flow's destination (M2 Task 10). Passed rather
+                // than reached for, so the pane still holds no store of its
+                // own and a caller that has none simply offers no Answer.
+                store: store)
         } else {
             ContentUnavailableView(
                 "Select a document",

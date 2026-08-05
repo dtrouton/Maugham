@@ -93,3 +93,5 @@ Each note carries a category, the note itself, and an excerpt of the paragraph i
 The gear menu picks the model a check runs against — **Fast**, **Standard**, or **Deep** — and the choice is remembered per project.
 
 **A clean check says so plainly.** No notes to raise reads *"Nothing to flag."* — not silence, not a green checkmark standing in for an answer.
+
+**A note you answer becomes intent.** Press **Answer** on a note, say why the thing it flagged is deliberate, and press Return: your sentence is added to that piece's intent statement and the note goes away, so the next check reads what you just told it rather than raising the same thing again. **Promote to Task** keeps a note instead — as a real task on the document, which syncs and survives where the notes don't. Full walkthrough: [Checking Your Writing](compiler.md).
