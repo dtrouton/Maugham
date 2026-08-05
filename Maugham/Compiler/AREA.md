@@ -26,11 +26,16 @@ Two sentences hold the whole design:
   (`Diagnostic`, `DiagnosticsStore`, `DiagnosticIngest`).
 - Where a note goes when the writer keeps it (`DiagnosticPromotion`) or answers
   it (`IntentAppendPerformer`).
+- **What a document is pinned to** (`PinnedReferences`, `PinnedReferenceResolver`)
+  — the union of research the writer linked and cards they clustered on the
+  canvas, one pure function with two production callers: the run's own context
+  and the Author surfaces below. Neither may re-derive it.
 
 The pane is not here — `Maugham/Views/DiagnosticsPane.swift` — and neither is
-the run key's delivery, `Maugham/Views/CompilerRunModifier.swift`. Both are
-across the seam on purpose: this area holds no view state and no editor binding
-(tripwires 3, 6).
+the run key's delivery, `Maugham/Views/CompilerRunModifier.swift`, nor the
+Author surfaces that read the pinned set (`Maugham/Views/IntentStrip.swift`,
+`ReferencesPane.swift`, `AssistantColumn.swift`). All are across the seam on
+purpose: this area holds no view state and no editor binding (tripwires 3, 6).
 
 ## The seam map
 
@@ -51,6 +56,8 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `DiagnosticsStore.swift` | The per-device, per-document sidecar, and the staleness rule |
 | `DiagnosticPromotion.swift` | What a kept note says once it is an op-logged task |
 | `IntentAppendPerformer.swift` | An answered note becomes a paragraph of the piece's intent |
+| `PinnedReferences.swift` | The pure union: linked research + clustered canvas cards, resolved to renderable pins |
+| `PinnedReferenceResolver.swift` | The caller-side assembly against a live project — the four inputs `PinnedReferences.pinned` takes, gathered in one place |
 
 **The `Environment` struct is the reason this area is testable.** The
 orchestrator names no store: it takes closures, so a run is driven end to end
@@ -204,6 +211,12 @@ drifted from them is a defect in this file.
 - `IntentAppendPerformerTests` — the answer flow end to end, including the two
   refusals that must write nothing.
 - `CompilerRunCommandTests` — ⌘R's real delivery path.
+- `PinnedReferencesTests` — the union and its resolution, including the
+  dedup/dangling/sort rules; its census keeps `linkedResearchIds` (not
+  `StructureItem.links`) the only field a caller may name. `ReferencesPaneTests`
+  and `AssistantColumnTests`, across the seam in `Maugham/Views/`, are the
+  shelf's and the column's own suites, and pin that both surfaces and the run's
+  `pinnedListing` share this one projection.
 
 **One known gap, on the record:** SwiftUI exposes no way to deliver a Return
 keystroke into a hosted `TextField`'s editor, so the reply field's *commit on
@@ -215,15 +228,21 @@ everything it touches.
 
 ## What's intentionally NOT here
 
-- **The Author surfaces.** The intent strip above the prose and the references
-  shelf / assistant column (spec §6) are Plan 2 — designed, not built. The
-  prompt's `CompilerContext.pinnedListing` and `paletteListing` ship
-  empty-capable for that reason: the prompt omits an empty section by design, so
-  today's context is intent + delta and that is a smaller prompt rather than a
-  broken one.
+- **The Author surfaces' views.** The intent strip above the prose
+  (`IntentStrip.swift`) and the references shelf / assistant column
+  (`ReferencesPane.swift`, `AssistantColumn.swift`, spec §6) shipped in Plan 2
+  — but they live in `Maugham/Views/`, not here, on the same principle as the
+  pane: this directory holds no view state. What lives here is what feeds them
+  — `PinnedReferences`/`PinnedReferenceResolver` — and the run's own
+  `CompilerContext.pinnedListing`/`paletteListing` read the identical
+  projection. Both still ship empty-capable, but the reason changed: the
+  prompt omits an empty section by design, and today a document with nothing
+  linked or clustered is the only thing that produces one — not an unbuilt
+  surface.
 - **An Author posture object.** Spec §6.3's finding: answering a diagnostic
   changes nothing structural — the editor stays the editor — so a policy object
-  with nothing to produce would be ceremony.
+  with nothing to produce would be ceremony. **Built as designed, 2026-08-05**:
+  Plan 2 shipped Author with none, and nothing since has argued otherwise.
 - **Streaming.** `CompilerRunEvent.started` exists for a streaming consumer that
   does not exist yet; `send` resolves with a terminal event.
 - **A new MCP tool, in either direction.** The compiler is an MCP *client*. The

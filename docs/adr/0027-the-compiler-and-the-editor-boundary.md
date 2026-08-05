@@ -51,13 +51,15 @@ What M2 shipped against that test:
   in the pane — into the piece's intent statement through `IntentAppendPerformer`, as an
   ordinary op-logged edit performed by Maugham on the writer's action. No model output is
   anywhere in that path.
-- The **intent strip** (spec §6.1, designed and not yet built) is the one AI-adjacent
-  surface that will sit physically above the prose, and it is not a counterexample: it
-  shows the *writer's own* intent statement — the first line, headings skipped — an
-  op-logged artifact the writer authored in the Intent pane. When it ships it must keep
-  showing the writer's words and nothing else. A future version of that strip that
-  displayed a diagnostic, a summary, or any model-produced line would violate this ADR
-  and must-not #2 together, and no argument about convenience reaches it.
+- The **intent strip** (spec §6.1; built 2026-08-05, `Maugham/Views/IntentStrip.swift`)
+  is the one AI-adjacent surface that sits physically above the prose, and it is not a
+  counterexample: it shows the *writer's own* intent statement — the first line, headings
+  skipped — an op-logged artifact the writer authored in the Intent pane. It keeps showing
+  the writer's words and nothing else — structurally, not by convention: the view stores a
+  single `String`, and the one producer of it is `ProjectStore.statementText(of:)`. A
+  future version of that strip that displayed a diagnostic, a summary, or any
+  model-produced line would violate this ADR and must-not #2 together, and no argument
+  about convenience reaches it.
 
 The reason this half is identity rather than taste is the one the constitution already
 gives: an AI presence *in* the editor changes what the editor is — every pause becomes an

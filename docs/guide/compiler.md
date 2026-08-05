@@ -12,8 +12,6 @@ is cheap, not one that reaches for you.
 
 ## What it reads
 
-Two things, and only two:
-
 - **Your intent** for the piece you are writing — the Intent pane's statement
   for this document, or the project's if the document has none. If you have
   declared no intent at all, the check still runs; it simply has no standard of
@@ -22,9 +20,42 @@ Two things, and only two:
   check on a document reads everything; after that each one picks up where the
   last left off, so a check in the middle of a session is about the paragraphs
   you just wrote.
+- **What you're pinned to.** The same set the References shelf shows you (see
+  below) — named by title, alongside the tool it would use to look closer. A
+  photograph you own has no such tool yet, and the run says so rather than
+  pretending to see it.
 
-The header line above the notes tells you both: when it last ran, and how much
-it looked at ("3 new, 2 revised ¶").
+The header line above the notes tells you the first two: when it last ran, and
+how much it looked at ("3 new, 2 revised ¶").
+
+## The intent strip
+
+While you're in Author, one dimmed line sits right above the prose — the
+running head's register, not the editor's. It's the first line of the intent
+that applies to what you're writing, the piece's own if it has one, headings
+skipped so `# Intent` never becomes the sentence you see. Click it to open the
+Intent pane at that scope. If you've declared no intent, there's no line at
+all — an empty strip would be a nag wearing typography, not a signature. It
+goes away with the rest of the chrome under ⌘\, and it's Author's alone: the
+other personas aren't writing.
+
+It's not decoration. It's the same sentence a check measures your writing
+against — always in view, without switching panes to remember what you said
+you were going for.
+
+## References, and what you can study
+
+⌘⌥E opens **References** — the research you've linked to this document, plus
+any cards you've clustered for it on the planning canvas, as a shelf of
+thumbnails and titles. Click a pin and it opens in a column between the binder
+and your prose, wide enough to read, and you can drag its edge to resize.
+Click the same pin again, promote a different one, or press Escape, and it
+goes back.
+
+**This is the same list a check reads.** What's on your shelf is what Claude
+is briefed on when you press ⌘R — nothing more, nothing hidden. Full mechanics
+— how a pin gets there, resizing, what each kind renders as — are in
+[Inspector, Research & Outline → References mode](right-pane.md#references-mode-e).
 
 ## What comes back
 
@@ -59,8 +90,10 @@ nothing to explain in a sentence. Open Intent and edit the statement whole.
 
 **Keep it.** **Promote to Task** turns the note into a real task on the
 document, carrying its own words plus one line recording who raised it, when, in
-which model, and what it was checked against. Tasks sync and survive; the notes
-do not. ⌘Z takes the task back.
+which model, and what it was checked against. That line quotes your intent as
+it stood at the moment the note was raised — if you rewrite your intent later,
+older tasks keep naming what they were checked against then, not what you have
+now. Tasks sync and survive; the notes do not. ⌘Z takes the task back.
 
 **Leave it.** A note you neither answer nor keep disappears at the next check.
 If it still stands, the next check raises it again.
@@ -70,7 +103,9 @@ If it still stands, the next check raises it again.
 The gear menu in the pane's header picks the model: **Fast**, **Standard** (the
 default), or **Deep**. The choice is per project and is remembered. Changing it
 never interrupts a check already running — the one you are waiting for finishes
-in the model it started in, and the next one is the one that changes.
+in the model it started in, and the next one is the one that changes. That
+next check starts a fresh session behind the scenes, so it's a few seconds
+slower than the warm session you're used to — a one-time cost of the switch.
 
 **Cancel** appears in the header while a check is running.
 

@@ -306,6 +306,11 @@ note jumps to the ¶. A policy object with nothing to produce is ceremony.
 Recorded here as an amendment-shaped finding against the shell spec's
 expectation, reversible if M3's passes prove otherwise.
 
+**Built as designed, 2026-08-05.** Plan 2 shipped the intent strip, References
+and the assistant column with no posture object anywhere in the diff — the
+finding held through implementation rather than only through design. Reversible
+still stands as written, for M3.
+
 ## 7. The pinned set
 
 ### 7.1 What feeds it
@@ -389,6 +394,13 @@ slices):
 Whole-branch review at the end — it has found a Critical in every one of the
 last eleven slices. Merge to local main; **no push, no tag** until Denver's
 smoke.
+
+**2026-08-05:** the surfaces landed as this section anticipated — on the same
+branch as the loop, `feat/m2-compiler-2026-08-04`, as Plan 2
+(`docs/superpowers/plans/2026-08-05-m2-author-surfaces.md`), after Plan 1's own
+whole-branch review closed. Both plans' ledgers live under
+`.superpowers/sdd/2026-08-04-m2-compiler-loop/` and
+`.superpowers/sdd/2026-08-05-m2-author-surfaces/`.
 
 ## 11. Out of scope
 
