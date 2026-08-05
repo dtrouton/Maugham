@@ -85,6 +85,15 @@ enum MaughamEvent {
              payload: [detailSegmentKey: segment.rawValue])
     }
 
+    /// Ask the key window to check what has been written since its last run.
+    ///
+    /// No payload: which document is checked is the receiving window's own
+    /// answer (its `activeDocId`), not the menu's — the menu has no idea what
+    /// any window is looking at.
+    static func postCompilerRun() {
+        post(.maughamRunCompiler, to: .keyWindow)
+    }
+
     /// Post `name` to the given scope. `object` and `payload` pass through to
     /// NotificationCenter unchanged (payload keys must not shadow the
     /// reserved scope keys).

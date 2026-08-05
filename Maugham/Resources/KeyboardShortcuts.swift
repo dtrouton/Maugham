@@ -33,6 +33,7 @@ public enum KeyboardShortcuts {
             // particular is a primary canvas verb with a great deal of
             // documentation and had no entry on either surface.
             Entry(label: "Save Checkpoint As…",     shortcut: "⌘⇧S"),
+            Entry(label: "Check Writing",           shortcut: "⌘R"),
             Entry(label: "Promote…",                shortcut: "⌘⇧↩"),
             Entry(label: "Project Settings…",       shortcut: "⌘⇧,"),
         ]),

@@ -142,6 +142,16 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 Divider()
+                // The compiler's one trigger (spec §3.1). Plain ⌘R, verified
+                // unbound 2026-08-04: the two other "r" bindings carry ⌘⌥⇧
+                // (Toggle Review Mode) and ⌘⌥ (Research pane). Beside Save
+                // because it acknowledges in Save's register — a sub-second
+                // flash and nothing else.
+                Button("Check Writing") {
+                    MaughamEvent.postCompilerRun()
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                Divider()
                 FocusedRestoreButton()
                 Divider()
                 Button("Tidy All Filenames") {

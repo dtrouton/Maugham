@@ -27,7 +27,9 @@ struct CompilerRun: Codable, Equatable, Sendable {
     let id: String
     let at: Date
     let model: String
-    let lastOpId: String?          // the delta marker AFTER this run
+    /// The delta marker AFTER this run. `var` because a later run can advance
+    /// it without replacing anything — see `DiagnosticsStore.advanceMarker`.
+    var lastOpId: String?
     let deltaSummary: String       // e.g. "3 new, 2 revised ¶"
     let intentSnapshot: String?    // what the run checked against
 }

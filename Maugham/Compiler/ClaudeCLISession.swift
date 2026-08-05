@@ -77,8 +77,10 @@ final class ClaudeCLISession: CompilerRunner {
     /// Test seam: whether a subprocess is currently held and alive.
     var hasLiveProcess: Bool { process?.isRunning == true }
 
-    /// Test seam: the generation a spawn's reader callbacks carry.
-    var currentGeneration: Int { generation }
+    /// The `CompilerRunner` seam's respawn signal, and the generation a spawn's
+    /// reader callbacks carry — the same counter, because they are the same
+    /// question asked from inside and outside. See the protocol.
+    var sessionEpoch: Int { generation }
 
     /// Test seam: deliver a stream line exactly as the reader installed for
     /// `generation` would.
@@ -135,7 +137,7 @@ final class ClaudeCLISession: CompilerRunner {
         // second send arriving in that window would otherwise sail past this
         // guard and spawn over the first.
         guard !isRunning, inFlight == nil else {
-            return .failed(.sessionDied(detail: "a run is already in flight"))
+            return .failed(.sessionDied(detail: CompilerRunFailure.Detail.runInFlight))
         }
         if let systemPreamble { lastPreamble = systemPreamble }
 
@@ -158,7 +160,7 @@ final class ClaudeCLISession: CompilerRunner {
         // moments after being told to stop.
         guard generation == epoch, runToken == token else {
             relinquish(token: token)
-            return .failed(.sessionDied(detail: "session shut down"))
+            return .failed(.sessionDied(detail: CompilerRunFailure.Detail.sessionShutDown))
         }
         guard isEnabled() else {
             relinquish(token: token)
@@ -213,7 +215,7 @@ final class ClaudeCLISession: CompilerRunner {
         // ending the process. The next send respawns (the brief's sanctioned
         // implementation — the contract is that the next send works).
         teardown()
-        resolve(.failed(.sessionDied(detail: "cancelled")), token: token)
+        resolve(.failed(.sessionDied(detail: CompilerRunFailure.Detail.cancelled)), token: token)
         isRunning = false
     }
 
@@ -222,7 +224,7 @@ final class ClaudeCLISession: CompilerRunner {
         idleTask?.cancel()
         idleTask = nil
         teardown()
-        resolve(.failed(.sessionDied(detail: "session shut down")), token: token)
+        resolve(.failed(.sessionDied(detail: CompilerRunFailure.Detail.sessionShutDown)), token: token)
         isRunning = false
     }
 

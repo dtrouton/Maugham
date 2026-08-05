@@ -153,4 +153,49 @@ final class DiagnosticsStoreTests: XCTestCase {
         XCTAssertEqual(live.map(\.id), [diagA.id])
         XCTAssertGreaterThan(store.version, versionBeforeDismiss)
     }
+
+    /// The empty-delta run (M2 Task 7): ops landed that changed no prose, so
+    /// there is nothing to ask about and nothing to replace — but the marker
+    /// must pass them or every later run re-walks them. `replace` cannot do
+    /// this: it would drop the standing notes for a run that produced none.
+    func test_advanceMarker_movesTheMarkerAndKeepsTheNotes() throws {
+        let project = try makeProject()
+        let store = DiagnosticsStore(
+            projectRoot: project, device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docG"
+        let run = makeRun(lastOpId: "op1")
+        let note = makeDiagnostic(docId: docId, runId: run.id)
+        store.replace(run: run, diagnostics: [note], docId: docId)
+        let versionBefore = store.version
+
+        store.advanceMarker(to: "op2", docId: docId)
+
+        XCTAssertEqual(store.lastOpId(docId: docId), "op2")
+        XCTAssertEqual(store.live(docId: docId, currentText: { _ in nil }).map(\.id),
+                       [note.id],
+                       "a run that produced nothing does not clear the last one's notes")
+        XCTAssertGreaterThan(store.version, versionBefore)
+
+        // …and it survives the sidecar, or the next launch re-reads ops this
+        // machine has already checked.
+        let reread = DiagnosticsStore(
+            projectRoot: project, device: DeviceSlug.make(from: "test-mac"))
+        reread.load(docId: docId)
+        XCTAssertEqual(reread.lastOpId(docId: docId), "op2")
+    }
+
+    /// A document nobody has ever run against has no marker to move: the marker
+    /// is a property of a run that happened. Asserted rather than left to the
+    /// `guard`, because the alternative — synthesising a run record — would put
+    /// a "last run" line in the pane for a run that never occurred.
+    func test_advanceMarker_onADocWithNoRunIsANoOp() {
+        let store = DiagnosticsStore(
+            projectRoot: URL(fileURLWithPath: "/tmp/unused"),
+            device: DeviceSlug.make(from: "test-mac"))
+
+        store.advanceMarker(to: "op2", docId: "never-run")
+
+        XCTAssertNil(store.lastOpId(docId: "never-run"))
+        XCTAssertNil(store.lastRun(docId: "never-run"))
+    }
 }

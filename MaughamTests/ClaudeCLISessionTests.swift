@@ -573,7 +573,7 @@ final class ClaudeCLISessionTests: XCTestCase {
         async let first = session.send(message: "first", systemPreamble: nil)
         let firstStarted = await waitUntil { session.isRunning }
         XCTAssertTrue(firstStarted, "the first turn should be in flight")
-        let retiredGeneration = session.currentGeneration
+        let retiredGeneration = session.sessionEpoch
 
         // Kill it, then start a turn that stays in flight on a fresh process.
         session.cancelCurrentRun()
@@ -581,7 +581,7 @@ final class ClaudeCLISessionTests: XCTestCase {
         async let live = session.send(message: "second", systemPreamble: nil)
         let inFlight = await waitUntil { session.isRunning }
         XCTAssertTrue(inFlight, "the second turn should be in flight")
-        XCTAssertNotEqual(session.currentGeneration, retiredGeneration,
+        XCTAssertNotEqual(session.sessionEpoch, retiredGeneration,
             "the respawn must have moved the generation on")
 
         // The corpse speaks.

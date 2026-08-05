@@ -33,6 +33,10 @@ struct ProjectWindow: View {
     @State private var metrics: EditorMetrics =
         EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
     @State private var showingSaveFlash: Bool = false
+    /// The run key's own acknowledgment (M2 §3.1) — the same overlay, its own
+    /// binding, because ⌘S and ⌘R can be pressed a second apart and one flash
+    /// showing the other's word is worse than two.
+    @State private var showingCompilerFlash: Bool = false
     /// What this window's tree names — the window's single subject (spec §3).
     /// Typed rather than a `String?` so no site can answer "is this a manuscript
     /// document?" by accident; see `BinderSubject`.
@@ -87,6 +91,11 @@ struct ProjectWindow: View {
     /// draws — and region labels do not live in the manifest, so a `ProjectStore`
     /// could not carry them.
     @State private var canvasModel = CanvasModel()
+    /// The compiler's run state and its warm `claude` session (M2). Owned here
+    /// for the canvas model's reason: the Diagnostics pane in the right-hand
+    /// column reads the run the centre column's ⌘R started. Wired in `load()`,
+    /// where the stores exist; torn down in `.onDisappear`.
+    @State private var compiler = CompilerOrchestrator()
     /// Raw share snapshot kept alongside `collaborator` for the pill's hover
     /// diagnostics (the `.help()` tooltip), so the resolver stays the single
     /// read path.
@@ -113,6 +122,11 @@ struct ProjectWindow: View {
                 }
                 .overlay(alignment: .top) {
                     SaveFlashOverlay(isShowing: $showingSaveFlash)
+                }
+                .overlay(alignment: .top) {
+                    SaveFlashOverlay(isShowing: $showingCompilerFlash,
+                                     label: "Checking\u{2026}",
+                                     systemImage: "text.magnifyingglass")
                 }
                 .overlay(alignment: .top) {
                     if let title = mcpBanner.title {
@@ -202,11 +216,20 @@ struct ProjectWindow: View {
             // `.task(id: url)` won't re-fire for the same url, so a live blank
             // would stick.
             if !MaughamEvent.isLive(window) {
+                // Before the stores drop: the orchestrator's environment holds
+                // closures over both of them, so a session left configured here
+                // would keep the whole project graph alive in the husk — and
+                // its `claude` subprocess alive with it.
+                compiler.detach()
                 store = nil
                 documentStore = nil
                 lastParsedScript = nil
             }
         }
+        .modifier(CompilerRunModifier(orchestrator: compiler,
+                                      window: window,
+                                      activeDocId: activeDocId,
+                                      mcpEnabled: userPreferences.mcpEnabled))
         .onKeyWindowCommand(.maughamToggleFullScreen, window: window) { _ in
             toggleFullScreen()
         }
@@ -1944,6 +1967,17 @@ struct ProjectWindow: View {
         }
     }
 
+    /// ⌘R's acknowledgment. Shorter than ⌘S's: this one says the key was heard,
+    /// and the pane says the rest.
+    @MainActor
+    private func showCompilerFlash() {
+        showingCompilerFlash = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(700))
+            await MainActor.run { showingCompilerFlash = false }
+        }
+    }
+
     private func handleShowLatestMCPNote() {
         guard let id = mcpBanner.latestId else { return }
         binderSegment = .research
@@ -1964,6 +1998,16 @@ struct ProjectWindow: View {
             s.liveCanvas = canvasModel
             self.store = s
             self.documentStore = ds
+            // The compiler, wired here for the canvas model's reason: the
+            // stores exist at this point and a view body may not read one.
+            compiler.configure(
+                environment: .production(
+                    store: s, documentStore: ds, projectURL: url,
+                    preferences: userPreferences,
+                    onRunAcknowledged: { showCompilerFlash() }),
+                diagnostics: DiagnosticsStore(
+                    projectRoot: url,
+                    device: DeviceSlug.make(from: MacDeviceID.current)))
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
 

@@ -30,6 +30,37 @@ public enum CompilerRunFailure: Equatable, Sendable {
     case unusableOutput
 }
 
+extension CompilerRunFailure {
+
+    /// The `sessionDied` details that describe **something the caller asked
+    /// for** rather than something that went wrong.
+    ///
+    /// One spelling, shared by the site that mints each (`ClaudeCLISession`)
+    /// and the site that reads it (`CompilerOrchestrator`, deciding whether to
+    /// put a failure on screen) — the `MaughamEvent.personaKey` reasoning. Two
+    /// copies of these strings is a reword away from a red banner that appears
+    /// when the writer presses Cancel, or a real death that never surfaces.
+    enum Detail {
+        static let cancelled = "cancelled"
+        static let sessionShutDown = "session shut down"
+        static let runInFlight = "a run is already in flight"
+    }
+
+    /// Whether this failure is the writer's own action coming back at them.
+    ///
+    /// Cancel, project close, quit and the AI toggle all end a turn through
+    /// `.sessionDied`, and so does a second run arriving while the first is
+    /// still going. None of them is news: the compiler is a background
+    /// convenience, and a surface that apologises for doing what it was told is
+    /// the chirping IDE the spec is designed against.
+    var isTheWritersOwnDoing: Bool {
+        guard case .sessionDied(let detail) = self else { return false }
+        return detail == Detail.cancelled
+            || detail == Detail.sessionShutDown
+            || detail == Detail.runInFlight
+    }
+}
+
 /// The seam the compiler loop talks to. One production implementation today
 /// (`ClaudeCLISession`, the warm process); the pre-authorized `--resume`
 /// fallback (spec §3.4) swaps in here without touching a caller.
@@ -45,4 +76,15 @@ public protocol CompilerRunner: AnyObject {
     @MainActor func shutdown()
     /// Whether a turn is in flight (the run key is a quiet no-op while true).
     @MainActor var isRunning: Bool { get }
+    /// Bumped whenever the session's process is retired or respawned, so a
+    /// caller can tell *"the process that read my last run is the one reading
+    /// this one"* from *"it respawned in between"*.
+    ///
+    /// This is what makes diffed-in context safe to send. A session that timed
+    /// out, was cancelled or expired idle respawns silently on the next `send`
+    /// with no memory of anything; `CompilerPrompt.runMessage`'s
+    /// `previousIntentHash` would then tell a brand-new process that the intent
+    /// is "unchanged since last run", describing a run it never saw, and it
+    /// would judge the prose against nothing at all.
+    @MainActor var sessionEpoch: Int { get }
 }

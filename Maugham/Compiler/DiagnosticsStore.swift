@@ -76,6 +76,26 @@ final class DiagnosticsStore {
         }
     }
 
+    /// Move the delta marker forward without touching this doc's notes.
+    ///
+    /// The empty-delta run: ops landed that changed no prose — a checkpoint, an
+    /// annotation, a paragraph typed and typed back — so there is nothing to
+    /// ask the compiler about, but the next run must not read them again.
+    /// `replace` cannot do this: it would drop the standing notes for a run
+    /// that produced none.
+    ///
+    /// **A doc with no run record is left alone.** The marker is a property of
+    /// a run that happened, and a document nobody has ever checked has nothing
+    /// to move; the empty delta on a first run means an empty document, and the
+    /// next run's answer is the same either way.
+    func advanceMarker(to opId: String, docId: String) {
+        guard var content = byDoc[docId] else { return }
+        content.run.lastOpId = opId
+        byDoc[docId] = content
+        persist(docId: docId, content: content)
+        version += 1
+    }
+
     /// Remove one diagnostic (the writer answered or ignored it). Persists
     /// immediately. No-op if `docId`/`id` is unknown.
     func dismiss(_ id: String, docId: String) {
