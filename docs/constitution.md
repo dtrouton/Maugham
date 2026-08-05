@@ -105,7 +105,7 @@ Claude lives in another window. No chat panel, no inline copilot, no ghost-text 
 
 **Violated if:** any AI-generated content renders inside the editor surface or its immediate chrome; any editor affordance invokes AI in-place. (Boundary note: mechanical intelligence — Fountain autocomplete from the writer's own sluglines, wiki-link completion from the writer's own names — is not AI in this sense. The line is generative-model output, not code being clever with the writer's own material.)
 
-**We'd know this was wrong if:** nothing would move the editor-surface rule. The nearest revisable neighbor is already accommodated: a read-only companion *pane* for Claude responses keeps feedback out of the editor while shortening the walk — that's the permitted form of this pressure, not an erosion of the rule.
+**We'd know this was wrong if:** nothing would move the editor-surface rule. The nearest revisable neighbor is already accommodated: a read-only companion *pane* for Claude responses keeps feedback out of the editor while shortening the walk — that's the permitted form of this pressure, not an erosion of the rule. That accommodation extends to *invocation*: a run the writer starts with one keystroke while writing — M2's compiler — is permitted on the same terms, because nothing AI-produced renders in the writing surface and nothing ever runs unasked. Where the output appears stays *identity*; how near the trigger sits is a *position*, with its own falsification bar ([ADR 0027](adr/0027-the-compiler-and-the-editor-boundary.md)).
 
 ### 3. Nothing AI-made reaches readers unreviewed — *identity*
 
