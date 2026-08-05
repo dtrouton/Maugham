@@ -21,6 +21,17 @@ final class DiagnosticsStore {
     /// an observing pane can invalidate a cached read without diffing arrays.
     private(set) var version: Int = 0
 
+    /// Per document: how many notes a run has landed that the writer has not
+    /// had in front of them yet — the picker's unread badge, the Inbox
+    /// segment's idiom (`DetailPaneToggle.inboxCount`).
+    ///
+    /// **In memory only, and deliberately.** Unread is a fact about this
+    /// session's attention, not about the document: a project reopened puts
+    /// the notes back on the pane where they can be read, and a badge restored
+    /// with them would be counting something the writer already answered. The
+    /// sidecar stays a record of the run.
+    private(set) var unread: [String: Int] = [:]
+
     private let projectRoot: URL
     private let device: DeviceSlug
 
@@ -59,7 +70,23 @@ final class DiagnosticsStore {
         let content = FileContent(run: run, diagnostics: diagnostics)
         byDoc[docId] = content
         persist(docId: docId, content: content)
+        // A run that raised nothing clears the badge rather than leaving the
+        // previous run's count standing over an empty pane.
+        unread[docId] = diagnostics.isEmpty ? nil : diagnostics.count
         version += 1
+    }
+
+    /// The writer has the pane in front of them — drop `docId`'s badge.
+    ///
+    /// Does **not** bump `version`: the notes did not change, and a mounted
+    /// pane calls this from its own reaction to a version change (see
+    /// `DiagnosticsPane.body`), which a bump here would re-enter.
+    func markRead(docId: String) {
+        unread[docId] = nil
+    }
+
+    func unreadCount(docId: String) -> Int {
+        unread[docId] ?? 0
     }
 
     /// The diagnostics for `docId` that are still trustworthy to show:

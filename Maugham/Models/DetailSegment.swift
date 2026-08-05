@@ -17,6 +17,7 @@ public enum DetailSegment: String, Codable, Equatable, Sendable, CaseIterable {
     // `Statement.Kind`.
     case intent          // m1a-spine: what you're going for (⌘⌥N)
     case visualLanguage  // m1a-spine: how the book looks (⌘⌥V)
+    case diagnostics     // m2-compiler-loop: the compiler's notes (⌘⌥D)
 }
 
 // MARK: - Presentation
@@ -40,6 +41,7 @@ public extension DetailSegment {
         case .translation: return "character.book.closed"
         case .intent: return "target"
         case .visualLanguage: return "photo.on.rectangle.angled"
+        case .diagnostics: return "checkmark.seal"
         }
     }
 
@@ -56,6 +58,7 @@ public extension DetailSegment {
         case .translation: return "Translation — source text and translator queries (⌘⌥L)"
         case .intent: return "Intent — what you're going for, here or across the project (⌘⌥N)"
         case .visualLanguage: return "Visual Language — how the book looks (⌘⌥V)"
+        case .diagnostics: return "Diagnostics — the compiler's notes on what you've written (⌘⌥D)"
         }
     }
 }

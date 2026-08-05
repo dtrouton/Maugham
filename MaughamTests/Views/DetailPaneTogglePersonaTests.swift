@@ -5,7 +5,7 @@ import XCTest
 /// `DetailPaneToggle` is generic over its inspector content (`Inspector: View`),
 /// so a static member reference has to bind that parameter — Swift cannot infer
 /// it from arguments the helpers do not take. `<AnyView>` is an arbitrary
-/// witness; `visibleSegments`/`badgeOffset(in:)`/`snappedSelection` are pure
+/// witness; `visibleSegments`/`badgeOffset(of:in:)`/`snappedSelection` are pure
 /// and ignore it.
 final class DetailPaneTogglePersonaTests: XCTestCase {
     /// The badge is drawn `shift` equal-width segments left of the picker's
@@ -18,7 +18,7 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard let shift = DetailPaneToggle<AnyView>.badgeOffset(in: segments) else {
+        guard let shift = DetailPaneToggle<AnyView>.badgeOffset(of: .inbox, in: segments) else {
             return XCTFail("no badge offset for \(segments)", file: file, line: line)
         }
         XCTAssertEqual(segments[segments.count - 1 - shift], .inbox,
@@ -42,7 +42,7 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
     func test_badgeOffset_isNilWhereThePersonaHasNoInbox() {
         for persona in Persona.allCases where persona != .plan {
             let segments = DetailPaneToggle<AnyView>.visibleSegments(persona: persona, hideOutline: false)
-            XCTAssertNil(DetailPaneToggle<AnyView>.badgeOffset(in: segments),
+            XCTAssertNil(DetailPaneToggle<AnyView>.badgeOffset(of: .inbox, in: segments),
                          "\(persona) has no inbox segment to badge")
         }
     }

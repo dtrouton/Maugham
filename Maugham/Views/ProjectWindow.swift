@@ -37,6 +37,10 @@ struct ProjectWindow: View {
     /// binding, because ⌘S and ⌘R can be pressed a second apart and one flash
     /// showing the other's word is worse than two.
     @State private var showingCompilerFlash: Bool = false
+    /// The Diagnostics pane's gear menu (M2 Task 8), seeded from
+    /// `UIState.compilerModel` at `load()` and written back through
+    /// `updateUIState` on change — the `outlineLayout` pattern.
+    @State private var compilerModel: CompilerModelChoice = .standard
     /// What this window's tree names — the window's single subject (spec §3).
     /// Typed rather than a `String?` so no site can answer "is this a manuscript
     /// document?" by accident; see `BinderSubject`.
@@ -1485,7 +1489,15 @@ struct ProjectWindow: View {
             session: _checkpointSessionId,
             docPaths: Self.documentPaths(in: store.manifest.structure),
             documentStore: documentStore,
-            editorControl: editorControl
+            editorControl: editorControl,
+            compilerOrchestrator: compiler,
+            diagnosticsStore: compiler.diagnostics,
+            compilerModel: compilerModel,
+            onCompilerModelChange: { newValue in
+                compilerModel = newValue
+                compiler.updateModel(newValue.claudeModel)
+                documentStore.updateUIState { $0.compilerModel = newValue }
+            }
         ) {
             switch Self.inspectorRoute(binderSegment: binderSegment,
                                        projectType: store.manifest.type) {
@@ -2000,10 +2012,12 @@ struct ProjectWindow: View {
             self.documentStore = ds
             // The compiler, wired here for the canvas model's reason: the
             // stores exist at this point and a view body may not read one.
+            self.compilerModel = ds.uiState.compilerModel
             compiler.configure(
                 environment: .production(
                     store: s, documentStore: ds, projectURL: url,
                     preferences: userPreferences,
+                    model: ds.uiState.compilerModel.claudeModel,
                     onRunAcknowledged: { showCompilerFlash() }),
                 diagnostics: DiagnosticsStore(
                     projectRoot: url,

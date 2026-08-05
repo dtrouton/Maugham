@@ -24,13 +24,16 @@ extension CompilerOrchestrator.Environment {
         documentStore: DocumentStore,
         projectURL: URL,
         preferences: UserPreferences,
+        model: String = CompilerOrchestrator.defaultModel,
         onRunAcknowledged: @escaping @MainActor () -> Void
     ) -> CompilerOrchestrator.Environment {
         CompilerOrchestrator.Environment(
             projectId: ProjectIdentifier.id(for: projectURL),
-            // Task 8 wires the per-project gear-menu setting; until then every
-            // run is the spec's default (§3.5).
-            model: CompilerOrchestrator.defaultModel,
+            // The Diagnostics pane's gear menu (Task 8) — read once here at
+            // `configure()` and kept current afterward by
+            // `CompilerOrchestrator.updateModel(_:)`, which the gear menu calls
+            // directly rather than re-running `production`.
+            model: model,
             reading: { [weak documentStore] docId in
                 // The OPEN document, by id — the live paragraphs, which lead
                 // the derived `.md` by up to one debounce window (ADR 0018/0019,

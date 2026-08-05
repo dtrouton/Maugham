@@ -250,6 +250,8 @@ struct MaughamApp: App {
                     .keyboardShortcut("n", modifiers: [.command, .option])
                 Button("Visual Language") { postSegment(.visualLanguage) }
                     .keyboardShortcut("v", modifiers: [.command, .option])
+                Button("Diagnostics") { postSegment(.diagnostics) }
+                    .keyboardShortcut("d", modifiers: [.command, .option])
                 #if MAUGHAM_DEV_BUILD
                 // Scene-storage spike instrument (ADR 0021): logs how many
                 // EditorCoordinators are still alive. Close a project window,

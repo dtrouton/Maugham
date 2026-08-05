@@ -40,6 +40,7 @@ The ones you'll use most:
 | `⌘⌥L` | Translation pane |
 | `⌘⌥N` | Intent pane |
 | `⌘⌥V` | Visual Language pane |
+| `⌘⌥D` | Diagnostics pane — the compiler's notes on what you've written |
 | `⌘⌥0` | Toggle inspector column |
 | `⌘⇧P` | Toggle Research preview |
 | `⌘/` | Syntax + keyboard reference |

@@ -80,8 +80,9 @@ final class CompilerOrchestrator {
         var onRunAcknowledged: @MainActor () -> Void
     }
 
-    /// The model a run uses until Task 8 wires the per-project gear-menu
-    /// setting. Sonnet is the spec's default (§3.5).
+    /// The model a run uses before the Diagnostics pane's gear-menu setting
+    /// has ever been read — a fresh project, or a `UIState` written before
+    /// `compilerModel` existed. Sonnet is the spec's default (§3.5).
     static let defaultModel = "sonnet"
 
     private(set) var runState: RunState = .idle
@@ -90,6 +91,11 @@ final class CompilerOrchestrator {
     private var environment: Environment?
     private var runner: CompilerRunner?
     private var configURL: URL?
+    /// The model `runner` was **spawned** against. Kept beside the session
+    /// because `--model` is a spawn argument (`ClaudeCLISession.arguments`) —
+    /// a warm process cannot be retuned, so this is what `ensureRunner` compares
+    /// the current setting to.
+    private var runnerModel: String?
 
     /// Per document: the intent hash the last successful run sent, and the
     /// session epoch it was sent into. Both halves matter — see `previousHash`.
@@ -105,6 +111,20 @@ final class CompilerOrchestrator {
     func configure(environment: Environment, diagnostics: DiagnosticsStore) {
         self.environment = environment
         self.diagnostics = diagnostics
+    }
+
+    /// Change the model runs are spawned against — the Diagnostics pane's gear
+    /// menu (Task 8).
+    ///
+    /// **Setting this is not enough on its own, and that is why the retirement
+    /// lives in `ensureRunner` rather than here.** The model is a spawn
+    /// argument, so the warm session already running was built with the old one
+    /// and will keep answering in it however many times the setting is changed.
+    /// The stale session is retired lazily, at the next run, so choosing Deep
+    /// mid-check never kills the check in flight — the writer gets the answer
+    /// they are waiting for, and the run after it is the one that changes.
+    func updateModel(_ model: String) {
+        environment?.model = model
     }
 
     // MARK: - The one entry
@@ -187,15 +207,7 @@ final class CompilerOrchestrator {
     /// its own child from `deinit`, so a session merely released outlives the
     /// window as a live, billing process.
     func shutdown() {
-        runner?.shutdown()
-        runner = nil
-        if let configURL {
-            try? FileManager.default.removeItem(at: configURL)
-        }
-        configURL = nil
-        // The next session is a new process that has read nothing, so nothing
-        // may be elided from its first message.
-        sentIntent.removeAll()
+        retireSession()
         // A turn cut short leaves the surface saying "running" forever
         // otherwise. A REPORTED failure is left alone: the toggle going off
         // must not erase the banner explaining why the last run failed.
@@ -270,14 +282,38 @@ final class CompilerOrchestrator {
     /// One config per RUN would leave a JSON file per keystroke in the temp
     /// directory for the life of the machine.
     private func ensureRunner(model: String) -> CompilerRunner? {
-        if let runner { return runner }
+        if let runner {
+            // The gear menu moved since this session was spawned. Retire it
+            // here rather than at the setting's own call site: this runs only
+            // between turns (`runRequested` guards `!isRunning`), so the change
+            // costs nothing in flight.
+            guard runnerModel != model else { return runner }
+            retireSession()
+        }
         guard let environment, let url = try? environment.writeMCPConfig() else {
             return nil
         }
         configURL = url
         let made = environment.makeRunner(url, model)
         runner = made
+        runnerModel = model
         return made
+    }
+
+    /// End the current session and drop everything scoped to it, without
+    /// touching `runState` — `shutdown()`'s body minus the surface, so the
+    /// model swap above is invisible to a writer who only sees the answer.
+    private func retireSession() {
+        runner?.shutdown()
+        runner = nil
+        runnerModel = nil
+        if let configURL {
+            try? FileManager.default.removeItem(at: configURL)
+        }
+        configURL = nil
+        // A new process has read nothing, so nothing may be elided from its
+        // first message.
+        sentIntent.removeAll()
     }
 
     /// The run record's one-line description of what was checked.

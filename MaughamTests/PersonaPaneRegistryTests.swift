@@ -105,7 +105,7 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// needs this order should reuse it rather than transcribe it a second
     /// time, which is the whole argument for having one.
     static let canonicalPaneOrder: [DetailSegment] = [
-        .annotations, .inbox, .research, .palette, .intent,
+        .diagnostics, .annotations, .inbox, .research, .palette, .intent,
         .visualLanguage, .tasks, .translation, .history, .inspector
     ]
 
@@ -167,7 +167,7 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// every derived array-equality in `DetailPaneTogglePersonaTests` pass).
     /// Only the guard above sees it. A plant that does not fire is the finding.
     func test_theOrderGuardCatchesAReorderThatKeepsEveryFirstElement() {
-        let offender: [DetailSegment] = [.research, .intent, .palette,
+        let offender: [DetailSegment] = [.diagnostics, .intent, .research, .palette,
                                          .tasks, .history, .inspector]
 
         // The plant is honest: a permutation of Author's own panes, not a
@@ -190,8 +190,11 @@ final class PersonaPaneRegistryTests: XCTestCase {
 
     func test_authorPersona_excludesAnnotations() {
         // The two-loop separation from the design: adjudicating durable notes
-        // is a review activity. Diagnostics (M1B+1) serve the fast loop.
+        // is a review activity. Diagnostics (M2 Task 8) serve the fast loop
+        // and are Author's, not Review's — the converse of this assertion.
         XCTAssertFalse(Persona.author.panes.contains(.annotations))
+        XCTAssertTrue(Persona.author.panes.contains(.diagnostics))
+        XCTAssertFalse(Persona.review.panes.contains(.diagnostics))
     }
 
     /// The suite's oldest order constraint, and until 2026-08-03 its only one.
@@ -372,8 +375,11 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// - **Plan** — Inbox · Tasks · History · Inspector. It loses Research,
     ///   Palette, Intent and Visual Language: Plan authors all four, and
     ///   authoring is the left column's.
-    /// - **Author** — Research · Palette · Intent · Tasks · History ·
-    ///   Inspector. Membership unchanged; only the order moved.
+    /// - **Author** — Diagnostics · Research · Palette · Intent · Tasks ·
+    ///   History · Inspector. Membership unchanged at §5.0; only the order
+    ///   moved. `.diagnostics` itself is M2 Task 8's addition, after this
+    ///   table's other four rows were transcribed — it had no `DetailSegment`
+    ///   case at the time, so it could not appear here yet either.
     /// - **Review** — Annotations · Intent · Tasks · History · Inspector. It
     ///   loses Palette, Visual Language and Translation.
     /// - **Publish** — Visual Language · Tasks · Translation · History ·
@@ -391,7 +397,7 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// matrix no document contains.
     private static let designMatrix: [Persona: Set<DetailSegment>] = [
         .plan: [.inbox, .tasks, .history],
-        .author: [.research, .palette, .intent, .tasks, .history],
+        .author: [.diagnostics, .research, .palette, .intent, .tasks, .history],
         .review: [.annotations, .intent, .tasks, .history],
         .publish: [.visualLanguage, .tasks, .translation, .history]
     ]

@@ -143,10 +143,11 @@ public extension Persona {
     /// counted here. **Plan's `.tasks` came OFF that ledger**: §5 said Plan
     /// loses it, §5.0 is later and gives it back, so it is design now.
     ///
-    /// Reserved for later milestones of this redesign: `.diagnostics` →
-    /// author; `.references` → author, review; `.editions` → publish.
-    /// (`.intent` and `.visualLanguage` were reserved here too and are consumed
-    /// as of M1A — their §6.3 cells are below.)
+    /// Reserved for later milestones of this redesign: `.references` →
+    /// author, review; `.editions` → publish. (`.intent` and
+    /// `.visualLanguage` were reserved here too and are consumed as of M1A;
+    /// `.diagnostics` was reserved here too and is consumed as of M2 Task 8 —
+    /// their §6.3 cells are below.)
     var panes: [DetailSegment] {
         switch self {
         case .plan:
@@ -192,7 +193,8 @@ public extension Persona {
             // and a read-only outline is not that.
             return [.inbox, .tasks, .history, .inspector]
         case .author:
-            // Research · Palette · Intent · Tasks · History · Inspector.
+            // Diagnostics · Research · Palette · Intent · Tasks · History ·
+            // Inspector.
             //
             // **§5.0 changed Author's ORDER and not its membership.** This is
             // the persona the right column was designed for: it consults what
@@ -213,7 +215,18 @@ public extension Persona {
             // `.history` joined in slice 1 — it takes `activeDocId` like any
             // per-document pane, and before that ⌘⌥H in Author summoned a pane
             // `PersonaMemory` then refused to keep.
-            return [.research, .palette, .intent, .tasks, .history, .inspector]
+            //
+            // **`.diagnostics` joined in M2 Task 8 and leads, moving Author's
+            // default off Research a second time.** It is the fast loop's own
+            // pane — the compiler's notes on what the writer just wrote — and
+            // Author is its one persona: the compiler answers ⌘R from
+            // whichever document is open, which only happens while drafting.
+            // Placed first in `canonicalPaneOrder` for the same reason
+            // Annotations leads Review (`test_reviewPersona_leadsWithAnnotations`)
+            // — the two loops the design separates (Diagnostics fast, serving
+            // Author; Annotations durable, serving Review) each get the front
+            // of their one persona's row.
+            return [.diagnostics, .research, .palette, .intent, .tasks, .history, .inspector]
         case .review:
             // Annotations · Intent · Tasks · History · Inspector.
             //

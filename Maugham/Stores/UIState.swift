@@ -41,6 +41,16 @@ public struct UIState: Codable, Equatable, Sendable {
     /// first-run behaviour anyway, so there is nothing to migrate.
     public var personaMemory: PersonaMemory
 
+    /// The model the Diagnostics pane's gear menu spawns compiler runs
+    /// against (M2 Task 8).
+    ///
+    /// **No schema bump**, for `selectedSubject`'s reason one field up: this is
+    /// one additive key with a default, so a file written without it decodes to
+    /// `.standard` — the spec's default (§3.5) and `defaultModel`'s own answer —
+    /// and an older build ignores a key it has never heard of. Both directions
+    /// of the version skew read cleanly, which is what the constant is for.
+    public var compilerModel: CompilerModelChoice
+
     public init(
         schemaVersion: Int = UIState.currentSchemaVersion,
         selectedSubject: BinderSubject? = nil,
@@ -51,7 +61,8 @@ public struct UIState: Codable, Equatable, Sendable {
         outlineLayout: OutlineLayout = .table,
         isReviewModeOn: Bool = false,
         persona: Persona = .default,
-        personaMemory: PersonaMemory = .empty
+        personaMemory: PersonaMemory = .empty,
+        compilerModel: CompilerModelChoice = .standard
     ) {
         self.schemaVersion = schemaVersion
         self.selectedSubject = selectedSubject
@@ -63,6 +74,7 @@ public struct UIState: Codable, Equatable, Sendable {
         self.isReviewModeOn = isReviewModeOn
         self.persona = persona
         self.personaMemory = personaMemory
+        self.compilerModel = compilerModel
     }
 
     public static let empty = UIState()
@@ -71,7 +83,7 @@ public struct UIState: Codable, Equatable, Sendable {
         case schemaVersion, selectedItemId, selectedSubjectIsProject,
              isNoChromeOn, binderSegment,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
-             persona, personaMemory
+             persona, personaMemory, compilerModel
     }
 
     /// Hand-written because `selectedSubject` is not stored the way it is
@@ -96,6 +108,7 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(isReviewModeOn, forKey: .isReviewModeOn)
         try c.encode(persona, forKey: .persona)
         try c.encode(personaMemory, forKey: .personaMemory)
+        try c.encode(compilerModel, forKey: .compilerModel)
     }
 
     public init(from decoder: Decoder) throws {
@@ -121,6 +134,8 @@ public struct UIState: Codable, Equatable, Sendable {
         self.persona = (try? c.decode(Persona.self, forKey: .persona)) ?? .default
         self.personaMemory =
             (try? c.decode(PersonaMemory.self, forKey: .personaMemory)) ?? .empty
+        self.compilerModel =
+            (try? c.decode(CompilerModelChoice.self, forKey: .compilerModel)) ?? .standard
         // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
         // v0.3.1 (dead-code sweep). JSONDecoder ignores unknown keys, so old
         // ui-state.json files load cleanly. Cursor restore actually flows

@@ -122,7 +122,8 @@ final class BinderSubjectTests: XCTestCase {
             detailSegment: .history,
             outlineLayout: .cards,
             isReviewModeOn: true,
-            persona: .plan)
+            persona: .plan,
+            compilerModel: .deep)
         original.personaMemory.record(persona: .review,
                                       binderSegment: .palette,
                                       detailSegment: .annotations)
