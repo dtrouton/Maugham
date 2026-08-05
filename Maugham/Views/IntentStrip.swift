@@ -102,12 +102,25 @@ struct IntentStrip: View {
     /// the strip and the run can disagree about which intent is in force with
     /// nothing on screen saying so.
     ///
-    /// **The freshness comes from `statementText(of:)` and nothing here polls.**
-    /// That reader prefers the statement's *live* `Document` — the same
-    /// `@Observable` `displayText` the Intent pane binds — so a change made in
-    /// the pane invalidates this body through SwiftUI's own observation, with
-    /// no event, no timer and no save in between. The gates are checked first so
-    /// a persona with no strip reads no statement at all.
+    /// **The freshness comes from `statementText(of:)` and nothing here polls —
+    /// and it reaches exactly as far as that reader's live branch.** With the
+    /// statement OPEN in a pane the reader prefers its `Document`, whose
+    /// `@Observable` `displayText` is the same one the Intent pane binds, so a
+    /// change made there invalidates this body through SwiftUI's own
+    /// observation, with no event, no timer and no save in between. With the
+    /// statement CLOSED the reader falls to `ProjectStore.derivedCache`, which
+    /// is `@ObservationIgnored`: reading it registers no dependency, so an
+    /// append to a closed statement — `IntentAppendPerformer`'s, when the Intent
+    /// pane is not up — lands on the next body pass rather than at once. The
+    /// visible case is narrow (a statement with no prose line yet gaining its
+    /// first sentence through *Answer*: the strip should appear and does not
+    /// until an unrelated invalidation); appending to a statement that already
+    /// has a first line changes nothing the strip draws. Recorded on the
+    /// roadmap's left-open list; do not write "the strip observes the
+    /// statement" without the open-in-a-pane clause.
+    ///
+    /// The gates are checked first so a persona with no strip reads no
+    /// statement at all.
     @MainActor
     static func line(
         store: ProjectStore, docId: String, persona: Persona, isNoChromeOn: Bool

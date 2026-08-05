@@ -1044,10 +1044,14 @@ struct ProjectWindow: View {
     /// condition written out here, so it can be asked over the product of its
     /// inputs by a test instead of only down the path this property takes.
     ///
-    /// The freshness is SwiftUI's own observation: the resolver reads the
-    /// statement's live `Document` through `ProjectStore.statementText(of:)`, so
-    /// a change made in the Intent pane invalidates this body with no event and
-    /// no poll.
+    /// The freshness is SwiftUI's own observation **while the statement is open
+    /// in a pane**: the resolver prefers the statement's live `Document` through
+    /// `ProjectStore.statementText(of:)`, so a change made in the Intent pane
+    /// invalidates this body with no event and no poll. A CLOSED statement's
+    /// text comes from `derivedCache`, which is `@ObservationIgnored` — an
+    /// append to one lands on the next body pass instead. See
+    /// `IntentStrip.line(store:docId:persona:isNoChromeOn:)` for the boundary and
+    /// the one visible case.
     ///
     /// **`activeDocId` carries the no-selection sentinel and that is correct
     /// here** — no manuscript document means no document-scope intent to find,
