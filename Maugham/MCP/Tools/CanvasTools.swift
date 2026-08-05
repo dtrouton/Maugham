@@ -117,15 +117,19 @@ public enum ListCanvasTool: MCPTool {
     /// raw fields it is computed from** (`RegionBinding.references(forPiece:in:)`,
     /// spec §4.4 of the planning-canvas design).
     ///
-    /// Two rules live in that function and neither is guessable from the wire:
+    /// Three rules live in that function and none is guessable from the wire:
     /// **residents only** — a card merely visiting a bound region is cited, not
     /// owned, or two regions citing one card would each claim it as their piece's
-    /// context — and **unioned across regions**, because more than one region may
-    /// bind to the same piece and each contributes what lives in it.
+    /// context — **unioned across regions**, because more than one region may
+    /// bind to the same piece and each contributes what lives in it — and, as of
+    /// M2 Plan 2 Task 1, **a card's own `boundPieceID` joins the set too**, so a
+    /// card the writer tied to a piece directly is that piece's context whether
+    /// or not it lives in a region bound to the same piece.
     /// `bound_piece_id`, `home_node_ids` and `appearance_node_ids` have all been
     /// on the wire since 1C-c3 with nothing saying which to use, so a reader
     /// deriving a piece's context for itself gets `home ∪ appearances` and picks
-    /// up the visitor. This field is that derivation made unnecessary.
+    /// up the visitor, or misses a self-bound card no region ever cites. This
+    /// field is that derivation made unnecessary.
     ///
     /// **An entry per piece rather than an object keyed by piece id**: a JSON
     /// object's key order comes from `Dictionary` iteration and is not stable
@@ -145,8 +149,8 @@ public enum ListCanvasTool: MCPTool {
         public let nodes: [Node]
         public let regions: [Region]
         public let lines: [Line]
-        /// One entry per piece some region on this canvas binds to, in piece-id
-        /// order. See the type.
+        /// One entry per piece some region on this canvas binds to, OR some
+        /// card is bound to itself, in piece-id order. See the type.
         public let piece_references: [PieceReferences]
     }
 
@@ -168,9 +172,10 @@ public enum ListCanvasTool: MCPTool {
         went into alongside other cards' — only the first means the card has \
         produced a note of its own. `piece_references` is the answer to "what has \
         the writer gathered around this piece": one entry per piece some region is \
-        bound to, listing the cards that LIVE in those regions. Read it rather than \
-        working the same thing out from `bound_piece_id` and the region lists — a \
-        card that merely APPEARS in a region is cited there, not part of that \
+        bound to OR some card is bound to itself, listing the cards that LIVE in \
+        those regions plus any card bound to the piece directly. Read it rather \
+        than working the same thing out from `bound_piece_id` and the region lists \
+        — a card that merely APPEARS in a region is cited there, not part of that \
         piece's context, and two regions may be bound to one piece, so a derived \
         answer goes wrong in both directions. Pass include_text: false for the same \
         structure without the scraps' words when a canvas is too large to return \
@@ -287,15 +292,21 @@ public enum ListCanvasTool: MCPTool {
     /// `RegionBindingTests.test_theProjectionHasAProductionCaller` is the census
     /// that keeps this the one call site.
     ///
-    /// **Keyed on the REGIONS' bindings.** A card's own `boundPieceID` is §6.2's
-    /// association — where a promotion from that card lands — and is a different
-    /// relationship; keyed on every `bound_piece_id` in the scene this would
-    /// report references for a piece no region has been drawn around. A piece
-    /// bound to an empty region gets an empty list rather than no entry, because
-    /// "bound and not filled yet" is something the writer can act on and "never
-    /// bound" is not.
+    /// **Keyed on the union of every REGION's binding and every CARD's own**
+    /// (M2 Plan 2 Task 1's fix round 1). Before this the enumeration was
+    /// region-only while `RegionBinding.references(forPiece:in:)` already
+    /// counted a card's own `boundPieceID` as a reference source — so a piece
+    /// named only by a self-bound card, no region ever drawn around it, was
+    /// invisible on the wire even though the app's own projection disagreed.
+    /// "The projection has one spelling and all readers move together" is the
+    /// plan's stated principle; this enumeration is a reader. A piece bound to
+    /// an empty region and holding no self-bound card gets an empty list
+    /// rather than no entry, because "bound and not filled yet" is something
+    /// the writer can act on and "never named at all" is not.
     private static func pieceReferences(in scene: CanvasScene) -> [PieceReferences] {
-        Set(scene.unorderedRegions.compactMap(\.boundPieceID))
+        let regionPieces = scene.unorderedRegions.compactMap(\.boundPieceID)
+        let cardPieces = scene.unorderedNodes.compactMap(\.boundPieceID)
+        return Set(regionPieces).union(cardPieces)
             .sorted()
             .map { piece in
                 PieceReferences(
