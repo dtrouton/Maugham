@@ -38,6 +38,26 @@ public enum ScrapText {
             .joined(separator: "\n")
     }
 
+    /// **The one line that stands for a whole scrap**: its first non-blank line,
+    /// trimmed. Empty when the scrap has no words in it — the *word* for that
+    /// state is each caller's, not this function's, because the canvas says
+    /// `CanvasAccessibility.emptyScrapValue` on a chip and a reference list is
+    /// entitled to say something else. `CanvasPieceTitles`' "one resolution, two
+    /// voices" split, for its reason.
+    ///
+    /// It lives here because this is the file that owns what a scrap's text IS.
+    /// It was spelled inline in `CanvasRenderer.chipTitle` and needed a second
+    /// reader (`PinnedReferences`), and a copy would have been the second
+    /// answer to "what is this card called" — the divergence
+    /// `CanvasItemFacts`/`CanvasAccessibility` already had to be pulled back
+    /// together once.
+    public static func firstLine(of text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .lazy
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty } ?? ""
+    }
+
     /// Deterministic: scraps are emitted in id order so that saving an
     /// unchanged canvas produces a byte-identical file.
     public static func render(_ scraps: [CanvasNodeID: String]) -> String {

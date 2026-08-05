@@ -685,11 +685,22 @@ final class RegionBindingTests: XCTestCase {
     ///   owns. It calls rather than re-derives for the reason above, and the
     ///   failure re-deriving produces is on screen: `home ∪ appearances` lights
     ///   a card merely visiting a bound region.
+    /// - `PinnedReferences.swift` *(M2 Task 2)* — **the rail itself**, arriving
+    ///   where the entry below said it would. It consumes the projection as the
+    ///   CANVAS HALF of what is pinned beside a document, unioned with the
+    ///   research the writer linked, and it is the only caller with three
+    ///   readers downstream of it (the References pane, the assistant column,
+    ///   the compiler's context listing) — which is precisely why none of those
+    ///   three may see `bound_piece_id` at all. Note it is not in
+    ///   `Maugham/Canvas/`: the census walks the production tree, and a rail
+    ///   built one directory over is exactly the reader this test exists to
+    ///   catch re-deriving.
     ///
-    /// The reference rail is **M2's** (umbrella spec §10 — the intent strip,
-    /// pinned references and the assistant column), so a `RegionInspector` or
-    /// `Persona` entry appearing here is a `.references` segment consumed early
-    /// and needs its own argument, not a line in this list.
+    /// The rail was **M2's** (umbrella spec §10 — the intent strip, pinned
+    /// references and the assistant column) and is now built. A `RegionInspector`
+    /// or `Persona` entry appearing here is still not that rail: those are the
+    /// canvas's own panes, and one calling the projection needs its own
+    /// argument, not a line in this list.
     func test_theProjectionHasAProductionCaller() throws {
         let files = try CanvasSourceCensus.productionFiles()
         let callers = files
@@ -700,7 +711,8 @@ final class RegionBindingTests: XCTestCase {
             }
             .map(\.name)
             .sorted()
-        XCTAssertEqual(callers, ["CanvasHighlight.swift", "CanvasTools.swift"],
+        XCTAssertEqual(callers, ["CanvasHighlight.swift", "CanvasTools.swift",
+                                 "PinnedReferences.swift"],
                        "if this is ever empty again, the two rules below §4.4 are "
                        + "reachable only from this file and every other reader "
                        + "re-derives them wrongly. If it grows, the new caller is a "

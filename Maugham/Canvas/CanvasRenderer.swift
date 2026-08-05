@@ -798,11 +798,7 @@ enum CanvasRenderer {
         if case .item? = scene.node(id)?.kind {
             return items.item(for: id)?.facts.title ?? ""
         }
-        let line = (scraps[id] ?? "")
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .lazy
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .first { !$0.isEmpty } ?? ""
+        let line = ScrapText.firstLine(of: scraps[id] ?? "")
         return line.isEmpty ? CanvasAccessibility.emptyScrapValue : line
     }
 
