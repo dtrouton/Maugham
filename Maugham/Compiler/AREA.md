@@ -59,6 +59,22 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `PinnedReferences.swift` | The pure union: linked research + clustered canvas cards, resolved to renderable pins |
 | `PinnedReferenceResolver.swift` | The caller-side assembly against a live project — the four inputs `PinnedReferences.pinned` takes, gathered in one place |
 
+**A run's first act is to close the writer's burst, and only then read.**
+`Environment.prepareForRun` is awaited at the top of `runRequested`, before
+`reading` is asked for anything — because freshly typed prose lives in the
+`PendingBuffer` until a pause closes the burst, so a snapshot taken at the
+keystroke is a document that predates the ⌘R asking about it. Smoke-found and
+measured: a 14-paragraph chunk reported as "0 new, 1 revised", the burst
+closing two seconds after the delta was built. ⌘S's checkpoint path does the
+same thing for the same reason (`ProjectWindow`), and this is the one place in
+the area that is not a pure read of a value. It cannot throw: the pending
+buffer survives a failed append intact, so a flush that fails costs this run
+its newest paragraphs and costs the writer's words nothing — the run proceeds
+on the snapshot as it stands rather than refusing. The hop it introduces is
+covered by `isRunning` (so a double ⌘R is still one run) and abandoned by
+`shutdown()` by generation, so a run acknowledged a moment before the AI toggle
+went off does not spawn the session that toggle was meant to prevent.
+
 **The `Environment` struct is the reason this area is testable.** The
 orchestrator names no store: it takes closures, so a run is driven end to end
 with no project on disk. A factory that reached for `ProjectStore` from inside

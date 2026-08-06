@@ -1,5 +1,7 @@
 import XCTest
-import MaughamCore
+// `@testable` for the injected op-log append failure the wet-ink section arms
+// (`OpLogStore.appendFailureForTesting`, `DocumentCloseFlushTests`' own hook).
+@testable import MaughamCore
 @testable import Maugham
 
 /// **The run command: the keystroke, the path it travels, and what the
@@ -113,13 +115,34 @@ final class CompilerRunCommandTests: XCTestCase {
         let setReading: (CompilerOrchestrator.DocumentReading?) -> Void
     }
 
+    /// A `prepareForRun` the test can hold open, so the window between the
+    /// keystroke and the delta — a real window in production, the length of an
+    /// op-log append — is something to assert about rather than race.
+    @MainActor
+    private final class PrepareGate {
+        private(set) var entries = 0
+        private var held: CheckedContinuation<Void, Never>?
+
+        func hold(_: String) async {
+            entries += 1
+            await withCheckedContinuation { held = $0 }
+        }
+
+        func release() {
+            let continuation = held
+            held = nil
+            continuation?.resume()
+        }
+    }
+
     private func makeHarness(
         runner: SpyRunner,
         reading: CompilerOrchestrator.DocumentReading?,
         intentText: String? = "Cold, and never wistful.",
         liveParagraphText: @escaping (String, String) -> String? = { _, _ in "The fog came." },
         pinnedListing: @escaping (String) -> [String] = { _ in [] },
-        paletteListing: @escaping () -> [String] = { [] }
+        paletteListing: @escaping () -> [String] = { [] },
+        prepareForRun: @escaping @MainActor (String) async -> Void = { _ in }
     ) throws -> Harness {
         let root = try makeProjectRoot()
         let diagnostics = DiagnosticsStore(
@@ -132,6 +155,7 @@ final class CompilerRunCommandTests: XCTestCase {
             environment: CompilerOrchestrator.Environment(
                 projectId: "p-1",
                 model: "test-model",
+                prepareForRun: prepareForRun,
                 reading: { id in id == self.docId ? live.value : nil },
                 liveParagraphText: liveParagraphText,
                 intent: { _ in (intentText, "this chapter") },
@@ -169,12 +193,49 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.onSend = nil
     }
 
-    /// Give the main queue a pass, so an assertion that something did NOT
-    /// happen has a turn in which it could have.
-    private func settle() {
-        let settled = expectation(description: "the run loop ran")
-        DispatchQueue.main.async { settled.fulfill() }
-        wait(for: [settled], timeout: 2)
+    /// Give the main actor a couple of passes, so an assertion that something
+    /// did NOT happen has a turn in which it could have.
+    ///
+    /// Two turns, through `Task` rather than `DispatchQueue.main.async`: a run
+    /// closes the writer's pending typing burst before it reads anything
+    /// (`Environment.prepareForRun`), so the delta is now decided one hop after
+    /// the keystroke. A single dispatched block can be drained ahead of that
+    /// hop, and an assertion made in the gap reads a run that has not started
+    /// yet as one that decided not to.
+    private func settle(turns: Int = 2) {
+        for turn in 0..<turns {
+            let settled = expectation(description: "the run loop ran (\(turn))")
+            Task { @MainActor in settled.fulfill() }
+            wait(for: [settled], timeout: 2)
+        }
+    }
+
+    /// The two helpers above, for an `async` test method.
+    ///
+    /// **Not a convenience.** `wait(for:)` inside an `async @MainActor` test
+    /// blocks the main actor's own thread, so the run's prepare hop and the
+    /// spy's `send` can never be scheduled at all: every expectation times out
+    /// having proved nothing about the code under test. `fulfillment(of:)`
+    /// suspends instead, which is what lets the main actor run the work being
+    /// waited on. The sync overloads stay for the sync tests, which spin a real
+    /// run loop and are fine.
+    private func awaitSends(_ count: Int, on runner: SpyRunner) async {
+        let reached = expectation(description: "\(count) send(s) reached the runner")
+        if runner.sends.count >= count {
+            reached.fulfill()
+        } else {
+            runner.onSend = { if runner.sends.count >= count { reached.fulfill() } }
+        }
+        await fulfillment(of: [reached], timeout: 2)
+        runner.onSend = nil
+    }
+
+    private func settle(turns: Int = 2) async {
+        for turn in 0..<turns {
+            let settled = expectation(description: "the run loop ran (\(turn))")
+            Task { @MainActor in settled.fulfill() }
+            await fulfillment(of: [settled], timeout: 2)
+        }
     }
 
     private func source(at relativePath: String) throws -> String {
@@ -782,6 +843,7 @@ final class CompilerRunCommandTests: XCTestCase {
             environment: CompilerOrchestrator.Environment(
                 projectId: "p-1",
                 model: "test-model",
+                prepareForRun: { _ in },
                 reading: { id in
                     id == docA ? readingA.value : (id == docB ? readingB.value : nil)
                 },
@@ -957,6 +1019,240 @@ final class CompilerRunCommandTests: XCTestCase {
 
         XCTAssertEqual(environment.pinnedListing("ch-1"), [])
         XCTAssertEqual(environment.paletteListing(), [])
+    }
+
+    // MARK: - The window the burst opens
+
+    /// **The refusal covers the new window too.** Closing the burst is a disk
+    /// write, so ⌘R now has a moment in which it has been acknowledged and has
+    /// read nothing — and `runState` is honestly still idle throughout it. A
+    /// second press landing there must be refused exactly as one mid-turn is,
+    /// or an impatient double-⌘R spends two runs and hands the second a delta
+    /// the first has already claimed.
+    func test_asecondRunWhileTheBurstIsStillClosingIsRefused() throws {
+        let runner = SpyRunner()
+        let gate = PrepareGate()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            prepareForRun: { [gate] in await gate.hold($0) })
+
+        harness.orchestrator.runRequested(docId: docId)
+        settle()
+        XCTAssertEqual(gate.entries, 1, "the run is closing the burst")
+        XCTAssertEqual(harness.flashes, 1)
+
+        harness.orchestrator.runRequested(docId: docId)
+        settle()
+        XCTAssertEqual(gate.entries, 1, "the second press must not start a second run")
+        XCTAssertEqual(harness.flashes, 1,
+                       "a refused run is silent — the flash acknowledges work started")
+
+        gate.release()
+        awaitSends(1, on: runner)
+        XCTAssertEqual(runner.sends.count, 1)
+    }
+
+    /// **A run acknowledged a moment before the toggle went off must not spawn
+    /// the session the toggle was meant to prevent.** `shutdown()` retires the
+    /// session, and a run still closing its burst has none to retire — so
+    /// without abandoning the hop by generation, the AI toggle going off (or
+    /// the window closing) is followed by the very spawn it was there to stop.
+    func test_shutdownDuringTheBurstAbandonsTheRun() throws {
+        let runner = SpyRunner()
+        let gate = PrepareGate()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            prepareForRun: { [gate] in await gate.hold($0) })
+
+        harness.orchestrator.runRequested(docId: docId)
+        settle()
+        harness.orchestrator.shutdown()
+
+        gate.release()
+        settle()
+
+        XCTAssertEqual(runner.sends.count, 0,
+                       "the abandoned run must not reach a session")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.configURL.path),
+                       "…nor write a session config, because no session was wanted")
+        XCTAssertEqual(harness.orchestrator.runState, .idle)
+
+        // And the orchestrator is still usable: a writer who turns Claude off
+        // and on again has a working ⌘R (`shutdown()` vs `detach()`).
+        harness.orchestrator.runRequested(docId: docId)
+        settle()
+        gate.release()
+        awaitSends(1, on: runner)
+        XCTAssertEqual(runner.sends.count, 1)
+    }
+
+    // MARK: - The wet ink
+
+    private struct InjectedDiskError: Error {}
+
+    /// A real project with a real open `Document`, driven through the
+    /// **production** environment with only the subprocess replaced.
+    ///
+    /// The defect this section is about lives in the seam between the live
+    /// document and the run — the burst that has not closed yet — so a harness
+    /// whose `reading` is a canned value cannot see it at all. The two closures
+    /// that matter here (`reading`, `prepareForRun`) are the ones production
+    /// ships; `makeRunner` and `writeMCPConfig` are the only substitutions,
+    /// because the first spawns a billing `claude` and the second writes a
+    /// socket path.
+    private struct LiveDocumentHarness {
+        let orchestrator: CompilerOrchestrator
+        let diagnostics: DiagnosticsStore
+        let document: Document
+        /// Held so the stores outlive the environment's weak captures.
+        let store: ProjectStore
+        let documentStore: DocumentStore
+        let root: URL
+    }
+
+    private func makeLiveDocumentHarness(
+        runner: SpyRunner, initialProse: String = "The fog came.\n"
+    ) async throws -> LiveDocumentHarness {
+        let root = try makeProjectRoot()
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        let docPath = "manuscript/ch1.md"
+        try initialProse.write(
+            to: root.appendingPathComponent(docPath), atomically: true, encoding: .utf8)
+        let chapter = StructureItem(id: "ch-1", title: "Chapter 1", type: .document,
+                                    path: docPath)
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [chapter], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: root.appendingPathComponent("project.maugham.json"))
+
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        store.documentStore = documentStore
+        let document = try await Document.load(
+            url: root.appendingPathComponent(docPath),
+            device: "test-mac", session: "s", presenter: nil)
+        documentStore.register(document: document, for: docPath)
+
+        let diagnostics = DiagnosticsStore(
+            projectRoot: root, device: DeviceSlug.make(from: "test-mac"))
+        let configURL = root.appendingPathComponent("compiler-mcp.json")
+        var environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+        environment.writeMCPConfig = {
+            try Data("{}".utf8).write(to: configURL, options: .atomic)
+            return configURL
+        }
+        environment.makeRunner = { _, _ in runner }
+        let orchestrator = CompilerOrchestrator()
+        orchestrator.configure(environment: environment, diagnostics: diagnostics)
+
+        return LiveDocumentHarness(
+            orchestrator: orchestrator, diagnostics: diagnostics, document: document,
+            store: store, documentStore: documentStore, root: root)
+    }
+
+    /// **The run reads the present, not the last pause.** Freshly typed prose
+    /// lives in the `PendingBuffer` until a pause closes the burst, so a writer
+    /// who types a chunk and presses ⌘R immediately was handed a delta with
+    /// none of it in — measured in the field as a 14-paragraph chunk reported
+    /// as "0 new, 1 revised", the burst closing two seconds after the snapshot
+    /// was taken. The wet ink is the compiler's whole subject (spec §3.2);
+    /// a run that cannot see it inverts what the key is for.
+    func test_theRunSeesProseTheWriterHasNotPausedAfter() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+
+        // A run has already checked the standing paragraph, so the marker sits
+        // at the bootstrap op. This is the field's own shape: everything before
+        // the marker is checked, and everything the writer has typed since is
+        // in the pending buffer.
+        let bootstrapOpId = try XCTUnwrap(fx.document.opLogSnapshot.last?.opId)
+        fx.diagnostics.replace(
+            run: CompilerRun(id: "r0", at: Date(), model: "test-model",
+                             lastOpId: bootstrapOpId,
+                             deltaSummary: "1 new, 0 revised \u{00b6}", intentSnapshot: nil),
+            diagnostics: [], docId: "ch-1")
+        let opsBeforeTyping = fx.document.opLogSnapshot.count
+
+        // The writer types, and reaches for ⌘R without pausing. Nothing closes
+        // the burst: its debounce is 30s idle, and no other path has run.
+        fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
+        XCTAssertEqual(fx.document.opLogSnapshot.count, opsBeforeTyping,
+                       "precondition: the new paragraph is still in the pending "
+                       + "buffer, not the op log")
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await settle()
+
+        let message = try XCTUnwrap(
+            runner.sends.first?.message,
+            "the run never reached the session at all: with the burst still open "
+            + "the delta since the marker is empty, and ⌘R answers \"nothing "
+            + "new\" to a writer who has just written a chunk")
+        XCTAssertTrue(message.contains("It stayed for three days."),
+                      "the run must carry the prose the writer had just typed — "
+                      + "without closing the burst first, the delta is built "
+                      + "against a document that predates it")
+        let typedId = try XCTUnwrap(
+            fx.document.sequence.first(where: { fx.document.paragraph(id: $0)?
+                .contains("It stayed for three days.") == true }))
+        XCTAssertTrue(message.contains("[\(typedId)] (new)"),
+                      "…and carry it as NEW: it was minted since the marker, and "
+                      + "'revised' would ask the model to compare it against a "
+                      + "prior version that never existed")
+
+        let burstOpId = try XCTUnwrap(fx.document.opLogSnapshot.last?.opId)
+        XCTAssertEqual(fx.document.opLogSnapshot.count, opsBeforeTyping + 1,
+                       "the run closed the burst rather than reading around it")
+        XCTAssertEqual(fx.diagnostics.lastOpId(docId: "ch-1"), burstOpId,
+                       "the marker advances past the burst this run read, or the "
+                       + "next run re-reads the same paragraphs")
+    }
+
+    /// **A flush that fails does not cost the writer the run.** The op-log
+    /// append can throw (a full disk, a revoked bookmark); the pending buffer
+    /// survives it intact — `flushBurstNow` clears only after a successful
+    /// append — so the words are not at risk and the next burst or `close()`
+    /// carries them. What would be wrong is turning a run into a failure over
+    /// it: a delta one burst stale still checks real prose, and no run at all
+    /// checks nothing.
+    ///
+    /// Unlike the test above this one passes on either side of the fix — it
+    /// guards the fix's error handling, not the defect. No marker is seeded, so
+    /// `DeltaBuilder`'s first-run branch (which walks the LIVE paragraphs and
+    /// consults no op) still yields a delta to run on; the marker branch, where
+    /// the ops are what decide, is the one the test above is about.
+    func test_aBurstFlushThatFailsStillRunsOnWhatItHas() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+
+        fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
+        fx.document.opStore.appendFailureForTesting = InjectedDiskError()
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await settle()
+
+        XCTAssertEqual(runner.sends.count, 1,
+                       "the run proceeds on the snapshot it has — a stale delta "
+                       + "beats no run")
+        XCTAssertEqual(fx.orchestrator.runState, .idle,
+                       "a flush that failed is not the run failing; the surface "
+                       + "must not wear a red line for it")
+
+        // And the words were never at risk: `flushBurstNow` clears the buffer
+        // only after a successful append, so the next flush still carries them.
+        XCTAssertFalse(fx.document.pending.isEmpty(),
+                       "the failed flush left the pending buffer intact")
+        fx.document.opStore.appendFailureForTesting = nil
+        try await fx.document.flushBurstNow()
+        XCTAssertEqual(fx.document.opLogSnapshot.last?.changes
+            .contains(where: { $0.next.contains("It stayed for three days.") }), true,
+                       "the burst the run could not close lands on the next one")
     }
 
     // MARK: - Teardown

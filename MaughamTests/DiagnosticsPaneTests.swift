@@ -614,6 +614,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         CompilerOrchestrator.Environment(
             projectId: "p-1",
             model: "test-model",
+            prepareForRun: { _ in },
             reading: { id in
                 id == docId
                     ? CompilerOrchestrator.DocumentReading(
