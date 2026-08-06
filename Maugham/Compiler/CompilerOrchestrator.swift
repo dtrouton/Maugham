@@ -67,8 +67,19 @@ final class CompilerOrchestrator {
         var projectId: String
         /// The model each run is spawned against.
         var model: String
+        /// **Bring the document up to date before `reading` is asked.** Awaited
+        /// at the top of every run: freshly typed prose lives in the
+        /// `PendingBuffer` until a pause closes the burst, so a snapshot taken
+        /// at the keystroke omits the very sentences the writer pressed ⌘R
+        /// about. Production closes the burst here.
+        ///
+        /// Not throwing, deliberately. Whatever it could not do, the run still
+        /// happens on the snapshot as it stands — the words themselves are the
+        /// op log's problem, not the compiler's, and a stale delta checks real
+        /// prose where a refused run checks none.
+        var prepareForRun: @MainActor (String) async -> Void
         /// The live document for a docId, or `nil` when the window's subject is
-        /// not a manuscript document.
+        /// not a manuscript document. Read AFTER `prepareForRun`.
         var reading: @MainActor (String) -> DocumentReading?
         /// `(docId, paragraphId)` → the paragraph's text **now**. Read at
         /// ingest, which is what makes `DiagnosticsStore.live`'s exact-match
@@ -120,7 +131,23 @@ final class CompilerOrchestrator {
     /// session epoch it was sent into. Both halves matter — see `previousHash`.
     private var sentIntent: [String: (hash: String, epoch: Int)] = [:]
 
+    /// True between the keystroke and the delta, while `prepareForRun` closes
+    /// the writer's burst. `isRunning` counts it, so the second ⌘R of a
+    /// double-press is refused there exactly as it is mid-turn — the window is
+    /// short, but two runs on one document are two sessions' worth of work and
+    /// one of them would be reading a delta the other has already claimed.
+    private var isPreparingRun = false
+
+    /// The generation a prepare hop belongs to. A teardown between the
+    /// keystroke and the delta **abandons** the hop rather than letting it
+    /// spawn a session the writer has just switched off; a boolean cleared and
+    /// re-set by the next keystroke could not tell the two apart. Same
+    /// reasoning as `ClaudeCLISession.generation` (AREA.md, "generations, not
+    /// booleans").
+    private var prepareGeneration = 0
+
     var isRunning: Bool {
+        if isPreparingRun { return true }
         if case .running = runState { return true }
         return false
     }
@@ -152,7 +179,7 @@ final class CompilerOrchestrator {
     /// the answer — and refuses, quietly, in the two cases where the honest
     /// thing to do is nothing.
     func runRequested(docId: String) {
-        guard let environment, let diagnostics else { return }
+        guard let environment, diagnostics != nil else { return }
         // A run already in flight. Quiet on purpose: the pane header is already
         // saying what is happening, and there is one session per window, so a
         // second turn is not something to queue — it is something the next
@@ -160,11 +187,47 @@ final class CompilerOrchestrator {
         guard !isRunning else { return }
         // No document under the window's subject — the project row, or nothing
         // selected. Not an error, not a run, and nothing to acknowledge: the
-        // key had nothing to act on.
-        guard let reading = environment.reading(docId) else { return }
+        // key had nothing to act on. Asked here only for that answer; the
+        // reading the delta is built from is taken below, after the burst.
+        guard environment.reading(docId) != nil else { return }
 
+        // Synchronous with the keystroke, and deliberately ahead of the hop
+        // below: the flash is ⌘S's muscle-memory acknowledgment, not a progress
+        // indicator, and one that waited on a disk write would be neither.
         environment.onRunAcknowledged()
 
+        // **The burst first, the delta second.** The writer's last sentences
+        // are in the `PendingBuffer` until a pause closes the burst, so a
+        // reading taken now is a document that predates the keystroke that
+        // asked about it — measured in the field as a 14-paragraph chunk
+        // reported as "0 new, 1 revised". The wet ink is what the compiler is
+        // for (spec §3.2). Nothing here touches the editor's binding: the
+        // document closes its own burst and we take a value afterwards
+        // (tripwires 3, 6).
+        prepareGeneration &+= 1
+        let generation = prepareGeneration
+        isPreparingRun = true
+        Task { [weak self] in
+            await environment.prepareForRun(docId)
+            guard let self, self.prepareGeneration == generation else { return }
+            self.isPreparingRun = false
+            // Re-asked after the hop: the window can have closed, Claude can
+            // have been switched off, and the writer can have moved the
+            // selection off a document entirely while the burst was landing.
+            guard let environment = self.environment,
+                  let diagnostics = self.diagnostics,
+                  let reading = environment.reading(docId) else { return }
+            self.beginRun(docId: docId, reading: reading,
+                          environment: environment, diagnostics: diagnostics)
+        }
+    }
+
+    /// The run proper, from the delta on — everything that was `runRequested`'s
+    /// body before the burst-flush hop moved in above it.
+    private func beginRun(
+        docId: String, reading: DocumentReading,
+        environment: Environment, diagnostics: DiagnosticsStore
+    ) {
         let marker = diagnostics.lastOpId(docId: docId)
         let delta = DeltaBuilder.delta(
             ops: reading.ops, since: marker,
@@ -230,6 +293,11 @@ final class CompilerOrchestrator {
     /// window as a live, billing process.
     func shutdown() {
         retireSession()
+        // A run acknowledged a moment ago but still closing its burst has no
+        // session yet, so `retireSession` cannot reach it. Abandon it here, or
+        // the toggle going off is followed by the run it was meant to prevent.
+        prepareGeneration &+= 1
+        isPreparingRun = false
         // A turn cut short leaves the surface saying "running" forever
         // otherwise. A REPORTED failure is left alone: the toggle going off
         // must not erase the banner explaining why the last run failed.

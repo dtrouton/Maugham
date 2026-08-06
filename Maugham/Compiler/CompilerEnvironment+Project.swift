@@ -1,5 +1,12 @@
 import Foundation
 import MaughamCore
+import os
+
+// Subsystem from the running bundle id so dev/stable logs separate without
+// hardcoding "com.maugham" (tripwire 13 spirit); mirrors `documentLog`.
+private let compilerLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "Compiler")
 
 /// **The production wiring: one project window's stores, as the closures the
 /// orchestrator runs on.**
@@ -34,6 +41,31 @@ extension CompilerOrchestrator.Environment {
             // `CompilerOrchestrator.updateModel(_:)`, which the gear menu calls
             // directly rather than re-running `production`.
             model: model,
+            prepareForRun: { [weak documentStore] docId in
+                // **Close the writer's burst before anything reads the log.**
+                // ⌘S does the same thing for the same reason
+                // (`ProjectWindow`'s checkpoint path): a keystroke that acts on
+                // the manuscript has to act on the manuscript as it is, and
+                // until the burst closes the last sentences exist only in the
+                // `PendingBuffer`. A document that is not open has no burst.
+                guard let document = documentStore?.document(forDocId: docId) else { return }
+                do {
+                    try await document.flushBurstNow()
+                } catch {
+                    // **Proceed.** Unlike `Document.close()`, which is the last
+                    // chance those words have and therefore re-persists them
+                    // itself, this failure costs nothing: the pending buffer is
+                    // still intact (`flushBurstNow` clears it only after a
+                    // successful append), so the next burst or the close still
+                    // carries the prose. All this run loses is the newest
+                    // paragraphs, and a delta one burst stale is worth more to
+                    // the writer than a refused ⌘R. Logged rather than counted
+                    // — `closeBurstFlushFailures` is close's own counter and
+                    // means something narrower than "a flush failed".
+                    compilerLog.error(
+                        "burst flush before a compiler run failed for doc \(docId, privacy: .public); running on the un-flushed snapshot: \(error.localizedDescription, privacy: .public)")
+                }
+            },
             reading: { [weak documentStore] docId in
                 // The OPEN document, by id — the live paragraphs, which lead
                 // the derived `.md` by up to one debounce window (ADR 0018/0019,
