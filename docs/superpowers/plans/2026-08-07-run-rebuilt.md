@@ -136,7 +136,7 @@ static func parseAll(resultText: String, ...) -> SectionedOutcome?   // whole-tu
 - Test: `MaughamTests/DiagnosticsPaneTests.swift`
 
 **Contracts:**
-- [ ] **Layout**: conformance summary FIRST — each clause quoted (the writer's words), status glyph (holds/strains/silent), strains expandable to their note; then continuity questions; then the reader's report. Legacy/kind-nil notes render in a plain trailing section (v1 tolerance).
+- [ ] **Layout**: conformance summary FIRST — each clause quoted (the writer's words), status glyph (holds/strains/silent), strains expandable to their note; then continuity questions; then the reader's report. (v1/kind-nil notes never reach the pane — Task 2's ingest drops them as superseded, a ruled plan correction; the pane needs no legacy section.)
 - [ ] **Excerpt chips**: every `Ref` renders as its excerpt (~8 words) in a chip; click posts the same jump the anchor row uses; NO raw pid is rendered anywhere — `test_noParagraphIdIsEverRendered` (walk the pane's AX tree for delta pids, planted offender).
 - [ ] **The legible wait** (requirements 4b/5): running state says what it's reading — "Checking 14 new paragraphs…" from the delta summary, available BEFORE the send (the orchestrator knows the delta first — verify the ordering exposes it; if not, thread it through RunState.running's payload additively).
 - [ ] **The in-flight acknowledgment**: a second ⌘R during a run flashes "Still checking…" (revisiting Task 7-of-M2's judgment, WITH the original reasoning answered: the flash no longer claims work started because its copy says still) — delivery-path test through the real event.
