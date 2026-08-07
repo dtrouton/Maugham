@@ -138,6 +138,40 @@ final class RulingsSectionTests: XCTestCase {
         XCTAssertEqual(remaining[0].text, "Denver hates prologues")
     }
 
+    /// Removing the LAST ruling collapses the doc back to essay-only — no
+    /// empty "## Rulings" heading left behind. This is the spec's "no
+    /// section → no stratum" rule applied to the file itself: a document
+    /// with zero rulings is indistinguishable from one that never had a
+    /// Rulings section, by design (see `render`'s `guard !rulings.isEmpty`).
+    func test_removing_lastRuling_collapsesTheSectionEntirely() {
+        let essayOnly = "Essay."
+        let md = """
+        \(essayOnly)
+
+        ## Rulings
+
+        - Kelly never lies
+        - Denver hates prologues
+        """
+        let (_, rulings) = RulingsSection.parse(md)
+        XCTAssertEqual(rulings.count, 2)
+
+        let afterFirst = RulingsSection.removing(rulingId: rulings[0].id, from: md)
+        let afterBoth = RulingsSection.removing(rulingId: rulings[1].id, from: afterFirst)
+
+        XCTAssertEqual(
+            afterBoth, essayOnly,
+            "removing every ruling must collapse the file to exactly its essay-only form — "
+                + "no dangling '## Rulings' heading, matching a document that never had one")
+        XCTAssertFalse(
+            afterBoth.contains(RulingsSection.heading),
+            "no rulings left means no stratum at all, not an empty one")
+
+        let (finalEssay, finalRulings) = RulingsSection.parse(afterBoth)
+        XCTAssertEqual(finalEssay, essayOnly)
+        XCTAssertTrue(finalRulings.isEmpty)
+    }
+
     func test_removing_unknownId_isNoOp_returnsInputUnchanged() {
         let md = """
         Essay.
