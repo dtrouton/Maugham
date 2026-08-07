@@ -100,6 +100,19 @@ struct ProjectWindow: View {
     /// column reads the run the centre column's ⌘R started. Wired in `load()`,
     /// where the stores exist; torn down in `.onDisappear`.
     @State private var compiler = CompilerOrchestrator()
+    /// The Intent pane's two lower strata (declared-world Task 6): Claude's
+    /// bible of what the manuscript has established, and the per-scope cache of
+    /// its readings of the writer's statements.
+    ///
+    /// Owned here for the canvas model's and the compiler's reason — the pane
+    /// that reads them is in the RIGHT column and the ruling verbs that
+    /// invalidate the cache are reached from it, so a store constructed inside
+    /// the pane would be a second cache the run never hits. Both are
+    /// project-scoped and per-device, and both materialize their sidecar in
+    /// `init`, so they are built in `load()` where the project URL exists and
+    /// never from a view body.
+    @State private var bible: BibleStore?
+    @State private var declaredWorld: DeclaredWorldStore?
 
     /// The assistant column's subject and width (M2 §6.2). Owned here rather
     /// than in either column because the References pane that fills it is in the
@@ -1569,6 +1582,8 @@ struct ProjectWindow: View {
             editorControl: editorControl,
             compilerOrchestrator: compiler,
             diagnosticsStore: compiler.diagnostics,
+            bibleStore: bible,
+            declaredWorldStore: declaredWorld,
             compilerModel: compilerModel,
             onCompilerModelChange: { newValue in
                 compilerModel = newValue
@@ -2104,6 +2119,12 @@ struct ProjectWindow: View {
                 diagnostics: DiagnosticsStore(
                     projectRoot: url,
                     device: DeviceSlug.make(from: MacDeviceID.current)))
+            // The Intent pane's strata, on the same device slug and the same
+            // rule as every other derived sidecar (tripwire 24 at the filename
+            // point, which both stores take care of themselves).
+            let device = DeviceSlug.make(from: MacDeviceID.current)
+            self.bible = BibleStore(projectRoot: url, device: device)
+            self.declaredWorld = DeclaredWorldStore(projectRoot: url, device: device)
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
 

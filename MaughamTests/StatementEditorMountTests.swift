@@ -1000,7 +1000,10 @@ final class StatementEditorMountTests: XCTestCase {
             url: fixture.projectURL.appendingPathComponent(statement.path),
             device: "seed", session: "seed", presenter: nil)
 
-        let target = StatementTextTarget()
+        // Liveness is a fact about the `Document` in the box and has nothing to
+        // do with which SLICE of its text the editor binds, so either value of
+        // `splitsStrata` asserts the same thing here.
+        let target = StatementTextTarget(splitsStrata: true)
         XCTAssertNil(target.liveStatementID, "an empty box named a statement")
         target.bind(document, id: statement.id, for: "intent|project")
         XCTAssertEqual(target.liveStatementID, statement.id)

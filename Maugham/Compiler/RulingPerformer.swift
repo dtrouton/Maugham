@@ -51,19 +51,26 @@ enum RulingFailure: LocalizedError, Equatable {
 /// shows when a ruling was made and Rewind shows the declared world as of any
 /// draft** (§3.2), both for free.
 ///
-/// **⌘Z does NOT undo a ruling yet, and saying it did was this file's first
-/// defect.** The write goes through `Document.setFullText`, which arms no
-/// `_undoCoherentApplyPending` and registers nothing with `OpUndoRegistrar` —
-/// and when the statement is open in a pane, the reconciliation that carries the
-/// ruling into the buffer takes `applyExternalText`'s `!preserveUndoStack`
-/// branch and *clears* the writer's native typing actions with nothing put in
-/// their place. That is an inherited shape rather than a new one — every write
-/// through `appendToStatement` (promotion, the picture ingest) has always had
-/// it, and no test on either side ever claimed otherwise — but §3.2 promises the
-/// ⌘Z and nothing delivers it. What this file guarantees is the **precondition**:
-/// each verb is exactly ONE op carrying its own prior text, which is what any
-/// inverse registration will need. The registration itself is Task 6's, marked
-/// at both write seams below.
+/// **⌘Z reaches a ruling from the ROWS, and nowhere else** (Task 6). Saying it
+/// worked before anything registered an inverse was this file's first defect, so
+/// the boundary is worth stating precisely rather than softening again:
+///
+/// - Nothing here registers anything. The write goes through
+///   `Document.setFullText`, which arms no `_undoCoherentApplyPending` and hands
+///   `OpUndoRegistrar` nothing. What each verb guarantees is the
+///   **precondition** — exactly ONE op carrying its own prior text.
+/// - `RulingsStratum` is what turns that into a ⌘Z: it calls a verb, and on
+///   success registers the opposite verb against the window's `UndoManager`
+///   through `OpUndoRegistrar`. So a ruling revoked or edited **from a row** is
+///   one undo step, and one landing from a run or a promotion is not — there is
+///   no gesture of the writer's for a ⌘Z to reverse, and an entry on their undo
+///   stack for something they did not do is worse than none.
+/// - The pane's native typing stack is no longer collateral. It used to be:
+///   `EditorSurface.updateNSView` reconciled the changed statement text through
+///   `applyExternalText`'s `!preserveUndoStack` branch and *cleared* the
+///   writer's typing actions. The Intent pane's editor now binds the ESSAY half
+///   (`StatementEssay`), and a ruling does not change the essay — so the buffer
+///   is not replaced, and there is nothing to clear.
 ///
 /// **Bless and correct are not verbs here, deliberately.** Spec §3.3 gives the
 /// bible stratum three actions and two of them graduate an entry into the
@@ -134,10 +141,9 @@ enum RulingPerformer {
         // second answer to "where does a chapter's intent live".
         let statement = try await store.createStatement(kind: .intent, scope: scope)
         let now = Date()
-        // Task 6 wires the undo registration — see task-4-review.md's finding.
-        // One op lands here and it carries its own prior text; nothing arms
-        // `_undoCoherentApplyPending` or registers an inverse, so ⌘Z reaches it
-        // through neither the op log nor the pane's native stack.
+        // One op, carrying its own prior text. The inverse — when this call is
+        // a writer's gesture rather than a run's arrival — is registered by
+        // `RulingsStratum`, never here; see the type doc.
         try await store.mutateStatementText(of: statement, session: session) { markdown in
             RulingsSection.appending(words, provenance: provenance, on: now, to: markdown)
         }
@@ -208,6 +214,39 @@ enum RulingPerformer {
         }
     }
 
+    // MARK: - restore
+
+    /// Put a revoked ruling back exactly as it was — **the fourth verb, and it
+    /// exists only so ⌘Z can be honest.**
+    ///
+    /// `rule` would have served as the inverse of `revoke` and would have been
+    /// wrong in a way nobody would notice for months: it stamps `Date()` and
+    /// appends at the end, so undoing the revocation of a decision made in March
+    /// would give it back dated today, at the bottom of the list. An undo that
+    /// rewrites the record is worse than no undo, because the record is what the
+    /// writer is checked against. This restores the position, the day it was
+    /// ruled and the provenance the line already carried.
+    ///
+    /// **It is not a second door into the writer's layer** (§3.4). The `Ruling`
+    /// it takes is one a `revoke` on this same statement just produced — a value
+    /// from the writer's own layer on its way back into it, never a reading. The
+    /// membrane census (`RulingPerformerTests.test_nothingDerivedCanWriteItself`)
+    /// covers this verb with the other three; a `restore(_ fact: BibleFact)`
+    /// would fail it exactly as `bless` does.
+    ///
+    /// An `index` past the end lands at the end rather than refusing: the list
+    /// can legitimately have shrunk since (a peer's revoke, a hand edit), and a
+    /// refusal there would lose the line the writer is asking for back.
+    static func restore(_ ruling: Ruling, at index: Int, forScope scope: Statement.Scope,
+                        store: ProjectStore, world: DeclaredWorldStore?) async throws {
+        try await mutate(scope, store: store, world: world) { markdown in
+            let (essay, rulings) = RulingsSection.parse(markdown)
+            var updated = rulings
+            updated.insert(ruling, at: min(max(index, 0), rulings.count))
+            return RulingsSection.render(essay: essay, rulings: updated)
+        }
+    }
+
     // MARK: - The shared half of revoke and edit
 
     /// Both line verbs need the same three things: a statement that already
@@ -226,9 +265,8 @@ enum RulingPerformer {
             throw RulingFailure.noStatement
         }
         try refuseIfTheWordsCannotBeRead(statement, in: store)
-        // Task 6 wires the undo registration — see task-4-review.md's finding.
-        // The revoke and the edit each land as one op; the inverse each needs is
-        // its own, which is why the marker sits here rather than only on `rule`.
+        // One op each, and the inverse each needs is its own — `RulingsStratum`
+        // registers it when the act was a writer's gesture (see the type doc).
         try await store.mutateStatementText(
             of: statement, session: session, transform: transform)
         invalidate(scope, in: world)

@@ -36,6 +36,13 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// about which store a run replaces into.
     let compilerOrchestrator: CompilerOrchestrator?
     let diagnosticsStore: DiagnosticsStore?
+    /// The Intent pane's two lower strata (declared-world Task 6) — Claude's
+    /// bible entries, and the derivation cache the ruling verbs drop. Optional
+    /// for `diagnosticsStore`'s reason: a caller that surfaces no statement
+    /// pane (the `StatementMountFixture` probes) can omit them, and a nil is a
+    /// pane with the writer's two strata rather than three.
+    let bibleStore: BibleStore?
+    let declaredWorldStore: DeclaredWorldStore?
     /// The gear menu's persisted choice, and the write-back when it changes —
     /// a value + closure rather than a `Binding` so every existing call site
     /// keeps compiling with the defaults below.
@@ -76,6 +83,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         editorControl: EditorControl? = nil,
         compilerOrchestrator: CompilerOrchestrator? = nil,
         diagnosticsStore: DiagnosticsStore? = nil,
+        bibleStore: BibleStore? = nil,
+        declaredWorldStore: DeclaredWorldStore? = nil,
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         assistant: AssistantColumnModel? = nil,
@@ -98,6 +107,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.editorControl = editorControl
         self.compilerOrchestrator = compilerOrchestrator
         self.diagnosticsStore = diagnosticsStore
+        self.bibleStore = bibleStore
+        self.declaredWorldStore = declaredWorldStore
         self.compilerModel = compilerModel
         self.onCompilerModelChange = onCompilerModelChange
         self.assistant = assistant
@@ -479,7 +490,8 @@ struct DetailPaneToggle<Inspector: View>: View {
             // (`StatementPane.effectiveScope`).
             StatementPane(
                 store: store, documentStore: ds, kind: kind,
-                subject: selectedSubject)
+                subject: selectedSubject,
+                bible: bibleStore, world: declaredWorldStore)
         } else {
             ContentUnavailableView(
                 "Open a project",

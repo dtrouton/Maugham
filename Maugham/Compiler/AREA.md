@@ -27,10 +27,16 @@ Two sentences hold the whole design:
   (`Diagnostic`, `DiagnosticsStore`, `DiagnosticIngest`).
 - Where a note goes when the writer keeps it (`DiagnosticPromotion`) or answers
   it (`RulingPerformer`, through the `IntentAppendPerformer` shim).
-- **The one door into the writer-owned layer** (`RulingPerformer`) — rule,
-  revoke, edit, each taking the writer's words as a `String`. Spec §3.4's
-  membrane; `RulingPerformerTests.test_nothingDerivedCanWriteItself` is its
-  census.
+- **The one door into the writer-owned layer** (`RulingPerformer`) — count the
+  verbs in the census rather than reading a number here; today they are rule,
+  revoke, edit and `restore`, each taking the writer's words as a `String` or a
+  `Ruling` those verbs produced, and never a reading. Spec §3.4's membrane;
+  `RulingPerformerTests.test_nothingDerivedCanWriteItself` is its census.
+  **`restore` exists for ⌘Z alone**: the Intent pane's rows register the
+  opposite verb on the window's `UndoManager`, and `rule` could not have served
+  as revoke's inverse — it stamps today's date and appends at the end, so
+  undoing the revocation of a March decision would hand it back re-dated. An
+  undo that rewrites the record is worse than no undo.
 - **What a document is pinned to** (`PinnedReferences`, `PinnedReferenceResolver`)
   — the union of research the writer linked and cards they clustered on the
   canvas, one pure function with two production callers: the run's own context
@@ -60,7 +66,8 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `Diagnostic.swift` | `Diagnostic` + `CompilerRun` — the wire and sidecar shapes |
 | `DiagnosticsStore.swift` | The per-device, per-document sidecar, and the staleness rule |
 | `DiagnosticPromotion.swift` | What a kept note says once it is an op-logged task |
-| `RulingPerformer.swift` | rule / revoke / edit — the only writes into a statement's `## Rulings` stratum |
+| `RulingPerformer.swift` | rule / revoke / edit / restore — the only writes into a statement's `## Rulings` stratum |
+| `StatementEssay.swift` | Where the essay ends and the strata begin — the byte-exact split the Intent pane's editor binds through |
 | `IntentAppendPerformer.swift` | Shim over `RulingPerformer.rule`; Stage 2 removes it |
 | `PinnedReferences.swift` | The pure union: linked research + clustered canvas cards, resolved to renderable pins |
 | `PinnedReferenceResolver.swift` | The caller-side assembly against a live project — the four inputs `PinnedReferences.pinned` takes, gathered in one place |
@@ -233,9 +240,13 @@ drifted from them is a defect in this file.
 - `DiagnosticsStoreTests` — the sidecar, the staleness rule, the marker.
 - `DiagnosticsPaneTests` / `DiagnosticPromoteToTaskTests` — the pane's states
   and the promotion, pressed through the real accessibility tree.
-- `RulingPerformerTests` — the three verbs, their four refusals that must write
+- `RulingPerformerTests` — the verbs, their four refusals that must write
   nothing, the one-op edit, the derivation invalidation, and the membrane census
   with its planted offender.
+- `StatementPaneStrataTests` — the essay/rulings split (including the identity
+  property `render` cannot promise), the ruling that lands mid-edit, the rows'
+  two verbs and their one ⌘Z each, the bible's three actions, and the census
+  that no derivation is ever drawn.
 - `IntentAppendPerformerTests` — that the shim really routes, plus the pane's own
   answer flow end to end.
 - `CompilerRunCommandTests` — ⌘R's real delivery path.

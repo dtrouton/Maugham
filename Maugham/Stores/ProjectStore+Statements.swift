@@ -264,10 +264,27 @@ extension ProjectStore {
     ///
     /// `Document.load` stays the only construction path (hard invariant;
     /// `BootstrapWiringTests`).
+    /// **"The end" means the end of the ESSAY, not the end of the file**
+    /// (declared-world Task 6). Once the intent statement has a `## Rulings`
+    /// section, appending to the whole text puts the arriving paragraph *below*
+    /// the list — where `RulingsSection.parse` does not read it and the Intent
+    /// pane's essay editor therefore cannot show it. The words are safe on disk
+    /// and invisible in the one surface that owns them, which is its own kind of
+    /// loss and the one this seam is closest to.
+    ///
+    /// Byte-identical for every statement without a rulings section
+    /// (`StatementEssay.recomposed` is the identity there), and for visual
+    /// language always — `carriesRulings` says intent alone has strata, so a
+    /// `## Rulings` heading a writer typed in their visual language is ordinary
+    /// prose and stays that way.
     func appendToStatement(_ text: String, to statement: Statement,
                            session: String) async throws {
+        let splits = StatementEssay.carriesRulings(statement.kind)
         try await mutateStatementText(of: statement, session: session) { existing in
-            Self.statementAppending(text, to: existing)
+            guard splits else { return Self.statementAppending(text, to: existing) }
+            let essay = StatementEssay.half(of: existing)
+            return StatementEssay.recomposed(
+                essay: Self.statementAppending(text, to: essay), into: existing)
         }
     }
 

@@ -99,14 +99,70 @@ final class StatementMountFixture: RunLoopPumping {
     // MARK: - Hosting
 
     /// The pane alone, as the right column shows it.
+    ///
+    /// `bible`/`world` default to nil — the two lower strata are absent, which
+    /// is what every pre-Task-6 mount in this suite is asserting about. Pass
+    /// them to get the three-stratum pane `ProjectWindow` builds.
     @discardableResult
-    func host(kind: Statement.Kind, subject: BinderSubject?) async -> NSWindow {
+    func host(kind: Statement.Kind, subject: BinderSubject?,
+              bible: BibleStore? = nil,
+              world: DeclaredWorldStore? = nil) async -> NSWindow {
         await mount(
             AnyView(
                 StatementPane(
                     store: store, documentStore: documentStore,
-                    kind: kind, subject: subject)
+                    kind: kind, subject: subject, bible: bible, world: world)
                 .environment(preferences)))
+    }
+
+    // MARK: - Reading what the pane put on screen
+
+    /// Every accessibility value or label in the window containing `substring`.
+    ///
+    /// `DiagnosticsPaneTests`' reader, on the shared harness because two suites
+    /// now want it. SwiftUI draws `Text` rather than mounting an `NSTextField`,
+    /// so the accessibility tree is the only reading of a rendered row
+    /// available from outside — and it is production's own tree, not a probe.
+    ///
+    /// **The priming call is load-bearing, not ceremony.** SwiftUI builds no
+    /// accessibility tree until an assistive client attaches, so a reader that
+    /// walks `accessibilityChildren` without asking the process for its own role
+    /// first returns an empty array for a window full of rows — which reads
+    /// exactly like a pane that rendered nothing. Cost an hour here before the
+    /// dump said every label in the window was missing, not only the new ones.
+    func staticTexts(in window: NSWindow, containing substring: String) throws -> [String] {
+        var role: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(
+            AXUIElementCreateApplication(getpid()), kAXRoleAttribute as CFString, &role)
+        guard error == .success, role != nil else {
+            throw XCTSkip(
+                "no assistive client could be attached to this process, so SwiftUI "
+                + "never built the tree this test reads")
+        }
+        guard let root = window.contentView else { return [] }
+        return axElements(under: root)
+            .compactMap { axAttribute($0, "accessibilityValue") as? String
+                ?? axAttribute($0, "accessibilityLabel") as? String }
+            .filter { $0.contains(substring) }
+    }
+
+    /// `staticTexts` as a predicate, for polling. Swallows the unavailable-tree
+    /// skip on purpose — a `pumpUntil` condition cannot throw, and the
+    /// assertion after the wait is what reports the skip.
+    func shows(_ substring: String, in window: NSWindow) -> Bool {
+        !(((try? staticTexts(in: window, containing: substring)) ?? []).isEmpty)
+    }
+
+    private func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {
+        guard let object = element as? NSObject,
+              object.responds(to: NSSelectorFromString(attribute)) else { return nil }
+        return object.value(forKey: attribute)
+    }
+
+    private func axElements(under root: AnyObject, depth: Int = 0) -> [AnyObject] {
+        guard depth < 40 else { return [] }
+        let children = axAttribute(root, "accessibilityChildren") as? [AnyObject] ?? []
+        return [root] + children.flatMap { axElements(under: $0, depth: depth + 1) }
     }
 
     /// The pane with a SETTABLE selection, so a test can change its scope on one

@@ -37,6 +37,15 @@ struct StatementPane: View {
     /// an item from another project — both resolve to the project, see
     /// `effectiveScope`.
     let subject: BinderSubject?
+    /// The bible stratum's ledger and the derivation cache the ruling verbs
+    /// drop (declared-world Task 6). **Optional, and a nil is a pane with two
+    /// strata rather than three** — `ProjectWindow` owns both and every other
+    /// mount (the `StatementMountFixture` probes, previews) has none. A default
+    /// of `nil` is honest here in a way `RulingPerformer`'s undefaulted `world`
+    /// is not: this is a SURFACE deciding what it can show, not a write path
+    /// deciding whether to invalidate.
+    var bible: BibleStore? = nil
+    var world: DeclaredWorldStore? = nil
 
     /// Which statement this pane is showing.
     ///
@@ -143,8 +152,86 @@ struct StatementPane: View {
             StatementEditorHost(
                 store: store, documentStore: documentStore,
                 kind: kind, scope: scope)
+            strata
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    // MARK: - The two strata under the essay (declared-world Task 6)
+
+    /// The writer's rulings and Claude's readings, beneath the editor.
+    ///
+    /// **Both are absent when empty, and neither has an empty state.** No
+    /// heading over nothing, no "no rulings yet" — a writer who has never ruled
+    /// meets the pane exactly as M1A shipped it, which is the same rule the
+    /// editor above follows about a statement that does not exist.
+    ///
+    /// **Bounded and scrollable, so the strata cannot push the essay off the
+    /// pane.** The editor is the surface the writer came here for; a long ledger
+    /// squeezing it to a line would be the tail wagging the dog. The ceiling is
+    /// on the two together rather than on each, so a piece with one ruling and
+    /// twenty facts still spends its allowance where the content is.
+    @ViewBuilder
+    private var strata: some View {
+        if !rulings.isEmpty || !bibleFacts.isEmpty {
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if !rulings.isEmpty {
+                        RulingsStratumView(
+                            rulings: rulings, scope: scope, store: store, world: world)
+                    }
+                    if let bible, !bibleFacts.isEmpty {
+                        BibleStratumView(
+                            facts: bibleFacts, scope: scope, store: store,
+                            bible: bible, world: world)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: Self.strataCeiling)
+        }
+    }
+
+    /// Roughly four rows. Past it the strata scroll rather than grow.
+    static let strataCeiling: CGFloat = 260
+
+    /// The rulings this statement carries **right now**.
+    ///
+    /// Read through `ProjectStore.statementText` (tripwire 20 — the op log, or
+    /// the pane's own live `Document`, never the `.md`), which is also what
+    /// makes this list live: with the statement open the reader prefers its
+    /// `Document`, whose `@Observable` `displayText` is the same value the
+    /// editor above binds. So a ruling landing from a run while the pane is up
+    /// invalidates this body with no event, no poll and no push — the property
+    /// `IntentStrip.line` documents at length, arriving here through the same
+    /// reader. (`test_aRulingReachesTheMountedPane`.)
+    ///
+    /// Empty for visual language, and by the one rule rather than a second
+    /// spelling of it: `StatementEssay.carriesRulings` says which kinds have
+    /// strata, and the editor's own split asks the same question.
+    private var rulings: [Ruling] {
+        guard StatementEssay.carriesRulings(kind),
+              let statement = store.statement(kind: kind, scope: scope)
+        else { return [] }
+        return RulingsStratum.rows(in: store.statementText(of: statement))
+    }
+
+    /// Claude's readings for the scope on screen.
+    ///
+    /// `_ = bible.version` is the observation — `allFacts()` returns an array
+    /// the store rebuilds, so nothing in it is observable on its own and a body
+    /// that read only the array would render once and never again
+    /// (`DiagnosticsPane.rows`' idiom, and `test_thePaneRerendersWhenEither
+    /// StoreBumpsItsVersion` is what holds it).
+    ///
+    /// The bible belongs to the intent statement, like the rulings do — visual
+    /// language is about how the book LOOKS and the manuscript establishes
+    /// nothing about that.
+    private var bibleFacts: [BibleFact] {
+        guard StatementEssay.carriesRulings(kind), let bible else { return [] }
+        _ = bible.version
+        return BibleStratum.facts(for: scope, in: bible.allFacts())
     }
 
     /// One line, always — never a control, and never nothing.

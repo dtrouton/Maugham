@@ -634,7 +634,7 @@ final class RulingPerformerTests: XCTestCase {
 
         // Non-vacuity: a census that parsed nothing passes for any predicate.
         let names = Set(signatures.map(\.name))
-        for verb in ["rule", "revoke", "edit"] {
+        for verb in ["rule", "revoke", "edit", "restore"] {
             XCTAssertTrue(names.contains(verb),
                           "the census must actually see \u{201C}\(verb)\u{201D}; it found "
                           + "\(names.sorted().joined(separator: ", "))")
@@ -677,7 +677,7 @@ final class RulingPerformerTests: XCTestCase {
     func test_everyVerbTakesTheDerivationCacheExplicitly() throws {
         let source = try readSource("Maugham/Compiler/RulingPerformer.swift")
         for signature in Self.functionSignatures(in: source)
-        where ["rule", "revoke", "edit"].contains(signature.name) {
+        where ["rule", "revoke", "edit", "restore"].contains(signature.name) {
             XCTAssertTrue(
                 signature.parameters.contains("world: DeclaredWorldStore?"),
                 "\(signature.name) must take the derivation cache: \(signature.parameters)")
