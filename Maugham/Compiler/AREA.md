@@ -14,8 +14,9 @@ Two sentences hold the whole design:
   #2), and every timer in this area exists to end a session, never to start one.
 - **The compiler reads and never writes.** It reads the manuscript through an
   enumerated read-only MCP allowlist and answers with a structured message. The
-  one thing that puts words anywhere is `IntentAppendPerformer`, and its input is
-  a sentence the writer typed.
+  one thing that puts words anywhere is `RulingPerformer`, and its input is a
+  sentence the writer typed. (`IntentAppendPerformer` is now a shim over it,
+  kept only until Stage 2 rewrites the pane that calls it.)
 
 ## What this area owns
 
@@ -25,7 +26,11 @@ Two sentences hold the whole design:
 - The diagnostics themselves: shape, per-device sidecar, staleness
   (`Diagnostic`, `DiagnosticsStore`, `DiagnosticIngest`).
 - Where a note goes when the writer keeps it (`DiagnosticPromotion`) or answers
-  it (`IntentAppendPerformer`).
+  it (`RulingPerformer`, through the `IntentAppendPerformer` shim).
+- **The one door into the writer-owned layer** (`RulingPerformer`) — rule,
+  revoke, edit, each taking the writer's words as a `String`. Spec §3.4's
+  membrane; `RulingPerformerTests.test_nothingDerivedCanWriteItself` is its
+  census.
 - **What a document is pinned to** (`PinnedReferences`, `PinnedReferenceResolver`)
   — the union of research the writer linked and cards they clustered on the
   canvas, one pure function with two production callers: the run's own context
@@ -55,7 +60,8 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `Diagnostic.swift` | `Diagnostic` + `CompilerRun` — the wire and sidecar shapes |
 | `DiagnosticsStore.swift` | The per-device, per-document sidecar, and the staleness rule |
 | `DiagnosticPromotion.swift` | What a kept note says once it is an op-logged task |
-| `IntentAppendPerformer.swift` | An answered note becomes a paragraph of the piece's intent |
+| `RulingPerformer.swift` | rule / revoke / edit — the only writes into a statement's `## Rulings` stratum |
+| `IntentAppendPerformer.swift` | Shim over `RulingPerformer.rule`; Stage 2 removes it |
 | `PinnedReferences.swift` | The pure union: linked research + clustered canvas cards, resolved to renderable pins |
 | `PinnedReferenceResolver.swift` | The caller-side assembly against a live project — the four inputs `PinnedReferences.pinned` takes, gathered in one place |
 
@@ -176,11 +182,14 @@ This is what the milestone exists for, and the two halves are asymmetric:
   Its action is **Open Intent**; it never offers a reply field, because drift is
   not about a paragraph and the honest answer is to edit the statement whole.
 - **Accretion** — an anchored note offers **Answer**, and the writer's sentence
-  becomes a new paragraph of the **piece's** intent statement (never the
-  project's), minting it if absent. The answered note dismisses. The next run
-  reads the enriched intent.
+  becomes a **ruling** on the **piece's** intent statement (never the
+  project's), minting it if absent: an itemized, dated line under `## Rulings`
+  carrying where it came from. Spec §3.4 names the old shape — a chat reply
+  appended verbatim to the essay — as the membrane's loosest point, and this is
+  the tightening. The answered note dismisses. The next run reads the enriched
+  intent.
 
-`IntentAppendPerformer` is `PromotionPerformer`'s shape with two deliberate
+`RulingPerformer` is `PromotionPerformer`'s shape with two deliberate
 differences — no autosave flush, no project-scope fallback — both argued at
 length in its own doc comment. Read that before adding either back.
 
@@ -200,7 +209,7 @@ A diagnostic ends one of four ways, and only one of them is a button:
    this way; they have nothing to track.
 3. **Promoted** — kept as an op-logged task, which syncs and survives
    (`DiagnosticPromotion`).
-4. **Answered** — became intent (`IntentAppendPerformer`).
+4. **Answered** — became a ruling on the piece's intent (`RulingPerformer`).
 
 The sidecar is derived state: a missing or corrupt file reads as empty rather
 than throwing, and losing it costs nothing because the next run repopulates it.
@@ -224,8 +233,11 @@ drifted from them is a defect in this file.
 - `DiagnosticsStoreTests` — the sidecar, the staleness rule, the marker.
 - `DiagnosticsPaneTests` / `DiagnosticPromoteToTaskTests` — the pane's states
   and the promotion, pressed through the real accessibility tree.
-- `IntentAppendPerformerTests` — the answer flow end to end, including the two
-  refusals that must write nothing.
+- `RulingPerformerTests` — the three verbs, their four refusals that must write
+  nothing, the one-op edit, the derivation invalidation, and the membrane census
+  with its planted offender.
+- `IntentAppendPerformerTests` — that the shim really routes, plus the pane's own
+  answer flow end to end.
 - `CompilerRunCommandTests` — ⌘R's real delivery path.
 - `PinnedReferencesTests` — the union and its resolution, including the
   dedup/dangling/sort rules; its census keeps `linkedResearchIds` (not

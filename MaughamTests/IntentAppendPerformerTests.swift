@@ -10,11 +10,16 @@ import MaughamCore
 /// is being checked against. Without this the compiler asks the same question
 /// every run and the writer's explanation lives nowhere.
 ///
-/// The performer is the outside writer — `PromotionPerformer`'s shape: validate
-/// first, write second, never append to a destination whose current words it
-/// could not read. Every assertion below goes through the real op log rather
-/// than a returned preview, because the preview can agree with itself and be
-/// wrong.
+/// **What is left here after the declared world (Task 4).**
+/// `IntentAppendPerformer` is now a shim over `RulingPerformer.rule`, so the
+/// performer-level contracts this file used to hold — the op-logged write,
+/// mint-when-absent, piece-not-project routing, the empty refusal and the
+/// unreadable-destination refusal with its control — have moved to
+/// `RulingPerformerTests`, where they are asserted against the verbs that own
+/// them rather than through a shim that will be deleted. What stays is what only
+/// lives here: that the shim really does route (an answer becomes a *ruling*,
+/// not an essay paragraph), and the **pane's** own contracts, which Stage 2
+/// rewrites and which nothing else covers.
 @MainActor
 final class IntentAppendPerformerTests: XCTestCase {
 
@@ -63,10 +68,6 @@ final class IntentAppendPerformerTests: XCTestCase {
         return derived.sequence.compactMap { derived.paragraphs[$0] }.joined(separator: "\n\n")
     }
 
-    private func fileBytes(of statement: Statement, in projectURL: URL) -> Data? {
-        try? Data(contentsOf: projectURL.appendingPathComponent(statement.path))
-    }
-
     /// Bytes that are not valid UTF-8, so `String(contentsOf:encoding:.utf8)`
     /// throws — the exact call `Document.load` makes with a `try?` and a
     /// silent `?? ""` fallback.
@@ -90,14 +91,16 @@ final class IntentAppendPerformerTests: XCTestCase {
             deltaSummary: "1 new, 0 revised \u{00b6}", intentSnapshot: nil)
     }
 
-    // MARK: - The answer becomes intent
+    // MARK: - The shim routes (declared-world Task 4)
 
-    /// The headline contract, asserted at the op rather than at the render: an
-    /// answer is a real op in the statement's own log whose `next` is the
-    /// writer's words. The `.md` beside it is derived and would be a weaker
-    /// claim.
-    func test_theAnswerBecomesAnIntentParagraph() async throws {
-        let (url, store, chapter) = try await loadedNovel(named: "AnswerBecomesIntent")
+    /// **The answer is a ruling now, not a paragraph of the essay.** Spec §3.4
+    /// names the shipped append as the membrane's loosest point — a chat reply
+    /// copied verbatim into the writer's declared intent — and this is the
+    /// tightening: the same sentence arrives itemized, dated and carrying where
+    /// it came from, under `## Rulings`, leaving the essay the writer wrote
+    /// untouched.
+    func test_theAnswerBecomesARulingAndNotAnEssayParagraph() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "AnswerBecomesRuling")
         let statement = try await store.createStatement(
             kind: .intent, scope: .document(chapter.id))
         try await store.appendToStatement(
@@ -107,203 +110,35 @@ final class IntentAppendPerformerTests: XCTestCase {
         try await IntentAppendPerformer.append(
             answer: answer, forDocId: chapter.id, store: store)
 
-        let written = try await ops(of: statement, in: url)
-        XCTAssertTrue(
-            written.contains { $0.changes.contains { $0.next == answer } },
-            "the answer must be an OP in the statement's log, not only a render: "
-            + "\(written.flatMap { $0.changes.map(\.next) })")
-
-        let text = try await derivedText(of: statement, in: url)
-        XCTAssertTrue(
-            text.hasPrefix("A ghost story told in weather."),
-            "the intent that was already there must survive an append: \(text)")
-        XCTAssertTrue(text.hasSuffix(answer), "the answer lands at the end: \(text)")
-    }
-
-    /// One paragraph, not two, and not a rewrite of the one before it.
-    func test_theAnswerIsOneNewParagraph() async throws {
-        let (url, store, chapter) = try await loadedNovel(named: "AnswerIsOneParagraph")
-        let statement = try await store.createStatement(
-            kind: .intent, scope: .document(chapter.id))
-        try await store.appendToStatement("A ghost story.", to: statement, session: "seed")
-        let before = Deriver.derive(ops: try await ops(of: statement, in: url)).sequence
-
-        try await IntentAppendPerformer.append(
-            answer: "The fog is a refrain.", forDocId: chapter.id, store: store)
-
-        let after = Deriver.derive(ops: try await ops(of: statement, in: url)).sequence
+        let parsed = RulingsSection.parse(try await derivedText(of: statement, in: url))
         XCTAssertEqual(
-            after.count, before.count + 1,
-            "an answer adds exactly one paragraph to the intent \u{2014} more would be "
-            + "the writer's sentence split, fewer would be it swallowing what was there")
-        XCTAssertEqual(Array(after.prefix(before.count)), before,
-                       "the paragraphs already in the intent keep their ids and order")
+            parsed.essay, "A ghost story told in weather.",
+            "the essay is the writer's own prose and an answer must not join it")
+        XCTAssertEqual(parsed.rulings.map(\.text), [answer])
+        XCTAssertNotNil(
+            parsed.rulings.first?.ruledOn,
+            "and it carries the day it was ruled \u{2014} an undated decision is the "
+            + "thing \u{00a7}3.2 replaced")
+        XCTAssertNotNil(parsed.rulings.first?.provenance,
+                        "and where it came from")
     }
 
-    /// No statement yet is the ordinary case for a project that has never had
-    /// one: the answer mints it, registers it in the manifest, and is its first
-    /// paragraph.
-    func test_answerMintsTheStatement() async throws {
-        let (url, store, chapter) = try await loadedNovel(named: "AnswerMints")
-        XCTAssertNil(
-            store.statement(kind: .intent, scope: .document(chapter.id)),
-            "precondition: nothing has minted this chapter's intent yet")
-
-        let answer = "The chapter is about what the weather will not say."
-        try await IntentAppendPerformer.append(
-            answer: answer, forDocId: chapter.id, store: store)
-
-        let statement = try XCTUnwrap(
-            store.statement(kind: .intent, scope: .document(chapter.id)),
-            "the answer must have minted the chapter's intent statement")
-        XCTAssertTrue(
-            FileManager.default.fileExists(
-                atPath: url.appendingPathComponent(statement.path).path),
-            "a minted statement has a file at its manifest path")
-        let text = try await derivedText(of: statement, in: url)
-        XCTAssertEqual(text, answer, "the answer is the statement's first paragraph")
-
-        // Re-read from disk: the manifest entry is durable, not in-memory only.
-        let reloaded = try await ProjectStore.load(from: url)
-        XCTAssertEqual(
-            reloaded.statement(kind: .intent, scope: .document(chapter.id))?.id,
-            statement.id,
-            "the mint must be saved to the manifest \u{2014} an entry that lives only "
-            + "in memory mints a SECOND statement on the next answer")
-    }
-
-    // MARK: - Scope: the piece, never the project
-
-    /// **The defect this contract exists against.** A piece-scoped document's
-    /// answer written into the project's intent is the M1A craft-intent bug
-    /// arriving through a new door: the writer explains one chapter and the
-    /// book's statement gains a sentence about it, where every other chapter's
-    /// run then reads it.
-    ///
-    /// `PromotionPerformer.intentScope` deliberately DOES fall back to project
-    /// scope, and that difference is the point rather than an inconsistency —
-    /// a canvas scrap may carry no piece at all, so a fallback is the only
-    /// destination it has. A diagnostic is always raised against an open
-    /// manuscript document, so there is always a piece, and a fallback here
-    /// would only ever fire on a document that is not in this project — which
-    /// must refuse, not redirect.
-    func test_scopeIsThePieceNeverTheProject() async throws {
-        let (url, store, chapter) = try await loadedNovel(named: "AnswerScope")
-        let project = try await store.createStatement(kind: .intent, scope: .project)
-        try await store.appendToStatement(
-            "The book is about weather.", to: project, session: "seed")
-        let projectBefore = try await derivedText(of: project, in: url)
-
-        try await IntentAppendPerformer.append(
-            answer: "This chapter withholds the ghost.", forDocId: chapter.id, store: store)
-
-        let piece = try XCTUnwrap(store.statement(kind: .intent, scope: .document(chapter.id)))
-        let pieceText = try await derivedText(of: piece, in: url)
-        let projectAfter = try await derivedText(of: project, in: url)
-        XCTAssertEqual(pieceText, "This chapter withholds the ghost.")
-        XCTAssertEqual(
-            projectAfter, projectBefore,
-            "the project's intent must not gain one word from a chapter's answer")
-    }
-
-    /// A doc id that names nothing in this project refuses through
-    /// `createStatement`'s own guard rather than being redirected anywhere.
-    func test_anUnknownDocumentRefusesRatherThanRedirecting() async throws {
-        let (url, store, _) = try await loadedNovel(named: "AnswerUnknownDoc")
-
-        do {
-            try await IntentAppendPerformer.append(
-                answer: "nowhere to put this", forDocId: "doc-nope", store: store)
-            XCTFail("an answer for a document this project does not have must refuse")
-        } catch let error as ProjectStoreError {
-            XCTAssertEqual(error, .structureMissing)
-        }
-
-        XCTAssertNil(
-            store.statement(kind: .intent, scope: .project),
-            "and it must not have fallen back to the project's intent")
-        XCTAssertTrue(
-            (try? FileManager.default.contentsOfDirectory(
-                atPath: url.appendingPathComponent("intent").path))?.isEmpty ?? true,
-            "nothing was minted")
-    }
-
-    // MARK: - Nothing written on a refusal (constitution must #1)
-
-    /// **The destination's own words must be readable before anything is
-    /// appended to them.** A statement with no op log has its content in its
-    /// bytes, and `Document.load` reads those bytes with
-    /// `(try? String(contentsOf:)) ?? ""` — so an undecodable file bootstraps
-    /// as EMPTY and the append writes an op whose derived state is the answer
-    /// alone. The writer's stated intent would be gone with nothing red.
-    func test_unreadableDestinationRefuses() async throws {
-        let (url, store, chapter) = try await loadedNovel(named: "AnswerUnreadable")
-        let statement = try await store.createStatement(
-            kind: .intent, scope: .document(chapter.id))
-        let path = url.appendingPathComponent(statement.path)
-        try Self.undecodableBytes.write(to: path)
-        XCTAssertTrue(
-            OpLogStore.opLogFileURLs(forDocId: statement.id, in: url).isEmpty,
-            "precondition: these bytes are the only copy of this statement")
-
-        do {
-            try await IntentAppendPerformer.append(
-                answer: "deliberate, because the fog is a refrain.",
-                forDocId: chapter.id, store: store)
-            XCTFail("an unreadable destination must refuse")
-        } catch let failure as IntentAppendFailure {
-            XCTAssertEqual(failure, .unreadableDestination(statement.path))
-        }
-
-        XCTAssertEqual(
-            fileBytes(of: statement, in: url), Self.undecodableBytes,
-            "a refusal writes NOTHING \u{2014} the bytes are the writer's only copy")
-        XCTAssertTrue(
-            OpLogStore.opLogFileURLs(forDocId: statement.id, in: url).isEmpty,
-            "and it must not have opened an op log on the way to refusing")
-    }
-
-    /// **The control, and it is what keeps the guard above from being a rule
-    /// with a false reason.** When the op log HAS the words, the `.md` is
-    /// derived output that the next render rewrites — refusing there would
-    /// block the writer over a file Maugham does not read as truth. So the
-    /// refusal is scoped exactly to the case where the bytes are the content.
-    func test_anUndecodableRenderIsNotARefusalWhenTheOpLogHasTheWords() async throws {
-        let (url, store, chapter) = try await loadedNovel(named: "AnswerRenderOnly")
-        let statement = try await store.createStatement(
-            kind: .intent, scope: .document(chapter.id))
-        try await store.appendToStatement(
-            "A ghost story told in weather.", to: statement, session: "seed")
-        XCTAssertFalse(
-            OpLogStore.opLogFileURLs(forDocId: statement.id, in: url).isEmpty,
-            "precondition: this statement's words are in its op log")
-        try Self.undecodableBytes.write(to: url.appendingPathComponent(statement.path))
-
-        try await IntentAppendPerformer.append(
-            answer: "The refrain is deliberate.", forDocId: chapter.id, store: store)
-
-        let text = try await derivedText(of: statement, in: url)
-        XCTAssertTrue(text.hasPrefix("A ghost story told in weather."),
-                      "the op log's words are still the truth: \(text)")
-        XCTAssertTrue(text.hasSuffix("The refrain is deliberate."), text)
-    }
-
-    /// An empty answer is refused before anything is minted. Reachable: return
-    /// pressed in an untouched field.
-    func test_anEmptyAnswerMintsNothing() async throws {
-        let (_, store, chapter) = try await loadedNovel(named: "AnswerEmpty")
+    /// The shim is a route and nothing else: every refusal it can produce is
+    /// `RulingPerformer`'s, asserted there. This pins that it still refuses
+    /// rather than swallowing — a shim that returned quietly would dismiss the
+    /// note over an answer that went nowhere.
+    func test_theShimRefusesThroughTheVerbItRoutesTo() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "AnswerShimRefuses")
 
         do {
             try await IntentAppendPerformer.append(
                 answer: "   \n  ", forDocId: chapter.id, store: store)
             XCTFail("an empty answer must refuse")
-        } catch let failure as IntentAppendFailure {
-            XCTAssertEqual(failure, .emptyAnswer)
+        } catch let failure as RulingFailure {
+            XCTAssertEqual(failure, .emptyRuling)
         }
-
-        XCTAssertNil(
-            store.statement(kind: .intent, scope: .document(chapter.id)),
-            "an empty answer must not mint a statement to put nothing in")
+        XCTAssertNil(store.statement(kind: .intent, scope: .document(chapter.id)),
+                     "and mints nothing to put nothing in")
     }
 
     // MARK: - The pane's own commit, end to end
@@ -330,8 +165,9 @@ final class IntentAppendPerformerTests: XCTestCase {
             "an answered note has become intent \u{2014} leaving it on the pane asks the "
             + "writer to answer it twice")
         let statement = try XCTUnwrap(store.statement(kind: .intent, scope: .document(chapter.id)))
-        let text = try await derivedText(of: statement, in: url)
-        XCTAssertEqual(text, "Deliberate \u{2014} the fog is a refrain.")
+        let parsed = RulingsSection.parse(try await derivedText(of: statement, in: url))
+        XCTAssertEqual(parsed.rulings.map(\.text), ["Deliberate \u{2014} the fog is a refrain."],
+                       "the answer landed as the piece's ruling")
     }
 
     /// **A refused answer keeps the note AND reports why.** The writer's words

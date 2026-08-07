@@ -266,12 +266,48 @@ extension ProjectStore {
     /// `BootstrapWiringTests`).
     func appendToStatement(_ text: String, to statement: Statement,
                            session: String) async throws {
+        try await mutateStatementText(of: statement, session: session) { existing in
+            Self.statementAppending(text, to: existing)
+        }
+    }
+
+    /// Rewrite a statement's WHOLE text through `transform`, on the same
+    /// `Document` and under the same gate `appendToStatement` uses.
+    ///
+    /// **Why both this and `appendToStatement` exist**, rather than one of them
+    /// (declared-world Task 4). An append is a *paragraph* verb: it puts a blank
+    /// line and then the arriving words at the end, which is the whole of what
+    /// promotion and the picture ingest need and is worth keeping as its own
+    /// named act — a call site that wants that shape should not have to spell a
+    /// closure to get it, and a closure at each of those sites is three chances
+    /// to disagree about the blank line. A **ruling**, by contrast, is a line
+    /// *inside a section*: `RulingsSection.appending`/`removing` take the
+    /// statement's whole markdown and hand back the whole markdown, so there is
+    /// no suffix to append and nothing an append verb can express. So the append
+    /// stays, expressed as one call of this, and there is exactly one copy of
+    /// the discipline below rather than two — the live-first lookup, the open
+    /// gate, the re-ask inside it, and the awaited close.
+    ///
+    /// **`transform` may throw, and a throw writes nothing.** It is called with
+    /// the text the write is about to be made from, so a caller whose act
+    /// depends on what is currently there (revoking a ruling that must still be
+    /// present) decides against the same string it edits, with no window between
+    /// the check and the write for a peer's op or the writer's own keystroke to
+    /// arrive in.
+    ///
+    /// Everything else — the live `Document` first, the gate over the opening,
+    /// the second ask inside it, the awaited close — is argued at length on
+    /// `appendToStatement` above; read that comment, not a shorter copy here.
+    func mutateStatementText(
+        of statement: Statement, session: String,
+        transform: (String) throws -> String
+    ) async throws {
         if let live = openStatementDocument(id: statement.id) {
-            writeStatementText(live, text)
-            // Durable now rather than on the pane's own debounce: an append
+            live.setFullText(try transform(live.displayText))
+            // Durable now rather than on the pane's own debounce: a write
             // through here is an act the writer has committed to — a promotion
-            // they confirmed, a picture they dropped — and the surface says it
-            // landed.
+            // they confirmed, a picture they dropped, a ruling they made — and
+            // the surface says it landed.
             try? await live.flushBurstNow()
             return
         }
@@ -286,7 +322,7 @@ extension ProjectStore {
         // Asked AGAIN inside the gate: a pane can have bound while we queued,
         // and its `Document` is the one that will still be live in a moment.
         if let live = openStatementDocument(id: statement.id) {
-            writeStatementText(live, text)
+            live.setFullText(try transform(live.displayText))
             try? await live.flushBurstNow()
             return
         }
@@ -295,7 +331,15 @@ extension ProjectStore {
             device: MacDeviceID.current,
             session: session,
             presenter: documentStore?.presenter)
-        writeStatementText(document, text)
+        // Closed on the refusing path too: a `Document` left open on this path
+        // outlives the gate released by the `defer` above, so the next opener
+        // would load a second one against it.
+        do {
+            document.setFullText(try transform(document.displayText))
+        } catch {
+            await document.close()
+            throw error
+        }
         // Awaited, unlike `withAnnotationDocument`'s fire-and-forget close: that
         // path has already appended its ops itself, and this one's words are
         // still in the pending buffer until the close flushes it. Inside the
@@ -303,16 +347,9 @@ extension ProjectStore {
         await document.close()
     }
 
-    /// Put the arriving text at the end of what a statement's `Document`
-    /// already says. One spelling, because the live arm and the transient arm
-    /// must not come to different conclusions about where an append goes.
-    private func writeStatementText(_ document: Document, _ text: String) {
-        document.setFullText(statementAppending(text, to: document.displayText))
-    }
-
     /// A blank line between what is there and what is arriving, and nothing at
     /// all in front of the first thing to reach an empty statement.
-    private func statementAppending(_ text: String, to existing: String) -> String {
+    private static func statementAppending(_ text: String, to existing: String) -> String {
         existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? text
             : existing + "\n\n" + text
