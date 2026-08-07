@@ -24,13 +24,17 @@ final class DiagnosticsStoreTests: XCTestCase {
             intentSnapshot: "intent snapshot")
     }
 
+    /// Every fixture carries a `kind`, because a diagnostic without one is by
+    /// definition a v1 record and `load` drops those as superseded — a
+    /// kind-less fixture would vanish on reload for a reason that has nothing
+    /// to do with the store's correctness.
     private func makeDiagnostic(
         docId: String, runId: String, anchor: Diagnostic.Anchor? = nil,
         body: String = "A diagnostic note"
     ) -> Diagnostic {
         Diagnostic(
             id: ULID.generate(), docId: docId, anchor: anchor, body: body,
-            category: "test", runId: runId)
+            category: nil, runId: runId, kind: .continuity)
     }
 
     func test_sidecarFilename_isPerDevice_andTakesDeviceSlug() {
@@ -158,6 +162,39 @@ final class DiagnosticsStoreTests: XCTestCase {
         XCTAssertEqual(store.lastRun(docId: docId)?.model, "sonnet",
             "the record must still load")
         XCTAssertEqual(store.lastRun(docId: docId)?.droppedDangling, 0)
+    }
+
+    /// A sidecar a v1 run wrote decodes clean — the writer's existing file is
+    /// never a crash and never a wipe — and its notes are dropped as
+    /// superseded: they were written against a contract this build no longer
+    /// speaks, and replace-on-run puts them one run from gone regardless. The
+    /// run record survives, so the pane can still say when the doc was last
+    /// checked.
+    func test_aV1SidecarLoadsAndItsNotesAreDroppedAsSuperseded() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docV1"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Exactly what v1 wrote: no kind, no refs, no clauseQuote.
+        try Data("""
+            {"diagnostics":[{"anchor":{"anchorText":"steady","paragraphId":"efgh"},\
+            "body":"A v1 note","category":"rhythm","docId":"docV1","id":"01JV1",\
+            "runId":"01JRUN"}],\
+            "run":{"at":"2026-08-04T09:00:00Z","deltaSummary":"1 new, 0 revised",\
+            "droppedDangling":0,"id":"01JRUN","lastOpId":"op1","model":"sonnet"}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        XCTAssertEqual(
+            store.lastRun(docId: docId)?.model, "sonnet",
+            "a v1 file must decode rather than read as a document never checked")
+        XCTAssertEqual(
+            store.live(docId: docId, currentText: { _ in "steady" }), [],
+            "a v1 note is superseded, not migrated")
     }
 
     func test_corruptSidecar_readsAsEmpty_neverThrows() throws {

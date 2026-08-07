@@ -50,12 +50,17 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     // MARK: - Fixtures
 
+    /// Every fixture carries a `kind`, because a diagnostic without one is by
+    /// definition a v1 record and `DiagnosticsStore.load` drops those as
+    /// superseded — and this pane calls `load` in its own `onAppear`, so a
+    /// kind-less fixture is gone before the mounted view can render it.
     private func makeDiagnostic(
         docId: String, anchor: Diagnostic.Anchor? = nil,
-        body: String = "A diagnostic note", category: String? = "rhythm"
+        body: String = "A diagnostic note", category: String? = "rhythm",
+        kind: DiagnosticKind = .continuity
     ) -> Diagnostic {
         Diagnostic(id: ULID.generate(), docId: docId, anchor: anchor,
-                  body: body, category: category, runId: ULID.generate())
+                  body: body, category: category, runId: ULID.generate(), kind: kind)
     }
 
     private func makeRun(model: String = "sonnet", lastOpId: String? = "op1",

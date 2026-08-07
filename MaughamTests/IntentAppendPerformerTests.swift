@@ -73,16 +73,21 @@ final class IntentAppendPerformerTests: XCTestCase {
     /// silent `?? ""` fallback.
     private static let undecodableBytes = Data([0xFF, 0xFE, 0xFD, 0xFC])
 
+    /// Every fixture carries a `kind`, because a diagnostic without one is by
+    /// definition a v1 record and `DiagnosticsStore.load` drops those as
+    /// superseded — and `DiagnosticsPane` calls `load` in its own `onAppear`,
+    /// so a kind-less fixture is gone before the mounted view can render it.
     private func makeDiagnostic(
         docId: String, paragraphId: String?, anchorText: String = "",
-        body: String = "The rhythm flattens across these three sentences."
+        body: String = "The rhythm flattens across these three sentences.",
+        kind: DiagnosticKind = .continuity
     ) -> Diagnostic {
         Diagnostic(
             id: ULID.generate(), docId: docId,
             anchor: paragraphId.map {
                 Diagnostic.Anchor(paragraphId: $0, anchorText: anchorText)
             },
-            body: body, category: "rhythm", runId: ULID.generate())
+            body: body, category: "rhythm", runId: ULID.generate(), kind: kind)
     }
 
     private func makeRun() -> CompilerRun {

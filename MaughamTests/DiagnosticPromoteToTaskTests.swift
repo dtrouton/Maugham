@@ -42,17 +42,21 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
         try XCTUnwrap(doc.sequence.first, "the fixture document has no paragraphs")
     }
 
+    /// Every fixture carries a `kind`, because a diagnostic without one is by
+    /// definition a v1 record and `DiagnosticsStore.load` drops those as
+    /// superseded — and the pane calls `load` on appear, so a kind-less
+    /// fixture would vanish before the mounted view ever sees it.
     private func makeDiagnostic(
         docId: String, paragraphId: String?, anchorText: String = "",
         body: String = "The rhythm flattens across these three sentences.",
-        category: String? = "rhythm"
+        category: String? = "rhythm", kind: DiagnosticKind = .continuity
     ) -> Diagnostic {
         Diagnostic(
             id: ULID.generate(), docId: docId,
             anchor: paragraphId.map {
                 Diagnostic.Anchor(paragraphId: $0, anchorText: anchorText)
             },
-            body: body, category: category, runId: ULID.generate())
+            body: body, category: category, runId: ULID.generate(), kind: kind)
     }
 
     /// Noon on a fixed day **in the runner's own calendar**, so the stamp the
