@@ -72,6 +72,22 @@ Intent is a real document, not a note: every edit lands in its own operation log
 
 **Having no intent recorded is a valid state.** An undeclared scope is simply an empty editor — start typing and the file is created for you. Nothing nags, and nothing is written until you write it.
 
+**Rulings** are decisions, itemized apart from the prose above them. A rule is
+just intent about something specific — "Kelly only ever acts on what she's
+actually heard" — and once it firms up you can write it as its own line rather
+than leaving it buried in a paragraph. Type a `## Rulings` heading below your
+intent and a bulleted line under it (`- Kelly only ever acts on what she's
+actually heard`), and it appears in its own strip beneath the editor with
+**Edit** and **Revoke** on it. **Hand-editing that heading and its lines is
+legal** — Maugham reads whatever's under it and doesn't require the exact
+shape it writes itself; a bare line with no date works exactly as well as one
+Maugham dated for you. Revoke takes a line out (one ⌘Z brings it back exactly
+as it was — same words, same day, same note about where it came from); Edit
+changes the words in place and leaves the day and provenance untouched, because
+a correction isn't a new decision. Answering a check's note (see
+[Checking Your Writing](compiler.md)) adds a ruling here too, dated and marked
+with where it came from, without you typing the heading yourself.
+
 ### Visual Language mode (⌘⌥V)
 
 How the book looks — typography, cover direction, the references you're steering by. Project-scope: one book, one look. Like Intent it's an ordinary document, with the same undo and the same cross-Mac merge, and it's likewise empty until you write in it.
@@ -94,7 +110,7 @@ The gear menu picks the model a check runs against — **Fast**, **Standard**, o
 
 **A clean check says so plainly.** No notes to raise reads *"Nothing to flag."* — not silence, not a green checkmark standing in for an answer.
 
-**A note you answer becomes intent.** Press **Answer** on a note, say why the thing it flagged is deliberate, and press Return: your sentence is added to that piece's intent statement and the note goes away, so the next check reads what you just told it rather than raising the same thing again. **Promote to Task** keeps a note instead — as a real task on the document, which syncs and survives where the notes don't. Full walkthrough: [Checking Your Writing](compiler.md).
+**A note you answer becomes a ruling on that piece's intent.** Press **Answer** on a note, say why the thing it flagged is deliberate, and press Return: your sentence lands as a dated line under [that piece's Rulings](#intent-mode-n), and the note goes away, so the next check reads what you just told it rather than raising the same thing again. **Promote to Task** keeps a note instead — as a real task on the document, which syncs and survives where the notes don't. Full walkthrough: [Checking Your Writing](compiler.md).
 
 ### References mode (⌘⌥E)
 
