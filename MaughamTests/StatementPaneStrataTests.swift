@@ -120,6 +120,118 @@ final class StatementPaneStrataTests: XCTestCase {
         XCTAssertEqual(StatementEssay.recomposed(essay: markdown, into: markdown), markdown)
     }
 
+    // MARK: - The heading the writer types (whole-branch review, C1)
+
+    /// **Typing `## Rulings` into the pane's own editor leaves it where the
+    /// writer put it** — the flow the guide sold, keystroke by keystroke,
+    /// through the mounted editor.
+    ///
+    /// The defect this pins had three symptoms in one frame, and only the first
+    /// is visible to a test that checks the file. A heading-only section used to
+    /// qualify as the boundary, so on the keystroke that finished `Rulings` the
+    /// binding's get (`StatementEssay.half`) stopped returning it,
+    /// `EditorSurface.reconcileTextBuffer` saw view ≠ binding and called
+    /// `applyExternalText(preserveUndoStack: false)`, and the heading **vanished
+    /// from under the caret**, taking the writer's typing undo stack with it —
+    /// while no stratum appeared in its place, because the stratum mounts only
+    /// once a ruling exists. The next line they typed then spliced ABOVE a
+    /// heading they could no longer see.
+    ///
+    /// So all three are asserted: the bytes, the undo stack, and the absence of
+    /// a stratum. The undo assertion is the one that would otherwise be missed —
+    /// a fix that kept the text but still replaced the buffer passes the first.
+    func test_typingTheRulingsHeadingIntoTheEssayEditorLeavesItWhereTheWriterPutIt() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "typed-heading")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+        let statement = try await fixture.store.createStatement(kind: .intent, scope: scope)
+
+        let window = await fixture.host(
+            kind: .intent, subject: .item(fixture.documentItemId))
+        let textView = try fixture.textView(in: window)
+
+        let typed = "A ghost story told in weather.\n\n## Rulings\n\n"
+        await fixture.type(typed, into: textView)
+
+        XCTAssertEqual(
+            textView.string, typed,
+            "the heading the writer typed was pulled out from under the caret — the "
+            + "binding's essay half and the mounted buffer disagreed, so "
+            + "`applyExternalText` replaced what they were typing into")
+        let undoManager = try XCTUnwrap(
+            textView.undoManager,
+            "the mounted editor has no undo manager, so this test could never fail")
+        XCTAssertTrue(
+            undoManager.canUndo,
+            "the writer's typing undo stack was cleared — a buffer replacement ran "
+            + "under their hands (`applyExternalText(preserveUndoStack: false)`)")
+
+        XCTAssertTrue(
+            RulingsStratum.rows(in: fixture.store.statementText(of: statement)).isEmpty,
+            "a heading with nothing under it itemized something")
+        XCTAssertFalse(
+            fixture.shows("Revoke", in: window),
+            "a stratum mounted over a heading with no rulings in it — its rows' "
+            + "verbs are on screen")
+
+        // And the words are durable: the heading is in the op log, not only in
+        // a buffer that happened to survive.
+        try await fixture.settle(window, expectingOpsFor: statement.id)
+        XCTAssertTrue(
+            fixture.derivedText(forDocId: statement.id).contains(RulingsSection.heading),
+            "the typed heading never reached the statement's op log: "
+            + fixture.derivedText(forDocId: statement.id))
+    }
+
+    /// **A ruling verb must not delete prose the writer put under their own
+    /// heading** — C1's second loss mode, at the seam it actually arrives
+    /// through.
+    ///
+    /// The verb here is the one an **answered compiler note** runs
+    /// (`IntentAppendPerformer` → `RulingPerformer.rule`), which is the whole
+    /// sharpness of it: the writer pressed Answer on a note and does not
+    /// experience that as asking for their intent to be rewritten. While a
+    /// heading-only section qualified, `render` kept the parsed items and
+    /// nothing else, so the paragraph under the heading went with it — writer
+    /// bytes deleted with nothing red, which is constitution must #1's shape.
+    func test_aRulingDoesNotDeleteProseTheWriterTypedUnderTheirOwnHeading() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "prose-under-heading")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+        _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
+        let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: scope))
+
+        let underTheHeading = "A paragraph I typed under my own heading."
+        try await fixture.store.mutateStatementText(of: statement, session: "s") { _ in
+            "A ghost story told in weather.\n\n## Rulings\n\n\(underTheHeading)\n"
+        }
+        // Precondition: those bytes are in the ESSAY, i.e. on screen in the
+        // pane's editor. Without this the test passes over a heading that was
+        // never a boundary for some other reason.
+        XCTAssertTrue(
+            StatementEssay.half(of: fixture.store.statementText(of: statement))
+                .contains(underTheHeading))
+
+        try await RulingPerformer.rule(
+            "Kelly never lies", provenance: "from an answered note",
+            forScope: scope, store: fixture.store, world: nil)
+
+        let after = fixture.store.statementText(of: statement)
+        XCTAssertTrue(after.contains(underTheHeading),
+                      "the ruling deleted the writer's paragraph: \(after)")
+        XCTAssertTrue(
+            StatementEssay.half(of: after).contains(underTheHeading),
+            "the paragraph survived on disk but below the section boundary, where "
+            + "the essay editor cannot show it and the next verb deletes it: \(after)")
+        XCTAssertEqual(RulingsStratum.rows(in: after).map(\.text), ["Kelly never lies"],
+                       "the ruling did not land as a ruling: \(after)")
+        XCTAssertEqual(
+            after.components(separatedBy: "\n")
+                .filter { $0.trimmingCharacters(in: .whitespaces) == RulingsSection.heading }
+                .count,
+            1, "the verb wrote a second heading beside the writer's: \(after)")
+    }
+
     // MARK: - Which statements have the stratum at all
 
     /// Visual language has no rulings (`RulingPerformer`'s kind is always

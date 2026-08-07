@@ -25,6 +25,27 @@ import MaughamCore
 /// `test_puttingTheEssayBackUnchangedIsTheIdentity` asserts over the shapes that
 /// have a boundary in a different place.
 ///
+/// **What the editor shows moves when the boundary moves, and that is the one
+/// sharp edge left here** (whole-branch review, C1). `half` is a binding get:
+/// anything `RulingsSection.parse` decides is below the boundary leaves the
+/// mounted buffer within a frame, and `EditorSurface.reconcileTextBuffer`
+/// replaces it with `preserveUndoStack: false`. C1 was the reachable case — a
+/// heading with nothing under it counted, so typing `## Rulings` yanked it back
+/// out — and the parser now requires an item, which is asserted end to end by
+/// `StatementPaneStrataTests.test_typingTheRulingsHeadingIntoTheEssayEditor
+/// LeavesItWhereTheWriterPutIt`.
+///
+/// The residual, recorded rather than guarded: with a section ALREADY in the
+/// file, typing a *second* `## Rulings` heading at the end of the essay makes
+/// the writer's new heading the first blank-delimited one, and the existing
+/// items below it qualify it — so that line leaves the buffer on the keystroke
+/// that finishes it, and the next verb folds the two headings into one. No
+/// words are lost (the tail is opaque to `recomposed`, and `render` adopts a
+/// heading rather than duplicating it), the guide no longer sends anyone down
+/// this path, and closing it means changing which heading `parse` calls the
+/// boundary — a semantic change with a regression of its own for any file that
+/// really does carry two sections.
+///
 /// **The section boundary is asked for exactly once, of `RulingsSection`.** This
 /// file does not know what `## Rulings` looks like, whether a heading has to be
 /// blank-delimited, or that the delimiter line is stripped back off — it derives

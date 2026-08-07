@@ -122,7 +122,11 @@ AI assist for drafting, transcription, and project understanding.
   and ships in three stages. **Stage 1, shipped here, is provable without touching the
   run**: a statement document grows two strata beneath its essay — **Rulings**, itemized
   decisions the writer made (`## Rulings`, one dated line per ruling, hand-editing legal,
-  forgiving parser — `RulingsSection` in MaughamCore, the palette-card pattern) — and
+  forgiving parser — `RulingsSection` in MaughamCore, the palette-card pattern; **a
+  heading with nothing itemized under it is not a section** and stays the writer's prose,
+  because the Intent editor binds the essay half and anything the parser moves below the
+  boundary leaves the buffer under the caret — the whole-branch review's C1, where typing
+  the heading yanked it back out and cleared the pane's typing undo stack) — and
   **Bible**, Claude's provisional readings of what the manuscript establishes, drawn on
   the canvas's Claude paper with its own accessibility term so the two strata cannot be
   mistaken for each other. `RulingPerformer` is the **one door** into the writer-owned

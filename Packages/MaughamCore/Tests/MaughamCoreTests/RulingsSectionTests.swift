@@ -26,6 +26,116 @@ final class RulingsSectionTests: XCTestCase {
         XCTAssertTrue(rulings.isEmpty)
     }
 
+    // MARK: - a heading with nothing itemized under it is not a section
+
+    /// **The whole-branch review's C1, at its root.** A blank-delimited heading
+    /// with no list item under it used to qualify as the section boundary, which
+    /// made every byte from the heading onward disappear out of
+    /// `StatementEssay.half` — and the Intent pane binds that half. The writer
+    /// typing the heading the guide told them to type watched it vanish from
+    /// under the caret one keystroke after they finished it, with no stratum to
+    /// show for it (the pane mounts one only when a ruling exists) and their
+    /// typing undo stack cleared by the buffer replacement.
+    ///
+    /// Every prefix a writer passes THROUGH while typing it, because the defect
+    /// fired on one of them and not on the finished shape.
+    func test_aHeadingWithNothingUnderItIsNotASectionAtAll() {
+        let whileTyping = [
+            "Essay.\n\n## Rulings",
+            "Essay.\n\n## Rulings\n",
+            "Essay.\n\n## Rulings\n\n",
+            "Essay.\n\n## Rulings\n\n\n",
+            // The list marker alone, before there are any words after it —
+            // `parse` skips an empty item, so this is still heading-only.
+            "Essay.\n\n## Rulings\n\n- ",
+            // A heading on line 0, which has its own arm in `parse`.
+            "## Rulings",
+            "## Rulings\n\n",
+        ]
+        for markdown in whileTyping {
+            let (essay, rulings) = RulingsSection.parse(markdown)
+            XCTAssertEqual(
+                essay, markdown,
+                "a heading with nothing itemized under it took bytes out of the "
+                + "essay: \(markdown.debugDescription)")
+            XCTAssertTrue(
+                rulings.isEmpty,
+                "a heading with no items itemized something: \(markdown.debugDescription)")
+        }
+    }
+
+    /// The other half of C1: prose under a heading that has no items. It is
+    /// reachable by pasting, it is not a list item, and `render` keeps only
+    /// parsed items — so while the heading qualified, the next ruling verb
+    /// (including the one an *answered compiler note* runs, which the writer
+    /// does not experience as asking for anything to be rewritten) deleted it.
+    func test_proseUnderAHeadingWithNoItemsStaysEssayAndSurvivesAVerb() throws {
+        let md = """
+        Essay.
+
+        ## Rulings
+
+        A paragraph I typed under my own heading.
+        """
+        let (essay, rulings) = RulingsSection.parse(md)
+        XCTAssertEqual(essay, md, "the writer's paragraph left the essay")
+        XCTAssertTrue(rulings.isEmpty)
+
+        let date = try makeDate(day: 7, month: 8, year: 2026)
+        let after = RulingsSection.appending(
+            "Kelly never lies", provenance: "from a run", on: date, to: md)
+        XCTAssertTrue(
+            after.contains("A paragraph I typed under my own heading."),
+            "a ruling deleted the writer's prose: \(after)")
+        XCTAssertTrue(
+            RulingsSection.parse(after).essay
+                .contains("A paragraph I typed under my own heading."),
+            "the writer's prose survived on disk but below the section boundary, "
+            + "where the essay editor cannot show it and the NEXT verb deletes it: "
+            + "\(after)")
+    }
+
+    /// A ruling landing on a document whose essay already ends with a heading
+    /// the writer typed **adopts that heading** rather than writing a second
+    /// one. Two headings is the shape whose lower half `parse` reads and whose
+    /// upper half the next `render` deletes.
+    func test_appendingAdoptsAHeadingTheWriterAlreadyTyped() throws {
+        let date = try makeDate(day: 7, month: 8, year: 2026)
+        for md in ["Essay.\n\n## Rulings", "Essay.\n\n## Rulings\n\n", "## Rulings\n\n"] {
+            let after = RulingsSection.appending(
+                "Kelly never lies", provenance: "from a run", on: date, to: md)
+            XCTAssertEqual(
+                after.components(separatedBy: "\n")
+                    .filter { $0.trimmingCharacters(in: .whitespaces) == RulingsSection.heading }
+                    .count,
+                1, "the writer's own heading was left dangling above a second one: "
+                + "\(after.debugDescription) (from \(md.debugDescription))")
+            let (essay, rulings) = RulingsSection.parse(after)
+            XCTAssertEqual(rulings.map(\.text), ["Kelly never lies"], after)
+            XCTAssertFalse(
+                essay.contains(RulingsSection.heading),
+                "a dangling heading survived in the essay: \(after.debugDescription)")
+        }
+    }
+
+    /// Adoption keeps the words that were under the adopted heading — they go
+    /// back into the essay, above the canonical section, rather than being
+    /// stranded under it.
+    func test_adoptionKeepsTheProseThatWasUnderTheHeading() throws {
+        let md = "Essay.\n\n## Rulings\n\nA paragraph I typed under my own heading.\n"
+        let date = try makeDate(day: 7, month: 8, year: 2026)
+        let after = RulingsSection.appending(
+            "Kelly never lies", provenance: "from a run", on: date, to: md)
+
+        let (essay, rulings) = RulingsSection.parse(after)
+        XCTAssertEqual(essay, "Essay.\n\nA paragraph I typed under my own heading.", after)
+        XCTAssertEqual(rulings.map(\.text), ["Kelly never lies"])
+
+        // And it converges: a second pass moves nothing.
+        let rerendered = RulingsSection.render(essay: essay, rulings: rulings)
+        XCTAssertEqual(rerendered, after, "adoption is not idempotent")
+    }
+
     // MARK: - hand-written rulings are legal
 
     func test_handWrittenRulingsAreLegal() {

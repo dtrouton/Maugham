@@ -74,19 +74,33 @@ Intent is a real document, not a note: every edit lands in its own operation log
 
 **Rulings** are decisions, itemized apart from the prose above them. A rule is
 just intent about something specific — "Kelly only ever acts on what she's
-actually heard" — and once it firms up you can write it as its own line rather
-than leaving it buried in a paragraph. Type a `## Rulings` heading below your
-intent and a bulleted line under it (`- Kelly only ever acts on what she's
-actually heard`), and it appears in its own strip beneath the editor with
-**Edit** and **Revoke** on it. **Hand-editing that heading and its lines is
-legal** — Maugham reads whatever's under it and doesn't require the exact
-shape it writes itself; a bare line with no date works exactly as well as one
-Maugham dated for you. Revoke takes a line out (one ⌘Z brings it back exactly
-as it was — same words, same day, same note about where it came from); Edit
-changes the words in place and leaves the day and provenance untouched, because
-a correction isn't a new decision. Answering a check's note (see
-[Checking Your Writing](compiler.md)) adds a ruling here too, dated and marked
-with where it came from, without you typing the heading yourself.
+actually heard" — and once it firms up it belongs on its own line rather than
+buried in a paragraph. **Rulings are made by pressing something, not by typing
+a heading.** Answering a check's note (see
+[Checking Your Writing](compiler.md)) files your sentence as a ruling on that
+piece, dated and marked with where it came from; so do **Bless** and
+**Correct**, the two buttons on an entry in the paler strip below — the things
+Claude has read off the manuscript, which are its readings until you say
+otherwise. Each ruling appears in its own strip beneath the editor with
+**Edit** and **Revoke** on it. Revoke
+takes a line out (one ⌘Z brings it back exactly as it was — same words, same
+day, same note about where it came from); Edit changes the words in place and
+leaves the day and provenance untouched, because a correction isn't a new
+decision.
+
+The editor above the strip is for your prose, and typing a `## Rulings` heading
+into it doesn't make the section — a heading with nothing under it is just a
+heading, and it stays in your text like any other line. Let the buttons write
+the section; if you've already typed a heading of your own, the next ruling
+adopts it rather than adding a second one. **The `.md` file's own shape is
+forgiving** — Maugham reads whatever list it finds under that heading and
+doesn't require the exact form it writes itself, so a bare line with no date
+works as well as one it dated for you. That
+tolerance is for files arriving from your other Mac or from an older draft, not
+an invitation to edit the file in Finder: like every document in Maugham, an
+intent is kept in its own operation log and the `.md` is written out from it, so
+an outside edit made while Maugham has the project open is discarded on the next
+save.
 
 ### Visual Language mode (⌘⌥V)
 
