@@ -47,9 +47,23 @@ enum RulingFailure: LocalizedError, Equatable {
 ///
 /// Three verbs — *rule*, *revoke*, *edit* — each taking the writer's words as a
 /// `String` and putting them into the intent statement's `## Rulings` stratum
-/// through its op log. Because a statement is an op-logged `Document`, this
-/// buys the whole architecture at once: ⌘Z undoes a ruling, History shows when
-/// it was ruled, and Rewind shows the declared world as of any draft (§3.2).
+/// through its op log. Because a statement is an op-logged `Document`, **History
+/// shows when a ruling was made and Rewind shows the declared world as of any
+/// draft** (§3.2), both for free.
+///
+/// **⌘Z does NOT undo a ruling yet, and saying it did was this file's first
+/// defect.** The write goes through `Document.setFullText`, which arms no
+/// `_undoCoherentApplyPending` and registers nothing with `OpUndoRegistrar` —
+/// and when the statement is open in a pane, the reconciliation that carries the
+/// ruling into the buffer takes `applyExternalText`'s `!preserveUndoStack`
+/// branch and *clears* the writer's native typing actions with nothing put in
+/// their place. That is an inherited shape rather than a new one — every write
+/// through `appendToStatement` (promotion, the picture ingest) has always had
+/// it, and no test on either side ever claimed otherwise — but §3.2 promises the
+/// ⌘Z and nothing delivers it. What this file guarantees is the **precondition**:
+/// each verb is exactly ONE op carrying its own prior text, which is what any
+/// inverse registration will need. The registration itself is Task 6's, marked
+/// at both write seams below.
 ///
 /// **Bless and correct are not verbs here, deliberately.** Spec §3.3 gives the
 /// bible stratum three actions and two of them graduate an entry into the
@@ -120,6 +134,10 @@ enum RulingPerformer {
         // second answer to "where does a chapter's intent live".
         let statement = try await store.createStatement(kind: .intent, scope: scope)
         let now = Date()
+        // Task 6 wires the undo registration — see task-4-review.md's finding.
+        // One op lands here and it carries its own prior text; nothing arms
+        // `_undoCoherentApplyPending` or registers an inverse, so ⌘Z reaches it
+        // through neither the op log nor the pane's native stack.
         try await store.mutateStatementText(of: statement, session: session) { markdown in
             RulingsSection.appending(words, provenance: provenance, on: now, to: markdown)
         }
@@ -146,11 +164,17 @@ enum RulingPerformer {
 
     /// Change what one ruling says, **in place**.
     ///
-    /// **One op, therefore one undo step** (ADR 0023). The brief called this
-    /// remove-plus-append; expressed as a single whole-text transform it is one
-    /// `setFullText` and one op, so no manual undo group is needed — a group
-    /// around a single registration would be ceremony with a false reason, and
-    /// ADR 0023's own warning is that grouping state is the thing that corrupts.
+    /// **One op — which is the precondition for one undo step, not the same
+    /// claim.** The brief called this remove-plus-append; expressed as a single
+    /// whole-text transform it is one `setFullText` and therefore one op
+    /// carrying the whole correction's prior text, so whatever eventually
+    /// registers an inverse has exactly one thing to reverse. Two ops would
+    /// already have cost the writer two ⌘Z presses for one act and no later task
+    /// could fix that. **No manual undo group is opened**, and that stays right
+    /// even once undo is wired: a group around a single registration is ceremony
+    /// with a false reason, and ADR 0023's own warning is that grouping state is
+    /// the thing that corrupts. See the type doc for why ⌘Z reaches none of this
+    /// today.
     ///
     /// **In place rather than remove-then-append, which would move the line to
     /// the bottom of the list.** A correction is a fix to a decision already
@@ -202,6 +226,9 @@ enum RulingPerformer {
             throw RulingFailure.noStatement
         }
         try refuseIfTheWordsCannotBeRead(statement, in: store)
+        // Task 6 wires the undo registration — see task-4-review.md's finding.
+        // The revoke and the edit each land as one op; the inverse each needs is
+        // its own, which is why the marker sits here rather than only on `rule`.
         try await store.mutateStatementText(
             of: statement, session: session, transform: transform)
         invalidate(scope, in: world)

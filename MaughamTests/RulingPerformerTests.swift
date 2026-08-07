@@ -94,7 +94,8 @@ final class RulingPerformerTests: XCTestCase {
         let after = try await ops(of: statement, in: url)
         XCTAssertEqual(
             after.count, before + 1,
-            "a ruling is exactly ONE op \u{2014} two would be two undo steps for one act")
+            "a ruling is exactly ONE op \u{2014} two would be two things to reverse for "
+            + "one act (\u{2318}Z is not wired to either yet; see the type doc)")
         XCTAssertTrue(
             after.last?.changes.contains { $0.next.contains("Kelly never lies about the weather.") }
                 ?? false,
@@ -391,10 +392,23 @@ final class RulingPerformerTests: XCTestCase {
 
     // MARK: - edit
 
-    /// **One op, therefore one undo step.** The remove and the re-render are one
-    /// whole-text transform, so a ⌘Z reaches a single compensating op — two ops
-    /// would leave the writer pressing ⌘Z twice for one act (ADR 0023).
-    func test_anEditIsOneUndoStep() async throws {
+    /// **Exactly one op, carrying its own prior text** — and that is all this
+    /// proves, deliberately.
+    ///
+    /// The name used to say *one undo step*, which was a claim about ⌘Z that
+    /// nothing here drives and nothing in the app delivers: a ruling write arms
+    /// no `_undoCoherentApplyPending` and registers no inverse, so the keystroke
+    /// reaches it through neither the op log nor the pane's native stack (the
+    /// registration is Task 6's; `RulingPerformer`'s type doc has the whole
+    /// finding). A test captioned as proving more than it proves is the
+    /// prose-count defect wearing a test's clothes.
+    ///
+    /// What it does hold is the **precondition**, and it is worth holding on its
+    /// own: the remove and the re-render are one whole-text transform, so there
+    /// is one op with the whole correction's `prior` in it for an inverse to
+    /// reverse. Two ops would already have cost the writer two presses for one
+    /// act, and no later task could fix that from the outside (ADR 0023).
+    func test_anEditIsExactlyOneOpCarryingItsPriorText() async throws {
         let (url, store, chapter) = try await loadedNovel(named: "EditOneStep")
         try await RulingPerformer.rule(
             "Kelly never lys.", provenance: "ruled at the desk",
@@ -412,13 +426,15 @@ final class RulingPerformerTests: XCTestCase {
         let opsAfter = try await ops(of: statement, in: url)
         XCTAssertEqual(
             opsAfter.count, opsBefore.count + 1,
-            "an edit is ONE op \u{2014} a remove op plus an append op is two undo steps "
-            + "for one correction")
+            "an edit is ONE op \u{2014} a remove op plus an append op would be two "
+            + "things to reverse for one correction, and no undo wiring added later "
+            + "could merge them back")
         let restored = try XCTUnwrap(opsAfter.last?.changes.first?.prior)
         XCTAssertTrue(
             restored.contains("Kelly never lys."),
-            "and that one op carries the PRIOR text, so reversing it restores the "
-            + "ruling exactly: \(restored)")
+            "and that one op carries the PRIOR text, which is what an inverse would "
+            + "be built from \u{2014} nothing here presses \u{2318}Z, because nothing "
+            + "registers one yet: \(restored)")
     }
 
     /// An edit is a correction to a decision already made, not a new decision:
