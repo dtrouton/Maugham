@@ -75,11 +75,13 @@ statement so you can bring it up to date.
 ## Three things you can do with a note
 
 **Answer it.** If a note describes something you did on purpose, press
-**Answer**, type why, and press Return. Your sentence is added as a new
-paragraph to that piece's intent — minting the statement if you did not have
-one — and the note goes away. The next check reads the intent you just enriched,
-so an answer is permanent rather than a dismissal you have to repeat. Escape
-takes the field away without writing anything.
+**Answer**, type why, and press Return. Your sentence becomes a **ruling** — a
+dated, itemized line under that piece's intent, minting the statement if you
+did not have one — and the note goes away. The next check reads the ruling you
+just made, so answering is permanent rather than a dismissal you have to
+repeat. Escape takes the field away without writing anything. See
+[Inspector, Research & Outline → Intent mode](right-pane.md#intent-mode-n) for
+what a ruling looks like and how to add one yourself, without a note to answer.
 
 Answers go into the *piece's* intent, never the project's. An explanation of
 what you were going for in this chapter belongs to this chapter; the project's

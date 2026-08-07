@@ -4,8 +4,18 @@ Maugham's **author compiler** (M2): the writer presses ⌘R, a warm `claude -p`
 session reads what has changed since the last run, and its notes land in the
 Diagnostics pane as ¶-anchored diagnostics. Read this before editing in
 `Maugham/Compiler/`. Also read the project root `CLAUDE.md` for cross-cutting
-invariants, and the design of record —
-`docs/superpowers/specs/2026-08-04-m2-author-compiler-design.md`.
+invariants, the design of record —
+`docs/superpowers/specs/2026-08-04-m2-author-compiler-design.md` — and its
+supersession —
+`docs/superpowers/specs/2026-08-07-compiler-second-draft-design.md`, which
+keeps the run's mechanism unchanged (§5's opening line) but replaces the
+workflow half: notes, fates, the answer flow and the pane's organization. The
+second-draft milestone ships in three stages; **this directory currently
+holds only Stage 1** — the declared world's derivation layer, the Rulings
+stratum, and the bible's storage. **The run itself still speaks the original
+M2 contract below** (one category tag per note, no conformance/continuity/
+reader-report split, no fact-candidates) until Stage 2 rebuilds it (spec §5,
+§8).
 
 Two sentences hold the whole design:
 
@@ -14,8 +24,9 @@ Two sentences hold the whole design:
   #2), and every timer in this area exists to end a session, never to start one.
 - **The compiler reads and never writes.** It reads the manuscript through an
   enumerated read-only MCP allowlist and answers with a structured message. The
-  one thing that puts words anywhere is `IntentAppendPerformer`, and its input is
-  a sentence the writer typed.
+  one thing that puts words anywhere is `RulingPerformer`, and its input is a
+  sentence the writer typed. (`IntentAppendPerformer` is now a shim over it,
+  kept only until Stage 2 rewrites the pane that calls it.)
 
 ## What this area owns
 
@@ -25,7 +36,29 @@ Two sentences hold the whole design:
 - The diagnostics themselves: shape, per-device sidecar, staleness
   (`Diagnostic`, `DiagnosticsStore`, `DiagnosticIngest`).
 - Where a note goes when the writer keeps it (`DiagnosticPromotion`) or answers
-  it (`IntentAppendPerformer`).
+  it (`RulingPerformer`, through the `IntentAppendPerformer` shim).
+- **The one door into the writer-owned layer** (`RulingPerformer`) — count the
+  verbs in the census rather than reading a number here; today they are rule,
+  revoke, edit and `restore`, each taking the writer's words as a `String` or a
+  `Ruling` those verbs produced, and never a reading. Spec §3.4's membrane;
+  `RulingPerformerTests.test_nothingDerivedCanWriteItself` is its census.
+  **`restore` exists for ⌘Z alone**: the Intent pane's rows register the
+  opposite verb on the window's `UndoManager`, and `rule` could not have served
+  as revoke's inverse — it stamps today's date and appends at the end, so
+  undoing the revocation of a March decision would hand it back re-dated. An
+  undo that rewrites the record is worse than no undo.
+- **The declared world** (spec §3.1/§3.4): Claude's disposable reading of a
+  statement into checkable `DerivedClause`/`DerivedRule` values
+  (`DeclaredWorld.swift`), the one-shot `claude -p` that produces one
+  (`DeclaredWorldDeriver.swift`), and the per-device cache keyed on the exact
+  source text's hash (`DeclaredWorldStore`, same file). Never truth, never
+  drawn — see "The derivation trigger" below.
+- **The bible** (spec §3.3): facts Claude reads off the manuscript while
+  checking it, each carrying its establishing ¶ when one exists
+  (`BibleFact`), and the per-device, project-scoped ledger of them
+  (`BibleStore.swift`). Nothing here is truth either — the writer's three
+  actions on a fact (bless / correct / dismiss, `Maugham/Views/BibleStratum.swift`)
+  are what promote or discard a reading, never this store.
 - **What a document is pinned to** (`PinnedReferences`, `PinnedReferenceResolver`)
   — the union of research the writer linked and cards they clustered on the
   canvas, one pure function with two production callers: the run's own context
@@ -55,7 +88,12 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `Diagnostic.swift` | `Diagnostic` + `CompilerRun` — the wire and sidecar shapes |
 | `DiagnosticsStore.swift` | The per-device, per-document sidecar, and the staleness rule |
 | `DiagnosticPromotion.swift` | What a kept note says once it is an op-logged task |
-| `IntentAppendPerformer.swift` | An answered note becomes a paragraph of the piece's intent |
+| `RulingPerformer.swift` | rule / revoke / edit / restore — the only writes into a statement's `## Rulings` stratum |
+| `StatementEssay.swift` | Where the essay ends and the strata begin — the byte-exact split the Intent pane's editor binds through |
+| `IntentAppendPerformer.swift` | Shim over `RulingPerformer.rule`; Stage 2 removes it |
+| `DeclaredWorld.swift` | `DerivedClause`/`DerivedRule`/`DerivedWorld` (the reading) + `DeclaredWorldStore` (its per-device, hash-gated cache) |
+| `DeclaredWorldDeriver.swift` | `ClaudeWorldDeriver` — the one-shot, no-MCP `claude -p` that turns a statement's prose into a `DerivedWorld` |
+| `BibleStore.swift` | `BibleFact` (a reading with its establishing ¶) + `BibleStore` (per-device, project-scoped ledger) |
 | `PinnedReferences.swift` | The pure union: linked research + clustered canvas cards, resolved to renderable pins |
 | `PinnedReferenceResolver.swift` | The caller-side assembly against a live project — the four inputs `PinnedReferences.pinned` takes, gathered in one place |
 
@@ -137,7 +175,11 @@ is the resumed session id, not the process.
   per-`(document, device)`: two Macs running the compiler against one document
   must not race each other's file. `DeviceSlug.raw` is interpolated in
   `DiagnosticsStore.sidecarURL` and **nowhere else** — the slug lives only in
-  filenames and is never serialised into content.
+  filenames and is never serialised into content. Two more per-device sidecars
+  joined this stage, both on the same discipline: `.maugham/derived/
+  <scopeKey>.<slug>.json` (`DeclaredWorldStore.sidecarURL`, one per statement
+  scope) and `.maugham/bible.<slug>.json` (`BibleStore.sidecarURL`, one per
+  project). `.raw` is interpolated only at each of those two call sites.
 - **3 / 6 — the arrival.** Nothing here holds an editor binding or a
   `Document`. What a run needs off the live document arrives as a
   `DocumentReading` value captured at the keystroke, and paragraph text is
@@ -176,11 +218,14 @@ This is what the milestone exists for, and the two halves are asymmetric:
   Its action is **Open Intent**; it never offers a reply field, because drift is
   not about a paragraph and the honest answer is to edit the statement whole.
 - **Accretion** — an anchored note offers **Answer**, and the writer's sentence
-  becomes a new paragraph of the **piece's** intent statement (never the
-  project's), minting it if absent. The answered note dismisses. The next run
-  reads the enriched intent.
+  becomes a **ruling** on the **piece's** intent statement (never the
+  project's), minting it if absent: an itemized, dated line under `## Rulings`
+  carrying where it came from. Spec §3.4 names the old shape — a chat reply
+  appended verbatim to the essay — as the membrane's loosest point, and this is
+  the tightening. The answered note dismisses. The next run reads the enriched
+  intent.
 
-`IntentAppendPerformer` is `PromotionPerformer`'s shape with two deliberate
+`RulingPerformer` is `PromotionPerformer`'s shape with two deliberate
 differences — no autosave flush, no project-scope fallback — both argued at
 length in its own doc comment. Read that before adding either back.
 
@@ -188,6 +233,43 @@ length in its own doc comment. Read that before adding either back.
 intended.** The compiler reads the intent it is judged against; a model that
 could also write it can move the standard until nothing it produced is ever
 flagged again. The census above is what keeps that true as the catalogue grows.
+
+## The derivation trigger — decided here, because Stage 2 needs the answer
+
+**Lazy, on-demand only: the first consumer that finds
+`DeclaredWorldStore.cached(forScopeKey:sourceHash:) == nil` for the current
+statement's hash is the one that calls `WorldDeriver.derive(statementText:)`
+and stores the result.** No background derivation, no derive-on-save — the
+same constitutional rule ADR 0027 §3 states for the run itself ("on demand,
+never continuous") applies to the reading a run is checked against. A
+statement mints or edits for reasons that have nothing to do with a check
+being imminent; deriving on every keystroke would spawn a subprocess for
+prose nobody is about to compile against.
+
+Two consumers are named by the spec (§3.4) and **neither is wired to call
+`derive` yet**:
+
+- **The pane's own conformance preview**, if it ever gets one — not built.
+  The Rulings and Bible strata this stage shipped (`RulingsStratum.swift`,
+  `BibleStratum.swift`) read `RulingsSection.parse` and `BibleStore.allFacts()`
+  only; neither reads `DeclaredWorldStore.cached` or draws a clause or a rule.
+  This is the "never shown as mechanics" rule (spec §3.1) held all the way to
+  "never even asked for."
+- **Stage 2's run**, which will read the derived clauses/rules into its
+  context the way it already reads the essay and the pinned set. This is the
+  first REAL consumer.
+
+So today `ClaudeWorldDeriver.derive` has **zero production call sites** —
+grep it. `DeclaredWorldStore` is nonetheless wired into every window
+(`ProjectWindow.self.declaredWorld = DeclaredWorldStore(...)`) and
+`RulingPerformer` invalidates it on every write (`rule`/`revoke`/`edit`, each
+taking `world` as an explicit, undefaulted parameter — see that file's own
+doc). That is Stage 1's shipped shape, not a gap: the cache and its
+invalidation are provable and tested without a caller that derives
+(`DeclaredWorldStoreTests`, `RulingPerformerTests`), and
+`StatementPaneStrataTests`'s "no derivation is ever drawn" census is what
+pins that the pane does not become the first caller by accident. Wiring the
+trigger into an actual consumer is Stage 2's task, not this one's.
 
 ## The four fates of a note
 
@@ -200,7 +282,7 @@ A diagnostic ends one of four ways, and only one of them is a button:
    this way; they have nothing to track.
 3. **Promoted** — kept as an op-logged task, which syncs and survives
    (`DiagnosticPromotion`).
-4. **Answered** — became intent (`IntentAppendPerformer`).
+4. **Answered** — became a ruling on the piece's intent (`RulingPerformer`).
 
 The sidecar is derived state: a missing or corrupt file reads as empty rather
 than throwing, and losing it costs nothing because the next run repopulates it.
@@ -224,8 +306,26 @@ drifted from them is a defect in this file.
 - `DiagnosticsStoreTests` — the sidecar, the staleness rule, the marker.
 - `DiagnosticsPaneTests` / `DiagnosticPromoteToTaskTests` — the pane's states
   and the promotion, pressed through the real accessibility tree.
-- `IntentAppendPerformerTests` — the answer flow end to end, including the two
-  refusals that must write nothing.
+- `RulingPerformerTests` — the verbs, their four refusals that must write
+  nothing, the one-op edit, the derivation invalidation, and the membrane census
+  with its planted offender.
+- `StatementPaneStrataTests` — the essay/rulings split (including the identity
+  property `render` cannot promise), the ruling that lands mid-edit, the rows'
+  two verbs and their one ⌘Z each, the bible's three actions, and the census
+  that no derivation is ever drawn.
+- `DeclaredWorldStoreTests` — the hash-gated cache: a reading served only
+  against the exact text it was made from, invalidation on write, the one
+  `scopeKey` spelling, and the missing-or-corrupt-sidecar-reads-empty contract.
+- `DeclaredWorldDeriverTests` — the one-shot subprocess: its stricter
+  confinement than `ClaudeCLISession` (no `--mcp-config` at all, `--tools ""`),
+  the prompt/parser wire-shape agreement, and honest `nil` on every failure
+  mode. One live probe against the real CLI is recorded in the task-3 report,
+  not run here.
+- `BibleStoreTests` — the ledger: `(subject, fact)` dedupe (and that a
+  dismissed fact can return), the per-device sidecar, and the subject-slice
+  `facts(subjects:)` Stage 2 will call.
+- `IntentAppendPerformerTests` — that the shim really routes, plus the pane's own
+  answer flow end to end.
 - `CompilerRunCommandTests` — ⌘R's real delivery path.
 - `PinnedReferencesTests` — the union and its resolution, including the
   dedup/dangling/sort rules; its census keeps `linkedResearchIds` (not

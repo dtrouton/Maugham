@@ -31,6 +31,29 @@ private let _statementEditorLog = Logger(
 @MainActor
 final class StatementTextTarget {
 
+    /// Whether the bound text is the statement's ESSAY HALF rather than the
+    /// whole of it (declared-world Task 6).
+    ///
+    /// **Not a second copy of the text, and the distinction is tripwire 6's.**
+    /// The triad that drove three cursor races was three *stored* values that
+    /// could disagree; there is still exactly one stored text here — the
+    /// `Document`'s — and this decides which SLICE of it the editor is looking
+    /// at. `text` derives that slice on every read and `write` recomposes
+    /// against the document's text at the instant of the write, so there is no
+    /// parse-time snapshot for a ruling to land behind.
+    ///
+    /// Fixed at construction, because it is a fact about the statement's KIND
+    /// and a host is torn down when its kind changes: `DetailPaneToggle`'s
+    /// `segmentContent` gives `.intent` and `.visualLanguage` separate `case`
+    /// arms, so `⌘⌥N`/`⌘⌥V` rebuilds this box rather than reconciling it. A
+    /// `var` set from a body pass would be exactly the value-trusted-after-the-
+    /// thing-it-described-moved shape this file has produced seven defects of.
+    private let splitsStrata: Bool
+
+    init(splitsStrata: Bool) {
+        self.splitsStrata = splitsStrata
+    }
+
     private(set) var document: Document?
     /// The statement the bound `Document` belongs to, so the host can withdraw
     /// its registration from `ProjectStore` without threading the id through a
@@ -94,8 +117,35 @@ final class StatementTextTarget {
     var onUnboundWrite: (() -> Void)?
 
     /// What the editor shows. One source at a time: the Document once bound,
-    /// the pre-mint draft before that.
-    var text: String { document?.displayText ?? draft }
+    /// the pre-mint draft before that — and, when this statement has strata,
+    /// the essay half of it rather than the whole (see `splitsStrata`).
+    var text: String {
+        guard let document else { return draft }
+        return shown(of: document.displayText)
+    }
+
+    /// The slice of a statement's markdown this box's editor is for.
+    ///
+    /// Internal rather than private so the rule is asserted directly rather than
+    /// only through a mounted editor — `StatementPaneStrataTests` drives both
+    /// arms over the product of their inputs.
+    func shown(of markdown: String) -> String {
+        splitsStrata ? StatementEssay.half(of: markdown) : markdown
+    }
+
+    /// The whole statement, given what the editor now holds and what the
+    /// statement says **at this instant**.
+    ///
+    /// **`markdown` is read at the moment of the write and is never carried**,
+    /// which is the whole of this task's hardest contract. A ruling can land in
+    /// the same `Document` between two keystrokes — Stage 2's answer flow does
+    /// exactly that with the pane open — and a recomposition against the text
+    /// this box parsed when the writer started typing writes that ruling back
+    /// out, with nothing red anywhere.
+    /// (`test_aRulingLandedMidEditSurvivesTheEssaySave`.)
+    func recomposed(_ newText: String, into markdown: String) -> String {
+        splitsStrata ? StatementEssay.recomposed(essay: newText, into: markdown) : newText
+    }
 
     /// The words typed for the scope this box is currently FOR, and not yet in
     /// any file. Empty for a scope nobody has typed into, and empty for a box
@@ -136,7 +186,7 @@ final class StatementTextTarget {
     /// binding-loop race closed.
     func write(_ newText: String) {
         if let document {
-            document.setFullText(newText)
+            document.setFullText(recomposed(newText, into: document.displayText))
             return
         }
         guard let wantedScope else {
@@ -176,11 +226,20 @@ final class StatementTextTarget {
     /// deposit for one scope cannot take another scope's words even if the pane
     /// has moved twice since, and a scope with nothing waiting is a no-op, so the
     /// caller no longer has to know which case it is in.
+    /// **Merged into the ESSAY, not onto the end of the file** (Task 6). The
+    /// draft is intent prose, and `createStatement` is idempotent — a statement
+    /// this pane established did not exist can already carry a rulings section
+    /// by the time the mint's load arrives, because a run answered a note into
+    /// it in between. Appended to the whole text, the writer's words would land
+    /// *below* the list, where `RulingsSection.parse` does not read them: safe
+    /// on disk and invisible in the pane that owns them.
     func deposit(into document: Document, for scope: String) {
         guard let words = typedBeforeItsFileExisted.removeValue(forKey: scope),
               !words.isEmpty else { return }
-        let existing = document.displayText
-        document.setFullText(existing.isEmpty ? words : existing + "\n\n" + words)
+        let markdown = document.displayText
+        let existing = shown(of: markdown)
+        let merged = existing.isEmpty ? words : existing + "\n\n" + words
+        document.setFullText(recomposed(merged, into: markdown))
     }
 
     /// Bind the loaded `Document` for `scope`, and hand it whatever was typed
@@ -247,7 +306,23 @@ struct StatementEditorHost: View {
 
     /// The one text destination. `@State` so it survives re-renders; not
     /// observable, so nothing here re-renders per keystroke.
-    @State private var target = StatementTextTarget()
+    ///
+    /// Seeded from `kind` in `init`, which is why this view has one: whether the
+    /// box binds the essay half or the whole statement is settled once, at
+    /// construction, and a host outlives every scope change but no kind change
+    /// (see `StatementTextTarget.splitsStrata`).
+    @State private var target: StatementTextTarget
+
+    init(store: ProjectStore, documentStore: DocumentStore,
+         kind: Statement.Kind, scope: Statement.Scope) {
+        self.store = store
+        self.documentStore = documentStore
+        self.kind = kind
+        self.scope = scope
+        _target = State(initialValue: StatementTextTarget(
+            splitsStrata: StatementEssay.carriesRulings(kind)))
+    }
+
     /// The scope this host has finished RESOLVING — either its `Document` is
     /// bound, or it has been established that the scope holds no statement at
     /// all. `nil` until the first reconcile, and re-derived on every scope

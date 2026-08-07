@@ -136,6 +136,51 @@ opposite deliberately.
 - A named, falsifiable trigger-locality bar exists (§2), so if the pressure is real it
   will be argued against a symptom rather than a preference.
 
+## Amendment, 2026-08-07 — the declared world and the derived bible
+
+*Appended, not rewritten. What this ADR decided on 2026-08-05 stands as the record of
+that decision; the paragraphs above are left exactly as they were, including the
+sentence the second bullet below supersedes. Binding position:
+`docs/superpowers/specs/2026-08-07-compiler-second-draft-design.md` §3.4.*
+
+The second-draft spec tightens §1's membrane rather than crossing it, and gives
+Claude's readings a new home this ADR did not describe: a persistent, subordinate
+stratum of the writer's own statement document.
+
+- **The answer flow moved, and Consequences' third bullet is superseded by the
+  move.** *"An answered [note] becomes a paragraph of the writer's intent"* is no
+  longer how it lands: `IntentAppendPerformer` is now a shim over
+  `RulingPerformer.rule`, which writes an itemized, dated line into the statement's
+  `## Rulings` stratum rather than appending a bare paragraph to the essay (spec
+  §3.4 names the old shape as *"the membrane's loosest point"* and this is the
+  tightening). §1's finding is unchanged by the move — the string that lands is
+  still the writer's own words, typed by the writer, in the pane, and no model
+  output is anywhere in that path — but the destination now visibly marks itself
+  as a decision (dated, carrying provenance) rather than reading as ordinary prose
+  a later self could mistake for their own unprompted sentence.
+- **The derived bible is a new kind of Claude-produced artifact, and it does not
+  weaken §1.** Two caches now live under `.maugham/`: a per-scope reading of a
+  statement into checkable clauses and rules (`DeclaredWorld`), and a project-wide
+  ledger of facts read off the manuscript while checking it (`BibleFact`/
+  `BibleStore`). Both are, by construction: **a persistent cache of readings**
+  (they survive relaunch, unlike a diagnostic, which the sidecar drops the moment
+  the next run supersedes it); **a subordinate stratum**, drawn so it cannot be
+  mistaken for the writer's own — the Bible stratum's paper, ink, and
+  `CanvasAccessibility.claudeTerm` accessibility label exist for exactly the reason
+  the canvas's "straight means Claude" tilt does, so a reader or a listener can
+  tell a reading apart from a ruling at a glance rather than by re-deriving it each
+  time; and **never truth until blessed** — nothing in either cache is checked
+  against as if it were the writer's declaration, and the only route out of the
+  cache is the same membrane §1 already named, `bless`/`correct`/`rule`, each
+  crossing as the writer's own act on visible text.
+- **§1's literal test is unmoved.** Neither cache renders in the editor or its
+  chrome; both live in the same pane a diagnostic already does, a place the writer
+  turns to. A future surface that read `DeclaredWorld`'s clauses or `BibleFact`s
+  as if they were the writer's declared standard — rather than context a *check*
+  reads, or a reading the writer has not yet blessed — would be must-not #1
+  arriving through a new door, and would fail this ADR exactly as a diagnostic
+  drawn in the gutter would.
+
 ## References
 
 - `docs/constitution.md` must-not #2 ("No AI inside the editor" — the rule this ADR
@@ -143,6 +188,8 @@ opposite deliberately.
   principle), must-not #1 ("AI is never the author" — untouched, see Consequences)
 - Spec: `docs/superpowers/specs/2026-08-04-m2-author-compiler-design.md` §1, §3.1, §4.4,
   §6.1, §9.1, §11
+- Spec: `docs/superpowers/specs/2026-08-07-compiler-second-draft-design.md` §3.4 (the
+  amendment above), §7 (its own constitution check)
 - [ADR 0028](0028-maugham-goes-outbound.md) — the other half of this milestone's
   constitutional accounting: what leaves the machine when ⌘R is pressed
 - [ADR 0025](0025-persona-shell.md) — the Author persona and the pane registry the

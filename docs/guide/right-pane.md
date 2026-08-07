@@ -72,6 +72,36 @@ Intent is a real document, not a note: every edit lands in its own operation log
 
 **Having no intent recorded is a valid state.** An undeclared scope is simply an empty editor — start typing and the file is created for you. Nothing nags, and nothing is written until you write it.
 
+**Rulings** are decisions, itemized apart from the prose above them. A rule is
+just intent about something specific — "Kelly only ever acts on what she's
+actually heard" — and once it firms up it belongs on its own line rather than
+buried in a paragraph. **Rulings are made by pressing something, not by typing
+a heading.** Answering a check's note (see
+[Checking Your Writing](compiler.md)) files your sentence as a ruling on that
+piece, dated and marked with where it came from; so do **Bless** and
+**Correct**, the two buttons on an entry in the paler strip below — the things
+Claude has read off the manuscript, which are its readings until you say
+otherwise. Each ruling appears in its own strip beneath the editor with
+**Edit** and **Revoke** on it. Revoke
+takes a line out (one ⌘Z brings it back exactly as it was — same words, same
+day, same note about where it came from); Edit changes the words in place and
+leaves the day and provenance untouched, because a correction isn't a new
+decision.
+
+The editor above the strip is for your prose, and typing a `## Rulings` heading
+into it doesn't make the section — a heading with nothing under it is just a
+heading, and it stays in your text like any other line. Let the buttons write
+the section; if you've already typed a heading of your own, the next ruling
+adopts it rather than adding a second one. **The `.md` file's own shape is
+forgiving** — Maugham reads whatever list it finds under that heading and
+doesn't require the exact form it writes itself, so a bare line with no date
+works as well as one it dated for you. That
+tolerance is for files arriving from your other Mac or from an older draft, not
+an invitation to edit the file in Finder: like every document in Maugham, an
+intent is kept in its own operation log and the `.md` is written out from it, so
+an outside edit made while Maugham has the project open is discarded on the next
+save.
+
 ### Visual Language mode (⌘⌥V)
 
 How the book looks — typography, cover direction, the references you're steering by. Project-scope: one book, one look. Like Intent it's an ordinary document, with the same undo and the same cross-Mac merge, and it's likewise empty until you write in it.
@@ -94,7 +124,7 @@ The gear menu picks the model a check runs against — **Fast**, **Standard**, o
 
 **A clean check says so plainly.** No notes to raise reads *"Nothing to flag."* — not silence, not a green checkmark standing in for an answer.
 
-**A note you answer becomes intent.** Press **Answer** on a note, say why the thing it flagged is deliberate, and press Return: your sentence is added to that piece's intent statement and the note goes away, so the next check reads what you just told it rather than raising the same thing again. **Promote to Task** keeps a note instead — as a real task on the document, which syncs and survives where the notes don't. Full walkthrough: [Checking Your Writing](compiler.md).
+**A note you answer becomes a ruling on that piece's intent.** Press **Answer** on a note, say why the thing it flagged is deliberate, and press Return: your sentence lands as a dated line under [that piece's Rulings](#intent-mode-n), and the note goes away, so the next check reads what you just told it rather than raising the same thing again. **Promote to Task** keeps a note instead — as a real task on the document, which syncs and survives where the notes don't. Full walkthrough: [Checking Your Writing](compiler.md).
 
 ### References mode (⌘⌥E)
 

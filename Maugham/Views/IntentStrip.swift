@@ -127,7 +127,16 @@ struct IntentStrip: View {
     ) -> String? {
         guard persona == .author, !isNoChromeOn else { return nil }
         guard let statement = store.effectiveIntent(forDocId: docId) else { return nil }
-        return line(from: store.statementText(of: statement))
+        // **The ESSAY stratum, not the whole statement** (declared-world Task
+        // 6). `line(from:)` walks blocks and takes the first paragraph, list
+        // item or quoted line — so a statement whose essay is still empty and
+        // whose `## Rulings` section is not would put a RULING over the prose:
+        // the heading is skipped as a heading and the first list item answers.
+        // A running head is the writer's standing sentence about what the piece
+        // is going for, and an itemized decision is not that. This resolver
+        // only ever sees an intent (`effectiveIntent`), which is the one kind
+        // that has strata at all.
+        return line(from: StatementEssay.half(of: store.statementText(of: statement)))
     }
 
     // MARK: - The line rule (pure)
