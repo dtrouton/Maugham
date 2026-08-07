@@ -131,16 +131,7 @@ final class StatementMountFixture: RunLoopPumping {
     /// exactly like a pane that rendered nothing. Cost an hour here before the
     /// dump said every label in the window was missing, not only the new ones.
     func staticTexts(in window: NSWindow, containing substring: String) throws -> [String] {
-        var role: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(
-            AXUIElementCreateApplication(getpid()), kAXRoleAttribute as CFString, &role)
-        guard error == .success, role != nil else {
-            throw XCTSkip(
-                "no assistive client could be attached to this process, so SwiftUI "
-                + "never built the tree this test reads")
-        }
-        guard let root = window.contentView else { return [] }
-        return axElements(under: root)
+        try axTree(in: window)
             .compactMap { axAttribute($0, "accessibilityValue") as? String
                 ?? axAttribute($0, "accessibilityLabel") as? String }
             .filter { $0.contains(substring) }
@@ -151,6 +142,49 @@ final class StatementMountFixture: RunLoopPumping {
     /// assertion after the wait is what reports the skip.
     func shows(_ substring: String, in window: NSWindow) -> Bool {
         !(((try? staticTexts(in: window, containing: substring)) ?? []).isEmpty)
+    }
+
+    /// Press the real control the writer presses, through production's own
+    /// accessibility tree (`DiagnosticsPaneTests`' shape).
+    ///
+    /// A press rather than a call of the action: what a delivery-path test is
+    /// for is everything between the two — that the `Button` exists, that it is
+    /// reachable, and that the closure it carries closes over the environment
+    /// the mounted view actually got.
+    @discardableResult
+    func pressButton(labelled label: String, in window: NSWindow) throws -> Bool {
+        var lastLabels: [String] = []
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            let buttons = try axTree(in: window)
+                .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
+            lastLabels = buttons.map { axAttribute($0, "accessibilityLabel") as? String ?? "nil" }
+            if let match = buttons.first(
+                where: { (axAttribute($0, "accessibilityLabel") as? String) == label })
+                as? NSObject {
+                _ = match.perform(NSSelectorFromString("accessibilityPerformPress"))
+                return true
+            }
+            pump(0.05)
+        }
+        XCTFail("no button labelled \u{201C}\(label)\u{201D} reached the hosted pane. "
+                + "Buttons found on the last attempt: \(lastLabels)")
+        return false
+    }
+
+    /// The window's accessibility subtree, with the process primed — see
+    /// `staticTexts` for why the priming call is load-bearing.
+    private func axTree(in window: NSWindow) throws -> [AnyObject] {
+        var role: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(
+            AXUIElementCreateApplication(getpid()), kAXRoleAttribute as CFString, &role)
+        guard error == .success, role != nil else {
+            throw XCTSkip(
+                "no assistive client could be attached to this process, so SwiftUI "
+                + "never built the tree this test presses through")
+        }
+        guard let root = window.contentView else { return [] }
+        return axElements(under: root)
     }
 
     private func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {

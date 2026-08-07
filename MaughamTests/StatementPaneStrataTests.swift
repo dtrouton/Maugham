@@ -80,6 +80,46 @@ final class StatementPaneStrataTests: XCTestCase {
         XCTAssertEqual(StatementEssay.half(of: out), "")
     }
 
+    /// **Two shapes the reviewer falsified by hand, pinned so they stay
+    /// falsified** (fix round 1).
+    ///
+    /// A delimiter line of spaces still qualifies as blank
+    /// (`RulingsSection.findHeadingIndex` trims with `.whitespaces`), and the
+    /// splice must give those exact bytes back — which it does *because* the
+    /// tail is `dropFirst` on the raw string rather than a rejoin of parsed
+    /// lines. A rejoining implementation would pass every other test in this
+    /// file and silently normalize this one.
+    func test_aWhitespaceOnlyDelimiterLineSurvivesTheSpliceByteForByte() {
+        let markdown = "Essay.\n   \n## Rulings\n\n- One\n"
+        XCTAssertEqual(StatementEssay.half(of: markdown), "Essay.")
+        XCTAssertEqual(StatementEssay.recomposed(essay: "Essay.", into: markdown), markdown)
+        XCTAssertEqual(StatementEssay.recomposed(essay: "New.", into: markdown),
+                       "New.\n   \n## Rulings\n\n- One\n",
+                       "the three spaces the writer left on the delimiter line were "
+                       + "normalized away")
+    }
+
+    /// **CRLF: the splice is safe, and it is safe by accident — record which.**
+    ///
+    /// `RulingsSection.findHeadingIndex` trims with `.whitespaces`, which does
+    /// not include `\r`, so `"## Rulings\r"` never equals the heading and the
+    /// boundary is never found. `parse` hands back the whole document as essay,
+    /// which makes the splice a trivial identity and the pane a plain
+    /// whole-text editor: nothing is lost and no ruling is ever *itemized*.
+    ///
+    /// So this test pins the observed behaviour rather than a desired one. The
+    /// latent gap is `RulingsSection.parse`'s (Task 1, MaughamCore) and nothing
+    /// in the app produces CRLF today; if that ever changes, this test is where
+    /// the assumption is written down.
+    func test_aCRLFDocumentIsAllEssayAndTheSpliceIsTheIdentity() {
+        let markdown = "Essay.\r\n\r\n## Rulings\r\n\r\n- One\r\n"
+        XCTAssertTrue(RulingsSection.parse(markdown).rulings.isEmpty,
+                      "CRLF now parses as a rulings section — the pane would itemize "
+                      + "these lines and this test's reasoning no longer holds")
+        XCTAssertEqual(StatementEssay.half(of: markdown), markdown)
+        XCTAssertEqual(StatementEssay.recomposed(essay: markdown, into: markdown), markdown)
+    }
+
     // MARK: - Which statements have the stratum at all
 
     /// Visual language has no rulings (`RulingPerformer`'s kind is always
@@ -321,6 +361,84 @@ final class StatementPaneStrataTests: XCTestCase {
         XCTAssertEqual(
             RulingsStratum.rows(in: fixture.store.statementText(of: statement)).map(\.text),
             ["First", "Second"], "one ⌘Z did not restore the ruling's old words")
+    }
+
+    /// **The real ⌘Z, through the control the writer presses** (fix round 1).
+    ///
+    /// Every other undo assertion here builds an `UndoManager()` of its own and
+    /// calls the static verb — which proves the verb and `OpUndoRegistrar`, and
+    /// assumes the two hops between them and a writer's keystroke: that
+    /// `@Environment(\.undoManager)` inside a mounted `RulingsStratumView`
+    /// resolves to the WINDOW's manager, and that the row's `Button` carries
+    /// that environment into its closure. This project's own recorded lesson is
+    /// that an undo suite can be green over a ⌘Z that reaches nothing
+    /// (`memory/project_milestone_mode_ux_redesign.md`), so the assumption is
+    /// worth one test that does not make it.
+    ///
+    /// Production the whole way: the real `StatementPane`, the real stratum
+    /// mounted inside it, the real `Button` pressed through the accessibility
+    /// tree, and `window.undoManager` — the object AppKit hands the writer's
+    /// ⌘Z — driven directly.
+    ///
+    /// **`canUndo` is asserted before `undo()` on purpose.** Without it a
+    /// no-op manager and a working one look identical: nothing happens, the
+    /// ruling is still gone, and the failure reads as "the undo did not
+    /// restore" rather than "nothing was ever registered here".
+    func test_pressingRevokeOnTheMountedRowIsUndoneByTheWindowsOwnUndoManager() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "revoke-delivery")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+        let ruled = Date(timeIntervalSince1970: 1_786_060_800)
+        _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
+        let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: scope))
+        try await fixture.store.mutateStatementText(of: statement, session: "s") { _ in
+            RulingsSection.render(essay: "Essay.", rulings: [
+                Ruling(id: "", text: "First", ruledOn: ruled, provenance: "from a run"),
+                Ruling(id: "", text: "Second", ruledOn: ruled, provenance: "by hand"),
+            ])
+        }
+
+        let window = await fixture.host(
+            kind: .intent, subject: .item(fixture.documentItemId))
+        await fixture.pumpUntil(deadline: 5) { fixture.shows("First", in: window) }
+        XCTAssertTrue(fixture.shows("First", in: window),
+                      "the ruling never reached the mounted stratum, so there is no "
+                      + "control to press")
+
+        // The first row's Revoke — the rows are drawn in file order, so this is
+        // "First". Asserted below rather than assumed: if the tree ever hands
+        // them back in another order this fails loudly instead of passing over
+        // whichever row it found.
+        try fixture.pressButton(labelled: "Revoke", in: window)
+        await fixture.pumpUntil(deadline: 5) {
+            RulingsStratum.currentRows(forScope: scope, store: fixture.store).count == 1
+        }
+        XCTAssertEqual(
+            RulingsStratum.currentRows(forScope: scope, store: fixture.store).map(\.text),
+            ["Second"], "pressing Revoke on the mounted row did not revoke it")
+
+        let undoManager = try XCTUnwrap(
+            window.undoManager,
+            "the window has no undo manager at all, so nothing a pane registers "
+            + "can ever be reached by ⌘Z")
+        XCTAssertTrue(
+            undoManager.canUndo,
+            "the mounted row's Revoke registered nothing on the WINDOW's undo "
+            + "manager — `@Environment(\\.undoManager)` in this pane is not the "
+            + "manager AppKit hands ⌘Z, and every ⌘Z assertion in this suite is "
+            + "proving a path the writer cannot reach")
+
+        undoManager.undo()
+        await fixture.pumpUntil(deadline: 5) {
+            RulingsStratum.currentRows(forScope: scope, store: fixture.store).count == 2
+        }
+        let restored = RulingsStratum.currentRows(forScope: scope, store: fixture.store)
+        XCTAssertEqual(restored.map(\.text), ["First", "Second"],
+                       "the window's ⌘Z did not put the revoked ruling back in place")
+        XCTAssertEqual(restored[0].ruledOn, ruled)
+        XCTAssertEqual(restored[0].provenance, "from a run")
+        XCTAssertEqual(StatementEssay.half(of: fixture.store.statementText(of: statement)),
+                       "Essay.")
     }
 
     /// A row's id is derived from its own text, so it goes stale the instant
