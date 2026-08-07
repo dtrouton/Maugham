@@ -137,8 +137,30 @@ final class BibleStore {
             version += 1
             return
         }
-        byId = Dictionary(uniqueKeysWithValues: facts.map { ($0.id, $0) })
+        byId = Dictionary(facts.map { ($0.id, $0) }, uniquingKeysWith: Self.survivor)
         version += 1
+    }
+
+    /// Which of two facts sharing one id survives the load (whole-branch
+    /// review, I1).
+    ///
+    /// **A duplicate id is not a reason to take the app down.** `load` runs
+    /// from `init`, which runs from `ProjectWindow.load()`, so
+    /// `Dictionary(uniqueKeysWithValues:)`'s trap on a repeated key turned a
+    /// decodable-but-corrupt sidecar into a crash at project open — one that
+    /// repeated until somebody found and deleted a hidden file. Nothing here
+    /// writes duplicates (`persist` serializes a dictionary); this is the
+    /// contract in the type doc being kept: a corrupt sidecar reads as
+    /// whatever can be salvaged, never as a throw.
+    ///
+    /// The newest reading wins, because a later run is the one that recorded
+    /// it. Ties fall back to the words rather than to array order: the file is
+    /// rewritten from a dictionary, so the order it lists two facts in is not
+    /// stable, and a rule that depended on it would give a different answer on
+    /// different launches over the same bytes.
+    static func survivor(_ a: BibleFact, _ b: BibleFact) -> BibleFact {
+        if a.recordedAt != b.recordedAt { return a.recordedAt > b.recordedAt ? a : b }
+        return (a.subject, a.fact) <= (b.subject, b.fact) ? a : b
     }
 
     /// The one place the dedupe key is computed, so `record`'s guard and the

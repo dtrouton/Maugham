@@ -78,6 +78,73 @@ final class BibleStoreTests: XCTestCase {
         XCTAssertEqual(store.allFacts(), [])
     }
 
+    /// **A decodable sidecar carrying one id twice must not take the app down**
+    /// (whole-branch review, I1).
+    ///
+    /// `Dictionary(uniqueKeysWithValues:)` traps on a duplicate key, and this
+    /// load runs from `init`, which runs from `ProjectWindow.load()` — so a
+    /// sidecar that decodes but repeats an id crashed the app **at project
+    /// open**, and went on crashing it until somebody found and deleted a
+    /// hidden file. Nothing in production writes duplicates (`persist`
+    /// serializes a dictionary), which is exactly why this needs a test: the
+    /// contract this type states is "a missing or corrupt sidecar reads as
+    /// empty rather than throwing", and a decodable-but-corrupt file is the
+    /// case that contract exists for.
+    ///
+    /// The survivor is the newest reading, because that is the one a later run
+    /// recorded.
+    func test_aSidecarWithDuplicateIdsLoadsWithoutTakingTheAppDown() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let older = BibleFact(
+            id: "same-id", subject: "Kelly", fact: "the older reading",
+            establishedAt: "abcd", docId: "docA",
+            recordedAt: Date(timeIntervalSince1970: 1_786_000_000))
+        let newer = BibleFact(
+            id: "same-id", subject: "Kelly", fact: "the newer reading",
+            establishedAt: "abcd", docId: "docA",
+            recordedAt: Date(timeIntervalSince1970: 1_786_060_800))
+        try writeSidecar([older, newer], project: project, device: device)
+
+        let store = BibleStore(projectRoot: project, device: device)
+
+        XCTAssertEqual(store.allFacts().count, 1,
+                       "one id must yield one fact")
+        XCTAssertEqual(store.allFacts().first?.fact, "the newer reading",
+                       "the survivor of a duplicate id is the newest reading")
+
+        // Both orders, because a rule that depends on which one the array
+        // happened to list first is not a rule.
+        try writeSidecar([newer, older], project: project, device: device)
+        let reversed = BibleStore(projectRoot: project, device: device)
+        XCTAssertEqual(reversed.allFacts().first?.fact, "the newer reading",
+                       "the survivor changed with the order the file listed them in")
+    }
+
+    /// Two duplicates recorded in the same instant still resolve to one answer,
+    /// and to the SAME answer every time — the sidecar is rewritten from a
+    /// dictionary, so the order it lists them in is not stable and cannot be
+    /// what decides.
+    func test_duplicatesRecordedInTheSameInstantResolveDeterministically() throws {
+        let instant = Date(timeIntervalSince1970: 1_786_060_800)
+        let a = BibleFact(id: "same-id", subject: "Kelly", fact: "aaa",
+                          establishedAt: nil, docId: "docA", recordedAt: instant)
+        let b = BibleFact(id: "same-id", subject: "Kelly", fact: "bbb",
+                          establishedAt: nil, docId: "docA", recordedAt: instant)
+        XCTAssertEqual(BibleStore.survivor(a, b), BibleStore.survivor(b, a))
+    }
+
+    private func writeSidecar(
+        _ facts: [BibleFact], project: URL, device: DeviceSlug
+    ) throws {
+        let url = BibleStore.sidecarURL(projectRoot: project, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(facts).write(to: url)
+    }
+
     func test_missingSidecar_readsAsEmpty_neverThrows() throws {
         let project = try makeProject()
         let store = BibleStore(projectRoot: project, device: DeviceSlug.make(from: "test-mac"))
