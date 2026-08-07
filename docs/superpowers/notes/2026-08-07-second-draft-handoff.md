@@ -64,6 +64,22 @@ Two things the whole-branch review pinned for it:
 2. `ClaudeWorldDeriver.derive` gets its first production caller in Stage 2 —
    fix the pipe-drain read-after-exit shape in the same commit.
 
+Three more Stage 2 requirements from Denver's first live runs (2026-08-07):
+
+3. **No bare ¶ids anywhere the writer reads.** The output contract forbids ids
+   in note prose — paragraphs are referred to by short QUOTE, the way an
+   editor would. Cross-references become a structured `refs` field, rendered
+   in the pane as excerpt chips that click-to-jump (the anchor row's own
+   machinery). Applies to conformance strains and drift citations too.
+4. **The silent window must not stay silent.** A cold first run over a large
+   delta takes ~2 minutes and reads as broken: stream the four sections as
+   they arrive (conformance first — the spike's named mitigation), and give
+   the in-flight ⌘R press an acknowledgment (a "Still checking…" flash
+   variant — revisits Task 7's refused-press-doesn't-flash judgment call).
+5. The first-run-after-a-gap case is when a writer most doubts the tool —
+   the running state should say what it is reading ("checking 14 new
+   paragraphs…") so a long wait is legible.
+
 ## Standing state
 
 - M2 + the wet-ink fix + Stage 1 are all on local `main`, one push behind
