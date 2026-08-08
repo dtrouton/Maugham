@@ -33,6 +33,34 @@ if [[ ! -d Maugham.xcodeproj ]]; then
   ./gen.sh
 fi
 
+# ---- cross-session gate lock -------------------------------------------------
+# Several Claude sessions share this Mac, and two overlapping full gates host
+# 14+ app processes: starvation-shaped failures land on a DIFFERENT victim each
+# run (measured 2026-08-08 — CLAUDE.md's third confounder). Queueing gates
+# behind a machine-global lock turns that documented hazard into a non-event.
+# mkdir is atomic and macOS ships no flock(1); the pid file lets a crashed
+# holder's lock be reclaimed instead of wedging every later run.
+GATE_LOCK="${TMPDIR:-/tmp}/maugham-test-gate.lock"
+acquire_gate_lock() {
+  local waited=0
+  while ! mkdir "$GATE_LOCK" 2>/dev/null; do
+    local holder
+    holder=$(cat "$GATE_LOCK/pid" 2>/dev/null || echo "")
+    if [[ -n "$holder" ]] && ! kill -0 "$holder" 2>/dev/null; then
+      echo "gate lock held by dead pid $holder — reclaiming"
+      rm -rf "$GATE_LOCK"
+      continue
+    fi
+    if [[ "$waited" -eq 0 ]]; then
+      echo "another test gate is running (pid ${holder:-unknown}) — queueing behind it"
+    fi
+    sleep 5; waited=$((waited + 5))
+  done
+  echo $$ > "$GATE_LOCK/pid"
+  trap 'rm -rf "$GATE_LOCK"' EXIT
+}
+acquire_gate_lock
+
 run_core() {
   echo "▸ MaughamCore package tests (swift test --parallel)"
   swift test --parallel --package-path Packages/MaughamCore
