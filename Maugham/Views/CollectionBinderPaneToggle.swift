@@ -25,13 +25,16 @@ struct CollectionBinderPaneToggle: View {
             // `.collection` is a constant here rather than a property: this
             // toggle exists only for collection projects, and passing it is
             // what makes the manuscript segment read "Pieces".
+            // The divider beneath the strip is the picker's own, not this
+            // caller's — see `BinderSegmentPicker.body`'s fix-round-1 note.
+            // Placing one here too is exactly the ghost-divider defect that
+            // fix caught.
             BinderSegmentPicker(
                 segment: $segment,
                 persona: persona,
                 projectType: .collection,
                 hasTrash: !store.trashEntries.isEmpty,
                 findActive: findActive)
-            Divider()
             Group {
                 switch segment {
                 case .manuscript:

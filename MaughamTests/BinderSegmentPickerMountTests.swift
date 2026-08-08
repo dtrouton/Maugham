@@ -52,41 +52,30 @@ private struct PickerProbeView: View {
     }
 }
 
-/// The picker plus the `Divider()` every real caller mounts directly beneath
-/// it (`BinderPaneToggle.swift`, `CollectionBinderPaneToggle.swift`) — used to
-/// measure whether a choiceless picker leaves the divider (and whatever sits
-/// below it) exactly where they would stand without the picker at all, rather
-/// than merely confirming the control is absent.
+/// Exactly what `BinderPaneToggle` and `CollectionBinderPaneToggle` mount
+/// today: `BinderSegmentPicker` alone, with nothing of the caller's own
+/// beside it. The `Divider()` beneath the segmented control is now the
+/// picker's own (fix round 1 of shell-finish stage 1 task 2 folded it in —
+/// see `BinderSegmentPicker.body`'s doc comment): a caller that mounted its
+/// own `Divider()` alongside this, as both callers did until that fix, would
+/// leave a 1pt hairline behind after the picker itself goes empty — the
+/// strip's ghost, and Denver's complaint was about the strip existing at
+/// all. This probe mirrors the real callers' shape exactly so the residue
+/// this fix removed cannot silently come back through a rewritten caller.
 @MainActor
-private struct PickerPlusDividerProbeView: View {
+private struct PickerAloneProbeView: View {
     let persona: Persona
     let projectType: ProjectType
     let hasTrash: Bool
     let findActive: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            BinderSegmentPicker(
-                segment: .constant(persona.binderHome(for: projectType)),
-                persona: persona,
-                projectType: projectType,
-                hasTrash: hasTrash,
-                findActive: findActive)
-            Divider()
-        }
-        .frame(width: 240)
-    }
-}
-
-/// Just the `Divider()`, no picker at all — the baseline
-/// `PickerPlusDividerProbeView`'s choiceless configuration must match exactly,
-/// or the picker is reserving height nobody can see by eye.
-@MainActor
-private struct DividerOnlyProbeView: View {
-    var body: some View {
-        VStack(spacing: 0) {
-            Divider()
-        }
+        BinderSegmentPicker(
+            segment: .constant(persona.binderHome(for: projectType)),
+            persona: persona,
+            projectType: projectType,
+            hasTrash: hasTrash,
+            findActive: findActive)
         .frame(width: 240)
     }
 }
@@ -104,6 +93,89 @@ private struct VisibilityProbeView: View {
             projectType: projectType,
             hasTrash: probe.hasTrash,
             findActive: probe.findActive)
+        .frame(width: 240)
+    }
+}
+
+/// A stand-in for the per-persona content each caller switches to below the
+/// picker (the manuscript tree, research, etc.) — deliberately arbitrary and
+/// fixed-height, since what fix round 1's residue test is about is the
+/// CHROME above the content, not the content itself.
+@MainActor
+private struct StandInContentView: View {
+    var body: some View {
+        Rectangle().fill(Color.clear).frame(width: 240, height: 400)
+    }
+}
+
+/// **Exactly the wrapper shape `BinderPaneToggle` and
+/// `CollectionBinderPaneToggle` use today**: `VStack(spacing: 0) {
+/// BinderSegmentPicker(...); <content> }`, nothing of the caller's own
+/// between the picker and its content. This is the shape fix round 1's
+/// residue test is against, rather than the picker alone
+/// (`PickerAloneProbeView`): a caller that re-adds its own `Divider()`
+/// beside the picker call is a bug in the CALLER's body, and a picker-only
+/// probe cannot see it — the picker was already correct before fix round 1,
+/// the callers were not.
+@MainActor
+private struct CallerShapeProbeView: View {
+    let persona: Persona
+    let projectType: ProjectType
+    let hasTrash: Bool
+    let findActive: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            BinderSegmentPicker(
+                segment: .constant(persona.binderHome(for: projectType)),
+                persona: persona,
+                projectType: projectType,
+                hasTrash: hasTrash,
+                findActive: findActive)
+            StandInContentView()
+        }
+        .frame(width: 240)
+    }
+}
+
+/// The baseline: the same content, with no picker call above it at all —
+/// what a choiceless `CallerShapeProbeView` must measure exactly equal to,
+/// or the wrapper is reserving height nobody can see by eye.
+@MainActor
+private struct ContentAloneProbeView: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            StandInContentView()
+        }
+        .frame(width: 240)
+    }
+}
+
+/// **Planted offender, kept only as a test fixture — never mirror this in
+/// production.** Reproduces the exact shape `BinderPaneToggle` and
+/// `CollectionBinderPaneToggle` had BEFORE fix round 1 of shell-finish stage
+/// 1 task 2: a `Divider()` mounted unconditionally right after the picker,
+/// independent of whether the picker itself rendered anything. Exists solely
+/// to prove the geometric test below can see the defect it exists to catch,
+/// rather than passing on any input.
+@MainActor
+private struct HistoricalBuggyCallerShapeProbeView: View {
+    let persona: Persona
+    let projectType: ProjectType
+    let hasTrash: Bool
+    let findActive: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            BinderSegmentPicker(
+                segment: .constant(persona.binderHome(for: projectType)),
+                persona: persona,
+                projectType: projectType,
+                hasTrash: hasTrash,
+                findActive: findActive)
+            Divider()
+            StandInContentView()
+        }
         .frame(width: 240)
     }
 }
@@ -202,31 +274,70 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     }
 
     /// **Layout, not just absence.** A choiceless mount must not merely fail
-    /// to produce an `NSSegmentedControl` — it must leave no reserved
-    /// vertical space where the strip used to sit, so the `Divider()` every
-    /// real caller (`BinderPaneToggle`, `CollectionBinderPaneToggle`) places
-    /// directly beneath the picker sits exactly where a `Divider()` with no
-    /// picker above it would. `NSHostingView.fittingSize` reads the laid-out
-    /// AppKit tree, not the SwiftUI view's declared body, so this catches the
-    /// footgun a purely structural check (asserting `body` returns
-    /// `EmptyView`) would miss: `.padding` applied OUTSIDE the visibility
-    /// check would still add its vertical inset around a zero-size child.
-    func test_choicelessPickerReservesNoHeightAboveTheDivider() async throws {
-        let baseline = try await fittingHeight(DividerOnlyProbeView())
+    /// to produce an `NSSegmentedControl`; the PICKER ITSELF must reserve
+    /// exactly ZERO vertical space, full stop. `NSHostingView.fittingSize`
+    /// reads the laid-out AppKit tree, not the SwiftUI view's declared body,
+    /// so this catches a footgun a purely structural check (asserting `body`
+    /// returns `EmptyView`) would miss: `.padding` applied OUTSIDE the
+    /// visibility check would still add its vertical inset around a
+    /// zero-size child.
+    ///
+    /// **This test is necessarily blind to a caller-owned residue** — a
+    /// `Divider()` a CALLER mounts unconditionally beside the picker call is
+    /// a bug in the caller's body, not the picker's, and `PickerAloneProbeView`
+    /// never mounts a caller at all. `BinderSegmentPicker` was already
+    /// correct in isolation before fix round 1 (this exact assertion passed
+    /// against the pre-fix-round-1 tree — it is the WRAPPER that was
+    /// wrong); `test_theCallerWrapperAddsNoResidueBeyondThePickerItself`
+    /// below is the one that actually caught fix round 1's defect.
+    func test_choicelessPickerReservesExactlyZeroHeight() async throws {
         let choiceless = try await fittingHeight(
-            PickerPlusDividerProbeView(persona: .author, projectType: .novel,
-                                       hasTrash: false, findActive: false))
-        XCTAssertEqual(choiceless, baseline, accuracy: 0.5,
-                       "a choiceless picker must add nothing above the divider "
-                       + "— the tree's header has to sit exactly where it would "
-                       + "if the picker were never there")
+            PickerAloneProbeView(persona: .author, projectType: .novel,
+                                 hasTrash: false, findActive: false))
+        XCTAssertEqual(choiceless, 0, accuracy: 0.5,
+                       "a choiceless picker must reserve exactly zero height "
+                       + "on its own")
 
         let shown = try await fittingHeight(
-            PickerPlusDividerProbeView(persona: .plan, projectType: .novel,
-                                       hasTrash: false, findActive: false))
-        XCTAssertGreaterThan(shown, baseline + 10,
-                             "the control: a real picker must reserve visible "
-                             + "height, or this comparison is measuring nothing")
+            PickerAloneProbeView(persona: .plan, projectType: .novel,
+                                 hasTrash: false, findActive: false))
+        XCTAssertGreaterThan(shown, 10,
+                             "the control: a real picker (control + its own "
+                             + "divider) must reserve visible height, or this "
+                             + "comparison is measuring nothing")
+    }
+
+    /// **The gap, not just the bar.** The picker's own zero-height contract,
+    /// proved above, cannot see a caller that mounts its OWN `Divider()`
+    /// beside the picker call — fix round 1's actual defect, in both
+    /// `BinderPaneToggle` and `CollectionBinderPaneToggle`. This measures the
+    /// exact wrapper shape both real callers use, choiceless, against the
+    /// same content with no picker call above it at all: they must be
+    /// indistinguishable, to the pixel accuracy `fittingSize` affords — a
+    /// true flush join, not "no bigger than a bare divider."
+    ///
+    /// The planted-offender control at the end reproduces the exact shape
+    /// both callers had before fix round 1 and proves this assertion is not
+    /// vacuous: it measures a real, nonzero residue.
+    func test_theCallerWrapperAddsNoResidueBeyondThePickerItself() async throws {
+        let baseline = try await fittingHeight(ContentAloneProbeView())
+        let fixedWrapper = try await fittingHeight(
+            CallerShapeProbeView(persona: .author, projectType: .novel,
+                                 hasTrash: false, findActive: false))
+        XCTAssertEqual(fixedWrapper, baseline, accuracy: 0.5,
+                       "the caller's wrapper, choiceless, must add nothing at "
+                       + "all above its content — not even a 1pt hairline, or "
+                       + "the tree's header is not truly flush")
+
+        let buggyWrapper = try await fittingHeight(
+            HistoricalBuggyCallerShapeProbeView(
+                persona: .author, projectType: .novel,
+                hasTrash: false, findActive: false))
+        XCTAssertGreaterThan(buggyWrapper, baseline + 0.5,
+                             "the control: the pre-fix-round-1 shape (picker "
+                             + "plus a caller's own unconditional Divider) "
+                             + "must measure MORE than the baseline, or this "
+                             + "test cannot tell a residue from none")
     }
 
     // MARK: - Count > 1 renders as real, selected, sized segments
@@ -742,5 +853,71 @@ private struct AXProbeView: View {
             lastParsedScript: nil,
             findActive: findActive,
             persona: persona)
+    }
+}
+
+// MARK: - Census: neither caller spells its own Divider() beside the picker
+
+/// **The source half of the residue fix.** `Divider()` has no discoverable
+/// `NSView` of its own — SwiftUI draws it directly rather than bridging an
+/// `NSBox`, confirmed empirically before writing this file (a scratch mount
+/// walking the real AppKit subview tree under a `Divider()` found none) — so
+/// a runtime search for "is there a divider view" cannot exist; only a
+/// `fittingSize` measurement (`test_theCallerWrapperAddsNoResidueBeyondThePickerItself`)
+/// or a source read can see one. This is the source read: exactly one
+/// `Divider()` in each caller, the Exports footer's own (gated on
+/// `segment == .documentHome(for:)`), never a second one spelled
+/// unconditionally beside `BinderSegmentPicker(...)` — the shape fix round 1
+/// removed.
+@MainActor
+final class BinderSegmentPickerCallerDividerCensusTests: XCTestCase {
+
+    private var repoRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private func source(_ path: String) throws -> String {
+        try String(contentsOf: repoRoot.appendingPathComponent(path), encoding: .utf8)
+    }
+
+    private func nonCommentDividerCount(in text: String) -> Int {
+        text.split(separator: "\n", omittingEmptySubsequences: false).filter {
+            let trimmed = $0.trimmingCharacters(in: .whitespaces)
+            return !trimmed.hasPrefix("//") && trimmed.contains("Divider()")
+        }.count
+    }
+
+    /// The control: a planted second `Divider()` line must change the count,
+    /// or the census below is vacuous.
+    func test_theCensusCanCountAPlantedDivider() {
+        let clean = "        BinderSegmentPicker(...)\n        Group {"
+        let planted = clean + "\n        Divider()"
+        XCTAssertEqual(nonCommentDividerCount(in: clean), 0)
+        XCTAssertEqual(nonCommentDividerCount(in: planted), 1)
+        XCTAssertEqual(nonCommentDividerCount(in: planted + "\n        Divider()"), 2,
+                       "a second planted Divider() must also be counted")
+    }
+
+    /// **Exactly one `Divider()` per caller.** Fix round 1 of shell-finish
+    /// stage 1 task 2 removed the unconditional one that used to sit right
+    /// after `BinderSegmentPicker(...)` — the one that survived even when the
+    /// picker itself rendered nothing, leaving the strip's ghost.
+    /// `BinderSegmentPicker.body` now folds its own `Divider()` in (see its
+    /// doc comment), so neither caller should ever spell one of its own
+    /// beside the picker call again.
+    func test_eachCallerSpellsExactlyOneDividerTheExportsFootersOwn() throws {
+        for path in ["Maugham/Views/BinderPaneToggle.swift",
+                     "Maugham/Views/CollectionBinderPaneToggle.swift"] {
+            let text = try source(path)
+            XCTAssertFalse(text.isEmpty, "\(path): read nothing")
+            let count = nonCommentDividerCount(in: text)
+            XCTAssertEqual(count, 1,
+                           "\(path): expected exactly one Divider() — the "
+                           + "Exports footer's — found \(count). A second one "
+                           + "right after BinderSegmentPicker(...) is the "
+                           + "ghost-divider defect fix round 1 removed.")
+        }
     }
 }
