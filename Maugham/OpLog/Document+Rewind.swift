@@ -234,6 +234,57 @@ extension Document {
             invalidateAnnotationsCache()
         }
 
+        // 9. The return journey (RULING-25: symmetric travel). An annotation
+        //    Maugham itself archived during a rewind — latest lifecycle op is
+        //    a `.rewind`-stamped `.claudeArchive`, from an OPEN status —
+        //    reopens when a restore lands on a state where its paragraph
+        //    exists. Mirrors the step-7 sweep exactly: same append mechanism,
+        //    same `.rewind` provenance, opposite direction. Gated to `.rewind`
+        //    restores: the `.undoRewind` compensating restore must not act
+        //    here — undo's lifecycle choreography lives in
+        //    `restoreToOpUndoable`, and its backward leg re-archives these
+        //    through the step-7 sweep without any bespoke work.
+        //
+        //    Deliberately out of scope: an accepted suggestion the rewind
+        //    archived (the step-8 removed-paragraph branch). Its pre-archive
+        //    status was `.accepted`, so reopening to `.open` would offer a
+        //    change whose text the forward restore already re-applied; its
+        //    honest forward status is `.accepted`, which is a different
+        //    (unruled) behaviour — the `wasOpen` guard is that boundary.
+        var travelReopenedIds: [String] = []
+        if synthesisSource == .rewind {
+            let statusKinds: Set<OpKind> = [
+                .claudeAccept, .claudeReject, .claudeArchive,
+                .claudeAcceptRevert, .annotationReopen
+            ]
+            var lifecycleBySource: [String: [Op]] = [:]
+            for op in _opLogMirror where statusKinds.contains(op.kind) {
+                if let src = op.provenance?.sourceAnnotationId {
+                    lifecycleBySource[src, default: []].append(op)
+                }
+            }
+            let archived = annotations(filter: AnnotationFilter(statuses: [.archived]))
+            for ann in archived.sorted(by: { $0.id < $1.id }) {
+                guard let pid = ann.paragraphId, newIds.contains(pid) else { continue }
+                let lifecycle = (lifecycleBySource[ann.id] ?? [])
+                    .sorted { $0.opId < $1.opId }
+                guard let last = lifecycle.last,
+                      last.kind == .claudeArchive,
+                      last.provenance?.synthesisSource == .rewind else { continue }
+                let beforeArchive = lifecycle.dropLast().last
+                let wasOpen = beforeArchive == nil
+                    || beforeArchive?.kind == .claudeAcceptRevert
+                    || beforeArchive?.kind == .annotationReopen
+                guard wasOpen else { continue }
+                try await appendLifecycleOp(
+                    kind: .annotationReopen,
+                    sourceAnnotationId: ann.id,
+                    userResponse: nil,
+                    synthesisSource: .rewind)
+                travelReopenedIds.append(ann.id)
+            }
+        }
+
         return RewindRestoreResult(
             restoreOp: stampedOp,
             archivedAnnotationOpIds: archivedIds,
@@ -241,7 +292,8 @@ extension Document {
             priorSequenceCount: priorCount,
             newSequenceCount: newCount,
             reopenedAnnotationOpIds: reopenedIds,
-            rewoundTaskOps: hasTaskOpsAfterTarget)
+            rewoundTaskOps: hasTaskOpsAfterTarget,
+            travelReopenedAnnotationIds: travelReopenedIds)
     }
 
     /// Fold the document to `target` by appending a `.checkpointRestore` op

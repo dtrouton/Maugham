@@ -38,6 +38,14 @@ public struct RewindRestoreResult: Equatable, Sendable {
     /// marker keyed on THIS restore's op id) or the pane's task state stays
     /// rewound after ⌘Z brings text + annotations back.
     public let rewoundTaskOps: Bool
+    /// Creation ids of annotations the return journey reopened (RULING-25):
+    /// each had been archived by an earlier rewind's sweep (a rewind-stamped
+    /// `.claudeArchive`, latest in its lifecycle, from an open status) and its
+    /// anchor paragraph is present in this restore's target state, so the
+    /// restore appended a `.rewind`-stamped `.annotationReopen`. The writer's
+    /// own archives never appear here. Empty on `.undoRewind` restores — the
+    /// undo choreography owns its own lifecycle compensations.
+    public let travelReopenedAnnotationIds: [String]
 
     public init(
         restoreOp: Op?,
@@ -46,7 +54,8 @@ public struct RewindRestoreResult: Equatable, Sendable {
         priorSequenceCount: Int,
         newSequenceCount: Int,
         reopenedAnnotationOpIds: [String],
-        rewoundTaskOps: Bool = false
+        rewoundTaskOps: Bool = false,
+        travelReopenedAnnotationIds: [String] = []
     ) {
         self.restoreOp = restoreOp
         self.archivedAnnotationOpIds = archivedAnnotationOpIds
@@ -55,5 +64,6 @@ public struct RewindRestoreResult: Equatable, Sendable {
         self.newSequenceCount = newSequenceCount
         self.reopenedAnnotationOpIds = reopenedAnnotationOpIds
         self.rewoundTaskOps = rewoundTaskOps
+        self.travelReopenedAnnotationIds = travelReopenedAnnotationIds
     }
 }
