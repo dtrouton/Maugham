@@ -19,9 +19,10 @@
 # OTHER sessions' xcodebuild first (CLAUDE.md's third confounder).
 #
 # The Mac scheme runs its test classes in parallel worker processes
-# (parallelizable: true in project.yml, 2026-08-08): full suite measured
-# 7.6 → 2.75 min. MaughamCore's 465 package tests are hosted by no scheme,
-# so both modes run them explicitly via swift test (~6 s).
+# (parallelizable: true in project.yml, 2026-08-08): full suite 7.6 min →
+# 2.75 min on the first parallel run, → ~90s after the canvas-mounting class
+# split. MaughamCore's 465 package tests are hosted by no scheme, so both
+# modes run them explicitly via swift test (~6 s).
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
