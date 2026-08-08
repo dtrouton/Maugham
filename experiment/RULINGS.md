@@ -284,11 +284,11 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 *scope:* the writer forms an expectation from what Maugham showed, said or labelled, and the outcome differs from it
 
 *settles IN SCOPE:*
-  - **rewind label** — 'Rewind to before this…' does ops.prefix(THROUGH: idx) — inclusive — so it lands AFTER the op. VERIFIED at HistoryPane.swift:349-360 and Deriver+Rewind.swift:30-40. A control not doing what it says. This is a plain DEFECT rather than a communication gap.
-  - **snapshot impact count** — confirmation says 240 words, another Mac's 900 are lost — the preview is a modal-open snapshot
-  - **stale cursor silent no-op** — Restore lands on 'now' and nothing happens, silently (Deriver+Rewind.swift:34-36)
-  - **unmentioned auto-archive** — the confirmed count omits open annotations the rewind will archive
-  - **promotion duplicate** — the writer expects Rewrite, gets a silent new artifact, with no clue why Rewrite vanished
+  - **rewind label — FIXED 2026-08-08 (8fb77a81), historical evidence only**: 'Rewind to before this…' did ops.prefix(THROUGH: idx) — inclusive — landing AFTER the op; the deep-link now posts the PREDECESSOR op (HistoryPane.predecessorIndex) and the old line numbers no longer hold. The disposition below records the ruling; do not file from this bullet
+  - snapshot impact count
+  - stale cursor silent no-op
+  - unmentioned auto-archive
+  - promotion duplicate
 
 *OUT OF SCOPE on the scope test:*
   - **annotations-pane provenance** — the pane does not distinguish Maugham's auto-archiving from the writer's own. Nothing the writer expected failed to happen — this is an ABSENCE OF INFORMATION, not a mismatch between expectation and outcome. R22's scope does not reach it. It wants a separate clause: 'where Maugham resolves something on the writer's behalf, the resolution is labelled as Maugham's wherever it appears.' Left UNRULED rather than swept in.
@@ -324,6 +324,8 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 *relation to GAP R2:* A Reopen action on the annotations pane (GAP-R2) remains an open surface question, but symmetric travel removes the rewind case's dependency on it: the return journey itself is the recovery route.
 
 *provenance note:* Ruled via a structured question with a recommended option (accepted). The option labels and ALL surrounding rationale text are the agent's, ratified by Denver — a materially weaker basis than the interview-era rulings, whose bases are Denver verbatim. Weigh accordingly when this ruling's basis is load-bearing for a novel case; where the basis is decisive and thin, ask rather than extrapolate.
+
+*scope boundary note:* 'Symmetric travel' compensates MAUGHAM'S OWN travel-archives only — narrower than the phrase suggests (independent verification, 2026-08-08). Lifecycle ops never ride the timeline prefix: rewinding back past the writer's own archive op does not reopen it (their intent has duration, RULING-23's shape), and an ACCEPTED suggestion the rewind archived stays archived on forward travel — its honest forward status would be .accepted, which is unruled and sits in the gap queue. Two edges recorded with it: the genuine-no-op restore path returns before the return journey runs, and the reopen is direction-agnostic (any .rewind restore whose target contains the anchor paragraph), which is broader than M4-RW-019's forward-travel framing.
 
 ## Principles — how to judge, not what to decide
 

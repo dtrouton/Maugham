@@ -14,11 +14,18 @@
   "call_path": "HistoryPane row → 'Rewind to before this…' (HistoryPane.swift:350) → .maughamOpenRewind with scrub_op_id → RewindModifier sets .atOp → RewindWindow → 'Restore here…' → restoreToOp",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "c5ca4d5e83032c4ec942417255221a5b47ff94f0",
+   "commit": "8fb77a81d20cdf94dc274f821846889d99994fbc",
    "date": "2026-08-08",
    "authorised_by": "RULING-22 disposition_M4_RW_002_RULED — Denver: fix the behaviour, not the label",
    "pinned_by": "MaughamTests/Views/HistoryPaneRewindTargetTests (production, runs in the Mac suite)",
    "note": "first defect taken through the claim→fix→re-verify loop"
+  },
+  "independent_verification": {
+   "date": "2026-08-08",
+   "verifier": "fresh-context subagent given the ruling set, the claims and the code — NOT the original filings or fix narrative",
+   "outcome": "CONFIRMED — same verdict, independently argued scope; pinning tests re-run green",
+   "record": "experiment/reconciliation/Rewind.verification-2026-08-08.json",
+   "caveat": "Verifier notes the verdict is scope-reading-dependent: on the claim's declared module alone (a pure fold function, no writer surface) NO_RULING_REACHES is defensible under RULING-19's layering; COMPLIES stands because RULING-22's disposition rules on this claim BY ID. A future comparison run landing on NO_RULING_REACHES here is not evidence of drift."
   }
  },
  {
@@ -146,11 +153,17 @@
   "call_path": "Two consecutive Restores from the rewind modal, the second targeting a later op. RewindFlowTests.test_rewindThenScrubBeforePriorRewind_walksFullHistory exercises this sequence for text and asserts only the sequence count.",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "12d763c95ad4cf1f6385b7e44e3dc26f748a129e",
+   "commit": "365de882ee57f6718276c7d9ddb850d55db55a77",
    "date": "2026-08-08",
    "authorised_by": "RULING-25 — Denver 2026-08-08, GAP-R1 ruled as symmetric travel",
    "pinned_by": "MaughamTests/Integration/RewindTravelReopenTests (production) + the rewritten characterisation copy",
    "note": "second defect through the claim→fix→re-verify loop; first fixed by a new ruling"
+  },
+  "independent_verification": {
+   "date": "2026-08-08",
+   "verifier": "fresh-context subagent given the ruling set, the claims and the code — NOT the original filings or fix narrative",
+   "outcome": "CONFIRMED — same verdict, independently argued scope; pinning tests re-run green",
+   "record": "experiment/reconciliation/Rewind.verification-2026-08-08.json"
   }
  },
  {
@@ -241,7 +254,13 @@
   "why_in_scope": "The control's label names a state ('before this') and the writer forms their expectation from it; the deep-link now opens the rewind at exactly that state. Same clause that convicted the old composition.",
   "intent_expressed_when": "contemporaneous — the writer clicked a button naming the moment they wanted",
   "call_path": "HistoryPane row → 'Rewind to before this…' → predecessorIndex → .maughamOpenRewind with the predecessor's opId → RewindModifier .atOp → RewindWindow → restoreToOp",
-  "violation_or_enhancement": "neither"
+  "violation_or_enhancement": "neither",
+  "independent_verification": {
+   "date": "2026-08-08",
+   "verifier": "fresh-context subagent given the ruling set, the claims and the code — NOT the original filings or fix narrative",
+   "outcome": "CONFIRMED — same verdict, independently argued scope; pinning tests re-run green",
+   "record": "experiment/reconciliation/Rewind.verification-2026-08-08.json"
+  }
  },
  {
   "claim_id": "M4-RW-033",
@@ -251,7 +270,13 @@
   "why_in_scope": "The scope clause names this case: a writer-made archive is intent to honour, not damage to repair. The discriminator is the archive op's synthesisSource — nil for the writer, .rewind for the sweep.",
   "intent_expressed_when": "earlier — the writer archived it before travelling",
   "call_path": "annotations pane → Archive → travel back and forward through the rewind modal",
-  "violation_or_enhancement": "neither"
+  "violation_or_enhancement": "neither",
+  "independent_verification": {
+   "date": "2026-08-08",
+   "verifier": "fresh-context subagent given the ruling set, the claims and the code — NOT the original filings or fix narrative",
+   "outcome": "CONFIRMED — same verdict, independently argued scope; pinning tests re-run green",
+   "record": "experiment/reconciliation/Rewind.verification-2026-08-08.json"
+  }
  },
  {
   "claim_id": "M4-RW-034",
@@ -261,7 +286,13 @@
   "why_in_scope": "Undo of a forward travel IS a backward travel — the clause applies in both directions, and the sweep re-closing what the forward leg reopened is the same symmetry run in reverse.",
   "intent_expressed_when": "contemporaneous — ⌘Z immediately after the Restore",
   "call_path": "rewind modal → Restore (forward) → ⌘Z",
-  "violation_or_enhancement": "neither"
+  "violation_or_enhancement": "neither",
+  "independent_verification": {
+   "date": "2026-08-08",
+   "verifier": "fresh-context subagent given the ruling set, the claims and the code — NOT the original filings or fix narrative",
+   "outcome": "CONFIRMED — same verdict, independently argued scope; pinning tests re-run green",
+   "record": "experiment/reconciliation/Rewind.verification-2026-08-08.json"
+  }
  },
  {
   "_summary": {
@@ -307,7 +338,7 @@
     "M4-RW-012"
    ],
    "specificity_current_ruling_set": "12/15 = 80%",
-   "distinct_defects": "5 violations over 4 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op, counted once. Fixed and flipped: M4-RW-002 (2026-08-08), M4-RW-019 (12d763c95a, 2026-08-08)"
+   "distinct_defects": "5 violations over 4 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op, counted once. Fixed and flipped: M4-RW-002 (2026-08-08), M4-RW-019 (365de882ee, 2026-08-08)"
   }
  }
 ]

@@ -1,0 +1,72 @@
+{
+  "filings": [
+    {
+      "claim_id": "M4-RW-002",
+      "outcome": "COMPLIES",
+      "ruling": "RULING-22",
+      "clause_that_reaches_it": "disposition M4 RW 002 RULED: Denver, 2026-08-08: fix the BEHAVIOUR, not the label. 'Rewind to before this…' must land BEFORE the selected op (exclusive) — the label already says what a writer wants: pick the change you regret and land before it.",
+      "why_in_scope": "R22's stated scope is 'the writer forms an expectation from what Maugham showed, said or labelled, and the outcome differs from it'. Deriver.derive(ops:upTo:) shows the writer nothing on its own — but the disposition rules on this claim by id, and it rules on the COMPOSED outcome of the labelled control, of which this function is the sole evaluator: the label's promise is kept or broken by which op-id reaches this prefix. As shipped the one production caller (HistoryPane's deep-link) passes the row op's PREDECESSOR, so the documented inclusive prefix (Deriver+Rewind.swift:37, prefix(through: idx)) lands the writer before the regretted op. Label and outcome agree; the disposition's fix is where it asked it to be — in the caller, with the deriver's inclusivity intact (M4-RW-005).",
+      "intent_expressed_when": "contemporaneous — the writer's intent ('land before this change') is expressed by clicking a control labelled with exactly that sentence",
+      "call_path": "HistoryPane row for a mutatesManuscript op → 'Rewind to before this…' (HistoryPane.swift:379-394) → predecessorIndex[op.opId] → MaughamEvent.post(.maughamOpenRewind, payload scrub_op_id = predecessor.opId) → ProjectWindow.swift:2125-2128 sets rewindInitialCursor = .atOp(predecessor) → RewindWindow → Deriver.derive(ops:upTo:) → Document.restoreToOp",
+      "violation_or_enhancement": "neither"
+    },
+    {
+      "claim_id": "M4-RW-032",
+      "outcome": "COMPLIES",
+      "ruling": "RULING-22",
+      "clause_that_reaches_it": "disposition M4 RW 002 RULED: … 'Rewind to before this…' must land BEFORE the selected op (exclusive) — the label already says what a writer wants: pick the change you regret and land before it.",
+      "why_in_scope": "This IS the labelled control R22 governs — the writer reads 'Rewind to before this…' on a history row and forms an expectation about where they will land. HistoryPane.predecessorIndex maps ops[i] → ops[i-1] over the pane's opId-ordered log and the button posts that predecessor's id, so the opened cursor derives the state the row's op destroyed rather than the one it produced; the first op has no entry and HistoryRow only renders the button when rewindTarget != nil, so the ruling's 'offering a rewind that cannot land before the op' case is not offered at all. Outcome now matches the label, which is the whole of R22's test.",
+      "intent_expressed_when": "contemporaneous — the click on the labelled row control is the intent",
+      "call_path": "HistoryPane.body:195 builds predecessorIndex once per pass → HistoryRow.rewindTarget → button posts scrub_op_id/scrub_op_at to .project(for: projectURL) → ProjectWindow's .maughamOpenRewind handler → RewindWindow opened at .atOp(predecessor)",
+      "violation_or_enhancement": "neither"
+    },
+    {
+      "claim_id": "M4-RW-019",
+      "outcome": "COMPLIES",
+      "ruling": "RULING-25",
+      "clause_that_reaches_it": "Anything Maugham closes on the writer's behalf when they travel through their history is reopened when they travel back. Time travel never costs an annotation permanently or silently.",
+      "why_in_scope": "R25's scope clause names 'Maugham closing an annotation on ITS OWN initiative during history travel — rewind auto-archive and the return journey'. This claim IS the return journey: Document+Rewind.swift step 9 (lines 254-286) walks the derived .archived set, requires the anchor paragraph to exist in the target sequence (newIds), requires the latest lifecycle op to be a .claudeArchive stamped synthesisSource == .rewind — i.e. the step-7 sweep's own act, never the writer's — and requires the pre-archive status to have been open (wasOpen: nothing before it, or a .claudeAcceptRevert / .annotationReopen). It then appends a .rewind-stamped .annotationReopen, mirroring the sweep exactly. The paragraph and the pane task return by the restore and TaskDeriver's window respectively; the annotation now returns with them, so nothing Maugham closed is lost permanently or silently.",
+      "intent_expressed_when": "contemporaneous — the writer's forward Restore is the act being honoured; the archive being undone was Maugham's own, never the writer's",
+      "call_path": "History pane / Rewind modal → Restore → Document.restoreToOp(opId:synthesisSource: .rewind) step 9 → appendLifecycleOp(.annotationReopen, synthesisSource: .rewind); pinned by RewindTravelReopenTests.test_forwardRewind_reopensTheCommentTheRewindArchived and RewindCharacterization.test_forwardRewind_returnsTextTasks_andReopensWhatTheSweepArchived",
+      "violation_or_enhancement": "neither"
+    },
+    {
+      "claim_id": "M4-RW-033",
+      "outcome": "COMPLIES",
+      "ruling": "RULING-25",
+      "clause_that_reaches_it": "scope: … The writer's own archive/resolve actions are their intent (RULING-23's shape) and are untouched by this ruling.",
+      "why_in_scope": "The case is precisely the one R25's scope clause carves out. The discriminator in code is the provenance stamp: Document+Annotations.swift:595-601 archiveAnnotation → appendLifecycleOp with the default synthesisSource == nil, while the sweep stamps reason.cause == .rewind (line 743). Step 9's guard `last.provenance?.synthesisSource == .rewind` therefore skips a writer-authored archive on every leg of the journey, so the writer's deliberate close survives backward-and-forward travel intact. Discipline 2 (intent has duration) is the same answer from the other side: the archive is a standing instruction, and travel is not a withdrawal of it.",
+      "intent_expressed_when": "earlier — the writer archived before travelling, and that intent persists across both legs until they withdraw it",
+      "call_path": "Annotations pane → Archive → Rewind modal Restore (backward) → Restore (forward) → Document.restoreToOp step 9 guard declines; pinned by RewindTravelReopenTests.test_writersOwnArchive_staysArchivedAcrossTravel",
+      "violation_or_enhancement": "neither"
+    },
+    {
+      "claim_id": "M4-RW-034",
+      "outcome": "COMPLIES",
+      "ruling": "RULING-25",
+      "clause_that_reaches_it": "Anything Maugham closes on the writer's behalf when they travel through their history is reopened when they travel back. Time travel never costs an annotation permanently or silently.",
+      "why_in_scope": "⌘Z on a rewind is travel in the other direction — the compensating restore returns the manuscript to the pre-rewind tip, so the paragraph leaves again and the annotation must leave with it or the pane would show an open comment on absent text. It is re-archived by the compensating restore's own step-7 sweep (Document+Rewind.swift:146-158) rather than any undo-specific code, which is what keeps the round trip symmetric: that re-archive is itself .rewind-stamped from an open status, so it is eligible for step 9 again, and redo (restoreToOpUndoable's redo re-runs the forward restore from scratch) reopens it. The `if synthesisSource == .rewind` gate at line 255 keeps the .undoRewind compensating restore out of step 9, so the reopen never fires twice or fights the sweep in the same call. Nothing is closed permanently or silently at any point in undo→redo.",
+      "intent_expressed_when": "contemporaneous — ⌘Z ('Restore from History') and ⇧⌘Z are each the writer's act at the moment it happens",
+      "call_path": "Rewind modal Restore → Document.restoreToOpUndoable → ⌘Z → undo closure's restoreToOp(opId: preTip, synthesisSource: .undoRewind) → step-7 sweep re-archives → ⇧⌘Z → restoreToOpUndoable(targetOpId) → restoreToOp(.rewind) step 9 reopens; pinned by RewindTravelReopenTests.test_undoOfTheForwardRewind_reArchivesWhatItReopened",
+      "violation_or_enhancement": "neither"
+    }
+  ],
+  "_summary": {"reached": 5, "complies": 5, "violates": 0, "no_ruling": 0},
+  "notes": {
+    "verification": "All five statements are true of the code as written; none misdescribes it. Read Deriver+Rewind.swift, Document+Rewind.swift, Document+RewindUndo.swift, Document+Annotations.swift (archiveAnnotation / appendLifecycleOp / the sweep), HistoryPane.swift and ProjectWindow.swift's .maughamOpenRewind handler. Ran -only-testing:MaughamTests/HistoryPaneRewindTargetTests -only-testing:MaughamTests/RewindTravelReopenTests — 5 tests, TEST SUCCEEDED.",
+    "arguable_verdict": "M4-RW-002 is the one arguable filing. Its statement is TRUE and completely unchanged by the 2026-08-08 fix: the deriver is still inclusive and the entire fix lives in the caller. Read on its declared scope alone (Deriver.derive(ops:upTo:)), a defensible filing is NO_RULING_REACHES on the layered/scope test — a pure fold function has no surface on which to surprise anybody, which is the distinction RULING-19 draws and PROTOCOL discipline 1 asks for. I filed COMPLIES because RULING-22 carries a clause naming M4-RW-002 by id and ruling on it, and filing 'no ruling reaches' against a claim the product owner ruled on by name would be perverse. The two verdicts differ only in whether 'scope' is read as the claim's declared module or as the control its own reachability context names.",
+    "stale_evidence_in_rulings": "R22's settles-list still reads: \"rewind label — 'Rewind to before this…' does ops.prefix(THROUGH: idx) — inclusive — so it lands AFTER the op. VERIFIED at HistoryPane.swift:349-360 and Deriver+Rewind.swift:30-40.\" Those line numbers no longer point at the button (it is at 379-394 now and posts the predecessor), and the finding is superseded by the disposition three lines below it. A filer citing the settles bullet rather than the disposition would file VIOLATES on evidence that was true only before the fix. The generated ruling set carries both without marking the first as historical.",
+    "residual_r25_gap": "Step 8's removed-paragraph branch archives an ACCEPTED suggestion during a rewind — Maugham's own act during travel — and step 9 deliberately refuses to reopen it (the wasOpen guard; comment at Document+Rewind.swift:248-253: reopening to .open would offer a change whose text the forward restore already re-applied, and the honest .accepted is unruled). Against R25's literal sentence this is a live gap, not covered by RW-019, RW-033 or RW-034. Reads as the next thing to rule rather than a defect fileable on these claims' scopes.",
+    "residual_second": "A restore folds only manuscript text to the prefix; lifecycle ops are never truncated. So rewinding back past the writer's OWN archive op does not reopen that annotation either. Annotation status does not ride the timeline in the prefix sense at all — only Maugham's own travel-archives are compensated. Consistent with R25's scope, but 'symmetric travel' is narrower than the phrase suggests, and RW-033 pins only the half where the narrowness is correct.",
+    "reachability_edges": [
+      "The return journey never runs on the genuine-no-op restore path: Document+Rewind.swift:94-101 returns before step 9 when there is no manuscript delta and no task ops after the target. Narrow, but it is a .rewind restore that skips the reopen entirely.",
+      "RW-019's headline says 'rewinding FORWARD', while step 9 is direction-agnostic — it reopens on any .rewind restore whose target state contains the anchor paragraph, including a backward restore to a moment where the paragraph existed. The mechanism clause is accurate; only the framing is narrower than the code.",
+      "RW-032's 'first op (no predecessor) offers no deep-link' arm is effectively unreachable in a shipped log: the first op is always the bootstrap, and mutatesManuscript(.bootstrap) == false already withholds the button. The predecessor-nil guard is defence in depth, not a live path."
+    ],
+    "surprises": [
+      "The button OPENS the rewind modal at the predecessor cursor — it does not perform the restore; the writer can scrub elsewhere before confirming. The label's promise is about where they land when they open, which is what the disposition asked for, but 'must land BEFORE the selected op' is satisfied by an initial cursor rather than by an outcome.",
+      "HistoryEntry.merge sorts rows by op.at descending while predecessorIndex works in opId order over the unfiltered log. Under a cross-device merge those orders can disagree, and under any filter other than All the predecessor is frequently an op not on screen. Landing-before is still correct; what the writer cannot do is see what they are about to land on. R22's own OUT-OF-SCOPE bullet (absence of information is not a mismatch between expectation and outcome) says its scope does not reach that, so I did not file it."
+    ],
+    "not_chased": "HistoryPane.ops comes from Document.opLog() (the append-ordered _opLogMirror) when the doc is live, and from OpLogStore.load (explicitly opId-sorted, OpLogStore.swift:108-135) otherwise. Append order equals opId order by ULID construction on a single device; whether any merge path can append into a live mirror without re-sorting is the only way RW-032's 'opId-ordered log' premise could fail, and I did not trace it."
+  }
+}

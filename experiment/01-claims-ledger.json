@@ -954,13 +954,13 @@
     "basis": "Denver, verbatim.",
     "relation_to_RULING_7": "R7 governs FAILURES — never misrepresent one. R22 governs SUCCESSES — never let one differ from what the writer understood. Together: Maugham tells the truth whether or not something went wrong. R7's scope gap (it reaches only failures and refusals) is what left the six cases below settled by a root only.",
     "scope": "the writer forms an expectation from what Maugham showed, said or labelled, and the outcome differs from it",
-    "settles_IN_SCOPE": {
-     "rewind label": "'Rewind to before this…' does ops.prefix(THROUGH: idx) — inclusive — so it lands AFTER the op. VERIFIED at HistoryPane.swift:349-360 and Deriver+Rewind.swift:30-40. A control not doing what it says. This is a plain DEFECT rather than a communication gap.",
-     "snapshot impact count": "confirmation says 240 words, another Mac's 900 are lost — the preview is a modal-open snapshot",
-     "stale cursor silent no-op": "Restore lands on 'now' and nothing happens, silently (Deriver+Rewind.swift:34-36)",
-     "unmentioned auto-archive": "the confirmed count omits open annotations the rewind will archive",
-     "promotion duplicate": "the writer expects Rewrite, gets a silent new artifact, with no clue why Rewrite vanished"
-    },
+    "settles_IN_SCOPE": [
+     "**rewind label — FIXED 2026-08-08 (8fb77a81), historical evidence only**: 'Rewind to before this…' did ops.prefix(THROUGH: idx) — inclusive — landing AFTER the op; the deep-link now posts the PREDECESSOR op (HistoryPane.predecessorIndex) and the old line numbers no longer hold. The disposition below records the ruling; do not file from this bullet",
+     "snapshot impact count",
+     "stale cursor silent no-op",
+     "unmentioned auto-archive",
+     "promotion duplicate"
+    ],
     "OUT_OF_SCOPE_on_the_scope_test": {
      "annotations-pane provenance": "the pane does not distinguish Maugham's auto-archiving from the writer's own. Nothing the writer expected failed to happen — this is an ABSENCE OF INFORMATION, not a mismatch between expectation and outcome. R22's scope does not reach it. It wants a separate clause: 'where Maugham resolves something on the writer's behalf, the resolution is labelled as Maugham's wherever it appears.' Left UNRULED rather than swept in."
     },
@@ -1009,7 +1009,8 @@
     "relation_to_GAP_R2": "A Reopen action on the annotations pane (GAP-R2) remains an open surface question, but symmetric travel removes the rewind case's dependency on it: the return journey itself is the recovery route.",
     "ruled_by": "Denver, structured ruling question, recommended option accepted",
     "date": "2026-08-08",
-    "provenance_note": "Ruled via a structured question with a recommended option (accepted). The option labels and ALL surrounding rationale text are the agent's, ratified by Denver — a materially weaker basis than the interview-era rulings, whose bases are Denver verbatim. Weigh accordingly when this ruling's basis is load-bearing for a novel case; where the basis is decisive and thin, ask rather than extrapolate."
+    "provenance_note": "Ruled via a structured question with a recommended option (accepted). The option labels and ALL surrounding rationale text are the agent's, ratified by Denver — a materially weaker basis than the interview-era rulings, whose bases are Denver verbatim. Weigh accordingly when this ruling's basis is load-bearing for a novel case; where the basis is decisive and thin, ask rather than extrapolate.",
+    "scope_boundary_note": "'Symmetric travel' compensates MAUGHAM'S OWN travel-archives only — narrower than the phrase suggests (independent verification, 2026-08-08). Lifecycle ops never ride the timeline prefix: rewinding back past the writer's own archive op does not reopen it (their intent has duration, RULING-23's shape), and an ACCEPTED suggestion the rewind archived stays archived on forward travel — its honest forward status would be .accepted, which is unruled and sits in the gap queue. Two edges recorded with it: the genuine-no-op restore path returns before the return journey runs, and the reopen is direction-agnostic (any .rewind restore whose target contains the anchor paragraph), which is broader than M4-RW-019's forward-travel framing."
    }
   },
   "schema_note": "`warrant` = how well evidenced a claim is. `verdict` = whether the behaviour is WANTED. They are independent: a HIGH-warrant claim can be a DEFECT (well-proven wrong behaviour), and a LOW-warrant claim can be RATIFIED. The Phase 10 regeneration reproduced a defect faithfully because this field did not exist.",

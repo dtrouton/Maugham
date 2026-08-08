@@ -16,7 +16,7 @@ layer alone, and how much of a codebase a small ruling set actually reaches.
 
 Everything is under `experiment/`. **For its first 47+ phases the experiment changed zero
 production files.** That era ended deliberately on 2026-08-08, with Denver's approval, when the
-fix loop first ran (M4-RW-002, commit `c5ca4d5e`) and consumption was wired into CLAUDE.md, two
+fix loop first ran (M4-RW-002, commit `8fb77a81`) and consumption was wired into CLAUDE.md, two
 AREA.md files and CI. The discipline that replaces it: **production changes ride the fix loop** —
 a ruling authorising them, a pinned production test, and the claim + filing flipped in the same
 branch. Characterisation of a NEW module still changes nothing outside `experiment/`.
@@ -109,7 +109,7 @@ test.** Treat every entry as a lead. Of the ones checked so far:
   Discipline 5's citation is now real, and the generator fails on dangling ruling references in the
   process docs.
 - **The first fix loop ran end-to-end on M4-RW-002.** Fix + pinned production test
-  (`HistoryPaneRewindTargetTests`) in commit `c5ca4d5e`; claim updated; composition claim M4-RW-032
+  (`HistoryPaneRewindTargetTests`) in commit `8fb77a81`; claim updated; composition claim M4-RW-032
   added; filing flipped VIOLATES→COMPLIES; `_summary` recomputed. The lifecycle now has ONE tool —
   **`scripts/flip-claim.py`** (flip / recompute / repoint-after-rebase); the per-fix scripts 25/26
   are kept as history of the first two loops. State in this file between the GENERATED markers is
@@ -118,7 +118,7 @@ test.** Treat every entry as a lead. Of the ones checked so far:
   which fails listing every filing citing the amended ruling until re-run with `--amend` — the
   re-check queue is printed, not assumed done.
 - **The second fix loop closed M4-RW-019 — the first fix authorised by a NEW ruling.** Commit
-  `12d763c9`: `restoreToOp` gains step 9, the sweep's mirror — a forward restore reopens (a
+  `365de882`: `restoreToOp` gains step 9, the sweep's mirror — a forward restore reopens (a
   `.rewind`-stamped `.annotationReopen`) every annotation whose latest lifecycle op is a
   rewind-stamped archive from an open status and whose paragraph exists in the target state. The
   writer's own archives are untouched (M4-RW-033); undo re-archives through the compensating
@@ -127,7 +127,7 @@ test.** Treat every entry as a lead. Of the ones checked so far:
   `RewindTravelReopenTests` (production) and the rewritten characterisation copy, re-verified in
   place. Filing re-filed from RULING-8 to RULING-25 — the new ruling is the more specific reach.
   One lifecycle addition from the rebase that preceded this: **a filing citing a commit hash must
-  be re-pointed when the branch is rebased** (`ad37df90`).
+  be re-pointed when the branch is rebased** (`re-pointed`).
 - **Consumption is wired**: CI job `behavioural-claims` runs the MaughamCore claims package on every
   push; CLAUDE.md has a "Behavioural claims + rulings" section; `Maugham/OpLog/AREA.md` and
   `Maugham/Stores/AREA.md` point at their filings; the constitution↔rulings precedence paragraph is
@@ -139,10 +139,15 @@ test.** Treat every entry as a lead. Of the ones checked so far:
    RULING-25's wider reach gets tested against pinned claims, where GAP-R2 lands, and where the
    M4-RW-019 fix's step 9 now lives adjacent. `Maugham/Canvas/Promotion*.swift` (75% survey
    specificity) remains the harder falsification of the sampling correction.
-2. **The accepted-then-archived residual.** The step-9 `wasOpen` guard deliberately leaves an
-   accepted suggestion the rewind archived in `.archived` on forward travel — its honest forward
-   status would be `.accepted`, which is unruled. A product statement for the queue: *"travelling
-   forward past an accept restores the suggestion to accepted, not merely to present."*
+2. **The accepted-then-archived residual — now independently confirmed as the sharpest R25 gap.**
+   The step-9 `wasOpen` guard deliberately leaves an accepted suggestion the rewind archived in
+   `.archived` on forward travel — its honest forward status would be `.accepted`, which is
+   unruled. A product statement for the queue: *"travelling forward past an accept restores the
+   suggestion to accepted, not merely to present."* The 2026-08-08 independent verification
+   (`reconciliation/Rewind.verification-2026-08-08.json`) reached the same gap blind, and RULING-25
+   now carries a `scope_boundary_note` recording that "symmetric travel" compensates Maugham's own
+   travel-archives only — the five flipped/authored filings were **confirmed 5/5** by a
+   fresh-context verifier given the rulings, claims and code but not the original filings.
 3. **10 gaps remain open** — 6 from trash (`22-*.md`), 4 from rewind (`24-*.md`; R1 ruled, R6
    superseded), each phrased as a product statement a non-programmer can rule on. They are the
    scarce-resource queue. The 2026-08-08 precedent: presented as structured questions with a
