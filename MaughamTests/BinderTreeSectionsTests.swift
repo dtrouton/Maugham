@@ -263,6 +263,91 @@ final class BinderTreeSectionsTests: XCTestCase {
                      + "is vacuous — read the finding, do not delete this test")
     }
 
+    // MARK: - Creating from a header selects the new thing (fix round 1)
+
+    /// **Add Link is a creation verb, so it points the window at the link.**
+    ///
+    /// It shipped discarding the created item, which made it the one verb on
+    /// these headers that left the writer looking at whatever they were looking
+    /// at before — and a regression against both panes the tree replaces, which
+    /// have always selected a new link. New Note, New Group and New Card all go
+    /// through `create`, which does the same thing; only the link, which needs a
+    /// sheet, went the long way round and lost it.
+    func test_addLinkPointsTheWindowAtTheLinkItMade() async throws {
+        let store = try await novel(notes: [], cards: [])
+        let probe = BinderSubjectProbe(.project)
+        let state = BinderTreeSectionsState()
+
+        await BinderTreeSections.addLink(
+            title: "Tide tables", url: "https://example.invalid/tides",
+            parentId: nil, store: store, state: state,
+            selectedSubject: Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 }))
+
+        let link = try XCTUnwrap(
+            TreeWalk.first(in: store.manifest.research,
+                           where: { $0.title == "Tide tables" }),
+            "precondition: the link reached the manifest")
+        XCTAssertEqual(probe.subject, .research(link.id),
+                       "creating from a section header selects the new thing — "
+                       + "the writer asked for a link, so the link is what the "
+                       + "window is now about")
+        XCTAssertNil(state.pendingRenameId,
+                     "…but not into rename mode: the sheet already asked for "
+                     + "the title, and asking twice is what both old panes "
+                     + "deliberately avoid")
+    }
+
+    // MARK: - The drop stubs refuse (fix round 1)
+
+    /// **A drop the tree cannot route yet must BOUNCE, not vanish.**
+    ///
+    /// `ResearchRow`'s `.dropDestination` used to `return true` unconditionally,
+    /// so "accepted" was a property of the row rather than of the handler: with
+    /// the tree's routing stubbed until Task 7, a note dragged onto a populated
+    /// research row animated home as accepted and was then silently discarded —
+    /// the writer's drag, gone, with the animation that says it worked. The drop
+    /// closures return `Bool` all the way down now, and the tree's answer is
+    /// `false`.
+    ///
+    /// **Asked of the bundle rather than of a mounted drag**, because a real
+    /// drag session is not synthesisable — `ResearchRow` returns exactly what
+    /// this closure returns, which is pinned separately by
+    /// `TripwireGrepTests.test_theResearchRowNeverAcceptsADropOnItsOwnAuthority`.
+    func test_theTreesDropVerbsRefuseUntilTaskSevenFillsThem() async throws {
+        let store = try await novel(notes: ["Ships"], cards: ["Harbour"])
+        let target = try XCTUnwrap(researchNote(named: "Ships", in: store))
+        let sections = BinderTreeSections(
+            store: store,
+            state: BinderTreeSectionsState(),
+            selectedSubject: .constant(nil))
+
+        XCTAssertFalse(
+            sections.actions.internalDrop("some-other-id", .middle, target),
+            "the tree cannot route a research drag until Task 7 — it must "
+            + "refuse, so the drag bounces back to where the writer took it "
+            + "from. Returning true accepts it and drops it on the floor")
+        XCTAssertFalse(
+            sections.actions.externalDrop([], .middle, target),
+            "and the same for a Finder file or a browser bitmap")
+    }
+
+    /// The control, and it is what makes the assertion above mean something: the
+    /// two panes the tree is replacing DO accept, through the very same bundle
+    /// type. If `ResearchTreeActions` had simply become a type that always
+    /// refuses, the test above would pass while saying nothing.
+    func test_theOldPanesStillAcceptTheDropsTheyCanRoute() async throws {
+        let store = try await novel(notes: ["Ships"], cards: [])
+        let target = try XCTUnwrap(researchNote(named: "Ships", in: store))
+        let pane = ResearchView(store: store, selectedResearchId: .constant(nil))
+
+        XCTAssertTrue(
+            pane.treeActions.internalDrop("some-other-id", .middle, target),
+            "control: ResearchView's routing is built and accepts — so "
+            + "'refuses' above is a property of the tree's stub, not of the "
+            + "type every caller shares")
+    }
+
     // MARK: - Fixtures
 
     private static let twoScenes = FountainTokenizer().parse(

@@ -92,7 +92,8 @@ struct SceneNavigatorPane: View {
         .overlay {
             if summaries.isEmpty { emptyState }
         }
-        .binderTreeSections(store: store, state: treeState)
+        .binderTreeSections(store: store, state: treeState,
+                            selectedSubject: $selectedSubject)
     }
 
     /// The row at the head of the navigator naming the project itself.

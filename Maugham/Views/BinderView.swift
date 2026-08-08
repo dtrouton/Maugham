@@ -51,7 +51,8 @@ struct BinderView: View {
         .overlay {
             if store.manifest.structure.isEmpty { emptyState }
         }
-        .binderTreeSections(store: store, state: treeState)
+        .binderTreeSections(store: store, state: treeState,
+                            selectedSubject: $selectedSubject)
         // Root context menu — attached at the binder level so it's
         // available even when the structure is empty (right-clicking
         // a row gives the per-row menu instead, no overlap).

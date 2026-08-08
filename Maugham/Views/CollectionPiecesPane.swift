@@ -81,7 +81,8 @@ struct CollectionPiecesPane: View {
         .overlay {
             if store.manifest.structure.isEmpty { emptyState }
         }
-        .binderTreeSections(store: store, state: treeState)
+        .binderTreeSections(store: store, state: treeState,
+                            selectedSubject: $selectedSubject)
     }
 
     /// One piece's row, whole — the modifier chain is unchanged from when it was

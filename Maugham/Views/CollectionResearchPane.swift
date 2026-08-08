@@ -219,10 +219,13 @@ struct CollectionResearchPane: View {
     private func treeActions(scope: Scope) -> ResearchTreeActions {
         ResearchTreeActions(
             rename: { id, newTitle in Task { await rename(id: id, to: newTitle) } },
+            // Both accept — see `ResearchView.treeActions` for why the answer is
+            // `true` and why it is now stated rather than assumed.
             internalDrop: { draggedId, position, target in
                 Task { await handleInternalDrop(
                     draggedId: draggedId, position: position,
                     target: target, scope: scope) }
+                return true
             },
             externalDrop: { providers, position, target in
                 if position == .middle && target.type == .group {
@@ -230,6 +233,7 @@ struct CollectionResearchPane: View {
                 } else {
                     Task { await importExternal(providers, scope: scope) }
                 }
+                return true
             },
             newNote: { parentId in
                 if let parentId {

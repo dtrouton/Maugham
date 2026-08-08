@@ -10,13 +10,25 @@ struct ResearchRow: View {
     /// dragged item id and the vertical position within this row (top/middle/
     /// bottom). Caller (ResearchBrowser) translates that to a DropIntent and
     /// invokes the appropriate ProjectStore mutator.
-    let onDrop: (_ draggedId: String, _ position: DropIntent.Position) -> Void
+    ///
+    /// **Returns whether the drop was ACCEPTED, and this row returns exactly
+    /// that** (fix round 1). It used to return `true` unconditionally, which
+    /// made "accepted" a property of the row rather than of the caller — so a
+    /// caller whose handler does nothing still got the accepted-drop animation
+    /// and the writer's dragged note vanished. That is the silent no-op the
+    /// publishing-namespace finding says to fail loudly on, and it is not
+    /// hypothetical: the binder tree's handlers are stubs until stage-2a Task 7.
+    /// A `Bool` here means the compiler asks every caller, and a new one cannot
+    /// accept by accident.
+    let onDrop: (_ draggedId: String, _ position: DropIntent.Position) -> Bool
     /// Called when external items (Finder files or browser image drags) are dropped
     /// on this row. The caller classifies the providers (file URL vs rendered image
     /// vs remote-URL-only) via `DropClassification` and imports to the location the
     /// position maps to. Passing raw providers — not pre-extracted URLs — is what lets
     /// browser image drags land; `.dropDestination(for: URL.self)` silently rejects them.
-    let onExternalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position) -> Void
+    ///
+    /// Returns whether the drop was accepted — see `onDrop`.
+    let onExternalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position) -> Bool
 
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
@@ -73,8 +85,8 @@ struct ResearchRow: View {
                 if location.y < rowHeight / 3 { position = .top }
                 else if location.y > (rowHeight * 2 / 3) { position = .bottom }
                 else { position = .middle }
-                onDrop(droppedId, position)
-                return true
+                // The caller's answer, never a literal — see `onDrop`.
+                return onDrop(droppedId, position)
             }
             .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, location in
                 guard !providers.isEmpty else { return false }
@@ -83,8 +95,8 @@ struct ResearchRow: View {
                 if location.y < rowHeight / 3 { position = .top }
                 else if location.y > (rowHeight * 2 / 3) { position = .bottom }
                 else { position = .middle }
-                onExternalDrop(providers, position)
-                return true
+                // The caller's answer, never a literal — see `onDrop`.
+                return onExternalDrop(providers, position)
             }
         }
     }

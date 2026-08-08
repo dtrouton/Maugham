@@ -30,8 +30,8 @@ private let _binderTreeSectionsLog = Logger(
 /// **Mounting takes two touchpoints, and the second is not optional.** The rows
 /// go inside the host's `List`; the presentations they need — the Add Link
 /// sheet, the error alert, the palette-card load, the deferred rename commit —
-/// go OUTSIDE it via `.binderTreeSections(store:state:)`, which is where
-/// `CollectionResearchPane` puts the same two modifiers and for the same
+/// go OUTSIDE it via `.binderTreeSections(store:state:selectedSubject:)`, which
+/// is where `CollectionResearchPane` puts the same two modifiers and for the same
 /// reason: a sheet attached to a row inside a lazy list is presented from a view
 /// the list may unmount. Forgetting the modifier is a live defect that no row
 /// count would catch, so `TripwireGrepTests` censuses the pairing.
@@ -86,8 +86,8 @@ struct BinderTreeSections: View {
     /// case would be a second name for one id (plan constraint).
     ///
     /// The cards come from `state.cards`, loaded once per manifest change by
-    /// `.binderTreeSections(store:state:)` — tripwire 4: a row that reads its
-    /// own card off disk turns a binder click into N file reads.
+    /// `.binderTreeSections(store:state:selectedSubject:)` — tripwire 4: a row
+    /// that reads its own card off disk turns a binder click into N file reads.
     private var paletteSection: some View {
         Section {
             if state.cards.isEmpty {
@@ -159,7 +159,6 @@ struct BinderTreeSections: View {
             .contentShape(Rectangle())
             .dropDestination(for: String.self) { ids, _ in
                 refuseDrop("empty section placeholder", payload: ids.first)
-                return false
             }
     }
 
@@ -175,7 +174,11 @@ struct BinderTreeSections: View {
     /// not silently land there. `addResearchTextNote(parentId: nil)` is exactly
     /// what `createResearchNote(scope: .shared)` routes to, so the two surfaces
     /// cannot disagree.
-    private var actions: ResearchTreeActions {
+    /// Not `private`: `BinderTreeSectionsTests` asks this bundle directly
+    /// whether it accepts a drop. The drop verbs are the one thing here that a
+    /// mounted test cannot drive — a real drag session is not synthesisable —
+    /// so the refusal is asserted at the value the row actually returns.
+    var actions: ResearchTreeActions {
         ResearchTreeActions(
             rename: { id, newTitle in
                 perform { try await store.updateResearchItem(id: id, title: newTitle) }
@@ -266,22 +269,58 @@ struct BinderTreeSections: View {
         }
     }
 
-    /// **Task 7's placeholder, and it refuses out loud.**
+    /// **Task 7's placeholder, and it refuses for real** — the drag bounces
+    /// back to where it came from, which is what the writer needs to see while
+    /// the tree's routing does not exist yet.
     ///
-    /// `ResearchTreeActions`' drop closures return `Void`, and `ResearchRow`'s
-    /// own `.dropDestination` returns `true` unconditionally — so a stub that
-    /// simply did nothing would tell the writer the drop was ACCEPTED and then
-    /// discard it, which is the silent-no-op shape the publishing-namespace
-    /// finding says to fail loudly on. The only channel a `Void` closure has is
-    /// the log, so it uses it; the placeholder rows, whose destinations return a
-    /// value, refuse properly by returning `false`.
-    private func refuseDrop(_ target: String, payload: String?) {
+    /// This shipped wrong once and the fix is worth recording. The first version
+    /// returned `Void` and only logged, on the reasoning that a `Void` closure
+    /// has no other channel — but `ResearchRow`'s `.dropDestination` was
+    /// returning `true` unconditionally, so "accepted" was a property of the row
+    /// rather than of the handler: a note dragged onto a populated research row
+    /// animated home as accepted and was then silently discarded. That is the
+    /// exact silent-no-op the publishing-namespace finding says to fail loudly
+    /// on. The drop closures now return `Bool` all the way down, so the row
+    /// returns the handler's answer and the compiler asks every caller
+    /// (fix round 1).
+    ///
+    /// Returns `false`, always, and says why in the log.
+    private func refuseDrop(_ target: String, payload: String?) -> Bool {
         _binderTreeSectionsLog.warning(
             "binder tree refused a drop on \(target, privacy: .public) with payload \(payload ?? "external", privacy: .public) — routing lands in stage-2a Task 7")
+        return false
     }
 
     private func findParentId(of childId: String) -> String? {
         store.findResearchParentId(of: childId, in: store.manifest.research, parent: nil)
+    }
+
+    /// What the Add Link sheet does with its answer — **a creation verb like any
+    /// other here, so it points the window at what it made** (fix round 1).
+    ///
+    /// A `static` taking the binding rather than a closure inside the sheet,
+    /// because the sheet's completion is not reachable from a test: the modifier
+    /// is private, a `ViewModifier`'s body cannot be driven headless, and there
+    /// is no synthesisable path from "the writer typed a URL and pressed Add" to
+    /// this code. It shipped discarding the created link, and nothing could have
+    /// caught that — this is the smallest shape that makes the write assertable
+    /// (`BinderTreeSectionsTests.test_addLinkPointsTheWindowAtTheLinkItMade`).
+    ///
+    /// Deliberately sets no `pendingRenameId`: the sheet already asked for the
+    /// title, and both old panes leave a new link out of rename mode for that
+    /// reason.
+    static func addLink(
+        title: String, url: String, parentId: String?,
+        store: ProjectStore, state: BinderTreeSectionsState,
+        selectedSubject: Binding<BinderSubject?>
+    ) async {
+        do {
+            let link = try await store.addResearchLink(
+                parentId: parentId, title: title, url: url)
+            selectedSubject.wrappedValue = .research(link.id)
+        } catch {
+            state.pendingError = error.localizedDescription
+        }
     }
 }
 
@@ -323,30 +362,48 @@ extension View {
     /// — see `BinderTreeSections` for why the pairing is split, and
     /// `TripwireGrepTests` for the census that keeps a host from having one half
     /// without the other.
+    ///
+    /// It takes the subject binding as well as the state, because one of the
+    /// presentations MAKES something: the Add Link sheet is a creation verb that
+    /// happens to need a sheet, and creating from the tree selects the new thing
+    /// like every other creation verb here (fix round 1).
     func binderTreeSections(store: ProjectStore,
-                            state: BinderTreeSectionsState) -> some View {
-        modifier(BinderTreeSectionsPresentations(store: store, state: state))
+                            state: BinderTreeSectionsState,
+                            selectedSubject: Binding<BinderSubject?>) -> some View {
+        modifier(BinderTreeSectionsPresentations(
+            store: store, state: state, selectedSubject: selectedSubject))
     }
 }
 
 private struct BinderTreeSectionsPresentations: ViewModifier {
     @Bindable var store: ProjectStore
     @Bindable var state: BinderTreeSectionsState
+    @Binding var selectedSubject: BinderSubject?
 
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $state.showingAddLinkSheet) {
                 AddResearchLinkSheet(
+                    // **The new link becomes the subject** — creating from the
+                    // tree selects the new thing, and a link is a creation verb
+                    // like New Note and New Card. It shipped discarding the
+                    // result, which made Add Link the one verb here that left
+                    // the window pointed somewhere else (fix round 1); both old
+                    // panes already select their new link, so it was a
+                    // regression against the surfaces this one replaces.
+                    //
+                    // No `pendingRenameId`, deliberately, and this is where it
+                    // differs from New Note: the sheet already asked for the
+                    // title, so opening a rename field on top of the answer
+                    // would be asking twice. Same reasoning as the old panes'.
                     onAdd: { title, url in
                         let parentId = state.addLinkParentId
                         state.showingAddLinkSheet = false
                         Task { @MainActor in
-                            do {
-                                _ = try await store.addResearchLink(
-                                    parentId: parentId, title: title, url: url)
-                            } catch {
-                                state.pendingError = error.localizedDescription
-                            }
+                            await BinderTreeSections.addLink(
+                                title: title, url: url, parentId: parentId,
+                                store: store, state: state,
+                                selectedSubject: $selectedSubject)
                         }
                     },
                     onCancel: { state.showingAddLinkSheet = false })

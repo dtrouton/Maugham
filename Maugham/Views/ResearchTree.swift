@@ -17,8 +17,13 @@ struct ResearchMoveMenuTarget: Identifiable {
 
 struct ResearchTreeActions {
     var rename: (String, String) -> Void
-    var internalDrop: (_ draggedId: String, _ position: DropIntent.Position, _ target: ResearchItem) -> Void
-    var externalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position, _ target: ResearchItem) -> Void
+    /// Returns whether the drop is ACCEPTED. `ResearchRow` returns exactly this
+    /// from its `.dropDestination`, so a surface whose routing is not built yet
+    /// says `false` and the writer's drag bounces back, rather than being
+    /// animated home and silently discarded (fix round 1; see `ResearchRow`).
+    var internalDrop: (_ draggedId: String, _ position: DropIntent.Position, _ target: ResearchItem) -> Bool
+    /// Returns whether the drop is accepted — see `internalDrop`.
+    var externalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position, _ target: ResearchItem) -> Bool
     var newNote: (_ parentId: String?) -> Void
     var newGroup: (_ parentId: String?) -> Void
     var addFile: (_ parentId: String?) -> Void
@@ -78,7 +83,7 @@ struct ResearchTreeNode<Tag: Hashable>: View {
             },
             onExternalDrop: { providers, position in
                 actions.externalDrop(providers, position, item)
-            })
+            })  // both pass the bundle's accept/refuse straight back to the row
             .tag(tagFor(item))
             .contextMenu {
                 Button("New Note") {

@@ -2991,6 +2991,43 @@ final class TripwireGrepTests: XCTestCase {
             + "above would pass for it too and prove nothing.")
     }
 
+    // MARK: - The shared research row never accepts a drop on its own authority
+
+    /// **`ResearchRow` must return its CALLER's accept/refuse, never a literal**
+    /// (fix round 1).
+    ///
+    /// The row is shared by every research surface, and it used to answer
+    /// `.dropDestination` with a bare `return true` no matter what its `onDrop`
+    /// closure did. That made "accepted" a property of the row: the binder
+    /// tree's handlers are stubs until stage-2a Task 7, so a note dragged onto a
+    /// populated research row in the tree got the accepted-drop animation and
+    /// was then silently discarded — the writer's drag gone, with the animation
+    /// that says it worked.
+    ///
+    /// A `Bool` return through `ResearchTreeActions` fixed it, and the compiler
+    /// now asks every caller. What the compiler CANNOT ask is whether the row
+    /// still forwards that answer rather than shadowing it with a literal, which
+    /// is exactly the shape that shipped. Hence this.
+    func test_theResearchRowNeverAcceptsADropOnItsOwnAuthority() throws {
+        let url = sourceDir.appendingPathComponent("Views/ResearchRow.swift")
+        let code = Self.codeLines(of: try String(contentsOf: url, encoding: .utf8))
+
+        XCTAssertTrue(
+            code.contains { $0.contains("return onDrop(") },
+            "ResearchRow must return its `onDrop` closure's answer. If this "
+            + "moved, this census needs to know where.")
+        XCTAssertTrue(
+            code.contains { $0.contains("return onExternalDrop(") },
+            "…and its `onExternalDrop` closure's answer.")
+        XCTAssertFalse(
+            code.contains { $0.trimmingCharacters(in: .whitespaces) == "return true" },
+            "ResearchRow must not accept a drop on its own authority. A bare "
+            + "`return true` in a drop destination discards the drag of every "
+            + "caller whose handler is a stub, with the animation that says it "
+            + "landed. Return the closure's Bool instead.\n\nFound:\n"
+            + code.filter { $0.contains("return true") }.joined(separator: "\n"))
+    }
+
     // MARK: - The binder tree's sections mount in two halves
 
     /// The file that DEFINES both halves, which naturally contains both tokens
