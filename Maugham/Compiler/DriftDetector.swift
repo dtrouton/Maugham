@@ -25,6 +25,17 @@ enum DriftDetector {
     /// or one the delta was silent about all end its streak the same way — an
     /// honest reset, not a special case. A finding reports the streak's full
     /// length, not just the threshold that qualified it.
+    ///
+    /// **The straining status is `DiagnosticIngest.SectionField.strains`, by
+    /// symbol.** It was a raw `"strains"` literal here while the ingest that
+    /// mints the value and the pane that renders it both spelled it through
+    /// that constant — three readers, two spellings. The strings agreed, so
+    /// nothing was red; if the contract's word ever moved with the ingest,
+    /// drift would have gone silently inert with no reader the wiser, which is
+    /// the inert-rule shape this codebase has now shipped twelve times.
+    /// `DriftDetectorTests.test_theDetectorAndThePaneAgreeOnStrainsBySymbol`
+    /// holds the three on one spelling by reference rather than by equal
+    /// strings.
     static func drift(history: [[DiagnosticIngest.ClauseStatus]]) -> [DriftFinding] {
         guard let mostRecent = history.last else { return [] }
 
@@ -35,7 +46,7 @@ enum DriftDetector {
             var streak = 0
             for run in history.reversed() {
                 guard let match = run.first(where: { $0.clauseQuote == quote }),
-                      match.status == "strains"
+                      match.status == DiagnosticIngest.SectionField.strains
                 else { break }
                 streak += 1
             }

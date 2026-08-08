@@ -125,4 +125,59 @@ final class DriftDetectorTests: XCTestCase {
             DriftDetector.drift(history: history),
             [DriftFinding(clauseQuote: quote, runsStraining: 3)])
     }
+
+    /// **The three readers of the straining status are held on one spelling by
+    /// reference, not by equal strings** (M1).
+    ///
+    /// `DiagnosticIngest` mints the value, `DriftDetector` matches on it and
+    /// `DiagnosticsPane` renders it. The detector carried a raw `"strains"`
+    /// literal while the other two went through
+    /// `DiagnosticIngest.SectionField.strains`; the strings agreed, so nothing
+    /// was ever red, and a contract that moved the word would have left drift
+    /// silently inert — an inert rule with a live reader, this codebase's most
+    /// repeated Critical.
+    ///
+    /// Nothing below spells the word as a literal of its own. The value travels
+    /// out of a real section parse and into both readers, so a move that missed
+    /// one of the three fails here rather than shipping quiet.
+    @MainActor
+    func test_theDetectorAndThePaneAgreeOnStrainsBySymbol() throws {
+        let parsed = try XCTUnwrap(
+            parseOneCheck(status: DiagnosticIngest.SectionField.strains),
+            "the fixture line did not parse as a conformance check")
+
+        let straining = Array(
+            repeating: [parsed], count: DriftDetector.consecutiveRunsThreshold)
+        XCTAssertEqual(
+            DriftDetector.drift(history: straining).map(\.clauseQuote),
+            [parsed.clauseQuote],
+            "the detector must recognise the very status the ingest minted")
+        XCTAssertEqual(
+            DiagnosticsPane.statusWord(parsed.status),
+            DiagnosticIngest.SectionField.strains,
+            "and the pane must say the same word about the same value")
+
+        // The control, so the assertion above cannot be satisfied by a detector
+        // that fires on everything.
+        let holding = try XCTUnwrap(parseOneCheck(status: DiagnosticIngest.SectionField.holds))
+        XCTAssertEqual(
+            DriftDetector.drift(
+                history: Array(repeating: [holding],
+                               count: DriftDetector.consecutiveRunsThreshold)),
+            [],
+            "a clause that holds is not drifting")
+    }
+
+    /// One conformance check off a real ingest parse, so the status a test
+    /// hands the detector is the one the wire schema produces rather than one
+    /// the test typed.
+    private func parseOneCheck(status: String) -> DiagnosticIngest.ClauseStatus? {
+        let line = "{\"section\":\"conformance\",\"checks\":[{"
+            + "\"clause_quote\":\"Cold, and never wistful.\","
+            + "\"status\":\"\(status)\",\"refs\":[\"a1b2\"],"
+            + "\"what_pulls\":\"The last line reaches for a sigh.\"}]}"
+        return DiagnosticIngest.parseSection(
+            line: line, runId: "r1", docId: "d1",
+            liveParagraphText: { _ in "The fog came." })?.conformance.first
+    }
 }
