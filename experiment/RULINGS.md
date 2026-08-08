@@ -3,7 +3,7 @@
 **GENERATED from `experiment/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
 Regenerate with `python3 experiment/scripts/23-generate-rulings.py` after any ruling change.
 
-29 rulings, 4 principles.
+45 rulings, 4 principles.
 
 Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:
 applying a ruling to a new case means re-checking the basis, not pattern-matching the
@@ -362,6 +362,138 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 *basis:* Denver, 2026-08-08, structured question, no recommendation marked: chose 'Reopen for all archived' over Maugham-archived-only and no-pane-action. Matches RULING-13's basis: staleness and resolution are signals to the author, 'who decides whether each one still applies'.
 
 *settles:* GAP-R2. Document.reopenAnnotation gains its first non-undo production caller; reopening a withdrawn annotation stays out of scope (withdraw is absence from the projection, a different act).
+
+### RULING-30 — P — a blank replacement is a deletion, said plainly  `RATIFIED_FROM_OPTIONS`
+
+> A suggested change with a BLANK replacement is a legitimate suggestion to DELETE the paragraph — and it must read as exactly that on every surface ('suggests deleting this paragraph', never an empty preview). Accepting it deletes; the writer knew, because RULING-7's clause ('an empty replacement reads as a deletion') was honoured everywhere.
+
+*basis:* Denver: recommended option accepted — the recommendation followed RULING-7's existing text.
+
+*settles:* GAP-A1. The blank-suggestion claims filed NO_RULING_REACHES are re-file candidates.
+
+### RULING-31 — Q — a resolution's reason is part of the note's history  `RATIFIED_FROM_OPTIONS`
+
+> When a rejected annotation is reopened, the written rejection reason stays visible on the annotation as part of its record ('previously rejected: …'). The writer's authored words stay where they would look for them.
+
+*basis:* Denver, no recommendation offered: chose 'keep it as history' over discard and on-demand.
+
+*settles:* GAP-A3. The RULING-29 pane-Reopen fix must carry this.
+
+### RULING-32 — R — the typing sweep reports at the pause  `RATIFIED_FROM_OPTIONS`
+
+> When deleting a paragraph archives open notes, Maugham says so in a BATCHED, quiet summary at the writing pause (the burst boundary): 'While you edited: 3 notes archived.' Silent in the moment — typing flow is never interrupted — and never a prompt.
+
+*basis:* Denver, no recommendation offered: chose the batched third option over tell-at-the-time and silent-but-recoverable.
+
+*settles:* GAP-A4; gives M5-AN-041 its specified replacement behaviour.
+
+### RULING-33 — S — status and manuscript may not disagree  `RATIFIED_FROM_OPTIONS`
+
+> When concurrent lifecycle acts race (accept on one device, reject on another), the STATUS WINNER ALSO DECIDES THE TEXT: a reject that beats an accept carries the inverse, removing the applied change so the note's status and the manuscript agree. REVISIT at the collaboration milestone — this is the correct version of today's semantics, not the final word on collaborative conflict.
+
+*basis:* Denver verbatim: '1 but also 4 — 1 is the more correct version of what happens now but we may want to revisit.' A composed answer: the semantics ruled, the revisit clause attached (RULING-3's deferral pattern). No recommendation was offered.
+
+*shape:* CONVERGENCE — the first ruling proved by a TLA+ model before it was made
+
+*settles:* GAP-A7 / FM-3: the fix is authorised (models are the acceptance tests); the surface-the-conflict option is explicitly NOT chosen for now.
+
+*revisit when:* the collaboration milestone is scoped
+
+### RULING-34 — J — delete is normalised for annotations too  `RATIFIED_FROM_OPTIONS`
+
+> A deleted (withdrawn) annotation is recoverable later: it lands in a findable Deleted view in the pane and can be restored. RULING-15's single meaning of delete extends to annotations; the op log already retains everything — this is surfacing, not new storage.
+
+*basis:* Denver: recommended option accepted (RULING-15 + RULING-25 coherence).
+
+*settles:* GAP-A2.
+
+### RULING-35 — H — a stale mark and no dead controls  `RATIFIED_FROM_OPTIONS`
+
+> A resolved annotation whose paragraph is deleted stays in the pane as history, gains the STALE mark, and its dead actions are DISABLED with the reason ('its paragraph was deleted'). Nothing renders an enabled control that silently does nothing.
+
+*basis:* Denver: recommended option accepted (RULING-13's vocabulary + RULING-22's conviction of M5-AN-030).
+
+*settles:* GAP-A5; specifies M5-AN-030's fix shape.
+
+### RULING-36 — T — the timeline is the writer's own, under any clock  `RATIFIED_FROM_OPTIONS`
+
+> Time travel is required to be CORRECT under clock skew: the live op list stays sorted across merge-then-append, and a rewind's prefix is always the writer's real timeline — never the peer's text. The fix is cheap and the feature's whole job is showing history faithfully.
+
+*basis:* Denver: recommended option accepted, over accepted-limit-until-collaboration and parked-on-ROI.
+
+*settles:* GAP-A6 + the formal spike's §5.1 (merged). M5-AN-046/047 become clean defects with a specified fix.
+
+### RULING-37 — M — an action that changes nothing costs nothing  `RATIFIED_FROM_OPTIONS`
+
+> A Restore that changes nothing costs the writer nothing: the undo-history clear happens only once the restore is certain to change something, and Restore is not offered when there is nothing to do.
+
+*basis:* Denver: recommended option accepted; the module's own comment conceded 'zero benefit'.
+
+*settles:* GAP-R3. M4-RW-021's VIOLATES filing stands and its fix is specified (joins the RULING-27/28 loop's territory).
+
+### RULING-38 — J — a blocked restore still hands the writer their item  `RATIFIED_FROM_OPTIONS`
+
+> A restore blocked by an occupant restores BESIDE it under a distinguishing name, both visible; nothing is overwritten and nothing is refused. The dedupe-the-filename pattern (RULING-16's reclassification of RULING-10) applied to restore.
+
+*basis:* Denver: recommended option accepted.
+
+*settles:* Trash GAP-1; specifies M3-TR-027's fix.
+
+### RULING-39 — K — retention stays quiet policy; its bugs are still bugs  `RATIFIED_FROM_OPTIONS`
+
+> Op-log history retention through Permanently Delete / Empty Trash / the sweep stays silent policy — it is the work's protection (RULING-24 tier 1) and the current labels are acceptable. No new UI is owed. The invisible-immortal trash entry (meta.json never landed → unlistable, unsweepable, forever) is a plain DEFECT to fix regardless.
+
+*basis:* Denver, no recommendation offered: chose keep-retention-fix-only-the-bugs over honest-label-plus-true-destruction and destroy-history-too.
+
+*settles:* Trash GAP-2. M3-TR-021's sweep-by-list bug is authorised for fixing; M3-TR-049 stands as policy.
+
+### RULING-40 — M — one gesture, one restore  `RATIFIED_FROM_OPTIONS`
+
+> Whatever one delete action removed — one item or fifty — one restore returns, or it refuses and says why. The command is action-scoped and its label follows ('Restore Last Deletion'). It never returns part of a deletion and reports nothing about the rest.
+
+*basis:* Denver, no recommendation offered: chose action-scope over label-is-honest and both-commands.
+
+*settles:* Trash GAP-3; convicts M3-TR-037's single-item scope with a specified replacement.
+
+### RULING-41 — C — the binder and the disk agree after a restore  `RATIFIED_FROM_OPTIONS`
+
+> A restored item that cannot go home lands where the binder says it is, and no folder the writer deleted is silently re-created on disk. The phantom folder that later blocks the folder's own restore is never made.
+
+*basis:* Denver: recommended option accepted.
+
+*settles:* Trash GAP-4; specifies M3-TR-039's fix.
+
+### RULING-42 — A — a restore that returns less says so  `RATIFIED_FROM_OPTIONS`
+
+> A restore that returns less than was deleted names what it could not return, at the moment of the restore. Writer-authored arrangement (order, nesting, titles) counts as something returned or named — RULING-4's report-the-drop shape with the right subject.
+
+*basis:* Denver: recommended option accepted.
+
+*settles:* Trash GAP-5; M3-TR-040's fix specified.
+
+### RULING-43 — G — the writer's Trash shows the writer's deletions  `RATIFIED_FROM_OPTIONS`
+
+> The Trash pane shows things the writer deleted, full stop. Maugham's own safety copies and internal artifacts do not appear there. (And the underlying generalisation stands: a trash entry that cannot restore wiring-included is not offered a Restore that claims success.)
+
+*basis:* Denver: recommended option accepted.
+
+*settles:* Trash GAP-6; M3-TR-042's fix specified.
+
+### RULING-44 — K — trash owes no expiry warning  `RATIFIED_FROM_OPTIONS`
+
+> No warning is owed before trash expires: the writer chose to delete, trash is leeway, and they expect it to empty (RULING-23's own basis, now extended to the warning question). Showing time remaining stays the conceded enhancement RULING-23 already records — nice, not owed.
+
+*basis:* Denver, no recommendation offered: chose no-warning-owed over show-and-warn and clock-pauses-while-absent.
+
+*settles:* Trash GAP-7. M3-TR-019/-020/-050 stand as COMPLIES; the retention contract is closed as ruled-quiet.
+
+### RULING-45 — J — delete has one meaning for every row, including links  `RATIFIED_FROM_OPTIONS`
+
+> A research link is restorable like everything else: deleting it creates a trash entry (its URL and title are trivially storable) and restore returns it. The inequality is dissolved, not labelled — RULING-15's single meaning of delete extended to manifest-only items.
+
+*basis:* Denver, no recommendation offered — and the chosen option only entered the option set after Denver asked for the concrete example (note vs link side by side): the example reframed the question from labelling the inequality to dissolving it. Recorded as a method finding.
+
+*settles:* Trash GAP-8; re-files M3-TR-035's forward-facing half with a specified fix.
 
 ## Principles — how to judge, not what to decide
 
