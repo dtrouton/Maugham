@@ -131,7 +131,7 @@ final class PromotionCommandTests: XCTestCase {
     func test_theCommandReachesTheKeyWindowAndOnlyTheKeyWindow() {
         let key = KeyStubWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
                                 styleMask: [.titled], backing: .buffered, defer: false)
-        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+        let other = SilentTestWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
                              styleMask: [.titled], backing: .buffered, defer: false)
         // Test-owned windows. Without this, `close()` over-releases under ARC and
         // takes the whole test process down — measured: the runner reported
@@ -172,7 +172,7 @@ final class PromotionCommandTests: XCTestCase {
         var keyFired = 0, otherFired = 0
         let key = KeyStubWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
                                 styleMask: [.titled], backing: .buffered, defer: false)
-        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+        let other = SilentTestWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
                              styleMask: [.titled], backing: .buffered, defer: false)
         key.isReleasedWhenClosed = false
         other.isReleasedWhenClosed = false

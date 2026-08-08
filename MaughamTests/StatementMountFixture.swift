@@ -29,7 +29,7 @@ final class StatementProbeModel {
 /// into the `StatementPane` the writer meets rather than into one it built
 /// itself. Shared by `StatementEditorMountTests` and `StatementPaneTests`.
 ///
-/// The shape is `CanvasViewMountingTests`': an `NSHostingView` in an
+/// The shape is `CanvasViewMountingCase`': an `NSHostingView` in an
 /// ordered-front window, a `pump` that turns the runloop, and a teardown that
 /// drops the hosted view so `.onDisappear` runs. Nothing here reaches inside the
 /// pane — the only handle it takes is the `MaughamTextView` SwiftUI's own

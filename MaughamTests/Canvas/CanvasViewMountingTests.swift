@@ -1136,7 +1136,7 @@ private struct CanvasWithASwitchableSubject: View {
 /// window sees it. So the window's own `sendEvent` is the honest counter, and it
 /// is also the truer question — `NSWindow` is precisely the responder that took
 /// the writer's first Escape out of full screen.
-final class CanvasHostWindow: NSWindow {
+final class CanvasHostWindow: SilentTestWindow {
     private(set) var escapesDelivered = 0
 
     override func sendEvent(_ event: NSEvent) {

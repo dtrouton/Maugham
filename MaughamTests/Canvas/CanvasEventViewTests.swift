@@ -322,7 +322,7 @@ final class CanvasEventViewTests: XCTestCase {
     /// the override is not that, and the override reads only `locationInWindow`
     /// and `clickCount`.
     func test_aClickTakesFirstResponderSoTheKeyboardReachesTheCanvas() throws {
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
+        let window = SilentTestWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.titled], backing: .buffered, defer: false)
         windows.append(window)
         let v = view()
