@@ -312,6 +312,28 @@ The guard is `CompilerRunCommandTests.test_rulingsAreBriefedAsClausesNotProse`
 the row's date/provenance absent, and the writer's ruled sentence appearing
 **exactly once**. Count the occurrence, not the presence: presence alone
 passes on a message that carries the sentence twice.
+`test_aRulingBetweenRunsReachesTheNextBriefing` is the same guard over the
+whole chain — a real `RulingPerformer.rule` between two real runs — and it is
+the one that says the ruling *arrives*, not merely that the prose does not.
+
+**The door this does NOT close, and the shape of the risk if you change the
+contract.** `ClaudeWorldDeriver.derivationSchemaDescription` asks for a
+`quote` copied verbatim from **the statement**, essay included — not only from
+the Rulings stratum. So a real derivation can return a clause whose quote is a
+sentence of the essay, and that sentence is then in the message twice: once as
+the essay's own prose, once as the clause's citation. It is the identical
+over-weighting the switch above exists to prevent, arriving through a
+different door, and nothing today measures it — the guard counts the RULED
+sentence, and the fixture's essay-sourced clause is deliberately not counted.
+
+Left open rather than closed, on purpose: the honest fixes are all contract
+changes (quote essay clauses by reference, or drop the essay's prose once every
+sentence of it is a clause), each of which trades one kind of loss for another
+and belongs to a milestone that can measure the result. **What must not happen
+is closing it by accident** — if you widen the derivation schema, or make the
+briefing embed clause quotes some other way, this is the paragraph to re-read
+first. A watch item for Stage 3, recorded here because a reader of
+`worldSection` cannot see it.
 
 ## The four fates of a note
 

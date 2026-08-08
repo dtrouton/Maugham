@@ -1662,11 +1662,17 @@ final class CompilerRunCommandTests: XCTestCase {
         /// Held so the stores outlive the environment's weak captures.
         let store: ProjectStore
         let documentStore: DocumentStore
+        /// The real derivation cache the run and `RulingPerformer` share — the
+        /// two ends of the invalidation chain.
+        let declaredWorld: DeclaredWorldStore
         let root: URL
     }
 
     private func makeLiveDocumentHarness(
-        runner: SpyRunner, initialProse: String = "The fog came.\n"
+        runner: SpyRunner, initialProse: String = "The fog came.\n",
+        /// The one substitution beyond the subprocess itself: production would
+        /// spawn a real, billing `claude -p` here.
+        deriver: WorldDeriver? = nil
     ) async throws -> LiveDocumentHarness {
         let root = try makeProjectRoot()
         try FileManager.default.createDirectory(
@@ -1691,11 +1697,17 @@ final class CompilerRunCommandTests: XCTestCase {
             device: "test-mac", session: "s", presenter: nil)
         documentStore.register(document: document, for: docPath)
 
-        let diagnostics = DiagnosticsStore(
-            projectRoot: root, device: DeviceSlug.make(from: "test-mac"))
+        let device = DeviceSlug.make(from: "test-mac")
+        let diagnostics = DiagnosticsStore(projectRoot: root, device: device)
+        let declaredWorld = DeclaredWorldStore(projectRoot: root, device: device)
         let configURL = root.appendingPathComponent("compiler-mcp.json")
-        var environment = makeProductionEnvironment(
-            store: store, documentStore: documentStore, root: root)
+        var environment = CompilerOrchestrator.Environment.production(
+            store: store, documentStore: documentStore, projectURL: root,
+            declaredWorld: declaredWorld, bible: BibleStore(projectRoot: root, device: device),
+            preferences: UserPreferences(
+                defaults: UserDefaults(suiteName: "CompilerLiveDoc-\(UUID())")!),
+            makeDeriver: deriver.map { stub in { _ in stub } },
+            onRunAcknowledged: {})
         environment.writeMCPConfig = {
             try Data("{}".utf8).write(to: configURL, options: .atomic)
             return configURL
@@ -1706,7 +1718,8 @@ final class CompilerRunCommandTests: XCTestCase {
 
         return LiveDocumentHarness(
             orchestrator: orchestrator, diagnostics: diagnostics, document: document,
-            store: store, documentStore: documentStore, root: root)
+            store: store, documentStore: documentStore, declaredWorld: declaredWorld,
+            root: root)
     }
 
     /// **The run reads the present, not the last pause.** Freshly typed prose
@@ -1808,6 +1821,114 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(fx.document.opLogSnapshot.last?.changes
             .contains(where: { $0.next.contains("It stayed for three days.") }), true,
                        "the burst the run could not close lands on the next one")
+    }
+
+    // MARK: - The chain the atomic switch exists for
+
+    /// A deriver that reads the statement the way the real one is asked to —
+    /// **the rulings included** — and hands each back as a clause.
+    ///
+    /// Echoing rather than answering a canned world is the point: the test can
+    /// then name the writer's ruled sentence in its assertions and know it got
+    /// there by travelling the whole chain (ruling written → cache retired →
+    /// re-derived → briefed), rather than because a fixture put it there.
+    @MainActor
+    private final class EchoRulingsDeriver: WorldDeriver {
+        private(set) var calls = 0
+        private(set) var sawTexts: [String] = []
+
+        func derive(statementText: String) async -> DerivedWorld? {
+            calls += 1
+            sawTexts.append(statementText)
+            let parsed = RulingsSection.parse(statementText)
+            return DerivedWorld(
+                sourceHash: DerivedWorld.sourceHash(of: statementText),
+                clauses: parsed.rulings.map {
+                    DerivedClause(quote: $0.text, check: Self.check)
+                },
+                rules: [], derivedAt: Date())
+        }
+
+        /// Distinct from anything the statement says, so an assertion on it
+        /// cannot pass on raw prose leaking through — **and repeating none of
+        /// the ruling's own words**, which the first draft of this fixture did:
+        /// it built the check out of the ruled sentence, and the exact-once
+        /// assertion below went red on the fixture rather than on the code. The
+        /// count guard doing its job on its own author is the best evidence
+        /// available that it is not decorative.
+        static let check = "checkable, as the derivation reads it"
+    }
+
+    /// **The whole chain, driven once, with nothing faked but the two
+    /// subprocesses.** A writer answers a note, the answer lands as a ruling on
+    /// the real statement through the real `RulingPerformer`, and the NEXT run
+    /// is briefed on it.
+    ///
+    /// Every link here was already pinned in isolation — `RulingPerformerTests`
+    /// for the invalidation, `test_aCacheMissDerivesOnceAndBriefsTheReading`
+    /// for derive-and-brief, `test_theBriefingIsSentOnceWhileTheSessionLives`
+    /// for the elision — and that is exactly the arrangement this codebase has
+    /// been bitten by: each half correct, the composition broken, nothing red.
+    /// The load-bearing assertion is the NEGATIVE one — that run 2 is not
+    /// elided — because eliding is what a run does when it believes nothing has
+    /// changed, and a writer whose ruling is answered with "unchanged since
+    /// last run" has declared something into a void with no symptom anywhere.
+    func test_aRulingBetweenRunsReachesTheNextBriefing() async throws {
+        let runner = SpyRunner()
+        let deriver = EchoRulingsDeriver()
+        let fx = try await makeLiveDocumentHarness(runner: runner, deriver: deriver)
+        let statement = try await fx.store.createStatement(
+            kind: .intent, scope: .document("ch-1"))
+        try await fx.store.appendToStatement(
+            "Cold, and never wistful.", to: statement, session: "seed")
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await settle()
+        XCTAssertTrue(runner.sends[0].message.contains("Cold, and never wistful."),
+                      "precondition: run 1 briefs the essay")
+        XCTAssertEqual(deriver.calls, 1, "precondition: run 1 derived, on an empty cache")
+
+        // The writer answers a note. This is `DiagnosticsPane.commitAnswer`'s
+        // own call, with its own arguments — the run has no route into a
+        // statement and must not grow one (the membrane, AREA.md).
+        let ruled = "Kelly heard about the call offstage."
+        try await RulingPerformer.rule(
+            ruled, provenance: "answered a compiler note",
+            forScope: .document("ch-1"), store: fx.store, world: fx.declaredWorld)
+
+        // …and keeps writing, so run 2 has a delta of its own to check. Without
+        // this the second ⌘R is "nothing new" and never reaches the session at
+        // all — the run being asserted about would not exist.
+        fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(2, on: runner)
+        await settle()
+
+        let second = runner.sends[1].message
+        XCTAssertFalse(second.contains("unchanged since last run"),
+                       "the declared world MOVED, so the briefing must be re-embedded "
+                       + "— an elided run tells the session nothing happened and the "
+                       + "writer's ruling is checked by nobody")
+        XCTAssertTrue(second.contains(EchoRulingsDeriver.check),
+                      "the ruling reaches run 2 as its derived clause: the cache was "
+                      + "retired, the statement re-derived, and the reading briefed")
+        XCTAssertEqual(deriver.calls, 2,
+                       "…and it was re-derived rather than served from the reading "
+                       + "made before the ruling existed")
+        XCTAssertEqual(deriver.sawTexts.last?.contains(ruled), true,
+                       "…from the statement WITH the ruling in it — the derivation "
+                       + "reads all of it, or a ruled decision is derived out of "
+                       + "existence")
+
+        // The atomic switch, holding through the real chain rather than a
+        // fixture: the ruling is in the message as a clause and not as its own
+        // prose, exactly once.
+        XCTAssertFalse(second.contains(RulingsSection.heading))
+        XCTAssertEqual(occurrences(of: ruled, in: second), 1,
+                       "the writer's sentence appears once, in the clause. Twice is "
+                       + "the whole-statement briefing back through a real ruling")
     }
 
     // MARK: - Teardown
