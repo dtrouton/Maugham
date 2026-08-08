@@ -1,4 +1,39 @@
-# The compiler's second draft — handoff after Stage 1
+# The compiler's second draft — handoff after Stages 1 AND 2
+
+*Updated 2026-08-08: Stage 2 (the run rebuilt) is merged to local `main` —
+the run now briefs your essay + derived clauses (never raw rulings), returns
+the four-section report, the pane leads with your clauses quoted back with
+holds/strains/silent, every paragraph reference is an excerpt chip (no ¶id
+anywhere you read), answers land as rulings, the bible fills from runs, and
+the old v1 loop is deleted. The fifteenth consecutive whole-branch Critical
+was the eleventh's shape: Stage 1's bible caption showed bare ¶ids the moment
+Stage 2 fed it — fixed, facts are captioned by excerpt.*
+
+**Stage 2's smoke list:**
+1. Type into Tribute, ⌘R — the wait now says "Checking N new paragraphs…";
+   a second ⌘R mid-run flashes "Still checking…".
+2. The pane leads with YOUR intent sentences, each holds/strains/silent;
+   a strain expands to its note; every citation is a clickable excerpt chip.
+3. Answer a continuity question — it lands as a ruling (Intent pane, dated,
+   "answered a compiler note"); the next ⌘R briefs the new ruling as a
+   clause (the atomic switch, live).
+4. The bible stratum now fills — facts captioned by subject + excerpt.
+   Bless one; correct one; dismiss one.
+5. **A RULING IS OWED (final review I1):** streaming sections did not ship
+   (whole-turn ingest; the upgrade is a named Stage 3 item). Decide at
+   smoke whether the legible wait suffices for the ~2-minute cold window,
+   or streaming gets pulled forward.
+
+**Stage 3's inherited list:** cold start (read-it-whole offer) + drift-as-
+pattern (spec §4/§8), the bless convergence trap (AREA.md names the door: a
+blessed fact re-emitted returns, double-briefs, and can mint a duplicate
+ruling — design wanted, plus a bible-loop-across-runs test), the streaming
+upgrade, the derivation subprocess deadline (measured, not copied), and the
+strip/pane one-spelling watch item.
+
+---
+
+# The original Stage 1 handoff follows
 
 *Written 2026-08-07 evening. Stage 1 (the declared world) is merged to local
 `main` at `349e7ec1` — **53 commits ahead of origin, NOT pushed, NOT tagged.**
