@@ -1,4 +1,54 @@
-# The compiler's second draft — handoff after Stages 1 AND 2
+# The compiler's second draft — CLOSED, pending the full-loop smoke
+
+*Final update 2026-08-08: Stage 3 is merged to local `main`. The second draft
+is whole: the declared world, the run that briefs it, and now drift as the
+promised pattern, converging bless/correct, streamed sections, the cold-start
+offer, and a measured derivation deadline. The sixteenth consecutive
+whole-branch Critical was the seam Stage 3 itself created — a preview you
+could act on — shut at the store level with a byte-identical-sidecar test.
+**78 commits ahead of origin. Nothing pushed, nothing tagged.***
+
+## The full-loop smoke — what closes the milestone (all of it yours)
+
+**The loop, warm:**
+1. Type a chunk, ⌘R without pausing — "Checking N new paragraphs…", then the
+   **conformance summary appears BEFORE the run ends** (streaming's only
+   live proof; a CLI shape change fails silent, so this one matters).
+2. Mid-run: notes are readable but carry **no Answer/Promote** — the
+   affordances arrive when the run finishes. Answer one then; it lands as a
+   ruling; the NEXT run briefs it as a clause.
+3. Cancel a run mid-stream — nothing persists (the report returns to the
+   last finished run).
+4. Drift needs three straining runs to see live — long-horizon; watch for
+   the line over days of real use rather than forcing it.
+
+**The declared world:**
+5. Bless a bible fact; a later run must NOT bring it back. Correct one, then
+   rewrite the scene to re-establish Claude's original reading — the strain
+   must surface as a **conformance note against your ruling** (the designed
+   channel), not silence.
+6. Revoke a ruling from the Intent pane; ⌘Z it back.
+
+**Cold start:**
+7. Open a piece you've never run — the offer ("I haven't read this piece.
+   Read it whole and take notes?"). Refuse once — it never asks again.
+   Read on another — the whole-piece run streams in.
+
+**Standing items unchanged:** the M2-era smoke remainder and the pre-M2
+subject-sweep list (2026-08-05 handoff); the two parked decisions (assistant
+column in every persona; strip freshness mechanism). The streaming ruling
+from Stage 2's list is CLOSED — streaming shipped in Stage 3.
+
+**The backlog Stage 3 leaves, on the record:** ClaudeCLISession.send's
+synchronous stdin write can block the main actor past ~64KB briefings at
+whole-piece scale (pre-existing, measured territory); the reply-field
+@State stays visually open across a run transition (the write is
+store-guarded either way); the derivation deadline's 120s awaits real-use
+calibration.
+
+---
+
+# Earlier handoff (Stages 1 and 2) follows
 
 *Updated 2026-08-08: Stage 2 (the run rebuilt) is merged to local `main` —
 the run now briefs your essay + derived clauses (never raw rulings), returns
