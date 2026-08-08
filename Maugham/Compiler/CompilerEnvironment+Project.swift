@@ -49,7 +49,7 @@ extension CompilerOrchestrator.Environment {
         preferences: UserPreferences,
         model: String = CompilerOrchestrator.defaultModel,
         makeDeriver: (@MainActor (String) -> WorldDeriver)? = nil,
-        onRunAcknowledged: @escaping @MainActor () -> Void
+        onRunAcknowledged: @escaping @MainActor (CompilerOrchestrator.Acknowledgment) -> Void
     ) -> CompilerOrchestrator.Environment {
         // Built here rather than as a default argument, which cannot see
         // `preferences`. One deriver per derivation, deliberately: the model is

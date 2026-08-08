@@ -104,6 +104,14 @@ final class CompilerRunCommandTests: XCTestCase {
             sequence: ["a1b2"])
     }
 
+    /// The run state a run over `standingReading()` sits in — spelled once, so
+    /// a test asserting "a run is in flight" is not also restating the
+    /// fixture's arithmetic. The counts themselves are asserted where they are
+    /// the subject (`test_theRunningStateCarriesWhatItIsReading`).
+    private var runningOnTheStandingReading: CompilerOrchestrator.RunState {
+        .running(docId: docId, checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0))
+    }
+
     private func makeProjectRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("CompilerRunCommand-\(UUID())")
@@ -133,8 +141,13 @@ final class CompilerRunCommandTests: XCTestCase {
         let root: URL
         /// The per-session `--mcp-config` file the orchestrator asked for.
         let configURL: URL
-        var flashes: Int { flashCount() }
-        let flashCount: () -> Int
+        var flashes: Int { acknowledgments().count }
+        /// Every acknowledgment the run key asked the window for, in order —
+        /// recorded as VALUES rather than counted, because the second press of
+        /// a double-press now flashes too and the whole point is that it says
+        /// something different (`Acknowledgment.alreadyChecking`).
+        var flashesSaid: [CompilerOrchestrator.Acknowledgment] { acknowledgments() }
+        let acknowledgments: () -> [CompilerOrchestrator.Acknowledgment]
         /// What the next run reads off the live document — the writer, typing.
         let setReading: (CompilerOrchestrator.DocumentReading?) -> Void
         /// How many times the run reached for a fresh derivation — the lazy
@@ -198,7 +211,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let diagnostics = DiagnosticsStore(
             projectRoot: root, device: DeviceSlug.make(from: "test-mac"))
         let configURL = root.appendingPathComponent("compiler-mcp.json")
-        let flashes = Box(0)
+        let flashes = Box<[CompilerOrchestrator.Acknowledgment]>([])
         let live = Box(reading)
         let derivations = Box(0)
         let recorded = Box<[BibleFact]>([])
@@ -235,11 +248,11 @@ final class CompilerRunCommandTests: XCTestCase {
                     return configURL
                 },
                 makeRunner: { _, _ in runner },
-                onRunAcknowledged: { flashes.value += 1 }),
+                onRunAcknowledged: { flashes.value.append($0) }),
             diagnostics: diagnostics)
         return Harness(orchestrator: orchestrator, diagnostics: diagnostics,
                        root: root, configURL: configURL,
-                       flashCount: { flashes.value },
+                       acknowledgments: { flashes.value },
                        setReading: { live.value = $0 },
                        derivationCount: { derivations.value },
                        factsRecorded: { recorded.value },
@@ -405,27 +418,107 @@ final class CompilerRunCommandTests: XCTestCase {
 
     // MARK: - Refusal
 
-    /// ⌘R while a run is in flight is a **quiet** no-op: no second send, no
-    /// second flash, and the running state untouched. The pane header is
-    /// already saying what is happening; a flash reading "Checking…" over a
-    /// check already running is the key lying about what it did.
-    func test_runWhileRunningIsRefusedQuietly() throws {
+    /// ⌘R while a run is in flight starts nothing — and **says so**, which is
+    /// the judgment M2 Task 7 made the other way (run-rebuilt Task 5).
+    ///
+    /// The original reasoning was that ⌘S's capsule promises work was done, so
+    /// flashing over a check already running would be the key lying. That
+    /// reasoning is answered by the copy rather than overruled: "Still
+    /// checking…" claims nothing started. What the silence cost was measurable
+    /// — a cold first run takes ~2 minutes, and a writer whose second press
+    /// produced no reaction at all cannot tell a busy compiler from a dead
+    /// keystroke. Everything else about the refusal is unchanged: no second
+    /// send, no second session, the running state untouched.
+    func test_runWhileRunningStartsNothingAndSaysSo() throws {
         let runner = SpyRunner()
         runner.nextEvent = nil   // hold the turn open
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
         harness.orchestrator.runRequested(docId: docId)
         awaitSends(1, on: runner)
-        XCTAssertEqual(harness.orchestrator.runState, .running(docId: docId))
-        let flashesAfterFirst = harness.flashes
+        XCTAssertEqual(harness.orchestrator.runState,
+                       .running(docId: docId,
+                                checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0)))
+        XCTAssertEqual(harness.flashesSaid, [.started])
 
         harness.orchestrator.runRequested(docId: docId)
         settle()
 
         XCTAssertEqual(runner.sends.count, 1, "the second ⌘R must not reach the runner")
-        XCTAssertEqual(harness.orchestrator.runState, .running(docId: docId))
-        XCTAssertEqual(harness.flashes, flashesAfterFirst,
-                       "a refused run is silent — the flash acknowledges work started")
+        XCTAssertEqual(harness.orchestrator.runState,
+                       .running(docId: docId,
+                                checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0)))
+        XCTAssertEqual(harness.flashesSaid, [.started, .alreadyChecking],
+                       "the second press is acknowledged, and by a different sentence — "
+                       + "a second \u{201C}Checking\u{2026}\u{201D} would be the key claiming "
+                       + "it started a run it refused")
+        XCTAssertEqual(CompilerOrchestrator.Acknowledgment.started.flashLabel, "Checking\u{2026}")
+        XCTAssertEqual(CompilerOrchestrator.Acknowledgment.alreadyChecking.flashLabel,
+                       "Still checking\u{2026}")
+
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+    }
+
+    /// The same second press, **through the real event and the real scope
+    /// filter** rather than a direct call — `MaughamEvent.shouldDeliver` drops
+    /// a post whose scope does not match with nothing red anywhere, so an
+    /// acknowledgment proven only from `runRequested` proves nothing about the
+    /// key a writer actually presses.
+    func test_theSecondPressIsAcknowledgedOnTheDeliveryPath() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // hold the turn open
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        let token = MaughamEvent.observe(
+            .maughamRunCompiler,
+            context: { EventReceiverContext(kind: .keyWindow, isWindowLive: true,
+                                            isWindowKey: true) },
+            handler: { [docId] _ in harness.orchestrator.runRequested(docId: docId) })
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        MaughamEvent.postCompilerRun()
+        awaitSends(1, on: runner)
+        MaughamEvent.postCompilerRun()
+        settle()
+
+        XCTAssertEqual(runner.sends.count, 1)
+        XCTAssertEqual(harness.flashesSaid, [.started, .alreadyChecking],
+                       "⌘R pressed twice must acknowledge twice, and the second must "
+                       + "say it started nothing")
+
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+    }
+
+    /// **What the wait says it is reading.** The running state carries the
+    /// delta's own counts, resolved before the send, so the pane's header can
+    /// name what the compiler is checking rather than making a writer stare at
+    /// a bare "Checking…" for two minutes (requirement 5).
+    func test_theRunningStateCarriesWhatItIsReading() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(
+            runner: runner,
+            reading: CompilerOrchestrator.DocumentReading(
+                ops: [makeOp(opId: "op1", changes: [
+                        .init(paragraphId: "a1b2", prior: nil, next: "The fog came."),
+                        .init(paragraphId: "c3d4", prior: nil, next: "It stayed."),
+                        .init(paragraphId: "e5f6", prior: "A cold morning.",
+                              next: "A colder morning.")]),
+                ],
+                paragraphs: ["a1b2": "The fog came.", "c3d4": "It stayed.",
+                             "e5f6": "A colder morning."],
+                sequence: ["a1b2", "c3d4", "e5f6"]))
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+
+        guard case .running(_, let checking) = harness.orchestrator.runState else {
+            return XCTFail("expected a running state, got \(harness.orchestrator.runState)")
+        }
+        XCTAssertEqual(checking.new + checking.revised, 3,
+                       "the counts must describe the delta this run actually built")
 
         runner.release(.resultText(Self.fourEmptySections))
         settle()
@@ -953,7 +1046,7 @@ final class CompilerRunCommandTests: XCTestCase {
                     return configURL
                 },
                 makeRunner: { _, _ in runner },
-                onRunAcknowledged: {}),
+                onRunAcknowledged: { _ in }),
             diagnostics: diagnostics)
 
         orchestrator.runRequested(docId: docA)
@@ -1199,7 +1292,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         harness.orchestrator.runRequested(docId: docId)
         settle()
-        XCTAssertEqual(harness.orchestrator.runState, .running(docId: docId))
+        XCTAssertEqual(harness.orchestrator.runState, runningOnTheStandingReading)
 
         harness.orchestrator.cancel()
         XCTAssertEqual(harness.orchestrator.runState, .idle,
@@ -1297,7 +1390,7 @@ final class CompilerRunCommandTests: XCTestCase {
             bible: bible ?? BibleStore(projectRoot: root, device: device),
             preferences: UserPreferences(
                 defaults: UserDefaults(suiteName: "CompilerListings-\(UUID())")!),
-            onRunAcknowledged: {})
+            onRunAcknowledged: { _ in })
     }
 
     /// Each pinned kind names the tool that fetches its full contents — a
@@ -1473,7 +1566,7 @@ final class CompilerRunCommandTests: XCTestCase {
             preferences: UserPreferences(
                 defaults: UserDefaults(suiteName: "CompilerDerive-\(UUID())")!),
             makeDeriver: { _ in deriver },
-            onRunAcknowledged: {})
+            onRunAcknowledged: { _ in })
         let briefing = CompilerOrchestrator.IntentBriefing(
             statementText: statement, scopeKey: "doc-ch-1")
 
@@ -1503,7 +1596,7 @@ final class CompilerRunCommandTests: XCTestCase {
             preferences: UserPreferences(
                 defaults: UserDefaults(suiteName: "CompilerDerive-\(UUID())")!),
             makeDeriver: { _ in StubDeriver(answer: nil) },
-            onRunAcknowledged: {})
+            onRunAcknowledged: { _ in })
         let briefing = CompilerOrchestrator.IntentBriefing(
             statementText: "Cold.", scopeKey: "doc-ch-1")
 
@@ -1594,13 +1687,16 @@ final class CompilerRunCommandTests: XCTestCase {
         harness.orchestrator.runRequested(docId: docId)
         settle()
         XCTAssertEqual(gate.entries, 1, "the run is closing the burst")
-        XCTAssertEqual(harness.flashes, 1)
+        XCTAssertEqual(harness.flashesSaid, [.started])
 
         harness.orchestrator.runRequested(docId: docId)
         settle()
         XCTAssertEqual(gate.entries, 1, "the second press must not start a second run")
-        XCTAssertEqual(harness.flashes, 1,
-                       "a refused run is silent — the flash acknowledges work started")
+        XCTAssertEqual(harness.flashesSaid, [.started, .alreadyChecking],
+                       "…and is answered as one that started nothing. The window is "
+                       + "short and `runState` is honestly still idle inside it, so "
+                       + "without this the impatient second press of a double-⌘R is the "
+                       + "one press in the whole flow that produces no reaction at all")
 
         gate.release()
         awaitSends(1, on: runner)
@@ -1707,7 +1803,7 @@ final class CompilerRunCommandTests: XCTestCase {
             preferences: UserPreferences(
                 defaults: UserDefaults(suiteName: "CompilerLiveDoc-\(UUID())")!),
             makeDeriver: deriver.map { stub in { _ in stub } },
-            onRunAcknowledged: {})
+            onRunAcknowledged: { _ in })
         environment.writeMCPConfig = {
             try Data("{}".utf8).write(to: configURL, options: .atomic)
             return configURL
@@ -1964,7 +2060,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         harness.orchestrator.runRequested(docId: docId)
         awaitSends(1, on: runner)
-        XCTAssertEqual(harness.orchestrator.runState, .running(docId: docId))
+        XCTAssertEqual(harness.orchestrator.runState, runningOnTheStandingReading)
 
         harness.orchestrator.shutdown()
         settle()

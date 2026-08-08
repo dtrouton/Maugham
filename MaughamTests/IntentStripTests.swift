@@ -237,7 +237,7 @@ final class IntentStripTests: XCTestCase {
             store: store, documentStore: documentStore, projectURL: url,
             declaredWorld: DeclaredWorldStore(projectRoot: url, device: device),
             bible: BibleStore(projectRoot: url, device: device),
-            preferences: UserPreferences(), onRunAcknowledged: {})
+            preferences: UserPreferences(), onRunAcknowledged: { _ in })
         let briefed = environment.intent(chapter.id)?.statementText
 
         let resolved = try XCTUnwrap(store.effectiveIntent(forDocId: chapter.id))

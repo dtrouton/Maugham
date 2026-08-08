@@ -35,8 +35,8 @@ Two sentences hold the whole design:
 - **The compiler reads and never writes.** It reads the manuscript through an
   enumerated read-only MCP allowlist and answers with a structured message. The
   one thing that puts words anywhere is `RulingPerformer`, and its input is a
-  sentence the writer typed. (`IntentAppendPerformer` is now a shim over it,
-  kept only until Stage 2 rewrites the pane that calls it.)
+  sentence the writer typed. (The M2 answer shim that routed into it,
+  `IntentAppendPerformer`, is gone: the pane's reply field calls the verb.)
 
 ## What this area owns
 
@@ -46,7 +46,7 @@ Two sentences hold the whole design:
 - The diagnostics themselves: shape, per-device sidecar, staleness
   (`Diagnostic`, `DiagnosticsStore`, `DiagnosticIngest`).
 - Where a note goes when the writer keeps it (`DiagnosticPromotion`) or answers
-  it (`RulingPerformer`, through the `IntentAppendPerformer` shim).
+  it (`RulingPerformer.rule`, called by `DiagnosticsPane.commitAnswer`).
 - **The one door into the writer-owned layer** (`RulingPerformer`) — count the
   verbs in the census rather than reading a number here; today they are rule,
   revoke, edit and `restore`, each taking the writer's words as a `String` or a
@@ -101,7 +101,6 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `DiagnosticPromotion.swift` | What a kept note says once it is an op-logged task |
 | `RulingPerformer.swift` | rule / revoke / edit / restore — the only writes into a statement's `## Rulings` stratum |
 | `StatementEssay.swift` | Where the essay ends and the strata begin — the byte-exact split the Intent pane's editor binds through |
-| `IntentAppendPerformer.swift` | Shim over `RulingPerformer.rule`; Stage 2 removes it |
 | `DeclaredWorld.swift` | `DerivedClause`/`DerivedRule`/`DerivedWorld` (the reading) + `DeclaredWorldStore` (its per-device, hash-gated cache) |
 | `DeclaredWorldDeriver.swift` | `ClaudeWorldDeriver` — the one-shot, no-MCP `claude -p` that turns a statement's prose into a `DerivedWorld` |
 | `BibleStore.swift` | `BibleFact` (a reading with its establishing ¶) + `BibleStore` (per-device, project-scoped ledger) |
@@ -391,8 +390,9 @@ drifted from them is a defect in this file.
 - `BibleStoreTests` — the ledger: `(subject, fact)` dedupe (and that a
   dismissed fact can return), the per-device sidecar, and the subject-slice
   `facts(subjects:)` Stage 2 will call.
-- `IntentAppendPerformerTests` — that the shim really routes, plus the pane's own
-  answer flow end to end.
+- `DiagnosticsPaneTests` — the report the pane draws (the conformance summary
+  first, the excerpt chips, the legible wait) and the answer flow end to end,
+  including that it lands as a ruling and drops the derivation it outdated.
 - `CompilerRunCommandTests` — ⌘R's real delivery path.
 - `PinnedReferencesTests` — the union and its resolution, including the
   dedup/dangling/sort rules; its census keeps `linkedResearchIds` (not
@@ -404,7 +404,7 @@ drifted from them is a defect in this file.
 **One known gap, on the record:** SwiftUI exposes no way to deliver a Return
 keystroke into a hosted `TextField`'s editor, so the reply field's *commit on
 return* and *escape cancels* are asserted at the source rather than pressed
-(`IntentAppendPerformerTests.test_theReplyFieldCommitsOnReturnAndCancelsOnEscape`).
+(`DiagnosticsPaneTests.test_theReplyFieldCommitsOnReturnAndCancelsOnEscape`).
 Everything the commit then does is driven for real against live stores through
 `DiagnosticsPane.commitAnswer`, which is why that function is a `static` taking
 everything it touches.

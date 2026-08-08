@@ -138,7 +138,7 @@ final class CompilerAllowlistTests: XCTestCase {
     /// **Only the writer's own hand puts words into a statement.**
     ///
     /// Task 10 gives an answered diagnostic a route into the piece's intent —
-    /// through `IntentAppendPerformer`, driven by a writer typing into a field.
+    /// through `RulingPerformer.rule`, driven by a writer typing into a field.
     /// The compiler's Claude reads that intent every run (`read_craft_intent`,
     /// `read_visual_language`) and must never be able to write it: a model that
     /// could edit the standard it is judged against can quietly move the

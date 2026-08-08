@@ -37,6 +37,13 @@ struct ProjectWindow: View {
     /// binding, because ⌘S and ⌘R can be pressed a second apart and one flash
     /// showing the other's word is worse than two.
     @State private var showingCompilerFlash: Bool = false
+    /// What that capsule says — the acknowledgment's own word, not a constant,
+    /// because the second ⌘R of a double-press says something different
+    /// (`CompilerOrchestrator.Acknowledgment`).
+    @State private var compilerFlashLabel: String =
+        CompilerOrchestrator.Acknowledgment.started.flashLabel
+    /// Which flash the pending hide belongs to — see `showCompilerFlash`.
+    @State private var compilerFlashGeneration: Int = 0
     /// The Diagnostics pane's gear menu (M2 Task 8), seeded from
     /// `UIState.compilerModel` at `load()` and written back through
     /// `updateUIState` on change — the `outlineLayout` pattern.
@@ -147,7 +154,7 @@ struct ProjectWindow: View {
                 }
                 .overlay(alignment: .top) {
                     SaveFlashOverlay(isShowing: $showingCompilerFlash,
-                                     label: "Checking\u{2026}",
+                                     label: compilerFlashLabel,
                                      systemImage: "text.magnifyingglass")
                 }
                 .overlay(alignment: .top) {
@@ -2073,13 +2080,26 @@ struct ProjectWindow: View {
     }
 
     /// ⌘R's acknowledgment. Shorter than ⌘S's: this one says the key was heard,
-    /// and the pane says the rest.
+    /// and the pane says the rest. The word is the acknowledgment's own —
+    /// "Checking…" for a press that started a run, "Still checking…" for one
+    /// that found a run already under way.
+    ///
+    /// The generation is what keeps a double-press honest: the first press's
+    /// hide is still pending when the second arrives, and without it the
+    /// "Still checking…" capsule would be taken off screen by a timer belonging
+    /// to a flash the writer has already stopped reading.
     @MainActor
-    private func showCompilerFlash() {
+    private func showCompilerFlash(_ acknowledgment: CompilerOrchestrator.Acknowledgment) {
+        compilerFlashLabel = acknowledgment.flashLabel
+        compilerFlashGeneration &+= 1
+        let generation = compilerFlashGeneration
         showingCompilerFlash = true
         Task {
             try? await Task.sleep(for: .milliseconds(700))
-            await MainActor.run { showingCompilerFlash = false }
+            await MainActor.run {
+                guard compilerFlashGeneration == generation else { return }
+                showingCompilerFlash = false
+            }
         }
     }
 
@@ -2130,7 +2150,7 @@ struct ProjectWindow: View {
                     declaredWorld: worldStore, bible: bibleStore,
                     preferences: userPreferences,
                     model: ds.uiState.compilerModel.claudeModel,
-                    onRunAcknowledged: { showCompilerFlash() }),
+                    onRunAcknowledged: { showCompilerFlash($0) }),
                 diagnostics: DiagnosticsStore(
                     projectRoot: url,
                     device: DeviceSlug.make(from: MacDeviceID.current)))

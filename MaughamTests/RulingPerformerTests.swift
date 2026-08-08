@@ -10,8 +10,8 @@ import MaughamCore
 /// census that says no verb here can be handed one.
 ///
 /// Every assertion goes through the real op log or the real derived `.md`
-/// rather than a returned preview, for `IntentAppendPerformerTests`' reason:
-/// a preview can agree with itself and be wrong.
+/// rather than a returned preview, for the M2 answer suite's reason: a preview
+/// can agree with itself and be wrong.
 @MainActor
 final class RulingPerformerTests: XCTestCase {
 

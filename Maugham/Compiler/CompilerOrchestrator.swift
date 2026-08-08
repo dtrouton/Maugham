@@ -35,9 +35,62 @@ final class CompilerOrchestrator {
     /// perfectly good notes. `.idle` carries none because it claims nothing.
     enum RunState: Equatable {
         case idle
-        case running(docId: String)
+        case running(docId: String, checking: DeltaCounts)
         case nothingNew(docId: String, at: Date)
         case failed(docId: String, failure: CompilerRunFailure, at: Date)
+    }
+
+    /// **What a run is reading, in counts** — the running state's payload, and
+    /// the whole of requirement 5 on this side of the seam.
+    ///
+    /// A cold first run over a long delta takes about two minutes, and a bare
+    /// "Checking…" for that long reads as a hung app. The delta is known before
+    /// the send (`beginRun` builds it, then sets the state, then spawns), so the
+    /// header can say what is being read without waiting for anything — the
+    /// counts travel with the state rather than being fetched from the
+    /// orchestrator by a pane that would have no way to know when they arrived.
+    ///
+    /// Counts rather than the sentence: the copy is the pane's
+    /// (`DiagnosticsPane.checkingCopy`), the way every other line it says is.
+    struct DeltaCounts: Equatable, Sendable {
+        let new: Int
+        let revised: Int
+
+        init(new: Int, revised: Int) {
+            self.new = new
+            self.revised = revised
+        }
+
+        init(of delta: CompilerDelta) {
+            self.init(new: delta.new.count, revised: delta.revised.count)
+        }
+    }
+
+    /// **What the run key flashed about** — the capsule at the top of the
+    /// window, `SaveFlashOverlay`'s ⌘S register borrowed by ⌘R.
+    ///
+    /// Two cases because a press that starts a run and a press that finds one
+    /// already in flight are different promises, and the difference is the
+    /// whole reason the second one may flash at all (see `runRequested`).
+    /// A typed pair rather than a `String` label handed across the seam:
+    /// adding a third acknowledgment is adding a case, and every emit site is
+    /// then the compiler's problem rather than a reviewer's.
+    enum Acknowledgment: Equatable, Sendable {
+        /// A run just started on this document.
+        case started
+        /// One was already running, and this press started nothing.
+        case alreadyChecking
+
+        /// The capsule's word. Kept beside the case rather than in the window
+        /// that draws it, so both sentences are assertable without a mount —
+        /// and so the difference between them cannot be lost in a view's
+        /// `switch`.
+        var flashLabel: String {
+            switch self {
+            case .started: return "Checking\u{2026}"
+            case .alreadyChecking: return "Still checking\u{2026}"
+            }
+        }
     }
 
     /// What one run reads off the live `Document`, captured at the keystroke.
@@ -149,8 +202,10 @@ final class CompilerOrchestrator {
         /// spelling inside this closure is what the run record and the
         /// subprocess would disagree about.
         var makeRunner: @MainActor (URL, String) -> CompilerRunner
-        /// The acknowledgment flash. Called synchronously with the keystroke.
-        var onRunAcknowledged: @MainActor () -> Void
+        /// The acknowledgment flash. Called synchronously with the keystroke —
+        /// for the press that starts a run AND for the one that finds a run
+        /// already in flight, which say different things (`Acknowledgment`).
+        var onRunAcknowledged: @MainActor (Acknowledgment) -> Void
     }
 
     /// The model a run uses before the Diagnostics pane's gear-menu setting
@@ -241,11 +296,22 @@ final class CompilerOrchestrator {
     /// thing to do is nothing.
     func runRequested(docId: String) {
         guard let environment, diagnostics != nil else { return }
-        // A run already in flight. Quiet on purpose: the pane header is already
-        // saying what is happening, and there is one session per window, so a
-        // second turn is not something to queue — it is something the next
-        // keystroke can do.
-        guard !isRunning else { return }
+        // A run already in flight. Nothing is queued — there is one session per
+        // window, and a second turn is something the next keystroke can do —
+        // but the press is answered.
+        //
+        // **This is M2 Task 7's judgment revisited, and the copy is what
+        // answers it.** That task refused to flash here on the grounds that
+        // ⌘S's capsule promises work was done, so flashing over a run already
+        // under way would be the key claiming something it did not do. The
+        // promise lives in the wording, not the capsule: "Still checking…"
+        // claims nothing started. What the silence cost is requirement 4b — a
+        // cold run takes ~2 minutes, and a writer whose second press produced
+        // no reaction at all cannot tell a busy compiler from a dead keystroke.
+        guard !isRunning else {
+            environment.onRunAcknowledged(.alreadyChecking)
+            return
+        }
         // No document under the window's subject — the project row, or nothing
         // selected. Not an error, not a run, and nothing to acknowledge: the
         // key had nothing to act on. Asked here only for that answer; the
@@ -255,7 +321,7 @@ final class CompilerOrchestrator {
         // Synchronous with the keystroke, and deliberately ahead of the hop
         // below: the flash is ⌘S's muscle-memory acknowledgment, not a progress
         // indicator, and one that waited on a disk write would be neither.
-        environment.onRunAcknowledged()
+        environment.onRunAcknowledged(.started)
 
         // **The burst first, the delta second.** The writer's last sentences
         // are in the `PendingBuffer` until a pause closes the burst, so a
@@ -334,7 +400,11 @@ final class CompilerOrchestrator {
         // Set before the derivation, not after it: deriving is a subprocess,
         // and a window that said `idle` for the seconds it takes would take a
         // second ⌘R and run the same delta twice.
-        runState = .running(docId: docId)
+        //
+        // It carries the delta's counts because they are known HERE and nowhere
+        // later — the pane's header says what is being read from this moment on
+        // rather than from the moment the answer comes back (requirement 5).
+        runState = .running(docId: docId, checking: DeltaCounts(of: delta))
         Task { [weak self] in
             let world = await Self.resolveWorld(briefing, model: model, in: environment)
             // The derivation is the run's second suspension, and everything the

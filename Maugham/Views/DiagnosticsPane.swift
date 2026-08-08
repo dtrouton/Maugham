@@ -1,12 +1,31 @@
 import SwiftUI
 import MaughamCore
 
-/// The compiler's notes on the open document (M2 Task 8) — Author's own pane,
-/// reached by ⌘⌥D or by leading its picker (`Persona.author.panes`).
+/// The compiler's report on the open document — Author's own pane, reached by
+/// ⌘⌥D or by leading its picker (`Persona.author.panes`).
+///
+/// **It reads as a report, in the second draft's order** (spec §5): the
+/// conformance summary first — every clause the writer declared, quoted back in
+/// their own words, each holding or straining or silent — then the continuity
+/// questions, then the reader's report. The summary renders whether or not a
+/// single note came with it, because a run whose clauses all hold is not an
+/// empty pane: it is the good outcome, and a pane that showed nothing for it
+/// would say the check never happened.
 ///
 /// The register is Maugham's: nothing here bounces, nags, or apologises for
-/// what it found. A clean run says so plainly ("Nothing to flag."); a failed
-/// one names what went wrong in one honest sentence and nothing more.
+/// what it found. A clean run says so plainly; a failed one names what went
+/// wrong in one honest sentence and nothing more.
+///
+/// **No paragraph id is ever rendered.** Every reference travels as a `Ref`
+/// carrying the words that paragraph said when the note landed, and the pane
+/// draws those words as a chip that clicks through to the prose
+/// (requirement 3, `test_noParagraphIdIsEverRendered`).
+///
+/// **Drift has no section here.** v2 dropped the `intent_drift` field, and
+/// drift-as-a-pattern — a clause straining the same way across consecutive runs
+/// — is Stage 3's, computed from the run records the sidecar already keeps.
+/// Nothing replaces it in this stage, and a section standing empty for it would
+/// be the pane promising a reading nothing produces.
 @MainActor
 struct DiagnosticsPane: View {
     let orchestrator: CompilerOrchestrator
@@ -26,11 +45,19 @@ struct DiagnosticsPane: View {
     /// onto, and the note is left where it is rather than dismissed into
     /// nowhere.
     var activeDocument: @MainActor () -> Document? = { nil }
-    /// The project the answer flow writes an intent statement into (M2 Task
-    /// 10). Optional, and its absence is what takes the **Answer** action off
-    /// every row rather than leaving one that presses into nowhere — see
-    /// `canAnswer`.
+    /// The project an answered question becomes a ruling in. Optional, and its
+    /// absence is what takes the **Answer** action off every row rather than
+    /// leaving one that presses into nowhere — see `offersAnAnswer`.
     var store: ProjectStore? = nil
+    /// The derivation cache a ruling has to drop.
+    ///
+    /// **Not optional out of convenience.** A reply that lands as a ruling
+    /// changes the prose the next run's clauses are derived from, and a cached
+    /// reading made before it would check the writer against a world they have
+    /// just changed — with nothing red, a run later. The deprecated answer shim
+    /// passed `nil` here because no pane held the store; `ProjectWindow` builds
+    /// one now, and this is where it arrives.
+    var world: DeclaredWorldStore? = nil
 
     @Environment(\.undoManager) private var undoManager
 
@@ -51,18 +78,29 @@ struct DiagnosticsPane: View {
         return diagnostics.live(docId: docId, currentText: currentText)
     }
 
-    private var driftNote: Diagnostic? {
-        rows.first { $0.anchor == nil }
-    }
-
-    private var anchoredNotes: [Diagnostic] {
-        rows.filter { $0.anchor != nil }
-    }
-
     private var lastRun: CompilerRun? {
         _ = diagnostics.version
         return diagnostics.lastRun(docId: docId)
     }
+
+    /// Every clause the last run checked, whatever the answer. Empty for a run
+    /// made with nothing declared — the schema tolerates an empty `checks`
+    /// array and absence is valid (spec §7).
+    private var clauses: [DiagnosticIngest.ClauseStatus] { lastRun?.clauseStatuses ?? [] }
+
+    /// The three note kinds, split into the sections that render them.
+    ///
+    /// A note whose `kind` is `nil` belongs to none of them — and cannot reach
+    /// here: `DiagnosticsStore.load` drops v1 records as superseded, and this
+    /// pane calls `load` in its own `onAppear`.
+    private var strains: [Diagnostic] { rows.filter { $0.kind == .conformanceStrain } }
+    private var questions: [Diagnostic] { rows.filter { $0.kind == .continuity } }
+    private var readerReports: [Diagnostic] { rows.filter { $0.kind == .readerReport } }
+
+    /// Is there a report to draw at all? **Clauses count even with no notes** —
+    /// that is the clean conformance report, and it is the outcome the writer
+    /// most wants to see.
+    private var hasReport: Bool { !clauses.isEmpty || !rows.isEmpty }
 
     private var state: HeaderState {
         Self.headerState(runState: orchestrator.runState, lastRun: lastRun,
@@ -98,7 +136,9 @@ struct DiagnosticsPane: View {
     enum HeaderState: Equatable {
         case neverRun
         case idle(lastRun: CompilerRun)
-        case running
+        /// Carrying what the run is reading, so the wait is legible from the
+        /// moment it starts (requirement 5).
+        case running(checking: CompilerOrchestrator.DeltaCounts)
         case nothingNew(at: Date)
         case failed(CompilerRunFailure, at: Date)
         case clean(lastRun: CompilerRun)
@@ -120,8 +160,8 @@ struct DiagnosticsPane: View {
         docId: String
     ) -> HeaderState {
         switch runState {
-        case .running(let runDocId) where runDocId == docId:
-            return .running
+        case .running(let runDocId, let checking) where runDocId == docId:
+            return .running(checking: checking)
         case .nothingNew(let runDocId, let at) where runDocId == docId:
             return .nothingNew(at: at)
         case .failed(let runDocId, let failure, let at) where runDocId == docId:
@@ -160,8 +200,9 @@ struct DiagnosticsPane: View {
     @ViewBuilder
     private var header: some View {
         // No spinner: the register is understated, and the state word in
-        // `headerLine` ("Checking…") already says what's happening — an
-        // indeterminate control here would only animate to say it twice.
+        // `headerLine` ("Checking 14 new paragraphs…") already says what's
+        // happening — an indeterminate control here would only animate to say
+        // it twice.
         HStack(spacing: 8) {
             Text(headerLine)
                 .font(.caption)
@@ -197,8 +238,8 @@ struct DiagnosticsPane: View {
             return "Not checked yet \u{2014} press \u{2318}R to check your writing."
         case .idle(let run):
             return "Last checked \(relative(run.at)) \u{00b7} \(run.deltaSummary)"
-        case .running:
-            return "Checking\u{2026}"
+        case .running(let checking):
+            return checkingCopy(checking)
         case .nothingNew:
             return "Nothing new since the last check."
         case .failed(let failure, _):
@@ -211,6 +252,36 @@ struct DiagnosticsPane: View {
                 return line
             }
             return "\(line) (\(discarded))"
+        }
+    }
+
+    /// **The legible wait** (requirement 5). "Checking 14 new paragraphs…",
+    /// never a bare participle: a cold first run over a long delta takes about
+    /// two minutes, and a writer watching an unqualified "Checking…" for that
+    /// long cannot tell a working compiler from a hung one.
+    ///
+    /// Total over counts a delta cannot have — `beginRun` refuses an empty one
+    /// before the running state is ever set — because a function that has to be
+    /// reasoned about before it can be called is one a later caller gets wrong.
+    static func checkingCopy(_ counts: CompilerOrchestrator.DeltaCounts) -> String {
+        guard let phrase = paragraphPhrase(counts) else { return "Checking\u{2026}" }
+        return "Checking \(phrase)\u{2026}"
+    }
+
+    /// What a delta is, in the writer's English — the ONE spelling, read by the
+    /// header and by the empty state, because two sentences about the same two
+    /// numbers are two things that can disagree.
+    static func paragraphPhrase(_ counts: CompilerOrchestrator.DeltaCounts) -> String? {
+        switch (counts.new, counts.revised) {
+        case (0, 0):
+            return nil
+        case (let new, 0):
+            return "\(new) new \(new == 1 ? "paragraph" : "paragraphs")"
+        case (0, let revised):
+            return "\(revised) revised \(revised == 1 ? "paragraph" : "paragraphs")"
+        case (let new, let revised):
+            // Always plural: the sum is at least two to reach this arm.
+            return "\(new) new and \(revised) revised paragraphs"
         }
     }
 
@@ -265,7 +336,7 @@ struct DiagnosticsPane: View {
 
     @ViewBuilder
     private var content: some View {
-        if rows.isEmpty {
+        if !hasReport {
             let empty = Self.emptyState(for: state)
             ContentUnavailableView(
                 empty.title,
@@ -275,37 +346,189 @@ struct DiagnosticsPane: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if let driftNote {
-                        DiagnosticRow(
-                            diagnostic: driftNote, isDrift: true,
-                            // **Never for drift, and that is the rule rather
-                            // than a defaulted `false`.** Drift is not about a
-                            // paragraph — its action is Open Intent, where the
-                            // writer edits the statement whole. A reply field
-                            // here would be a second door into the same room,
-                            // and the narrower one.
-                            canAnswer: false,
-                            isSubmitting: false, answerFailure: nil,
-                            onJump: {},
-                            onOpenIntent: { MaughamEvent.postDetailSegment(.intent) },
-                            onPromote: { promote(driftNote) },
-                            onAnswer: { _ in })
-                        Divider()
-                    }
-                    ForEach(anchoredNotes) { diagnostic in
-                        DiagnosticRow(
-                            diagnostic: diagnostic, isDrift: false,
-                            canAnswer: store != nil,
-                            isSubmitting: answering.contains(diagnostic.id),
-                            answerFailure: answerFailures[diagnostic.id],
-                            onJump: { jump(diagnostic) },
-                            onOpenIntent: { MaughamEvent.postDetailSegment(.intent) },
-                            onPromote: { promote(diagnostic) },
-                            onAnswer: { answer($0, to: diagnostic) })
-                        Divider()
-                    }
+                    conformanceSection
+                    continuitySection
+                    readerSection
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+
+    /// **The report's first section, and the reason the pane exists** — the
+    /// writer's own clauses, quoted, each with how this draft sat against it.
+    @ViewBuilder
+    private var conformanceSection: some View {
+        let paired = Self.conformanceRows(clauses: clauses, strains: strains)
+        if !paired.rows.isEmpty || !paired.orphans.isEmpty {
+            PaneSectionHeader(title: "Conformance") {
+                // The clauses are derived from the writer's intent statement,
+                // and this is the door to it — the one place on the pane where
+                // the declared world can be changed rather than answered.
+                Button("Open Intent") { MaughamEvent.postDetailSegment(.intent) }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(paired.rows) { row in
+                ClauseRow(row: row, canAnswer: store != nil,
+                          answering: answering, answerFailures: answerFailures,
+                          onJump: { jump(toParagraph: $0) },
+                          onPromote: { promote($0) },
+                          onAnswer: { answer($0, to: $1) })
+                Divider()
+            }
+            // A strain whose clause is not in this run's summary at all. It
+            // cannot happen through the ingest — a strain and its `ClauseStatus`
+            // are minted from the same entry — and it is drawn anyway, because
+            // the alternative is a note the compiler raised disappearing with
+            // nothing said.
+            ForEach(paired.orphans) { note in
+                noteRow(note)
+                Divider()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var continuitySection: some View {
+        if !questions.isEmpty {
+            PaneSectionHeader(title: "Continuity") { EmptyView() }
+            ForEach(questions) { note in
+                noteRow(note)
+                Divider()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var readerSection: some View {
+        if !readerReports.isEmpty {
+            PaneSectionHeader(title: "The reader") { EmptyView() }
+            ForEach(readerReports) { note in
+                noteRow(note)
+                Divider()
+            }
+            // **One sentence, and nothing else.** The schema caps the reader at
+            // its sharpest three; how many it went over is the model's business,
+            // not the writer's, and a count here would read as something they
+            // had lost.
+            if let truncated = lastRun?.truncatedReader, truncated > 0 {
+                Text("The reader had more to say.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func noteRow(_ diagnostic: Diagnostic) -> some View {
+        DiagnosticRow(
+            diagnostic: diagnostic,
+            canAnswer: store != nil && Self.offersAnAnswer(diagnostic),
+            isSubmitting: answering.contains(diagnostic.id),
+            answerFailure: answerFailures[diagnostic.id],
+            onJump: { jump(toParagraph: $0) },
+            onPromote: { promote(diagnostic) },
+            onAnswer: { answer($0, to: diagnostic) })
+    }
+
+    /// One clause of the summary and every strain raised against it.
+    struct ConformanceRow: Identifiable {
+        let status: DiagnosticIngest.ClauseStatus
+        let strains: [Diagnostic]
+        /// The writer's own sentence is the identity — a clause has no id of
+        /// its own, and it is what a strain is matched to.
+        var id: String { status.clauseQuote }
+    }
+
+    /// Pair every clause with the strains raised against it, and report any
+    /// strain left over.
+    ///
+    /// Pure and returned as a value rather than assembled in the body, so the
+    /// pairing — including the leftovers, which are the interesting half — is a
+    /// direct test without a mount. Matching is on the quoted clause because
+    /// that is the only thing the two records share: `DiagnosticIngest` mints a
+    /// `ClauseStatus` and a `.conformanceStrain` from one entry and stamps both
+    /// with the same `clause_quote`.
+    ///
+    /// Clauses keep the order the run reported them in; a duplicate quote (the
+    /// writer declared the same sentence twice) takes the same strains on both
+    /// rows rather than dropping one — a wrong-looking duplicate is a smaller
+    /// harm than a missing finding.
+    static func conformanceRows(
+        clauses: [DiagnosticIngest.ClauseStatus], strains: [Diagnostic]
+    ) -> (rows: [ConformanceRow], orphans: [Diagnostic]) {
+        let quotes = Set(clauses.map(\.clauseQuote))
+        let rows = clauses.map { status in
+            ConformanceRow(
+                status: status,
+                strains: strains.filter { $0.clauseQuote == status.clauseQuote })
+        }
+        let orphans = strains.filter { strain in
+            guard let quote = strain.clauseQuote else { return true }
+            return !quotes.contains(quote)
+        }
+        return (rows, orphans)
+    }
+
+    /// The glyph for one clause's answer. Deliberately three quiet marks: a
+    /// strain is something to look at, not an error, and an alarm here would be
+    /// the pane raising its voice at the writer's own declaration.
+    ///
+    /// A status this build has never heard of gets a neutral mark rather than
+    /// falling into one of the three — `DiagnosticIngest` drops those at ingest,
+    /// so this arm is unreachable through the run and exists so a later
+    /// contract's fourth word cannot silently render as "holds".
+    static func statusSymbol(_ status: String) -> String {
+        switch status {
+        case DiagnosticIngest.SectionField.holds: return "checkmark"
+        case DiagnosticIngest.SectionField.strains: return "arrow.left.and.right"
+        case DiagnosticIngest.SectionField.silent: return "circle.dashed"
+        default: return "questionmark"
+        }
+    }
+
+    /// What that glyph says aloud — VoiceOver reads this, and a mark alone is
+    /// silent.
+    static func statusWord(_ status: String) -> String {
+        switch status {
+        case DiagnosticIngest.SectionField.holds: return "holds"
+        case DiagnosticIngest.SectionField.strains: return "strains"
+        case DiagnosticIngest.SectionField.silent:
+            return "nothing in this draft touches it"
+        default: return status
+        }
+    }
+
+    /// The reader section's own two-valued kind, as words — and **nothing
+    /// else**. v2 mints no free-form category (spec §5: the tag is "removed
+    /// from the shipped design"), so a value from anywhere but the schema
+    /// renders no label at all rather than putting the old tag back on the pane
+    /// through a side door.
+    static func readerKindLabel(_ category: String?) -> String? {
+        switch category {
+        case DiagnosticIngest.SectionField.dreamBreak: return "Dream break"
+        case DiagnosticIngest.SectionField.belief: return "Belief"
+        default: return nil
+        }
+    }
+
+    /// **Which notes offer to be answered** — the questions, and only them
+    /// (spec §5's fates).
+    ///
+    /// A conformance strain and a continuity question both ask the writer
+    /// something, and the writer's reply to either is a decision: it lands as a
+    /// ruling. A reader report is not a question — "I stopped believing her
+    /// here" has no answer to rule on — and a reply field under one would invite
+    /// the writer to argue with a reader, which is not a decision that belongs
+    /// in the declared world.
+    static func offersAnAnswer(_ diagnostic: Diagnostic) -> Bool {
+        switch diagnostic.kind {
+        case .conformanceStrain, .continuity: return true
+        case .readerReport, .none: return false
         }
     }
 
@@ -331,9 +554,12 @@ struct DiagnosticsPane: View {
         case .neverRun:
             return ("Not checked yet", "checkmark.seal",
                     "Press \u{2318}R to ask Claude for notes on what you've written.")
-        case .running:
-            return ("Checking\u{2026}", "hourglass",
-                    "Claude is reading what you've written since the last check.")
+        case .running(let checking):
+            guard let phrase = paragraphPhrase(checking) else {
+                return ("Checking\u{2026}", "hourglass",
+                        "Claude is reading what you've written since the last check.")
+            }
+            return ("Checking\u{2026}", "hourglass", "Claude is reading \(phrase).")
         case .failed:
             return ("No notes", "exclamationmark.triangle",
                     "The last check didn't finish, so there are none from it.")
@@ -349,11 +575,10 @@ struct DiagnosticsPane: View {
         }
     }
 
-    /// The paragraph a click on `diagnostic` should jump to, or `nil` for a
-    /// drift note (nothing anchored to jump to). Split out as a pure static
-    /// so the mapping is a direct unit test without mounting a view or
-    /// simulating a tap gesture, which SwiftUI does not expose the way it
-    /// does a `Button`'s press.
+    /// The paragraph a click on `diagnostic` should jump to, or `nil` for a note
+    /// that named none. Split out as a pure static so the mapping is a direct
+    /// unit test without mounting a view or simulating a tap gesture, which
+    /// SwiftUI does not expose the way it does a `Button`'s press.
     static func paragraphToNavigateTo(for diagnostic: Diagnostic) -> String? {
         diagnostic.anchor?.paragraphId
     }
@@ -377,9 +602,20 @@ struct DiagnosticsPane: View {
         diagnostics.dismiss(diagnostic.id, docId: docId)
     }
 
-    // MARK: - The answer (M2 Task 10)
+    // MARK: - The answer, which is a ruling
 
-    /// **Write the writer's answer into the piece's intent, and take the note
+    /// What the ruling's line says about where it came from.
+    ///
+    /// **It names no paragraph, and that is requirement 3 rather than a
+    /// shortfall.** The shim this replaced left a note anticipating *"from a run
+    /// on ¶wnse"* — but a ruling's provenance is prose the writer reads, in the
+    /// Intent pane, for as long as the decision stands, and a bare id is exactly
+    /// what v2 took off every surface. The DATE is not restated here either:
+    /// `RulingsSection` stamps every line with `ruled <d MMM yyyy>`, so a
+    /// provenance carrying one too would print the day twice.
+    static let answeredNoteProvenance = "answered a compiler note"
+
+    /// **Write the writer's answer into the piece's rulings, and take the note
     /// off the pane once it is there** — the loop this milestone exists for.
     ///
     /// A `static` taking everything it touches, so the whole of it is a direct
@@ -388,8 +624,14 @@ struct DiagnosticsPane: View {
     /// editor, so a commit written inline in the field's `.onSubmit` would be
     /// the one part of this path nothing could drive.
     ///
+    /// **Through `RulingPerformer.rule`, which is the only door into the
+    /// writer-owned layer** (spec §3.4). The answer arrives itemized, dated and
+    /// carrying where it came from, under `## Rulings` — never as a paragraph
+    /// appended to the essay the writer wrote, which is what shipped in M2 and
+    /// what §3.4 names as the membrane's loosest point.
+    ///
     /// **The dismissal is conditional on the write, and the order is the
-    /// contract.** A note dismissed before the append could lose both the note
+    /// contract.** A note dismissed before the ruling could lose both the note
     /// and the answer to one refusal; dismissed after, the worst case is a note
     /// the writer answers twice. Returns the refusal's own sentence, or `nil`.
     ///
@@ -400,11 +642,12 @@ struct DiagnosticsPane: View {
     /// looked at since.
     static func commitAnswer(
         _ text: String, to diagnostic: Diagnostic, docId: String,
-        store: ProjectStore, diagnostics: DiagnosticsStore
+        store: ProjectStore, world: DeclaredWorldStore?, diagnostics: DiagnosticsStore
     ) async -> String? {
         do {
-            try await IntentAppendPerformer.append(
-                answer: text, forDocId: docId, store: store)
+            try await RulingPerformer.rule(
+                text, provenance: answeredNoteProvenance,
+                forScope: .document(docId), store: store, world: world)
         } catch {
             return error.localizedDescription
         }
@@ -413,16 +656,15 @@ struct DiagnosticsPane: View {
     }
 
     private func answer(_ text: String, to diagnostic: Diagnostic) {
-        // Unreachable from the UI — `canAnswer` is `store != nil`, so no row
-        // without one offers the action — and it refuses rather than asserting,
-        // because a caller that got here has a writer's sentence in hand and
-        // nothing to gain from a crash.
+        // Unreachable from the UI — no row without a store offers the action —
+        // and it refuses rather than asserting, because a caller that got here
+        // has a writer's sentence in hand and nothing to gain from a crash.
         guard let store else { return }
         answerFailures[diagnostic.id] = nil
         answering.insert(diagnostic.id)
         Task {
             let failure = await Self.commitAnswer(
-                text, to: diagnostic, docId: docId, store: store,
+                text, to: diagnostic, docId: docId, store: store, world: world,
                 diagnostics: diagnostics)
             answering.remove(diagnostic.id)
             // Only on failure: on success the row is gone with the note, and
@@ -432,31 +674,113 @@ struct DiagnosticsPane: View {
         }
     }
 
-    private func jump(_ diagnostic: Diagnostic) {
+    private func jump(toParagraph pid: String) {
         // Reuses `AnnotationsPane.jump`'s event rather than a copy — span
         // precision is that pane's alone; a diagnostic anchors a whole
         // paragraph.
-        guard let pid = Self.paragraphToNavigateTo(for: diagnostic) else { return }
         MaughamEvent.post(
             .maughamNavigateToParagraph, to: .keyWindow,
             payload: ["paragraph_id": pid])
     }
 }
 
+// MARK: - Sections
+
+@MainActor
+private struct PaneSectionHeader<Trailing: View>: View {
+    let title: String
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title.uppercased())
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Spacer()
+            trailing
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
+    }
+}
+
+/// One clause of the conformance summary: the writer's sentence, how the draft
+/// sat against it, and — when it strains — what pulled.
+@MainActor
+private struct ClauseRow: View {
+    let row: DiagnosticsPane.ConformanceRow
+    let canAnswer: Bool
+    let answering: Set<String>
+    let answerFailures: [String: String]
+    let onJump: (String) -> Void
+    let onPromote: (Diagnostic) -> Void
+    let onAnswer: (String, Diagnostic) -> Void
+
+    /// **Open, and collapsible — not closed and expandable.** The note under a
+    /// strain is the finding; a summary that hid it behind a chevron would make
+    /// the writer click once per strain to learn what the run actually said,
+    /// and a finding one click away is a finding half the time.
+    @State private var isExpanded = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: DiagnosticsPane.statusSymbol(row.status.status))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(DiagnosticsPane.statusWord(row.status.status))
+                // The writer's own words, quoted — never a summary of them.
+                Text("\u{201C}\(row.status.clauseQuote)\u{201D}")
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                if !row.strains.isEmpty {
+                    Button {
+                        isExpanded.toggle()
+                    } label: {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(isExpanded ? "Hide what pulls" : "Show what pulls")
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, row.strains.isEmpty || !isExpanded ? 10 : 0)
+
+            if isExpanded {
+                ForEach(row.strains) { strain in
+                    DiagnosticRow(
+                        diagnostic: strain,
+                        canAnswer: canAnswer && DiagnosticsPane.offersAnAnswer(strain),
+                        isSubmitting: answering.contains(strain.id),
+                        answerFailure: answerFailures[strain.id],
+                        onJump: onJump,
+                        onPromote: { onPromote(strain) },
+                        onAnswer: { onAnswer($0, strain) })
+                }
+            }
+        }
+    }
+}
+
+// MARK: - One note
+
 @MainActor
 private struct DiagnosticRow: View {
     let diagnostic: Diagnostic
-    let isDrift: Bool
-    /// Whether this row offers the **Answer** action at all. False for drift,
-    /// and false with no project to write into.
+    /// Whether this row offers the **Answer** action at all — false for a
+    /// reader report, and false with no project to write into.
     let canAnswer: Bool
-    /// An answer of this row's already on its way to the intent statement.
+    /// An answer of this row's already on its way to the piece's rulings.
     let isSubmitting: Bool
     /// What the last answer refused with, or `nil`. Its arrival is what tells
     /// the row the round trip is over and the field is the writer's again.
     let answerFailure: String?
-    let onJump: () -> Void
-    let onOpenIntent: () -> Void
+    let onJump: (String) -> Void
     let onPromote: () -> Void
     let onAnswer: (String) -> Void
 
@@ -468,33 +792,27 @@ private struct DiagnosticRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text((diagnostic.category ?? (isDrift ? "Drift" : "Note")).uppercased())
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+            if let label = DiagnosticsPane.readerKindLabel(diagnostic.category) {
+                Text(label.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
             Text(diagnostic.body)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
-            if let anchor = diagnostic.anchor {
-                Text(Self.excerpt(anchor.anchorText))
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+            // **The writer's prose, never its id** (requirement 3). One chip a
+            // line: a chip is already a short quotation, and two side by side in
+            // a pane this narrow would each be truncated to nothing.
+            ForEach(diagnostic.refs ?? [], id: \.paragraphId) { ref in
+                ExcerptChip(ref: ref, onJump: onJump)
             }
-            // Promote is on every row, drift included — a drift note is the one
-            // most worth keeping, and it lands as a document-scoped task
-            // because there is no ¶ under it to carry.
             HStack(spacing: 6) {
-                if isDrift {
-                    Button("Open Intent", action: onOpenIntent)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                }
                 if canAnswer && !isAnswering {
                     Button("Answer", action: reveal)
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .help("Say why this is deliberate. It goes into your intent, "
-                              + "and the next check reads it.")
+                        .help("Say why this is deliberate. It becomes a ruling in your "
+                              + "intent, and the next check reads it.")
                 }
                 Button("Promote to Task", action: onPromote)
                     .buttonStyle(.bordered)
@@ -508,7 +826,12 @@ private struct DiagnosticRow: View {
         // The tap-to-jump must not fire from inside the field the writer is
         // typing in — `onTapGesture` on the row would otherwise scroll the
         // editor out from under them mid-sentence.
-        .onTapGesture { if !isAnswering { onJump() } }
+        .onTapGesture {
+            guard !isAnswering,
+                  let pid = DiagnosticsPane.paragraphToNavigateTo(for: diagnostic)
+            else { return }
+            onJump(pid)
+        }
     }
 
     /// **Understated on purpose.** A plain field with a prompt rather than a
@@ -572,12 +895,29 @@ private struct DiagnosticRow: View {
         fieldFocused = false
         draft = ""
     }
+}
 
-    /// A short, single-line excerpt of the anchored paragraph — not the whole
-    /// thing, which can run to a page.
-    static func excerpt(_ text: String, limit: Int = 90) -> String {
-        let collapsed = text.replacingOccurrences(of: "\n", with: " ")
-        guard collapsed.count > limit else { return collapsed }
-        return String(collapsed.prefix(limit)) + "\u{2026}"
+/// A paragraph the note points at, drawn as **the words it said** — the whole
+/// of requirement 3 on this surface. Pressing it makes the same jump the row
+/// makes; the id it carries is a payload and never a label.
+@MainActor
+private struct ExcerptChip: View {
+    let ref: Diagnostic.Ref
+    let onJump: (String) -> Void
+
+    var body: some View {
+        Button {
+            onJump(ref.paragraphId)
+        } label: {
+            Text("\u{201C}\(ref.excerpt)\u{201D}")
+                .font(.caption)
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.quaternary, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Go to this paragraph")
     }
 }
