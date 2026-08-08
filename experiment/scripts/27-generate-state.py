@@ -24,6 +24,7 @@ CORE_ROWS = [
 APP_MODULES = [
     ("Trash", "`Stores/TrashStore` + `ProjectStore+Trash`", "`22-trash-reconciliation.md`"),
     ("Rewind", "`OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`)", "`24-rewind-reconciliation.md`"),
+    ("Annotations", "`OpLog/Document+Annotations` (+`AnnotationDeriver`, `AnnotationInverse`)", "`28-annotations-reconciliation.md`"),
 ]
 CORE_RECONCILED, CORE_TOTAL = 148, 169
 

@@ -1,0 +1,850 @@
+[
+ {
+  "claim_id": "M5-AN-001",
+  "scope": "Document.isAnnotationOpKind",
+  "kind": "INVARIANT",
+  "statement": "exactly eleven of OpKind's cases are annotation ops (four creations, four Claude lifecycle kinds, three author self-service kinds); the census decides which merged ops flip the sticky _hasAnyAnnotationOps flag",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_annotationOpKindsAreExactlyTheElevenAnnotationCases"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "INDIRECT \u2014 never a writer gesture; governs whether the typing hot path does annotation work at all",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-002",
+  "scope": "AnnotationFilter / Document.annotations(filter:)",
+  "kind": "POSTCONDITION",
+  "statement": "AnnotationFilter()'s default `statuses` is [.open], so an argument-free annotations() call hides every accepted, rejected and archived annotation",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theDefaultFilterShowsOnlyOpenAnnotations"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 the pane's default view; its 'show all statuses' toggle passes statuses: nil",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-003",
+  "scope": "Document.annotations(filter:)",
+  "kind": "POSTCONDITION",
+  "statement": "kinds, statuses and paragraphId compose as AND; a craft note (paragraphId nil) is excluded by any paragraph filter",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theDefaultFilterShowsOnlyOpenAnnotations"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 the pane's kind chips and the editor's per-paragraph marks",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-004",
+  "scope": "AnnotationDeriver.derive",
+  "kind": "POSTCONDITION",
+  "statement": "the projection is sorted newest-first by createdAt, ties broken by DESCENDING op id",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theProjectionIsNewestFirst"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 the order of rows in the annotations pane",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-005",
+  "scope": "Document.annotations cache",
+  "kind": "POSTCONDITION",
+  "statement": "nothing on the text-edit path invalidates the annotations cache \u2014 neither setParagraph nor setFullText. Once the cache is warm (which a rendered pane guarantees) isStale keeps reporting the PRE-edit answer until the next burst flush or the next annotation op",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theStaleFlagDoesNotFollowAParagraphEditUntilTheNextBurst"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "LIVE \u2014 every keystroke in a document with an open annotation. CAME OUT OPPOSITE TO THE READING",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-006",
+  "scope": "Document.addAnnotation",
+  "kind": "GUARD",
+  "statement": "the three paragraph-scoped kinds (comment, query, suggested_change) refuse a nil or unknown paragraph anchor AT THE ENTRY POINT, with a structured paragraph_not_found tool error naming the id and the document's current paragraph count; nothing is persisted",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_paragraphScopedKindsRefuseAnUnknownAnchorAtTheEntryPoint"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 every MCP add_comment / add_query / add_suggested_change call",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-007",
+  "scope": "Document.addAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "a craft note bypasses the anchor check entirely, and a paragraph id supplied alongside one is SILENTLY DISCARDED: the op carries no changes and the projection reports paragraphId nil",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_aCraftNoteBypassesTheAnchorCheckAndDiscardsASuppliedParagraphId"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "UNTRACED \u2014 add_craft_note's JSON schema has no paragraph_id property and no other caller passes one for this kind",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-008",
+  "scope": "Document.addAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "a comment or query stores prior = the paragraph's text at creation and next = \"\"; the captured prior is the datum every later staleness test compares against",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_creationOpPayloadsByKind"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 every comment and query",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-009",
+  "scope": "Document.addAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "a suggestion stores the BARE replacement in changes.next; the splice into the span happens at accept, not at creation",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_creationOpPayloadsByKind"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 every suggested change",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-010",
+  "scope": "Document.addAnnotation / acceptAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "a suggestion created with NO replacement text is accepted at the entry point and derives suggestedText == \"\"; accepting it empties the paragraph, leaving the paragraph in the sequence with no text. Both entry points (MCP and the review toolbar) behave identically",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_aSuggestionWithNoReplacementTextEmptiesTheParagraphOnAccept"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "LIVE \u2014 add_suggestion's schema requires suggested_text but a JSON empty string satisfies it; addReviewerAnnotation's parameter defaults to nil",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-011",
+  "scope": "Document.addAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "an empty annotation body is accepted and derives as \"\"",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_creationOpPayloadsByKind"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 body is a required MCP field but an empty string satisfies it",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-012",
+  "scope": "Document.addReviewerAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "addReviewerAnnotation stamps author .human plus display name and collaborator id; a plain addAnnotation with no author derives author nil, which is how the surfaces tell Claude's notes from a person's",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_authorProvenance"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 the review toolbar vs every MCP annotation",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-013",
+  "scope": "Document.addReviewerAnnotation / AnnotationDeriver",
+  "kind": "POSTCONDITION",
+  "statement": "a span whose quote is not present in the paragraph is ACCEPTED at the entry point; the annotation is born isStale with resolvedSpanRange nil rather than refused",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_anUnresolvableSpanIsAcceptedAndBornStale"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "UNTRACED \u2014 the editor derives the span from the live selection, so a production span resolves by construction at creation time",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-014",
+  "scope": "AnnotationDeriver",
+  "kind": "POSTCONDITION",
+  "statement": "the translation-pass `language` tag is decoded out of toolArgs for .query ONLY; the same toolArgs on a comment yields nil, and malformed JSON yields nil rather than throwing",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theLanguageTagIsQueryOnly"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 add_query's optional language parameter",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-015",
+  "scope": "Document.editReviewerAnnotation / AnnotationDeriver",
+  "kind": "POSTCONDITION",
+  "statement": "an edit replaces the body; the latest edit by opId wins; the creation op is never mutated (the original body and replacement are still readable on it)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_editReplacesTheBodyAndOptionallyTheReplacement"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 the pane's pencil affordance on the reviewer's own row",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-016",
+  "scope": "Document.editReviewerAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "newSuggestedText nil leaves the original replacement intact; a value replaces it, riding the same bare-text channel as the creation",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_editReplacesTheBodyAndOptionallyTheReplacement"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 the edit sheet leaves the replacement field untouched for a comment",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-017",
+  "scope": "Document.editReviewerAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "an edit naming an id that is not an annotation creation op still appends an annotationEdit op; no projection ever reads it",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_editHasNoTargetAndNoStatusGuard"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "UNTRACED \u2014 the pane can only name ids the projection produced",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-018",
+  "scope": "Document.editReviewerAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "there is no status guard on editing: an archived annotation can be edited and stays archived, and a WITHDRAWN one can be edited invisibly \u2014 the edit is real and surfaces if the annotation is ever reopened",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_editHasNoTargetAndNoStatusGuard"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE for archived (the pane renders its own affordances on resolved rows under 'show all statuses'); UNTRACED for withdrawn",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-019",
+  "scope": "Document.editReviewerAnnotation \u2318Z",
+  "kind": "GUARD",
+  "statement": "the edit's undo is drift-guarded: the compensating edit is appended only while the annotation still shows the body this action wrote. On drift it declines silently \u2014 the menu item still reads 'Undo Edit Annotation', nothing happens and nothing is said",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theEditUndoDeclinesSilentlyWhenTheAnnotationDrifted"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "RACE \u2014 needs a change to the same annotation between registration and \u2318Z: a cross-device merge, or the phone editing the same row",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-020",
+  "scope": "Document.withdrawReviewerAnnotation / AnnotationDeriver",
+  "kind": "POSTCONDITION",
+  "statement": "withdraw drops the annotation from the projection ENTIRELY at every status \u2014 there is no 'withdrawn' state to filter for \u2014 while the withdraw op stays in the log for audit and rewind",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_withdrawDropsTheAnnotationFromEveryStatus"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 the pane's trash affordance on the reviewer's own row ('Delete your annotation')",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-021",
+  "scope": "Document.withdrawReviewerAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "withdrawing an ACCEPTED suggestion leaves the applied manuscript text in place; deleting the note never un-applies the change it made",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_withdrawDropsTheAnnotationFromEveryStatus"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 delete an own suggestion after accepting it",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-022",
+  "scope": "AnnotationDeriver",
+  "kind": "POSTCONDITION",
+  "statement": "withdraw and reopen resolve latest-by-opId as a pair, independently of the accept/reject/archive lifecycle chain: a later withdraw re-drops an annotation a reopen restored",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_withdrawDropsTheAnnotationFromEveryStatus"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 delete, \u2318Z, delete again",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-023",
+  "scope": "Document.withdrawReviewerAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "withdrawing an unknown id appends a no-effect annotationWithdraw op rather than refusing",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_withdrawDropsTheAnnotationFromEveryStatus"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "UNTRACED \u2014 the pane can only name ids the projection produced",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-024",
+  "scope": "Document.acceptAnnotation",
+  "kind": "GUARD",
+  "statement": "accept of an id that is not an annotation CREATION op \u2014 an unknown id, a bootstrap op, a lifecycle op \u2014 is a silent no-op: nothing is appended and nothing is logged",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_acceptIgnoresAnIdItCannotResolveToACreationOp"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "UNTRACED \u2014 every production caller passes an id the projection produced",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-025",
+  "scope": "Document.acceptAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "accepting a comment, query or craft note sets .accepted, records the userResponse, and changes no manuscript text \u2014 only a suggested change mutates the manuscript on accept",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_acceptingANonSuggestionChangesNoText"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 the pane's 'Got it' and 'Reply\u2026' buttons",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-026",
+  "scope": "Document.acceptAnnotation / SuggestionSplice",
+  "kind": "POSTCONDITION",
+  "statement": "a span-anchored suggestion whose quote still resolves splices ONLY that span, re-resolved against the paragraph's CURRENT text; a paragraph-level suggestion replaces the whole paragraph",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_aSpanSuggestionSplicesOnlyItsSpan"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 every accepted suggestion",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-027",
+  "scope": "Document.acceptAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "accept has NO status guard: an already-rejected or archived annotation flips to .accepted, and a second accept appends again with its userResponse superseding the first",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_acceptHasNoStatusGuard"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 the pane renders Accept / 'Got it' on resolved rows under 'show all statuses'",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-028",
+  "scope": "Document.acceptAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "accepting a WITHDRAWN suggestion still rewrites the manuscript. The creation op is in the mirror, so accept proceeds and splices; the annotation stays absent from the projection, so no row anywhere records that the paragraph was changed or offers to revert it",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_acceptingAWithdrawnSuggestionStillRewritesTheManuscript"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "RACE \u2014 UNTRACED single-device; cross-device a second Mac's pane rendered before the withdraw merged still offers Accept on the row",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-029",
+  "scope": "Document.acceptedTextDrifted",
+  "kind": "POSTCONDITION",
+  "statement": "drift is false with no accept op, no change payload or no live paragraph, and true once the paragraph's text differs (whitespace-exact) from the accept's next \u2014 this is what arms the pane's revert confirm",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_acceptedTextDrifted"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 the pane's Revert button consults it on every click",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-030",
+  "scope": "Document.revertAcceptedAnnotation",
+  "kind": "GUARD",
+  "statement": "revert loud-no-ops (logs, does not throw, appends nothing) on a non-suggestion, on a suggestion that is not .accepted, and on an accepted suggestion whose paragraph no longer exists. The writer sees a Revert button that does nothing and says nothing",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_revertLoudNoOpsRatherThanRefusing"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 an accepted suggestion survives the orphan sweep (M5-AN-053), so its row keeps offering Revert after its paragraph is deleted",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-031",
+  "scope": "Document.revertAcceptedAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "a revert restores the PRE-accept text over whatever the paragraph now holds \u2014 clobbering any intervening edit \u2014 returns the annotation to .open, and drops the userResponse recorded at accept",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_revertRestoresThePreAcceptTextAndReopens"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 the pane's Revert, gated behind a confirm that states this consequence when drifted",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-032",
+  "scope": "Document.appendLifecycleOp / reject / archive",
+  "kind": "POSTCONDITION",
+  "statement": "reject and archive are completely unguarded: they append for an unknown id, for a bootstrap op id, for an already-resolved annotation and in any order. The projection ignores the meaningless ones, so the only cost is op-log noise",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_rejectAndArchiveAreUnguarded"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "PARTLY LIVE \u2014 archived\u2192rejected is reachable from the pane's resolved rows; the junk-id arms are UNTRACED",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-033",
+  "scope": "AnnotationDeriver",
+  "kind": "POSTCONDITION",
+  "statement": "the deriver ignores a lifecycle op carrying no sourceAnnotationId, and an edit whose sourceAnnotationId names no creation op",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_rejectAndArchiveAreUnguarded"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "INDIRECT \u2014 the tolerance that makes M5-AN-017/023/032's junk ops harmless",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-034",
+  "scope": "Document.reopenAnnotation",
+  "kind": "GUARD",
+  "statement": "reopen acts only from .rejected, .archived and withdrawn. .open and .accepted are logged no-ops, which is why AnnotationInverse's .noInverse decline is UNREACHABLE from this caller \u2014 the status switch returns first",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_reopenActsOnlyFromRejectedArchivedOrWithdrawn"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "UNTRACED today \u2014 reopen has no non-undo caller (M5-AN-039)",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-035",
+  "scope": "Document.reopenAnnotation",
+  "kind": "GUARD",
+  "statement": "reopen appends nothing for an unknown id, for an id that is not withdrawn, or on a closed (husked) Document \u2014 the isClosed decline is atomic, so a compound-undo hop resuming after close() cannot append a reopen whose paired text restore no-ops",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_reopenDeclinesOnAnUnknownIdAndOnAClosedDocument"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "INDIRECT \u2014 a \u2318Z landing after a window closed",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-036",
+  "scope": "Document.reopenAnnotation / AnnotationDeriver",
+  "kind": "POSTCONDITION",
+  "statement": "annotationReopen is ONE op kind serving TWO inverses and the deriver reads it as both, so a reopen issued to undo a withdrawal also cancels an earlier archive or reject. \u2318Z on 'delete my annotation' therefore over-restores: an annotation the writer had archived comes back OPEN",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_oneReopenCancelsBothAWithdrawalAndAnEarlierResolution"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "LIVE \u2014 archive your own note, delete it, press \u2318Z",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-037",
+  "scope": "AnnotationDeriver.resolution",
+  "kind": "POSTCONDITION",
+  "statement": "a reopen clears the userResponse and resolvedAt from the projection \u2014 the reply the writer typed when they rejected the note disappears from every surface, surviving only inside the op log",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_reopenClearsTheWritersRecordedReply"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 reject with a reason, then \u2318Z. Becomes routine the day RULING-29's pane Reopen ships",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-038",
+  "scope": "Document.reopenAnnotation",
+  "kind": "POSTCONDITION",
+  "statement": "reopens written by reopenAnnotation carry no synthesisSource; the rewind sweep's reopens are .rewind-stamped, and that stamp is the only thing distinguishing Maugham's own travel reopens from the writer's",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_reopenOpsCarryNoSynthesisSource"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "INDIRECT \u2014 the discriminator RULING-25's step 9 depends on",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-039",
+  "scope": "Document.reopenAnnotation callers / AnnotationsPane",
+  "kind": "STRUCTURE",
+  "statement": "reopenAnnotation still has no non-undo production caller \u2014 its only two callers are the rewind-undo and the task-archive-undo compensations \u2014 and the annotations pane offers no Reopen affordance. No archived or rejected annotation can be reopened by the writer",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_reopenHasNoNonUndoProductionCaller"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 every archived or rejected row in the pane, none of which offers a way back",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-040",
+  "scope": "AnnotationInverse.reopenOp",
+  "kind": "INVARIANT",
+  "statement": "exactly three (undone kind, current status) pairs mint an op \u2014 reject/rejected, archive/archived, withdraw/absent. Accept declines .noInverse because its inverse is claudeAcceptRevert, which also restores text; every other status mismatch declines .stateDrifted",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theReopenFactorysDecisionMatrix"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "INDIRECT \u2014 the shared cross-surface decision (Mac \u2318Z and the phone's Reopen both consume it)",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-041",
+  "scope": "Document.sweepOrphanedAnnotations",
+  "kind": "POSTCONDITION",
+  "statement": "the sweep archives exactly the OPEN, non-craft-note annotations anchored to a paragraph in reason.removed, appending a claude_archive op each and returning Void. Nothing tells the writer: the note simply stops appearing in the pane's default view",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theSweepArchivesOpenAnchoredAnnotationsOnly"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 delete a paragraph that carries an open note; the sweep runs at the next burst flush",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-042",
+  "scope": "Document.sweepOrphanedAnnotations",
+  "kind": "POSTCONDITION",
+  "statement": "the sweep trusts reason.removed and never consults sequence \u2014 a removed set naming a paragraph that is still present archives its open annotations anyway. This is deliberate: a transient Document's reconstructed sequence is a subset of the live one, and 'anything missing from sequence' once mass-archived a live editor's notes",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theSweepTrustsTheRemovedSetAndNeverChecksSequence"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "INDIRECT \u2014 the correctness rests entirely on the four SweepReason factories' call sites",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-043",
+  "scope": "Document.sweepOrphanedAnnotations",
+  "kind": "POSTCONDITION",
+  "statement": "the craft-note carve-out in the sweep's filter is redundant by construction: a craft note's paragraphId is always nil (M5-AN-007), so the anchor test already excludes it",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theSweepArchivesOpenAnchoredAnnotationsOnly"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "INDIRECT \u2014 belt-and-braces; falsifies any survey finding that rests on a paragraph-anchored craft note",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-044",
+  "scope": "Document.sweepOrphanedAnnotations",
+  "kind": "POSTCONDITION",
+  "statement": "every synthesised archive carries synthesisSource = reason.cause \u2014 .rewind for a time-travel sweep, .paragraphDeleted for the other three factories \u2014 which is the forensic distinction the history viewer and RULING-25's step 9 both read",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theSweepStampsItsCauseOnEveryArchive"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "INDIRECT",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-045",
+  "scope": "Document.flagSweep",
+  "kind": "POSTCONDITION",
+  "statement": "flagSweep unions the removed sets of successive reasons and inherits the LATER reason's cause, so two deletion paths between one burst and the next accumulate correctly",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_flagSweepUnionsAndTakesTheLaterCause"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "INDIRECT",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-046",
+  "scope": "Document._opLogMirror",
+  "kind": "POSTCONDITION",
+  "statement": "every annotation append pushes onto _opLogMirror without re-sorting. handleExternalLogChange REPLACES the mirror with a sorted merge, so the mirror is opId-ordered right up until the first local append after a merge that brought in a peer op with a higher ULID \u2014 after which it is not, and currentFoldBasis (documented as 'the last element is the newest') no longer holds",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theMirrorIsNotReSortedOnAppend"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "CROSS-DEVICE \u2014 needs a peer op whose ULID sorts after a subsequent local one, i.e. a second Mac whose clock is ahead",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-047",
+  "scope": "Deriver.derive(ops:upTo:) over _opLogMirror",
+  "kind": "POSTCONDITION",
+  "statement": "over an unsorted mirror, derive(ops:upTo:) \u2014 which trusts caller order by design, being a timeline prefix \u2014 returns a state the document never held: a rewind to the writer's own newest moment renders the PEER's text. The annotation projection is unharmed, because it compares opIds rather than trusting order",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theMirrorIsNotReSortedOnAppend"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "CROSS-DEVICE \u2014 the verifier's not-chased thread, answered: yes, a merge path can leave a live mirror unsorted, and the opId-ordered premise breaks in rewind rather than in annotations",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-048",
+  "scope": "Document annotation mutators on a husked doc",
+  "kind": "POSTCONDITION",
+  "statement": "the closed-document guard covers two of seven annotation mutators: reopen declines explicitly and accept declines by consequence of the emptied mirror, while craft-note creation, archive, reject, withdraw and edit all append \u2014 to disk and back into the husked mirror. A paragraph-anchored creation throws instead, because the husked sequence is empty",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theClosedDocumentGuardCoversTwoOfSevenMutators"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "UNTRACED \u2014 a Document is abandoned by contract after close(); no production reader touches one",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-049",
+  "scope": "Document.acceptAnnotation / SuggestionSplice",
+  "kind": "POSTCONDITION",
+  "statement": "a span-anchored suggestion whose quoted phrase is NO LONGER in the paragraph is still applied, and the bare span-sized replacement becomes the WHOLE paragraph. 'She was livid about the whole business.' + a lost 'very angry \u2192 furious' anchor accepts to 'furious'. The pane's preview still reads 'very angry \u2192 furious'",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_aLostSpanAnchorReplacesTheWholeParagraph"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "LIVE \u2014 rewrite a sentence that carries an open span suggestion, then accept it",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-050",
+  "scope": "Document annotations cache \u00d7 AnnotationsPane's stale gate",
+  "kind": "POSTCONDITION",
+  "statement": "the stale gate that would warn about M5-AN-049 is DISARMED across a typing edit: with the cache warm \u2014 which a rendered pane guarantees \u2014 isStale still reads false after the writer rewrites the paragraph, so no confirm fires and the paragraph is replaced with no warning at all",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theStaleGateIsDisarmedAcrossATypingEdit"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "LIVE \u2014 the same gesture as M5-AN-049, performed inside the burst window (up to 30s idle / 90s of continuous typing)",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-051",
+  "scope": "Document.handleExternalLogChange",
+  "kind": "POSTCONDITION",
+  "statement": "_hasAnyAnnotationOps is re-derived from the MERGED log, so a peer's annotation op on a document that had none flips the sticky flag on and the peer's annotation appears in the projection",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theStickyAnnotationFlagIsRebuiltFromAMergedLog"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 a phone annotation syncing to a Mac that has never annotated the doc",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-052",
+  "scope": "AnnotationDeriver.derive",
+  "kind": "INVARIANT",
+  "statement": "the annotation projection is input-order-independent: lifecycle, edit and withdraw state all resolve latest-by-opId rather than by array position, so the unsorted mirror of M5-AN-046 cannot corrupt it. A reopen that sorts BEFORE its archive loses; a withdraw beats an archive in either order",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theAnnotationDeriverIsInputOrderIndependent"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "INDIRECT \u2014 the property that confines M5-AN-047's damage to rewind",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-053",
+  "scope": "Document.sweepOrphanedAnnotations / AnnotationDeriver",
+  "kind": "POSTCONDITION",
+  "statement": "accepted, rejected and archived annotations on a removed paragraph are left in place, anchored to a paragraph that no longer exists; the deriver marks them stale (the paragraph is absent from the map) and the pane keeps rendering their action rows, Revert included",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_theSweepArchivesOpenAnchoredAnnotationsOnly"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE \u2014 delete a paragraph whose suggestion you had already accepted; the row survives with a Revert that cannot work (M5-AN-030)",
+  "evidence": {
+   "property_test": null
+  }
+ }
+]
