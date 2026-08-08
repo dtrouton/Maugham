@@ -6,6 +6,9 @@ struct CollectionPiecesPane: View {
     @Bindable var store: ProjectStore
     @Binding var selectedSubject: BinderSubject?
     @Binding var renamingItemId: String?
+    /// The Research and Palette sections' own state (stage-2a Task 4). Owned
+    /// here because their presentations hang off this pane, outside the `List`.
+    @State private var treeState = BinderTreeSectionsState()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,10 +57,16 @@ struct CollectionPiecesPane: View {
     /// measured here, because `ContentUnavailableView` is a system view chained
     /// to a full frame rather than `BinderView`'s hand-built `VStack` of glyphs:
     /// the overlay does not take the project row's clicks
-    /// (`CollectionProjectRowTests.test_theEmptyStateOverlayDoesNotSwallowTheProjectRow`
+    /// (`CollectionProjectRowTests.test_theEmptyStateOverlayDoesNotSwallowAnyRowBeneathIt`
     /// hit-tests it).
+    ///
+    /// **The selection is a projection, not the binding itself** (stage-2a Task
+    /// 4): the sections at the foot of the list carry untagged placeholder rows
+    /// when they are empty, and an untagged row writes `nil` through the
+    /// binding — the same measurement this pane's empty state is shaped by.
+    /// `BinderTreeSelection` refuses that `nil`; every tagged row is unaffected.
     private var pieceList: some View {
-        List(selection: $selectedSubject) {
+        List(selection: BinderTreeSelection.binding($selectedSubject)) {
             projectRow
             ForEach(store.manifest.structure) { piece in
                 PieceRow(
@@ -97,11 +106,16 @@ struct CollectionPiecesPane: View {
                         }
                     }
             }
+            // Below the pieces — furniture at the foot of the column, with the
+            // project row still row zero.
+            BinderTreeSections(store: store, state: treeState,
+                               selectedSubject: $selectedSubject)
         }
         .listStyle(.sidebar)
         .overlay {
             if store.manifest.structure.isEmpty { emptyState }
         }
+        .binderTreeSections(store: store, state: treeState)
     }
 
     /// Shown when the Collection holds no pieces — an overlay on the list rather

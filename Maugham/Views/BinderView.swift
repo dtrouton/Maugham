@@ -8,6 +8,9 @@ struct BinderView: View {
     @State private var pendingError: String?
     @State private var pendingTidyParentId: String?
     @State private var showingTidyConfirmation: Bool = false
+    /// The Research and Palette sections' own state (stage-2a Task 4). Owned
+    /// here because their presentations hang off this view, outside the `List`.
+    @State private var treeState = BinderTreeSectionsState()
 
     var body: some View {
         // One `List`, always — including when the structure is empty. The empty
@@ -30,14 +33,25 @@ struct BinderView: View {
         // An overlay is neither a row nor a selection, so it cannot become a
         // subject. It intercepts only its own glyphs and buttons — nothing gives
         // it a background — so the project row above it stays clickable.
-        List(selection: $selectedSubject) {
+        //
+        // **The selection is a projection, not the binding itself** (stage-2a
+        // Task 4): the sections below carry untagged placeholder rows when they
+        // are empty, and the measurement above is exactly why one of those may
+        // not reach the binding. `BinderTreeSelection` refuses the `nil`; every
+        // tagged row still writes straight through.
+        List(selection: BinderTreeSelection.binding($selectedSubject)) {
             projectRow
             outline(items: store.manifest.structure)
+            // Below everything the tree already had — the sections are furniture
+            // at the foot of the column, and the project row stays row zero.
+            BinderTreeSections(store: store, state: treeState,
+                               selectedSubject: $selectedSubject)
         }
         .listStyle(.sidebar)
         .overlay {
             if store.manifest.structure.isEmpty { emptyState }
         }
+        .binderTreeSections(store: store, state: treeState)
         // Root context menu — attached at the binder level so it's
         // available even when the structure is empty (right-clicking
         // a row gives the per-row menu instead, no overlap).

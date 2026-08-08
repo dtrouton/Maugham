@@ -2991,6 +2991,145 @@ final class TripwireGrepTests: XCTestCase {
             + "above would pass for it too and prove nothing.")
     }
 
+    // MARK: - The binder tree's sections mount in two halves
+
+    /// The file that DEFINES both halves, which naturally contains both tokens
+    /// and is not a host.
+    private static let binderTreeSectionsDefiner = "BinderTreeSections.swift"
+    /// The rows, mounted inside a host's `List`.
+    private static let binderTreeSectionsRows = "BinderTreeSections("
+    /// The presentations, attached outside it.
+    private static let binderTreeSectionsPresentations = ".binderTreeSections("
+
+    /// **A host that mounts the tree's sections must attach their presentations
+    /// too**, and the failure of the pair is silent in exactly one direction.
+    ///
+    /// `BinderTreeSections` puts its rows inside the host's `List` and its
+    /// presentations — the Add Link sheet, the error alert, the palette-card
+    /// load, the deferred rename commit — OUTSIDE it, because a sheet attached
+    /// to a row inside a lazy list is presented from a view the list may
+    /// unmount. That split is deliberate and it is also a trap: a host with the
+    /// rows and no modifier draws a perfectly convincing tree in which Add Link
+    /// does nothing, every store failure is swallowed, the palette section is
+    /// permanently empty and a new note never enters rename mode. **No row count
+    /// and no selection test can see any of it** — which is what a census is
+    /// for.
+    func test_everyBinderTreeMountsBothHalvesOfTheSections() throws {
+        let census = try binderTreeSectionsCensus(in: sourceDir)
+        XCTAssertEqual(
+            census,
+            ["BinderView.swift": ["presentations", "rows"],
+             "CollectionPiecesPane.swift": ["presentations", "rows"],
+             "SceneNavigatorPane.swift": ["presentations", "rows"]],
+            "Every binder tree host mounts BOTH halves of the sections.\n\n"
+            + "If you have ADDED a tree host (a fifth project type, a new left "
+            + "column): mount `BinderTreeSections(store:state:selectedSubject:)` "
+            + "inside its `List`, attach "
+            + "`.binderTreeSections(store:state:)` outside it, and add it "
+            + "above.\n\n"
+            + "If a host here shows only \"rows\": its sheet, alert, "
+            + "palette-card load and deferred rename are all missing and "
+            + "NOTHING else fails — Add Link opens nothing, store errors "
+            + "vanish, the Palette section is empty forever.\n\n"
+            + "If a host shows only \"presentations\": it carries the state and "
+            + "the modifiers and draws no section at all.\n\n"
+            + "Found:\n\(census)")
+    }
+
+    /// Self-check: prove the census FIRES on a host with one half. A census of
+    /// a REQUIRED token is exactly the shape that can pass while blind.
+    func test_binderTreeSectionsCensusFiresOnAHostMissingItsPresentations() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-tree-sections-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct WholeHost: View {
+            var body: some View {
+                List(selection: $subject) {
+                    BinderTreeSections(store: store, state: state,
+                                       selectedSubject: $subject)
+                }
+                .binderTreeSections(store: store, state: state)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("WholeHost.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        /// A doc comment naming .binderTreeSections( must not count as a call.
+        struct HalfHost: View {
+            var body: some View {
+                List(selection: $subject) {
+                    BinderTreeSections(store: store, state: state,
+                                       selectedSubject: $subject)
+                }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("HalfHost.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        struct StrandedHost: View {
+            var body: some View {
+                List(selection: $subject) { projectRow }
+                    .binderTreeSections(store: store, state: state)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("StrandedHost.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        struct Unrelated: View {
+            var body: some View { Text("nothing to do with the tree") }
+        }
+        """.write(to: tmp.appendingPathComponent("Unrelated.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let census = try binderTreeSectionsCensus(in: tmp)
+        XCTAssertEqual(
+            census,
+            ["WholeHost.swift": ["presentations", "rows"],
+             "HalfHost.swift": ["rows"],
+             "StrandedHost.swift": ["presentations"]],
+            "Self-check: a host with only the rows must enter the census with "
+            + "only \"rows\" (the silent half — its doc comment naming the "
+            + "modifier must NOT count as attaching it), a host with only the "
+            + "modifier with only \"presentations\", and a file naming neither "
+            + "must not appear at all.")
+    }
+
+    /// The whole-tree census: which halves of `BinderTreeSections` each file
+    /// carries. Comments are stripped, so the definer's own prose and a host's
+    /// explanatory comments cannot stand in for a call.
+    private func binderTreeSectionsCensus(in dir: URL) throws -> [String: [String]] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return [:]
+        }
+        var census: [String: [String]] = [:]
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let name = url.lastPathComponent
+            guard name != Self.binderTreeSectionsDefiner else { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            var found: Set<String> = []
+            for line in Self.codeLines(of: text) {
+                if line.contains(Self.binderTreeSectionsPresentations) {
+                    found.insert("presentations")
+                }
+                // The modifier's spelling contains the rows' spelling only if
+                // case is ignored, so the rows test is safe as written — but
+                // check anyway rather than rely on it staying that way.
+                if line.replacingOccurrences(
+                    of: Self.binderTreeSectionsPresentations, with: "")
+                    .contains(Self.binderTreeSectionsRows) {
+                    found.insert("rows")
+                }
+            }
+            if !found.isEmpty { census[name] = found.sorted() }
+        }
+        return census
+    }
+
     /// A whole-line comment, in either spelling. Shared by the canvas-asset
     /// tripwires, which both guard tokens their own documentation names.
     private static func isCommentLine(_ line: String) -> Bool {

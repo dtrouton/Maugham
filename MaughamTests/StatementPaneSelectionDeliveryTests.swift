@@ -152,12 +152,17 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
         let window = await made.hostTheBinderBesideThePane(subject: nil)
 
         let table = try XCTUnwrap(made.firstTableView(in: window))
-        let groupRow = table.numberOfRows - 1
+        // The group is the last row the STRUCTURE contributes, which since
+        // stage-2a Task 4 is no longer the last row of the list: the Research
+        // and Palette sections sit below it. Counted from the structure rather
+        // than from the table's end so a future section cannot move it again.
+        let groupRow = 1 + made.store.manifest.structure.count - 1
         await made.selectBinderRow(groupRow, in: window, until: {
             made.subjectProbe.subject == BinderSubject.item(group.id)
         })
         XCTAssertEqual(made.subjectProbe.subject, .item(group.id),
-                       "precondition: the last row is the group just added")
+                       "precondition: the row under the project row and the "
+                       + "chapters is the group just added")
 
         try await assertPaneShows(seeded.projectText, in: window, of: made,
                                   "a group is not a scope — the pane must fall back "

@@ -978,10 +978,16 @@ struct ProjectWindow: View {
         return store.manifest.structure.first(where: { $0.id == id })
     }
 
+    /// **Both writes, until 2b.** `selectedResearchId` is the still-living
+    /// `CollectionResearchPane`'s own selection and `selectedSubject` is the
+    /// window's; both surfaces are alive this slice, so a note made from one has
+    /// to be findable from the other. Stage 2b deletes the pane and the first
+    /// line goes with it.
     @MainActor
     private func addSharedNoteAction(store: ProjectStore) async throws {
         let item = try await store.addResearchTextNote(parentId: nil)
         selectedResearchId = item.id
+        selectedSubject = .research(item.id)
     }
 
     @MainActor
@@ -990,6 +996,7 @@ struct ProjectWindow: View {
         let item = try await store.addPieceResearchNote(
             pieceId: pieceId, title: "Untitled Note")
         selectedResearchId = item.id
+        selectedSubject = .research(item.id)
     }
 
     @ViewBuilder

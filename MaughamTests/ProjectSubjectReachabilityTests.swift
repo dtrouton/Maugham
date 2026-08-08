@@ -39,6 +39,12 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     private var temp: TempDirectory!
     private var windows: [NSWindow] = []
 
+    /// Rows the Research and Palette sections contribute at the foot of every
+    /// tree when a project has neither yet (stage-2a Task 4): a header and one
+    /// placeholder row each. Every fixture here is a bare factory project, so
+    /// each count below is "the tree's own rows, plus the furniture".
+    private let emptySectionRows = (1 + 1) + (1 + 1)
+
     override func setUp() async throws {
         temp = TempDirectory()
     }
@@ -152,8 +158,9 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
                                              segment: .tree, persona: .plan)
         let table = try XCTUnwrap(firstTableView(in: window))
 
-        XCTAssertEqual(table.numberOfRows, 4,
-                       "project + script + two sluglines. A `BinderView` here "
+        XCTAssertEqual(table.numberOfRows, 4 + emptySectionRows,
+                       "project + script + two sluglines, then the sections' "
+                       + "furniture. A `BinderView` here "
                        + "would show two rows and no scenes at all — the "
                        + "2026-07-02 one-row-binder defect, on the new segment")
 
@@ -181,11 +188,12 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
                                          segment: .tree, persona: .plan)
         let table = try XCTUnwrap(firstTableView(in: window))
 
-        XCTAssertEqual(table.numberOfRows, 2,
+        XCTAssertEqual(table.numberOfRows, 2 + emptySectionRows,
                        "the plant must fire: with no parsed script the navigator "
-                       + "draws the project row and Script and nothing else. If "
-                       + "this is 4, the test above is passing on something other "
-                       + "than the script it was handed")
+                       + "draws the project row, Script, and the two sections' "
+                       + "furniture, and no slugline at all. If this matches the "
+                       + "count above, the test above is passing on something "
+                       + "other than the script it was handed")
     }
 
     /// **The defect itself, at the seam that produces the value** — the half no
@@ -234,7 +242,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         let (window, probe) = try await host(store: store, script: nil,
                                              segment: .tree, persona: .plan)
         let table = try XCTUnwrap(firstTableView(in: window))
-        XCTAssertEqual(table.numberOfRows, 2, "the project row and the one piece")
+        XCTAssertEqual(table.numberOfRows, 2 + emptySectionRows,
+                       "the project row, the one piece, and the sections' furniture")
 
         await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project)
@@ -263,7 +272,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         let (window, _) = try await host(store: store, script: script,
                                          segment: .tree, persona: .plan)
         let table = try XCTUnwrap(firstTableView(in: window))
-        XCTAssertEqual(table.numberOfRows, 4, "precondition: project + script + 2")
+        XCTAssertEqual(table.numberOfRows, 4 + emptySectionRows,
+                       "precondition: project + script + 2, then the furniture")
 
         var posted: [Int] = []
         let observer = NotificationCenter.default.addObserver(  // adr-0021-ok: a test observing the production post, not a production subscription
