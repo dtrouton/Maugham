@@ -161,6 +161,15 @@ survive; the notes do not. ⌘Z takes the task back.
 **Leave it.** A note you neither answer nor keep disappears at the next check.
 If it still stands, the next check raises it again.
 
+**While a check is still running, you can read but not act.** The report
+arrives section by section, so your conformance summary is on screen long
+before the reader's report is written — that is what the streaming is for. The
+notes under it carry no **Answer** and no **Promote to Task** until the check
+finishes, because a check that has not finished has not decided: cancel it and
+those notes were never raised, let it run and it may say something different by
+the end. The actions appear the moment the check is done, on the report it
+actually settled on.
+
 ## Choosing how hard it looks
 
 The gear menu in the pane's header picks the model: **Fast**, **Standard** (the

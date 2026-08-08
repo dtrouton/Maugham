@@ -1730,6 +1730,144 @@ final class DiagnosticsPaneTests: XCTestCase {
             + "RulingPerformer.rule directly")
     }
 
+    // MARK: - A preview carries no fates (C1)
+
+    /// **The pure gate.** Only a run in flight for THIS document withholds the
+    /// fates; every other state is a report that finished, and its rows are the
+    /// writer's to act on.
+    ///
+    /// `.failed` and `.nothingNew` are the interesting arms: both describe a
+    /// run that is over, and what stands under them is the previous run's
+    /// report off the sidecar. Withholding there would strand answerable notes
+    /// behind a check that died.
+    func test_offersDurableActions_isFalseOnlyWhileThisDocumentIsRunning() {
+        let run = makeRun()
+        XCTAssertFalse(DiagnosticsPane.offersDurableActions(
+            state: .running(checking: counts(new: 1, revised: 0))))
+        XCTAssertTrue(DiagnosticsPane.offersDurableActions(state: .neverRun))
+        XCTAssertTrue(DiagnosticsPane.offersDurableActions(state: .idle(lastRun: run)))
+        XCTAssertTrue(DiagnosticsPane.offersDurableActions(state: .clean(lastRun: run)))
+        XCTAssertTrue(DiagnosticsPane.offersDurableActions(state: .nothingNew(at: Date())),
+                      "a run that found nothing is over \u{2014} what stands is the last "
+                      + "finished report, and it is answerable")
+        XCTAssertTrue(DiagnosticsPane.offersDurableActions(
+            state: .failed(.timedOut, at: Date())),
+                      "a run that died never replaced anything, so the previous run's "
+                      + "notes must not be frozen behind it")
+    }
+
+    /// **The whole of C1, on the mounted pane and driven by a real stream.**
+    ///
+    /// A section landing mid-turn is readable — that is what streaming is for —
+    /// but it carries neither fate, because both end in
+    /// `DiagnosticsStore.dismiss` and a dismissal against a preview persists
+    /// the half-report. The affordances arrive with the reconciled report when
+    /// the turn ends.
+    ///
+    /// The two arms are each other's falsification: the note's own words are
+    /// asserted present in the first arm (so "no Answer button" is not "no row
+    /// rendered"), and the buttons are asserted present in the second (so the
+    /// first arm's absence is the gate rather than the query). Force
+    /// `offersDurableActions` to `true` and the first arm goes red; drop the
+    /// second and the test could pass over a pane that never draws them at all.
+    func test_aPreviewsRowsCarryNoFates_andTheReconciledReportDoes() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "PreviewNoFates")
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // hold the turn open
+        let orchestrator = CompilerOrchestrator()
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+        orchestrator.configure(
+            environment: makeEnvironment(docId: chapter.id, runner: runner),
+            diagnostics: diagnostics)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: orchestrator, diagnostics: diagnostics, docId: chapter.id,
+            currentText: { _ in "The fog came." }, compilerModel: .standard,
+            store: store)))
+
+        orchestrator.runRequested(docId: chapter.id)
+        await awaitSends(1, on: runner)
+        runner.stream(Self.streamedQuestion + "\n")
+        waitUntil { self.staticTextLabels(in: window, containing: Self.questionBody).count == 1 }
+
+        XCTAssertEqual(staticTextLabels(in: window, containing: Self.questionBody).count, 1,
+                       "the streamed section must be READABLE \u{2014} that is the whole "
+                       + "value of the preview, and the control for the two assertions below")
+        XCTAssertNil(findButton(labelled: "Answer", in: window),
+                     "answering a preview persists the half-report through dismiss")
+        XCTAssertNil(findButton(labelled: "Promote to Task", in: window),
+                     "promoting a preview persists it the same way")
+
+        runner.release(.resultText(Self.turnCarryingTheQuestion))
+        try? await Task.sleep(for: .milliseconds(300))
+        pump(0.3)
+
+        XCTAssertNotNil(findButton(labelled: "Answer", in: window),
+                        "the fates arrive with the reconciled report")
+        XCTAssertNotNil(findButton(labelled: "Promote to Task", in: window))
+    }
+
+    /// **A run on another document leaves this pane's fates exactly where they
+    /// were.** The run state is per-window and this pane is per-document — the
+    /// same asymmetry `headerState`'s `where runDocId == docId` exists for, and
+    /// the reason `offersDurableActions` reads `HeaderState` rather than
+    /// reaching for `runState` a second way.
+    func test_aRunOnAnotherDocumentLeavesThisPanesFatesAlone() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "OtherDocRunning")
+        let otherDocId = "doc-somewhere-else"
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let orchestrator = CompilerOrchestrator()
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+        orchestrator.configure(
+            environment: makeEnvironment(docId: otherDocId, runner: runner),
+            diagnostics: diagnostics)
+        diagnostics.replace(
+            run: makeRun(),
+            diagnostics: [makeDiagnostic(
+                docId: chapter.id,
+                anchor: Diagnostic.Anchor(paragraphId: "a1b2", anchorText: "The fog came."),
+                body: "Was that learned offstage?", kind: .continuity)],
+            docId: chapter.id)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: orchestrator, diagnostics: diagnostics, docId: chapter.id,
+            currentText: { _ in "The fog came." }, compilerModel: .standard,
+            store: store)))
+        XCTAssertNotNil(findButton(labelled: "Answer", in: window),
+                        "control: the finished run's note is answerable before anything runs")
+
+        orchestrator.runRequested(docId: otherDocId)
+        await awaitSends(1, on: runner)
+        pump(0.3)
+
+        XCTAssertNotNil(findButton(labelled: "Answer", in: window),
+                        "another document's run must not freeze this document's report")
+        XCTAssertNotNil(findButton(labelled: "Promote to Task", in: window))
+
+        runner.release(.resultText(Self.turnCarryingTheQuestion))
+        try? await Task.sleep(for: .milliseconds(200))
+    }
+
+    /// The one continuity question this section streams, and the words that
+    /// prove its row reached the pane.
+    private static let questionBody = "Should she already know?"
+
+    private static let streamedQuestion =
+        "{\"section\":\"continuity\",\"questions\":[{\"cites\":\"the fog\","
+        + "\"refs\":[\"a1b2\"],\"question\":\"\(questionBody)\"}]}"
+
+    /// The turn's own text, carrying the streamed section again — where it
+    /// always was. `finish` reconciles from this, not from the stream.
+    private static let turnCarryingTheQuestion = """
+        {"section":"conformance","checks":[]}
+        \(streamedQuestion)
+        {"section":"reader","reports":[]}
+        {"section":"facts","candidates":[]}
+        """
+
     // MARK: - Fixtures: a fake compiler runner (mirrors CompilerRunCommandTests.SpyRunner)
 
     @MainActor
@@ -1746,6 +1884,16 @@ final class DiagnosticsPaneTests: XCTestCase {
         var onSend: (() -> Void)?
         private var held: CheckedContinuation<CompilerRunEvent, Never>?
         private(set) var sendCount = 0
+        /// Where the orchestrator asked its stream to go — the same seam
+        /// `CompilerRunCommandTests.SpyRunner` records, so this suite can BE
+        /// the CLI's stdout and put a real preview on a mounted pane.
+        private var partialHandler: (@MainActor (String) -> Void)?
+
+        func setPartialHandler(_ handler: (@MainActor (String) -> Void)?) {
+            partialHandler = handler
+        }
+
+        func stream(_ chunk: String) { partialHandler?(chunk) }
 
         func send(message: String, systemPreamble: String?) async -> CompilerRunEvent {
             sendCount += 1

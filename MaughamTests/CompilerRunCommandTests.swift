@@ -2458,6 +2458,129 @@ final class CompilerRunCommandTests: XCTestCase {
             ["Should she already know?"])
     }
 
+    /// **The sharpest assertion of "a preview never persists": a dismissal
+    /// aimed at one changes not a byte** (C1, scenario A).
+    ///
+    /// `dismiss` is the store's third writer and the only one older than
+    /// streaming — it was written when every note it could reach belonged to a
+    /// run that had finished, and it persists. Against a preview it wrote the
+    /// half-report to the sidecar as the standing answer, carrying the marker
+    /// `beginRun` mints BEFORE the send; the cancel below then read it back and
+    /// the next check would have started from a position this run never
+    /// reached, silently never re-reading the prose it stopped half way
+    /// through.
+    ///
+    /// Byte-comparison rather than a field-by-field one: the defect was a WRITE
+    /// that should not have happened, and the only assertion that cannot be
+    /// satisfied by a write that merely round-trips is "the file did not
+    /// change".
+    func test_aDismissalCannotReachAPreview_soTheSidecarSurvivesACancelByteIdentical() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            oneQuestion("Should she already know?", about: "a1b2"))
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+        let before = try Data(contentsOf: sidecar) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        XCTAssertEqual(harness.diagnostics.lastOpId(docId: docId), "op1",
+                       "control: the finished run's marker")
+
+        // A second run, held open, one section in.
+        runner.nextEvent = nil
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+        let previewed = harness.diagnostics.live(
+            docId: docId, currentText: { _ in "The fog came." })
+        XCTAssertEqual(previewed.count, 1, "control: the preview put a note on the pane")
+
+        harness.diagnostics.dismiss(try XCTUnwrap(previewed.first).id, docId: docId)
+
+        XCTAssertEqual(
+            try Data(contentsOf: sidecar), before, // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+            "dismissing a previewed note wrote the half-report to disk")
+        XCTAssertEqual(
+            harness.diagnostics.live(docId: docId, currentText: { _ in "The fog came." }).count, 1,
+            "the refusal is total \u{2014} a preview's notes are not the writer's to "
+            + "dismiss, because the run raising them has not finished")
+
+        harness.orchestrator.cancel()
+        settle()
+
+        XCTAssertEqual(
+            try Data(contentsOf: sidecar), before, // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+            "the cancelled run left something behind")
+        XCTAssertEqual(harness.diagnostics.lastOpId(docId: docId), "op1",
+                       "a run that produced nothing checked nothing \u{2014} advancing the "
+                       + "marker would tell the next run that op2's prose was read")
+        XCTAssertEqual(
+            harness.diagnostics.live(docId: docId, currentText: { _ in "The fog came." })
+                .map(\.body),
+            ["Should she already know?"],
+            "the run that finished should be back on the pane")
+    }
+
+    /// **The other arm of C1: a completed turn raises each note once, and the
+    /// dismissal that was refused mid-stream lands for real afterwards.**
+    ///
+    /// `finish` reconciles with `parseAll` over the whole turn and REPLACES —
+    /// and the turn's own text still contains the section the stream carried.
+    /// A dismissal that took mid-stream therefore bought nothing: the note came
+    /// straight back with a fresh id, indistinguishable from an unanswered one,
+    /// and a second answer minted a duplicate ruling. Refused mid-stream, there
+    /// is exactly one note to answer and answering it sticks.
+    func test_aNoteRefusedMidStreamIsRaisedOnceByTheFinishedRun_andDismissesForReal() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        streamingRun(runner: runner, harness: harness)
+
+        let question = oneQuestion("Should she already know?", about: "a1b2")
+            .components(separatedBy: "\n")[1]
+        runner.stream(question + "\n")
+        let previewed = harness.diagnostics.live(
+            docId: docId, currentText: { _ in "The fog came." })
+        harness.diagnostics.dismiss(try XCTUnwrap(previewed.first).id, docId: docId)
+
+        // This document has never had a run finish, so there is no sidecar at
+        // all — the sharpest form of "a preview never persists", and the arm
+        // that catches an un-gated `dismiss`, which would MINT the file here
+        // out of a half-report.
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: sidecar.path),
+            "a dismissal against a preview wrote a sidecar for a run that has not "
+            + "finished \u{2014} a relaunch would read the half-report as the answer")
+
+        runner.release(.resultText(oneQuestion("Should she already know?", about: "a1b2")))
+        settle()
+
+        let reconciled = harness.diagnostics.live(
+            docId: docId, currentText: { _ in "The fog came." })
+        XCTAssertEqual(reconciled.map(\.body), ["Should she already know?"],
+                       "the finished run raises the question exactly once")
+
+        harness.diagnostics.dismiss(try XCTUnwrap(reconciled.first).id, docId: docId)
+        XCTAssertEqual(
+            harness.diagnostics.live(docId: docId, currentText: { _ in "The fog came." }), [],
+            "the run has finished \u{2014} its notes are the writer's to answer")
+
+        let persisted = try XCTUnwrap(String(
+            data: try Data(contentsOf: sidecar), encoding: .utf8)) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        XCTAssertFalse(persisted.contains("Should she already know?"),
+                       "and the dismissal reached disk, so the note cannot come back "
+                       + "on the next launch to be answered twice")
+    }
+
     /// **A preview is not a run, and the drift ring must not count it as one.**
     ///
     /// `DriftDetector` reads a clause straining across CONSECUTIVE RUNS. A

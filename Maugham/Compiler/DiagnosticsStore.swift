@@ -254,7 +254,30 @@ final class DiagnosticsStore {
 
     /// Remove one diagnostic (the writer answered or ignored it). Persists
     /// immediately. No-op if `docId`/`id` is unknown.
+    ///
+    /// **Precondition: `docId` is not previewing.** This is the store's third
+    /// writer, and the only one that predates streaming — it was written when
+    /// every note it could reach belonged to a run that had finished. Against a
+    /// preview it would persist the half-report as the standing sidecar, and
+    /// two things follow, both silent:
+    ///
+    /// - a cancelled run's `discardPreview` re-reads that file as "the standing
+    ///   answer", and it carries `run.lastOpId` — the marker minted at the
+    ///   START of the run — so the next check builds its delta from a position
+    ///   this one never reached and the prose it stopped reading is never read;
+    /// - a completed run's `replace` supersedes wholesale from the turn's own
+    ///   text, which still contains the answered note, so the note comes back
+    ///   indistinguishable from an unanswered one and a second answer mints a
+    ///   duplicate ruling.
+    ///
+    /// So it refuses, in memory as well as on disk: a preview's notes are not
+    /// the writer's to dismiss, because the run that raised them has not
+    /// finished raising them. `DiagnosticsPane.offersDurableActions` is why no
+    /// writer can reach this — the refusal here is what makes that a locked
+    /// door rather than a hidden handle, and it is the rule any future per-note
+    /// mutator inherits.
     func dismiss(_ id: String, docId: String) {
+        guard !previewing.contains(docId) else { return }
         guard var content = byDoc[docId] else { return }
         content.diagnostics.removeAll { $0.id == id }
         byDoc[docId] = content

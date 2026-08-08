@@ -481,9 +481,40 @@ an answer discards: `finish`'s failure arm, the unusable-output arm, `cancel()`
 (also directly — the continuation resumes a tick later, and the writer watches
 the half-report until it does) and `shutdown()`.
 
-The pane needed no new state. The version counter already draws whatever is
-stored, and `headerState` prefers the run state for this document, so the wait
-copy keeps saying "Checking…" while the report grows under it.
+The pane needed no new state to DRAW a preview. The version counter already
+draws whatever is stored, and `headerState` prefers the run state for this
+document, so the wait copy keeps saying "Checking…" while the report grows
+under it.
+
+**A preview's rows carry no fates, and that took two guards** (the whole-branch
+Critical, fixed in the fix wave). `preview` weakened three of `replace`'s
+verbs, but `dismiss` — this store's third writer, and the only one older than
+streaming — still persisted, and BOTH fates end in it: `DiagnosticsPane.promote`
+and `commitAnswer` each call `dismiss` last. So answering a streamed note wrote
+the half-report to the sidecar as the standing answer, **with the marker
+`beginRun` mints before the send on it**, and a cancel then read it back — the
+prose the aborted run stopped reading would never be checked again. A run that
+completed instead resurrected the answered note through `parseAll`-replace (the
+turn's own text still contains it, with a fresh id) and a second answer minted a
+duplicate ruling. Neither task's suite composed the two: the streaming tests
+only ever *watch* a preview, and the fates' tests never stream.
+
+The fix is one bit and one precondition, no new run-state reading:
+
+- `DiagnosticsPane.offersDurableActions(state:)` — pure, taking `HeaderState`
+  so it inherits `headerState`'s per-document scoping. Only `.running`
+  withholds Answer and Promote; a run on ANOTHER document reaches it as
+  `.idle`/`.clean` and that pane keeps its fates. `.failed`/`.nothingNew`
+  describe runs that are over and their rows are the last finished report's.
+- `DiagnosticsStore.dismiss` refuses outright while `previewing.contains(docId)`
+  — in memory as well as on disk, so the door is shut rather than the handle
+  hidden, and any future per-note mutator inherits the rule.
+
+Falsified both ways: force the gate true and the mounted preview test goes red;
+drop the precondition and the byte-identical sidecar test does
+(`test_aDismissalCannotReachAPreview_soTheSidecarSurvivesACancelByteIdentical`,
+which asserts the file did not change *at all* — the only assertion a write
+that merely round-trips cannot satisfy).
 
 ## The cold-start offer — refusable once, per document, forever
 
