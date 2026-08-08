@@ -63,7 +63,7 @@ final class InspectorIntentAffordanceTests: XCTestCase {
     /// reach the affordance.
     ///
     /// Read through the ObjC selectors by KVC rather than `NSAccessibilityProtocol`
-    /// — `CanvasViewMountingTests`' rule, for its reason: SwiftUI's synthetic
+    /// — `CanvasViewMountingCase`' rule, for its reason: SwiftUI's synthetic
     /// elements are `SwiftUI.AccessibilityNode`, which does not satisfy that
     /// protocol, so a walk written against it drops exactly the elements this
     /// test is about.

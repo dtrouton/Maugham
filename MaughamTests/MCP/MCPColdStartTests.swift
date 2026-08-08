@@ -25,33 +25,77 @@ final class MCPColdStartTests: XCTestCase {
     ///
     /// RED against the pre-fix binary: the no-prior-connection path fast-failed
     /// at ~1.5s, so this returned -32001. GREEN with the unified poll.
+    ///
+    /// **Staged-scenario discipline (2026-08-08).** This is a three-way race by
+    /// construction — bridge budget, `asyncAfter`-scheduled bind, read window —
+    /// and on a loaded machine the STAGING can fail without the shipped
+    /// behaviour being wrong: the stub's bind slips past the budget and the
+    /// bridge correctly synthesizes the very answer the regression produced
+    /// (2026-07-29, in-suite). So each attempt records when the stub ACTUALLY
+    /// bound, and an attempt whose bind landed outside the safe window is
+    /// discarded and restaged (bounded, the mint-and-return pattern) instead of
+    /// failing. A TIMELY bind that still yields -32001 is the regression and
+    /// fails immediately, on any attempt. The budget is 15_000 —
+    /// `MAUGHAM_MCP_RECONNECT_BUDGET_MS`'s production default, so this now
+    /// tests the shipped constant rather than a tighter stand-in.
     func test_firstCallAfterLaunch_pollsUntilServerBinds_noPriorConnection() throws {
         guard let bin = Self.binaryURL() else {
             throw XCTSkip("maugham-mcp not built in this product dir")
         }
-        let path = Self.tempSocketPath()
-        defer { unlink(path) }
+        let budget: TimeInterval = 15.0   // == production default, see doc comment
+        let attempts = 3
+        for attempt in 1...attempts {
+            let path = Self.tempSocketPath()
+            defer { unlink(path) }
 
-        // Bridge is launched with no listener present.
-        let proc = try Self.launchBridge(bin: bin, socketPath: path, budgetMs: 10_000)
-        defer { Self.terminate(proc) }
-        Self.drainInitialConnect()
+            // Bridge is launched with no listener present.
+            let proc = try Self.launchBridge(
+                bin: bin, socketPath: path, budgetMs: Int(budget * 1000))
+            defer { Self.terminate(proc) }
+            Self.drainInitialConnect()
 
-        // Bring the "app" up 2.5s after we fire the request — past the old
-        // fast-fail window, inside the poll budget.
-        var listener: StubSocketListener?
-        let bringUp = DispatchWorkItem { listener = try? StubSocketListener(path: path) }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 2.5, execute: bringUp)
-        defer { listener?.stop(unlinkFile: false) }
+            // Bring the "app" up 2.5s after we fire the request — past the old
+            // fast-fail window, inside the poll budget. Record the REAL bind
+            // moment; the schedule is an intention, not a fact.
+            var listener: StubSocketListener?
+            var boundAt: Date?
+            let sentAt = Date()
+            let bringUp = DispatchWorkItem {
+                listener = try? StubSocketListener(path: path)
+                boundAt = Date()
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2.5, execute: bringUp)
+            defer { listener?.stop(unlinkFile: false) }
 
-        Self.send(proc, #"{"jsonrpc":"2.0","id":1,"method":"list_projects"}"#)
-        let body = Self.readLine(proc, timeout: 9)
+            Self.send(proc, #"{"jsonrpc":"2.0","id":1,"method":"list_projects"}"#)
+            let body = Self.readLine(proc, timeout: budget + 2)
 
-        XCTAssertTrue(body.contains("\"served_by\":\"stub\""),
-            "expected a REAL response once the server bound; got: \(body)")
-        XCTAssertFalse(body.contains("-32001"),
-            "first call after launch must not synthesize not_running; got: \(body)")
-        XCTAssertTrue(body.contains("\"id\":1"), "wrong id; got: \(body)")
+            if !body.contains("\"served_by\":\"stub\"") {
+                let bindDelay = boundAt.map { $0.timeIntervalSince(sentAt) }
+                // Bind never happened inside the read, or landed within 3s of
+                // the budget's edge: the scenario wasn't staged, so the reply
+                // proves nothing either way — a fast-fail regression would show
+                // a TIMELY bind and a -32001 body, which falls through to the
+                // assertions below on every attempt.
+                if bindDelay == nil || bindDelay! > budget - 3 {
+                    if attempt < attempts { continue }
+                    return XCTFail(
+                        "could not stage the cold-start scenario in \(attempts) "
+                        + "attempts — the stub's bind landed at "
+                        + "\(bindDelay.map { String(format: "%.1fs", $0) } ?? "never") "
+                        + "against a \(Int(budget))s budget each time. That is a "
+                        + "machine pathology worth a human look, not a bridge "
+                        + "defect; last body: \(body)")
+                }
+            }
+
+            XCTAssertTrue(body.contains("\"served_by\":\"stub\""),
+                "expected a REAL response once the server bound; got: \(body)")
+            XCTAssertFalse(body.contains("-32001"),
+                "first call after launch must not synthesize not_running; got: \(body)")
+            XCTAssertTrue(body.contains("\"id\":1"), "wrong id; got: \(body)")
+            return
+        }
     }
 
     // MARK: - Guard: after-restart through the same long-lived bridge

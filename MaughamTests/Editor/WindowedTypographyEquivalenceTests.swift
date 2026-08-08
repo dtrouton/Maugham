@@ -17,6 +17,11 @@ import MaughamCore
 /// weaken the assertion. See `TokenRestyleWindow`, `ScreenplayMode`/`ProseMode`
 /// `applyTypography`, and the Editor AREA guide.
 final class WindowedTypographyEquivalenceTests: XCTestCase {
+    override class func setUp() {
+        super.setUp()
+        FontWarmup.ensure()   // absorbs the parallel-worker fontd cold-start window — see FontWarmup.swift
+    }
+
 
     private let theme: Theme = .light
 

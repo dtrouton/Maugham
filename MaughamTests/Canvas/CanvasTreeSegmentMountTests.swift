@@ -114,7 +114,7 @@ final class CanvasTreeSegmentMountTests: XCTestCase {
         let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
         let hosting = NSHostingView(rootView: AnyView(view))
         hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
+        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.contentView = hosting
         windows.append(window)

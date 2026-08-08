@@ -125,13 +125,18 @@ extension MCPBinaryIntegrationTests {
         _ = try? collectResponseLine(from: outPipe.fileHandleForReading, timeout: 5)
         inPipe.fileHandleForWriting.closeFile()
 
-        // The binary should exit within a few seconds.
+        // The property is "stdin closes ⇒ the binary exits" — the expectation
+        // fulfills on the exit EVENT, so this allowance costs nothing when
+        // green and models no product constant. It was 5s, and on 2026-07-29 a
+        // loaded serial suite starved the subprocess past it (the test took
+        // 9.4s and measured the machine, not the binary). 60s can only fire on
+        // a binary that genuinely does not exit.
         let exitExpectation = expectation(description: "binary exits")
         DispatchQueue.global().async {
             process.waitUntilExit()
             exitExpectation.fulfill()
         }
-        wait(for: [exitExpectation], timeout: 5)
+        wait(for: [exitExpectation], timeout: 60)
         XCTAssertFalse(process.isRunning)
     }
 
