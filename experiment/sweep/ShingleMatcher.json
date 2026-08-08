@@ -1,0 +1,232 @@
+{
+  "module": "ShingleMatcher",
+  "loc": 118,
+  "claims": [
+    {
+      "id": "SHINGLE-1",
+      "scope": "ShingleMatcher.shingles(of:k:)",
+      "kind": "POSTCONDITION",
+      "statement": "Tokenisation is: lowercase the whole text, split on whitespacesAndNewlines, drop empty components, join each k-word window with a single space. Case and runs of whitespace are therefore erased before any comparison; punctuation is NOT — it stays attached to the word it touches.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-2",
+      "scope": "ShingleMatcher.shingles(of:k:)",
+      "kind": "POSTCONDITION",
+      "statement": "When the text has FEWER than k words the result is not a shingle set at all — it is a one-element set holding the entire whitespace-collapsed, lowercased text. Two sub-k texts therefore score 1.0 if identical (modulo case/whitespace) and 0.0 otherwise; there is no partial credit. A sub-k text can never intersect a >=k text's shingles, because every shingle there is exactly k words long.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-3",
+      "scope": "ShingleMatcher.shingles(of:k:)",
+      "kind": "POSTCONDITION",
+      "statement": "Empty or whitespace-only text yields the EMPTY set (the guard's `words.isEmpty ? [] : ...` branch).",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-4",
+      "scope": "ShingleMatcher.overlapCoefficient(_:_:)",
+      "kind": "POSTCONDITION",
+      "statement": "Two empty sets score 1.0 (treated as identical); exactly one empty scores 0.0. Same rule in bigramOverlap.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-5",
+      "scope": "ShingleMatcher.overlapCoefficient(_:_:)",
+      "kind": "INVARIANT",
+      "statement": "The score is |A n B| / min(|A|,|B|) — the overlap coefficient, deliberately not Jaccard. Consequence: it returns exactly 1.0 whenever EITHER set is a subset of the other. Containment is arithmetically indistinguishable from equality.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-6",
+      "scope": "ShingleMatcher.overlapCoefficient(_:_:k:)",
+      "kind": "POSTCONDITION",
+      "statement": "Any contiguous sub-passage of at least k words scores exactly 1.0 against the paragraph containing it. Computed from the published algorithm at k=4: a 4-word run, a 5-word run and a half-sentence lifted out of a 14-word sentence each score 1.000 against that sentence — the same score as an identical copy. Not pinned by any test.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-7",
+      "scope": "ShingleMatcher.overlapCoefficient(_:_:k:)",
+      "kind": "POSTCONDITION",
+      "statement": "Identical text scores 1.0; two 10-word sentences sharing no 4-word window score 0.0; inserting one word into a 14-word sentence scores >0.6 (measured 0.727).",
+      "evidenced_by": "test:ShingleMatcherTests.test_overlapCoefficient_identicalText_isOne / _disjointText_isZero / _minorEdit_returnsHighSimilarity",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-8",
+      "scope": "ShingleMatcher.bestMatch(needle:candidates:k:threshold:)",
+      "kind": "POSTCONDITION",
+      "statement": "A candidate is eligible when `score >= threshold` — the gate is INCLUSIVE, so a score landing exactly on the threshold reuses the id.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-9",
+      "scope": "ShingleMatcher.bestMatch(needle:candidates:k:threshold:)",
+      "kind": "POSTCONDITION",
+      "statement": "Returns nil when no candidate clears the threshold — evidenced only for one needle against one unrelated candidate at threshold 0.6. The test supports 'returns nil for this input', not 'returns nil whenever the texts are unrelated'.",
+      "evidenced_by": "test:ShingleMatcherTests.test_bestMatch_returnsNilBelowThreshold",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-10",
+      "scope": "ShingleMatcher.bestMatch(needle:candidates:k:threshold:)",
+      "kind": "POSTCONDITION",
+      "statement": "The improvement test is strict-greater (`score > best.score`), so on an EXACT tie the first candidate reached wins — and the iteration is over a Swift Dictionary, whose order is unspecified. bestMatch has NO ambiguity guard of any kind: no margin over second-best, no refusal, no tie report to the caller. The source doc-comment states this outright ('first-encountered wins on an exact tie — Dictionary iteration order').",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-11",
+      "scope": "ShingleMatcher.bestMatch(needle:candidates:k:threshold:)",
+      "kind": "POSTCONDITION",
+      "statement": "When one paragraph is joined to another, BOTH halves tie at exactly 1.0 against the merged text provided each half has at least k words (each half's shingle set is a subset of the merged set, so min-normalisation gives 1.0 for both). Computed from the published algorithm on two 13-word sentences: 1.000 and 1.000. The repository's merge test uses two SHORT paragraphs, where all tiers miss and a fresh id is minted, so this tie is untested.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-12",
+      "scope": "ShingleMatcher.bestMatch(needle:candidates:k:threshold:candidateShingles:)",
+      "kind": "PRECONDITION",
+      "statement": "The closure overload REQUIRES `candidateShingles(text) == shingles(of: text, k: k)` — a stated contract, not a type-enforced one; nothing in the signature ties the closure to the `k` argument passed alongside it. RenderFilter.ShingleSetCache satisfies it with k fixed at 4 and is asserted equivalent to the no-cache path over randomised corpora and keystroke streams.",
+      "evidenced_by": "source|test:RestorePairsCacheEquivalenceTests",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-13",
+      "scope": "ShingleMatcher.bigrams(of:)",
+      "kind": "POSTCONDITION",
+      "statement": "Lowercased character bigrams as a SET, so repeats collapse ('aaaa' and 'aa' have the identical set). A one-character text yields a one-element set holding that character; empty text yields the empty set. Spaces and punctuation are ordinary characters here.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-14",
+      "scope": "ShingleMatcher.bigramOverlap(_:_:)",
+      "kind": "POSTCONDITION",
+      "statement": "'hello' vs itself scores 1.0; 'First.' vs 'First, edited.' scores >0.6 (measured 0.800); 'xyz' vs 'abc' scores <0.3.",
+      "evidenced_by": "test:ShingleMatcherTests.test_bigramOverlap_identicalShortText_isOne / _minorEditOnShortText_isHigh / _disjointText_isLow",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-15",
+      "scope": "ShingleMatcher.bigramOverlap(_:_:)",
+      "kind": "POSTCONDITION",
+      "statement": "bigramOverlap('Yes!','Yes.') == bigramOverlap('Yes!','Yes?') == 0.667 — an exact tie, both above the 0.6 reuse threshold used by the caller.",
+      "evidenced_by": "test:CrossDeviceIntegrationTests.test_case3b_nearDuplicateTie_reusesIdWithNoMargin",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-16",
+      "scope": "ShingleMatcher.bigramOverlap(_:_:)",
+      "kind": "POSTCONDITION",
+      "statement": "Because the denominator is min(|A|,|B|), a SHORT string can score very high against a long UNRELATED one — the short side's few bigrams are often all present somewhere in the long side. Computed against one 14-word unrelated sentence: 'She said.' 0.875, 'Nothing.' 0.857, 'He was.' 0.833, 'And then?' 0.750, 'No.' 0.500, 'Yes.' 0.000. It is not universal (it depends on which bigrams the short string happens to use) but it is common well above 0.6.",
+      "evidenced_by": "source",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "SHINGLE-17",
+      "scope": "ShingleMatcher",
+      "kind": "INVARIANT",
+      "statement": "No Unicode normalisation, no punctuation folding, no diacritic folding — only `lowercased()`. Its sibling SpanAnchorResolver normalises both sides through SpanText.normalize BEFORE calling in; RenderFilter does not. So 'the same text' means two different things at the two call sites. Computed instance: straight-to-curly quote conversion of the four-character line \"Yes.\" scores exactly 0.600 bigram overlap — it clears the caller's 0.6 gate only because that gate is inclusive.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-18",
+      "scope": "ShingleMatcher",
+      "kind": "INVARIANT",
+      "statement": "Both similarity functions are symmetric, stateless and cache-free; each string overload is an exact forwarder to its set overload, so the memoising and non-memoising paths are the same arithmetic. Ownership of any cache is deliberately outside MaughamCore.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-19",
+      "scope": "ShingleMatcher.shingles(of:k:)",
+      "kind": "PRECONDITION",
+      "statement": "`k` is unvalidated. k<=0 is nonsense (k=0 yields the set containing the empty string; a negative k forms an invalid Range and traps). Every production call site passes k=4 — RenderFilter tier 2 and ShingleSetCache.shingleK — so the precondition is met by convention, not by the type.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SHINGLE-20",
+      "scope": "ShingleMatcher (call sites)",
+      "kind": "INVARIANT",
+      "statement": "Four production paths reach the matcher, all of them through RenderFilter.restorePairs via Document.setFullText: typing in the editor (EditorHost), Find-and-Replace (ProjectStore+Search), wiki-link rename propagation across documents (ProjectStore+Structure), and a test-only MCP edit tool. Plus SpanAnchorResolver.fuzzyWindow, which uses the bigram half directly to re-find a span inside a paragraph. Nothing reads a hand-edited .md through it — external .md mutations are discarded, not reconciled (project tripwire).",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    }
+  ],
+  "product_decisions": [
+    {
+      "id": "SHINGLE-D1",
+      "question": "When a writer joins two paragraphs into one, which paragraph's identity — and therefore its comments, notes, tasks and history — does the joined paragraph inherit?",
+      "current_behaviour": "If both halves are at least four words, both score EXACTLY 1.0 against the joined text (SHINGLE-11). bestMatch's strict-greater tie rule keeps whichever candidate the Dictionary hands over first, which is unspecified (SHINGLE-10). The loser's paragraph id leaves the document and everything anchored to it is swept as an orphan. The repository's merge test uses short paragraphs where all tiers miss, so the tie case is not covered.",
+      "writer_visible_consequence": "Join two paragraphs and roughly half your margin notes on them survive — arbitrarily which half — with nothing said. The same edit made twice, or made on a second machine, can keep the other half's notes instead.",
+      "classification": "NOVEL",
+      "reasoning": "Neither ruling reaches it. No manuscript words are lost, so RULING-1's fidelity obligation is not engaged; nothing arrives from a file, so RULING-2's tolerance is not engaged. What is lost is the attachment between a note and the prose it was about, and which one is lost is decided by chance.",
+      "proposed_ruling": "Joining two paragraphs must have one stated answer for whose notes survive, and the same answer every time. Maugham should either declare that the first paragraph keeps its identity and carry the second's notes onto it, or declare the joined paragraph new and say so. It must never be settled by chance, and the outcome must not differ between two machines holding the same manuscript."
+    },
+    {
+      "id": "SHINGLE-D2",
+      "question": "When two passages are equally good matches for the text in front of us, does Maugham guess or refuse?",
+      "current_behaviour": "Three different answers in the same pipeline. (a) The word-shingle tier — ShingleMatcher.bestMatch — GUESSES: no margin rule, no tie detection, arbitrary Dictionary order. (b) The character-bigram tier in RenderFilter REFUSES: it reuses an id only when the best beats the second-best by 0.1, and its own comment calls arbitrary reattachment on a tie 'silent corruption'. (c) SpanAnchorResolver.fuzzyWindow GUESSES, but by a third rule again — nearest to a stored position hint. The refusal rule sits only on the weakest tier; the strongest tier runs first, wins outright, and has no guard at all.",
+      "writer_visible_consequence": "The same ambiguity produces opposite outcomes depending on how long the paragraph is. A short ambiguous line keeps nothing (fresh id, notes archived); a long ambiguous paragraph silently adopts one of two identities and the notes move to prose the writer never attached them to.",
+      "classification": "INCONSISTENT",
+      "reasoning": "One question — is an ambiguous match good enough to inherit an identity — answered three ways across two files that share the same primitive. The codebase has already written down, in RenderFilter and in OpLog/AREA.md, that guessing on a tie is corruption; that conclusion was applied to the fallback tier and not to the tier that decides most cases.",
+      "proposed_ruling": "One answer for ambiguity everywhere Maugham decides whether two pieces of prose are the same prose: when no candidate is clearly better than the next, Maugham does not choose. It treats the text as new and tells the writer which notes came loose. If we would rather it guessed, it must guess by the same visible rule in all three places."
+    },
+    {
+      "id": "SHINGLE-D3",
+      "question": "When a writer splits one paragraph into two, which half is the original — and should a passage lifted out of a longer paragraph count as that paragraph?",
+      "current_behaviour": "The overlap coefficient is min-normalised, so any contiguous sub-passage of four or more words scores exactly 1.0 against its parent — the same score as an identical copy (SHINGLE-6). The matcher walks display order greedily and each stored id can be claimed once, so on a split the FIRST half in reading order takes the identity and the second is minted fresh, regardless of which half carries the substance or the annotated sentence.",
+      "writer_visible_consequence": "Split a scene in two and every comment stays with the top half. A note attached to a sentence that ended up in the lower half is orphaned, even though that sentence is still on the page, unchanged.",
+      "classification": "NOVEL",
+      "reasoning": "Not covered: no words are lost and no file arrives. It is a positional convention standing in for a judgement about where the writer's attention went. Two reasonable people genuinely disagree here — 'the first half is the original' is defensible and so is 'the half containing the annotated sentence is the original'.",
+      "proposed_ruling": "A split is not a rename. When one paragraph becomes two, a note follows the sentence it was attached to — Maugham keeps the identity on the half that still contains the annotated text, and where both halves are equally plausible it says so rather than deciding by reading order."
+    },
+    {
+      "id": "SHINGLE-D4",
+      "question": "Should the writer be told at the moment an edit was large enough that Maugham stopped recognising the paragraph?",
+      "current_behaviour": "0.6 is a hard cliff applied silently in both directions. At or above it the paragraph keeps its identity and every note with it; a hair below, everything anchored to it is orphaned and archived. Measured instances: inserting one word into a 14-word sentence scores 0.727 (kept); rewriting that same sentence to the same shape with different nouns scores 0.091 (lost); replacing a character's name inside a 14-word sentence scores exactly 0.600 and is kept only because the gate is inclusive. Orphaned paragraphs are logged and reachable in an audit; a reattachment that only just cleared the bar is never mentioned anywhere.",
+      "writer_visible_consequence": "Rework a paragraph hard and the comments, tasks and Claude notes on it quietly stop being about it. The writer finds out later in an archive list, if at all — never at the keystroke that did it.",
+      "classification": "NOVEL",
+      "reasoning": "Neither ruling reaches it, but the SHAPE of the pair points at the answer. Typing in the editor is a person acting, which is where the existing rulings are strict and where they demand the loss be visible at the point of entry rather than discovered later. RULING-1 is scoped to content Maugham cannot read back faithfully; here the words are all read back perfectly and it is the attachment between a note and its sentence that is dropped, so it is the same failure one layer up and out of scope as written.",
+      "proposed_ruling": "The obligation to make a loss visible where the person acted extends from the writer's words to the notes attached to them. When an edit is large enough that Maugham can no longer tell it is the same paragraph, that must be visible in the editor at the time, not only discoverable afterwards in an audit."
+    },
+    {
+      "id": "SHINGLE-D5",
+      "question": "May a newly typed short line — a line of dialogue, a slugline, a one-sentence beat — take over an existing paragraph's identity?",
+      "current_behaviour": "It can. The bigram fallback is min-normalised over the short needle's few bigrams, so a short new line scores far above 0.6 against unrelated long paragraphs — measured 0.875 for 'She said.', 0.857 for 'Nothing.', 0.833 for 'He was.' against one unrelated 14-word sentence (SHINGLE-16). The only thing standing in the way is the caller's margin rule, which needs a SECOND candidate scoring within 0.1. When few candidates remain unmatched — a short document, or late in the walk — a single high-scoring long paragraph is claimed outright; the real paragraph, met afterwards, mints a fresh id and loses its notes.",
+      "writer_visible_consequence": "Type a new line of dialogue above a paragraph and the paragraph below it can quietly become a different paragraph — its comments archived, its history detached — while the new line inherits them.",
+      "classification": "NOVEL",
+      "reasoning": "The margin rule that guards this was designed for a different case (two near-duplicate short siblings, 'Yes.'/'Yes?'), and it masks this one only incidentally. Two reasonable people can disagree on the fix: matching short text only exactly would end the steal but would also end the deliberately-preserved 'First.' to 'First, edited.' case the team chose to keep. That trade is a product call, not an implementation detail. Reachability of the single-candidate case is reasoned from the algorithm and the walk order, not pinned by a test — worth confirming before acting.",
+      "proposed_ruling": "Short paragraphs are identified by their own text, not by resemblance to longer prose. A short line may inherit an existing identity only from another comparably short line; a long paragraph's notes can never be claimed by a line typed next to it."
+    },
+    {
+      "id": "SHINGLE-D6",
+      "question": "When Maugham itself rewrites a writer's paragraphs in bulk — Replace All, or propagating a renamed note's links across every document — may that rewrite cost paragraphs their identity?",
+      "current_behaviour": "Yes, and invisibly. Find-and-Replace (ProjectStore+Search) and wiki-link rename propagation (ProjectStore+Structure) both commit a whole-document rewrite through the same matcher in one pass, deliberately 'through the same path normal typing uses'. Every paragraph the rewrite touched is scored at once. Measured instances of a rename the writer never watched: the line 'See [[Marguerite]].' becoming 'See [[Isabelle in Winter]].' scores 0.0 word-shingle and 0.5 bigram — below the bar, fresh id, notes orphaned; the dialogue line '\"Marguerite, wait.\"' becoming '\"Isabelle, wait.\"' scores 0.5 — likewise lost; the same name inside a 14-word sentence scores exactly 0.600 — kept, by one inclusive comparison. The rename propagation runs over documents that are not open and may be loaded transiently just to rewrite them.",
+      "writer_visible_consequence": "Rename a research note, or replace a character's name across the novel, and an unpredictable subset of short paragraphs — mostly dialogue and one-line beats, the places most likely to hold a name — silently stop being the paragraphs they were. The writer never saw those edits happen and gets no account of what came loose.",
+      "classification": "NOVEL",
+      "reasoning": "This is the closest thing in the module to RULING-1's territory and it still falls outside as written: RULING-1 is about content Maugham cannot read back, and the words here round-trip perfectly. But a person acted (they hit Replace All, or renamed a note), Maugham did the rest on their behalf across files they never opened, and the cost lands on notes rather than on words. Distinct from SHINGLE-D4 because it is not one paragraph at a keystroke — it is many paragraphs at once, unwatched, with no editor to make anything visible in.",
+      "proposed_ruling": "An edit Maugham makes on the writer's behalf carries a higher duty than one the writer types. Replace All and rename propagation must report what they detached — which paragraphs stopped being recognised and which notes came loose — before or immediately after they run, and a rewrite Maugham generated should not be treated as evidence that the paragraph changed identity."
+    },
+    {
+      "id": "SHINGLE-D7",
+      "question": "Should a change only to typography — capitalisation, or Maugham's own smart-quote substitution — ever count as making a paragraph a different paragraph?",
+      "current_behaviour": "Two answers, by accident of string length. Case is folded, so a capitalisation-only change scores 1.0 and always keeps the identity. Punctuation and Unicode are NOT folded — the matcher does no normalisation at all, unlike its sibling SpanAnchorResolver which normalises both sides before calling in (SHINGLE-17). Converting straight quotes to curly on the four-character line \"Yes.\" scores exactly 0.600 — retained only because the gate is inclusive; a shorter or differently punctuated line falls below and is lost, while the same conversion inside a long paragraph is irrelevant.",
+      "writer_visible_consequence": "A change the writer did not consciously make, and in the smart-quote case one Maugham made for them, can cost a short line its notes — while the same change costs a long paragraph nothing. The dividing line is the length of the line, which is not a distinction a writer would ever predict.",
+      "classification": "NOVEL",
+      "reasoning": "Not covered by either ruling. Included despite its narrowness because the two ends of it disagree: the module has already decided that case is not an edit, and left punctuation and Unicode form undecided. Reachability caveat, stated plainly: whether the editor's smart typography actually presents a pre-substitution prior text to the matcher was not verified — the 0.600 figure is arithmetic from the algorithm, and the path that would produce that pair (a load boundary, an import, a sync) needs confirming before acting.",
+      "proposed_ruling": "A transformation Maugham applies itself is never an edit for the purpose of deciding paragraph identity, and typography alone — case, quote style, dash style — never makes a paragraph a different paragraph, regardless of how short it is."
+    }
+  ],
+  "notes": "Scope note: ShingleMatcher is 118 lines of pure arithmetic and holds no policy of its own except one — bestMatch's tie rule. Every threshold (0.6), every margin (0.1) and every tier ordering lives in its callers, RenderFilter and SpanAnchorResolver, which is why several decisions above are stated as the matcher's property but land in a caller. That split is deliberate per OpLog/AREA.md ('this third tier lives in RenderFilter, not ShingleMatcher') and it is also how SHINGLE-D2's inconsistency survived: the guard was added where the policy lived, and the tier that guesses is inside the primitive.\n\nTest coverage of the module itself is thin relative to its consequences. ShingleMatcherTests has eight tests and none touches: the tie rule, containment scoring 1.0, empty or whitespace-only inputs, the sub-k whole-string collapse, or the memoising overload's contract. The behaviours carrying the product consequences are pinned — where at all — in the callers' tests (CrossDeviceIntegrationTests case3a/3b, RenderFilterTests tier2-vs-tier3, RestorePairsCacheEquivalenceTests), and the merge tie of SHINGLE-11 is pinned nowhere.\n\nAll numeric values marked 'computed' or 'measured' above were produced by re-implementing shingles/bigrams/overlap exactly as written in the source and running the stated inputs. They are arithmetic, not observations of the running app; the reachability of each scenario through the real pipeline is noted per decision where it is uncertain (SHINGLE-D5, SHINGLE-D7).\n\nOne piece of documentation drift, unrelated to the decisions: Maugham/OpLog/AREA.md line 21 describes ShingleMatcher as a 'k-shingle Jaccard matcher'. It is not Jaccard, and the source says so explicitly and explains why (asymmetric orphan recovery). The distinction is exactly what produces SHINGLE-D1 and SHINGLE-D3 — under Jaccard, containment would not score 1.0 and neither the merge tie nor the split ambiguity would arise in that form. Anyone reading only the AREA doc would not know the merge case exists.\n\nOne observation left out of the decisions because it belongs to SpanAnchorResolver rather than here: min-normalisation means a candidate window that is a strict substring of the quote scores 1.0, so the fuzzy span tier cannot distinguish an exact re-find from a re-find two characters short. The effect is bounded — window lengths are restricted to the quote length plus or minus two — so a highlight can shift or shrink by a couple of characters but not collapse. Worth confirming in that module's own sweep.\n\nNo repository file was modified."
+}

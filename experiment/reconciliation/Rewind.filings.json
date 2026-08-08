@@ -1,0 +1,264 @@
+[
+ {
+  "claim_id": "M4-RW-001",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The identity case of the fold. Not a product decision."
+ },
+ {
+  "claim_id": "M4-RW-002",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "RULING-22's own `settles IN SCOPE` list names this defect and cites THIS FILE: 'rewind label — Rewind to before this… does ops.prefix(THROUGH: idx) — inclusive — so it lands AFTER the op. VERIFIED at HistoryPane.swift:349-360 and Deriver+Rewind.swift:30-40. A control not doing what it says.' The defect is the pair — a label in HistoryPane and this inclusive boundary — and the ruling author scoped it to both halves. I pin the half that lives in this module; the label half is out of these three files and is verified by reading, not by my test.",
+  "intent_expressed_when": "contemporaneous — the writer clicked a button naming the moment they wanted",
+  "call_path": "HistoryPane row → 'Rewind to before this…' (HistoryPane.swift:350) → .maughamOpenRewind with scrub_op_id → RewindModifier sets .atOp → RewindWindow → 'Restore here…' → restoreToOp",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M4-RW-003",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "RULING-22's `settles IN SCOPE` names it and cites the exact lines: 'stale cursor silent no-op — Restore lands on now and nothing happens, silently (Deriver+Rewind.swift:34-36)'. Independently, RULING-19's corollary — restored to the file since my trash run — reaches it too: 'a repair firing at a lower layer means a guard above did not fire — that is a BUG'. The deriver's fallback IS a lower-layer repair and the Restore button above it has no guard. R22 is the sub and is cited per the root-is-decoration discipline; the corollary is recorded because it VINDICATES the survey's REW-D11, which convicted under R19 quoting a clause the damaged file did not then contain.",
+  "intent_expressed_when": "contemporaneous — the writer scrubbed to a moment and asked for it",
+  "call_path": "UNTRACED as a writer gesture. RewindWindow.load reads doc.opLog(), which prefers _opLogMirror — the same array restoreToOp derives from — so the cursor is in the live log by construction. I found no compaction or truncation path that removes an op from the mirror (ADR 0016 sealing keeps sealed segments loadable; handleExternalLogChange replaces the mirror with a merged union). The fallback may defend a case that no longer exists.",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M4-RW-004",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Empty input, empty output. Not a product decision."
+ },
+ {
+  "claim_id": "M4-RW-005",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The method does exactly what its own doc comment says ('the state it had immediately after the op ... was applied'), and the preview and the restore agree with each other. The mismatch is with a LABEL in another module and is filed once, at M4-RW-002. Filing it twice would count one defect as two."
+ },
+ {
+  "claim_id": "M4-RW-006",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Provenance bookkeeping. The overloading of sourceCheckpoint is documented at the declaration and is invisible to the writer."
+ },
+ {
+  "claim_id": "M4-RW-007",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Correct behaviour: nothing to do, nothing done, nothing appended. What it COSTS the writer is a separate claim (M4-RW-021) and is filed there."
+ },
+ {
+  "claim_id": "M4-RW-008",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "The same settled defect as M4-RW-003, pinned one layer up and sharper than the survey knew: RewindRestoreResult is Equatable and the two results compare EQUAL. So it is not merely that the caller does not distinguish 'nothing to do' from 'your moment does not exist' — no caller COULD, because the API carries no channel for the difference. That makes the silence structural rather than an omission at the call site, which matters for what a fix has to touch. Counted as one defect with M4-RW-003, not two.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "UNTRACED as a writer gesture — same trace as M4-RW-003",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M4-RW-009",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Reporting fields on a return value. What the caller does with them is RewindWindow's and ProjectWindow's, outside this module."
+ },
+ {
+  "claim_id": "M4-RW-010",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-24",
+  "clause_that_reaches_it": "THE WORK — the prose, the screenplay, the thing being created — is protected AT ALL COSTS and is version-controlled: every change to it is retained.",
+  "why_in_scope": "Rewind is tier 1's MECHANISM — 'version-controlled: every change to it is retained' is a description of this op log, and a rewind is the most destructive-looking thing that happens to it. The claim is that it retains everything: every pre-rewind op survives and the log strictly grows. RULING-24 is cited rather than RULING-4 because R24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty.",
+  "intent_expressed_when": "contemporaneous — the writer asked to travel back, not to discard",
+  "call_path": "HistoryPane 'Rewind…' → RewindWindow → 'Restore here…' → restoreToOp → applyRestore → opStore.append (never a truncate)",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M4-RW-011",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-24",
+  "clause_that_reaches_it": "THE WORK — the prose, the screenplay, the thing being created — is protected AT ALL COSTS and is version-controlled: every change to it is retained.",
+  "why_in_scope": "The retention in M4-RW-010 would be worthless if the retained ops did not reconstruct the words. This pins that they do: deriving at the pre-rewind tip reproduces the pre-rewind paragraphs exactly. That is 'protected at all costs' demonstrated rather than asserted, and it is the single most load-bearing fact in this module.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "same path; recovery via RewindWindow scrubbing back to the pre-rewind tip, which remains a scrub target",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M4-RW-012",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-24",
+  "clause_that_reaches_it": "THE WORK — the prose, the screenplay, the thing being created — is protected AT ALL COSTS and is version-controlled: every change to it is retained.",
+  "why_in_scope": "The writer's actual recovery route, not just a derivation: rewinding forward returns the LIVE document to the exact pre-rewind words. Tier 1's promise is reachable from the surface the writer already has open.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "two consecutive Restores from the rewind modal",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M4-RW-013",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The archiving itself is reached by nothing. RULING-13 does not reach by scope — its scope is 'when a paragraph's IDENTITY is not recovered', and in a rewind the identity was not lost: the paragraph genuinely did not exist at the target moment (GAP-R6). RULING-24's three tiers — the work, research, ingested/derived — do not name annotations at all (GAP-R1). And the TELLING is not this module's: RULING-22 settles 'unmentioned auto-archive' as a defect, but the omission is in RewindWindow's pre-confirm summary, while this method reports the archives honestly in its return value (M4-RW-029)."
+ },
+ {
+  "claim_id": "M4-RW-014",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Correct and unreached: leaving untouched what was not affected is not a product decision."
+ },
+ {
+  "claim_id": "M4-RW-015",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Dead code, not behaviour. Nothing a writer can do makes this clause decide anything, so no ruling reaches it. Recorded because it FALSIFIES the survey's REW-D9, whose writer-visible consequence — 'an open craft note whose paragraph chip points at text that is not in the document' — cannot occur: there is no chip. REW-D9's own falsifier predicted exactly this and was never checked."
+ },
+ {
+  "claim_id": "M4-RW-016",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A guard against a leak that would be a defect if it fired. It does not fire. Not a product decision."
+ },
+ {
+  "claim_id": "M4-RW-017",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "Where the same product question is answered in more than one place, it has one answer. A second surface or a second code path may not answer it differently.",
+  "why_in_scope": "The writer's question is 'has this suggestion been applied to my text?', and two surfaces answer it: the annotations pane (via derived status) and the manuscript itself. Rewinding past the accept reverts the text, so without this pass the pane would say `.accepted` while the text said otherwise — one question, two answers. The changes-free .claudeAcceptRevert makes them agree. I depart from the survey's REW-D10 filing under RULING-5 on scope grounds: R5's clause governs what happens at the moment of APPLICATION ('MUST NOT be applied... refused'), and nothing is being applied here. R8 fits the stated clause without strain.",
+  "intent_expressed_when": "contemporaneous — the writer asked to travel to before the accept",
+  "call_path": "MCP add_suggestion → writer accepts in AnnotationsPane → rewind modal → Restore targeting a moment before the accept",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M4-RW-018",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "Where the same product question is answered in more than one place, it has one answer. A second surface or a second code path may not answer it differently.",
+  "why_in_scope": "Same writer question, the other branch: 'can I act on this suggestion?' The paragraph is gone, so the honest answer is no, and archiving is what makes the pane agree with the document. Reopening it instead would put an open suggestion on a nonexistent paragraph — the pane saying yes while the document says no.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "as M4-RW-017, targeting a moment before the paragraph existed",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M4-RW-019",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "Where the same product question is answered in more than one place, it has one answer. A second surface or a second code path may not answer it differently.",
+  "why_in_scope": "The writer's question is 'I rewound too far and came back — is my document as it was?', asked of two things sitting in one document after one gesture. The pane task answers yes; the comment on the same restored paragraph answers no, permanently and without a word. Discipline 5 governs: sameness is judged from the WRITER'S question, never from whether the code paths differ — and 'a task window is derived while an archive is a recorded op' is precisely a code-path distinction. The counter-argument is real and is Denver's to make: if a recorded archive is an author-visible DECISION that only an author may reverse, while a task window is pure derivation, then these are two questions that merely look alike and the asymmetry is correct. Nothing in the current set draws that line, and drawing it would still leave the writer untold either way.",
+  "intent_expressed_when": "contemporaneous — the forward rewind IS the writer saying 'put it back'",
+  "call_path": "Two consecutive Restores from the rewind modal, the second targeting a later op. RewindFlowTests.test_rewindThenScrubBeforePriorRewind_walksFullHistory exercises this sequence for text and asserts only the sequence count.",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M4-RW-020",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A reporting flag on the return value. The asymmetry it participates in is filed at M4-RW-019."
+ },
+ {
+  "claim_id": "M4-RW-021",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "the writer forms an expectation from what Maugham showed, said or labelled, and the outcome differs from it",
+  "why_in_scope": "The writer scrubs, thinks better of it, and presses Restore on a point that turns out to be where they already were. What Maugham showed them was a preview of the state they are already in, so the expectation it created is 'nothing will change'. The outcome differs: the last stretch of per-keystroke ⌘Z granularity is gone, with no prompt and no notice, and nothing is registered in its place. That is R22's stated scope — expectation formed from what Maugham showed, outcome differing — and the module's own comment concedes the case ('this clear already discarded typing history for zero benefit'). THIS IS THE FILING IN THIS SET MOST LIKELY TO BE ARGUED DOWN: if undo granularity is judged something the writer is not owed, it retires to an enhancement under PRINCIPLE-2 and GAP-R3 stands in its place. The words themselves are never at risk (M4-RW-011), which is what keeps it out of RULING-24.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "HistoryPane 'Rewind…' → RewindWindow → the footer deliberately ENABLES 'Restore here…' on .atOp(latestOpId) (RewindCursor.swift documents this as intentional) → confirm → restoreToOpUndoable → removeAllActions → restoreToOp returns nil → the guard returns before registering",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M4-RW-022",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "The compound of the two settled entries: the moment the writer selected did not exist, so Restore lands on 'now' silently (R22's 'stale cursor silent no-op'), AND the cost is charged anyway — the typing stack is destroyed for an operation that did nothing. A control that reports success, changes nothing, and takes something away is the plainest reading of not doing what it says.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "UNTRACED as a writer gesture — same trace as M4-RW-003",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M4-RW-023",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "The Edit menu reads 'Undo Restore from History' and exactly one action stands behind it. The label names the act the writer performed, at the granularity they performed it — the whole rewind, not its pieces.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "rewind, then look at the Edit menu",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M4-RW-024",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "The control does what its name says end to end: one ⌘Z returns text, reopened accepts and sweep-archived annotations together, as one act. This is the counterweight to M4-RW-019 — the compound undo is coherent; it is the forward REWIND that is not.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "rewind, then ⌘Z",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M4-RW-025",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Internal provenance discipline that keeps TaskDeriver's window correct. Invisible to the writer; its effect is claimed at M4-RW-031."
+ },
+ {
+  "claim_id": "M4-RW-026",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure... A refusal names its real cause.",
+  "why_in_scope": "⌘Z is as writer-facing as Maugham gets: the writer pressed a key, the menu named the act, and the refusal reaches them as silence. RULING-19's scope clause — 'a lower layer has no surface on which to misrepresent anything' — is what would excuse a silent decline, and it does not apply: this is the handler of a writer's keystroke, not storage. Per RULING-22's own `relation to RULING 7`, R7 governs FAILURES and R22 governs SUCCESSES; this is a failure, so R7 is the fit. The DECLINE ITSELF IS CORRECT and deliberate — RULING-20's default-safe, and the module says so ('History Rewind is the tool for that tangle'). The defect is that the writer is not told, while documentLog is.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "rewind → a cross-device merge lands → ⌘Z → the fire-time guard `doc.paragraphs == postParagraphs` fails → documentLog.error → return",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M4-RW-029",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The module produces the truth. Every collateral effect is on the return value, typed and counted, and the type's own doc comment shows the toast it was designed for ('Restored. 3 annotations auto-archived.'). No ruling reaches a correct return value — but this is the evidence that RULING-22's settled 'unmentioned auto-archive' defect is entirely a caller's: ProjectWindow.swift:1726 discards the result with `_ =`, and RewindWindow's pre-confirm summary is computed from its own modal-open snapshot instead. Both are outside these three files."
+ },
+ {
+  "claim_id": "M4-RW-030",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A derivation-window mechanism. That it exists at all is what makes a text-unchanged task rewind work; no ruling governs the marker."
+ },
+ {
+  "claim_id": "M4-RW-031",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "Where the same product question is answered in more than one place, it has one answer. A second surface or a second code path may not answer it differently.",
+  "why_in_scope": "'What state does this target put me in?' is one question, and three paths answer it — a fresh rewind, a redo, and a second manual Restore to the same target. Re-running restoreToOp from scratch rather than replaying a recorded diff is what makes all three give the same answer, including for the stranded-accept detector, whose status-only clause exists precisely so the redo path cannot disagree.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "rewind → ⌘Z → ⇧⌘Z",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "_summary": {
+   "reached": 15,
+   "complies": 8,
+   "violates": 7,
+   "no_ruling": 14,
+   "total": 29,
+   "coverage": "52%",
+   "by_ruling": {
+    "RULING-22": [
+     "M4-RW-002",
+     "M4-RW-003",
+     "M4-RW-008",
+     "M4-RW-021",
+     "M4-RW-022",
+     "M4-RW-023",
+     "M4-RW-024"
+    ],
+    "RULING-24": [
+     "M4-RW-010",
+     "M4-RW-011",
+     "M4-RW-012"
+    ],
+    "RULING-7": [
+     "M4-RW-026"
+    ],
+    "RULING-8": [
+     "M4-RW-017",
+     "M4-RW-018",
+     "M4-RW-019",
+     "M4-RW-031"
+    ]
+   },
+   "reached_by_a_root_only": [
+    "M4-RW-010",
+    "M4-RW-011",
+    "M4-RW-012"
+   ],
+   "specificity_current_ruling_set": "12/15 = 80%",
+   "distinct_defects": "7 violations over 6 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op and are counted once in the register"
+  }
+ }
+]

@@ -1,0 +1,818 @@
+[
+ {
+  "claim_id": "M3-TR-001",
+  "scope": "TrashStore.moveToTrash",
+  "kind": "POSTCONDITION",
+  "statement": "the trash entry folder is named '<yyyyMMdd-HHmmss>-<the `id` field of itemMetadata>'; the timestamp is minted at the moment of the move",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_moveToTrash_namesTheFolderByTimestampAndMetadataId_andRecordsPositionInMetaJSON"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — binder Delete on any item",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-002",
+  "scope": "TrashStore.moveToTrash",
+  "kind": "POSTCONDITION",
+  "statement": "itemMetadata carrying no `id` field — or that is not JSON at all — names the folder '<timestamp>-x'; the decode is best-effort and never fails the move",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_moveToTrash_metadataWithoutAnId_namesTheFolderX"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "UNTRACED — every production caller encodes a StructureItem/ResearchItem or supplies an explicit id",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-003",
+  "scope": "TrashStore.moveToTrash",
+  "kind": "POSTCONDITION",
+  "statement": "the file is MOVED out of the project tree into the entry folder, keeping its filename and its bytes; the original path is left empty; nothing is unlinked",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_moveToTrash_namesTheFolderByTimestampAndMetadataId_andRecordsPositionInMetaJSON"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — binder/research Delete on any file-backed item",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-004",
+  "scope": "TrashStore.moveToTrash",
+  "kind": "POSTCONDITION",
+  "statement": "a group's FOLDER moves wholesale, subtree intact and nested structure preserved, in one FileManager.moveItem",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_moveToTrash_movesAFolderWithItsWholeSubtree"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — binder Delete on a group",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-005",
+  "scope": "TrashStore.moveToTrash",
+  "kind": "POSTCONDITION",
+  "statement": "meta.json records originalRelativePath, displayTitle, itemMetadata, originalParentId and originalIndex, pretty-printed with sorted keys, written atomically",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_moveToTrash_namesTheFolderByTimestampAndMetadataId_andRecordsPositionInMetaJSON"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-006",
+  "scope": "TrashStore.moveToTrash",
+  "kind": "POSTCONDITION",
+  "statement": "the TrashEntry moveToTrash RETURNS omits originalParentId and originalIndex (nil / 0) although meta.json and TrashStore.list() both carry the caller's values; the same entry read two ways is unequal",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_moveToTrash_returnedEntryDropsThePositionThatMetaJSONAndListBothKeep"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LIVE, but the returned entry is consumed only for its `id` — deleteStructureItem and deleteResearchItems both re-read the pane from list()",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-007",
+  "scope": "TrashStore.moveToTrash",
+  "kind": "ERROR",
+  "statement": "an absolute, root-escaping, empty or empty-component fileRelativePath is refused with TrashError.unsafeRelativePath wrapping the SafeRelativePath.PathError, before any file is touched",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_moveToTrash_refusesUnsafePaths_butLeavesTheEntryFolderBehind"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE for the empty case (a path-less manifest row, M3-TR-034); the hostile cases need a corrupted manifest",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-008",
+  "scope": "TrashStore.moveToTrash",
+  "kind": "POSTCONDITION",
+  "statement": "a refused move still leaves the entry folder it created moments earlier: an empty directory under .trash/ with no file and no meta.json",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_moveToTrash_refusesUnsafePaths_butLeavesTheEntryFolderBehind"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LIVE via M3-TR-034",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-009",
+  "scope": "TrashStore.moveToTrash",
+  "kind": "POSTCONDITION",
+  "statement": "a moveToTrash that throws leaves no meta.json, so the folder it created is invisible to list() and to every surface built on it",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_moveToTrash_missingSource_leavesAnEntryFolderListCannotSee"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LIVE via M3-TR-034",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-010",
+  "scope": "TrashStore.moveToTrash",
+  "kind": "ERROR",
+  "statement": "a source path that resolves safely but does not exist throws the raw NSCocoaErrorDomain error from FileManager, not a TrashError",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_moveToTrash_missingSource_leavesAnEntryFolderListCannotSee"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LATENT — needs the manifest and the filesystem to disagree",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-011",
+  "scope": "TrashStore.moveToTrash",
+  "kind": "INVARIANT",
+  "statement": "two moveToTrash calls in the same second under the same metadata id collapse into ONE entry folder holding both files; the second meta.json overwrites the first and list() reports a single entry describing only the second item",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_moveToTrash_sameSecondSameId_collapseIntoOneEntry_andRestoreDestroysTheOther"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "UNTRACED — production ids are minted unique elsewhere; the 'x' default (M3-TR-002) has no current caller. The guard is external to this module.",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-012",
+  "scope": "TrashStore.restore",
+  "kind": "POSTCONDITION",
+  "statement": "restoring a collided entry restores exactly one of the two files and destroys the other with the entry folder; which one survives is whatever the directory enumeration yields",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_moveToTrash_sameSecondSameId_collapseIntoOneEntry_andRestoreDestroysTheOther"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "UNTRACED — reachable only through M3-TR-011",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-013",
+  "scope": "TrashStore.list",
+  "kind": "POSTCONDITION",
+  "statement": "a project with no .trash directory lists as empty and does not throw",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_list_withNoTrashDirectory_isEmptyAndDoesNotThrow"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — every project open",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-014",
+  "scope": "TrashStore.list",
+  "kind": "POSTCONDITION",
+  "statement": "entries are returned sorted by trashedAt descending, newest first",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_list_sortsNewestFirst_andRoundTripsTheRecordedPosition"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — the Trash pane",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-015",
+  "scope": "TrashStore.list",
+  "kind": "POSTCONDITION",
+  "statement": "an entry whose meta.json is absent or undecodable is SILENTLY omitted from the list while its contents stay on disk; nothing distinguishes Maugham's own half-written entry from a stray folder",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_list_silentlySkipsEveryEntryItCannotRead"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LATENT — a crash, force-quit or write failure between the move (TrashStore.swift:151) and the meta write (:163) produces exactly this state",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-016",
+  "scope": "TrashStore.list",
+  "kind": "POSTCONDITION",
+  "statement": "an entry folder whose name has no parseable 'yyyyMMdd-HHmmss' prefix is omitted from the list",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_list_silentlySkipsEveryEntryItCannotRead"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "UNTRACED from inside Maugham — every minted name parses; reachable by renaming the folder in Finder",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-017",
+  "scope": "TrashStore.list",
+  "kind": "POSTCONDITION",
+  "statement": "a non-directory file sitting at the .trash root is ignored entirely",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_list_silentlySkipsEveryEntryItCannotRead"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "UNTRACED from inside Maugham",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-018",
+  "scope": "TrashStore.list",
+  "kind": "POSTCONDITION",
+  "statement": "originalParentId and originalIndex round-trip through meta.json into the listed TrashEntry",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_list_sortsNewestFirst_andRoundTripsTheRecordedPosition"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-019",
+  "scope": "TrashStore.sweep",
+  "kind": "POSTCONDITION",
+  "statement": "sweep removes every listed entry whose trashedAt is more than 30 days old, destroying the folder and its contents",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_sweep_destroysEntriesOlderThan30Days_andKeepsA29DayEntry"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — ProjectStore.load calls sweep on every project open",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-020",
+  "scope": "TrashStore.sweep",
+  "kind": "POSTCONDITION",
+  "statement": "an entry 29 days old survives the sweep; the retention window is a full 30 days from the moment of deletion",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_sweep_destroysEntriesOlderThan30Days_andKeepsA29DayEntry"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-021",
+  "scope": "TrashStore.sweep",
+  "kind": "INVARIANT",
+  "statement": "sweep iterates list(), so an entry list() cannot read is NEVER swept: a trashed file whose meta.json never landed sits in the project indefinitely — invisible in the Trash pane and immortal (verified at 900 days)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_sweep_neverReachesAnEntryListCannotSee_soAMetaLessEntryIsImmortal"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LATENT — same window as M3-TR-015",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-022",
+  "scope": "TrashStore.sweep",
+  "kind": "POSTCONDITION",
+  "statement": "sweep on a project with no .trash directory is a no-op and creates nothing",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_sweep_withNoTrashDirectory_doesNotThrow"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-023",
+  "scope": "TrashStore.parseTimestamp",
+  "kind": "POSTCONDITION",
+  "statement": "the parser reads the first two dash-separated fields as 'yyyyMMdd-HHmmss' and ignores everything after them; two folder names differing only after the second field parse to the same instant",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_parseTimestamp_readsTheFirstTwoFields_andRejectsWhatCannotBeADate"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-024",
+  "scope": "TrashStore.parseTimestamp",
+  "kind": "POSTCONDITION",
+  "statement": "a name with fewer than two dash-separated fields, or whose first two fields are not a valid date, parses to nil",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_parseTimestamp_readsTheFirstTwoFields_andRejectsWhatCannotBeADate"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-025",
+  "scope": "TrashStore.timestampFormatter",
+  "kind": "INVARIANT",
+  "statement": "the stamp format is 'yyyyMMdd-HHmmss' in TimeZone.current with no zone designator in the string, so a folder written in one zone reads as a different instant in another; the drift is bounded by the UTC offset",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_timestampFormatter_isLocalTimeWithNoZoneInTheString"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LIVE for a travelling writer; the effect is at most one day of 'days remaining' or of sweep timing",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-026",
+  "scope": "TrashStore.restore",
+  "kind": "POSTCONDITION",
+  "statement": "restore moves the file back to meta.originalRelativePath, deletes the entry folder, and returns a TrashEntry that DOES carry originalParentId and originalIndex",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restore_movesTheFileBack_removesTheEntry_andReturnsTheRecordedPosition"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — Trash pane Restore, and ⌘⌥Z",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-027",
+  "scope": "TrashStore.restore",
+  "kind": "ERROR",
+  "statement": "a restore whose destination path is occupied throws the raw Cocoa 'an item with the same name already exists' error naming the FILENAME; the occupant is untouched, the trash entry survives whole, and every subsequent Restore fails identically — there is no rename-on-restore, no restore-alongside and no reveal",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restore_intoAnOccupiedPath_refuses_leavingBothCopiesIntact"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LIVE — delete the last chapter, create a replacement (FileNaming reuses the freed NN and slug), then Restore",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-028",
+  "scope": "TrashStore.restore",
+  "kind": "ERROR",
+  "statement": "an entry folder containing only meta.json throws TrashError.entryFileMissing, whose message names the real cause and lists what was actually in the folder",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restore_entryWithNoFile_throwsEntryFileMissingNamingTheContents"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LATENT — needs the entry's file removed from inside .trash/",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-029",
+  "scope": "TrashStore.restore",
+  "kind": "ERROR",
+  "statement": "an unknown trash id fails at the meta.json read as a raw NSCocoaErrorDomain error, not as a TrashError naming the entry",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restore_unknownTrashId_throwsACocoaError"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LATENT — needs a stale id, e.g. a second window that swept between refreshes",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-030",
+  "scope": "TrashStore.restore",
+  "kind": "ERROR",
+  "statement": "a meta.json originalRelativePath that is absolute or escapes the project root is refused with TrashError.unsafeRelativePath and the entry is left intact",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restore_metaPathEscapingTheProject_isRefused_andTheEntrySurvives"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "UNTRACED as a writer gesture — the guard exists for a corrupted or hostile sidecar",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-031",
+  "scope": "TrashStore.restore",
+  "kind": "POSTCONDITION",
+  "statement": "restore creates the destination's intermediate directories, re-creating a folder the writer had deleted in order to receive the file",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restore_recreatesAMissingParentDirectoryToReceiveTheFile"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-032",
+  "scope": "TrashStore.restore",
+  "kind": "ERROR",
+  "statement": "an entry id with no parseable timestamp throws TrashError.malformedEntryId AFTER every side effect: the file has already been moved back and the entry folder already deleted, so the caller aborts without doing its manifest work and the item exists on disk with no binder row and no trash entry",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restore_malformedEntryId_throwsAfterTheWorkIsAlreadyDone"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "UNTRACED as a writer gesture — Maugham always mints a parseable name; reachable by renaming a trash folder in Finder",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-033",
+  "scope": "ProjectStore.deleteStructureItem",
+  "kind": "POSTCONDITION",
+  "statement": "a successful structure delete refreshes trashEntries from disk and sets lastDeletedTrashId to the new entry, arming ⌘⌥Z",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_deleteStructureItem_refreshesTheEntriesAndArmsTheUndoToken"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-034",
+  "scope": "ProjectStore.deleteStructureItem",
+  "kind": "ERROR",
+  "statement": "a structure item whose path is nil or empty cannot be deleted: the empty path is refused by the path guard, the manifest row survives, and an empty entry folder is left in .trash/",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_deleteStructureItem_withNoPath_throws_andLeavesTheRowAndALitterFolder"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "UNTRACED — I did not establish that any production path mints a path-less StructureItem",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-035",
+  "scope": "ProjectStore.deleteResearchItems",
+  "kind": "POSTCONDITION",
+  "statement": "a research item of kind .link is removed from the manifest with no file move and NO trash entry: it does not appear in the Trash pane, cannot be restored, and nothing distinguishes its row from a fully recoverable note before the writer presses Delete",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_deleteResearchLink_makesNoTrashEntry_andLeavesTheUndoTokenOnAnEarlierItem"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — research context-menu Delete on a saved URL",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-036",
+  "scope": "ProjectStore.deleteResearchItems",
+  "kind": "POSTCONDITION",
+  "statement": "deleting an item that produces no trash entry leaves lastDeletedTrashId pointing at an EARLIER, unrelated deletion, so 'Restore Last Deleted Item' then restores the wrong object and says nothing",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_deleteResearchLink_makesNoTrashEntry_andLeavesTheUndoTokenOnAnEarlierItem"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LIVE — one file-backed research delete, then a link delete, then ⌘⌥Z",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-037",
+  "scope": "ProjectStore.deleteResearchItems",
+  "kind": "POSTCONDITION",
+  "statement": "a batch delete of N items creates N trash entries but arms lastDeletedTrashId with only the LAST of them; one ⌘⌥Z returns one item and nothing reports the other N-1",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_deleteResearchItems_batch_armsTheUndoTokenWithOnlyTheLastEntry"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — multi-select delete in the research pane",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-038",
+  "scope": "ProjectStore.restoreTrashEntry",
+  "kind": "POSTCONDITION",
+  "statement": "a restored StructureItem is re-inserted under its recorded originalParentId at its recorded originalIndex, clamped to the parent's current child count",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restoreTrashEntry_returnsAStructureItemToItsParentAtAClampedIndex"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-039",
+  "scope": "ProjectStore.restoreTrashEntry",
+  "kind": "POSTCONDITION",
+  "statement": "when the recorded parent no longer exists the ROW falls back to the binder root but keeps its original NESTED path, while the file is restored into a re-created copy of the folder the writer deleted — a folder no binder row owns, which then blocks that group's own later restore (M3-TR-027)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restoreTrashEntry_whenTheParentIsGone_putsTheRowAtRootAndTheFileInAResurrectedFolder"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LATENT — needs the child deleted, then the parent, then the child restored, in that order",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-040",
+  "scope": "ProjectStore.restoreTrashEntry",
+  "kind": "POSTCONDITION",
+  "statement": "a restored group silently drops every descendant row whose file is absent at the restored location, and every descendant beneath it; the top-level node is always kept; nothing is returned, thrown, logged or shown",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restoreTrashEntry_dropsMissingDescendantsSilently_andKeepsTheTopLevelNode"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LATENT — needs a descendant's file removed from inside .trash/",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-041",
+  "scope": "ProjectStore.restoreTrashEntry",
+  "kind": "POSTCONDITION",
+  "statement": "a restored RESEARCH item is re-inserted into manifest.STRUCTURE, not manifest.research: restoreTrashEntry tries StructureItem first and a ResearchItem's JSON decodes as one (type 'asset' forward-tolerates to .document), so the ResearchItem branch beneath it is unreachable for anything the research tree produces. The writer's note comes back as a manuscript row pointing at a file under research/, and the research tree never gets it back",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restoreTrashEntry_putsARestoredResearchItemIntoTheManuscriptTree"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LIVE — delete any research note, then Restore or ⌘⌥Z. Every research restore, every time.",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-041b",
+  "scope": "ProjectStore.restoreTrashEntry",
+  "kind": "POSTCONDITION",
+  "statement": "the same for a research GROUP: it arrives in manifest.structure as a manuscript group carrying its children",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restoreTrashEntry_putsARestoredResearchGroupIntoTheManuscriptTree"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LIVE — delete any research folder, then Restore",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-042",
+  "scope": "ProjectStore.restoreTrashEntry",
+  "kind": "POSTCONDITION",
+  "statement": "a trash entry whose itemMetadata decodes as NEITHER a StructureItem nor a ResearchItem restores its file, changes no manifest row, clears itself from the pane and returns normally — there is no else branch and no report",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restoreTrashEntry_withMetadataOfNeitherKind_restoresTheFileAndReportsSuccess"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LIVE — MCP set_piece_style / clear_piece_style write trash entries with itemMetadata {\"id\":\"style-<name>\"}",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-043",
+  "scope": "ProjectStore.restoreTrashEntry",
+  "kind": "POSTCONDITION",
+  "statement": "restoreTrashEntry clears lastDeletedTrashId when it consumed the entry that token pointed at",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restoreAndPermanentDelete_clearTheUndoTokenTheyConsume"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-044",
+  "scope": "ProjectStore.restoreLastDeleted",
+  "kind": "POSTCONDITION",
+  "statement": "with no armed token the command is a silent no-op: no throw, no change, no signal of any kind",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restoreLastDeleted_withNoArmedToken_isASilentNoOp"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — ⌘⌥Z in a freshly opened window",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-045",
+  "scope": "ProjectStore.emptyTrash",
+  "kind": "POSTCONDITION",
+  "statement": "emptyTrash swallows every per-entry failure (`try?`) and sets trashEntries = [] unconditionally; it is declared `throws` but cannot throw, so TrashView's catch can never fire and a failed destruction is reported as a completed one",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_emptyTrash_swallowsEveryFailure_andClearsTheCacheRegardless"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LATENT for the I/O-failure half (permissions, an open handle, a sync daemon)",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-046",
+  "scope": "ProjectStore.emptyTrash",
+  "kind": "POSTCONDITION",
+  "statement": "emptyTrash iterates only its CACHED trashEntries array, so an entry written to .trash/ behind ProjectStore's back survives an 'Empty Trash' that then reports the trash as empty",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_emptyTrash_leavesBehindAnyOnDiskEntryMissingFromItsCache"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LIVE and needs no I/O failure — MCP set_piece_style writes straight through TrashStore without refreshing ProjectStore.trashEntries",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-047",
+  "scope": "ProjectStore.permanentlyDeleteTrashEntry",
+  "kind": "ERROR",
+  "statement": "the single-entry permanent delete DOES propagate its failure to the caller, where TrashView alerts on it",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_permanentlyDeleteTrashEntry_propagatesAFailure"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-048",
+  "scope": "ProjectStore.permanentlyDeleteTrashEntry",
+  "kind": "POSTCONDITION",
+  "statement": "permanentlyDeleteTrashEntry clears lastDeletedTrashId when it consumed the entry that token pointed at",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_restoreAndPermanentDelete_clearTheUndoTokenTheyConsume"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-049",
+  "scope": "Maugham/Stores trash verbs",
+  "kind": "INVARIANT",
+  "statement": "no verb in this module removes a document's op log at .maugham/ops/<docId>.jsonl: it survives the move to trash, 'Permanently Delete', 'Empty Trash' and the 30-day sweep alike, with its contents unchanged",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_noTrashVerbEverRemovesADocumentsOpLog"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "LIVE — the retention is certain on every path; whether the writer ever NOTICES is not",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-050",
+  "scope": "ProjectStore.load",
+  "kind": "POSTCONDITION",
+  "statement": "opening a project sweeps expired trash before the window is on screen, and never arms lastDeletedTrashId; the sweep's own failure is discarded (`try?`)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "TrashCharacterization.test_load_sweepsExpiredEntriesBeforeTheProjectIsEvenOpen"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — every project open",
+  "evidence": {
+   "property_test": null
+  }
+ }
+]

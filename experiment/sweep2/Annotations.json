@@ -1,0 +1,160 @@
+{
+  "module": "Annotation lifecycle (Maugham/OpLog/Document+Annotations.swift)",
+  "loc": 748,
+  "product_decisions": [
+    {
+      "id": "ANN-D1",
+      "question": "When an AI suggestion is anchored to a quoted phrase and that phrase can no longer be found in the paragraph, what does Accept do?",
+      "current_behaviour": "It applies. `Document.acceptAnnotation` (Document+Annotations.swift:329-343) calls `SuggestionSplice.apply(suggestion:span:to:)`, whose documented contract is 'No span / empty quote / span no longer resolvable: the bare text IS the whole paragraph (… the safe fallback for a lost anchor)' — `guard let span, let range = SpanAnchorResolver.resolve(...) else { return bare }`. So a lost anchor turns a one-word suggestion into a whole-paragraph replacement. `SuggestionSpliceTests.test_apply_unresolvableSpan_fallsBackToWholeParagraph` asserts this as intended: span 'not here', suggestion 'x', paragraph 'abc def' → result 'x'. On the Mac there is a gate — `AnnotationsPane.accept` raises `staleConfirm` when `ann.isStale`, and the alert's Apply-anyway text does say the current paragraph will be replaced. But the diff card sitting beside that alert contradicts it: `SuggestionDisplay.before` resolves the span against `annotation.priorText` (the paragraph AS IT WAS at authoring), where the quote still resolves, so the card previews `− very angry / + furious` — a surgical span swap — for an accept that will delete the whole paragraph.",
+      "writer_visible_consequence": "Claude suggests 'very angry' → 'furious'. The writer rewrites the sentence that day; the phrase 'very angry' is gone. Later they open the pane, see 'very angry → furious', click Accept, click through a warning, and their rewritten paragraph is replaced in its entirety by the single word 'furious'. The op log makes it recoverable, but the words are gone from the page and the writer was shown a preview of a different, much smaller edit.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Annotations pane row Accept → AnnotationsPane.accept(_:) → (ann.isStale) staleConfirm alert → 'Apply anyway' → Document.acceptAnnotation(id:) → SuggestionSplice.apply returns `bare` because SpanAnchorResolver.resolve is nil → paragraphs[pid] = bare → recomputeDisplayText(). Reached with no confirm at all on the phone — see ANN-D2."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-5",
+      "clause_that_does_the_work": "an AI suggestion whose quoted phrase can no longer be found MUST NOT be applied — refused, never guessed",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "Reading RULING-5's 'must not be applied' as 'must not be applied WITHOUT CONSENT', so that the Mac's Apply-anyway alert discharges it. That reading survives only if the writer is shown what will actually happen; here the diff card beside the alert previews the span-level swap, so consent is not informed. It would also be falsified if the lost-anchor case were unreachable — it is not: any edit that removes the quoted phrase produces it, and the fallback is covered by a passing test that names it as the intended behaviour."
+    },
+    {
+      "id": "ANN-D2",
+      "question": "Does the writer get the same answer on iPhone and on Mac when accepting a suggestion whose paragraph has changed since it was written?",
+      "current_behaviour": "No. Mac: `AnnotationsPane.accept` intercepts `ann.isStale` on a `.suggestedChange` and requires a confirmation before applying. Phone: `AnnotationDetailView`'s Accept button goes straight to `performAccept()` → `AnnotationWriter.accept` → `makeAccept` → the same `SuggestionSplice.apply`; `current.isStale` is used only to render a yellow 'stale' badge in the header (AnnotationDetailView.swift:157). The phone author clearly knew the pattern — the same file carries `showRevertDriftConfirm` for the REVERT path ('The paragraph has changed since this was accepted. Revert anyway?'). Only accept is ungated.",
+      "writer_visible_consequence": "The identical annotation on the identical paragraph is a two-step guarded action on the desktop and a one-tap irreversible one on the phone — and the phone is the surface where the writer is least able to inspect the damage. Combined with ANN-D1, one tap on a stale span suggestion replaces a whole paragraph with a single word, having shown 'Current: very angry / Suggested: furious'.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "iPhone Annotations tab → chapter list → AnnotationDetailView → actionButtons Accept (AnnotationDetailView.swift:258) → performAccept() → AnnotationWriter.accept(_:currentParagraph:) → makeAccept → SuggestionSplice.apply → op appended. No isStale branch anywhere on that path."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-8",
+      "clause_that_does_the_work": "where the SAME writer question is answered in more than one place, it has ONE answer",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "RULING-8's own second clause — 'Two situations that merely look alike may legitimately differ' — would rescue this if accepting on a phone were a different question from accepting on a Mac. I can find no such argument: the annotation, the paragraph, the op and the splice are the same object and the same code, and the phone already gates the mirror-image REVERT drift on the same screen. It would also be falsified if the phone refused stale suggestions outright (a stricter, still-single answer) — it does not."
+    },
+    {
+      "id": "ANN-D3",
+      "question": "When Maugham cannot re-identify a paragraph across an edit, what happens to the annotations anchored to it?",
+      "current_behaviour": "They are archived, silently and unilaterally. `Document.setFullText` computes `removedIds = Set(sequence).subtracting(Set(newSequence))` (Document.swift:647) — i.e. any id that `RenderFilter.restorePairs` failed to re-attach — and flags `SweepReason.userTyped(removed:)`. At the next burst flush `sweepOrphanedAnnotations` (Document+Annotations.swift:728-747) appends a `.claudeArchive` for every OPEN non-craft annotation on those ids. Nothing distinguishes 'the writer deleted this paragraph' from 'the matcher lost this paragraph'; both are `removed`. The failure mode is ordinary: `restorePairs` re-attaches by exact text, then 4-word shingle overlap ≥ 0.6, then character-bigram ≥ threshold with a margin, and mints a fresh id otherwise — and it explicitly mints fresh on an ambiguous tie. Joining two paragraphs (⌫ at the start of one) is the sharpest case: `ShingleMatcher.overlapCoefficient` is |A∩B|/min(|A|,|B|), so the merged text scores ~1.0 against BOTH originals, `bestMatch` keeps whichever wins a strict-greater comparison in Dictionary iteration order, and the loser's id is 'removed' — while every one of its words is still on screen. The sweep registers no undo action, and the pane offers no Reopen affordance on any status, so the archive is not reversible by the writer at all.",
+      "writer_visible_consequence": "The writer joins two paragraphs, or rewrites one heavily, and pauses. Thirty seconds later Claude's comments and queries on that text disappear from the Annotations pane and from the editor's review marks — with the text they were about still sitting on the page, unmarked. There is no notification, no Reopen, no ⌘Z. A `.paragraphDeleted` archive op with an 'Auto-archived: paragraph deleted from manuscript' caption is written into the History pane, which is a different pane the writer has no reason to open and which asserts a deletion that did not happen.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Typing in the editor (⌫ at a paragraph start) → EditorCoordinator textDidChange → Document.setFullText → RenderFilter.restorePairs mints/drops ids → removedIds → flagSweep(SweepReason.userTyped) → Document.flushBurstNow (30s idle / 90s max) → sweepOrphanedAnnotations(reason:) → appendLifecycleOp(kind: .claudeArchive, synthesisSource: .paragraphDeleted). Same path from Document+ExternalChange.swift:119 (cross-device merge) and Document+Rewind.swift:148 (rewind)."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-13",
+      "clause_that_does_the_work": "when a paragraph's identity is not recovered, its annotations MOVE WITH THE TEXT marked STALE — never silently detached; the author adjudicates",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "Two things. (a) If `removedIds` only ever contained genuinely deleted paragraphs — but it is defined as a set difference over recovered ids, so a matcher miss is indistinguishable from a deletion by construction. (b) If archiving counted as 'the author adjudicates' — it does not: the archive is written by Maugham, needs no writer act, cannot be undone from the pane, and moves the annotation nowhere. Note the ruling IS honoured in the neighbouring case: when identity IS recovered but the text changed, `AnnotationDeriver` sets `isStale` and both surfaces badge it, and `withAnnotationDocument`'s transient-Document over-archiving was already fixed once (PresenterRoutingTests.test_mcpAddAnnotationLive_doesNotTriggerOrphanArchive). This finding is that the same bug class survives inside the narrowed trigger."
+    },
+    {
+      "id": "ANN-D4",
+      "question": "If Claude anchors a comment or suggestion to a phrase that does not actually appear in the paragraph, is the annotation refused or attached to the nearest similar phrase?",
+      "current_behaviour": "Attached to the nearest similar phrase, silently. `resolveSpanAnchor` (AnnotationToolHelpers.swift:81-94) throws `MCPError.spanNotFound` only if `SpanAnchorResolver.resolve` returns nil — and `resolve` falls through to a fuzzy tier: any window within ±2 characters of the quote's length scoring ≥ 0.6 bigram overlap is accepted (`fuzzyThreshold = 0.6`). On success the helper does NOT store Claude's quote; it calls `SpanAnchorResolver.capture(in: paraText, range: r)`, which re-captures whatever text is actually at that offset. The submitted quote is then unrecoverable — `list_annotations` does not return the span at all.",
+      "writer_visible_consequence": "Claude means to comment on 'the lazy dog' in a paragraph that reads 'the lazy fog'; the note is silently pinned to 'the lazy fog' and the editor underlines those words. For a suggested change the writer is then shown, and can accept, a replacement of words Claude never proposed to touch. Claude cannot detect the substitution, because nothing reads the quote back.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Claude calls add_comment / add_query / add_suggested_change with `quote` → AnnotationCreationTools.handle → resolveSpanAnchor(quote:paragraphId:in:) → SpanAnchorResolver.resolve tier 2 (fuzzyWindow, ≥0.6) → SpanAnchorResolver.capture re-captures the live text → Document.addAnnotation stores it as provenance.spanQuote."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-1",
+      "clause_that_does_the_work": "MUST NOT accept, at Maugham's own ENTRY POINTS, content it cannot read back faithfully; refusal visible at entry",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "The strongest counter-argument is that a quote is a LOCATOR, not content — locators are meant to resolve leniently (the identical fuzzy tier is what lets an anchor survive the writer's later edits, which is desirable), and RULING-1's scope is content Maugham stores and serves back. If the ruling set means quote = locator, this is correct behaviour and the entry point is doing its job. What would settle it either way: whether a writer, shown the annotation, is entitled to assume the underlined words are the words the AI named. Cheap test of the harm: make list_annotations return the resolved span quote and see whether Claude's own quotes ever come back different."
+    },
+    {
+      "id": "ANN-D5",
+      "question": "If Claude annotates a paragraph_id that no longer exists (a stale read_document response), is the annotation stored as an orphan or refused?",
+      "current_behaviour": "Refused, loudly, at the entry point. `Document.addAnnotation` (Document+Annotations.swift:80-96) guards every paragraph-scoped kind: nil id or `!sequence.contains(pid)` throws `MCPError.paragraphNotFound(paragraphId:currentCount:)`, and a sequence/paragraphs disagreement throws `MCPError.priorTextCaptureFailed`. The comment states the reasoning exactly — an orphan with prior_text=null 'can never be acted on meaningfully, and the row clutters the history with no path to recovery' — and the error is shaped so the MCP client renders a machine-readable cause rather than 'Tool execution failed.'",
+      "writer_visible_consequence": "The writer never finds an annotation attached to nothing. Claude is told which id failed and how many paragraphs the document now has, so it re-reads and retries rather than accumulating dead rows.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Claude calls add_comment with a paragraph_id captured before the writer edited → AddCommentTool.handle → withAnnotationDocument → Document.addAnnotation → guard → MCPError.paragraphNotFound → tools/call result isError=true."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-1",
+      "clause_that_does_the_work": "MUST NOT accept, at Maugham's own ENTRY POINTS, content it cannot read back faithfully; refusal visible at entry",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "Nothing here is a defect — this is the positive control: RULING-1 predicts exactly this code, including the detail that the refusal is visible to the CALLER rather than logged. It is also the reason ANN-D4 is worth arguing about: the same entry point refuses a bad paragraph id and accepts a bad quote, and only one of those is a deliberate distinction between locator kinds."
+    },
+    {
+      "id": "ANN-D6",
+      "question": "When a reviewer deletes their own annotation, where does it go — and can they get it back tomorrow?",
+      "current_behaviour": "It is dropped from the projection entirely and there is no restore path outside the current session's undo stack. `withdrawReviewerAnnotation` appends `.annotationWithdraw`; `AnnotationDeriver` skips withdrawn creation ops (`if withdrawn.contains(op.opId) { continue }`), so the annotation is not archived — it is absent from every status filter on both surfaces. `reopenAnnotation` can restore it, but its only caller is the ⌘Z closure registered on the withdraw. After a relaunch no UI reaches it: the pane offers no Reopen on any row, and a rewind does not resurrect it (Document+Rewind's stranded-lifecycle pass handles accept/reject/archive only, never withdraw). The words survive as an op-log row and are legible in the History pane, which is where the writer would have to go to read them back by eye. The confirm alert is accurate about this: 'the annotation will no longer appear here or in the editor.'",
+      "writer_visible_consequence": "A reviewer deletes a comment they wrote, quits, and the next morning wants it back. The manuscript's ⌘Z is gone; the pane has no trash; the only trace is a History row they can read but not restore. Every other deletable thing in Maugham (a document, a research item) goes to a restorable trash.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Annotations pane → own row (isOwn) → trash button → withdrawConfirm alert → 'Delete' → AnnotationsPane.withdrawOwn → Document.withdrawReviewerAnnotation → AnnotationDeriver drops it. Restoration requires Document.reopenAnnotation, whose only reachable caller is the undo closure registered on that same call."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "Deleting anything the writer or a reviewer authored — including an annotation, not only a file — puts it somewhere they can get it back from later. It is removed from the working surfaces, never from reach. (RULING-15 states this for files; the scope discipline says a file rule does not reach an annotation, and the writer is asking the same question about both.)",
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "If the product view is that an annotation is scaffolding rather than authored work — you say your piece, you withdraw it, it is gone and the op log is the audit trail — then this is correct and RULING-15's file scope is deliberate rather than an oversight. PRINCIPLE-2 may also apply: no stated ruling is violated, so this may be a wish rather than a defect. The way to settle it is to ask whether a reviewer's comment is the reviewer's work product; if it is, RULING-4's 'words the writer AUTHORED are always recoverable' arguably already reaches it and this proposal is redundant."
+    },
+    {
+      "id": "ANN-D7",
+      "question": "When the writer presses a button on an annotation and the underlying state has moved on, are they told, or does the button just do nothing?",
+      "current_behaviour": "Nothing happens, and nothing is said. Every drift guard in this file declines by logging to os_log and returning: `acceptAnnotation` returns on an unknown id ('no-op'); `revertAcceptedAnnotation` returns three times over (not a suggestion / not `.accepted` / `sequence.contains(pid)` false); `reopenAnnotation` returns on a status drift or a husked document; `editReviewerAnnotation`'s undo closure returns on a value drift. Every pane caller is `Task { try? await … }`, so even a thrown error would be discarded. The sharpest instance is reachable without any concurrency: accept a suggestion, later delete that paragraph, then set the pane filter to All and press Revert — `acceptedTextDrifted` returns false (it bails when there is no live paragraph, so no confirm fires), `revertAcceptedAnnotation` hits `guard sequence.contains(pid)` and logs 'paragraph no longer exists — ignoring'. The button is live, the row stays, the screen does not change.",
+      "writer_visible_consequence": "The writer clicks Revert (or Accept, on a row another device has resolved) and the interface answers with silence. There is no way to tell 'it worked and looked the same' from 'it refused'. On the phone the equivalent path IS handled — a malformed suggestion raises a 'Couldn't apply' alert — so the writer's expectation of being told is set by the product itself.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Annotations pane, show-resolved filter → accepted suggestion whose paragraph was later deleted → Revert → AnnotationsPane.revert(_:) → acceptedTextDrifted == false (no live paragraph) → performRevert → Document.revertAcceptedAnnotation → guard sequence.contains(pid) fails → documentLog.error + return."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-7",
+      "clause_that_does_the_work": "never misrepresent a failure … a refusal names its real cause. Scope: WRITER-FACING surfaces",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "Scope. These guards live on `Document`, which is a lower layer, and RULING-19 says lower layers may protect the data silently — the loud no-op is arguably correct AT THIS LAYER and the missing piece is a guard at the pane. That reading does not exonerate the behaviour, though: RULING-19 adds that 'a lower-layer repair means a guard above did not fire — that is a bug', and here there is no guard above at all. It would be genuinely falsified if the pane could not present these rows (it can: only OPEN annotations are swept, so an accepted annotation survives its paragraph's deletion and keeps its Revert button)."
+    },
+    {
+      "id": "ANN-D8",
+      "question": "Should accepting one of Claude's suggestions cost the writer their typing undo history?",
+      "current_behaviour": "Yes, it does. `acceptAnnotation` calls `um.removeAllActions()` before applying a `.suggestedChange` (Document+Annotations.swift:371-374), and `revertAcceptedAnnotation` does the same. The reason is stated and real — the buffer replace that follows invalidates every native typing-undo action ('the ⌘Z segfault class'). After the clear exactly one action is registered: undo-the-accept. The manuscript itself is not at risk; the op log, checkpoints and rewind all still hold the writer's text.",
+      "writer_visible_consequence": "The writer drafts for an hour, accepts one suggestion, then wants to walk back three sentences they typed twenty minutes ago. ⌘Z reverts the accept and then stops. Their only route back is the History pane or a rewind — a different, heavier, more deliberate tool than the one their hands reached for.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Annotations pane → Accept on a suggested change → Document.acceptAnnotation → (kind == .suggestedChange, undoManager not undoing/redoing) → um.removeAllActions() → registerUndo('Accept Suggestion')."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "Acting on one of Claude's annotations never costs the writer a step of their own undo history. If a change cannot preserve it, the writer is told what they are about to give up before it happens.",
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "PRINCIPLE-2 may dispose of this: no stated ruling is violated (the words remain recoverable through the op log, History and rewind), so it may be an enhancement rather than a defect — and the constraint is an AppKit crash class, not a choice anyone made about writers. It would be falsified outright if a writer's undo stack is understood to be scratch state with no promises attached, in which case the honest answer is that this ruling should not exist. It would be strengthened by any evidence of a writer reaching for ⌘Z after an accept and finding nothing."
+    },
+    {
+      "id": "ANN-D9",
+      "question": "In the pane where the writer manages annotations, is Maugham's own automatic archiving distinguishable from archiving the writer did?",
+      "current_behaviour": "No. The sweep stamps `provenance.synthesisSource = .paragraphDeleted` (or `.rewind`), and the HISTORY pane reads it back as 'Auto-archived: paragraph deleted from manuscript.' The ANNOTATIONS pane reads nothing from it: an auto-archived row under the show-resolved filter is presented exactly like one the writer archived themselves, with the same Archive/Accept buttons and no marker.",
+      "writer_visible_consequence": "A writer reviewing their resolved annotations cannot tell which ones they dealt with and which ones the app dealt with on their behalf — which is precisely the distinction they would want when auditing what happened to the notes on a paragraph they rewrote (ANN-D3).",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "As ANN-D3 through sweepOrphanedAnnotations → then Annotations pane → show-resolved toggle → AnnotationRow renders header/actionRow with no synthesisSource branch (the only auto-archive captions in the codebase are HistoryPane.swift:542-548)."
+      },
+      "classification": "SETTLED_BY_ROOT_ONLY",
+      "ruling": "RULING-9",
+      "clause_that_does_the_work": "what a writer does outside Maugham is their risk; what Maugham does on their behalf is Maugham's",
+      "what_a_sub_ruling_would_need_to_say": "A sub-ruling would have to say that where Maugham resolves something on the writer's behalf, the resolution is LABELLED AS MAUGHAM'S wherever that thing is managed — not only in the forensic history. The root gets as far as 'Maugham owns the act'; it says nothing about the act being legible at the surface where the writer would act on it, which is the whole question here. Note the data is already there — this is a presentation gap, not a provenance gap, which is why only a display-scoped ruling could reach it.",
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "If the History pane is the designated place for 'what happened and who did it', this is correct by design and the Annotations pane is right to stay a work surface. That reading is weakened by the fact that the Annotations pane already carries provenance badges for authorship (Claude vs each human reviewer, with colour dots) — it has decided that who-did-what belongs on the row."
+    }
+  ],
+  "notes": "SCOPE checks I ran and rejected, since near-misses are the point of the exercise: (1) `isStale` (gates Accept) and `acceptedTextDrifted` (gates Revert) look like a RULING-8 duplication, but they answer different writer questions — 'has the paragraph moved since this was WRITTEN' vs 'has it moved since it was ACCEPTED' — and RULING-8's own second clause covers this ('Two situations that merely look alike may legitimately differ'). Not a finding. (2) Splitting a paragraph so an annotation's span lands in the new half leaves the annotation on the retained id, marked stale — it does not move with its text. That LOOKS like RULING-13, but the ruling's precondition is 'when a paragraph's identity is NOT recovered', and here it was recovered; out of scope by the stated trigger, though it is the same writer complaint and may be worth a ruling of its own. (3) `annotations(filter:)` defaults to `statuses: [.open]`, a trap the code documents and works around explicitly in `revertAcceptedAnnotation`. It is an API-shape hazard, not a product decision — no writer question turns on it. (4) `addAnnotation` stores `suggestedText ?? \"\"`, so a `.suggestedChange` with an empty replacement and no span accepts to an empty paragraph. That is the documented add_suggested_change contract used deliberately (a 'cut this' suggestion), the writer sees an empty green line in the diff card, and the paragraph is recoverable from the op log — I could not make it a defect under any ruling, so it is here rather than above. (5) The sweep correctly exempts craft notes (doc-scoped, no anchor) and correctly refuses to archive `.accepted` annotations; the rewind path (Document+Rewind.swift:160-231) handles stranded accepts with real care, including the paragraph-survives vs paragraph-removed split. That area is in better shape than the live-typing sweep it shares a mechanism with.\n\nOne structural observation about the ruling set: the two sub-rulings this module was expected to exercise both landed, but not where the roots would have pointed. RULING-5 is violated by a line of code (`else { return bare }`) whose author wrote a comment calling it 'the safe fallback', and a test that certifies it — the root ('default SAFE') would have endorsed exactly what the sub-ruling forbids, because whole-paragraph replacement reads as conservative from the code's point of view and as destructive from the writer's. RULING-13 is violated by a set-difference that cannot tell a matcher miss from a deletion; no root reaches that, because 'honour the writer's intent' has nothing to say about which of two indistinguishable causes produced a missing id. Both are cases where the sub-ruling did work the root could not, and in ANN-D1 the root actively pointed the wrong way."
+}

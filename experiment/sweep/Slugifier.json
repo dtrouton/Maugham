@@ -1,0 +1,239 @@
+{
+  "module": "Slugifier",
+  "loc": 58,
+  "claims": [
+    {
+      "id": "SLUG-1",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "PRECONDITION",
+      "statement": "Total function over String: accepts any input including the empty string, never throws, never returns nil, and has no failure channel of any kind.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-2",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "Never returns the empty string; when no character survives filtering it returns the literal \"untitled\".",
+      "evidenced_by": "test:test_emptyString_fallsBackToUntitled, test:test_onlyPunctuation_fallsBackToUntitled, test:test_parity_allPunctuation_fallsBackToUntitled",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-3",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "The returned string contains only characters from [a-z0-9-]; every other scalar is either mapped to a word break or dropped.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-4",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "The returned string is at most 40 Characters long; a 100-char and a 200-char all-'a' title both return exactly 40 'a's.",
+      "evidenced_by": "test:test_longTitle_truncatesTo40Chars, test:test_parity_veryLongTitle_truncatedTo40",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-5",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "The returned string never ends with '-' — both the pre-truncation trim and the post-truncation while-loop strip trailing dashes.",
+      "evidenced_by": "test:test_truncationDoesNotEndOnDash, test:test_parity_leadingTrailingPunctuation_noTrailingDash",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-6",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "Runs of spaces, newlines, other whitespace/separator scalars and literal dashes collapse to a single '-', and a run at the start of the string collapses to nothing (the `!collapsed.isEmpty` guard).",
+      "evidenced_by": "test:test_consecutiveSpaces_collapseToSingleDash, test:test_leadingTrailingSpaces_areTrimmed, test:test_parity_multipleSpaces_collapsedToSingleDash",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-7",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "Latin letters carrying a decomposable combining mark fold to their base ASCII letter. Demonstrated for ü, ï, é, ñ, ẵ, ó (\"über\"→\"uber\", \"naïve\"→\"naive\", \"café\"→\"cafe\", \"résumé\"→\"resume\", \"Über das Leben\"→\"uber-das-leben\").",
+      "evidenced_by": "test:test_unicode_isStrippedToAscii, test:test_parity_accentedChars_foldedToASCII",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-8",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "Non-ASCII Latin letters that do NOT decompose under `.diacriticInsensitive` folding are dropped outright rather than transliterated, deleting a letter from the middle of a word. Measured: \"Straße\"→\"strae\", \"Søren\"→\"sren\", \"Æther\"→\"ther\", \"þorn\"→\"orn\", \"Łódź\"→\"odz\", \"ĐàNẵng\"→\"anang\", \"ﬁnale\"→\"nale\". No repository test covers any of these.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-9",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "A title whose scalars all fall outside [a-z0-9] after folding returns \"untitled\". Measured for Han (\"第一章\", \"北京\"), Kana (\"ハローワールド\"), Hangul (\"한국어\"), Greek (\"Κεφάλαιο\"), Arabic (\"الفصل الأول\"), Roman numerals (\"Ⅷ\"), vulgar fractions (\"½\"), and math-alphanumeric Latin (\"𝓗𝓮𝓵𝓵𝓸\"). Cyrillic mixed with a digit keeps only the digit: \"Глава 1\"→\"1\". No repository test covers any non-Latin script.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-10",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "Underscore is dropped, not treated as a word break: \"hello_world\"→\"helloworld\", \"foo_bar_baz\"→\"foobarbaz\". This is a deliberate divergence from the deleted `researchSlugify`, recorded in the parity tests.",
+      "evidenced_by": "test:test_parity_underscore_isDropped",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-11",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "Punctuation inside a word is dropped without inserting a word break, so adjacent letters join: \"The Razor's Edge!\"→\"the-razors-edge\", \"e.e. cummings\"→\"ee-cummings\", \"1/2\"→\"12\". Dashes are the exception — a literal '-' is a word break.",
+      "evidenced_by": "test:test_punctuation_isStripped",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-12",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "Full-width Latin letters and digits fold to ASCII via `.widthInsensitive` (\"Ｃｈａｐｔｅｒ １\"→\"chapter-1\"). No repository test covers width folding.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-13",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "Truncation is a hard `prefix(40)` with no word-boundary awareness; only trailing dashes are stripped afterwards, so the cap can land mid-word: \"The Collected Letters of William Somerset Maugham\"→\"the-collected-letters-of-william-somerse\".",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-14",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "INVARIANT",
+      "statement": "Not injective. Distinct titles collide: \"Chapter One\"/\"Chapter-One\"/\"chapter one\"/\"Chapter   One\" all yield \"chapter-one\"; any two titles sharing their first 40 slug characters collide; and every title in a non-Latin script yields \"untitled\". Collision resolution lives entirely in the callers, not here.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-15",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "INVARIANT",
+      "statement": "Loss is unobservable at the call site. The return type is `String`; a caller cannot distinguish a faithful slug from one where every character was discarded, nor \"untitled\" produced by loss from a writer who literally typed \"Untitled\". `PieceStyleSlug.slug` conflates exactly these two by testing `base == \"untitled\"`.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-16",
+      "scope": "Slugifier.slug(from:)",
+      "kind": "INVARIANT",
+      "statement": "Folding is performed with `locale: .current`, so output is in principle machine-dependent. Probed across en_US/tr_TR/de_DE/sv_SE/lt_LT/ja_JP with İstanbul, Ilha, Ärger and Straße: no divergence observed on macOS 25.5. Treat as 'no divergence found', not 'locale-independent'.",
+      "evidenced_by": "source",
+      "confidence": "LOW"
+    },
+    {
+      "id": "SLUG-17",
+      "scope": "FileNaming.nextDocumentFilename / nextGroupFolderName",
+      "kind": "POSTCONDITION",
+      "statement": "The slug is deduped with a `-N` (N ≥ 2) suffix appended AFTER truncation, so a final filename component may exceed 40 characters.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-18",
+      "scope": "ProjectStore.renameResearchPath",
+      "kind": "POSTCONDITION",
+      "statement": "A research rename moves the file on disk only when `Slugifier.slug(oldTitle) != Slugifier.slug(newTitle)`; otherwise it returns nil and the file keeps its old name. For titles in a non-Latin script both sides are always \"untitled\", so no rename ever moves the file.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-19",
+      "scope": "ProjectStore.addLoosePiece",
+      "kind": "POSTCONDITION",
+      "statement": "A *slug* collision mutates the writer's title: `resolvedTitle = \"\\(baseTitle) \\(counter)\"` is what is stored in `manifest.structure` as the piece's title, not merely the filename.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-20",
+      "scope": "ProjectStore.addResearchItem (group branch)",
+      "kind": "POSTCONDITION",
+      "statement": "A research group's folder is created at `\\(parentPath)/\\(Slugifier.slug(title))` with `createDirectory(withIntermediateDirectories: true)` and NO dedupe and NO existence check — so two groups whose titles slug identically resolve to the same directory and the second creation silently succeeds. Every sibling creation path in the same file (`addResearchAsset`, `addResearchTextNote`, `addPieceResearchNote`, `addPieceResearchAsset`, `addPieceResearchLink`) does dedupe.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-21",
+      "scope": "ProjectStore.addResearchTextNote",
+      "kind": "POSTCONDITION",
+      "statement": "The parent group's folder is recomputed as `Slugifier.slug(from: parent.title)` rather than read from `parent.path`, unlike `researchParentPath(parentId:)` which every other creation path uses and which returns the stored `parent.path`.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SLUG-22",
+      "scope": "Slugifier / test placement",
+      "kind": "INVARIANT",
+      "statement": "`Slugifier` lives in MaughamCore (shared Mac + phone) but its only test file, `MaughamTests/SlugifierTests.swift`, is in the Mac test target and carries `@testable import Maugham`. There is no MaughamCore-package or phone test.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    }
+  ],
+  "product_decisions": [
+    {
+      "id": "SLUG-D1",
+      "question": "When a writer titles their work in a script Maugham's filename alphabet cannot represent, what should the file on disk be called?",
+      "current_behaviour": "Every character is dropped and the slug is \"untitled\". Callers then dedupe numerically. A Japanese, Chinese, Korean, Greek, Cyrillic, Arabic or Hebrew title produces \"untitled\", \"untitled-2\", \"untitled-3\" … The title itself is preserved verbatim in the manifest, so nothing the writer typed is destroyed; only the on-disk name is.",
+      "writer_visible_consequence": "A Japanese novelist opens their project in Finder and sees `01-untitled.md`, `02-untitled-2.md`, `03-untitled-3.md`. Renaming a chapter never renames its file (SLUG-18), so the numbering is frozen at creation order forever. Every research note is `untitled-N.md`. The app itself looks correct throughout — the loss is only visible outside Maugham.",
+      "classification": "NOVEL",
+      "reasoning": "Not RULING-1: nothing is refused and nothing is eaten — the title round-trips through `project.maugham.json`, so a writer cannot create content that will later be lost. Not RULING-2: no file is arriving from outside. Neither ruling speaks to whether the plain-text file on disk must be *recognisable* — which is the standing promise of the 'plain text on disk, full stop' invariant. That invariant says manuscripts live as human-readable files at the writer's chosen paths; for a non-Latin-script writer the path is human-readable only to someone who reads it as 'untitled'. Two reasonable people genuinely disagree here: one says filenames are Maugham's private business and the manifest title is the contract; the other says a folder of files no one can identify defeats the point of plain text.",
+      "proposed_ruling": "A manuscript or research file's name on disk must be recognisable to the writer who titled it. Where Maugham cannot form a name from a title it must not silently file the work as 'untitled' — it either keeps the title's own characters in the name, or tells the writer at the point of naming that it could not."
+    },
+    {
+      "id": "SLUG-D2",
+      "question": "When a letter has no ASCII equivalent under diacritic folding, should Maugham delete it from the word or transliterate it?",
+      "current_behaviour": "Deletes it. \"Straße\"→\"strae\", \"Søren\"→\"sren\", \"Æther\"→\"ther\", \"Łódź\"→\"odz\", \"Đà Nẵng\"→\"anang\", the ﬁ ligature in \"ﬁnale\"→\"nale\". Letters that DO decompose (ü, é, ñ) fold correctly, so the algorithm is faithful for French and Spanish and lossy for German, Danish, Norwegian, Polish, Icelandic and Vietnamese.",
+      "writer_visible_consequence": "Worse than SLUG-D1 because it is invisible: the slug looks like a real, deliberate slug. A German writer's chapter file reads `ch-1-strae-des-17-juni` — a misspelling that looks intentional and that nothing in the app flags. Backups, greps, exports and anything a writer sorts by filename carry the misspelling forward.",
+      "classification": "NOVEL",
+      "reasoning": "Same reasoning as SLUG-D1 on the rulings — no refusal, no incoming file, and the title itself survives. But it is a distinct decision because the *remedy* is different and cheap: ß→ss, ø→o, æ→ae, ł→l, đ→d, þ→th, ﬁ→fi are conventional transliterations with no ambiguity, and a product owner could rule on 'transliterate' here while ruling differently on whole-script titles. Note the asymmetry that makes this a decision rather than a bug report: the code already commits to transliteration as a policy (that is what `.diacriticInsensitive` is for) and then applies it to only half the alphabet.",
+      "proposed_ruling": "Where a letter has a conventional ASCII spelling, Maugham uses it. A letter is never silently deleted from the middle of a word the writer typed."
+    },
+    {
+      "id": "SLUG-D3",
+      "question": "May Maugham change a title the writer typed in order to resolve a filename collision?",
+      "current_behaviour": "Answered two ways. `addLoosePiece` mutates the stored title — a *slug* collision makes the writer's title \"北京\" become \"北京 2\" in the manifest and in the binder, even though no other piece is titled \"北京\". `addResearchTextNote` and `addPieceResearchNote` mutate the title only on a genuine *title* collision, and resolve filename collisions with a numeric suffix on the filename alone.",
+      "writer_visible_consequence": "A Collection writer working in Japanese types \"北京\" for a second piece (the first is \"上海\") and the binder shows \"北京 2\". They delete the ' 2', it saves, and on the next piece the same thing happens. The same writer adding two research notes gets both titles left alone. Nothing on screen explains the difference.",
+      "classification": "INCONSISTENT",
+      "reasoning": "The same question — 'what does Maugham do to a title when the derived filename is taken?' — is answered differently in `ProjectStore+CollectionPieces.swift:47-52` (mutate the title) and `ProjectStore+Research.swift:158-167` (mutate the filename only). Note also that `addLoosePiece`'s collision test is on the SLUG, so it fires for two titles that are not remotely alike, and fires constantly for any writer hitting SLUG-D1 or SLUG-D2. This is not a widening of RULING-1 — it is the reverse shape: Maugham is not refusing input, it is accepting it and silently altering it, which is the harm RULING-1 exists to prevent stated at a different layer.",
+      "proposed_ruling": "Maugham never alters a title the writer typed in order to make room on disk. Filenames are deduplicated; titles are not. If two things genuinely share a title, Maugham may say so, but the words in the title stay as typed."
+    },
+    {
+      "id": "SLUG-D4",
+      "question": "May two things the writer created separately end up in the same folder on disk because their titles produced the same name?",
+      "current_behaviour": "Yes, for research groups. `addResearchItem` builds `research/<slug>` and calls `createDirectory(withIntermediateDirectories: true)`, which succeeds silently when the directory already exists and performs no dedupe. Two groups titled \"第一部\" and \"第二部\" both resolve to `research/untitled` and share it. Every other creation path in the file dedupes; this one does not.",
+      "writer_visible_consequence": "Two research groups that look separate in the pane hold one folder. Renaming either group moves that folder — carrying the other group's notes with it, and leaving the other group's manifest paths pointing at nothing. Deleting either group deletes both groups' files. This is a path to actually losing a writer's notes, not just mis-naming them.",
+      "classification": "INCONSISTENT",
+      "reasoning": "The same question — 'what if this name is taken?' — is answered 'pick another' at `addResearchAsset`, `addResearchTextNote`, `addPieceResearchNote`, `addPieceResearchAsset`, `addPieceResearchLink`, `FileNaming.nextGroupFolderName` and `renameResearchPath` (which does use `dedupedName`), and answered 'join the existing one' at `addResearchItem`. It only becomes reachable via a Slugifier collision, which is why it sits in this module's decision surface rather than the store's. Flagging it as INCONSISTENT rather than NOVEL because the codebase has already ruled — six times — and one site dissents.",
+      "proposed_ruling": "Two things the writer made separately never share one place on disk. When a name is taken, Maugham picks a new one — it never joins an existing folder."
+    },
+    {
+      "id": "SLUG-D5",
+      "question": "Once something has a place on disk, does that place follow the title when the title changes — and where is the answer read from?",
+      "current_behaviour": "Answered two ways for research groups. `researchParentPath(parentId:)` reads the group's stored `parent.path` (the place recorded at creation, which `renameResearchPath` keeps current and deduped). `addResearchTextNote` instead recomputes `Slugifier.slug(from: parent.title)` and writes into whatever that names. After a rename that deduped — group's stored path `research/untitled-2` — a new note in that group is written into `research/untitled`, a *different group's* folder.",
+      "writer_visible_consequence": "The writer adds a note to group B and the file lands inside group A's folder on disk. The pane may still show it under B (the recorded relative path is self-consistent), so the divergence is invisible until group A is renamed, moved or deleted and takes B's note with it — or until the writer looks in Finder.",
+      "classification": "INCONSISTENT",
+      "reasoning": "One file, two answers to 'where does this group live': the stored path (`ProjectStore+Research.swift:200-207`) versus a fresh slug of the title (`ProjectStore+Research.swift:133`). This is the tripwire-22 shape — keying on a derived name instead of the recorded path, which this codebase records as having shipped twice already (editor husk-reload, palette rename-revert). It is a product decision and not purely internal because it determines what survives a rename, which the sweep brief names explicitly.",
+      "proposed_ruling": "Where a thing lives on disk is recorded once, when it is created, and read from that record thereafter. It is never re-derived from the thing's current title."
+    },
+    {
+      "id": "SLUG-D6",
+      "question": "How should a long title be shortened for a filename — and should two long titles that share an opening be allowed to collapse into the same name?",
+      "current_behaviour": "Hard cut at 40 characters with no word-boundary awareness; only a trailing dash is cleaned up. \"The Collected Letters of William Somerset Maugham\" → `the-collected-letters-of-william-somerse`. Two chapters, \"Chapter Seventeen: In Which Everything Falls Apart\" and \"Chapter Seventeen: In Which Nothing Happens\", produce `chapter-seventeen-in-which-everything-fa` and `chapter-seventeen-in-which-nothing-happe` — distinct here, but any pair agreeing for 40 characters collapses and the second becomes `…-2`.",
+      "writer_visible_consequence": "Filenames end on a chopped word (`…-somerse`), which reads like corruption rather than abbreviation. A writer with descriptively-titled chapters — common in literary non-fiction and in screenplay treatments — gets files distinguished only by a trailing `-2`, and `-2` is assigned by creation order, so it does not track the chapter order in the binder.",
+      "classification": "NOVEL",
+      "reasoning": "Neither ruling touches length. Two reasonable people disagree on both halves: cut at 40 versus cut at the last whole word before 40 (cheap, and never produces `-somerse`); and 40 versus a longer cap, since the 40 here is a bare constant with no rationale in the source and macOS permits 255. Ranked below D1–D5 — it degrades legibility rather than losing or misfiling anything, and the title still round-trips.",
+      "proposed_ruling": "A shortened filename ends on a whole word. Maugham never cuts a word in half to make a name fit."
+    }
+  ],
+  "notes": "METHOD. Claims marked `evidenced_by: source` where I quote a concrete input/output pair (SLUG-8, SLUG-9, SLUG-12, SLUG-13, SLUG-16) were verified by running a verbatim copy of `Slugifier.slug(from:)` as a standalone Swift script in the scratchpad, not by any test in the repository. No repository file was modified. I flag this because the gap it reveals is itself the finding: the 15 existing tests cover ASCII, four decomposing Latin diacritics, underscores, length and the empty/punctuation fallback — no test exercises a single non-Latin script, a non-decomposing Latin letter, a ligature, or full-width text. Every behaviour in D1 and D2 is therefore unasserted and could change silently.\n\nWHAT IS *NOT* AT RISK, stated plainly because it bounds all six decisions: the writer's title is stored verbatim in `project.maugham.json` and is never re-derived from a filename. I checked the paths that could have done so — structure reorder (`ProjectStore+Structure.swift:135-160`) reuses the existing slug rather than recomputing it, and the only `deletingPathExtension`-to-title conversions are for files arriving from *outside* (`addResearchAsset`, `addPieceResearchAsset`), where the filename genuinely is the only title available. So no writer's words are destroyed by this module. Everything above is about names, folders and one title mutation — which is why I classified nothing as COVERED_BY_RULING_1 despite the temptation.\n\nTHE SHAPE OF THE PAIR, APPLIED. The brief notes RULING-1/RULING-2 are strict where a person acts and tolerant where a file arrives. Slugification is squarely 'a person acts' — a writer types a title into the binder — and the module is at its most tolerant exactly there: it silently accepts anything and quietly returns 'untitled'. That is the strict-side hole, and it is the common root of D1, D2 and D3. If the product owner wants one ruling instead of three, the generalisation is: *Maugham does not silently discard part of what a writer typed; where it cannot use something, it says so at the point of entry* — which is RULING-1's second sentence applied to transformation as well as refusal.\n\nSMALLER ITEMS THAT DID NOT MEET THE 'WRITER WOULD NOTICE AND TWO PEOPLE WOULD DISAGREE' BAR:\n• `PieceStyleSlug.slug` (`Maugham/MCP/Tools/PieceStyleTools.swift:202`) substitutes \"piece\" for \"untitled\" — but tests the *output string*, so a piece the writer genuinely titled \"Untitled\" also gets `piece.tex`. Visible only in `Exports/`. Included here because it is the clearest instance of SLUG-15: the fallback is indistinguishable from a real title, so callers are forced to guess.\n• The dedupe suffix is appended after truncation (SLUG-17), so filenames can run to 42+ characters. Harmless; noted only because it means the 40 is not actually a cap on the filename.\n• A literal '-' in a title and a space are indistinguishable in the output, so \"Chapter-One\" and \"Chapter One\" collide. Defensible, and the collision is handled by the callers.\n• `Slugifier` is in MaughamCore and shared with the phone, but its only tests are in the Mac target with `@testable import Maugham` (SLUG-22). Not a product decision, but it means a phone-side regression in a shared naming function has no test to catch it — relevant to tripwire 19.\n\nCROSS-MODULE. D3, D4 and D5 are defects reachable *only* through a Slugifier collision, which is why they surface in this module's sweep despite living in `ProjectStore+*`. If another sweep agent owns `ProjectStore+Research` or `ProjectStore+CollectionPieces`, D4 and D5 should be reconciled against their findings rather than double-counted."
+}

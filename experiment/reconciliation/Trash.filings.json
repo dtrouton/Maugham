@@ -1,0 +1,439 @@
+[
+ {
+  "claim_id": "M3-TR-001",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A storage naming convention the writer never sees; the Trash pane shows displayTitle. Not a product decision."
+ },
+ {
+  "claim_id": "M3-TR-002",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Same naming convention; the fallback affects only the folder name. Not a product decision on its own — its consequence is M3-TR-011."
+ },
+ {
+  "claim_id": "M3-TR-003",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-15",
+  "clause_that_reaches_it": "Maugham does not delete a file. It moves it to trash, from which the writer can restore it",
+  "why_in_scope": "This claim IS the clause's subject: the writer's Delete produces a move, not an unlink, and the file sits recoverable in .trash/. RULING-15's basis ('we don't delete the file on disk, we move it to trash') is about exactly this act on exactly this store.",
+  "intent_expressed_when": "contemporaneous — the writer pressed Delete",
+  "call_path": "BinderView.deleteItem → ProjectStore.deleteStructureItem → DocumentStore.trash → TrashStore.moveToTrash",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M3-TR-004",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-15",
+  "clause_that_reaches_it": "Maugham does not delete a file. It moves it to trash, from which the writer can restore it",
+  "why_in_scope": "A group is a folder of the writer's files. Deleting it is one Delete gesture over all of them, and the clause's promise — moved, not unlinked, restorable — holds for each. The writer's question ('can I get my chapter back?') does not change because they deleted the act it sat in.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "BinderView.deleteItem on a group → deleteStructureItem → TrashStore.moveToTrash with the folder path",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M3-TR-005",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Recording the position is HOW restore places things, not a decision about what delete means. RULING-15 promises restorable, not restored-to-the-same-place."
+ },
+ {
+  "claim_id": "M3-TR-006",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "RULING-8 does not reach: no writer question is answered twice. The returned entry never reaches a writer-facing surface — both callers consume only its `id` and re-read the pane from list(). Recorded as a latent trap for a future caller, not a live divergence. (Discipline 5: sameness is judged from the writer's question, and there is no writer question here.)"
+ },
+ {
+  "claim_id": "M3-TR-007",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-19",
+  "clause_that_reaches_it": "Lower layers — storage, rendering, serialisation — are responsible for protecting the system and the data, and are not obliged to communicate.",
+  "why_in_scope": "TrashStore is a storage layer, and this is precisely the lower-layer duty the clause assigns: protect the data from a path that would move a file outside the project. It is not obliged to explain itself, and it does not — it throws a typed error for the layer above to surface. No sub-ruling reaches a path-containment guard; RULING-19 is the correct citation rather than a gap-flag, because it names storage explicitly.",
+  "intent_expressed_when": "not at all — the writer never asked for the unsafe path; it is a corrupted or hostile value",
+  "call_path": "ProjectStore.deleteStructureItem with a path-less row (M3-TR-034); otherwise a corrupted manifest",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M3-TR-008",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The leftover folder is EMPTY — no file, no meta.json, none of the writer's content. RULING-7's 'unreadable shown as empty' needs something to be there. Litter, and an enhancement at most (PRINCIPLE-2)."
+ },
+ {
+  "claim_id": "M3-TR-009",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Stated of a failed move, where the folder holds nothing. The case where such a folder DOES hold the writer's words is M3-TR-015/021, and is filed there."
+ },
+ {
+  "claim_id": "M3-TR-010",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Error provenance. The raw Cocoa error names a real cause; no clause requires it to be re-spelled at this layer (RULING-19 explicitly relieves storage of the duty to communicate)."
+ },
+ {
+  "claim_id": "M3-TR-011",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "Words the writer authored are ALWAYS recoverable... Recovery is guaranteed only where the writer would look for it.",
+  "why_in_scope": "Two of the writer's deletions produce one Trash row. The second deletion's record overwrites the first's, so one deleted item is not where the writer would look for it — the clause's own test for whether recovery is guaranteed. The words are still on disk, but there is no route to them from inside Maugham. Filed as a violation per PRINCIPLE-4, which makes reachability a matter of priority rather than of whether it is a defect; the honest caveat is that the guard against it lives entirely outside this module.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "UNTRACED — no production caller mints two entries with one id in one second. The 'x' default (M3-TR-002) would open it; nothing supplies id-less metadata today.",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M3-TR-012",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "Recoverability is owed against ACCIDENTS and against MAUGHAM'S OWN ACTIONS.",
+  "why_in_scope": "The scope clause makes recoverability owed against MAUGHAM'S OWN ACTIONS. Restoring one entry destroys a second file the writer deleted, in the same act, with no report — that is Maugham's own action destroying authored words, not the writer's deliberate deletion of them (which RULING-23 would excuse: they deleted it to TRASH, and the trash is where they would go to get it back).",
+  "intent_expressed_when": "contemporaneous — the writer asked to restore, not to destroy",
+  "call_path": "UNTRACED — reachable only through M3-TR-011",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M3-TR-013",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "An empty result for an empty state. Not a product decision."
+ },
+ {
+  "claim_id": "M3-TR-014",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Presentation ordering in a pane. No ruling governs sort order."
+ },
+ {
+  "claim_id": "M3-TR-015",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "The Trash pane is a writer-facing surface (BinderSegment.trash, reached from BinderPaneToggle). An entry Maugham itself half-wrote — file moved, meta.json not yet landed — is presented as ABSENT, which is 'unreadable presented as empty' in the clause's own words: the pane says the trash is empty while the writer's chapter is in it. Note the same `continue` also correctly skips a stray folder a writer dropped into .trash/ by hand, which is RULING-9's territory and fine; the defect is that Maugham's own half-written entry is indistinguishable from it.",
+  "intent_expressed_when": "contemporaneous — the writer is looking at the pane now",
+  "call_path": "ProjectStore.load → TrashStore.list() → the entry is skipped → TrashView renders an empty pane. The half-written state comes from a crash, force-quit or write failure between TrashStore.swift:151 and :163.",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M3-TR-016",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-9",
+  "clause_that_reaches_it": "What a writer does to their project outside Maugham is their risk.",
+  "why_in_scope": "Every folder name Maugham mints parses. A name that does not parse means something outside Maugham renamed it, which the clause places at the writer's risk. No sub-ruling reaches, and none is missing — this is the root doing the job a root is for.",
+  "intent_expressed_when": "not at all — the rename was not an instruction to Maugham",
+  "call_path": "UNTRACED from inside Maugham; renaming a .trash subfolder in Finder",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M3-TR-017",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A loose file at the .trash root is not an entry and was not put there by Maugham. RULING-9 territory, and nothing is claimed about it."
+ },
+ {
+  "claim_id": "M3-TR-018",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Serialisation round-trip. Not a product decision."
+ },
+ {
+  "claim_id": "M3-TR-019",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-23",
+  "clause_that_reaches_it": "Trash destroying its contents is Maugham HONOURING the writer's intent — they chose to delete. The retention window is leeway to change their mind, not a promise of permanence.",
+  "why_in_scope": "This is the ruling's literal subject. The writer's Delete was an instruction to destroy; the 30 days are leeway to withdraw it; not withdrawing it is the instruction standing. Discipline 2 exactly: the intent was expressed 31 days ago and persists until withdrawn, so the sweep is that intent honoured, not Maugham acting unprompted.",
+  "intent_expressed_when": "earlier — at the moment of deletion, and never withdrawn",
+  "call_path": "ProjectStore.load → trashStore.sweep()",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M3-TR-020",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-23",
+  "clause_that_reaches_it": "Trash destroying its contents is Maugham HONOURING the writer's intent — they chose to delete. The retention window is leeway to change their mind, not a promise of permanence.",
+  "why_in_scope": "The clause requires that there BE a window of leeway, and there is one. It fixes no duration, so 30 days is unruled rather than wrong — recorded as GAP-7 rather than as a violation.",
+  "intent_expressed_when": "earlier",
+  "call_path": "ProjectStore.load → trashStore.sweep()",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M3-TR-021",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No clause obliges the trash to actually expire. RULING-23 permits destruction without requiring it, and the writer's words are not lost, so RULING-4 is not reached either. The INVISIBILITY half is convicted at M3-TR-015 and is not double-counted here. What is genuinely unruled — an entry Maugham can neither show nor destroy, travelling into every backup — is GAP-2."
+ },
+ {
+  "claim_id": "M3-TR-022",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A no-op on an absent directory. Not a product decision."
+ },
+ {
+  "claim_id": "M3-TR-023",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "String arithmetic on a folder name."
+ },
+ {
+  "claim_id": "M3-TR-024",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "String arithmetic on a folder name."
+ },
+ {
+  "claim_id": "M3-TR-025",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Real, and bounded by the UTC offset: at most one day of drift in 'days remaining' or in sweep timing, for a writer who changes zones inside the retention window. No writer arbitrates a question at that resolution — an enhancement (PRINCIPLE-2), not a decision."
+ },
+ {
+  "claim_id": "M3-TR-026",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-15",
+  "clause_that_reaches_it": "Maugham does not delete a file. It moves it to trash, from which the writer can restore it",
+  "why_in_scope": "The clause's second half — 'from which the writer can restore it' — is exactly this operation, and on this path it does what it says: the file returns to where it came from, byte-identical, and the entry is consumed.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "TrashView row → Restore → ProjectStore.restoreTrashEntry → TrashStore.restore",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M3-TR-027",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-20",
+  "clause_that_reaches_it": "We trust the writer to know what they want, and we do our best to honour it... what we do must be NON-DESTRUCTIVE and easy for them to recover from and correct.",
+  "why_in_scope": "RULING-15 does NOT reach: its basis is where a delete SENDS things ('we don't delete the file on disk, we move it to trash'), and here the item is still in the trash and still on disk — the clause's promise about the destination holds. RULING-22 does not reach either: Restore does not do the wrong thing, it refuses loudly. What is left is the root, and both its halves are in scope. The refusal IS non-destructive (first half honoured — nothing is overwritten and the entry survives). It is NOT 'easy for them to recover from and correct': the writer's words are on disk in a hidden dotfolder, there is no rename-on-restore, no restore-alongside and no reveal, and every subsequent Restore fails identically and forever. Root-only, so the missing sub-ruling is recorded as GAP-1.",
+  "intent_expressed_when": "contemporaneous — 'give me my chapter back' is perfectly parseable; only where to PUT it is in doubt",
+  "call_path": "BinderView delete of the last chapter → binder New Document (FileNaming.nextNN and uniqueSlug both compute over SURVIVING siblings, so the trashed item's number and slug are free again) → same-titled replacement lands on exactly the trashed path → TrashView Restore → fm.moveItem throws",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M3-TR-028",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "A refusal names its real cause.",
+  "why_in_scope": "The error reaches the writer through TrashView's alert without an independent check, which is what makes the surface writer-facing (RULING-21's scope clause). The message names the real cause and enumerates what was actually in the folder, so the writer can act on it. RULING-19 relieves storage of the duty to communicate; doing it anyway is the redundancy that ruling calls correct, not duplication.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "TrashView row → Restore → the throw propagates → alert",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M3-TR-029",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "A refusal names its real cause.",
+  "why_in_scope": "A real cause is named — the meta.json could not be read — but in Maugham's internal vocabulary rather than the writer's ('that item is no longer in the trash'). The clause requires the cause be real, not that it be well phrased. A better message is imaginable and is an enhancement under PRINCIPLE-2, not a defect.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "TrashView Restore on a stale row",
+  "violation_or_enhancement": "enhancement"
+ },
+ {
+  "claim_id": "M3-TR-030",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-19",
+  "clause_that_reaches_it": "Lower layers — storage, rendering, serialisation — are responsible for protecting the system and the data, and are not obliged to communicate.",
+  "why_in_scope": "The identical lower-layer duty as M3-TR-007, on the way out rather than the way in: meta.json is sidecar-supplied and read off disk, so storage validates it before moving anything, and leaves the entry recoverable when it refuses.",
+  "intent_expressed_when": "not at all — a corrupted or hostile sidecar value is nobody's instruction",
+  "call_path": "UNTRACED as a writer gesture",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M3-TR-031",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "On its own, re-creating the destination's parent is what makes a restore work at all. The disagreement it can leave between the binder and the disk is M3-TR-039, and is filed there."
+ },
+ {
+  "claim_id": "M3-TR-032",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "Recoverability is owed against ACCIDENTS and against MAUGHAM'S OWN ACTIONS.",
+  "why_in_scope": "The scope clause owes recoverability against ACCIDENTS and against Maugham's own actions. The trigger here — a renamed trash folder — is an accident, and RULING-9 would place the rename itself at the writer's risk. But R9's second sentence draws the line the other way for what follows: what Maugham does on the writer's behalf is Maugham's, and the ORDERING is Maugham's own choice. Validating the entry id after the file has been moved and the entry destroyed means the one accident costs the writer both routes back — no trash entry and no binder row — where validating first would have cost nothing. This is the filing in this set most open to being overturned, and the counter-argument is stated rather than hidden.",
+  "intent_expressed_when": "contemporaneous — they clicked Restore",
+  "call_path": "UNTRACED as a writer gesture; renaming a .trash subfolder in Finder, then Restore",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M3-TR-033",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Internal bookkeeping that arms a command. What that command then does is M3-TR-036/037/044."
+ },
+ {
+  "claim_id": "M3-TR-034",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-19",
+  "clause_that_reaches_it": "Lower layers — storage, rendering, serialisation — are responsible for protecting the system and the data, and are not obliged to communicate.",
+  "why_in_scope": "The refusal itself is correct lower-layer behaviour: an empty path would resolve to the project root, and refusing it protects the data. RULING-19 also says the guard at the ENTRY POINT must fail and tell the writer — but that entry point is BinderView's Delete, outside this module's boundary, and I did not characterise whether it alerts. Recorded as an open edge rather than convicted here.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "UNTRACED — I did not establish that any production path mints a path-less StructureItem",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M3-TR-035",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "Where the same product question is answered in more than one place, it has one answer.",
+  "why_in_scope": "The writer's question is 'can I get this row back?', and it is asked of two rows sitting side by side in one research tree, under one Delete command, with nothing in the row to tell them apart beforehand. A note answers yes; a link answers no, permanently and at once. Discipline 5 is the whole of it: sameness is judged from the writer's question, never from whether the code paths differ — and the code's own justification is about the FILE ('a synthetic .link path has no backing file'), which is true of the file and not of the item. RULING-15's literal clause does not reach, because there is no file; that is exactly why RULING-8 is the one that does.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "ResearchView context-menu Delete on a .link row → deleteResearchItems → trashResearchItemCore's `item.kind != .link` guard is false → removeResearchItem → saveManifest. No TrashEntry is ever created.",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M3-TR-036",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "The control is a menu item and a keystroke labelled 'Restore Last Deleted Item'. It restores an item that is not the last deleted one — it restores whatever was last deleted THAT LEFT A TRASH ENTRY, which after a link delete is an earlier, unrelated item. That is a control not doing what it says, which is RULING-22's stated scope, and it is a surprise in the ruling's first sentence too: a note deleted an hour ago reappears in the binder while the thing the writer just deleted stays gone. This CLOSES a gap the earlier sweep recorded: its D4 concluded 'no sub-ruling reaches a stale undo target' and filed the case under the root. RULING-22 reaches it.",
+  "intent_expressed_when": "contemporaneous — they pressed ⌘⌥Z about the thing they just deleted",
+  "call_path": "ResearchView Delete on a file-backed note, then Delete on a .link row, then ⌘⌥Z → restoreLastDeleted → restoreTrashEntry(id: the earlier entry)",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M3-TR-037",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "RULING-22 is not stretched to cover this. The label 'Restore Last Deleted ITEM' is singular and literal, and the command does precisely what those words say; what it does not match is the writer's model of ⌘⌥Z as an undo of their last ACTION, which is a different and genuinely unruled question. Filed as GAP-3 rather than convicted, so that RULING-22 does not become a catch-all — the discriminator against M3-TR-036 is that there the control demonstrably lies about which item is last."
+ },
+ {
+  "claim_id": "M3-TR-038",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No ruling requires a restore to land anywhere in particular; RULING-15 promises restorable and is silent on position. Correct behaviour, unreached."
+ },
+ {
+  "claim_id": "M3-TR-039",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Argued and declined. RULING-8's 'where does my Chapter 1 live?' is answerable from the binder and from Finder, and after this restore they disagree — but the binder-mirrors-disk correspondence is an implementation invariant rather than a stated product decision, and convicting on it would be reasoning from the symptom. What is unruled is stated as GAP-4. Note the consequence is not cosmetic: the resurrected folder is what later blocks the parent group's own restore under M3-TR-027."
+ },
+ {
+  "claim_id": "M3-TR-040",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "RULING-19 does not convict: the prune is a lower-layer repair and that ruling explicitly relieves lower layers of the duty to communicate. RULING-4's report clause has the right shape and the wrong subject — it is scoped to DERIVED or transient material, and a binder row is arrangement the writer authored (order, nesting, titles), not derived material. So the clause does not reach by scope, and nothing else does. Stated as GAP-5."
+ },
+ {
+  "claim_id": "M3-TR-041",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "'Restore' is a labelled control. It does not restore the item — it relocates it into a different tree, where the writer never put it and cannot have meant it to go, and it does so silently and successfully. That is the plainest possible case of a control not doing what it says, and of the surprise the ruling's first sentence forbids. RULING-15 reaches it as a second reading ('from which the writer can restore it' — the writer cannot restore their research note to their research tree), and RULING-22 is preferred as the more exact fit for the mechanism: the failure is that a named control does the wrong thing, not that the trash's destination is wrong. Contrast M3-TR-027, where the control refuses loudly and RULING-22 is therefore NOT cited.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "ResearchView context-menu Delete on any research note → Trash pane Restore, or ⌘⌥Z → ProjectStore.restoreTrashEntry → `if var item = try? JSONDecoder().decode(StructureItem.self, ...)` SUCCEEDS on a ResearchItem payload (type 'asset' forward-tolerates to .document per ADR 0015) → the row is inserted into manifest.structure. The `else if ResearchItem` branch below is unreachable for anything the research tree produces.",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M3-TR-041b",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "The same control, the same misbehaviour, one node kind up: a research folder and its children arrive in the manuscript binder. Filed separately because a group carries descendants, which makes the corrupted state larger and gives RenamePlan a manuscript-tree node whose path is under research/.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "ResearchView Delete on a research folder → Trash pane Restore → the group lands in manifest.structure with its children",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M3-TR-042",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The file IS restored and the operation reports what it did do. The writer sees a Trash row for a file they never deleted and a Restore that changes nothing they can observe, but naming the clause that breaks is where it fails: RULING-22's 'do what they say' is satisfied by a Restore that restores the file, and no clause covers whether Maugham's own internal safety copies belong in the writer's Trash at all. Stated as GAP-6. The general shape matters more than the one caller: the missing else branch means ANY future non-binder trash entry restores its file with no manifest consequence and reports success."
+ },
+ {
+  "claim_id": "M3-TR-043",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Internal token hygiene."
+ },
+ {
+  "claim_id": "M3-TR-044",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Nothing failed, so RULING-7 has nothing to misrepresent, and RULING-22's control does not do the wrong thing — it does nothing. Recorded rather than convicted. NOTE the sharper sibling is outside this module's boundary and remains unpinned by me: ProjectWindow.swift:574 is `try? await store?.restoreLastDeleted()`, which discards every real TrashError on the ⌘⌥Z path while the Trash pane's context menu alerts on the same call. That is a view-layer fact I could not pin with a store-level test."
+ },
+ {
+  "claim_id": "M3-TR-045",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure.",
+  "why_in_scope": "The four examples in the clause are all one species — not lying about what happened — and a destruction that failed, reported as a destruction that completed, is that species. The surface is writer-facing: the confirmation sheet promises 'All N items will be permanently deleted' and 'This cannot be undone', and the pane then shows empty. The method's `throws` signature makes it worse rather than better: TrashView's catch is dead code, so the ONE place the truth could surface is structurally unreachable. The sibling single-entry path (M3-TR-047) proves the machinery exists and is simply not used here.",
+  "intent_expressed_when": "contemporaneous — they just confirmed the sheet",
+  "call_path": "BinderSegment.trash → TrashView toolbar 'Empty Trash' → confirmationDialog → ProjectStore.emptyTrash → per-entry `try?` → trashEntries = []",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M3-TR-046",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure.",
+  "why_in_scope": "Same clause, a different and worse mechanism: this half needs no I/O failure at all. An entry created behind ProjectStore's back is simply not in the loop, so 'Empty Trash' reports a completed destruction of content it never looked at. The writer emptied the trash to be rid of a draft they did not want on the machine; it is still in .trash/ and will travel into every backup of the project.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "MCP set_piece_style (PieceStyleTools.swift:80) writes a trash entry straight through TrashStore without refreshing ProjectStore.trashEntries → the writer opens the Trash pane and clicks Empty Trash before the next list() → the entry survives and the pane reports empty",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M3-TR-047",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "A refusal names its real cause.",
+  "why_in_scope": "The throw propagates to TrashView, which alerts. Worth recording beside M3-TR-045: the writer's question is the same on both buttons — 'was it actually destroyed?' — and this button answers it truthfully while the other does not, so RULING-8 reaches the PAIR. RULING-7 is cited on each half individually because it is the more specific fit for a misreport, and citing R8 as well would double-count one defect.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "TrashView row → Permanently Delete → confirmationDialog → the throw propagates → alert",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M3-TR-048",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Internal token hygiene."
+ },
+ {
+  "claim_id": "M3-TR-049",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No clause is broken by KEEPING the words. RULING-4 is served by the retention, not violated; RULING-23 permits destruction without requiring it. The wording that makes this writer-visible — the confirmation sheet's 'This cannot be undone' — lives in TrashView, outside this module, and I did not pin it. What is unruled is what 'permanently delete' promises about the writer's words on their machine. Stated as GAP-2."
+ },
+ {
+  "claim_id": "M3-TR-050",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-23",
+  "clause_that_reaches_it": "Trash destroying its contents is Maugham HONOURING the writer's intent — they chose to delete. The retention window is leeway to change their mind, not a promise of permanence.",
+  "why_in_scope": "The intent was expressed at the moment of deletion and has not been withdrawn; the sweep running on open is that standing instruction executed. Discipline 2 again. That it runs unannounced, before the window appears, with the failure discarded, and that the writer is never warned on the last day, are all questions the ruling does not answer — GAP-7, not a violation.",
+  "intent_expressed_when": "earlier — at the moment of deletion, 31+ days ago",
+  "call_path": "ProjectStore.load(from:) → `try? await trashStore.sweep()` (ProjectStore.swift:274), before the window is on screen",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "_summary": {
+   "reached": 24,
+   "complies": 13,
+   "violates": 11,
+   "no_ruling": 27,
+   "total": 51,
+   "coverage": "47%",
+   "by_ruling": {
+    "RULING-15": [
+     "M3-TR-003",
+     "M3-TR-004",
+     "M3-TR-026"
+    ],
+    "RULING-19": [
+     "M3-TR-007",
+     "M3-TR-030",
+     "M3-TR-034"
+    ],
+    "RULING-20": [
+     "M3-TR-027"
+    ],
+    "RULING-22": [
+     "M3-TR-036",
+     "M3-TR-041",
+     "M3-TR-041b"
+    ],
+    "RULING-23": [
+     "M3-TR-019",
+     "M3-TR-020",
+     "M3-TR-050"
+    ],
+    "RULING-4": [
+     "M3-TR-011",
+     "M3-TR-012",
+     "M3-TR-032"
+    ],
+    "RULING-7": [
+     "M3-TR-015",
+     "M3-TR-028",
+     "M3-TR-029",
+     "M3-TR-045",
+     "M3-TR-046",
+     "M3-TR-047"
+    ],
+    "RULING-8": [
+     "M3-TR-035"
+    ],
+    "RULING-9": [
+     "M3-TR-016"
+    ]
+   },
+   "reached_by_a_root_only": [
+    "M3-TR-007",
+    "M3-TR-016",
+    "M3-TR-027",
+    "M3-TR-030",
+    "M3-TR-034"
+   ],
+   "specificity": "19/24 = 79%"
+  }
+ }
+]
