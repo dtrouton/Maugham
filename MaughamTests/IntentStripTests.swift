@@ -232,10 +232,13 @@ final class IntentStripTests: XCTestCase {
         try await write("The project's own.", intentFor: .project, in: store)
         try await write("The chapter's own.", intentFor: .document(chapter.id), in: store)
 
+        let device = DeviceSlug.make(from: "test-mac")
         let environment = CompilerOrchestrator.Environment.production(
             store: store, documentStore: documentStore, projectURL: url,
-            preferences: UserPreferences(), onRunAcknowledged: {})
-        let briefed = environment.intent(chapter.id).0
+            declaredWorld: DeclaredWorldStore(projectRoot: url, device: device),
+            bible: BibleStore(projectRoot: url, device: device),
+            preferences: UserPreferences(), onRunAcknowledged: { _ in })
+        let briefed = environment.intent(chapter.id)?.statementText
 
         let resolved = try XCTUnwrap(store.effectiveIntent(forDocId: chapter.id))
         XCTAssertEqual(briefed, store.statementText(of: resolved),

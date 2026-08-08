@@ -54,12 +54,23 @@ enum BibleStratum {
         }
     }
 
-    /// The line under a fact: who it is about, and the paragraph that
-    /// established it when the run could anchor one. Nothing is claimed when it
-    /// could not (`BibleFact.establishedAt` is optional for exactly that case).
+    /// The line under a fact: who it is about, and — in the paragraph's own
+    /// words — where it was read.
+    ///
+    /// **Never a ¶id** (requirement 3: "no bare ¶ids anywhere the writer
+    /// reads… paragraphs are referred to by short QUOTE, the way an editor
+    /// would"). `BibleFact.establishedAt` is the payload a jump would need and
+    /// `BibleFact.excerpt` is what a writer can actually recognise, so the
+    /// caption reads the second and never the first. A fact with no excerpt —
+    /// one the run could not anchor, or a row written by a build before the
+    /// field existed — is captioned by its subject alone. Falling back to the
+    /// id would put the token in front of the writer in exactly the case they
+    /// have least context to decode it.
     static func caption(for fact: BibleFact) -> String {
-        guard let anchor = fact.establishedAt else { return fact.subject }
-        return "\(fact.subject) · ¶\(anchor)"
+        guard let excerpt = fact.excerpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !excerpt.isEmpty
+        else { return fact.subject }
+        return "\(fact.subject) · \u{201C}\(excerpt)\u{201D}"
     }
 
     /// What VoiceOver says, and the one channel that carries the provenance for

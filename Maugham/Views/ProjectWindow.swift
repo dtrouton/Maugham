@@ -37,6 +37,13 @@ struct ProjectWindow: View {
     /// binding, because ⌘S and ⌘R can be pressed a second apart and one flash
     /// showing the other's word is worse than two.
     @State private var showingCompilerFlash: Bool = false
+    /// What that capsule says — the acknowledgment's own word, not a constant,
+    /// because the second ⌘R of a double-press says something different
+    /// (`CompilerOrchestrator.Acknowledgment`).
+    @State private var compilerFlashLabel: String =
+        CompilerOrchestrator.Acknowledgment.started.flashLabel
+    /// Which flash the pending hide belongs to — see `showCompilerFlash`.
+    @State private var compilerFlashGeneration: Int = 0
     /// The Diagnostics pane's gear menu (M2 Task 8), seeded from
     /// `UIState.compilerModel` at `load()` and written back through
     /// `updateUIState` on change — the `outlineLayout` pattern.
@@ -147,7 +154,7 @@ struct ProjectWindow: View {
                 }
                 .overlay(alignment: .top) {
                     SaveFlashOverlay(isShowing: $showingCompilerFlash,
-                                     label: "Checking\u{2026}",
+                                     label: compilerFlashLabel,
                                      systemImage: "text.magnifyingglass")
                 }
                 .overlay(alignment: .top) {
@@ -2073,13 +2080,26 @@ struct ProjectWindow: View {
     }
 
     /// ⌘R's acknowledgment. Shorter than ⌘S's: this one says the key was heard,
-    /// and the pane says the rest.
+    /// and the pane says the rest. The word is the acknowledgment's own —
+    /// "Checking…" for a press that started a run, "Still checking…" for one
+    /// that found a run already under way.
+    ///
+    /// The generation is what keeps a double-press honest: the first press's
+    /// hide is still pending when the second arrives, and without it the
+    /// "Still checking…" capsule would be taken off screen by a timer belonging
+    /// to a flash the writer has already stopped reading.
     @MainActor
-    private func showCompilerFlash() {
+    private func showCompilerFlash(_ acknowledgment: CompilerOrchestrator.Acknowledgment) {
+        compilerFlashLabel = acknowledgment.flashLabel
+        compilerFlashGeneration &+= 1
+        let generation = compilerFlashGeneration
         showingCompilerFlash = true
         Task {
             try? await Task.sleep(for: .milliseconds(700))
-            await MainActor.run { showingCompilerFlash = false }
+            await MainActor.run {
+                guard compilerFlashGeneration == generation else { return }
+                showingCompilerFlash = false
+            }
         }
     }
 
@@ -2110,21 +2130,30 @@ struct ProjectWindow: View {
             // restoring a subject would put a reference column over the prose
             // before the writer had asked for anything.
             self.assistant.width = ds.uiState.assistantColumnWidth
-            compiler.configure(
-                environment: .production(
-                    store: s, documentStore: ds, projectURL: url,
-                    preferences: userPreferences,
-                    model: ds.uiState.compilerModel.claudeModel,
-                    onRunAcknowledged: { showCompilerFlash() }),
-                diagnostics: DiagnosticsStore(
-                    projectRoot: url,
-                    device: DeviceSlug.make(from: MacDeviceID.current)))
             // The Intent pane's strata, on the same device slug and the same
             // rule as every other derived sidecar (tripwire 24 at the filename
             // point, which both stores take care of themselves).
+            //
+            // **Built BEFORE the compiler, because the run reads both.** The
+            // declared world is what ⌘R briefs its clauses from and the bible
+            // is the ledger a run slices and then feeds; a compiler configured
+            // against stores that did not exist yet would be a run with no
+            // clauses and facts that go nowhere, all of it silent.
             let device = DeviceSlug.make(from: MacDeviceID.current)
-            self.bible = BibleStore(projectRoot: url, device: device)
-            self.declaredWorld = DeclaredWorldStore(projectRoot: url, device: device)
+            let bibleStore = BibleStore(projectRoot: url, device: device)
+            let worldStore = DeclaredWorldStore(projectRoot: url, device: device)
+            self.bible = bibleStore
+            self.declaredWorld = worldStore
+            compiler.configure(
+                environment: .production(
+                    store: s, documentStore: ds, projectURL: url,
+                    declaredWorld: worldStore, bible: bibleStore,
+                    preferences: userPreferences,
+                    model: ds.uiState.compilerModel.claudeModel,
+                    onRunAcknowledged: { showCompilerFlash($0) }),
+                diagnostics: DiagnosticsStore(
+                    projectRoot: url,
+                    device: DeviceSlug.make(from: MacDeviceID.current)))
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
 

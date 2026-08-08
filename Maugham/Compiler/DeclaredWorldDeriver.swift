@@ -19,7 +19,7 @@ protocol WorldDeriver: AnyObject {
 /// membrane.
 ///
 /// **The prompt and the parser are pinned to one wire shape here.** Unlike
-/// the compiler's M2 split (`CompilerPrompt.outputSchemaDescription` sent by
+/// the compiler's split (`CompilerPrompt.sectionSchemaDescription` sent by
 /// one type, read by `DiagnosticIngest`), `derivationSchemaDescription` is
 /// sent AND read by this same type — a rewording that drops a field name
 /// breaks `test_derivationSchemaDescriptionNamesTheWireFields` before it can
@@ -149,8 +149,28 @@ final class ClaudeWorldDeriver: WorldDeriver {
     /// function rather than a method: the termination-handler closure must
     /// not capture `self` (a MainActor instance) from a non-isolated
     /// callback, the same discipline `TectonicInvoker.compile` uses for its
-    /// own one-shot subprocess.
-    private static func runOneShot(
+    /// own one-shot subprocess. `nonisolated` so "off the main actor" is the
+    /// compiler's answer rather than this sentence's — a `static` on a
+    /// `@MainActor` type is main-actor isolated by default, which would put
+    /// the spawn and the stdin write on the writer's own thread.
+    ///
+    /// **Both pipes are drained WHILE the process runs, never after it
+    /// exits** (Stage 2's carry #2). The original shape read stdout from the
+    /// `terminationHandler`, which deadlocks the moment an answer outgrows a
+    /// pipe: the buffer holds about 64 KB, so a CLI with more to say blocks
+    /// on its own `write`, therefore never exits, therefore never fires the
+    /// handler that would have read it — and the continuation is never
+    /// resumed at all. Not slow: a run with no end, inside a `Task` the
+    /// orchestrator awaits. A derivation over a long statement is exactly
+    /// the case that produces a long answer.
+    /// `DeclaredWorldDeriverTests.test_aLargeDerivationDoesNotDeadlock` pins
+    /// it with a fixture a quarter of a megabyte wide.
+    ///
+    /// The turn ends when **both** halves have landed — EOF on stdout (every
+    /// byte read) and the child's exit — because either alone can precede
+    /// the other and resuming on the first would truncate or race. See
+    /// `OneShotOutput`, which owns that pairing and the resume-once rule.
+    private nonisolated static func runOneShot(
         cli: URL, arguments: [String], input: String
     ) async -> String? {
         await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
@@ -167,22 +187,41 @@ final class ClaudeWorldDeriver: WorldDeriver {
             process.standardOutput = stdout
             process.standardError = stderr
 
-            process.terminationHandler = { _ in
-                let outData = (try? stdout.fileHandleForReading.readToEnd()) ?? Data()
-                _ = try? stderr.fileHandleForReading.readToEnd()
-                cont.resume(returning: String(data: outData ?? Data(), encoding: .utf8))
+            let output = OneShotOutput(continuation: cont)
+            stdout.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                guard !chunk.isEmpty else {
+                    handle.readabilityHandler = nil
+                    output.readerDidFinish()
+                    return
+                }
+                output.append(chunk)
             }
+            // Drained and discarded. A CLI chatty enough to fill its stderr
+            // pipe wedges on that write exactly as one filling stdout does,
+            // and unlike `ClaudeCLISession` this path has no failure to
+            // explain — `nil` is its whole vocabulary (see `derive`).
+            stderr.fileHandleForReading.readabilityHandler = { handle in
+                if handle.availableData.isEmpty { handle.readabilityHandler = nil }
+            }
+            process.terminationHandler = { _ in output.processDidExit() }
 
             do {
                 try process.run()
             } catch {
-                cont.resume(returning: nil)
+                stdout.fileHandleForReading.readabilityHandler = nil
+                stderr.fileHandleForReading.readabilityHandler = nil
+                process.terminationHandler = nil
+                output.spawnFailed()
                 return
             }
             // Written after `run()`: the pipe's write end must exist before
             // anything is written to it, and closing signals EOF so a CLI
             // reading stdin to completion (text input format) does not hang
-            // waiting for more.
+            // waiting for more. This write can block on a prompt larger than
+            // a pipe — which is survivable only because this function is
+            // `nonisolated`: it is a background thread waiting on the CLI's
+            // own read, not the writer's editor.
             if let data = input.data(using: .utf8) {
                 stdin.fileHandleForWriting.write(data)
             }
@@ -283,5 +322,74 @@ final class ClaudeWorldDeriver: WorldDeriver {
         guard let string = value as? String else { return nil }
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+/// One derivation subprocess's stdout, accumulated off the main actor, and the
+/// continuation waiting on it.
+///
+/// **Two events end a one-shot run and neither can be assumed to come first.**
+/// EOF on stdout says every byte has been read; the termination handler says
+/// the child is gone. A reader that resumes on termination alone can be holding
+/// bytes still in the pipe; one that resumes on EOF alone answers before the
+/// process it is reporting on has finished. So both are recorded and the
+/// continuation is resumed once, by whichever arrives second.
+///
+/// `@unchecked Sendable` on `StderrTail`'s reasoning, one file over: every
+/// field is touched under `lock`, and `FileHandle`'s readability handler is a
+/// `@Sendable` closure that must not capture mutable state. The
+/// resume-exactly-once rule is the lock's other job — `CheckedContinuation`
+/// traps on a second resume, and a spawn failure racing a reader that never
+/// started is the only way that could be reached.
+private final class OneShotOutput: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<String?, Never>?
+    private var buffer = Data()
+    private var readerFinished = false
+    private var processExited = false
+
+    init(continuation: CheckedContinuation<String?, Never>) {
+        self.continuation = continuation
+    }
+
+    func append(_ chunk: Data) {
+        lock.lock()
+        defer { lock.unlock() }
+        buffer.append(chunk)
+    }
+
+    /// stdout reached EOF: everything the child wrote has been read.
+    func readerDidFinish() {
+        lock.lock()
+        readerFinished = true
+        let resumable = takeContinuationIfReadyLocked()
+        let data = buffer
+        lock.unlock()
+        resumable?.resume(returning: String(data: data, encoding: .utf8))
+    }
+
+    func processDidExit() {
+        lock.lock()
+        processExited = true
+        let resumable = takeContinuationIfReadyLocked()
+        let data = buffer
+        lock.unlock()
+        resumable?.resume(returning: String(data: data, encoding: .utf8))
+    }
+
+    /// The process never started — there is nothing to wait for and nothing to
+    /// read, and `nil` is what "could not be spawned" has always meant here.
+    func spawnFailed() {
+        lock.lock()
+        let resumable = continuation
+        continuation = nil
+        lock.unlock()
+        resumable?.resume(returning: nil)
+    }
+
+    private func takeContinuationIfReadyLocked() -> CheckedContinuation<String?, Never>? {
+        guard readerFinished, processExited, let held = continuation else { return nil }
+        continuation = nil
+        return held
     }
 }

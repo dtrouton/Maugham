@@ -127,7 +127,10 @@ nothing it produced was ever flagged again.** That is must-not #1's shape one le
 from the manuscript: not AI authoring the prose, but AI authoring the yardstick the prose
 is measured by. The only route from a diagnostic into a statement is
 `IntentAppendPerformer`, whose input is a sentence the writer typed
-([ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1).
+([ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1). *\[Correction,
+2026-08-08: that route is now `RulingPerformer.rule` — `IntentAppendPerformer` was a shim
+over it and has been deleted. The clause is unchanged in substance: one route, and its
+input is still a `String` the writer typed.\]*
 
 `preview_compile` was removed from the allowlist during implementation (`7be99c98`) for
 the same class of reason: it is nominally a read, and it spawns tectonic.

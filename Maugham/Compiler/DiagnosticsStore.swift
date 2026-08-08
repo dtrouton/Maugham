@@ -50,6 +50,14 @@ final class DiagnosticsStore {
     /// Read this device's sidecar for `docId` into memory. A missing or
     /// corrupt file clears any in-memory entry for `docId` rather than
     /// throwing — the derived-state contract.
+    ///
+    /// **A v1 run's notes are dropped as superseded** (`kind == nil`; see
+    /// `DiagnosticKind`). They were written against a contract this build no
+    /// longer speaks — a free-form category, no refs, no clause — and
+    /// replace-on-run puts them one run from gone regardless, so migrating
+    /// them would be work to preserve something the next ⌘R deletes. The RUN
+    /// RECORD is kept, so the pane can still say when the document was last
+    /// checked and what that run discarded.
     func load(docId: String) {
         let url = Self.sidecarURL(projectRoot: projectRoot, docId: docId, device: device)
         guard let data = try? Data(contentsOf: url), // adr-0018-ok: diagnostics sidecar, derived, not manuscript
@@ -59,7 +67,8 @@ final class DiagnosticsStore {
             version += 1
             return
         }
-        byDoc[docId] = content
+        byDoc[docId] = FileContent(
+            run: content.run, diagnostics: content.diagnostics.filter { $0.kind != nil })
         version += 1
     }
 
@@ -94,6 +103,11 @@ final class DiagnosticsStore {
     /// qualifies while its paragraph's current text still matches the text
     /// the compiler anchored it to. `currentText(paragraphId) == nil` means
     /// the paragraph is gone, which is also not live.
+    ///
+    /// **Refs are display-only, not liveness.** A note's anchor is its first
+    /// resolving ref; the other `refs` are the excerpt chips the pane shows
+    /// beside the note. Liveness depends only on the anchor, so changing a
+    /// non-anchor ref's paragraph does not dismiss the note.
     func live(docId: String, currentText: (String) -> String?) -> [Diagnostic] {
         guard let content = byDoc[docId] else { return [] }
         return content.diagnostics.filter { diagnostic in

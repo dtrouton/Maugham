@@ -110,7 +110,7 @@ struct IntentStrip: View {
     /// observation, with no event, no timer and no save in between. With the
     /// statement CLOSED the reader falls to `ProjectStore.derivedCache`, which
     /// is `@ObservationIgnored`: reading it registers no dependency, so an
-    /// append to a closed statement — `IntentAppendPerformer`'s, when the Intent
+    /// append to a closed statement — an answered note's ruling, when the Intent
     /// pane is not up — lands on the next body pass rather than at once. The
     /// visible case is narrow (a statement with no prose line yet gaining its
     /// first sentence through *Answer*: the strip should appear and does not

@@ -142,12 +142,76 @@ AI assist for drafting, transcription, and project understanding.
   Bible stratum renders nothing yet and no clause or rule is ever drawn — Stage 2's run is
   the first real caller. **The run itself is untouched and still speaks the original M2
   contract** above (one category tag, no conformance/continuity/reader-report split, no
-  fact-candidates) until Stage 2 rebuilds it. Stages 2 (the run rebuilt on a four-section
-  schema-pinned contract, bible fact-candidates, subject-sliced context, reworked fates)
-  and 3 (cold-start read-it-whole offer, drift-as-pattern, guide rewrite) are **open**.
+  fact-candidates) until Stage 2 rebuilds it — see the entry immediately below, which
+  ships it. Stage 3 (cold-start read-it-whole offer, drift-as-pattern, guide rewrite) is
+  **open**.
+- ✓ **The compiler's second draft, Stage 2 — the run rebuilt** (2026-08-08, branch
+  `feat/run-rebuilt-2026-08-07`; spec `docs/superpowers/specs/2026-08-07-compiler-second-draft-design.md`
+  §5, dated under §8; plan `docs/superpowers/plans/2026-08-07-run-rebuilt.md`; area guide
+  `Maugham/Compiler/AREA.md`) — **pending Denver's smoke.** Six tasks, one atomic switch.
+  The run now speaks a **four-section, line-delimited contract**: **conformance** — every
+  derived clause/rule, `holds` / `strains` / `silent`, a strain citing what pulls in one
+  sentence and never a fix; **continuity** — questions against established facts, ending as
+  a question and never a verdict; **reader** — dream-breaks and belief statements, capped at
+  the sharpest three; **facts** — candidates that land silently in the bible, never rendered
+  as notes. **The register is enforced structurally, twice**: the schema has no severity or
+  suggestion field at all, and the ingest-side scrub refuses a fix-shaped body or a leaked
+  paragraph id with a planted-offender control proving the refusal isn't vacuous — no note
+  the writer reads ever carries a bare `¶id`; every reference travels in a `refs` array as
+  the paragraph's own words, rendered as a click-through chip (requirement 3). **The atomic
+  switch (Task 3, one commit):** the briefing moves from whole-statement prose to essay-half
+  + derived clauses **in the same commit** that makes the run consume clauses — briefing
+  both would put a ruling in front of the model twice and over-weight it
+  (`test_rulingsAreBriefedAsClausesNotProse` counts the occurrence, not the presence) — and
+  gives `ClaudeWorldDeriver.derive` its first production caller (Stage 1 shipped it
+  callerless). The bible slice is **subject-sliced**, not the whole ledger: a run about
+  Kelly's scene carries Kelly's facts. Essay + world + bible now diff in as **one unit**
+  (`briefingHash`, widened from v1's intent-only hash) — unchanged since the last run ⇒ one
+  marker line; changed ⇒ all three re-embed together, never partially. **Fates, reworked**:
+  fix (self-dismissal, unchanged) · ignore (replace-on-run, unchanged) · **answer → ruling**
+  — a conformance strain or a continuity question offers **Answer**; a reader report does
+  not, because a belief or a dream-break isn't a question to rule on
+  (`DiagnosticsPane.offersAnAnswer`) · **promote-to-task**, whose body now cites the section
+  it came from (spec §5's fates line; `DiagnosticPromotion.taskBody`,
+  `test_theProvenanceLineNamesTheSectionItCameFrom`). **The pane reorganizes into the
+  report's own order** — conformance leads (rendering even with zero notes, because a run
+  whose clauses all hold is the good outcome, not an empty pane), then continuity, then the
+  reader — with an **Open Intent** button in the conformance header, a legible running state
+  ("Checking 14 new paragraphs…", never a bare participle) and the ⌘S-register flash
+  reused for ⌘R: **Checking…**, or **Still checking…** on a double-press. **Drift has no
+  section here** — v2 drops `intent_drift` outright; the pattern-drift replacement is
+  Stage 3's, computed from the run records the sidecar already keeps, and nothing stands in
+  for it this stage. **The v1 contract is deleted, not merely superseded**: `CompilerPrompt.
+  runMessage`/`CompilerContext`/`outputSchemaDescription` and `DiagnosticIngest.parse` —
+  confirmed zero production callers — are gone along with their ~18 dedicated tests; the
+  register-scrub's shared helpers (`resolve`, `nonEmptyString`) and the schema-constant
+  discipline carried forward into the sectioned contract. *Left open, on the record, both
+  for Stage 3*: the derivation subprocess has no deadline of its own (a measured budget is
+  wanted, not a copied 120s); and `ClaudeWorldDeriver.derivationSchemaDescription` quotes a
+  clause from the statement's essay as readily as from a Rulings line, so a real derivation
+  can still double-brief a sentence through a second door the atomic switch above does not
+  close (`Maugham/Compiler/AREA.md`'s "atomic switch" section names the exact paragraph to
+  re-read before touching the derivation schema). Streaming stays a **named** follow-on
+  rather than a silent gap: Stage 2's ingest was built section-at-a-time
+  (`parseSection`/`parseAll` as a fold) for exactly this upgrade, but the session still
+  resolves each turn as one terminal event rather than surfacing partial assistant text —
+  the whole-turn shape was deliberate this stage, not an oversight.
 - ✓ **Skills over MCP** (2026-07-18, branch `feat/skills-over-mcp-2026-07-18`) — Maugham now carries two task procedures as Agent Skills — `transcribing-notebooks` (the notebook-photo transcription workflow, now run through Claude Code after the 2026-07-17 Claude Desktop image regression) and `editing-pass` (reads `read_craft_intent` first, then works the annotation layer) — single-sourced at `docs/skills/<name>/SKILL.md` (agentskills.io flat-frontmatter format, loaded by the new `Maugham/Help/SkillIndex.swift`) and served across three surfaces: the emerging **SEP-2640 Skills Extension** (`skills/list`/`skills/get`/`resources/read` for `skill://` URIs, one pinned seam `Maugham/MCP/SkillsExtension.swift` against the still-unmerged draft PR #2640 — these are protocol methods, not tools, so the **48-tool count is unchanged**; no shipping MCP client consumes the extension yet), `get_help` (topic `"skills"` = index, a skill's name = its full body; one nudge sentence each on `read_document`/`add_comment`), and a new **Claude Code** section in the MCP setup sheet (copyable variant-aware `claude mcp add …` command + a one-click bootstrap-skill installer with staleness detection, writing a router skill to `~/.claude/skills/maugham/SKILL.md` that tells Claude Code to fetch the current procedure via `get_help` rather than improvise). Phone and `Packages/MaughamCore` untouched. Spec `docs/superpowers/specs/2026-07-18-skills-over-mcp-design.md`.
 
 **Open:**
+- • **The compiler's second draft, Stage 3 — cold start, drift-as-pattern, docs** (spec
+  `docs/superpowers/specs/2026-08-07-compiler-second-draft-design.md` §8) — the
+  read-it-whole offer on a manuscript the compiler has never checked ("I haven't read this
+  piece. Read it whole and take notes?", on-demand, never re-asked as a nag); drift
+  returning as a **pattern** rather than a note kind — a clause straining the same way
+  across consecutive runs, computed from the run records the sidecar already keeps, never a
+  background process; and the streaming upgrade Stage 2 built the ingest for but did not
+  ship (`parseSection`/`parseAll` already fold section-at-a-time — Task 3 recorded that the
+  whole-turn shape was this stage's deliberate choice, not a gap — so the upgrade is a
+  session that surfaces partial assistant events plus an orchestrator that folds them as
+  they land, and not a change to what a section means). **Watch item carried from
+  Stage 2**: the derivation subprocess (`ClaudeWorldDeriver`) has no timeout of its own —
+  wants a measured budget, not a number copied from the run's 120s.
 - • **Handwritten note import** — drag photos of handwritten pages in, Claude transcribes to `.md` using phone-camera filenames as ordering hints, page-by-page accept/edit/reject UI, automatic placement into manuscript or research. The annotation-layer approval UX from the editing milestone is the model.
 - • **Project-level Claude prompt templates** — curated prompts like "Brainstorm character motivations for this scene" / "Find continuity errors in Chapter 3", pre-wired to MCP read-tools so Claude is grounded.
 - ✓ **Voice notes / Whisper transcription** (2026-05-30, via the iPhone companion) — record voice in the phone Capture tab → inbox → WhisperKit transcribes → promote to research. *Still open:* a Mac-side drag-audio-file-in entry point (the shipped path is phone-capture, not desktop drop).

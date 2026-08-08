@@ -50,7 +50,9 @@ What M2 shipped against that test:
 - The **answer** flow (spec §5.2) sends the writer's own sentence — typed by the writer,
   in the pane — into the piece's intent statement through `IntentAppendPerformer`, as an
   ordinary op-logged edit performed by Maugham on the writer's action. No model output is
-  anywhere in that path.
+  anywhere in that path. *\[Correction, 2026-08-08: the performer is now
+  `RulingPerformer.rule` — see the amendment below; the finding this bullet records is
+  unchanged.\]*
 - The **intent strip** (spec §6.1; built 2026-08-05, `Maugham/Views/IntentStrip.swift`)
   is the one AI-adjacent surface that sits physically above the prose, and it is not a
   counterexample: it shows the *writer's own* intent statement — the first line, headings
@@ -150,7 +152,9 @@ stratum of the writer's own statement document.
 - **The answer flow moved, and Consequences' third bullet is superseded by the
   move.** *"An answered [note] becomes a paragraph of the writer's intent"* is no
   longer how it lands: `IntentAppendPerformer` is now a shim over
-  `RulingPerformer.rule`, which writes an itemized, dated line into the statement's
+  `RulingPerformer.rule` *\[Correction, 2026-08-08: the shim was deleted on
+  `feat/run-rebuilt-2026-08-07`; `RulingPerformer.rule` is the only performer, and the
+  membrane's one door\]*, which writes an itemized, dated line into the statement's
   `## Rulings` stratum rather than appending a bare paragraph to the essay (spec
   §3.4 names the old shape as *"the membrane's loosest point"* and this is the
   tightening). §1's finding is unchanged by the move — the string that lands is

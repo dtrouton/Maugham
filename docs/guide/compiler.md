@@ -1,9 +1,13 @@
 # Checking Your Writing
 
-Maugham can read what you have just written and tell you where it drifts from
-what you said you were going for. Press **⌘R** — *Check Writing* — and the notes
-appear in the **Diagnostics** pane (⌘⌥D), which leads the pane picker in the
-**Author** persona (⌘2).
+Maugham can read what you have just written and check it two ways at once —
+as a continuity editor, against what you've declared and what the manuscript
+has already established, and as a first reader, reporting what happens in the
+reading itself. Press **⌘R** — *Check Writing* — and the report appears in the
+**Diagnostics** pane (⌘⌥D), which leads the pane picker in the **Author**
+persona (⌘2). A capsule flashes **Checking…**, the same register as ⌘S's;
+press ⌘R again while one is already running and it flashes **Still
+checking…** instead of starting a second one.
 
 It runs when you press the key, and at no other time. There is no background
 check, no linting as you type, no badge that appears while you are mid-sentence.
@@ -12,10 +16,15 @@ is cheap, not one that reaches for you.
 
 ## What it reads
 
-- **Your intent** for the piece you are writing — the Intent pane's statement
-  for this document, or the project's if the document has none. If you have
-  declared no intent at all, the check still runs; it simply has no standard of
-  yours to measure against, and says less.
+- **Your intent**, read as checkable clauses and rules — your own sentences,
+  quoted back to you exactly, never turned into a form or a diagram. The
+  Intent pane's statement for this document, or the project's if the document
+  has none. If you have declared no intent at all, the check still runs;
+  conformance is simply absent from the report, and the reader's report still
+  runs regardless.
+- **What has already been established** — facts, knowledge states, voices —
+  read silently off your manuscript by earlier checks and kept in the Intent
+  pane's own ledger (see "The bible, filling quietly" below).
 - **What has changed since the last check.** Not the whole document. The first
   check on a document reads everything; after that each one picks up where the
   last left off, so a check in the middle of a session is about the paragraphs
@@ -25,8 +34,8 @@ is cheap, not one that reaches for you.
   photograph you own has no such tool yet, and the run says so rather than
   pretending to see it.
 
-The header line above the notes tells you the first two: when it last ran, and
-how much it looked at ("3 new, 2 revised ¶").
+The header line above the notes tells you when it last ran and how much it
+looked at ("3 new, 2 revised ¶").
 
 ## The intent strip
 
@@ -59,43 +68,71 @@ is briefed on when you press ⌘R — nothing more, nothing hidden. Full mechani
 
 ## What comes back
 
-Each note is anchored to a paragraph. Click one to jump to that paragraph in the
-editor.
+The pane reads as a report, in this order:
 
-A note stops being shown once you have changed the paragraph it was about — the
-check has not seen your revision, so it no longer has an opinion on it. Notes
-are also replaced wholesale by the next check: what you see is always the most
-recent run's, never a pile.
+**Conformance**, first — every clause you've declared, quoted back in your own
+words, each marked *holds*, *strains*, or nothing in this draft touched it
+yet. A straining clause names what pulled against it, in one sentence, and
+never a fix. **Open Intent**, in the section's own header, takes you straight
+to the statement the clauses were read from.
 
-One kind of note is different. A **drift** note has no paragraph under it and
-sits at the top of the pane. It means the writing has moved and your stated
-intent has not caught up. Its action is **Open Intent**, which takes you to the
-statement so you can bring it up to date.
+**Continuity**, next — questions raised against the facts and rules already
+established, each citing what it's checking against and ending as a question
+rather than a verdict: "Is the dock standing again by this scene?" rather than
+"Contradiction: the dock burned."
 
-## Three things you can do with a note
+**The reader**, last — what happened in the reading itself: where the dream
+broke, what a reader believes at this point. Capped at the sharpest three;
+when there were more to say, one line says so without counting them.
 
-**Answer it.** If a note describes something you did on purpose, press
-**Answer**, type why, and press Return. Your sentence becomes a **ruling** — a
-dated, itemized line under that piece's intent, minting the statement if you
-did not have one — and the note goes away. The next check reads the ruling you
-just made, so answering is permanent rather than a dismissal you have to
-repeat. Escape takes the field away without writing anything. See
-[Inspector, Research & Outline → Intent mode](right-pane.md#intent-mode-n) for
-what a ruling looks like and how to add one yourself, without a note to answer.
+**Nothing here ever shows you a paragraph id.** Every reference — a strain's
+what-pulls, a question's citation, a beat in the reader's report — carries the
+words that paragraph said, as a chip you click to jump there. You always read
+your own prose back, never a four-character token.
+
+A clean run says so plainly — *"Nothing to flag."* — even when every clause
+held: that is the good outcome the check exists to report, not an empty pane.
+
+**Drift has no note of its own here.** A clause that strains the same way
+across several checks in a row will surface as a pattern in a later stage,
+computed from what each run already keeps on record; for now, a straining
+clause tells you in the moment, and nothing about it accumulates across runs.
+
+## The bible, filling quietly
+
+Every check reads the wet ink and, without asking, notices what your prose
+establishes — what a character knows and since when, what's physically true,
+a voice. These land in the Intent pane's paler strip beneath your rulings —
+*What Claude has read* — with three actions: **Bless** (graduate it to a
+ruling, in your own words), **Correct** (edit it before it becomes one), and
+**Dismiss** (it may return if the manuscript re-establishes it). Nothing there
+is truth until you act on it; it is inspected, never tended. See [Inspector,
+Research & Outline → Intent mode](right-pane.md#intent-mode-n).
+
+## What you can do with a note
+
+**Answer a question.** A conformance strain and a continuity question both ask
+you something, and either offers **Answer**: type why, press Return, and your
+sentence becomes a **ruling** — a dated, itemized line under that piece's
+intent, minting the statement if you did not have one. The note goes away, and
+the next check reads the ruling you just made, so answering is permanent
+rather than a dismissal you have to repeat. Escape takes the field away
+without writing anything. The reader's report offers no **Answer** — "I
+stopped believing her here" is not a question to rule on. See [Inspector,
+Research & Outline → Intent mode](right-pane.md#intent-mode-n) for what a
+ruling looks like and how to add one yourself, without a note to answer.
 
 Answers go into the *piece's* intent, never the project's. An explanation of
 what you were going for in this chapter belongs to this chapter; the project's
 statement stays something you write deliberately, in the Intent pane.
 
-A drift note offers no **Answer** — it is not about a paragraph, so there is
-nothing to explain in a sentence. Open Intent and edit the statement whole.
-
 **Keep it.** **Promote to Task** turns the note into a real task on the
-document, carrying its own words plus one line recording who raised it, when, in
-which model, and what it was checked against. That line quotes your intent as
-it stood at the moment the note was raised — if you rewrite your intent later,
-older tasks keep naming what they were checked against then, not what you have
-now. Tasks sync and survive; the notes do not. ⌘Z takes the task back.
+document, carrying its own words plus one line recording who raised it, when,
+in which model, which part of the report it came from, and what it was
+checked against. That line quotes your intent as it stood at the moment the
+note was raised — if you rewrite your intent later, older tasks keep naming
+what they were checked against then, not what you have now. Tasks sync and
+survive; the notes do not. ⌘Z takes the task back.
 
 **Leave it.** A note you neither answer nor keep disappears at the next check.
 If it still stands, the next check raises it again.
@@ -124,8 +161,9 @@ Checks use your own Claude account.
 ## What it will not do
 
 It reads your manuscript and writes nothing into it. It cannot edit your prose,
-your research, your palette, or your intent — including the intent it is
-measuring you against, which only you and the **Answer** field can add to.
+your research, your palette, or your intent — including the rulings and the
+bible it reads you against, which only you, through **Answer**, **Bless**, and
+**Correct**, can add to.
 
 Notes live on the Mac that produced them and are not synced. Losing them costs
 nothing: press ⌘R again.

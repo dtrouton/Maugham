@@ -24,13 +24,17 @@ final class DiagnosticsStoreTests: XCTestCase {
             intentSnapshot: "intent snapshot")
     }
 
+    /// Every fixture carries a `kind`, because a diagnostic without one is by
+    /// definition a v1 record and `load` drops those as superseded — a
+    /// kind-less fixture would vanish on reload for a reason that has nothing
+    /// to do with the store's correctness.
     private func makeDiagnostic(
         docId: String, runId: String, anchor: Diagnostic.Anchor? = nil,
         body: String = "A diagnostic note"
     ) -> Diagnostic {
         Diagnostic(
             id: ULID.generate(), docId: docId, anchor: anchor, body: body,
-            category: "test", runId: runId)
+            category: nil, runId: runId, kind: .continuity)
     }
 
     func test_sidecarFilename_isPerDevice_andTakesDeviceSlug() {
@@ -137,6 +141,39 @@ final class DiagnosticsStoreTests: XCTestCase {
         XCTAssertEqual(reopened.lastRun(docId: docId)?.droppedDangling, 3)
     }
 
+    /// **The conformance summary rides on the run record and survives a
+    /// relaunch.** Most of what a run checked produces no note at all — a
+    /// clause that holds and a clause the delta is silent about are both real
+    /// answers — so the list the pane leads with lives here, superseded with
+    /// the run that made it rather than beside notes it does not have.
+    ///
+    /// Task 4 owns this field's own contract; the run that writes it is Task
+    /// 3's, so its round trip is pinned here rather than left to a later
+    /// commit that could ship after a release.
+    func test_roundTrip_carriesTheClausesTheRunChecked() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docClauses"
+
+        var run = makeRun()
+        run.clauseStatuses = [
+            DiagnosticIngest.ClauseStatus(
+                clauseQuote: "Cold, and never wistful.", status: "strains",
+                refs: [Diagnostic.Ref(paragraphId: "a1b2", excerpt: "The fog came.")]),
+            DiagnosticIngest.ClauseStatus(
+                clauseQuote: "Kelly never speaks first.", status: "silent", refs: [])
+        ]
+        DiagnosticsStore(projectRoot: project, device: device)
+            .replace(run: run, diagnostics: [], docId: docId)
+
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: docId)
+        XCTAssertEqual(reopened.lastRun(docId: docId)?.clauseStatuses, run.clauseStatuses,
+                       "quote, status and refs all survive — the refs are what the "
+                       + "pane renders as excerpt chips, and a chip with no excerpt "
+                       + "is the paragraph id the writer must never see")
+    }
+
     /// A sidecar written before the field existed decodes as zero rather than
     /// failing the whole file — an undecodable sidecar reads as empty, which
     /// would tell the writer their document had never been checked.
@@ -158,6 +195,42 @@ final class DiagnosticsStoreTests: XCTestCase {
         XCTAssertEqual(store.lastRun(docId: docId)?.model, "sonnet",
             "the record must still load")
         XCTAssertEqual(store.lastRun(docId: docId)?.droppedDangling, 0)
+        XCTAssertNil(store.lastRun(docId: docId)?.clauseStatuses,
+            "a run written before the sections existed checked no clauses, and "
+            + "an empty list would claim it checked and found nothing")
+    }
+
+    /// A sidecar a v1 run wrote decodes clean — the writer's existing file is
+    /// never a crash and never a wipe — and its notes are dropped as
+    /// superseded: they were written against a contract this build no longer
+    /// speaks, and replace-on-run puts them one run from gone regardless. The
+    /// run record survives, so the pane can still say when the doc was last
+    /// checked.
+    func test_aV1SidecarLoadsAndItsNotesAreDroppedAsSuperseded() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docV1"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Exactly what v1 wrote: no kind, no refs, no clauseQuote.
+        try Data("""
+            {"diagnostics":[{"anchor":{"anchorText":"steady","paragraphId":"efgh"},\
+            "body":"A v1 note","category":"rhythm","docId":"docV1","id":"01JV1",\
+            "runId":"01JRUN"}],\
+            "run":{"at":"2026-08-04T09:00:00Z","deltaSummary":"1 new, 0 revised",\
+            "droppedDangling":0,"id":"01JRUN","lastOpId":"op1","model":"sonnet"}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        XCTAssertEqual(
+            store.lastRun(docId: docId)?.model, "sonnet",
+            "a v1 file must decode rather than read as a document never checked")
+        XCTAssertEqual(
+            store.live(docId: docId, currentText: { _ in "steady" }), [],
+            "a v1 note is superseded, not migrated")
     }
 
     func test_corruptSidecar_readsAsEmpty_neverThrows() throws {
@@ -237,5 +310,74 @@ final class DiagnosticsStoreTests: XCTestCase {
 
         XCTAssertNil(store.lastOpId(docId: "never-run"))
         XCTAssertNil(store.lastRun(docId: "never-run"))
+    }
+
+    /// **Refs are display-only, not liveness.** A note's anchor is its first
+    /// resolving ref; the other refs are the excerpt chips the pane shows the
+    /// writer. When a non-anchor ref's paragraph changes, the note stays live
+    /// because the anchor has not moved.
+    func test_aChangedRefDoesNotDismissTheNote() {
+        let store = DiagnosticsStore(
+            projectRoot: URL(fileURLWithPath: "/tmp/unused"),
+            device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docRefs"
+        let run = makeRun()
+        // A note anchored to the first ref, with a second display-only ref
+        let anchor = Diagnostic.Anchor(paragraphId: "a1b2", anchorText: "The fog came.")
+        let refs = [
+            Diagnostic.Ref(paragraphId: "a1b2", excerpt: "The fog came."),
+            Diagnostic.Ref(paragraphId: "c3d4", excerpt: "Cold, and never…")
+        ]
+        var diag = makeDiagnostic(docId: docId, runId: run.id, anchor: anchor)
+        diag.refs = refs
+        store.replace(run: run, diagnostics: [diag], docId: docId)
+
+        // The anchor stays the same, the display ref changes — note stays live
+        let live = store.live(docId: docId, currentText: { id in
+            id == "a1b2" ? "The fog came." : "New text for the second ref"
+        })
+        XCTAssertEqual(live.map(\.id), [diag.id],
+                       "refs are display, never liveness — anchor alone pins the note")
+    }
+
+    /// The truncated-reader count survives the relaunch, so the pane can say
+    /// how many reader reports a run discarded over the schema's cap of three.
+    func test_roundTrip_carriesTruncatedReaderCount() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docTruncated"
+
+        var run = makeRun()
+        run.truncatedReader = 2
+        DiagnosticsStore(projectRoot: project, device: device)
+            .replace(run: run, diagnostics: [], docId: docId)
+
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: docId)
+        XCTAssertEqual(reopened.lastRun(docId: docId)?.truncatedReader, 2)
+    }
+
+    /// A sidecar written before the truncatedReader field existed decodes as
+    /// nil rather than failing — the reader count is optional and honoring its
+    /// absence is the contract.
+    func test_aSidecarWithoutTruncatedReaderStillLoads() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docNoTruncated"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Run written before truncatedReader existed (no truncatedReader field)
+        try Data("""
+            {"diagnostics":[],"run":{"at":"2026-08-04T09:00:00Z","deltaSummary":"1 new, 0 revised",
+            "id":"01JABC","lastOpId":"op1","model":"sonnet"}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        XCTAssertEqual(store.lastRun(docId: docId)?.model, "sonnet")
+        XCTAssertNil(store.lastRun(docId: docId)?.truncatedReader,
+            "a run written before the field existed has no reader truncation to report")
     }
 }

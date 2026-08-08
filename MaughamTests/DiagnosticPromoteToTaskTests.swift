@@ -42,17 +42,21 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
         try XCTUnwrap(doc.sequence.first, "the fixture document has no paragraphs")
     }
 
+    /// Every fixture carries a `kind`, because a diagnostic without one is by
+    /// definition a v1 record and `DiagnosticsStore.load` drops those as
+    /// superseded — and the pane calls `load` on appear, so a kind-less
+    /// fixture would vanish before the mounted view ever sees it.
     private func makeDiagnostic(
         docId: String, paragraphId: String?, anchorText: String = "",
         body: String = "The rhythm flattens across these three sentences.",
-        category: String? = "rhythm"
+        category: String? = "rhythm", kind: DiagnosticKind = .continuity
     ) -> Diagnostic {
         Diagnostic(
             id: ULID.generate(), docId: docId,
             anchor: paragraphId.map {
                 Diagnostic.Anchor(paragraphId: $0, anchorText: anchorText)
             },
-            body: body, category: category, runId: ULID.generate())
+            body: body, category: category, runId: ULID.generate(), kind: kind)
     }
 
     /// Noon on a fixed day **in the runner's own calendar**, so the stamp the
@@ -202,10 +206,10 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
             body.hasPrefix("The rhythm flattens across these three sentences."),
             "the note's own words come first: \(body)")
         XCTAssertTrue(
-            body.contains("\u{2014} compiler, 2026-07-24, sonnet, checked against: "
-                          + "\u{201C}A ghost story told in weather.\u{201D}"),
-            "the provenance line must say who checked, when, in what model, and against "
-            + "what: \(body)")
+            body.contains("\u{2014} compiler, 2026-07-24, sonnet, from continuity, "
+                          + "checked against: \u{201C}A ghost story told in weather.\u{201D}"),
+            "the provenance line must say who checked, when, in what model, which section "
+            + "raised it, and against what: \(body)")
         XCTAssertFalse(
             body.contains("No one says the word ghost"),
             "only the intent's first line belongs in a task body")
@@ -213,6 +217,40 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
             body.contains("a1b2"),
             "the \u{00b6} id is plumbing — it lives in the task's anchor, and a writer "
             + "reading their own task list should never see one")
+    }
+
+    /// **A heading is not what the run checked against.**
+    ///
+    /// The statement Answer (and bless) mints on a piece that had only project
+    /// intent is an empty essay above a `## Rulings` heading — so a
+    /// first-non-empty-line rule wrote `checked against: "## Rulings"` into a
+    /// durable, op-logged task the writer reads months later. The real answer
+    /// for that statement is the first ruling: the sentence the run genuinely
+    /// was checked against.
+    ///
+    /// The heading skip is `IntentStrip.line(from:)`'s, reused rather than
+    /// re-spelled — a third answer to "what is a heading" is the drift the
+    /// shared block parser was extracted to end.
+    func test_theProvenanceLineSkipsAHeadingForTheSentenceUnderIt() {
+        let snapshot = "## Rulings\n\n- Kelly never lies \u{2014} ruled 7 Aug 2026, from a run\n"
+        let body = DiagnosticPromotion.taskBody(
+            for: makeDiagnostic(docId: "d1", paragraphId: nil, body: "Drift."),
+            run: makeRun(model: "opus", intentSnapshot: snapshot))
+
+        XCTAssertFalse(body.contains("## Rulings"),
+                       "the task recorded a markdown heading as the writer's intent: \(body)")
+        XCTAssertTrue(body.contains("checked against: \u{201C}Kelly never lies"),
+                      "the first real line under the heading is what the run was checked "
+                      + "against: \(body)")
+    }
+
+    /// A statement that is nothing but headings has no line to quote, so the
+    /// clause is omitted rather than filled with the nearest markup.
+    func test_aStatementOfNothingButHeadingsClaimsNoIntent() {
+        let body = DiagnosticPromotion.taskBody(
+            for: makeDiagnostic(docId: "d1", paragraphId: nil, body: "Drift."),
+            run: makeRun(model: "opus", intentSnapshot: "# Intent\n\n## Rulings\n\n"))
+        XCTAssertFalse(body.contains("checked against"), body)
     }
 
     /// A run with nothing to say about what it checked against says nothing —
@@ -231,6 +269,34 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
         let body = DiagnosticPromotion.taskBody(
             for: makeDiagnostic(docId: "d1", paragraphId: nil, body: "Drift."), run: nil)
         XCTAssertEqual(body, "Drift.")
+    }
+
+    /// The record names which section raised the note (spec §5's fates line:
+    /// "body cites the section it came from") — the pane's own words for each
+    /// of the three sectioned kinds.
+    func test_theProvenanceLineNamesTheSectionItCameFrom() {
+        for (kind, label) in [
+            (DiagnosticKind.conformanceStrain, "conformance"),
+            (DiagnosticKind.continuity, "continuity"),
+            (DiagnosticKind.readerReport, "the reader"),
+        ] {
+            let body = DiagnosticPromotion.taskBody(
+                for: makeDiagnostic(docId: "d1", paragraphId: nil, body: "Drift.", kind: kind),
+                run: makeRun())
+            XCTAssertTrue(
+                body.contains("from \(label)"), "expected \(label) for \(kind): \(body)")
+        }
+    }
+
+    /// A `kind == nil` record — the mark of a diagnostic from before the
+    /// sectioned contract — cites no section, because there is none to cite.
+    func test_aKindlessRecordCitesNoSection() {
+        let diagnostic = Diagnostic(
+            id: ULID.generate(), docId: "d1", anchor: nil, body: "Drift.",
+            category: nil, runId: ULID.generate())
+        XCTAssertNil(diagnostic.kind, "the fixture must actually be kindless")
+        let body = DiagnosticPromotion.taskBody(for: diagnostic, run: makeRun())
+        XCTAssertFalse(body.contains("from "), body)
     }
 
     /// A long intent is cut, and the cut is visible.

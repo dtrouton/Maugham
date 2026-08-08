@@ -3,9 +3,10 @@ import MaughamCore
 
 /// What a ruling refused to do, in the writer's words.
 ///
-/// `IntentAppendFailure`'s two cases plus the two a *stratum* has that a free
-/// append did not: a verb aimed at a line, and a line that is not there. The
-/// same restraint applies — everything the store already refuses in its own
+/// The two an append had — nothing to say, and a destination that cannot be
+/// read — plus the two a *stratum* has that a free append did not: a verb aimed
+/// at a line, and a line that is not there. The same restraint applies —
+/// everything the store already refuses in its own
 /// vocabulary (an id naming nothing in this project, a `(kind, scope)` with no
 /// storage, a file system that would not take the file) propagates as
 /// `ProjectStoreError` rather than being re-said here in a second sentence that
@@ -82,10 +83,10 @@ enum RulingFailure: LocalizedError, Equatable {
 /// `RulingPerformerTests.test_nothingDerivedCanWriteItself` is the census that
 /// says so, with a planted `bless(fact:)` as its control.
 ///
-/// **`IntentAppendPerformer`'s shape: validate first, write second.** A refused
-/// act leaves nothing behind — no minted statement, no op, no half-written
-/// file. On a path whose destination already holds the writer's words that is
-/// constitution must #1, not a preference.
+/// **Validate first, write second.** A refused act leaves nothing behind — no
+/// minted statement, no op, no half-written file. On a path whose destination
+/// already holds the writer's words that is constitution must #1, not a
+/// preference.
 ///
 /// **The kind is always `.intent`.** Rulings are a stratum of the intent
 /// statement (§3.2/§3.3: the Intent pane is the declared world's one surface).
@@ -98,8 +99,11 @@ enum RulingFailure: LocalizedError, Equatable {
 /// `DocumentStore` registry, so `flushPendingSave` could not be flushing this
 /// destination) and no project-scope fallback (a ruling made about a chapter and
 /// quietly filed under the book is the M1A craft-intent defect arriving through
-/// a new door — one chapter's decision read by every other chapter's run).
-/// `IntentAppendPerformer` argues both at length; that argument is unchanged.
+/// a new door — one chapter's decision read by every other chapter's run). Both
+/// arguments were made at length by the M2 answer performer this replaced
+/// (`IntentAppendPerformer`, deleted with the run-rebuilt stage); they are
+/// unchanged and they live here now, because a rule whose reasoning is only in
+/// a deleted file is a rule with no reason.
 ///
 /// **No canvas undo bracket applies.** This writes a statement, not the scene,
 /// so tripwire 32's census does not name this file and must not — that census is

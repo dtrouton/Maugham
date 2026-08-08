@@ -32,7 +32,7 @@ final class CompilerRunCommandTests: XCTestCase {
         var sessionEpoch = 1
         /// The event `send` resolves with. `nil` holds the turn open until
         /// `release(_:)`.
-        var nextEvent: CompilerRunEvent? = .resultText(#"{"diagnostics":[]}"#)
+        var nextEvent: CompilerRunEvent? = .resultText(CompilerRunCommandTests.fourEmptySections)
         var onSend: (() -> Void)?
         private var held: CheckedContinuation<CompilerRunEvent, Never>?
 
@@ -64,6 +64,30 @@ final class CompilerRunCommandTests: XCTestCase {
 
     private let docId = "doc-1"
 
+    // MARK: - v2 fixtures
+
+    /// A turn that honours the contract and has nothing to say — four section
+    /// lines, every array empty. The harness default, because most of this
+    /// suite is about the run's mechanics rather than its content, and a v1
+    /// `{"diagnostics":[]}` is now unreadable output rather than an empty run.
+    static let fourEmptySections = """
+        {"section":"conformance","checks":[]}
+        {"section":"continuity","questions":[]}
+        {"section":"reader","reports":[]}
+        {"section":"facts","candidates":[]}
+        """
+
+    /// One continuity question against `paragraphId` — the smallest turn that
+    /// produces a note the pane would show.
+    private func oneQuestion(_ question: String, about paragraphId: String) -> String {
+        """
+        {"section":"conformance","checks":[]}
+        {"section":"continuity","questions":[{"cites":"the fog","refs":["\(paragraphId)"],"question":"\(question)"}]}
+        {"section":"reader","reports":[]}
+        {"section":"facts","candidates":[]}
+        """
+    }
+
     private func makeOp(
         opId: String, kind: OpKind = .typingBurst, changes: [Op.ParagraphChange]
     ) -> Op {
@@ -78,6 +102,14 @@ final class CompilerRunCommandTests: XCTestCase {
                          changes: [.init(paragraphId: "a1b2", prior: nil, next: "The fog came.")])],
             paragraphs: ["a1b2": "The fog came."],
             sequence: ["a1b2"])
+    }
+
+    /// The run state a run over `standingReading()` sits in — spelled once, so
+    /// a test asserting "a run is in flight" is not also restating the
+    /// fixture's arithmetic. The counts themselves are asserted where they are
+    /// the subject (`test_theRunningStateCarriesWhatItIsReading`).
+    private var runningOnTheStandingReading: CompilerOrchestrator.RunState {
+        .running(docId: docId, checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0))
     }
 
     private func makeProjectRoot() throws -> URL {
@@ -109,10 +141,25 @@ final class CompilerRunCommandTests: XCTestCase {
         let root: URL
         /// The per-session `--mcp-config` file the orchestrator asked for.
         let configURL: URL
-        var flashes: Int { flashCount() }
-        let flashCount: () -> Int
+        var flashes: Int { acknowledgments().count }
+        /// Every acknowledgment the run key asked the window for, in order —
+        /// recorded as VALUES rather than counted, because the second press of
+        /// a double-press now flashes too and the whole point is that it says
+        /// something different (`Acknowledgment.alreadyChecking`).
+        var flashesSaid: [CompilerOrchestrator.Acknowledgment] { acknowledgments() }
+        let acknowledgments: () -> [CompilerOrchestrator.Acknowledgment]
         /// What the next run reads off the live document — the writer, typing.
         let setReading: (CompilerOrchestrator.DocumentReading?) -> Void
+        /// How many times the run reached for a fresh derivation — the lazy
+        /// trigger's own counter (`AREA.md`, "the derivation trigger").
+        var derivations: Int { derivationCount() }
+        let derivationCount: () -> Int
+        /// What the run handed the bible ledger.
+        var recordedFacts: [BibleFact] { factsRecorded() }
+        let factsRecorded: () -> [BibleFact]
+        /// The delta prose the bible slice was asked about.
+        var sliceQueries: [String] { slicesAsked() }
+        let slicesAsked: () -> [String]
     }
 
     /// A `prepareForRun` the test can hold open, so the window between the
@@ -135,21 +182,40 @@ final class CompilerRunCommandTests: XCTestCase {
         }
     }
 
+    /// - Parameters:
+    ///   - statementText: the writer's intent statement WHOLE — essay and any
+    ///     stratum under it. What the briefing embeds is its essay half; what
+    ///     the derivation reads is all of it. `nil` is a document with no
+    ///     intent anywhere, which is valid and mints nothing.
+    ///   - cachedWorld: the reading already held for this statement's exact
+    ///     text, or `nil` for a cache miss (which is what makes the run reach
+    ///     for `derivedWorld`).
+    ///   - derivedWorld: what a fresh derivation would answer. `nil` is the
+    ///     honest failure every arm of `ClaudeWorldDeriver` reports.
     private func makeHarness(
         runner: SpyRunner,
         reading: CompilerOrchestrator.DocumentReading?,
-        intentText: String? = "Cold, and never wistful.",
+        statementText: String? = "Cold, and never wistful.",
+        cachedWorld: DerivedWorld? = nil,
+        derivedWorld: DerivedWorld? = nil,
+        bibleFacts: [BibleFact] = [],
         liveParagraphText: @escaping (String, String) -> String? = { _, _ in "The fog came." },
         pinnedListing: @escaping (String) -> [String] = { _ in [] },
         paletteListing: @escaping () -> [String] = { [] },
-        prepareForRun: @escaping @MainActor (String) async -> Void = { _ in }
+        prepareForRun: @escaping @MainActor (String) async -> Void = { _ in },
+        /// Holds the derivation open, the way `prepareForRun`'s gate holds the
+        /// burst — a real window in production, the length of a subprocess.
+        holdDerivation: PrepareGate? = nil
     ) throws -> Harness {
         let root = try makeProjectRoot()
         let diagnostics = DiagnosticsStore(
             projectRoot: root, device: DeviceSlug.make(from: "test-mac"))
         let configURL = root.appendingPathComponent("compiler-mcp.json")
-        let flashes = Box(0)
+        let flashes = Box<[CompilerOrchestrator.Acknowledgment]>([])
         let live = Box(reading)
+        let derivations = Box(0)
+        let recorded = Box<[BibleFact]>([])
+        let slices = Box<[String]>([])
         let orchestrator = CompilerOrchestrator()
         orchestrator.configure(
             environment: CompilerOrchestrator.Environment(
@@ -158,7 +224,23 @@ final class CompilerRunCommandTests: XCTestCase {
                 prepareForRun: prepareForRun,
                 reading: { id in id == self.docId ? live.value : nil },
                 liveParagraphText: liveParagraphText,
-                intent: { _ in (intentText, "this chapter") },
+                intent: { _ in
+                    statementText.map {
+                        CompilerOrchestrator.IntentBriefing(
+                            statementText: $0, scopeKey: "doc-doc-1")
+                    }
+                },
+                cachedWorld: { _ in cachedWorld },
+                deriveWorld: { _, _ in
+                    derivations.value += 1
+                    if let holdDerivation { await holdDerivation.hold("") }
+                    return derivedWorld
+                },
+                bibleSlice: { prose in
+                    slices.value.append(prose)
+                    return bibleFacts
+                },
+                recordFacts: { recorded.value += $0 },
                 pinnedListing: pinnedListing,
                 paletteListing: paletteListing,
                 writeMCPConfig: {
@@ -166,12 +248,15 @@ final class CompilerRunCommandTests: XCTestCase {
                     return configURL
                 },
                 makeRunner: { _, _ in runner },
-                onRunAcknowledged: { flashes.value += 1 }),
+                onRunAcknowledged: { flashes.value.append($0) }),
             diagnostics: diagnostics)
         return Harness(orchestrator: orchestrator, diagnostics: diagnostics,
                        root: root, configURL: configURL,
-                       flashCount: { flashes.value },
-                       setReading: { live.value = $0 })
+                       acknowledgments: { flashes.value },
+                       setReading: { live.value = $0 },
+                       derivationCount: { derivations.value },
+                       factsRecorded: { recorded.value },
+                       slicesAsked: { slices.value })
     }
 
     private final class Box<T> {
@@ -333,29 +418,109 @@ final class CompilerRunCommandTests: XCTestCase {
 
     // MARK: - Refusal
 
-    /// ⌘R while a run is in flight is a **quiet** no-op: no second send, no
-    /// second flash, and the running state untouched. The pane header is
-    /// already saying what is happening; a flash reading "Checking…" over a
-    /// check already running is the key lying about what it did.
-    func test_runWhileRunningIsRefusedQuietly() throws {
+    /// ⌘R while a run is in flight starts nothing — and **says so**, which is
+    /// the judgment M2 Task 7 made the other way (run-rebuilt Task 5).
+    ///
+    /// The original reasoning was that ⌘S's capsule promises work was done, so
+    /// flashing over a check already running would be the key lying. That
+    /// reasoning is answered by the copy rather than overruled: "Still
+    /// checking…" claims nothing started. What the silence cost was measurable
+    /// — a cold first run takes ~2 minutes, and a writer whose second press
+    /// produced no reaction at all cannot tell a busy compiler from a dead
+    /// keystroke. Everything else about the refusal is unchanged: no second
+    /// send, no second session, the running state untouched.
+    func test_runWhileRunningStartsNothingAndSaysSo() throws {
         let runner = SpyRunner()
         runner.nextEvent = nil   // hold the turn open
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
         harness.orchestrator.runRequested(docId: docId)
         awaitSends(1, on: runner)
-        XCTAssertEqual(harness.orchestrator.runState, .running(docId: docId))
-        let flashesAfterFirst = harness.flashes
+        XCTAssertEqual(harness.orchestrator.runState,
+                       .running(docId: docId,
+                                checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0)))
+        XCTAssertEqual(harness.flashesSaid, [.started])
 
         harness.orchestrator.runRequested(docId: docId)
         settle()
 
         XCTAssertEqual(runner.sends.count, 1, "the second ⌘R must not reach the runner")
-        XCTAssertEqual(harness.orchestrator.runState, .running(docId: docId))
-        XCTAssertEqual(harness.flashes, flashesAfterFirst,
-                       "a refused run is silent — the flash acknowledges work started")
+        XCTAssertEqual(harness.orchestrator.runState,
+                       .running(docId: docId,
+                                checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0)))
+        XCTAssertEqual(harness.flashesSaid, [.started, .alreadyChecking],
+                       "the second press is acknowledged, and by a different sentence — "
+                       + "a second \u{201C}Checking\u{2026}\u{201D} would be the key claiming "
+                       + "it started a run it refused")
+        XCTAssertEqual(CompilerOrchestrator.Acknowledgment.started.flashLabel, "Checking\u{2026}")
+        XCTAssertEqual(CompilerOrchestrator.Acknowledgment.alreadyChecking.flashLabel,
+                       "Still checking\u{2026}")
 
-        runner.release(.resultText(#"{"diagnostics":[]}"#))
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+    }
+
+    /// The same second press, **through the real event and the real scope
+    /// filter** rather than a direct call — `MaughamEvent.shouldDeliver` drops
+    /// a post whose scope does not match with nothing red anywhere, so an
+    /// acknowledgment proven only from `runRequested` proves nothing about the
+    /// key a writer actually presses.
+    func test_theSecondPressIsAcknowledgedOnTheDeliveryPath() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // hold the turn open
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        let token = MaughamEvent.observe(
+            .maughamRunCompiler,
+            context: { EventReceiverContext(kind: .keyWindow, isWindowLive: true,
+                                            isWindowKey: true) },
+            handler: { [docId] _ in harness.orchestrator.runRequested(docId: docId) })
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        MaughamEvent.postCompilerRun()
+        awaitSends(1, on: runner)
+        MaughamEvent.postCompilerRun()
+        settle()
+
+        XCTAssertEqual(runner.sends.count, 1)
+        XCTAssertEqual(harness.flashesSaid, [.started, .alreadyChecking],
+                       "⌘R pressed twice must acknowledge twice, and the second must "
+                       + "say it started nothing")
+
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+    }
+
+    /// **What the wait says it is reading.** The running state carries the
+    /// delta's own counts, resolved before the send, so the pane's header can
+    /// name what the compiler is checking rather than making a writer stare at
+    /// a bare "Checking…" for two minutes (requirement 5).
+    func test_theRunningStateCarriesWhatItIsReading() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(
+            runner: runner,
+            reading: CompilerOrchestrator.DocumentReading(
+                ops: [makeOp(opId: "op1", changes: [
+                        .init(paragraphId: "a1b2", prior: nil, next: "The fog came."),
+                        .init(paragraphId: "c3d4", prior: nil, next: "It stayed."),
+                        .init(paragraphId: "e5f6", prior: "A cold morning.",
+                              next: "A colder morning.")]),
+                ],
+                paragraphs: ["a1b2": "The fog came.", "c3d4": "It stayed.",
+                             "e5f6": "A colder morning."],
+                sequence: ["a1b2", "c3d4", "e5f6"]))
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+
+        guard case .running(_, let checking) = harness.orchestrator.runState else {
+            return XCTFail("expected a running state, got \(harness.orchestrator.runState)")
+        }
+        XCTAssertEqual(checking.new + checking.revised, 3,
+                       "the counts must describe the delta this run actually built")
+
+        runner.release(.resultText(Self.fourEmptySections))
         settle()
     }
 
@@ -495,7 +660,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         // The same document, the same delta, a run that comes back.
         runner.nextEvent = .resultText(
-            #"{"diagnostics":[{"paragraph_id":"a1b2","category":"rhythm","body":"Two beats, not three."}]}"#)
+            oneQuestion("Two beats, not three?", about: "a1b2"))
         harness.orchestrator.runRequested(docId: docId)
         awaitSends(2, on: runner)
         settle()
@@ -503,7 +668,7 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(harness.diagnostics.lastOpId(docId: docId), "op1")
         XCTAssertEqual(harness.orchestrator.runState, .idle)
         let notes = harness.diagnostics.live(docId: docId, currentText: { _ in "The fog came." })
-        XCTAssertEqual(notes.map(\.body), ["Two beats, not three."])
+        XCTAssertEqual(notes.map(\.body), ["Two beats, not three?"])
         XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.intentSnapshot,
                        "Cold, and never wistful.",
                        "the run records what it was judged against — the one thing "
@@ -528,14 +693,21 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(failure, .unusableOutput)
     }
 
-    /// A drift note carries no anchor and is stored ahead of the anchored ones,
-    /// because the pane pins it at the top and a store the pane has to re-sort
-    /// is two places that can disagree about the order.
-    func test_aDriftNoteIsStoredAheadOfTheAnchoredOnes() throws {
+    /// **The sections are stored in the order the contract sends them**, so the
+    /// pane reads a store it never has to re-sort — two places that can
+    /// disagree about the order is what the v1 drift-first rule existed to
+    /// prevent, and the ordering outlived the note kind that motivated it.
+    ///
+    /// v1's `intent_drift` has no successor here: drift becomes a PATTERN
+    /// computed across run records in Stage 3 (spec §3.4), and this stage
+    /// carries nothing in its place.
+    func test_theSectionsAreStoredInTheOrderTheContractSendsThem() throws {
         let runner = SpyRunner()
         runner.nextEvent = .resultText("""
-            {"diagnostics":[{"paragraph_id":"a1b2","body":"Two beats, not three."}],
-             "intent_drift":"You said cold; this is wistful."}
+            {"section":"conformance","checks":[{"clause_quote":"Cold, and never wistful.","status":"strains","refs":["a1b2"],"what_pulls":"The fog is doing the feeling here."}]}
+            {"section":"continuity","questions":[{"cites":"three days","refs":["a1b2"],"question":"Has anyone said how long yet?"}]}
+            {"section":"reader","reports":[{"kind":"belief","refs":["a1b2"],"report":"The reader believes the fog is a person."}]}
+            {"section":"facts","candidates":[]}
             """)
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
@@ -544,9 +716,14 @@ final class CompilerRunCommandTests: XCTestCase {
         settle()
 
         let notes = harness.diagnostics.live(docId: docId, currentText: { _ in "The fog came." })
-        XCTAssertEqual(notes.map(\.body),
-                       ["You said cold; this is wistful.", "Two beats, not three."])
-        XCTAssertNil(notes.first?.anchor)
+        XCTAssertEqual(notes.map(\.kind),
+                       [.conformanceStrain, .continuity, .readerReport],
+                       "conformance leads, then continuity, then the reader — the "
+                       + "contract's own order, kept by the store")
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.clauseStatuses?.map(\.status),
+            ["strains"],
+            "…and the summary the pane leads with rides on the run record")
     }
 
     /// **A run that lost every note it raised records that it did.** The model
@@ -558,9 +735,12 @@ final class CompilerRunCommandTests: XCTestCase {
     func test_aRunWhoseNotesAllDangledRecordsWhatItLost() throws {
         let runner = SpyRunner()
         runner.nextEvent = .resultText("""
-            {"diagnostics":[{"paragraph_id":"gone1","body":"Two beats, not three."},
-                            {"paragraph_id":"gone2","body":"The tense slips here."},
-                            {"paragraph_id":"gone3","body":"This repeats the last line."}]}
+            {"section":"conformance","checks":[]}
+            {"section":"continuity","questions":[{"cites":"the fog","refs":["gone1"],"question":"Two beats, not three?"},
+                                                 {"cites":"the fog","refs":["gone2"],"question":"Does the tense slip here?"},
+                                                 {"cites":"the fog","refs":["gone3"],"question":"Does this repeat the last line?"}]}
+            {"section":"reader","reports":[]}
+            {"section":"facts","candidates":[]}
             """)
         // No paragraph the notes name is still in the document.
         let harness = try makeHarness(
@@ -583,8 +763,7 @@ final class CompilerRunCommandTests: XCTestCase {
     /// the clean-run line has nothing to append.
     func test_aRunThatPlacedItsNotesRecordsNoLoss() throws {
         let runner = SpyRunner()
-        runner.nextEvent = .resultText(
-            #"{"diagnostics":[{"paragraph_id":"a1b2","body":"Two beats, not three."}]}"#)
+        runner.nextEvent = .resultText(oneQuestion("Two beats, not three?", about: "a1b2"))
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
         harness.orchestrator.runRequested(docId: docId)
@@ -707,10 +886,12 @@ final class CompilerRunCommandTests: XCTestCase {
 
     // MARK: - Diffed-in context
 
-    /// The intent is sent whole on the first run and elided on the second — the
-    /// spec's diffed-in context (§3.3), which is what makes run N cost the new
-    /// paragraphs rather than the world.
-    func test_theIntentIsSentOnceWhileTheSessionLives() throws {
+    /// The declared world is sent whole on the first run and elided on the
+    /// second — the spec's diffed-in context (§3.3), which is what makes run N
+    /// cost the new paragraphs rather than the world. v2 widened the unit from
+    /// the intent alone to essay + clauses + facts together
+    /// (`CompilerPrompt.runMessageV2`'s `briefingHash`).
+    func test_theBriefingIsSentOnceWhileTheSessionLives() throws {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
@@ -730,9 +911,9 @@ final class CompilerRunCommandTests: XCTestCase {
     /// **…and sent again the moment the process behind the session is not the
     /// one that read it.** A session that timed out, was cancelled or expired
     /// idle respawns on the next send with no memory of anything; telling that
-    /// fresh process the intent is "unchanged since last run" describes a run
+    /// fresh process the briefing is "unchanged since last run" describes a run
     /// it never saw, and it judges the prose against nothing.
-    func test_aRespawnedSessionIsSentTheWholeIntentAgain() throws {
+    func test_aRespawnedSessionIsSentTheWholeBriefingAgain() throws {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
@@ -809,14 +990,14 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertFalse(message.contains("Palette cards"))
     }
 
-    /// **The intent hash is tracked per document, not per session.** One warm
+    /// **The briefing hash is tracked per document, not per session.** One warm
     /// session serves every document the writer visits in the window, so a
     /// single last-sent hash would let a switch between two documents corrupt
     /// the elision: document B's run would compare against document A's hash
-    /// (masked whenever the two intents differ, which is the trap), and a
-    /// later run back on A would wrongly re-send its whole intent — or worse,
+    /// (masked whenever the two briefings differ, which is the trap), and a
+    /// later run back on A would wrongly re-send its whole briefing — or worse,
     /// wrongly elide it — because the tracker remembers the wrong document.
-    func test_intentHashIsPerDocument_notPerSession() throws {
+    func test_theBriefingHashIsPerDocument_notPerSession() throws {
         let runner = SpyRunner()
         let root = try makeProjectRoot()
         let diagnostics = DiagnosticsStore(
@@ -848,7 +1029,16 @@ final class CompilerRunCommandTests: XCTestCase {
                     id == docA ? readingA.value : (id == docB ? readingB.value : nil)
                 },
                 liveParagraphText: { _, _ in nil },
-                intent: { (intentFor[$0], "this chapter") },
+                intent: { docId in
+                    intentFor[docId].map {
+                        CompilerOrchestrator.IntentBriefing(
+                            statementText: $0, scopeKey: "doc-\(docId)")
+                    }
+                },
+                cachedWorld: { _ in nil },
+                deriveWorld: { _, _ in nil },
+                bibleSlice: { _ in [] },
+                recordFacts: { _ in },
                 pinnedListing: { _ in [] },
                 paletteListing: { [] },
                 writeMCPConfig: {
@@ -856,7 +1046,7 @@ final class CompilerRunCommandTests: XCTestCase {
                     return configURL
                 },
                 makeRunner: { _, _ in runner },
-                onRunAcknowledged: {}),
+                onRunAcknowledged: { _ in }),
             diagnostics: diagnostics)
 
         orchestrator.runRequested(docId: docA)
@@ -883,6 +1073,272 @@ final class CompilerRunCommandTests: XCTestCase {
                       + "overwritten it with document B's hash on run 2")
         XCTAssertFalse(runner.sends[2].message.contains("Intent A."),
                        "…so the elided run must not carry the full text either")
+    }
+
+    // MARK: - The declared world
+
+    /// A statement with a Rulings stratum under it, and the reading Claude
+    /// made of the whole thing.
+    private func statementWithARuling() -> String {
+        """
+        Cold, and never wistful.
+
+        \(RulingsSection.heading)
+
+        - Kelly heard about the call offstage — ruled 7 Aug 2026, from a compiler note
+        """
+    }
+
+    private func readingOf(_ statement: String) -> DerivedWorld {
+        DerivedWorld(
+            sourceHash: DerivedWorld.sourceHash(of: statement),
+            clauses: [DerivedClause(quote: "Cold, and never wistful.",
+                                    check: "No sentence may reach for nostalgia.")],
+            rules: [DerivedRule(subject: "Kelly",
+                                quote: "Kelly heard about the call offstage",
+                                constraint: "No scene may show Kelly learning it on the page.")],
+            derivedAt: Date())
+    }
+
+    private func occurrences(of needle: String, in haystack: String) -> Int {
+        haystack.components(separatedBy: needle).count - 1
+    }
+
+    /// **The atomic switch, in one assertion: a ruling reaches the run as a
+    /// derived clause and never as its own prose.**
+    ///
+    /// Until this task the run briefed the statement WHOLE, which was right
+    /// while nothing consumed the derivation — rulings are declarations and the
+    /// old contract had to see them. The moment the derived clauses go in, the
+    /// same sentence is in the message twice: once as the writer's line and
+    /// once as the clause read off it. That is not merely wasteful. A model
+    /// asked to check a delta against a world it has been told twice weights
+    /// the doubled clause over the rest of the writer's intent, and the run
+    /// quietly stops being about the essay.
+    ///
+    /// So the two halves of the switch had to land together, and this is the
+    /// guard on the pair: the essay is present, the reading is present, and the
+    /// section the reading came from is nowhere.
+    func test_rulingsAreBriefedAsClausesNotProse() throws {
+        let runner = SpyRunner()
+        let statement = statementWithARuling()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            statementText: statement, cachedWorld: readingOf(statement))
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = runner.sends[0].message
+        XCTAssertTrue(message.contains("Cold, and never wistful."),
+                      "the essay is what the writer declared in prose, and it is "
+                      + "still briefed as prose")
+        XCTAssertTrue(message.contains("No scene may show Kelly learning it on the page."),
+                      "the ruling reaches the run as its derived reading")
+
+        XCTAssertFalse(message.contains(RulingsSection.heading),
+                       "the rulings SECTION must not be in the message — the clauses "
+                       + "are what carries it now")
+        XCTAssertFalse(message.contains("ruled 7 Aug 2026"),
+                       "…nor the row's own date and provenance, which are the pane's "
+                       + "furniture and mean nothing to a reader of prose")
+        XCTAssertEqual(
+            occurrences(of: "Kelly heard about the call offstage", in: message), 1,
+            "the double-count guard: the writer's sentence appears once, as the "
+            + "rule's quote. Twice means the whole-text briefing survived the "
+            + "switch and the run is over-weighting one declaration")
+    }
+
+    /// **The lazy trigger: a reading already made for exactly this text is
+    /// served, and nothing is spawned.** `AREA.md`'s "derivation trigger"
+    /// section — the first consumer that finds the cache empty is the one that
+    /// derives, and a consumer that finds it full derives nothing.
+    func test_aCachedReadingIsServedAndNothingIsDerived() throws {
+        let runner = SpyRunner()
+        let statement = statementWithARuling()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            statementText: statement, cachedWorld: readingOf(statement))
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.derivations, 0,
+                       "a hit must spawn no `claude -p` — a derivation per run is a "
+                       + "subprocess and a bill per keystroke")
+        XCTAssertTrue(runner.sends[0].message.contains("No sentence may reach for nostalgia."))
+    }
+
+    /// The converse, and the first production caller `derive` has ever had: a
+    /// miss derives exactly once and briefs what came back.
+    func test_aCacheMissDerivesOnceAndBriefsTheReading() throws {
+        let runner = SpyRunner()
+        let statement = statementWithARuling()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            statementText: statement, cachedWorld: nil,
+            derivedWorld: readingOf(statement))
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.derivations, 1)
+        XCTAssertTrue(runner.sends[0].message.contains("No sentence may reach for nostalgia."),
+                      "the fresh reading is what the run is briefed on")
+    }
+
+    /// **A derivation that could not be had costs the clauses and not the
+    /// run.** The CLI is missing, the toggle went off between the keystroke and
+    /// the spawn, the model answered prose — all of them are `nil` from
+    /// `WorldDeriver.derive`, and all of them leave a writer who pressed ⌘R
+    /// with a check of their wet ink against their essay. Honest, not fatal.
+    func test_aDerivationThatFailsStillBriefsTheEssay() throws {
+        let runner = SpyRunner()
+        let statement = statementWithARuling()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            statementText: statement, cachedWorld: nil, derivedWorld: nil)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = runner.sends[0].message
+        XCTAssertTrue(message.contains("Cold, and never wistful."),
+                      "the essay still reaches the run")
+        XCTAssertFalse(message.contains("Declared world —"),
+                       "…and no clause section is invented for a reading that does "
+                       + "not exist")
+        XCTAssertEqual(harness.orchestrator.runState, .idle,
+                       "a missing derivation is not a failed run")
+    }
+
+    /// **No statement at all is a valid state and still a run.** M1A's rule —
+    /// absence mints nothing — means a writer who has never written an intent
+    /// gets the reader's report and the continuity questions, with the
+    /// conformance section simply having nothing to check (the schema tolerates
+    /// an empty `checks` array).
+    func test_noDeclaredWorldStillRuns() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), statementText: nil)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.derivations, 0, "there is nothing to derive")
+        let message = runner.sends[0].message
+        XCTAssertTrue(message.contains("The fog came."), "the delta is still briefed")
+        XCTAssertTrue(message.contains(CompilerPrompt.sectionSchemaDescription),
+                      "…and the four-section contract is still asked for")
+        XCTAssertEqual(harness.orchestrator.runState, .idle)
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId)?.intentSnapshot,
+                     "the run records that it was judged against nothing declared")
+    }
+
+    /// **The bible slice goes out and the run's fact-candidates come back.**
+    /// The ledger is what the compiler already believes; the candidates are
+    /// what this delta established. Neither is ever rendered as a note — they
+    /// land in the store and surface in the Intent pane's bible stratum.
+    func test_theBibleSliceIsBriefedAndTheRunsFactsAreRecorded() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText("""
+            {"section":"conformance","checks":[]}
+            {"section":"continuity","questions":[]}
+            {"section":"reader","reports":[]}
+            {"section":"facts","candidates":[{"subject":"Kelly","fact":"Kelly is at the dock by dawn.","refs":["a1b2"]}]}
+            """)
+        let known = BibleFact(
+            id: "f1", subject: "Kelly", fact: "Kelly has never seen the sea.",
+            establishedAt: "z9y8", docId: "doc-1", recordedAt: Date())
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), bibleFacts: [known])
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertTrue(runner.sends[0].message.contains("Kelly has never seen the sea."),
+                      "what the ledger already holds about this delta's subjects is "
+                      + "briefed — a run about Kelly's scene carries Kelly's facts")
+        XCTAssertEqual(harness.sliceQueries.first?.contains("The fog came."), true,
+                       "…and the slice is asked against the delta's own prose")
+        XCTAssertEqual(harness.recordedFacts.map(\.fact),
+                       ["Kelly is at the dock by dawn."],
+                       "the run's candidates reach the ledger")
+        XCTAssertEqual(
+            harness.diagnostics.live(docId: docId, currentText: { _ in "The fog came." }).count,
+            0,
+            "…and never the pane: a fact is not a note")
+    }
+
+    /// **Cancel has to reach a run that has not sent anything yet.** The
+    /// session's own `cancelCurrentRun` guards on having a turn, so against a
+    /// run still deriving it is a silent no-op — the writer presses Cancel,
+    /// nothing stops, and seconds later the run they cancelled spends a whole
+    /// turn. The window was an instant before the derivation moved into it.
+    func test_cancelDuringTheDerivationEndsTheRun() throws {
+        let runner = SpyRunner()
+        let gate = PrepareGate()
+        let statement = statementWithARuling()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            statementText: statement, cachedWorld: nil,
+            derivedWorld: readingOf(statement), holdDerivation: gate)
+
+        harness.orchestrator.runRequested(docId: docId)
+        settle()
+        XCTAssertEqual(harness.orchestrator.runState, runningOnTheStandingReading)
+
+        harness.orchestrator.cancel()
+        XCTAssertEqual(harness.orchestrator.runState, .idle,
+                       "Cancel is answered at the keystroke, not when the "
+                       + "subprocess happens to finish")
+
+        gate.release()
+        settle()
+        XCTAssertEqual(runner.sends.count, 0,
+                       "the cancelled run must not go on to spend a turn")
+
+        // And the orchestrator is still usable — Cancel ends a run, not the
+        // session (`shutdown()` is the other verb).
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        settle()
+        gate.release()
+        awaitSends(1, on: runner)
+        XCTAssertEqual(runner.sends.count, 1)
+    }
+
+    /// **A derivation is a subprocess, and the writer can switch Claude off
+    /// while it runs.** The same defect the burst-flush hop has — a run
+    /// acknowledged a moment before the toggle went off must not spawn the
+    /// session the toggle was meant to prevent — arriving through the second
+    /// suspension point this run now has.
+    func test_shutdownDuringTheDerivationAbandonsTheRun() throws {
+        let runner = SpyRunner()
+        let gate = PrepareGate()
+        let statement = statementWithARuling()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            statementText: statement, cachedWorld: nil,
+            derivedWorld: readingOf(statement), holdDerivation: gate)
+
+        harness.orchestrator.runRequested(docId: docId)
+        settle()
+        XCTAssertEqual(gate.entries, 1, "the run is deriving")
+
+        harness.orchestrator.shutdown()
+        gate.release()
+        settle()
+
+        XCTAssertEqual(runner.sends.count, 0,
+                       "the abandoned run must not reach a session")
+        XCTAssertEqual(harness.orchestrator.runState, .idle)
     }
 
     // MARK: - Production wiring (real store, real closures)
@@ -923,13 +1379,18 @@ final class CompilerRunCommandTests: XCTestCase {
     }
 
     private func makeProductionEnvironment(
-        store: ProjectStore, documentStore: DocumentStore, root: URL
+        store: ProjectStore, documentStore: DocumentStore, root: URL,
+        declaredWorld: DeclaredWorldStore? = nil, bible: BibleStore? = nil
     ) -> CompilerOrchestrator.Environment {
-        CompilerOrchestrator.Environment.production(
+        let device = DeviceSlug.make(from: "test-mac")
+        return CompilerOrchestrator.Environment.production(
             store: store, documentStore: documentStore, projectURL: root,
+            declaredWorld: declaredWorld
+                ?? DeclaredWorldStore(projectRoot: root, device: device),
+            bible: bible ?? BibleStore(projectRoot: root, device: device),
             preferences: UserPreferences(
                 defaults: UserDefaults(suiteName: "CompilerListings-\(UUID())")!),
-            onRunAcknowledged: {})
+            onRunAcknowledged: { _ in })
     }
 
     /// Each pinned kind names the tool that fetches its full contents — a
@@ -1021,6 +1482,193 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(environment.paletteListing(), [])
     }
 
+    // MARK: - Production wiring: the declared world and the bible
+
+    /// The briefing carries the statement WHOLE and the key its reading is
+    /// cached under — and the key is `DeclaredWorldStore`'s own spelling, asked
+    /// for rather than rebuilt. Two spellings mean two caches, and one of them
+    /// is never hit: every run would re-derive, spawning a `claude` per
+    /// keystroke against prose that has not moved.
+    func test_productionIntentBriefsTheWholeStatementUnderItsCacheKey() async throws {
+        let root = try makeListingsProjectRoot()
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        store.documentStore = documentStore
+        let statement = try await store.createStatement(
+            kind: .intent, scope: .document("ch-1"))
+        try await store.appendToStatement(
+            "Cold, and never wistful.", to: statement, session: "s")
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+
+        let briefing = try XCTUnwrap(environment.intent("ch-1"))
+
+        let resolved = try XCTUnwrap(store.effectiveIntent(forDocId: "ch-1"))
+        XCTAssertEqual(briefing.statementText, store.statementText(of: resolved),
+                       "the run reads the statement through the one spelling every "
+                       + "other reader uses")
+        XCTAssertEqual(briefing.scopeKey, DeclaredWorldStore.scopeKey(for: resolved.scope),
+                       "…and names its cache scope the way the cache does")
+    }
+
+    /// The cache's hash gate, reached through the production closure: a reading
+    /// made from exactly this text is served, and one made from text that has
+    /// since moved is not. Nothing here derives — the closure that spawns is
+    /// the other one, deliberately.
+    func test_productionServesOnlyAReadingMadeFromTheTextInHand() async throws {
+        let root = try makeListingsProjectRoot()
+        let device = DeviceSlug.make(from: "test-mac")
+        let worlds = DeclaredWorldStore(projectRoot: root, device: device)
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root, declaredWorld: worlds)
+
+        let statement = "Cold, and never wistful."
+        worlds.store(
+            DerivedWorld(
+                sourceHash: DerivedWorld.sourceHash(of: statement),
+                clauses: [DerivedClause(quote: statement, check: "No nostalgia.")],
+                rules: [], derivedAt: Date()),
+            forScopeKey: "doc-ch-1")
+
+        XCTAssertEqual(
+            environment.cachedWorld(
+                CompilerOrchestrator.IntentBriefing(
+                    statementText: statement, scopeKey: "doc-ch-1"))?.clauses.first?.check,
+            "No nostalgia.")
+        XCTAssertNil(
+            environment.cachedWorld(
+                CompilerOrchestrator.IntentBriefing(
+                    statementText: statement + " Mostly.", scopeKey: "doc-ch-1")),
+            "the writer edited the statement; the old reading is not of this text")
+    }
+
+    /// **A derivation that is not cached is a derivation paid for again on the
+    /// next keystroke.** The lazy trigger only holds if the miss it answers
+    /// stops being a miss, so the production closure stores what it derived —
+    /// asserted by asking the cache afterwards, not by watching the closure.
+    func test_productionCachesWhatItDerives() async throws {
+        let root = try makeListingsProjectRoot()
+        let device = DeviceSlug.make(from: "test-mac")
+        let worlds = DeclaredWorldStore(projectRoot: root, device: device)
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        let statement = "Cold, and never wistful."
+        let deriver = StubDeriver(
+            answer: DerivedWorld(
+                sourceHash: DerivedWorld.sourceHash(of: statement),
+                clauses: [DerivedClause(quote: statement, check: "No nostalgia.")],
+                rules: [], derivedAt: Date()))
+        let environment = CompilerOrchestrator.Environment.production(
+            store: store, documentStore: documentStore, projectURL: root,
+            declaredWorld: worlds, bible: BibleStore(projectRoot: root, device: device),
+            preferences: UserPreferences(
+                defaults: UserDefaults(suiteName: "CompilerDerive-\(UUID())")!),
+            makeDeriver: { _ in deriver },
+            onRunAcknowledged: { _ in })
+        let briefing = CompilerOrchestrator.IntentBriefing(
+            statementText: statement, scopeKey: "doc-ch-1")
+
+        let derived = await environment.deriveWorld(briefing, "test-model")
+
+        XCTAssertEqual(derived?.clauses.first?.check, "No nostalgia.")
+        XCTAssertEqual(deriver.calls, 1)
+        XCTAssertNotNil(environment.cachedWorld(briefing),
+                        "the reading must be in the cache afterwards, or the next run "
+                        + "spawns `claude` again over prose that has not moved")
+        XCTAssertEqual(deriver.sawText, statement,
+                       "the derivation reads the statement WHOLE — the rulings are "
+                       + "half of what there is to derive")
+    }
+
+    /// A derivation that failed stores nothing: an absent entry is a miss the
+    /// next run can retry, and there is no such thing as a cached failure.
+    func test_productionCachesNothingWhenTheDerivationFails() async throws {
+        let root = try makeListingsProjectRoot()
+        let device = DeviceSlug.make(from: "test-mac")
+        let worlds = DeclaredWorldStore(projectRoot: root, device: device)
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        let environment = CompilerOrchestrator.Environment.production(
+            store: store, documentStore: documentStore, projectURL: root,
+            declaredWorld: worlds, bible: BibleStore(projectRoot: root, device: device),
+            preferences: UserPreferences(
+                defaults: UserDefaults(suiteName: "CompilerDerive-\(UUID())")!),
+            makeDeriver: { _ in StubDeriver(answer: nil) },
+            onRunAcknowledged: { _ in })
+        let briefing = CompilerOrchestrator.IntentBriefing(
+            statementText: "Cold.", scopeKey: "doc-ch-1")
+
+        let derived = await environment.deriveWorld(briefing, "test-model")
+
+        XCTAssertNil(derived)
+        XCTAssertNil(environment.cachedWorld(briefing))
+    }
+
+    /// **The slice rule, stated where it is decided: a fact rides along when
+    /// its SUBJECT's string occurs in the delta's prose, case-insensitively.**
+    /// The spec's own words — "a run about Kelly's scene carries Kelly's facts,
+    /// not the ledger" — and the cheapest rule that can be true of prose nobody
+    /// has parsed for entities.
+    func test_productionBibleSliceCarriesOnlyTheSubjectsTheDeltaMentions() async throws {
+        let root = try makeListingsProjectRoot()
+        let device = DeviceSlug.make(from: "test-mac")
+        let bible = BibleStore(projectRoot: root, device: device)
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        bible.record([
+            BibleFact(id: "f1", subject: "Kelly", fact: "Kelly has never seen the sea.",
+                      establishedAt: nil, docId: "ch-1", recordedAt: Date()),
+            BibleFact(id: "f2", subject: "Sarah", fact: "Sarah drives a green van.",
+                      establishedAt: nil, docId: "ch-1", recordedAt: Date())
+        ])
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root, bible: bible)
+
+        let sliced = environment.bibleSlice("the fog found kelly at the dock")
+
+        XCTAssertEqual(sliced.map(\.subject), ["Kelly"],
+                       "lower-cased prose still names Kelly; Sarah is not in this "
+                       + "delta and her facts are not this run's business")
+    }
+
+    /// The other half of the ledger seam: what a run establishes is recorded.
+    func test_productionRecordsTheRunsFactCandidates() async throws {
+        let root = try makeListingsProjectRoot()
+        let device = DeviceSlug.make(from: "test-mac")
+        let bible = BibleStore(projectRoot: root, device: device)
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root, bible: bible)
+
+        environment.recordFacts([
+            BibleFact(id: "f1", subject: "Kelly", fact: "Kelly is at the dock by dawn.",
+                      establishedAt: "a1b2", docId: "ch-1", recordedAt: Date())
+        ])
+
+        XCTAssertEqual(bible.allFacts().map(\.fact), ["Kelly is at the dock by dawn."])
+    }
+
+    /// A `WorldDeriver` that answers what the test says and counts its calls —
+    /// the derivation's `SpyRunner`. Production's own deriver spawns a real
+    /// `claude`, which no test may do.
+    @MainActor
+    private final class StubDeriver: WorldDeriver {
+        private let answer: DerivedWorld?
+        private(set) var calls = 0
+        private(set) var sawText: String?
+
+        init(answer: DerivedWorld?) { self.answer = answer }
+
+        func derive(statementText: String) async -> DerivedWorld? {
+            calls += 1
+            sawText = statementText
+            return answer
+        }
+    }
+
     // MARK: - The window the burst opens
 
     /// **The refusal covers the new window too.** Closing the burst is a disk
@@ -1039,13 +1687,16 @@ final class CompilerRunCommandTests: XCTestCase {
         harness.orchestrator.runRequested(docId: docId)
         settle()
         XCTAssertEqual(gate.entries, 1, "the run is closing the burst")
-        XCTAssertEqual(harness.flashes, 1)
+        XCTAssertEqual(harness.flashesSaid, [.started])
 
         harness.orchestrator.runRequested(docId: docId)
         settle()
         XCTAssertEqual(gate.entries, 1, "the second press must not start a second run")
-        XCTAssertEqual(harness.flashes, 1,
-                       "a refused run is silent — the flash acknowledges work started")
+        XCTAssertEqual(harness.flashesSaid, [.started, .alreadyChecking],
+                       "…and is answered as one that started nothing. The window is "
+                       + "short and `runState` is honestly still idle inside it, so "
+                       + "without this the impatient second press of a double-⌘R is the "
+                       + "one press in the whole flow that produces no reaction at all")
 
         gate.release()
         awaitSends(1, on: runner)
@@ -1107,11 +1758,17 @@ final class CompilerRunCommandTests: XCTestCase {
         /// Held so the stores outlive the environment's weak captures.
         let store: ProjectStore
         let documentStore: DocumentStore
+        /// The real derivation cache the run and `RulingPerformer` share — the
+        /// two ends of the invalidation chain.
+        let declaredWorld: DeclaredWorldStore
         let root: URL
     }
 
     private func makeLiveDocumentHarness(
-        runner: SpyRunner, initialProse: String = "The fog came.\n"
+        runner: SpyRunner, initialProse: String = "The fog came.\n",
+        /// The one substitution beyond the subprocess itself: production would
+        /// spawn a real, billing `claude -p` here.
+        deriver: WorldDeriver? = nil
     ) async throws -> LiveDocumentHarness {
         let root = try makeProjectRoot()
         try FileManager.default.createDirectory(
@@ -1136,11 +1793,17 @@ final class CompilerRunCommandTests: XCTestCase {
             device: "test-mac", session: "s", presenter: nil)
         documentStore.register(document: document, for: docPath)
 
-        let diagnostics = DiagnosticsStore(
-            projectRoot: root, device: DeviceSlug.make(from: "test-mac"))
+        let device = DeviceSlug.make(from: "test-mac")
+        let diagnostics = DiagnosticsStore(projectRoot: root, device: device)
+        let declaredWorld = DeclaredWorldStore(projectRoot: root, device: device)
         let configURL = root.appendingPathComponent("compiler-mcp.json")
-        var environment = makeProductionEnvironment(
-            store: store, documentStore: documentStore, root: root)
+        var environment = CompilerOrchestrator.Environment.production(
+            store: store, documentStore: documentStore, projectURL: root,
+            declaredWorld: declaredWorld, bible: BibleStore(projectRoot: root, device: device),
+            preferences: UserPreferences(
+                defaults: UserDefaults(suiteName: "CompilerLiveDoc-\(UUID())")!),
+            makeDeriver: deriver.map { stub in { _ in stub } },
+            onRunAcknowledged: { _ in })
         environment.writeMCPConfig = {
             try Data("{}".utf8).write(to: configURL, options: .atomic)
             return configURL
@@ -1151,7 +1814,8 @@ final class CompilerRunCommandTests: XCTestCase {
 
         return LiveDocumentHarness(
             orchestrator: orchestrator, diagnostics: diagnostics, document: document,
-            store: store, documentStore: documentStore, root: root)
+            store: store, documentStore: documentStore, declaredWorld: declaredWorld,
+            root: root)
     }
 
     /// **The run reads the present, not the last pause.** Freshly typed prose
@@ -1255,6 +1919,114 @@ final class CompilerRunCommandTests: XCTestCase {
                        "the burst the run could not close lands on the next one")
     }
 
+    // MARK: - The chain the atomic switch exists for
+
+    /// A deriver that reads the statement the way the real one is asked to —
+    /// **the rulings included** — and hands each back as a clause.
+    ///
+    /// Echoing rather than answering a canned world is the point: the test can
+    /// then name the writer's ruled sentence in its assertions and know it got
+    /// there by travelling the whole chain (ruling written → cache retired →
+    /// re-derived → briefed), rather than because a fixture put it there.
+    @MainActor
+    private final class EchoRulingsDeriver: WorldDeriver {
+        private(set) var calls = 0
+        private(set) var sawTexts: [String] = []
+
+        func derive(statementText: String) async -> DerivedWorld? {
+            calls += 1
+            sawTexts.append(statementText)
+            let parsed = RulingsSection.parse(statementText)
+            return DerivedWorld(
+                sourceHash: DerivedWorld.sourceHash(of: statementText),
+                clauses: parsed.rulings.map {
+                    DerivedClause(quote: $0.text, check: Self.check)
+                },
+                rules: [], derivedAt: Date())
+        }
+
+        /// Distinct from anything the statement says, so an assertion on it
+        /// cannot pass on raw prose leaking through — **and repeating none of
+        /// the ruling's own words**, which the first draft of this fixture did:
+        /// it built the check out of the ruled sentence, and the exact-once
+        /// assertion below went red on the fixture rather than on the code. The
+        /// count guard doing its job on its own author is the best evidence
+        /// available that it is not decorative.
+        static let check = "checkable, as the derivation reads it"
+    }
+
+    /// **The whole chain, driven once, with nothing faked but the two
+    /// subprocesses.** A writer answers a note, the answer lands as a ruling on
+    /// the real statement through the real `RulingPerformer`, and the NEXT run
+    /// is briefed on it.
+    ///
+    /// Every link here was already pinned in isolation — `RulingPerformerTests`
+    /// for the invalidation, `test_aCacheMissDerivesOnceAndBriefsTheReading`
+    /// for derive-and-brief, `test_theBriefingIsSentOnceWhileTheSessionLives`
+    /// for the elision — and that is exactly the arrangement this codebase has
+    /// been bitten by: each half correct, the composition broken, nothing red.
+    /// The load-bearing assertion is the NEGATIVE one — that run 2 is not
+    /// elided — because eliding is what a run does when it believes nothing has
+    /// changed, and a writer whose ruling is answered with "unchanged since
+    /// last run" has declared something into a void with no symptom anywhere.
+    func test_aRulingBetweenRunsReachesTheNextBriefing() async throws {
+        let runner = SpyRunner()
+        let deriver = EchoRulingsDeriver()
+        let fx = try await makeLiveDocumentHarness(runner: runner, deriver: deriver)
+        let statement = try await fx.store.createStatement(
+            kind: .intent, scope: .document("ch-1"))
+        try await fx.store.appendToStatement(
+            "Cold, and never wistful.", to: statement, session: "seed")
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await settle()
+        XCTAssertTrue(runner.sends[0].message.contains("Cold, and never wistful."),
+                      "precondition: run 1 briefs the essay")
+        XCTAssertEqual(deriver.calls, 1, "precondition: run 1 derived, on an empty cache")
+
+        // The writer answers a note. This is `DiagnosticsPane.commitAnswer`'s
+        // own call, with its own arguments — the run has no route into a
+        // statement and must not grow one (the membrane, AREA.md).
+        let ruled = "Kelly heard about the call offstage."
+        try await RulingPerformer.rule(
+            ruled, provenance: "answered a compiler note",
+            forScope: .document("ch-1"), store: fx.store, world: fx.declaredWorld)
+
+        // …and keeps writing, so run 2 has a delta of its own to check. Without
+        // this the second ⌘R is "nothing new" and never reaches the session at
+        // all — the run being asserted about would not exist.
+        fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(2, on: runner)
+        await settle()
+
+        let second = runner.sends[1].message
+        XCTAssertFalse(second.contains("unchanged since last run"),
+                       "the declared world MOVED, so the briefing must be re-embedded "
+                       + "— an elided run tells the session nothing happened and the "
+                       + "writer's ruling is checked by nobody")
+        XCTAssertTrue(second.contains(EchoRulingsDeriver.check),
+                      "the ruling reaches run 2 as its derived clause: the cache was "
+                      + "retired, the statement re-derived, and the reading briefed")
+        XCTAssertEqual(deriver.calls, 2,
+                       "…and it was re-derived rather than served from the reading "
+                       + "made before the ruling existed")
+        XCTAssertEqual(deriver.sawTexts.last?.contains(ruled), true,
+                       "…from the statement WITH the ruling in it — the derivation "
+                       + "reads all of it, or a ruled decision is derived out of "
+                       + "existence")
+
+        // The atomic switch, holding through the real chain rather than a
+        // fixture: the ruling is in the message as a clause and not as its own
+        // prose, exactly once.
+        XCTAssertFalse(second.contains(RulingsSection.heading))
+        XCTAssertEqual(occurrences(of: ruled, in: second), 1,
+                       "the writer's sentence appears once, in the clause. Twice is "
+                       + "the whole-statement briefing back through a real ruling")
+    }
+
     // MARK: - Teardown
 
     /// Releasing the window releases the session AND the closures that hold the
@@ -1288,7 +2060,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         harness.orchestrator.runRequested(docId: docId)
         awaitSends(1, on: runner)
-        XCTAssertEqual(harness.orchestrator.runState, .running(docId: docId))
+        XCTAssertEqual(harness.orchestrator.runState, runningOnTheStandingReading)
 
         harness.orchestrator.shutdown()
         settle()

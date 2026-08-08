@@ -461,7 +461,11 @@ struct DetailPaneToggle<Inspector: View>: View {
                 // The answer flow's destination (M2 Task 10). Passed rather
                 // than reached for, so the pane still holds no store of its
                 // own and a caller that has none simply offers no Answer.
-                store: store)
+                store: store,
+                // …and the cache that answer invalidates. Without it the next
+                // run checks the writer against a world derived before their
+                // ruling existed, and nothing anywhere says so.
+                world: declaredWorldStore)
         } else {
             ContentUnavailableView(
                 "Select a document",

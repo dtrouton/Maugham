@@ -9,13 +9,22 @@ invariants, the design of record —
 supersession —
 `docs/superpowers/specs/2026-08-07-compiler-second-draft-design.md`, which
 keeps the run's mechanism unchanged (§5's opening line) but replaces the
-workflow half: notes, fates, the answer flow and the pane's organization. The
-second-draft milestone ships in three stages; **this directory currently
-holds only Stage 1** — the declared world's derivation layer, the Rulings
-stratum, and the bible's storage. **The run itself still speaks the original
-M2 contract below** (one category tag per note, no conformance/continuity/
-reader-report split, no fact-candidates) until Stage 2 rebuilds it (spec §5,
-§8).
+workflow half: notes, fates, the answer flow and the pane's organization.
+
+**The run speaks the v2 contract** (spec §5): four line-delimited sections —
+conformance against the writer's derived clauses, continuity questions, a
+reader's report, and fact-candidates that land silently in the bible.
+`CompilerPrompt.sectionSchemaDescription` is what is asked for and
+`DiagnosticIngest.parseSection`/`parseAll` is what reads it. **The v1 contract
+is gone**: `runMessage`, `CompilerContext` and `DiagnosticIngest.parse` were
+retired in Stage 2's own docs task once the atomic switch (below) proved they
+had no production caller — a grep for `runMessage(` today finds nothing at
+all, not even a test.
+
+Two things v1 had that v2 does not: a free-form category tag (the section a
+note came from is its whole classification), and the drift diagnostic — drift
+becomes a PATTERN computed across run records in Stage 3, and nothing
+replaces it here.
 
 Two sentences hold the whole design:
 
@@ -25,8 +34,8 @@ Two sentences hold the whole design:
 - **The compiler reads and never writes.** It reads the manuscript through an
   enumerated read-only MCP allowlist and answers with a structured message. The
   one thing that puts words anywhere is `RulingPerformer`, and its input is a
-  sentence the writer typed. (`IntentAppendPerformer` is now a shim over it,
-  kept only until Stage 2 rewrites the pane that calls it.)
+  sentence the writer typed. (The M2 answer shim that routed into it,
+  `IntentAppendPerformer`, is gone: the pane's reply field calls the verb.)
 
 ## What this area owns
 
@@ -36,7 +45,7 @@ Two sentences hold the whole design:
 - The diagnostics themselves: shape, per-device sidecar, staleness
   (`Diagnostic`, `DiagnosticsStore`, `DiagnosticIngest`).
 - Where a note goes when the writer keeps it (`DiagnosticPromotion`) or answers
-  it (`RulingPerformer`, through the `IntentAppendPerformer` shim).
+  it (`RulingPerformer.rule`, called by `DiagnosticsPane.commitAnswer`).
 - **The one door into the writer-owned layer** (`RulingPerformer`) — count the
   verbs in the census rather than reading a number here; today they are rule,
   revoke, edit and `restore`, each taking the writer's words as a `String` or a
@@ -80,17 +89,17 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `CompilerOrchestrator.swift` | **The run.** Owned by `ProjectWindow`; one orchestrator per window, one session per orchestrator |
 | `CompilerEnvironment+Project.swift` | The production wiring — the window's stores, as the closures the orchestrator runs on. Every capture is weak |
 | `DeltaBuilder.swift` | What changed since the last run's marker, in the writer's order (`sequence`, never raw `paragraphs`) |
-| `CompilerPrompt.swift` | The message. Asks different questions of new and revised prose; carries intent + delta |
+| `CompilerPrompt.swift` | The message. Asks different questions of new and revised prose; v2 carries the essay + derived clauses + the bible slice + the delta, diffed in as ONE unit (`briefingHash`) |
 | `CompilerAllowlist.swift` | The enumerated read-only MCP tool list, as `--allowedTools` |
 | `CompilerRunner.swift` | The seam: `send(message:systemPreamble:) -> CompilerRunEvent`, plus every way a run can fail |
 | `ClaudeCLISession.swift` | The warm subprocess behind that seam |
-| `DiagnosticIngest.swift` | The final structured message → `[Diagnostic]`, anchored against the LIVE document |
+| `DiagnosticIngest.swift` | The structured message → notes, clause statuses and fact-candidates, anchored against the LIVE document. One section is one unit, so arrival can become incremental without the fold changing |
+| `DeclaredWorldDeriver.swift` | Also the one-shot's pipe discipline: stdout is drained WHILE the process runs. Reading it from `terminationHandler` deadlocked on any answer past ~64 KB — the child blocks on its own write, so it never exits, so the handler never fires |
 | `Diagnostic.swift` | `Diagnostic` + `CompilerRun` — the wire and sidecar shapes |
 | `DiagnosticsStore.swift` | The per-device, per-document sidecar, and the staleness rule |
 | `DiagnosticPromotion.swift` | What a kept note says once it is an op-logged task |
 | `RulingPerformer.swift` | rule / revoke / edit / restore — the only writes into a statement's `## Rulings` stratum |
 | `StatementEssay.swift` | Where the essay ends and the strata begin — the byte-exact split the Intent pane's editor binds through |
-| `IntentAppendPerformer.swift` | Shim over `RulingPerformer.rule`; Stage 2 removes it |
 | `DeclaredWorld.swift` | `DerivedClause`/`DerivedRule`/`DerivedWorld` (the reading) + `DeclaredWorldStore` (its per-device, hash-gated cache) |
 | `DeclaredWorldDeriver.swift` | `ClaudeWorldDeriver` — the one-shot, no-MCP `claude -p` that turns a statement's prose into a `DerivedWorld` |
 | `BibleStore.swift` | `BibleFact` (a reading with its establishing ¶) + `BibleStore` (per-device, project-scoped ledger) |
@@ -214,9 +223,12 @@ is the resumed session id, not the process.
 
 This is what the milestone exists for, and the two halves are asymmetric:
 
-- **Drift** — a diagnostic with no `¶` anchor, pinned at the top of the pane.
-  Its action is **Open Intent**; it never offers a reply field, because drift is
-  not about a paragraph and the honest answer is to edit the statement whole.
+- **Drift — no longer a note, and not yet a pattern.** v1 raised it as an
+  anchorless diagnostic from an `intent_drift` field; the v2 contract has no
+  such field and the run carries nothing in its place. It returns in Stage 3 as
+  a pattern computed from the run records the sidecar already keeps — a clause
+  straining the same way across consecutive runs (spec §3.4). Between the two
+  it is simply absent, which is the honest state rather than a gap to fill.
 - **Accretion** — an anchored note offers **Answer**, and the writer's sentence
   becomes a **ruling** on the **piece's** intent statement (never the
   project's), minting it if absent: an itemized, dated line under `## Rulings`
@@ -246,40 +258,126 @@ statement mints or edits for reasons that have nothing to do with a check
 being imminent; deriving on every keystroke would spawn a subprocess for
 prose nobody is about to compile against.
 
-Two consumers are named by the spec (§3.4) and **neither is wired to call
-`derive` yet**:
+**The run is that consumer, and it is the only one.**
+`CompilerOrchestrator.resolveWorld` is the single production call site of
+`WorldDeriver.derive` — it asks `Environment.cachedWorld` first and reaches
+for `deriveWorld` only on a miss, both of them closures the production wiring
+points at `DeclaredWorldStore` (`CompilerEnvironment+Project`). A derivation
+that succeeds is cached by the closure that made it, or the next keystroke
+pays for it again
+(`CompilerRunCommandTests.test_productionCachesWhatItDerives`); a derivation
+that fails caches nothing, because there is no such thing as a cached "could
+not read this".
 
-- **The pane's own conformance preview**, if it ever gets one — not built.
-  The Rulings and Bible strata this stage shipped (`RulingsStratum.swift`,
-  `BibleStratum.swift`) read `RulingsSection.parse` and `BibleStore.allFacts()`
-  only; neither reads `DeclaredWorldStore.cached` or draws a clause or a rule.
-  This is the "never shown as mechanics" rule (spec §3.1) held all the way to
-  "never even asked for."
-- **Stage 2's run**, which will read the derived clauses/rules into its
-  context the way it already reads the essay and the pinned set. This is the
-  first REAL consumer.
-
-So today `ClaudeWorldDeriver.derive` has **zero production call sites** —
-grep it. `DeclaredWorldStore` is nonetheless wired into every window
-(`ProjectWindow.self.declaredWorld = DeclaredWorldStore(...)`) and
-`RulingPerformer` invalidates it on every write (`rule`/`revoke`/`edit`, each
-taking `world` as an explicit, undefaulted parameter — see that file's own
-doc). That is Stage 1's shipped shape, not a gap: the cache and its
-invalidation are provable and tested without a caller that derives
-(`DeclaredWorldStoreTests`, `RulingPerformerTests`), and
+The other consumer the spec names — **the pane's own conformance preview** —
+is still not built, and deliberately: the Rulings and Bible strata
+(`RulingsStratum.swift`, `BibleStratum.swift`) read `RulingsSection.parse`
+and `BibleStore.allFacts()` only; neither reads `DeclaredWorldStore.cached`
+or draws a clause or a rule. That is the "never shown as mechanics" rule
+(spec §3.1) held all the way to "never even asked for", and
 `StatementPaneStrataTests`'s "no derivation is ever drawn" census is what
-pins that the pane does not become the first caller by accident. Wiring the
-trigger into an actual consumer is Stage 2's task, not this one's.
+keeps it true.
+
+Two things the trigger's shape buys, both worth keeping when you touch it:
+
+- **A derivation is the run's second suspension**, after the burst flush and
+  before the send, and it is the long one — a whole subprocess. It carries
+  `CompilerOrchestrator.runGeneration`, so the AI toggle going off while a
+  derivation runs abandons the run instead of spawning the session the toggle
+  was meant to prevent.
+- **The statement is derived WHOLE and briefed by halves.** `derive` reads
+  essay + rulings (the rulings are half of what there is to derive); the
+  message carries the essay as prose and everything below it as clauses. See
+  "the atomic switch" below.
+
+`RulingPerformer` invalidates the cache on every write (`rule`/`revoke`/
+`edit`, each taking `world` as an explicit, undefaulted parameter — see that
+file's own doc), which is what makes a revoked ruling stop being checked
+immediately rather than at the next statement edit.
+
+## The atomic switch — why the essay and the clauses landed together
+
+Until Stage 2 the run briefed the statement WHOLE, and that was correct:
+rulings are declarations, and a contract with no notion of a derived clause
+had to see them as prose. The moment the run consumes clauses, briefing the
+prose as well puts the same declaration in front of the model twice — and a
+model told a clause twice weights it over the rest of the writer's intent,
+which quietly stops the run being about the essay. So the two halves had to
+ship in one commit, and they did.
+
+The guard is `CompilerRunCommandTests.test_rulingsAreBriefedAsClausesNotProse`
+— the essay present, the derived reading present, the `## Rulings` heading and
+the row's date/provenance absent, and the writer's ruled sentence appearing
+**exactly once**. Count the occurrence, not the presence: presence alone
+passes on a message that carries the sentence twice.
+`test_aRulingBetweenRunsReachesTheNextBriefing` is the same guard over the
+whole chain — a real `RulingPerformer.rule` between two real runs — and it is
+the one that says the ruling *arrives*, not merely that the prose does not.
+
+**The door this does NOT close, and the shape of the risk if you change the
+contract.** `ClaudeWorldDeriver.derivationSchemaDescription` asks for a
+`quote` copied verbatim from **the statement**, essay included — not only from
+the Rulings stratum. So a real derivation can return a clause whose quote is a
+sentence of the essay, and that sentence is then in the message twice: once as
+the essay's own prose, once as the clause's citation. It is the identical
+over-weighting the switch above exists to prevent, arriving through a
+different door, and nothing today measures it — the guard counts the RULED
+sentence, and the fixture's essay-sourced clause is deliberately not counted.
+
+Left open rather than closed, on purpose: the honest fixes are all contract
+changes (quote essay clauses by reference, or drop the essay's prose once every
+sentence of it is a clause), each of which trades one kind of loss for another
+and belongs to a milestone that can measure the result. **What must not happen
+is closing it by accident** — if you widen the derivation schema, or make the
+briefing embed clause quotes some other way, this is the paragraph to re-read
+first. A watch item for Stage 3, recorded here because a reader of
+`worldSection` cannot see it.
+
+## The third door: bless, and the fact that comes back
+
+`BibleStore.record` deliberately keeps no memory of what was dismissed (spec
+§3.3, "may return if the manuscript re-establishes it"; the method's own doc
+says it "must not grow one"). For **dismiss** that is the designed behaviour.
+For **bless** it composes into a trap, and the walk is short enough to state
+verbatim:
+
+1. Run N reads a fact; the writer blesses it. `BibleStratum.graduate` mints a
+   ruling through `RulingPerformer.rule` and then calls `bible.dismiss` —
+   correct so far, the fact leaves the ledger as the clause enters the world.
+2. The writer later revises the establishing scene. Run N+1's delta contains
+   that prose again, the model re-emits the same fact, and `record` re-adds it:
+   **the blessed fact is back in the stratum, indistinguishable from new**.
+3. From then on the same declaration is briefed **twice** — as a bible fact and
+   as the ruling's derived clause. That is the over-weighting the atomic switch
+   above exists to prevent, arriving through a **third door** (door 2 is the
+   essay-sourced clause quote, the section above).
+4. A writer who blesses the returned fact again mints a **duplicate ruling
+   row**: `RulingsSection.appending` does not dedupe, and the duplicate then
+   renders as duplicate conformance rows, which `conformanceRows` embraces by
+   design.
+
+The design answer is **Stage 3's**, alongside drift — the honest fixes all
+touch design (tombstoning graduated `(subject, fact)` pairs in the bible
+sidecar is derived-state-shaped and does not touch the membrane; string-matching
+`record` against ruling texts is fragile and misses corrections), and choosing
+between them wants a milestone that can measure the result. This paragraph
+exists so the next reader **decides** it rather than discovering it. Note also
+what does not exist: **no test walks the bible loop across two runs at all** —
+nothing records facts in run N and watches run N+1's briefing carry them, let
+alone with a bless in the middle.
 
 ## The four fates of a note
 
 A diagnostic ends one of four ways, and only one of them is a button:
 
 1. **Superseded** — the next run's diagnostics wholly replace the previous
-   run's for that document. Un-promoted notes are dropped, not merged.
+   run's for that document, and its `clauseStatuses` replace the previous
+   summary in the same act. Un-promoted notes are dropped, not merged.
 2. **Stale** — its paragraph's text no longer matches the text it was anchored
-   to, so `DiagnosticsStore.live` stops returning it. Drift notes never go stale
-   this way; they have nothing to track.
+   to, so `DiagnosticsStore.live` stops returning it. A note that names no
+   paragraph at all never goes stale this way; it has nothing to track. A v2
+   note's anchor is its FIRST resolving ref, so the one staleness rule serves
+   all three kinds and `refs` stay display-only.
 3. **Promoted** — kept as an op-logged task, which syncs and survives
    (`DiagnosticPromotion`).
 4. **Answered** — became a ruling on the piece's intent (`RulingPerformer`).
@@ -298,8 +396,10 @@ drifted from them is a defect in this file.
 - `CompilerAllowlistTests` — the membrane census and its planted offenders.
 - `DeltaBuilderTests` — what "changed since the marker" means, in the writer's
   order.
-- `CompilerPromptTests` — the prompt's two questions, and the wire-name
-  agreement with `DiagnosticIngest.Field`.
+- `CompilerPromptTests` — the section schema's fixed order and register
+  enforcement (no severity, no suggestion field), the v2 briefing (essay +
+  derived world + bible facts diffed in as one unit), and the session
+  preamble.
 - `ClaudeCLISessionTests` — the process, its arguments, and every path it has to
   die on.
 - `DiagnosticIngestTests` — live anchoring, and a bad note never failing a run.
@@ -324,8 +424,9 @@ drifted from them is a defect in this file.
 - `BibleStoreTests` — the ledger: `(subject, fact)` dedupe (and that a
   dismissed fact can return), the per-device sidecar, and the subject-slice
   `facts(subjects:)` Stage 2 will call.
-- `IntentAppendPerformerTests` — that the shim really routes, plus the pane's own
-  answer flow end to end.
+- `DiagnosticsPaneTests` — the report the pane draws (the conformance summary
+  first, the excerpt chips, the legible wait) and the answer flow end to end,
+  including that it lands as a ruling and drops the derivation it outdated.
 - `CompilerRunCommandTests` — ⌘R's real delivery path.
 - `PinnedReferencesTests` — the union and its resolution, including the
   dedup/dangling/sort rules; its census keeps `linkedResearchIds` (not
@@ -337,7 +438,7 @@ drifted from them is a defect in this file.
 **One known gap, on the record:** SwiftUI exposes no way to deliver a Return
 keystroke into a hosted `TextField`'s editor, so the reply field's *commit on
 return* and *escape cancels* are asserted at the source rather than pressed
-(`IntentAppendPerformerTests.test_theReplyFieldCommitsOnReturnAndCancelsOnEscape`).
+(`DiagnosticsPaneTests.test_theReplyFieldCommitsOnReturnAndCancelsOnEscape`).
 Everything the commit then does is driven for real against live stores through
 `DiagnosticsPane.commitAnswer`, which is why that function is a `static` taking
 everything it touches.
@@ -350,8 +451,10 @@ everything it touches.
   — but they live in `Maugham/Views/`, not here, on the same principle as the
   pane: this directory holds no view state. What lives here is what feeds them
   — `PinnedReferences`/`PinnedReferenceResolver` — and the run's own
-  `CompilerContext.pinnedListing`/`paletteListing` read the identical
-  projection. Both still ship empty-capable, but the reason changed: the
+  `Environment.pinnedListing`/`paletteListing` closures
+  (`CompilerOrchestrator.runRequested`, wired to `runMessageV2`'s
+  `pinnedListing`/`paletteListing` parameters) read the identical projection.
+  Both still ship empty-capable, but the reason changed: the
   prompt omits an empty section by design, and today a document with nothing
   linked or clustered is the only thing that produces one — not an unbuilt
   surface.
@@ -359,7 +462,17 @@ everything it touches.
   changes nothing structural — the editor stays the editor — so a policy object
   with nothing to produce would be ceremony. **Built as designed, 2026-08-05**:
   Plan 2 shipped Author with none, and nothing since has argued otherwise.
-- **Streaming.** `CompilerRunEvent.started` exists for a streaming consumer that
-  does not exist yet; `send` resolves with a terminal event.
+- **Streaming — and it is now a NAMED follow-on rather than an absence.**
+  `CompilerRunEvent.started` still exists for a consumer that does not exist,
+  and `send` still resolves with a terminal event: `ClaudeCLISession.receive`
+  classifies every stream line and forwards only `type == "result"`, so
+  partial assistant text never reaches the orchestrator at all. Stage 2's
+  ingest was built section-at-a-time for this — `parseAll` is `parseSection`
+  folded over the turn and nothing else — so the upgrade is a session that
+  surfaces partial assistant events plus an orchestrator that folds them as
+  they land, and NOT a change to what a section means. **Stage 2 landed the
+  whole-turn shape deliberately** (the session was not rebuilt for it); the
+  writer-facing half of that requirement — a wait that says what it is
+  reading — is the pane's, and does not depend on this.
 - **A new MCP tool, in either direction.** The compiler is an MCP *client*. The
   catalogue did not move for M2.

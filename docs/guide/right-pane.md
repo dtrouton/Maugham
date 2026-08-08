@@ -112,9 +112,9 @@ How the book looks — typography, cover direction, the references you're steeri
 
 ### Diagnostics mode (⌘⌥D)
 
-The compiler's notes on the open document — Author's own pane, and its default. Press ⌘R ("Check Writing") to ask Claude for notes on what you've written since the last check; the header line says what happened last, and while a check is running you can press **Cancel**.
+The compiler's report on the open document — Author's own pane, and its default. Press ⌘R ("Check Writing") to ask Claude to check what you've written since the last check; the header line says what happened last, and while a check is running you can press **Cancel**.
 
-Each note carries a category, the note itself, and an excerpt of the paragraph it's about — click a note to jump to that paragraph in the editor. A **drift** note — when the compiler thinks what you've written has drifted from your stated intent — is pinned at the top, with an **Open Intent** button that takes you straight to it.
+It reads as a report, three sections in order: **Conformance** — every clause you've declared, quoted back in your own words, each *holds*, *strains*, or untouched by this draft, with an **Open Intent** button in the section header; **Continuity** — questions raised against established facts and rules, each ending as a question rather than a verdict; **The reader** — dream-breaks and belief statements from the reading itself, capped at the sharpest three. No note ever shows a paragraph id — each carries the words that paragraph said, as a chip you click to jump there.
 
 **Notes that arrive while you're looking elsewhere put a count on the picker**, the way new captures do on the Inbox — a check finished somewhere you weren't watching, and the count clears the moment you open the pane.
 
@@ -122,9 +122,9 @@ Each note carries a category, the note itself, and an excerpt of the paragraph i
 
 The gear menu picks the model a check runs against — **Fast**, **Standard**, or **Deep** — and the choice is remembered per project.
 
-**A clean check says so plainly.** No notes to raise reads *"Nothing to flag."* — not silence, not a green checkmark standing in for an answer.
+**A clean check says so plainly.** A conformance section where every clause holds still renders — that's the good outcome, not an empty pane — and a check with nothing at all to raise reads *"Nothing to flag."*, not silence and not a green checkmark standing in for an answer.
 
-**A note you answer becomes a ruling on that piece's intent.** Press **Answer** on a note, say why the thing it flagged is deliberate, and press Return: your sentence lands as a dated line under [that piece's Rulings](#intent-mode-n), and the note goes away, so the next check reads what you just told it rather than raising the same thing again. **Promote to Task** keeps a note instead — as a real task on the document, which syncs and survives where the notes don't. Full walkthrough: [Checking Your Writing](compiler.md).
+**Answering a conformance strain or a continuity question becomes a ruling on that piece's intent** — the reader's report offers no Answer, since a belief or a dream-break isn't a question to rule on. Press **Answer**, say why the thing it flagged is deliberate, and press Return: your sentence lands as a dated line under [that piece's Rulings](#intent-mode-n), and the note goes away, so the next check reads what you just told it rather than raising the same thing again. **Promote to Task** keeps a note instead — as a real task on the document, naming which section raised it, which syncs and survives where the notes don't. Full walkthrough: [Checking Your Writing](compiler.md).
 
 ### References mode (⌘⌥E)
 
