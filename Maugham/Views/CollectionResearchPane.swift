@@ -89,7 +89,8 @@ struct CollectionResearchPane: View {
                         item: item,
                         renamingItemId: $renamingItemId,
                         findParentId: { findParentId(of: $0) },
-                        actions: treeActions(scope: .shared))
+                        actions: treeActions(scope: .shared),
+                        tagFor: { $0.id })
                 }
             }
         } header: {
@@ -142,7 +143,8 @@ struct CollectionResearchPane: View {
                         item: item,
                         renamingItemId: $renamingItemId,
                         findParentId: { findParentId(of: $0) },
-                        actions: treeActions(scope: .piece(piece.id)))
+                        actions: treeActions(scope: .piece(piece.id)),
+                        tagFor: { $0.id })
                 }
             }
         } header: {

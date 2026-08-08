@@ -21,7 +21,8 @@ struct ResearchView: View {
                     item: item,
                     renamingItemId: $renamingItemId,
                     findParentId: { findParentId(of: $0) },
-                    actions: treeActions)
+                    actions: treeActions,
+                    tagFor: { $0.id })
             }
         }
         .listStyle(.sidebar)

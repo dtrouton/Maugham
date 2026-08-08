@@ -34,11 +34,16 @@ struct ResearchTreeActions {
     var deleteMany: (_ ids: [String]) -> Void
 }
 
-struct ResearchTreeNode: View {
+struct ResearchTreeNode<Tag: Hashable>: View {
     let item: ResearchItem
     @Binding var renamingItemId: String?
     let findParentId: (String) -> String?
     let actions: ResearchTreeActions
+    /// The value each row tags itself with, for the enclosing `List`'s
+    /// selection. `ResearchView`/`CollectionResearchPane` tag bare `item.id`
+    /// (their `List` selects over `Set<String>`, unchanged); the binder tree
+    /// (Task 4) tags `.research(item.id)` — a `BinderSubject` — instead.
+    let tagFor: (ResearchItem) -> Tag
 
     var body: some View {
         if item.type == .group {
@@ -58,7 +63,8 @@ struct ResearchTreeNode: View {
                 item: child,
                 renamingItemId: $renamingItemId,
                 findParentId: findParentId,
-                actions: actions))
+                actions: actions,
+                tagFor: tagFor))
         }
     }
 
@@ -73,7 +79,7 @@ struct ResearchTreeNode: View {
             onExternalDrop: { providers, position in
                 actions.externalDrop(providers, position, item)
             })
-            .tag(item.id)
+            .tag(tagFor(item))
             .contextMenu {
                 Button("New Note") {
                     actions.newNote(item.type == .group ? item.id : findParentId(item.id))

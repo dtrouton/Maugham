@@ -43,12 +43,24 @@ extension ProjectStore {
     /// fixing. The by-id spelling above is unchanged and is still what every
     /// other caller uses.
     func researchRouting(for item: StructureItem) throws -> ResearchRouting {
+        try Self.researchRouting(for: item, projectType: manifest.type)
+    }
+
+    /// The pure core of the routing decision, `projectType` passed as a value
+    /// rather than read off `self.manifest`. Extracted (not restated) so
+    /// `TreeSectionDerivation` — stage-2a Task 3's store-free binder tree
+    /// layer — can ask the same question a per-piece research fold needs
+    /// without a `ProjectStore`. The instance method above remains
+    /// production's only entry point for a caller that already has a store.
+    nonisolated static func researchRouting(
+        for item: StructureItem, projectType: ProjectType
+    ) throws -> ResearchRouting {
         let docId = item.id
         guard item.type == .document else {
             throw ProjectStoreError.fileSystemError(
                 "Research target must be a document, not a group: \(docId)")
         }
-        switch manifest.type {
+        switch projectType {
         case .collection:
             guard item.pieceKind == .loose else {
                 throw ProjectStoreError.fileSystemError(
@@ -136,7 +148,7 @@ extension ProjectStore {
     /// Path prefix under which a collection loose piece's research lives, or
     /// nil for anything else. THE containment predicate — CollectionResearchPane
     /// and derivedResearchItems must both use this (spec: derivation agreement).
-    public static func pieceResearchPrefix(for piece: StructureItem) -> String? {
+    public nonisolated static func pieceResearchPrefix(for piece: StructureItem) -> String? {
         guard piece.pieceKind == .loose, let piecePath = piece.path else { return nil }
         return "\((piecePath as NSString).deletingLastPathComponent)/research/"
     }
@@ -150,10 +162,23 @@ extension ProjectStore {
     /// for association semantics — the two must agree on which roots belong to
     /// the piece (path prefix), then diverge on presentation (tree vs. flat).
     public func pieceResearchSectionRoots(forDocumentId docId: String) -> [ResearchItem] {
-        guard manifest.type == .collection,
-              let piece = manifest.structure.first(where: { $0.id == docId }),
+        Self.pieceResearchSectionRoots(
+            forDocumentId: docId, structure: manifest.structure,
+            research: manifest.research, projectType: manifest.type)
+    }
+
+    /// The pure core of `pieceResearchSectionRoots(forDocumentId:)` — manifest
+    /// values passed in rather than read off `self`, so `TreeSectionDerivation`
+    /// can call the identical filter without a store. Do not restate this
+    /// elsewhere; both the instance method and the tree derivation call this.
+    nonisolated static func pieceResearchSectionRoots(
+        forDocumentId docId: String, structure: [StructureItem],
+        research: [ResearchItem], projectType: ProjectType
+    ) -> [ResearchItem] {
+        guard projectType == .collection,
+              let piece = structure.first(where: { $0.id == docId }),
               let prefix = Self.pieceResearchPrefix(for: piece) else { return [] }
-        return manifest.research.filter { $0.path?.hasPrefix(prefix) == true }
+        return research.filter { $0.path?.hasPrefix(prefix) == true }
     }
 
     /// Research items structurally associated with a document — no link record.

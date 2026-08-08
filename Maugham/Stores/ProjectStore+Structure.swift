@@ -728,7 +728,7 @@ extension ProjectStore {
         }
     }
 
-    static func findItemLinks(
+    nonisolated static func findItemLinks(
         documentId: String, in items: [StructureItem]
     ) -> [String]? {
         TreeWalk.find(id: documentId, in: items).map { $0.linkedResearchIds ?? [] }
