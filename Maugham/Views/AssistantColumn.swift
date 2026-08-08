@@ -424,11 +424,12 @@ struct AssistantColumnModifier: ViewModifier {
             }
             content
         }
-        // **Every input the presentation rule reads gets an `.onChange`**, and
-        // the three call one function so a fourth input cannot be added to
-        // `isPresented` and forgotten here. `isNoChromeOn` is the one that was
-        // missing (final review C1): ⌘\ and ⌘⇧F take the column off screen
-        // without touching what is studied, and the claim used to stay behind.
+        // **Every input `isPresented` reads gets an `.onChange` below, and each
+        // one calls `syncEscape()`** — count the chain, not this comment, so an
+        // input added to `isPresented` and forgotten here is a comment nobody
+        // has to trust. `isNoChromeOn` was the one missing at final review C1:
+        // ⌘\ and ⌘⇧F take the column off screen without touching what is
+        // studied, and the claim used to stay behind.
         .onChange(of: assistant.studied?.id) { _, _ in syncEscape() }
         // **The window as well as the reference**, because the arbiter is keyed
         // by window: `WindowAccessor` reports one asynchronously after mount, and
