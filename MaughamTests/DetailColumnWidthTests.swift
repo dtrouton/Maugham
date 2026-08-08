@@ -529,6 +529,74 @@ final class DetailColumnWidthTests: XCTestCase {
                        + "measurement has nothing to change")
     }
 
+    // MARK: - Where a drag lands
+
+    /// **The narrow-window drag, which is the corner the re-review found open.**
+    /// A writer on a laptop hauls the handle as far left as it will go. The
+    /// column may not bank the range's 480 behind their back — a width they were
+    /// never shown, which would reappear the next time they opened the project
+    /// on a big display and look exactly like the app inventing a layout.
+    func test_aDragOnANarrowWindowStopsAtWhatTheWindowAffords() {
+        let affordable = ProjectWindow.effectiveDetailColumnWidth(
+            persisted: UIState.detailColumnWidthRange.upperBound,
+            containerWidth: 980)
+        XCTAssertLessThan(affordable, UIState.detailColumnWidthRange.upperBound,
+                          "premise: 980 cannot afford the whole range, or this "
+                          + "test is about nothing")
+
+        let landed = ProjectWindow.draggedDetailColumnWidth(
+            startWidth: 280, translation: -400, containerWidth: 980)
+
+        XCTAssertEqual(landed, affordable,
+                       "a drag hauled past what the window can show must stop "
+                       + "where the column stops moving")
+    }
+
+    /// And on a window with room, the same drag is held by the column's own
+    /// range instead — otherwise the assertion above would pass against a
+    /// function that simply always returned its narrowest answer.
+    func test_theSameDragOnAWideWindowStopsAtTheColumnsOwnCeiling() {
+        XCTAssertEqual(
+            ProjectWindow.draggedDetailColumnWidth(
+                startWidth: 280, translation: -400, containerWidth: 1600),
+            UIState.detailColumnWidthRange.upperBound,
+            "1600 affords the whole range, so the range is what stops it")
+    }
+
+    /// The other end, and the sign.
+    func test_aDragRightNarrowsToTheFloorAndNoFurther() {
+        XCTAssertEqual(
+            ProjectWindow.draggedDetailColumnWidth(
+                startWidth: 400, translation: 400, containerWidth: 1600),
+            UIState.detailColumnWidthRange.lowerBound)
+    }
+
+    /// **The sign is a rule, not an implementation detail.** The handle is on
+    /// the column's LEADING edge, so leftward — a negative translation — must
+    /// widen it. Getting this backwards is a resize that fights the writer's
+    /// hand, and until the extraction it was checkable only by reading the
+    /// subtraction.
+    func test_draggingLeftWidensAndDraggingRightNarrows() {
+        let wider = ProjectWindow.draggedDetailColumnWidth(
+            startWidth: 320, translation: -40, containerWidth: 1600)
+        let narrower = ProjectWindow.draggedDetailColumnWidth(
+            startWidth: 320, translation: 40, containerWidth: 1600)
+
+        XCTAssertEqual(wider, 360)
+        XCTAssertEqual(narrower, 280)
+        XCTAssertGreaterThan(wider, narrower,
+                             "leftward widens: the handle is on the leading edge")
+    }
+
+    /// An untouched gesture (no translation yet) must land exactly where it
+    /// started, or the first frame of every drag is a jump.
+    func test_aDragThatHasNotMovedYetChangesNothing() {
+        XCTAssertEqual(
+            ProjectWindow.draggedDetailColumnWidth(
+                startWidth: 337, translation: 0, containerWidth: 1600),
+            337)
+    }
+
     // MARK: - The census: production asks for a width, from one place
 
     /// **What the harness above cannot see.** It measures AppKit, not Maugham —
@@ -564,6 +632,79 @@ final class DetailColumnWidthTests: XCTestCase {
             "the column must mount its own resize handle: the split view's "
             + "divider cannot move a fixed column, so without this the writer's "
             + "one width is one width forever")
+    }
+
+    /// **The rules above are only the writer's rules if the gesture calls
+    /// them.** Extracting them made them testable and made a second copy
+    /// possible in the same stroke: a `DragGesture` body is a closure nobody
+    /// reads twice, and an inline `min(...)` there would satisfy every
+    /// assertion in the section above while the shipped drag obeyed something
+    /// else. So the census asks where the call is, not merely whether it exists
+    /// — inside the resize gesture's `onChanged`, between the `DragGesture` that
+    /// opens it and the `onEnded` that closes it.
+    func test_theResizeGestureLandsThroughTheOneFunction() throws {
+        let code = try Self.codeLines(of: "Views/ProjectWindow.swift")
+
+        XCTAssertTrue(
+            Self.resizeGestureOnChanged(calls: "Self.draggedDetailColumnWidth(",
+                                        in: code),
+            "the handle's drag must land through `draggedDetailColumnWidth` — "
+            + "the sign, the range and the window's affordability are that "
+            + "function's, and a gesture doing its own arithmetic is a second "
+            + "set of rules with no test on it")
+        XCTAssertEqual(
+            code.filter { $0.contains("Self.draggedDetailColumnWidth(") }.count, 1,
+            "and it is called once: a second drag site is a second place for "
+            + "the ceiling to go missing")
+    }
+
+    /// **The planted offender.** The same predicate over a gesture that does its
+    /// own clamping — the exact regression this census exists for — must come
+    /// back false, and the control alongside it must still come back true, so
+    /// the check is not simply answering "no" to everything.
+    func test_theGestureCensusSeesADragThatClampsItself() {
+        let offender = [
+            "DragGesture(minimumDistance: 1)",
+            "    .onChanged { value in",
+            "        detailColumnWidth = UIState.clampedDetailColumnWidth(",
+            "            start - value.translation.width)",
+            "    }",
+            "    .onEnded { _ in persist() }"
+        ]
+        XCTAssertFalse(
+            Self.resizeGestureOnChanged(calls: "Self.draggedDetailColumnWidth(",
+                                        in: offender),
+            "a gesture clamping on its own must not read as compliant")
+
+        let compliant = [
+            "DragGesture(minimumDistance: 1)",
+            "    .onChanged { value in",
+            "        detailColumnWidth = Self.draggedDetailColumnWidth(",
+            "            startWidth: start, translation: value.translation.width,",
+            "            containerWidth: containerWidth)",
+            "    }",
+            "    .onEnded { _ in persist() }"
+        ]
+        XCTAssertTrue(
+            Self.resizeGestureOnChanged(calls: "Self.draggedDetailColumnWidth(",
+                                        in: compliant),
+            "the control: the same scan says yes to the shape it is looking for")
+    }
+
+    /// And the case that would make the census unfalsifiable: a call that sits
+    /// in the file but AFTER the gesture closes is not a call the drag makes.
+    func test_theGestureCensusIgnoresACallOutsideTheGesture() {
+        let outside = [
+            "DragGesture(minimumDistance: 1)",
+            "    .onChanged { value in detailColumnWidth = value.translation.width }",
+            "    .onEnded { _ in persist() }",
+            "let elsewhere = Self.draggedDetailColumnWidth("
+        ]
+        XCTAssertFalse(
+            Self.resizeGestureOnChanged(calls: "Self.draggedDetailColumnWidth(",
+                                        in: outside),
+            "presence in the file is not the question — the question is whether "
+            + "the drag goes through it")
     }
 
     /// One write site, so the value the writer dragged to is the value that is
@@ -603,6 +744,26 @@ final class DetailColumnWidthTests: XCTestCase {
             .deletingLastPathComponent()   // MaughamTests/
             .deletingLastPathComponent()   // repo root
             .appendingPathComponent("Maugham", isDirectory: true)
+    }
+
+    /// Whether `token` appears inside the resize gesture's `onChanged` body —
+    /// i.e. between the `DragGesture` that opens the gesture and the `onEnded`
+    /// that ends it. Takes the lines rather than the file so the planted
+    /// offender above runs through this exact scan and not a second copy of it.
+    ///
+    /// Its honest limit: it is line containment, not parsing, so it would be
+    /// fooled by a second `DragGesture` in this file appearing first. There is
+    /// exactly one, and if a second arrives this predicate needs to say which —
+    /// which is a better failure than a silent one.
+    private static func resizeGestureOnChanged(calls token: String,
+                                               in code: [String]) -> Bool {
+        guard let opens = code.firstIndex(where: {
+            $0.contains("DragGesture(minimumDistance: 1)")
+        }) else { return false }
+        guard let closes = code[opens...].firstIndex(where: {
+            $0.contains(".onEnded")
+        }) else { return false }
+        return code[opens..<closes].contains { $0.contains(token) }
     }
 
     private static func codeLines(of relativePath: String) throws -> [String] {

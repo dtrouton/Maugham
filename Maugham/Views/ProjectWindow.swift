@@ -1416,9 +1416,15 @@ struct ProjectWindow: View {
     /// **The width actually handed to the split view: the writer's wish, reduced
     /// only as far as this window can afford it.**
     ///
-    /// The three columns' floors out-arithmetic the window's own: at 980 the
-    /// binder wants 208 and the prose wants 480, which leaves **300** — less
-    /// than the 480 a writer is allowed to wish for. AppKit does not resolve
+    /// The three columns' floors out-arithmetic the window's own: at the window
+    /// floor the binder and the prose between them want more than the window has
+    /// to give, and what is left is less than the 480 a writer is allowed to
+    /// wish for. **The number is not written here** — the code above computes it
+    /// from the constants and `test_theAffordabilitySumGivesTheWindowWhatItNeedsAndTheWriterTheRest`
+    /// asserts it the same way; a worked example in prose is the
+    /// unmaintainable-count defect wearing arithmetic, and this one shipped
+    /// wrong (it said 300 against a true 292, having dropped the sidebar inset
+    /// it is standing next to). AppKit does not resolve the shortfall
     /// that by squeezing anything; it silently GROWS the window past its
     /// declared minimum, which is the same "the app moved something under me"
     /// complaint this task exists to kill, relocated from the divider to the
@@ -1427,9 +1433,10 @@ struct ProjectWindow: View {
     ///
     /// **The asymmetry is deliberate and is the point.** This reduces what is
     /// DISPLAYED; it never touches what is STORED. A writer who dragged to 480
-    /// on a large display and then opens the project on a laptop gets 300 there
-    /// and their 480 back the moment the window can afford it — their wish is
-    /// not edited by the furniture it happened to be opened in front of.
+    /// on a large display and then opens the project on a laptop gets what that
+    /// laptop affords, and their 480 back the moment the window can afford it —
+    /// their wish is not edited by the furniture it happened to be opened in
+    /// front of.
     ///
     /// `containerWidth` is nil until the window has been measured, and the
     /// answer for nil is deliberately the CONSERVATIVE one (the window's own
@@ -1452,6 +1459,34 @@ struct ProjectWindow: View {
         effectiveDetailColumnWidth(
             persisted: UIState.detailColumnWidthRange.upperBound,
             containerWidth: containerWidth)
+    }
+
+    /// **Where a drag of the right column's handle lands.**
+    ///
+    /// Pure, and holding all three of the rules the gesture used to hold inline,
+    /// because a `DragGesture` body is not something a test can drive without
+    /// building gesture-driving machinery for one assertion (re-review, 2026-08-08:
+    /// the window-aware ceiling shipped with zero coverage precisely because it
+    /// lived in there):
+    ///
+    /// 1. **The sign.** The handle is on the column's LEADING edge, so a
+    ///    leftward drag — a negative translation — makes the column WIDER. The
+    ///    subtraction is the whole of that, and it was previously verifiable
+    ///    only by reading it.
+    /// 2. **The column's own range** (`UIState.clampedDetailColumnWidth`).
+    /// 3. **What this window can afford** — a writer may only wish for a width
+    ///    they can be shown, so on a narrow window the gesture stops where the
+    ///    column stops moving instead of silently banking a wider number that
+    ///    would reappear on a bigger display.
+    ///
+    /// Kept as a static here rather than in a type of its own: its three
+    /// siblings above are statics on this view for the same reason, and one more
+    /// namespace would be one more place to look for the same arithmetic.
+    static func draggedDetailColumnWidth(startWidth: Double,
+                                         translation: Double,
+                                         containerWidth: Double?) -> Double {
+        min(UIState.clampedDetailColumnWidth(startWidth - translation),
+            draggableDetailCeiling(containerWidth: containerWidth))
     }
 
     /// **One width, held.** The right column is pinned to the writer's own
@@ -1539,16 +1574,13 @@ struct ProjectWindow: View {
                     .onChanged { value in
                         let start = detailDragStartWidth ?? detailColumnWidth
                         detailDragStartWidth = start
-                        // Leading edge: dragging LEFT widens the column. The
-                        // ceiling is what THIS window can afford rather than the
-                        // stored range's 480 — a writer may only wish for a
-                        // width they can be shown, so the gesture stops where
-                        // the column stops moving instead of silently banking a
-                        // wider number.
-                        detailColumnWidth = min(
-                            UIState.clampedDetailColumnWidth(
-                                start - value.translation.width),
-                            Self.draggableDetailCeiling(containerWidth: containerWidth))
+                        // Every rule this drag obeys — the leading edge's sign,
+                        // the column's range, and what this window can afford —
+                        // lives in the pure function, where a test can reach it.
+                        detailColumnWidth = Self.draggedDetailColumnWidth(
+                            startWidth: start,
+                            translation: value.translation.width,
+                            containerWidth: containerWidth)
                     }
                     .onEnded { _ in
                         detailDragStartWidth = nil
