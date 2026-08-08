@@ -31,11 +31,13 @@ final class BibleStoreTests: XCTestCase {
 
     private func makeFact(
         subject: String = "Kelly", fact: String = "has a scar on her left hand",
-        establishedAt: String? = "abcd", docId: String = "docA"
+        establishedAt: String? = "abcd", excerpt: String? = "She turned her hand over and\u{2026}",
+        docId: String = "docA"
     ) -> BibleFact {
         BibleFact(
             id: ULID.generate(), subject: subject, fact: fact,
-            establishedAt: establishedAt, docId: docId, recordedAt: wholeSecondNow())
+            establishedAt: establishedAt, excerpt: excerpt, docId: docId,
+            recordedAt: wholeSecondNow())
     }
 
     // MARK: - Sidecar filename
@@ -63,6 +65,37 @@ final class BibleStoreTests: XCTestCase {
         let store2 = BibleStore(projectRoot: project, device: device)
 
         XCTAssertEqual(store2.allFacts(), [fact])
+        XCTAssertEqual(store2.allFacts().first?.excerpt, fact.excerpt,
+                       "the establishing paragraph's words did not survive the sidecar — "
+                       + "the pane's caption is the only thing that reads them, and its "
+                       + "fallback is to say less, not to print the id")
+    }
+
+    /// **A sidecar written before excerpts existed still loads** — and its rows
+    /// come back with a nil excerpt rather than failing to decode and taking
+    /// the whole ledger with them.
+    ///
+    /// The field is additive on derived state, which is why there is no
+    /// migration: this test is what says "additive" was true. The raw JSON is
+    /// hand-written on purpose — encoding a `BibleFact` with a nil excerpt
+    /// would prove only that this build's encoder and decoder agree.
+    func test_aSidecarFromBeforeExcerptsExistedStillLoads() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let url = BibleStore.sidecarURL(projectRoot: project, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("""
+            [{"id":"f1","subject":"Kelly","fact":"Kelly is a nurse.",\
+            "establishedAt":"abcd","docId":"docA","recordedAt":"2026-08-07T09:00:00Z"}]
+            """.utf8).write(to: url)
+
+        let store = BibleStore(projectRoot: project, device: device)
+
+        XCTAssertEqual(store.allFacts().count, 1,
+                       "an old row failed to decode, so one new field cost the ledger")
+        XCTAssertEqual(store.allFacts().first?.establishedAt, "abcd")
+        XCTAssertNil(store.allFacts().first?.excerpt)
     }
 
     func test_corruptSidecar_readsAsEmpty_neverThrows() throws {

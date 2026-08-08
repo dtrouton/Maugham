@@ -709,6 +709,34 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(paired.rows.count, 1, "control: the clause itself still rendered")
     }
 
+    /// **A clause declared twice makes two rows with two identities.**
+    ///
+    /// `conformanceRows` renders the duplicate on purpose (its doc: "a
+    /// wrong-looking duplicate is a smaller harm than a missing finding"), and
+    /// the rows go straight into a SwiftUI `ForEach` — whose behaviour on
+    /// repeated ids is undefined, so keying on the quote alone made the
+    /// intended case the broken one. The strains are asserted alongside,
+    /// because an id built from position must not be one a row can be *sorted*
+    /// out of agreement with.
+    func test_conformanceRows_giveDuplicateClausesDistinctIdentities() {
+        let quote = "Cold, and never wistful."
+        let strain = makeDiagnostic(
+            docId: "d1", body: "It reads fond here.", kind: .conformanceStrain,
+            clauseQuote: quote)
+
+        let paired = DiagnosticsPane.conformanceRows(
+            clauses: [makeClause(quote, "holds"), makeClause(quote, "strains")],
+            strains: [strain])
+
+        XCTAssertEqual(paired.rows.count, 2, "the duplicate is kept, by design")
+        XCTAssertEqual(Set(paired.rows.map(\.id)).count, 2,
+                       "two rows shared one ForEach id: \(paired.rows.map(\.id))")
+        XCTAssertTrue(paired.rows.allSatisfy { $0.id.contains(quote) },
+                      "the writer's own sentence is still part of the identity")
+        XCTAssertEqual(paired.rows.map { $0.strains.map(\.id) }, [[strain.id], [strain.id]],
+                       "both rows still carry the strain raised against that sentence")
+    }
+
     /// Three quiet marks, each with a word VoiceOver can read — a glyph alone
     /// is silent — and a neutral fourth for a status this build has never heard
     /// of, so a later contract's word cannot render as "holds".

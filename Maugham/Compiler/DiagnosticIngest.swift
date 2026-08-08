@@ -359,10 +359,16 @@ extension DiagnosticIngest {
             // The register scrub does NOT apply here: "Kelly should have been
             // at the dock" is a claim about the story, not advice to the
             // writer, and a fact never reaches the pane as a note anyway.
+            // The establishing paragraph travels as BOTH its id and its words:
+            // the id is what a jump would need, the excerpt is what the pane
+            // prints (requirement 3 — the caption never says ¶anything). The
+            // live text is resolvable here and nowhere downstream, so throwing
+            // it away is what left the stratum with an id to render.
             facts.append(
                 BibleFact(
                     id: ULID.generate(), subject: subject, fact: fact,
-                    establishedAt: resolved.refs.first?.paragraphId, docId: docId,
+                    establishedAt: resolved.refs.first?.paragraphId,
+                    excerpt: resolved.refs.first?.excerpt, docId: docId,
                     recordedAt: recordedAt))
         }
 
@@ -393,16 +399,24 @@ extension DiagnosticIngest {
         var refs: [Diagnostic.Ref] = []
         var anchor: Diagnostic.Anchor? = nil
 
+        // A model that names the same paragraph twice gets one ref, not two.
+        // The pane keys its chip `ForEach` on `paragraphId`, and SwiftUI's
+        // behaviour on duplicate ids is undefined — so the deduplication
+        // belongs here, at the boundary where the model's list becomes ours,
+        // rather than at each surface that renders it. First spelling wins,
+        // which keeps the order the run reported.
+        var seen = Set<String>()
         for element in raw {
             guard let spelling = element as? String,
                   let resolved = resolve(spelling, live)
             else { continue }
-            refs.append(
-                Diagnostic.Ref(paragraphId: resolved.paragraphId, excerpt: excerpt(of: resolved.text)))
             if anchor == nil {
                 anchor = Diagnostic.Anchor(
                     paragraphId: resolved.paragraphId, anchorText: resolved.text)
             }
+            guard seen.insert(resolved.paragraphId).inserted else { continue }
+            refs.append(
+                Diagnostic.Ref(paragraphId: resolved.paragraphId, excerpt: excerpt(of: resolved.text)))
         }
 
         if !raw.isEmpty && refs.isEmpty { return nil }

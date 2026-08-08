@@ -247,6 +247,11 @@ final class DiagnosticIngestTests: XCTestCase {
         XCTAssertEqual(fact.subject, "Kelly")
         XCTAssertEqual(fact.fact, "Kelly keeps her father's watch.")
         XCTAssertEqual(fact.establishedAt, "e5f6")
+        // **The words as well as the id** (requirement 3). The pane captions a
+        // fact with the establishing paragraph's prose, and this resolution is
+        // the only place that prose is in hand — a fact that carried the id
+        // alone left the stratum with nothing to print but `¶e5f6`.
+        XCTAssertEqual(fact.excerpt, "A longer paragraph whose opening runs past the\u{2026}")
         XCTAssertEqual(fact.docId, docId)
         XCTAssertFalse(fact.id.isEmpty)
         XCTAssertTrue(
@@ -263,7 +268,27 @@ final class DiagnosticIngestTests: XCTestCase {
 
         XCTAssertEqual(section.facts.count, 1)
         XCTAssertNil(section.facts[0].establishedAt)
+        XCTAssertNil(section.facts[0].excerpt,
+                     "there is no paragraph to quote, so the pane captions it by subject "
+                     + "alone rather than by half a claim")
         XCTAssertEqual(section.droppedDangling, 0)
+    }
+
+    /// **A model that names the same paragraph twice gets one ref.** The pane
+    /// keys its chip `ForEach` on `paragraphId`, and SwiftUI's behaviour on
+    /// duplicate ids is undefined — so the list is deduplicated where the
+    /// model's words become ours, not at each surface that draws them. First
+    /// spelling wins, so the order the run reported survives.
+    func test_aRefNamedTwiceResolvesOnce() {
+        let line = """
+            {"section":"continuity","questions":[\
+            {"cites":"c","refs":["a1b2","\u{00b6}a1b2","c3d4","a1b2"],"question":"A question?"}]}
+            """
+        guard let section = parseSection(line) else { return XCTFail("expected a section") }
+
+        XCTAssertEqual(section.accepted[0].refs?.map { $0.paragraphId }, ["a1b2", "c3d4"])
+        XCTAssertEqual(section.accepted[0].anchor?.paragraphId, "a1b2",
+                       "the anchor is still the first ref that resolved")
     }
 
     // MARK: v2 — refs carry excerpts, captured at ingest
@@ -543,7 +568,8 @@ final class DiagnosticIngestTests: XCTestCase {
     private static func redacted(_ fact: BibleFact) -> BibleFact {
         BibleFact(
             id: "", subject: fact.subject, fact: fact.fact, establishedAt: fact.establishedAt,
-            docId: fact.docId, recordedAt: Date(timeIntervalSince1970: 0))
+            excerpt: fact.excerpt, docId: fact.docId,
+            recordedAt: Date(timeIntervalSince1970: 0))
     }
 
     // MARK: v2 — tolerance

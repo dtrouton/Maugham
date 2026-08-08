@@ -58,16 +58,22 @@ enum DiagnosticPromotion {
         }
     }
 
-    /// The intent's first non-empty line, cut at `intentExcerptLimit` with the
-    /// cut made visible. `nil` when the run checked against no intent at all —
-    /// the clause is then omitted rather than rendered with empty quotes.
+    /// The intent's first real line, cut at `intentExcerptLimit` with the cut
+    /// made visible. `nil` when the run checked against no intent at all — the
+    /// clause is then omitted rather than rendered with empty quotes.
+    ///
+    /// **"Real" is `IntentStrip.line(from:)`'s answer, not a second one of this
+    /// file's.** The naive first-non-empty-line rule recorded `checked
+    /// against: "## Rulings"` into a durable, op-logged task for exactly the
+    /// statement Answer/bless mints on a piece that had only project intent: an
+    /// empty essay above a rulings heading. The strip already solved this
+    /// through `MarkdownBlockParser` — headings, ornaments, fences and tables
+    /// skipped, so the first *sentence* answers, which for that statement is
+    /// the first ruling the run was genuinely checked against. A third
+    /// first-line rule here is the drift the shared block parser exists to end;
+    /// only the budget differs, and it is applied after.
     static func intentExcerpt(_ intentSnapshot: String?) -> String? {
-        guard let intentSnapshot else { return nil }
-        let firstLine = intentSnapshot
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .first { !$0.isEmpty }
-        guard let firstLine else { return nil }
+        guard let firstLine = IntentStrip.line(from: intentSnapshot) else { return nil }
         guard firstLine.count > intentExcerptLimit else { return firstLine }
         return String(firstLine.prefix(intentExcerptLimit)) + "\u{2026}"
     }

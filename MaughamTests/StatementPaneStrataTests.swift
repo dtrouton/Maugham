@@ -15,6 +15,15 @@ import MaughamCore
 @MainActor
 final class StatementPaneStrataTests: XCTestCase {
 
+    /// Windows this suite hosted itself (the id census's planted offender), as
+    /// opposed to the ones `StatementMountFixture` owns and tears down.
+    private var bareWindows: [NSWindow] = []
+
+    override func tearDown() async throws {
+        for window in bareWindows { window.contentView = NSView(frame: .zero) }
+        bareWindows.removeAll()
+    }
+
     // MARK: - The essay half is a byte-exact split
 
     /// **The property the whole task rests on**: taking the essay out and
@@ -656,18 +665,92 @@ final class StatementPaneStrataTests: XCTestCase {
         XCTAssertTrue(BibleStratum.accessibilityLabel(for: fact).contains("Kelly is a nurse."))
     }
 
-    /// The establishing ¶ is shown when the run could anchor the fact, and
-    /// nothing is claimed when it could not.
-    func test_theEstablishingParagraphIsShownWhenThereIsOne() {
+    /// **The establishing paragraph is quoted, never named** (requirement 3:
+    /// no bare ¶ids anywhere the writer reads). The caption is the subject and
+    /// the paragraph's own words; the id rides along as `establishedAt` and is
+    /// not what the writer is shown.
+    func test_theEstablishingParagraphIsQuotedNotNamed() {
+        let caption = BibleStratum.caption(
+            for: makeFact(id: "1", subject: "Kelly", fact: "F", docId: "doc-a",
+                          establishedAt: "wnse",
+                          excerpt: "The fog came in off the water and\u{2026}"))
         XCTAssertEqual(
-            BibleStratum.caption(for: makeFact(id: "1", subject: "Kelly",
-                                               fact: "F", docId: "doc-a",
-                                               establishedAt: "wnse")),
-            "Kelly · ¶wnse")
+            caption, "Kelly · \u{201C}The fog came in off the water and\u{2026}\u{201D}")
+        XCTAssertFalse(caption.contains("wnse"),
+                       "the caption printed the paragraph id: \(caption)")
+        XCTAssertFalse(caption.contains("\u{00b6}"),
+                       "the caption printed a ¶ marker: \(caption)")
+    }
+
+    /// A fact the run could not anchor is captioned by its subject alone —
+    /// **and so is a row from a sidecar written before excerpts existed**. The
+    /// bible sidecar is derived state, so an old row decodes with a nil
+    /// excerpt, and the tempting fallback (show the id, we have one) is the
+    /// exact thing requirement 3 forbids.
+    func test_aFactWithNoExcerptIsCaptionedBySubjectAloneAndNeverByItsId() {
         XCTAssertEqual(
             BibleStratum.caption(for: makeFact(id: "1", subject: "Kelly",
                                                fact: "F", docId: "doc-a")),
             "Kelly")
+        // The pre-fix row: an id in hand, no excerpt.
+        let legacy = makeFact(id: "1", subject: "Kelly", fact: "F", docId: "doc-a",
+                              establishedAt: "wnse")
+        XCTAssertEqual(BibleStratum.caption(for: legacy), "Kelly")
+        XCTAssertFalse(BibleStratum.accessibilityLabel(for: legacy).contains("wnse"),
+                       "VoiceOver read the paragraph id aloud: "
+                       + BibleStratum.accessibilityLabel(for: legacy))
+    }
+
+    /// **No paragraph id reaches the mounted stratum** — the diagnostics pane's
+    /// own census (`DiagnosticsPaneTests.test_noParagraphIdIsEverRendered`),
+    /// pointed at the surface every run now feeds. Through the real pane, not
+    /// the pure caption: the caption rule can be right while a row prints the
+    /// id somewhere else.
+    ///
+    /// Proved against a **planted offender**: the same accessibility walk over
+    /// a view that does print an id must find it, or an empty result here means
+    /// only that the walk read nothing at all.
+    func test_noParagraphIdIsRenderedOnTheBibleStratum() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "bible-ids")
+        defer { fixture.tearDown() }
+        let anchored = "wnse"
+        let unexcerpted = "a1b2"
+        let bible = BibleStore(projectRoot: fixture.projectURL,
+                               device: DeviceSlug.make(from: "test-mac"))
+        let window = await fixture.host(
+            kind: .intent, subject: .item(fixture.documentItemId), bible: bible)
+
+        bible.record([
+            makeFact(id: "f1", subject: "Kelly", fact: "Kelly is a nurse.",
+                     docId: fixture.documentItemId, establishedAt: anchored,
+                     excerpt: "She had come off a double shift and\u{2026}"),
+            // The pre-fix row beside it: an id in hand and no excerpt is
+            // exactly the case a fallback would leak through.
+            makeFact(id: "f2", subject: "Ray", fact: "Ray drives a van.",
+                     docId: fixture.documentItemId, establishedAt: unexcerpted),
+        ])
+        await fixture.pumpUntil(deadline: 3) {
+            fixture.shows("She had come off a double shift and", in: window)
+        }
+
+        XCTAssertFalse(
+            try fixture.staticTexts(
+                in: window, containing: "She had come off a double shift and").isEmpty,
+            "control: the excerpt itself did not render, so the assertions below prove "
+            + "nothing about ids")
+        for id in [anchored, unexcerpted] {
+            let leaked = try fixture.staticTexts(in: window, containing: id)
+            XCTAssertTrue(leaked.isEmpty,
+                          "the pane rendered the paragraph id \u{201C}\(id)\u{201D}: \(leaked)")
+        }
+
+        // The planted offender: the same walk over a view that DOES print an
+        // id must find it.
+        let offender = mountBare(AnyView(Text("\u{00b6}\(anchored)")))
+        await fixture.waitOut(0.2)
+        XCTAssertFalse(try fixture.staticTexts(in: offender, containing: anchored).isEmpty,
+                       "the accessibility walk cannot see a rendered id at all, so the "
+                       + "assertions above prove nothing")
     }
 
     /// **Bless graduates**: the fact becomes a ruling in the writer's own
@@ -908,8 +991,25 @@ final class StatementPaneStrataTests: XCTestCase {
     // MARK: - Helpers
 
     private func makeFact(id: String, subject: String, fact: String, docId: String,
-                          establishedAt: String? = nil) -> BibleFact {
+                          establishedAt: String? = nil,
+                          excerpt: String? = nil) -> BibleFact {
         BibleFact(id: id, subject: subject, fact: fact, establishedAt: establishedAt,
-                  docId: docId, recordedAt: Date())
+                  excerpt: excerpt, docId: docId, recordedAt: Date())
+    }
+
+    /// A window around a bare view, for the planted offender alone — the
+    /// fixture's own hosting is private and is about the pane. Torn down with
+    /// the test class rather than the fixture.
+    private func mountBare(_ view: AnyView) -> NSWindow {
+        let frame = CGRect(x: 0, y: 0, width: 320, height: 120)
+        let hosting = NSHostingView(rootView: view)
+        hosting.frame = frame
+        let window = NSWindow(contentRect: frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.orderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        bareWindows.append(window)
+        return window
     }
 }

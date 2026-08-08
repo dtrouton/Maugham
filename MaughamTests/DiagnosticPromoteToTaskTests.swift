@@ -219,6 +219,40 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
             + "reading their own task list should never see one")
     }
 
+    /// **A heading is not what the run checked against.**
+    ///
+    /// The statement Answer (and bless) mints on a piece that had only project
+    /// intent is an empty essay above a `## Rulings` heading — so a
+    /// first-non-empty-line rule wrote `checked against: "## Rulings"` into a
+    /// durable, op-logged task the writer reads months later. The real answer
+    /// for that statement is the first ruling: the sentence the run genuinely
+    /// was checked against.
+    ///
+    /// The heading skip is `IntentStrip.line(from:)`'s, reused rather than
+    /// re-spelled — a third answer to "what is a heading" is the drift the
+    /// shared block parser was extracted to end.
+    func test_theProvenanceLineSkipsAHeadingForTheSentenceUnderIt() {
+        let snapshot = "## Rulings\n\n- Kelly never lies \u{2014} ruled 7 Aug 2026, from a run\n"
+        let body = DiagnosticPromotion.taskBody(
+            for: makeDiagnostic(docId: "d1", paragraphId: nil, body: "Drift."),
+            run: makeRun(model: "opus", intentSnapshot: snapshot))
+
+        XCTAssertFalse(body.contains("## Rulings"),
+                       "the task recorded a markdown heading as the writer's intent: \(body)")
+        XCTAssertTrue(body.contains("checked against: \u{201C}Kelly never lies"),
+                      "the first real line under the heading is what the run was checked "
+                      + "against: \(body)")
+    }
+
+    /// A statement that is nothing but headings has no line to quote, so the
+    /// clause is omitted rather than filled with the nearest markup.
+    func test_aStatementOfNothingButHeadingsClaimsNoIntent() {
+        let body = DiagnosticPromotion.taskBody(
+            for: makeDiagnostic(docId: "d1", paragraphId: nil, body: "Drift."),
+            run: makeRun(model: "opus", intentSnapshot: "# Intent\n\n## Rulings\n\n"))
+        XCTAssertFalse(body.contains("checked against"), body)
+    }
+
     /// A run with nothing to say about what it checked against says nothing —
     /// no empty quotes, no "checked against: (none)".
     func test_theProvenanceLineOmitsAnAbsentIntent() {

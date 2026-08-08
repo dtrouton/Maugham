@@ -333,6 +333,39 @@ briefing embed clause quotes some other way, this is the paragraph to re-read
 first. A watch item for Stage 3, recorded here because a reader of
 `worldSection` cannot see it.
 
+## The third door: bless, and the fact that comes back
+
+`BibleStore.record` deliberately keeps no memory of what was dismissed (spec
+§3.3, "may return if the manuscript re-establishes it"; the method's own doc
+says it "must not grow one"). For **dismiss** that is the designed behaviour.
+For **bless** it composes into a trap, and the walk is short enough to state
+verbatim:
+
+1. Run N reads a fact; the writer blesses it. `BibleStratum.graduate` mints a
+   ruling through `RulingPerformer.rule` and then calls `bible.dismiss` —
+   correct so far, the fact leaves the ledger as the clause enters the world.
+2. The writer later revises the establishing scene. Run N+1's delta contains
+   that prose again, the model re-emits the same fact, and `record` re-adds it:
+   **the blessed fact is back in the stratum, indistinguishable from new**.
+3. From then on the same declaration is briefed **twice** — as a bible fact and
+   as the ruling's derived clause. That is the over-weighting the atomic switch
+   above exists to prevent, arriving through a **third door** (door 2 is the
+   essay-sourced clause quote, the section above).
+4. A writer who blesses the returned fact again mints a **duplicate ruling
+   row**: `RulingsSection.appending` does not dedupe, and the duplicate then
+   renders as duplicate conformance rows, which `conformanceRows` embraces by
+   design.
+
+The design answer is **Stage 3's**, alongside drift — the honest fixes all
+touch design (tombstoning graduated `(subject, fact)` pairs in the bible
+sidecar is derived-state-shaped and does not touch the membrane; string-matching
+`record` against ruling texts is fragile and misses corrections), and choosing
+between them wants a milestone that can measure the result. This paragraph
+exists so the next reader **decides** it rather than discovering it. Note also
+what does not exist: **no test walks the bible loop across two runs at all** —
+nothing records facts in run N and watches run N+1's briefing carry them, let
+alone with a bless in the middle.
+
 ## The four fates of a note
 
 A diagnostic ends one of four ways, and only one of them is a button:

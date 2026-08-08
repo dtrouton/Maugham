@@ -17,9 +17,37 @@ struct BibleFact: Codable, Equatable, Sendable, Identifiable {
     /// The ¶id of the paragraph that established this fact, when the run
     /// could anchor it. `nil` for a fact read off prose the anchor scan
     /// could not place (mirrors `Diagnostic.anchor` being optional).
+    ///
+    /// **A payload, never a caption.** Requirement 3 — no bare ¶ids anywhere
+    /// the writer reads — applies to this stratum exactly as it applies to the
+    /// diagnostics pane; what the writer sees is `excerpt`.
     let establishedAt: String?
+    /// The head of `establishedAt`'s paragraph as it read when the run
+    /// anchored it — `Diagnostic.Ref.excerpt`'s discipline, captured at ingest
+    /// from the same resolution (`DiagnosticIngest.resolveRefs`), because the
+    /// live text is in hand there and nowhere else.
+    ///
+    /// `nil` for a fact with no anchor, and for a row written by a build
+    /// before this field existed: the sidecar is derived state, so an old row
+    /// decodes with a nil excerpt and the pane shows the subject alone rather
+    /// than falling back to the id it must never print.
+    let excerpt: String?
     let docId: String
     let recordedAt: Date
+
+    /// Explicit rather than synthesized so `excerpt` can default — the field
+    /// is additive on a derived sidecar and a call site that has no excerpt to
+    /// give (a test, a fact carried across a redaction) says so by omission.
+    init(id: String, subject: String, fact: String, establishedAt: String?,
+         excerpt: String? = nil, docId: String, recordedAt: Date) {
+        self.id = id
+        self.subject = subject
+        self.fact = fact
+        self.establishedAt = establishedAt
+        self.excerpt = excerpt
+        self.docId = docId
+        self.recordedAt = recordedAt
+    }
 }
 
 /// Project-scoped, per-device cache of the facts Claude has read off the

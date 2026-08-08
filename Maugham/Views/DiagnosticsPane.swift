@@ -437,11 +437,17 @@ struct DiagnosticsPane: View {
 
     /// One clause of the summary and every strain raised against it.
     struct ConformanceRow: Identifiable {
+        /// Where this clause sat in the run's own list. Part of the identity
+        /// and nothing else — the rows are never sorted by it.
+        let position: Int
         let status: DiagnosticIngest.ClauseStatus
         let strains: [Diagnostic]
-        /// The writer's own sentence is the identity — a clause has no id of
-        /// its own, and it is what a strain is matched to.
-        var id: String { status.clauseQuote }
+        /// **Position first, then the writer's sentence.** The quote alone is
+        /// not unique: `conformanceRows` deliberately renders a clause the
+        /// writer declared twice as two rows (see its doc), which handed
+        /// SwiftUI's `ForEach` two identical ids — undefined behaviour for the
+        /// duplicate the design intends to keep.
+        var id: String { "\(position)\u{0}\(status.clauseQuote)" }
     }
 
     /// Pair every clause with the strains raised against it, and report any
@@ -462,9 +468,9 @@ struct DiagnosticsPane: View {
         clauses: [DiagnosticIngest.ClauseStatus], strains: [Diagnostic]
     ) -> (rows: [ConformanceRow], orphans: [Diagnostic]) {
         let quotes = Set(clauses.map(\.clauseQuote))
-        let rows = clauses.map { status in
+        let rows = clauses.enumerated().map { position, status in
             ConformanceRow(
-                status: status,
+                position: position, status: status,
                 strains: strains.filter { $0.clauseQuote == status.clauseQuote })
         }
         let orphans = strains.filter { strain in
