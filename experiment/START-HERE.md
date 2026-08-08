@@ -164,9 +164,13 @@ test.** Treat every entry as a lead. Of the ones checked so far:
    verifier's not-chased thread (can a merge append into a live mirror unsorted?) is its probe
    target. `Maugham/Canvas/Promotion*.swift` (75% survey specificity) remains the harder
    falsification of the sampling correction.
-3. **7 gaps remain open** — 6 from trash (`22-*.md`) and rewind's GAP-R3 (an action that changes
-   nothing costs nothing — stands only if M4-RW-021 is argued down), each phrased as a product
-   statement a non-programmer can rule on. Rewind's GAP-R2/R4/R5 and the accepted residual were
+3. **14 gaps are open for the next sitting** — 6 from trash (`22-*.md`), rewind's GAP-R3 (an
+   action that changes nothing costs nothing — stands only if M4-RW-021 is argued down), 6 from
+   annotations (GAP-A1..A6, `28-*.md`; A6 merges with the formal spike's §5.1 clock-skew
+   observation), and **GAP-A7** — the formal-methods branch's model-proved accept+reject race:
+   must a losing reject carry inverse changes? (FM-3 in `PLAN.md`; both methods independently
+   terminated in "Denver must rule" here, which is the strongest validation either has produced.)
+   Each phrased as a product statement a non-programmer can rule on. Rewind's GAP-R2/R4/R5 and the accepted residual were
    ruled 2026-08-08 round 2; the independent verification that confirmed the residual blind is at
    `reconciliation/Rewind.verification-2026-08-08.json` (all five flipped filings confirmed 5/5 by
    a fresh-context verifier).

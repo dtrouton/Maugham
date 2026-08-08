@@ -26,6 +26,29 @@ lands; the queue detail lives in `START-HERE.md`, the numbers in the generated s
 
 ## Phase 2 — pay down the known debt (from main)
 
+**Absorbed 2026-08-08 from the formal-methods spike** (branch `formal-methods-spike`; findings in
+`docs/superpowers/notes/2026-08-01-formal-methods-spike-findings.md`; models are the acceptance
+tests — the violating config stays red against HEAD, green against the fix, falsification pair
+stays red):
+
+- **FM-1** checkpoints.jsonl + publications.jsonl unpartitioned shared JSONL (tripwire 17's own
+  defect) — LOCAL FIX, partitioning pattern exists. RULING-24 tier 1 territory: checkpoints are
+  the work's protection.
+- **FM-2** BackupWriter.prune orders by recency, recovery by intactness (+ latestSignature wedge)
+  — LOCAL FIX. Note: RULING-8's exact shape, single-device — characterisation of backups would
+  have caught it; the model got there first because backups aren't swept. Both true.
+- **FM-3** accept+reject cross-device race: status and spliced text settle in disagreement —
+  **GAP-A7, needs Denver**; do not fix ahead of the ruling. Same root the register pinned as
+  M5-AN-028 and rewind's stranded-accept apparatus; the model proved the convergence case our
+  method marked UNTRACED.
+- **FM-4** a checkpoint landing before its pinned op makes isHealthy false and REFUSES backups —
+  care-flagged; read findings §8 before any durable reaction to a perceived op-set gap.
+
+**The methods pipe** (adopted): register UNTRACED items that are multi-device → model-checking
+candidates; formal "needs a semantics decision" outputs → gap-queue entries; model-checked
+properties → a new `enforced_by` level. GAP-A6 and the spike's §5.1 clock-skew observation merge
+into one ruling question.
+
 5. Trash's 11 filed violations triaged: fixable-now under existing rulings (the three `InboxStore`
    hard-deletes, RULING-15; unreadable-note-opens-blank, RULING-7) vs gated on the parked
    research-protection milestone — the latter ROI-parked explicitly under PRINCIPLE-4.
