@@ -28,7 +28,7 @@ branch. Characterisation of a NEW module still changes nothing outside `experime
 | Regenerate the above | `scripts/23-generate-rulings.py` | verifies no ruling or clause is dropped; exits non-zero if any is |
 | **Claims + filings** | `reconciliation/<Module>.{claims,filings}.json` | one pair per module |
 | Filing template + disciplines | `reconciliation/PROTOCOL.md`, `RECONCILE.md` | 6 fields, 5 disciplines |
-| Characterisation tests | `ExperimentTests/` (MaughamCore), `app-layer-tests/` (app layer) | see "Running the tests" |
+| Characterisation tests | `ExperimentTests/` (MaughamCore), `MaughamTests/Claims/` (app layer, permanent residents) | see "Running the tests" |
 | Pre-claims decision surveys | `sweep2/*.json` | **leads, not facts** — see the warning below |
 | Phase reports | `00-` … `24-*.md` | numbered in order |
 
@@ -147,9 +147,13 @@ test.** Treat every entry as a lead. Of the ones checked so far:
 
 Non-negotiable, and each is a mistake someone already made:
 
-- **Worktree.** `EnterWorktree`, then `git reset --hard <pin>`. Tests go in `MaughamTests/Experiment/`.
-  Run `./gen.sh` after adding files. Discard the worktree afterwards and copy the tests back into
-  `experiment/app-layer-tests/`. The main checkout stays clean.
+- **Worktree — for characterising a NEW module only.** `EnterWorktree`, then
+  `git reset --hard <pin>`. Tests go in `MaughamTests/Experiment/` while you characterise; when the
+  module's claims are filed, the suite is PROMOTED into `MaughamTests/Claims/` on the branch — it
+  becomes a permanent, running part of the Mac suite, not a copy. (The copies-that-don't-run
+  arrangement was a zero-production-changes-era design; it ended 2026-08-08 when the non-running
+  copies were recognised as the register's biggest rot risk. Probes stay in
+  `experiment/app-layer-tests/` as history.)
 - **Probe before you assert.** Write a probe that prints observed behaviour, run it, *then* write
   assertions from what it printed. Never from what the code looks like it should do. This caught three
   claims in rewind alone that came out opposite to the reading — including the one that falsified
@@ -164,22 +168,21 @@ Non-negotiable, and each is a mistake someone already made:
 ### Running the tests
 
 ```bash
-# MaughamCore claims — standalone SPM package, runs anywhere
+# MaughamCore claims — standalone SPM package, runs anywhere; CI job `behavioural-claims`
 swift test --package-path experiment/ExperimentTests
 
-# App-layer claims — need @testable import Maugham, so they only run inside a worktree
-cp experiment/app-layer-tests/*.swift <worktree>/MaughamTests/Experiment/
-cd <worktree> && ./gen.sh
+# App-layer claims — PERMANENT residents of the Mac suite since 2026-08-08
 xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO \
   -only-testing:MaughamTests/TrashCharacterization \
   -only-testing:MaughamTests/RewindCharacterization
 ```
 
-The files in `app-layer-tests/` are **copies and do not run in place** — that is the price of keeping
-the main checkout clean, and it is deliberate.
+The app-layer suites live at `MaughamTests/Claims/` and run in every full suite and in CI's
+`mac-tests` job. **A claims test going red means PINNED BEHAVIOUR CHANGED** — check the module's
+filings before "fixing" the test: a defect fix must flip its claim + filing in the same branch
+(the fix-loop lifecycle), and a ruled-correct behaviour must not be changed casually.
 
-For a full-suite check, `-skip-testing:MaughamTests/MCPServerLifecycleTests` (three MCP tests are
-wall-clock-dependent and fail under load; see CLAUDE.md).
+For a full-suite check, `./scripts/test.sh full` (only the documented MCP skip).
 
 ## One thing worth fixing
 

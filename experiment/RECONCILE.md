@@ -55,11 +55,18 @@ preference:
 1. **A git worktree** (`git worktree add /tmp/<name> HEAD --detach`), tests under
    `MaughamTests/Experiment/`, run with
    `xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO -only-testing:MaughamTests/<YourTests>`.
-   Run `./gen.sh` after adding files. Discard the worktree afterwards. **This keeps the main
-   checkout clean, which has been an invariant of this whole experiment — 0 production files
-   changed across 47 phases.**
+   Run `./gen.sh` after adding files. The worktree keeps exploration off the branch while you probe
+   and characterise.
 2. If you must work in the main checkout, put everything under `MaughamTests/Experiment/` and say
    so plainly in your report.
+
+**When the module's claims are filed, the suite is PROMOTED to `MaughamTests/Claims/` on the
+branch** — a permanent, running resident of the Mac suite (`TrashCharacterization` and
+`RewindCharacterization` are the precedent, promoted 2026-08-08). A claims suite that does not run
+rots, and a rotted claim is worse than no claim. The zero-production-changes invariant this section
+used to state ended the same day, deliberately: production changes now ride the fix loop
+(a ruling authorising them, a pinned production test, the claim + filing flipped in the same
+branch).
 
 The app layer is impure: actors, `NSFileCoordinator`, 750ms debounce timers, `@MainActor`. Existing
 tests show the idioms — `MaughamTests/DocumentStoreRelocateRollbackTests.swift` is a good model
