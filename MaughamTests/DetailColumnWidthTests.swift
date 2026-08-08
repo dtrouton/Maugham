@@ -22,6 +22,15 @@ final class DetailColumnProbe {
     var pane: Int = 0
     var visibility: NavigationSplitViewVisibility = .all
 
+    /// The window content's width, measured by production's own
+    /// `ContainerWidthReporter` rather than by anything this file computes.
+    /// `nil` until the first measurement lands, exactly as in `ProjectWindow`.
+    var containerWidth: Double?
+
+    /// The writer's WISH — what `UIState` stores. What the column is given is
+    /// `ProjectWindow.effectiveDetailColumnWidth` of this and the container, and
+    /// keeping the two spelled apart here is how a test can assert that the
+    /// window reduces one without ever touching the other.
     private(set) var widthWrites: Int = 0
     var width: Double {
         didSet { widthWrites += 1 }
@@ -46,19 +55,28 @@ private struct DetailColumnHarness: View {
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(
             get: { probe.visibility }, set: { probe.visibility = $0 })) {
-            Color.gray.navigationSplitViewColumnWidth(min: 200, ideal: 240)
+            // The production floors, asked of production rather than restated —
+            // the affordability sum reasons about these two numbers, so a
+            // harness carrying its own copies would be measuring a different
+            // window than the one the sum is about.
+            Color.gray.navigationSplitViewColumnWidth(
+                min: ProjectWindow.binderColumnFloor, ideal: 240)
         } content: {
-            Color.white.navigationSplitViewColumnWidth(min: 480, ideal: 720)
+            Color.white.navigationSplitViewColumnWidth(
+                min: ProjectWindow.centreColumnFloor, ideal: 720)
         } detail: {
             if probe.mounted { detailColumn }
         }
+        .modifier(ContainerWidthReporter(onWidth: { probe.containerWidth = $0 }))
     }
 
     @ViewBuilder
     private var detailColumn: some View {
         switch probe.spelling {
         case .width:
-            pane.navigationSplitViewColumnWidth(probe.width)
+            pane.navigationSplitViewColumnWidth(
+                ProjectWindow.effectiveDetailColumnWidth(
+                    persisted: probe.width, containerWidth: probe.containerWidth))
         case .range:
             pane.navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
         }
@@ -107,10 +125,21 @@ private struct DetailColumnHarness: View {
 /// | switched to a pane with wider content | 329 | 360 — the range's `max` |
 /// | `⌘\` on the canvas and back (`.doubleColumn` → `.all`) | 329 | 240 — the range's `min` |
 ///
-/// The fix is the single-argument spelling: a range with one value in it has
-/// nothing left to re-resolve. `test_plantedOffender_theRangeIsWhatMovedIt`
-/// keeps both rows of that table measurable, so the diagnosis cannot rot into a
-/// comment nobody can check.
+/// The fix is the single-argument spelling, and the honest claim for it is that
+/// it holds through both — measured, rather than true by construction. An
+/// unbreakable pane still raises a real constraint conflict that AppKit resolves
+/// in the column's favour by its own undocumented tie-breaking; see
+/// `test_theFixedColumnWinsAgainstAnUnbreakablePane`, which is the canary on
+/// that. `test_plantedOffender_theRangeIsWhatMovedIt` keeps both rows of the
+/// table above measurable, so the diagnosis cannot rot into a comment nobody can
+/// check.
+///
+/// **The width that is APPLIED is not the width that is stored.** The three
+/// columns' floors can out-arithmetic the window's own, and when they do the
+/// right column is reduced to what the window affords rather than the window
+/// being grown — see `ProjectWindow.effectiveDetailColumnWidth` and
+/// `test_theWidestWishDoesNotGrowTheNarrowestWindow`. The stored wish is never
+/// touched by that.
 ///
 /// **What this harness is and is not.** It mounts a real `NavigationSplitView`
 /// with the real modifier, so what it measures is AppKit's behaviour rather than
@@ -139,7 +168,7 @@ final class DetailColumnWidthTests: XCTestCase {
     /// side.
     func test_theWidthSurvivesAPersonaRoundTrip() async throws {
         let probe = DetailColumnProbe(width: 320)
-        let split = try await mount(probe)
+        let (_, split) = try await mount(probe)
         XCTAssertEqual(width(of: split), 320, accuracy: 1,
                        "premise: the column opens at the writer's own width")
 
@@ -164,7 +193,7 @@ final class DetailColumnWidthTests: XCTestCase {
     /// whose content used to push the divider out to `max`.
     func test_theWidthSurvivesAPaneSwitch() async throws {
         let probe = DetailColumnProbe(width: 300)
-        let split = try await mount(probe)
+        let (_, split) = try await mount(probe)
 
         probe.pane = 1
         await pump(0.7)
@@ -187,7 +216,7 @@ final class DetailColumnWidthTests: XCTestCase {
     /// which is why the fix is the spelling and not an `.id()`.
     func test_neitherAPaneSwapNorAHideShowIsWhatMovedIt() async throws {
         let probe = DetailColumnProbe(spelling: .range)
-        let split = try await mount(probe)
+        let (_, split) = try await mount(probe)
         let dragged = try await dragDivider(of: split, toDetailWidth: 330)
         XCTAssertLessThan(dragged, 360,
                           "premise: the divider actually moved off the range's "
@@ -215,7 +244,7 @@ final class DetailColumnWidthTests: XCTestCase {
     /// checked.
     func test_plantedOffender_theRangeIsWhatMovedIt() async throws {
         let probe = DetailColumnProbe(spelling: .range)
-        let split = try await mount(probe)
+        let (_, split) = try await mount(probe)
         let dragged = try await dragDivider(of: split, toDetailWidth: 330)
 
         probe.pane = 1
@@ -237,6 +266,37 @@ final class DetailColumnWidthTests: XCTestCase {
                        + "switch — lands the column on the range's MIN")
     }
 
+    /// **A canary on AppKit's tie-breaking, not a proof of it.** The tempting
+    /// framing — "a range with one value in it has nothing left to re-resolve" —
+    /// overclaims. A pane whose content is genuinely unbreakable raises a real
+    /// Auto Layout conflict against the fixed column, and the suite logs it:
+    ///
+    /// ```
+    /// Conflicting constraints detected: (
+    ///     "NSLayoutGuide.width >= 360   (active)>",
+    ///     "'NSSplitViewItem.MaxSize' NSLayoutGuide.width <= 300   (active)>"
+    /// )
+    /// ```
+    ///
+    /// AppKit resolves it by breaking the max-size constraint rather than the
+    /// content's intrinsic-width demand, which is *why* the column still comes
+    /// out at the width it was given. That tie-break is undocumented and not
+    /// ours, so this test is here to go red the day it changes — the day a
+    /// `.fixedSize()` pane starts winning is the day the fix needs a different
+    /// shape. Real Inspector and Outline content wraps or scrolls, so provoking
+    /// it takes the deliberate `.fixedSize()` in this harness.
+    func test_theFixedColumnWinsAgainstAnUnbreakablePane() async throws {
+        let probe = DetailColumnProbe(width: 300)
+        let (_, split) = try await mount(probe)
+
+        probe.pane = 1
+        await pump(0.8)
+        XCTAssertEqual(width(of: split), 300, accuracy: 1,
+                       "the column's width must still win the tie against a "
+                       + "pane that cannot break — if this goes red, read this "
+                       + "test's doc comment before assuming it is a flake")
+    }
+
     // MARK: - Nothing but a drag writes the width
 
     /// **No feedback loop, structurally.** The other honest route to capturing a
@@ -247,7 +307,7 @@ final class DetailColumnWidthTests: XCTestCase {
     /// count here is zero and the only writer left is the gesture.
     func test_aPersonaSwitchDoesNotWriteTheWidth() async throws {
         let probe = DetailColumnProbe(width: 300)
-        let split = try await mount(probe)
+        let (_, split) = try await mount(probe)
         XCTAssertEqual(probe.widthWrites, 0, "premise: mounting wrote nothing")
 
         probe.pane = 1
@@ -322,20 +382,151 @@ final class DetailColumnWidthTests: XCTestCase {
         }
     }
 
-    /// The ceiling is wider than the old `max: 360` on purpose, and the reason
-    /// is a measurement rather than a preference: at the window's own floor
-    /// (`ProjectWindow`'s `minWidth: 980`) the widest right column still leaves
-    /// the writing column above its `min: 480`. Measured 2026-08-08 at 499pt.
-    func test_theWidestColumnStillLeavesTheNarrowestWindowItsProse() async throws {
-        let probe = DetailColumnProbe(width: UIState.detailColumnWidthRange.upperBound)
-        let split = try await mount(probe, windowWidth: 980)
+    // MARK: - The window the writer is actually in
 
-        XCTAssertEqual(width(of: split), 480, accuracy: 1)
+    /// **A widest wish must not grow the window.** The three columns' floors
+    /// out-arithmetic the window's own — 208 + 480 + 480 is 1168 against a
+    /// declared floor of 980 — and AppKit does not resolve that by squeezing
+    /// anything: it silently GROWS the window past its own minimum. The first
+    /// version of this test asserted the centre column's width at a *nominal*
+    /// 980 and never checked that the window it was measuring was 980; it was
+    /// 1169. Found by review, 2026-08-08.
+    ///
+    /// **Every assertion here names the window itself**, before and after, which
+    /// is the part that was missing rather than the part that was wrong.
+    func test_theWidestWishDoesNotGrowTheNarrowestWindow() async throws {
+        let probe = DetailColumnProbe(width: UIState.detailColumnWidthRange.upperBound)
+        let (window, split) = try await mount(probe, windowWidth: 980)
+        XCTAssertEqual(window.frame.width, 980, accuracy: 1,
+                       "premise: the window opened at the floor it was asked "
+                       + "for — if it did not, nothing below is about a narrow "
+                       + "window at all")
+
+        await pump(0.8)
+
+        XCTAssertEqual(window.frame.width, 980, accuracy: 1,
+                       "and it must still be 980 after laying out: a window "
+                       + "that grows under a returning writer is this task's "
+                       + "own complaint, moved from the divider to the window "
+                       + "edge")
+        XCTAssertEqual(split.frame.width, window.frame.width, accuracy: 1,
+                       "the split view fills the window, so measuring one is "
+                       + "measuring the other")
+
+        let expected = ProjectWindow.effectiveDetailColumnWidth(
+            persisted: UIState.detailColumnWidthRange.upperBound,
+            containerWidth: 980)
+        XCTAssertEqual(width(of: split), expected, accuracy: 1,
+                       "the column is given what this window can afford — "
+                       + "\(expected)pt — and not the 480 that was wished for")
+
         let centre = try XCTUnwrap(split.arrangedSubviews.dropLast().last?.frame.width)
-        XCTAssertGreaterThanOrEqual(centre, 480,
-                                    "the right column may not squeeze the prose "
-                                    + "below the editor's own minimum — measured "
-                                    + "\(centre)pt")
+        XCTAssertGreaterThanOrEqual(centre, Double(ProjectWindow.centreColumnFloor) - 1,
+                                    "and the prose keeps its own floor — "
+                                    + "measured \(centre)pt")
+    }
+
+    /// **The relaunch case, which is the regression path the review named.** A
+    /// writer drags the column to 480 on a large display, quits, and reopens the
+    /// project on a laptop. The stored 480 must not arrive as a wider window.
+    ///
+    /// Distinct from the test above in what it drives: there the wish is set
+    /// before mounting as a value; here it is the *persisted* value being
+    /// restored, and the assertion is about the window rather than the column.
+    func test_aWishWiderThanTheWindowDoesNotGrowItOnReopen() async throws {
+        let stored = UIState(detailColumnWidth: 480)
+        XCTAssertEqual(stored.detailColumnWidth, 480,
+                       "premise: the store kept the writer's wish whole")
+
+        let probe = DetailColumnProbe(width: stored.detailColumnWidth)
+        let (window, split) = try await mount(probe, windowWidth: 980)
+        await pump(0.8)
+
+        XCTAssertEqual(window.frame.width, 980, accuracy: 1,
+                       "reopening a project whose stored column is wider than "
+                       + "this window can afford must move the window not at all")
+        XCTAssertLessThan(width(of: split), 480,
+                          "the column gives, because it is the one that can")
+        XCTAssertEqual(probe.width, 480,
+                       "and the WISH is untouched — the reduction is what is "
+                       + "displayed, never what is stored, so the writer gets "
+                       + "their 480 back on the display they set it on")
+        XCTAssertEqual(probe.widthWrites, 0,
+                       "nothing wrote it, either")
+    }
+
+    /// The other side of the asymmetry: a window that can afford the whole wish
+    /// gives the whole wish. Without this, a clamp that simply always returned
+    /// its floor would satisfy every assertion above.
+    ///
+    /// **The premise is read off the window rather than off what was asked
+    /// for.** A requested 1600 came back as 1470 on this machine — `NSWindow`
+    /// will not open wider than the screen — which is exactly the class of
+    /// silently-different-window this whole fix round is about, arriving from
+    /// the other direction. What the test needs is a window that can afford the
+    /// wish, not one particular number.
+    func test_aWindowWithRoomHonoursTheWholeWish() async throws {
+        let probe = DetailColumnProbe(width: 480)
+        let (window, split) = try await mount(probe, windowWidth: 1400)
+        await pump(0.8)
+
+        let floors = Double(ProjectWindow.binderColumnFloor
+                            + ProjectWindow.sidebarInset
+                            + ProjectWindow.centreColumnFloor)
+        XCTAssertGreaterThanOrEqual(
+            Double(window.frame.width), floors + 480,
+            "premise: this window can actually afford the whole 480 — it "
+            + "opened at \(window.frame.width)pt, and a screen too small for "
+            + "that makes the assertion below meaningless rather than wrong")
+        XCTAssertEqual(width(of: split), 480, accuracy: 1,
+                       "a window with the room gives the writer their whole "
+                       + "wish — the reduction is affordability, not policy")
+    }
+
+    /// The sum itself, without a window — cheap, exhaustive, and the thing the
+    /// mounted tests above are only able to sample.
+    func test_theAffordabilitySumGivesTheWindowWhatItNeedsAndTheWriterTheRest() {
+        let floors = Double(ProjectWindow.binderColumnFloor
+                            + ProjectWindow.sidebarInset
+                            + ProjectWindow.centreColumnFloor)
+
+        // Roomy: the wish, whole.
+        XCTAssertEqual(ProjectWindow.effectiveDetailColumnWidth(
+            persisted: 480, containerWidth: 1600), 480)
+        // Tight: reduced to exactly what is left over.
+        XCTAssertEqual(ProjectWindow.effectiveDetailColumnWidth(
+            persisted: 480, containerWidth: 980), 980 - floors)
+        // Never below the column's own floor, however impossible the window.
+        XCTAssertEqual(ProjectWindow.effectiveDetailColumnWidth(
+            persisted: 480, containerWidth: 400),
+                       UIState.detailColumnWidthRange.lowerBound)
+        // Never ABOVE the wish — affordability only ever takes away.
+        XCTAssertEqual(ProjectWindow.effectiveDetailColumnWidth(
+            persisted: 260, containerWidth: 3000), 260)
+        // Unmeasured reads as the window's own floor, the conservative answer:
+        // a generous guess grows the window before the measurement can arrive,
+        // and a grown window does not shrink back on its own.
+        XCTAssertEqual(ProjectWindow.effectiveDetailColumnWidth(
+            persisted: 480, containerWidth: nil),
+                       ProjectWindow.effectiveDetailColumnWidth(
+                        persisted: 480,
+                        containerWidth: Double(ProjectWindow.windowFloor)))
+    }
+
+    /// The measurement is recorded only when it changes the answer, because a
+    /// window drag-resize is 60 frames a second and `ProjectWindow.body` is not
+    /// something to re-evaluate at that rate.
+    func test_aResizeThatChangesNothingIsNotRecorded() {
+        XCTAssertFalse(ProjectWindow.recordsContainerWidth(
+            1700, over: 1600, persisted: 480),
+                       "both afford the whole wish, so there is nothing to say")
+        XCTAssertTrue(ProjectWindow.recordsContainerWidth(
+            980, over: 1600, persisted: 480),
+                      "crossing into the squeeze is exactly when it must be said")
+        XCTAssertFalse(ProjectWindow.recordsContainerWidth(
+            1600, over: nil, persisted: 260),
+                       "a narrow wish is afforded everywhere, so even the first "
+                       + "measurement has nothing to change")
     }
 
     // MARK: - The census: production asks for a width, from one place
@@ -347,10 +538,17 @@ final class DetailColumnWidthTests: XCTestCase {
         let code = try Self.codeLines(of: "Views/ProjectWindow.swift")
 
         XCTAssertEqual(
-            code.filter { $0.contains("navigationSplitViewColumnWidth(detailColumnWidth)") }.count,
+            code.filter {
+                $0.contains("Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,")
+            }.count,
             1,
-            "the detail column is pinned to the writer's own width, in exactly "
-            + "one place")
+            "the detail column is pinned to one width, in exactly one place")
+        XCTAssertTrue(
+            code.allSatisfy { !$0.contains("navigationSplitViewColumnWidth(detailColumnWidth)") },
+            "and it is the EFFECTIVE width, never the stored one handed over "
+            + "raw: a stored width the window cannot afford does not squeeze a "
+            + "column, it grows the window — which is this task's own complaint "
+            + "moved to the window edge (see the narrow-window tests above)")
         XCTAssertTrue(
             code.allSatisfy { !$0.contains("navigationSplitViewColumnWidth(min: 240") },
             "and it must not go back to declaring a range — a range is what "
@@ -454,7 +652,7 @@ final class DetailColumnWidthTests: XCTestCase {
     }
 
     private func mount(_ probe: DetailColumnProbe,
-                       windowWidth: CGFloat = 1200) async throws -> NSSplitView {
+                       windowWidth: CGFloat = 1200) async throws -> (NSWindow, NSSplitView) {
         let frame = CGRect(x: 0, y: 0, width: windowWidth, height: 700)
         let hosting = NSHostingView(rootView: AnyView(DetailColumnHarness(probe: probe)))
         hosting.frame = frame
@@ -474,7 +672,7 @@ final class DetailColumnWidthTests: XCTestCase {
         XCTAssertEqual(split.arrangedSubviews.count, 3,
                        "premise: three columns, the last of which is the one "
                        + "this file is about")
-        return split
+        return (window, split)
     }
 
     private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {
