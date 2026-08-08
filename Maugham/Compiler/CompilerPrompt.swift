@@ -2,17 +2,6 @@ import CryptoKit
 import Foundation
 import MaughamCore
 
-/// What a compiler run needs to know beyond the delta itself: the resolved
-/// intent (piece-first, project-fallback — the caller resolves which), and
-/// the pinned/palette listings the prompt names but never inlines.
-struct CompilerContext: Equatable, Sendable {
-    let projectId: String
-    let intentText: String?          // resolved piece-first (caller resolves)
-    let intentScopeLabel: String     // "this chapter" / "the project"
-    let pinnedListing: [String]      // "title (id)" lines — ids the run can feed to read tools
-    let paletteListing: [String]
-}
-
 /// Assembles what a compiler run sends to the spawned Claude: the session's
 /// one-time system preamble, and each run's message (delta + diffed-in
 /// context + the standing drift question + the output-shape instruction).
@@ -21,26 +10,10 @@ struct CompilerContext: Equatable, Sendable {
 /// testable without a subprocess.
 enum CompilerPrompt {
 
-    /// The output contract every run message ends with, verbatim. Task 6's
-    /// parser tests reference this SAME constant, so prompt and parser cannot
-    /// drift apart.
-    static let outputSchemaDescription: String = """
-        Respond with a single JSON object and nothing else — no prose before \
-        or after it:
-        {"diagnostics":[{"paragraph_id":<string or null>,"category":<string \
-        or null>,"body":<string>}],"intent_drift":<string or null>}
-        Copy each paragraph_id exactly as it appears above — do not alter, \
-        invent, abbreviate, or omit it. A diagnostic with no natural \
-        paragraph (e.g. it concerns the whole delta rather than one \
-        paragraph) uses null. intent_drift is null unless the standing \
-        drift question below is answered yes.
-        """
-
-    /// The v2 output contract: four line-delimited JSON objects, one per
+    /// The output contract: four line-delimited JSON objects, one per
     /// section, in fixed order (conformance, continuity, reader, facts).
-    /// Task 6's parser tests reference this SAME constant, so prompt and
-    /// parser cannot drift apart (mirrors `outputSchemaDescription`'s v1
-    /// discipline).
+    /// `DiagnosticIngestTests` reference this SAME constant, so prompt and
+    /// parser cannot drift apart in a rewording.
     ///
     /// No severity field, no suggestion field anywhere in this string —
     /// the register is enforced structurally, not by asking nicely
@@ -102,46 +75,7 @@ enum CompilerPrompt {
         """
     }
 
-    /// One run's message: the delta, diffed-in context, the standing drift
-    /// question, and the output-format instruction. Returns the message text
-    /// plus the intent hash to pass as `previousIntentHash` on the NEXT run
-    /// (`nil` when there is no intent to track).
-    static func runMessage(
-        delta: CompilerDelta, context: CompilerContext, previousIntentHash: String?
-    ) -> (message: String, intentHash: String?) {
-        var sections: [String] = []
-        var intentHash: String? = nil
-
-        if let intentText = context.intentText {
-            let hash = sha256Hex(intentText)
-            intentHash = hash
-            if hash == previousIntentHash {
-                sections.append(
-                    "Intent (\(context.intentScopeLabel)): unchanged since last run.")
-            } else {
-                sections.append(
-                    "Intent (\(context.intentScopeLabel)):\n\(cleaned(intentText))")
-            }
-        }
-
-        sections.append(
-            contentsOf: listingSections(
-                pinnedListing: context.pinnedListing, paletteListing: context.paletteListing))
-
-        sections.append(deltaSection(delta))
-
-        sections.append(
-            "Standing question: does this delta suggest the declared intent "
-                + "is stale, incomplete, or missing something the writer "
-                + "should now say explicitly? Answer only when it does; "
-                + "otherwise intent_drift is null.")
-
-        sections.append(outputSchemaDescription)
-
-        return (sections.joined(separator: "\n\n"), intentHash)
-    }
-
-    /// v2's run message: the declared world (essay + derived clauses/rules),
+    /// The run message: the declared world (essay + derived clauses/rules),
     /// the bible slice, the listings, the delta, and the section schema.
     ///
     /// The bible slice is rendered exactly as given — `bibleFacts` is the
@@ -234,7 +168,7 @@ enum CompilerPrompt {
         return parts.joined(separator: "\n")
     }
 
-    // MARK: - Listings (pinned / palette) — shared by v1 and v2
+    // MARK: - Listings (pinned / palette)
 
     private static func listingSections(pinnedListing: [String], paletteListing: [String]) -> [String] {
         var sections: [String] = []
@@ -297,7 +231,7 @@ enum CompilerPrompt {
         MarkdownDisplayFilter.stripAnchors(text)
     }
 
-    // MARK: - Intent hashing
+    // MARK: - Hashing
 
     private static func sha256Hex(_ text: String) -> String {
         let digest = SHA256.hash(data: Data(text.utf8))

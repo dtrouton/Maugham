@@ -24,15 +24,38 @@ enum DiagnosticPromotion {
     /// navigable; repeating it here would put plumbing in front of a writer
     /// reading their own list.
     ///
+    /// **The record names which section raised it** (spec §5's fates line:
+    /// "body cites the section it came from") — the same words the pane's own
+    /// section headers use (`sectionLabel`), so a task read months later still
+    /// says whether it was a conformance strain, a continuity question, or the
+    /// reader's own report. Absent for a `kind == nil` record — a v1-shaped
+    /// diagnostic never carried a section to cite.
+    ///
     /// Without a run record there is no provenance to claim, and the note's
     /// words stand alone rather than gaining a line with holes in it.
     static func taskBody(for diagnostic: Diagnostic, run: CompilerRun?) -> String {
         guard let run else { return diagnostic.body }
         var record = "\u{2014} compiler, \(dateStamp(run.at)), \(run.model)"
+        if let section = sectionLabel(diagnostic.kind) {
+            record += ", from \(section)"
+        }
         if let excerpt = intentExcerpt(run.intentSnapshot) {
             record += ", checked against: \u{201C}\(excerpt)\u{201D}"
         }
         return diagnostic.body + "\n\n" + record
+    }
+
+    /// The section a note came from, in the pane's own words
+    /// (`DiagnosticsPane`'s `PaneSectionHeader` titles, lowercased). `nil` for
+    /// `kind == nil` — a record from before the sectioned contract had no
+    /// section to name.
+    private static func sectionLabel(_ kind: DiagnosticKind?) -> String? {
+        switch kind {
+        case .conformanceStrain: return "conformance"
+        case .continuity: return "continuity"
+        case .readerReport: return "the reader"
+        case nil: return nil
+        }
     }
 
     /// The intent's first non-empty line, cut at `intentExcerptLimit` with the

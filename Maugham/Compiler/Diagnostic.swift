@@ -86,8 +86,8 @@ struct CompilerRun: Codable, Equatable, Sendable {
     let deltaSummary: String       // e.g. "3 new, 2 revised ¶"
     let intentSnapshot: String?    // what the run checked against
     /// How many notes this run raised that Maugham could not place —
-    /// `DiagnosticIngest.Outcome.droppedDangling`, carried rather than counted
-    /// and dropped.
+    /// `DiagnosticIngest.SectionedOutcome.droppedDangling`, carried rather
+    /// than counted and dropped.
     ///
     /// **It is the difference between a clean bill and a silent one.** A run
     /// whose every note named a paragraph that has since changed accepts

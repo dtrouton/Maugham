@@ -21,88 +21,6 @@ import MaughamCore
 /// not get to interrupt the writer over one malformed note.
 enum DiagnosticIngest {
 
-    /// What one turn yielded. `drift` is reported on its own and is never
-    /// doubled into `accepted` — a caller that wants both concatenates them.
-    struct Outcome: Equatable {
-        let accepted: [Diagnostic]
-        /// Notes discarded on their own merits: an unknown `paragraph_id`, an
-        /// empty body, or an entry that isn't an object. Reported so a run can
-        /// say it lost something without failing.
-        let droppedDangling: Int
-        let drift: Diagnostic?
-    }
-
-    /// The wire names, in one place. `DiagnosticIngestTests` asserts every one
-    /// of them appears in `CompilerPrompt.outputSchemaDescription`, so the
-    /// prompt and the parser cannot drift apart in a rewording.
-    enum Field {
-        static let diagnostics = "diagnostics"
-        static let paragraphId = "paragraph_id"
-        static let category = "category"
-        static let body = "body"
-        static let intentDrift = "intent_drift"
-    }
-
-    /// The category stamped on the drift note. The schema carries drift in its
-    /// own field, so the category is ours to assign rather than the model's.
-    static let driftCategory = "intent"
-
-    /// Parse one turn's result text. Returns `nil` only for output that cannot
-    /// be read at all — prose with no JSON in it, truncated JSON, or JSON of
-    /// another shape. Fenced (```` ```json ... ``` ````) and bare JSON both
-    /// parse, including a fence with the model's prose around it.
-    static func parse(
-        resultText: String, runId: String, docId: String,
-        liveParagraphText: (String) -> String?
-    ) -> Outcome? {
-        guard let object = jsonObject(in: resultText) else { return nil }
-
-        var accepted: [Diagnostic] = []
-        var dropped = 0
-
-        for entry in object[Field.diagnostics] as? [Any] ?? [] {
-            guard let item = entry as? [String: Any],
-                  let body = nonEmptyString(item[Field.body])
-            else {
-                dropped += 1
-                continue
-            }
-
-            let anchor: Diagnostic.Anchor?
-            switch item[Field.paragraphId] {
-            case let raw as String:
-                guard let resolved = resolve(raw, liveParagraphText) else {
-                    dropped += 1
-                    continue
-                }
-                anchor = Diagnostic.Anchor(
-                    paragraphId: resolved.paragraphId, anchorText: resolved.text)
-            case nil, is NSNull:
-                // The schema's own escape hatch: a note about the delta rather
-                // than one paragraph. Anchorless, but not drift — it keeps the
-                // category the model gave it.
-                anchor = nil
-            default:
-                dropped += 1
-                continue
-            }
-
-            accepted.append(
-                Diagnostic(
-                    id: ULID.generate(), docId: docId, anchor: anchor, body: body,
-                    category: nonEmptyString(item[Field.category]), runId: runId))
-        }
-
-        var drift: Diagnostic? = nil
-        if let driftBody = nonEmptyString(object[Field.intentDrift]) {
-            drift = Diagnostic(
-                id: ULID.generate(), docId: docId, anchor: nil, body: driftBody,
-                category: driftCategory, runId: runId)
-        }
-
-        return Outcome(accepted: accepted, droppedDangling: dropped, drift: drift)
-    }
-
     // MARK: - Paragraph resolution
 
     /// The prompt prints ids as `[a1b2]`, so a model that copies the brackets
@@ -123,59 +41,10 @@ enum DiagnosticIngest {
         return nil
     }
 
-    // MARK: - JSON extraction
-
-    /// The first candidate that parses as an object of our shape wins: fenced
-    /// blocks first (a model that fences usually also narrates), then the whole
-    /// text, then the widest brace-to-brace span.
-    private static func jsonObject(in resultText: String) -> [String: Any]? {
-        var candidates = fencedBlocks(in: resultText)
-        candidates.append(resultText)
-        if let span = widestBraceSpan(in: resultText) { candidates.append(span) }
-
-        for candidate in candidates {
-            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty,
-                  let data = trimmed.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data),
-                  let dictionary = object as? [String: Any],
-                  // Neither key present is some other shape entirely — a
-                  // dictionary alone is not evidence this is our output.
-                  dictionary[Field.diagnostics] != nil || dictionary[Field.intentDrift] != nil
-            else { continue }
-            return dictionary
-        }
-        return nil
-    }
-
-    /// Contents of every ```` ``` ````-delimited block, with an opening
-    /// language tag (`json`) dropped.
-    private static func fencedBlocks(in text: String) -> [String] {
-        let parts = text.components(separatedBy: "```")
-        guard parts.count >= 3 else { return [] }
-        return stride(from: 1, to: parts.count, by: 2).map { index -> String in
-            let block = parts[index]
-            guard let newline = block.firstIndex(of: "\n") else { return block }
-            let firstLine = block[block.startIndex..<newline]
-            let isLanguageTag = !firstLine.contains("{")
-                && firstLine.trimmingCharacters(in: .whitespaces).count <= 12
-            return isLanguageTag ? String(block[block.index(after: newline)...]) : block
-        }
-    }
-
-    private static func widestBraceSpan(in text: String) -> String? {
-        guard let open = text.firstIndex(of: "{"),
-              let close = text.lastIndex(of: "}"),
-              open < close
-        else { return nil }
-        return String(text[open...close])
-    }
-
     // MARK: - Values
 
     /// A `String` value with something in it. Whitespace-only is nothing: an
-    /// empty body is unusable content for one note, and an empty
-    /// `intent_drift` is the model saying no in a roundabout way.
+    /// empty body is unusable content for one note.
     private static func nonEmptyString(_ value: Any?) -> String? {
         guard let string = value as? String else { return nil }
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -183,12 +52,12 @@ enum DiagnosticIngest {
     }
 }
 
-// MARK: - v2: the sectioned contract
+// MARK: - The sectioned contract
 
-/// The v2 ingest reads `CompilerPrompt.sectionSchemaDescription`'s four
-/// sections. Everything v1 established still holds — anchors captured live at
-/// ingest, a bad entry dropped and counted rather than failing the run — and
-/// v2 adds three rules of its own:
+/// Reads `CompilerPrompt.sectionSchemaDescription`'s four sections. Two rules
+/// carry the weight, stated once at the top of this file and still true here:
+/// anchors are captured live at ingest, and a bad entry is dropped and
+/// counted rather than failing the run. Three more are this contract's own:
 ///
 /// **One section is one unit.** `parseSection` turns a single line into that
 /// section's whole contribution, so sections can be ingested as they arrive.
@@ -208,10 +77,10 @@ enum DiagnosticIngest {
 /// `fixShapedMarkers`.
 extension DiagnosticIngest {
 
-    /// The v2 wire names and enumerated values, in one place.
+    /// The wire names and enumerated values, in one place.
     /// `DiagnosticIngestTests` asserts every one of them appears in
     /// `CompilerPrompt.sectionSchemaDescription`, so the prompt and the parser
-    /// cannot drift apart in a rewording (v1's `Field` discipline).
+    /// cannot drift apart in a rewording.
     enum SectionField {
         static let section = "section"
 

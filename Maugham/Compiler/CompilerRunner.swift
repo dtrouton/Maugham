@@ -82,9 +82,9 @@ public protocol CompilerRunner: AnyObject {
     ///
     /// This is what makes diffed-in context safe to send. A session that timed
     /// out, was cancelled or expired idle respawns silently on the next `send`
-    /// with no memory of anything; `CompilerPrompt.runMessage`'s
-    /// `previousIntentHash` would then tell a brand-new process that the intent
-    /// is "unchanged since last run", describing a run it never saw, and it
-    /// would judge the prose against nothing at all.
+    /// with no memory of anything; `CompilerPrompt.runMessageV2`'s
+    /// `previousBriefingHash` would then tell a brand-new process that the
+    /// declared world and bible are "unchanged since last run", describing a
+    /// run it never saw, and it would judge the prose against nothing at all.
     @MainActor var sessionEpoch: Int { get }
 }

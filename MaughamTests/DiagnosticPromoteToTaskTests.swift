@@ -206,10 +206,10 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
             body.hasPrefix("The rhythm flattens across these three sentences."),
             "the note's own words come first: \(body)")
         XCTAssertTrue(
-            body.contains("\u{2014} compiler, 2026-07-24, sonnet, checked against: "
-                          + "\u{201C}A ghost story told in weather.\u{201D}"),
-            "the provenance line must say who checked, when, in what model, and against "
-            + "what: \(body)")
+            body.contains("\u{2014} compiler, 2026-07-24, sonnet, from continuity, "
+                          + "checked against: \u{201C}A ghost story told in weather.\u{201D}"),
+            "the provenance line must say who checked, when, in what model, which section "
+            + "raised it, and against what: \(body)")
         XCTAssertFalse(
             body.contains("No one says the word ghost"),
             "only the intent's first line belongs in a task body")
@@ -235,6 +235,34 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
         let body = DiagnosticPromotion.taskBody(
             for: makeDiagnostic(docId: "d1", paragraphId: nil, body: "Drift."), run: nil)
         XCTAssertEqual(body, "Drift.")
+    }
+
+    /// The record names which section raised the note (spec §5's fates line:
+    /// "body cites the section it came from") — the pane's own words for each
+    /// of the three sectioned kinds.
+    func test_theProvenanceLineNamesTheSectionItCameFrom() {
+        for (kind, label) in [
+            (DiagnosticKind.conformanceStrain, "conformance"),
+            (DiagnosticKind.continuity, "continuity"),
+            (DiagnosticKind.readerReport, "the reader"),
+        ] {
+            let body = DiagnosticPromotion.taskBody(
+                for: makeDiagnostic(docId: "d1", paragraphId: nil, body: "Drift.", kind: kind),
+                run: makeRun())
+            XCTAssertTrue(
+                body.contains("from \(label)"), "expected \(label) for \(kind): \(body)")
+        }
+    }
+
+    /// A `kind == nil` record — the mark of a diagnostic from before the
+    /// sectioned contract — cites no section, because there is none to cite.
+    func test_aKindlessRecordCitesNoSection() {
+        let diagnostic = Diagnostic(
+            id: ULID.generate(), docId: "d1", anchor: nil, body: "Drift.",
+            category: nil, runId: ULID.generate())
+        XCTAssertNil(diagnostic.kind, "the fixture must actually be kindless")
+        let body = DiagnosticPromotion.taskBody(for: diagnostic, run: makeRun())
+        XCTAssertFalse(body.contains("from "), body)
     }
 
     /// A long intent is cut, and the cut is visible.

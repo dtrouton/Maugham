@@ -19,7 +19,7 @@ protocol WorldDeriver: AnyObject {
 /// membrane.
 ///
 /// **The prompt and the parser are pinned to one wire shape here.** Unlike
-/// the compiler's M2 split (`CompilerPrompt.outputSchemaDescription` sent by
+/// the compiler's split (`CompilerPrompt.sectionSchemaDescription` sent by
 /// one type, read by `DiagnosticIngest`), `derivationSchemaDescription` is
 /// sent AND read by this same type — a rewording that drops a field name
 /// breaks `test_derivationSchemaDescriptionNamesTheWireFields` before it can
