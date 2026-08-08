@@ -165,25 +165,6 @@ final class InlineTaskToggleUndoTests: XCTestCase {
         return try box.result!.get()
     }
 
-    /// Spin the main run loop for a fixed interval (services the MainActor
-    /// executor + the groupsByEvent group-close observer).
-    private func pump(_ seconds: TimeInterval) {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-        }
-    }
-
-    /// Pump the main run loop until `predicate` holds (or `timeout` elapses).
-    private func waitUntil(
-        _ predicate: @MainActor () -> Bool, timeout: TimeInterval = 3
-    ) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !predicate() && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-        }
-    }
-
     func test_type_toggle_type_undoWalksBackInOrder_noCrash() throws {
         let rd = try bridge {
             try await EditorIntegrationHarness.withRealDocument(
@@ -193,7 +174,10 @@ final class InlineTaskToggleUndoTests: XCTestCase {
         let h = rd.harness
         let um = try XCTUnwrap(h.textView.undoManager)
         um.removeAllActions()
-        pump(0.05)
+        // fixed window: `removeAllActions` closes any open group itself
+        // (measured — groupingLevel drops straight to 0), so there is no
+        // observable condition here; this is the harness settling.
+        pumpFor(0.05)
 
         // Mirror EditorSurface.updateNSView: consume the flag every pass;
         // apply only when the buffer differs.
@@ -210,7 +194,13 @@ final class InlineTaskToggleUndoTests: XCTestCase {
         h.setCursor(to: (h.textView.string as NSString).length)
         h.typeCharacter("X")
         XCTAssertEqual(h.textView.string, "- [ ] buy milkX")
-        pump(0.05)
+        // `shouldChangeText` registered the typing action synchronously; what
+        // the run-loop turn is for is `groupsByEvent` CLOSING that event group.
+        // That close is not readable as a value — `canUndo` is already true
+        // with the group still open, and measured 2026-08-08 a
+        // `waitUntil { um.canUndo && um.groupingLevel == 0 }` never goes true
+        // here and burns its whole deadline. So the window stays.
+        pumpFor(0.05)  // fixed window: the event-group close — see the note above
 
         // 2. Inline toggle via the helper, then the editor apply pass the
         //    SwiftUI update would drive. D1: the toggle's buffer replace makes
@@ -224,14 +214,14 @@ final class InlineTaskToggleUndoTests: XCTestCase {
         pumpEditorApply()
         XCTAssertEqual(h.textView.string, "- [x] buy milkX",
             "toggle replaced the buffer")
-        pump(0.05)
+        pumpFor(0.05)  // fixed window: the event-group close
 
         // 3. Native typing burst #2 — append "Y". Registered AFTER the
         //    toggle's clear, so it is sound and survives.
         h.setCursor(to: (h.textView.string as NSString).length)
         h.typeCharacter("Y")
         XCTAssertEqual(h.textView.string, "- [x] buy milkXY")
-        pump(0.05)
+        pumpFor(0.05)  // fixed window: the event-group close
 
         // 4. ⌘Z walk-back per D1: post-toggle typing (native, sound), then the
         //    toggle (registered action), then NOTHING — the pre-toggle typing
@@ -240,19 +230,22 @@ final class InlineTaskToggleUndoTests: XCTestCase {
         //    SIGSEGV class).
         um.undo()   // undo "Y" (native, synchronous)
         XCTAssertEqual(h.textView.string, "- [x] buy milkX")
-        pump(0.05)
+        // fixed window: `undo()` closes the top-level group itself and its
+        // nested redo registration opens none (measured — groupingLevel is
+        // already 0 here), so there is no condition left to name.
+        pumpFor(0.05)
 
         um.undo()   // undo toggle: handler hops async → wait for the flip-back
         waitUntil { doc.paragraph(id: pid) == prior }
         pumpEditorApply()
         XCTAssertEqual(h.textView.string, "- [ ] buy milkX",
             "second ⌘Z undoes the toggle across the interleaved native actions")
-        pump(0.05)
+        pumpFor(0.05)  // fixed window: asserting nothing happens (canUndo stays false)
 
         XCTAssertFalse(um.canUndo,
             "pre-toggle typing history was cleared per D1 — nothing left to undo")
         um.undo()   // third ⌘Z: no-op, must not fault (B3)
-        pump(0.05)
+        pumpFor(0.05)  // fixed window: asserting nothing happens (the buffer is unchanged)
         XCTAssertEqual(h.textView.string, "- [ ] buy milkX",
             "third ⌘Z is a no-op — pre-toggle typing is not recoverable (D1's accepted cost)")
     }

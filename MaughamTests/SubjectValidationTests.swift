@@ -293,7 +293,7 @@ final class SubjectValidationTests: XCTestCase {
         try await host(harness)
 
         try await store.deleteStructureItem(id: group.id)
-        await settle()
+        await settle(until: { harness.subject == .project })
 
         XCTAssertFalse(TreeWalk.contains(id: child.id, in: store.manifest.structure),
                        "fixture assumption: the child went with the group")
@@ -314,7 +314,7 @@ final class SubjectValidationTests: XCTestCase {
         try await host(harness)
 
         try await store.deleteStructureItem(id: piece.id)
-        await settle()
+        await settle(until: { harness.subject == .project })
 
         XCTAssertEqual(harness.subject, .project)
     }
@@ -330,6 +330,9 @@ final class SubjectValidationTests: XCTestCase {
         try await host(harness)
 
         try await store.renameStructureItem(id: doc.id, newTitle: "A New Name")
+        // Fixed window: asserting nothing happens. The subject already holds the
+        // asserted value, so a condition wait would return at once and prove
+        // nothing about the sweep.
         await settle()
 
         XCTAssertEqual(harness.subject, .item(doc.id),
@@ -353,6 +356,8 @@ final class SubjectValidationTests: XCTestCase {
         try await host(harness)
 
         try await store.moveStructureItem(id: doc.id, toParentId: group.id, atIndex: 0)
+        // Fixed window: asserting nothing happens (the subject must survive the
+        // move untouched).
         await settle()
 
         XCTAssertEqual(harness.subject, .item(doc.id))
@@ -370,6 +375,8 @@ final class SubjectValidationTests: XCTestCase {
         try await host(harness)
 
         try await store.deleteStructureItem(id: doc.id)
+        // Fixed window: asserting nothing happens (the project subject must
+        // survive somebody else's delete).
         await settle()
 
         XCTAssertEqual(harness.subject, .project,
@@ -385,6 +392,7 @@ final class SubjectValidationTests: XCTestCase {
         try await host(harness)
 
         try await store.deleteStructureItem(id: doc.id)
+        // Fixed window: asserting nothing happens.
         await settle()
 
         XCTAssertNil(harness.subject)
@@ -402,6 +410,8 @@ final class SubjectValidationTests: XCTestCase {
         try await host(harness)
 
         harness.store = store
+        // Fixed window: asserting nothing happens — this is the guard's own
+        // window, and the sweep it forbids would land inside it.
         await settle()
 
         XCTAssertEqual(harness.subject, .item("not-here"),
@@ -481,19 +491,30 @@ final class SubjectValidationTests: XCTestCase {
         hosting.layoutSubtreeIfNeeded()
         windows.append(window)
         // Let the first body pass run, so `.onChange` has an old value to
-        // compare against rather than an arrival.
+        // compare against rather than an arrival. Fixed: the probe is a
+        // `Color.clear` and the harness holds the same subject before and after,
+        // so a body pass having happened is not observable from out here.
         await settle()
     }
 
-    private func settle() async {
+    /// Lets the modifier's `.onChange` deliver.
+    ///
+    /// - Parameter until: what the caller is about to assert. Given a condition,
+    ///   the wait ends the moment it holds — the caller's own assertion is still
+    ///   what fails, and still with its own message. Given none, it is a fixed
+    ///   window of wall clock, which is what the cases below asserting that the
+    ///   sweep did NOT fire actually need: for those the subject already holds
+    ///   the value being asserted, so there is no condition to wait on and a
+    ///   shortened window would weaken the test.
+    private func settle(until condition: (() -> Bool)? = nil) async {
+        if let condition {
+            await pumpUntil(deadline: 5, condition)
+            return
+        }
         let deadline = Date().addingTimeInterval(0.5)
         while Date() < deadline {
             pump(0.02)
             try? await Task.sleep(for: .milliseconds(20))
         }
-    }
-
-    private func pump(_ seconds: TimeInterval = 0.15) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
     }
 }

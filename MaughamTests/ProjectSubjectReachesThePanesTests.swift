@@ -45,6 +45,8 @@ final class ProjectSubjectReachesThePanesTests: XCTestCase {
         let probe = BinderSubjectProbe(.project)
         _ = try await hostOutline(store: store, probe: probe, layout: .table)
 
+        // Fixed window: asserting nothing happens. The subject already holds the
+        // asserted value, so the window IS the test.
         await waitOut(0.6)
         XCTAssertEqual(probe.subject, .project,
                        "the Outline pane must not answer \"which of my rows is "
@@ -57,6 +59,7 @@ final class ProjectSubjectReachesThePanesTests: XCTestCase {
         let probe = BinderSubjectProbe(.project)
         _ = try await hostOutline(store: store, probe: probe, layout: .cards)
 
+        // Fixed window: asserting nothing happens.
         await waitOut(0.6)
         XCTAssertEqual(probe.subject, .project)
     }
@@ -72,7 +75,7 @@ final class ProjectSubjectReachesThePanesTests: XCTestCase {
             TreeWalk.first(in: store.manifest.structure, where: { $0.type == .document }))
 
         table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-        await waitOut(0.4)
+        await pumpUntil(deadline: 5) { probe.subject == .item(firstDoc.id) }
 
         XCTAssertEqual(probe.subject, .item(firstDoc.id))
     }
@@ -117,17 +120,6 @@ final class ProjectSubjectReachesThePanesTests: XCTestCase {
         for sub in view.subviews { collect(type, in: sub, into: &out) }
     }
 
-    private func waitOut(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-    }
-
-    private func pump(_ seconds: TimeInterval = 0.15) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
-    }
 }
 
 /// `OutlinePane` with the window's subject held outside it.

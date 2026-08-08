@@ -87,22 +87,6 @@ final class AnnotationLifecycleUndoTests: XCTestCase {
         return try box.result!.get()
     }
 
-    private func pump(_ seconds: TimeInterval) {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-        }
-    }
-
-    private func waitUntil(
-        _ predicate: @MainActor () -> Bool, timeout: TimeInterval = 3
-    ) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !predicate() && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-        }
-    }
-
     /// The annotation with `id`, across ALL statuses (`annotations()` defaults to
     /// `.open` only, which would hide a resolved one).
     private func annotation(_ doc: Document, _ id: String) -> Annotation? {
@@ -125,7 +109,18 @@ final class AnnotationLifecycleUndoTests: XCTestCase {
         let um = UndoManager()
 
         try bridge { try await doc.rejectAnnotation(id: cid, userResponse: "no", undoManager: um) }
-        pump(0.25)
+        // **Fixed on purpose, and the one wait in this file worth explaining.**
+        // The op append AND the undo registration both completed inside
+        // `bridge`, so the status below is already settled — the only thing
+        // this wait ever buys is `groupsByEvent` closing the event group, so
+        // `undo()` has a group to pop. That close is not readable as a value.
+        // `canUndo` is not it: it reads true the instant `registerUndo` runs,
+        // while the group is still open. `groupingLevel` looks like it should
+        // be it, but measured 2026-08-08 a `waitUntil { um.canUndo &&
+        // um.groupingLevel == 0 }` here never goes true and burns its whole
+        // deadline — converting these sites cost the four undo suites +81s
+        // against a 8.3s baseline, all of it timeout. So: a window, not a poll.
+        pumpFor(0.25)  // fixed window: the event-group close — see the note above
         XCTAssertEqual(annotation(doc, cid)?.status, .rejected)
         XCTAssertTrue(um.canUndo)
 
@@ -145,7 +140,7 @@ final class AnnotationLifecycleUndoTests: XCTestCase {
         let um = UndoManager()
 
         try bridge { try await doc.rejectAnnotation(id: cid, userResponse: "no", undoManager: um) }
-        pump(0.25)
+        pumpFor(0.25)  // fixed window: the event-group close
         um.undo()
         waitUntil { self.annotation(doc, cid)?.status == .open }
         XCTAssertTrue(um.canRedo, "reject-undo must nest a re-reject onto the redo stack")
@@ -159,7 +154,8 @@ final class AnnotationLifecycleUndoTests: XCTestCase {
         // Re-arm: redo forwards the LIVE undo manager into the forward
         // re-reject, which registers a FRESH undo pair — ⌘Z/⇧⌘Z cycles
         // indefinitely (accept's precedent), not a dead action after one redo.
-        pump(0.25)  // let the re-registration's event group close
+        // let the re-registration's event group close
+        pumpFor(0.25)  // fixed window: the event-group close
         XCTAssertTrue(um.canUndo,
             "redo's forward re-reject must re-register undo — the cycle re-arms")
 
@@ -179,7 +175,7 @@ final class AnnotationLifecycleUndoTests: XCTestCase {
         let um = UndoManager()
 
         try bridge { try await doc.archiveAnnotation(id: cid, undoManager: um) }
-        pump(0.25)
+        pumpFor(0.25)  // fixed window: the event-group close
         XCTAssertEqual(annotation(doc, cid)?.status, .archived)
 
         um.undo()
@@ -204,7 +200,7 @@ final class AnnotationLifecycleUndoTests: XCTestCase {
 
         try bridge { try await doc.withdrawReviewerAnnotation(
             id: cid, authorName: "Denver", undoManager: um) }
-        pump(0.25)
+        pumpFor(0.25)  // fixed window: the event-group close
         XCTAssertNil(annotation(doc, cid), "withdraw drops it from the projection")
 
         um.undo()
@@ -230,7 +226,7 @@ final class AnnotationLifecycleUndoTests: XCTestCase {
         try bridge { try await doc.editReviewerAnnotation(
             id: cid, newBody: "new", newSuggestedText: nil,
             authorName: "Denver", undoManager: um) }
-        pump(0.25)
+        pumpFor(0.25)  // fixed window: the event-group close
         XCTAssertEqual(annotation(doc, cid)?.body, "new")
 
         um.undo()
@@ -252,7 +248,7 @@ final class AnnotationLifecycleUndoTests: XCTestCase {
         let um = UndoManager()
 
         try bridge { try await doc.rejectAnnotation(id: cid, userResponse: nil, undoManager: um) }
-        pump(0.25)
+        pumpFor(0.25)  // fixed window: the event-group close
         // Simulate another device already reopening it.
         try bridge { try await doc.reopenAnnotation(id: cid) }
         XCTAssertEqual(annotation(doc, cid)?.status, .open)
@@ -260,7 +256,7 @@ final class AnnotationLifecycleUndoTests: XCTestCase {
 
         // The stale undo action must decline: status is already .open, not .rejected.
         um.undo()
-        pump(0.3)
+        pumpFor(0.3)  // fixed window: asserting nothing happens (no op appended)
         XCTAssertEqual(doc._opLogMirror.count, opCount,
             "a stale reopen-undo on already-open status must append nothing")
 

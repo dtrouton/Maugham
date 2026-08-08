@@ -35,7 +35,7 @@ final class StatementProbeModel {
 /// pane — the only handle it takes is the `MaughamTextView` SwiftUI's own
 /// mounting produced.
 @MainActor
-final class StatementMountFixture {
+final class StatementMountFixture: RunLoopPumping {
 
     let projectURL: URL
     let store: ProjectStore
@@ -123,10 +123,28 @@ final class StatementMountFixture {
                 .environment(preferences)))
     }
 
+    /// Wait for the caller's own condition if it can name one, and fall back to a
+    /// fixed window if it cannot.
+    ///
+    /// Every "…and let it settle" below used to be a flat `waitOut`, which costs
+    /// its worst case on every test even when the work finished in milliseconds.
+    /// The fixture cannot name the condition — only the caller knows what it is
+    /// about to assert — so the caller passes it. `nil` keeps the old fixed
+    /// window, which is the honest answer for a test proving that something does
+    /// NOT happen: an absence needs a span of wall clock to mean anything.
+    private func settleWaiting(_ condition: (() -> Bool)?,
+                               otherwise fallback: TimeInterval) async {
+        if let condition {
+            await pumpUntil(deadline: 5, condition)
+        } else {
+            await waitOut(fallback)
+        }
+    }
+
     /// Change the selection the hosted pane sees, and let the change settle.
-    func selectDocument(_ id: String?) async {
+    func selectDocument(_ id: String?, until condition: (() -> Bool)? = nil) async {
         probe.subject = id.map(BinderSubject.item)
-        await waitOut(0.3)
+        await settleWaiting(condition, otherwise: 0.3)
     }
 
     /// **The whole delivery path: the real binder writes the window's subject
@@ -165,16 +183,17 @@ final class StatementMountFixture {
     /// runs the delegate's proposed-selection filter and SwiftUI's list
     /// coordinator writes the matched `.tag` back through the binding
     /// (`BinderProjectRowTests`).
-    func selectBinderRow(_ row: Int, in window: NSWindow) async {
+    func selectBinderRow(_ row: Int, in window: NSWindow,
+                         until condition: (() -> Bool)? = nil) async {
         guard let table = firstTableView(in: window) else { return }
         table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        await waitOut(0.4)
+        await settleWaiting(condition, otherwise: 0.4)
     }
 
     /// Show another right-hand pane, as `⌘⌥N`/`⌘⌥V` does.
-    func showSegment(_ segment: DetailSegment) async {
+    func showSegment(_ segment: DetailSegment, until condition: (() -> Bool)? = nil) async {
         probe.detailSegment = segment
-        await waitOut(0.4)
+        await settleWaiting(condition, otherwise: 0.4)
     }
 
     func firstTableView(in window: NSWindow) -> NSTableView? {
@@ -221,10 +240,10 @@ final class StatementMountFixture {
     }
 
     /// Take the statement pane out of the two-editor probe.
-    func dropStatementPane(in window: NSWindow) async {
+    func dropStatementPane(in window: NSWindow, until condition: (() -> Bool)? = nil) async {
         probe.showsStatementPane = false
         await pumpUntil(deadline: 5) { self.allTextViews(in: window).count <= 1 }
-        await waitOut(0.3)
+        await settleWaiting(condition, otherwise: 0.3)
     }
 
     // MARK: - Finding the mounted editor
@@ -256,7 +275,8 @@ final class StatementMountFixture {
     /// Type `text` one character at a time through AppKit's own
     /// `shouldChangeText` → `didChangeText` sequence, which is what fires the
     /// coordinator's delegate methods and, through them, the binding.
-    func type(_ text: String, into textView: NSTextView) async {
+    func type(_ text: String, into textView: NSTextView,
+              until condition: (() -> Bool)? = nil) async {
         for character in text {
             let s = String(character)
             let range = textView.selectedRange()
@@ -266,7 +286,7 @@ final class StatementMountFixture {
                 NSRange(location: range.location + (s as NSString).length, length: 0))
             textView.didChangeText()
         }
-        await waitOut(0.2)
+        await settleWaiting(condition, otherwise: 0.2)
     }
 
     // MARK: - Settling
@@ -278,48 +298,17 @@ final class StatementMountFixture {
     /// `expectingOpsFor` is a wait, not an assertion: it bounds how long we turn
     /// the runloop, and the caller's own assertion is what fails (with its own
     /// message) if nothing arrives. A test expecting an EMPTY log passes nil.
-    func settle(_ window: NSWindow, expectingOpsFor docId: String? = nil) async throws {
+    /// `until` is the caller's own settled-state condition — typically the very
+    /// thing its next assertion reads. Given one, the close is waited out only as
+    /// long as it actually takes; without one the fixed window stands, which is
+    /// what a test expecting an empty log needs.
+    func settle(_ window: NSWindow, expectingOpsFor docId: String? = nil,
+                until condition: (() -> Bool)? = nil) async throws {
         window.contentView = NSView(frame: .zero)
         if let docId {
             await pumpUntil(deadline: 5) { !self.ops(forDocId: docId).isEmpty }
         }
-        await waitOut(0.6)
-    }
-
-    /// Turn the runloop until `condition` holds or `deadline` seconds pass.
-    ///
-    /// **Both a runloop turn and a suspension, on purpose.** SwiftUI needs the
-    /// runloop; the pane's own work — `createStatement`, `Document.load`,
-    /// `Document.close` — is `await`ed on the MainActor, and a test that only
-    /// spins `RunLoop.run(until:)` never lets those jobs start. Measured while
-    /// writing these tests: with runloop turns alone the first keystroke's mint
-    /// did not complete inside five seconds of pumping, and landed the moment the
-    /// test's own `await` gave the main actor up.
-    func pumpUntil(deadline: TimeInterval, _ condition: () -> Bool) async {
-        let end = Date().addingTimeInterval(deadline)
-        while Date() < end {
-            if condition() { return }
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        _ = condition()
-    }
-
-    /// Wait out at least `seconds` of WALL CLOCK, turning the runloop and
-    /// yielding the main actor throughout — `RunLoop.run(until:)` returns as soon
-    /// as it has nothing left to service, so a single call is not a wait.
-    func waitOut(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-    }
-
-    /// SwiftUI mounts representables and applies state changes on the main
-    /// runloop, so nothing is observable until the loop has turned.
-    func pump(_ seconds: TimeInterval = 0.15) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+        await settleWaiting(condition, otherwise: 0.6)
     }
 
     // MARK: - Reading the op log

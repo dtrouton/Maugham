@@ -77,6 +77,9 @@ final class StatementOpenGateTests: XCTestCase {
 
         await fixture.store.lockStatementOpen(statement.id)
         let promotion = Task { @MainActor in try await performer.perform(plan) }
+        // fixed window: asserting nothing happens — the promotion must write
+        // NOTHING while the gate is held, and only a span of wall clock can
+        // say so.
         await fixture.waitOut(0.5)
 
         XCTAssertTrue(fixture.ops(forDocId: statement.id).isEmpty,
@@ -85,7 +88,10 @@ final class StatementOpenGateTests: XCTestCase {
 
         fixture.store.unlockStatementOpen(statement.id)
         _ = try await promotion.value
-        await fixture.waitOut(0.3)
+        await fixture.pumpUntil(deadline: 5) {
+            self.fixture.derivedText(forDocId: statement.id)
+                .contains("Sodium light on the spray.")
+        }
 
         XCTAssertTrue(fixture.derivedText(forDocId: statement.id)
                         .contains("Sodium light on the spray."),
@@ -105,7 +111,14 @@ final class StatementOpenGateTests: XCTestCase {
 
         await fixture.store.lockStatementOpen(statement.id)
         let promotion = Task { @MainActor in try await performer.perform(plan) }
-        await fixture.waitOut(0.4)
+        // The promotion has to be PARKED on the gate before the pane binds, or
+        // the interleaving this test is about never happens. That is a state
+        // the gate itself reports — `appendToStatement` queues on
+        // `lockStatementOpen` — so wait for the queue rather than for a window
+        // long enough to have contained it.
+        await fixture.pumpUntil(deadline: 5) {
+            (self.fixture.store.statementOpenWaiters[statement.id]?.count ?? 0) >= 1
+        }
 
         // A pane binds while the promotion is parked. Registered by hand rather
         // than by mounting one, so the ordering is the test's rather than the
@@ -139,6 +152,8 @@ final class StatementOpenGateTests: XCTestCase {
         // Fire-and-forget: with the gate held the pane's `reconcile` parks before
         // `Document.load`, so `host` would sit out its own deadline.
         Task { @MainActor in await self.fixture.host(kind: .intent, subject: nil) }
+        // fixed window: asserting nothing happens — the pane must register no
+        // `Document` while the gate is held.
         await fixture.waitOut(0.6)
 
         XCTAssertNil(fixture.store.openStatementDocument(id: statement.id),
@@ -182,6 +197,9 @@ final class StatementOpenGateTests: XCTestCase {
             try await store.promotePieceToProject(
                 pieceId: piece.id, destination: destination)
         }
+        // fixed window: asserting nothing happens — the intent file must NOT
+        // move and the destination project must NOT appear while the gate is
+        // held.
         await fixture.waitOut(0.5)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: intentURL.path),
@@ -217,6 +235,7 @@ final class StatementOpenGateTests: XCTestCase {
                 store.unlockStatementOpen("stmt-1")
             }
         }
+        // fixed window: asserting nothing happens — no waiter may pass.
         await fixture.waitOut(0.3)
         XCTAssertTrue(order.isEmpty, "nobody may pass while it is held")
 

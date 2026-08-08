@@ -299,7 +299,7 @@ final class BinderSegmentPickerMountTests: XCTestCase {
 
         control.selectedSegment = 0
         control.sendAction(control.action, to: control.target)
-        await waitOut(0.4)
+        await pumpUntil(deadline: 5) { probe.segment == .manuscript }
 
         XCTAssertEqual(probe.segment, .manuscript,
                        "the one offered segment must still be clickable — "
@@ -350,27 +350,5 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {
         if let hit = view as? T { out.append(hit) }
         for sub in view.subviews { collect(type, in: sub, into: &out) }
-    }
-
-    private func pumpUntil(deadline: TimeInterval, _ condition: () -> Bool) async {
-        let end = Date().addingTimeInterval(deadline)
-        while Date() < end {
-            if condition() { return }
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        _ = condition()
-    }
-
-    private func waitOut(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-    }
-
-    private func pump(_ seconds: TimeInterval = 0.15) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
     }
 }

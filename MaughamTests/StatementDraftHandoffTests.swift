@@ -84,6 +84,8 @@ final class StatementDraftHandoffTests: XCTestCase {
         // Park the mint's load on the production gate.
         await fixture.store.lockStatementOpen(chapterIntent.id)
         await fixture.type("x", into: onChapter)
+        // fixed window: asserting nothing happens — the gate must still be
+        // holding the mint, and an absence needs a span of wall clock.
         await fixture.waitOut(0.3)
         XCTAssertNil(fixture.store.openStatementDocument(id: chapterIntent.id),
                      "the mint's load got past the gate this test is holding, so "
@@ -91,13 +93,23 @@ final class StatementDraftHandoffTests: XCTestCase {
 
         // The writer moves on **without the mint having finished**. The project
         // has no intent, so the incoming reconcile is wholly synchronous and its
-        // `release()` runs while the mint is still parked.
-        await fixture.selectDocument(nil)
+        // `release()` runs while the mint is still parked. The incoming scope's
+        // empty editor IS that reconcile having run, which is what the unlock
+        // below must come after.
+        await fixture.selectDocument(nil, until: {
+            fixture.firstTextView(in: window)?.string == ""
+        })
         fixture.store.unlockStatementOpen(chapterIntent.id)
         await fixture.pumpUntil(deadline: 5) {
             !fixture.ops(forDocId: chapterIntent.id).isEmpty
         }
-        await fixture.waitOut(0.4)
+        // Both assertions below are settled by the same delivery — the mint
+        // writing the character and closing the `Document` it made — so wait for
+        // the pair rather than stopping on the first and racing the second.
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.derivedText(forDocId: chapterIntent.id) == "x"
+                && fixture.store.openStatementDocument(id: chapterIntent.id) == nil
+        }
 
         XCTAssertEqual(fixture.derivedText(forDocId: chapterIntent.id), "x",
                        "the writer typed a character into the chapter's intent "
@@ -140,18 +152,30 @@ final class StatementDraftHandoffTests: XCTestCase {
 
         await fixture.store.lockStatementOpen(projectIntent.id)
         await fixture.type("x", into: onIntent)
+        // fixed window: asserting nothing happens — the gate must still be
+        // holding the mint, and an absence needs a span of wall clock.
         await fixture.waitOut(0.3)
         XCTAssertNil(fixture.store.openStatementDocument(id: projectIntent.id),
                      "the mint's load got past the gate this test is holding, so "
                      + "the wedge did not work and nothing below is evidence")
 
         // ⌘⌥V, through the binding the picker and the key equivalent both write.
+        // Fixed window on purpose: what has to have happened before the unlock is
+        // the host's TEARDOWN (`.onDisappear` → `leave()`), and nothing readable
+        // from here reports it — the incoming pane's own editor says the segment
+        // moved, not that the outgoing one finished leaving. Shortening this on a
+        // proxy would let the mint bind and the test pass for the wrong reason.
         await fixture.showSegment(.visualLanguage)
         fixture.store.unlockStatementOpen(projectIntent.id)
         await fixture.pumpUntil(deadline: 5) {
             !fixture.ops(forDocId: projectIntent.id).isEmpty
         }
-        await fixture.waitOut(0.4)
+        // Both assertions below settle on the same delivery: the mint writing the
+        // character into the statement it created, and closing that `Document`.
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.derivedText(forDocId: projectIntent.id) == "x"
+                && fixture.store.openStatementDocument(id: projectIntent.id) == nil
+        }
 
         XCTAssertEqual(fixture.derivedText(forDocId: projectIntent.id), "x",
                        "the writer typed a character into the project's intent "
@@ -198,6 +222,8 @@ final class StatementDraftHandoffTests: XCTestCase {
         // The chapter's mint is parked and stays parked for the rest of the test.
         await fixture.store.lockStatementOpen(chapterIntent.id)
         await fixture.type("x", into: onChapter)
+        // fixed window: asserting nothing happens — the gate must still be
+        // holding the chapter's mint.
         await fixture.waitOut(0.3)
         XCTAssertNil(fixture.store.openStatementDocument(id: chapterIntent.id),
                      "the chapter's mint got past the gate this test is holding, "
@@ -205,21 +231,25 @@ final class StatementDraftHandoffTests: XCTestCase {
 
         // On to the project, which also has no intent — so the writer types into
         // a second undeclared scope while the first one's words are still waiting.
-        await fixture.selectDocument(nil)
+        await fixture.selectDocument(nil, until: {
+            fixture.firstTextView(in: window)?.string == ""
+        })
         let onProject = try fixture.textView(in: window)
         XCTAssertEqual(onProject.string, "",
                        "the project's editor is showing the chapter's waiting "
                        + "words — the pane moved on and its draft did not")
-        await fixture.type("y", into: onProject)
-        await fixture.pumpUntil(deadline: 5) {
+        await fixture.type("y", into: onProject, until: {
             fixture.store.statement(kind: .intent, scope: .project) != nil
-        }
+        })
         let projectIntent = try XCTUnwrap(
             fixture.store.statement(kind: .intent, scope: .project),
             "the second keystroke minted nothing")
 
         fixture.store.unlockStatementOpen(chapterIntent.id)
-        try await fixture.settle(window, expectingOpsFor: chapterIntent.id)
+        try await fixture.settle(window, expectingOpsFor: chapterIntent.id, until: {
+            fixture.derivedText(forDocId: chapterIntent.id) == "x"
+                && fixture.derivedText(forDocId: projectIntent.id) == "y"
+        })
 
         XCTAssertEqual(fixture.derivedText(forDocId: chapterIntent.id), "x",
                        "the chapter's waiting character was taken by the PROJECT's "
@@ -269,16 +299,17 @@ final class StatementDraftHandoffTests: XCTestCase {
 
         await fixture.store.lockStatementOpen(chapterIntent.id)
         await fixture.type("x", into: onChapter)
+        // fixed window: asserting nothing happens — the gate must still be
+        // holding the mint.
         await fixture.waitOut(0.3)
         XCTAssertNil(fixture.store.openStatementDocument(id: chapterIntent.id),
                      "the mint's load got past the gate this test is holding, so "
                      + "the wedge did not work and nothing below is evidence")
 
         // Onto the project, whose `Document` really loads and takes the box.
-        await fixture.selectDocument(nil)
-        await fixture.pumpUntil(deadline: 5) {
+        await fixture.selectDocument(nil, until: {
             fixture.firstTextView(in: window)?.string == prose
-        }
+        })
         XCTAssertEqual(try fixture.textView(in: window).string, prose,
                        "the pane never bound the project's intent, so the box is "
                        + "not occupied and this test is not about what it says")
@@ -287,7 +318,12 @@ final class StatementDraftHandoffTests: XCTestCase {
         await fixture.pumpUntil(deadline: 5) {
             !fixture.ops(forDocId: chapterIntent.id).isEmpty
         }
-        await fixture.waitOut(0.4)
+        // The two assertions below read the two op logs the one delivery writes:
+        // the character into the chapter's, and nothing new into the project's.
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.derivedText(forDocId: chapterIntent.id) == "x"
+                && fixture.derivedText(forDocId: projectIntent.id) == prose
+        }
 
         XCTAssertEqual(fixture.derivedText(forDocId: chapterIntent.id), "x",
                        "the mint was refused at the gate because ANOTHER "

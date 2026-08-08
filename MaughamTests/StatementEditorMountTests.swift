@@ -52,7 +52,10 @@ final class StatementEditorMountTests: XCTestCase {
                       "the statement's op log is not empty before the first keystroke")
 
         await fixture.type("the weather is a character", into: textView)
-        try await fixture.settle(window, expectingOpsFor: statement.id)
+        try await fixture.settle(window, expectingOpsFor: statement.id, until: {
+            fixture.ops(forDocId: statement.id)
+                .flatMap(\.changes).contains { $0.next.contains("the weather is a character") }
+        })
 
         let ops = fixture.ops(forDocId: statement.id)
         XCTAssertFalse(ops.isEmpty,
@@ -99,7 +102,9 @@ final class StatementEditorMountTests: XCTestCase {
 
         // The Document the pane owns is private to it; read it back the only way
         // an outsider can — the same file, loaded again after the pane flushes.
-        try await fixture.settle(window, expectingOpsFor: statement.id)
+        try await fixture.settle(window, expectingOpsFor: statement.id, until: {
+            fixture.derivedText(forDocId: statement.id) == "a house on a hill"
+        })
         let text = fixture.derivedText(forDocId: statement.id)
         XCTAssertEqual(text, "a house on a hill",
                        "the keystroke reached the hosted text view but not the "
@@ -130,6 +135,10 @@ final class StatementEditorMountTests: XCTestCase {
 
         XCTAssertEqual(textView.string, "",
                        "⌘Z did not revert the typed text in the mounted editor")
+        // fixed window: asserting nothing happens. The op log must derive to the
+        // EMPTY string, which it already does before the close flushes — so
+        // there is no condition to wait on, only a span in which a burst that
+        // undo failed to reach could still land.
         try await fixture.settle(window)
         XCTAssertEqual(fixture.derivedText(forDocId: statement.id), "",
                        "the buffer reverted but the statement's op log did not — "
@@ -155,15 +164,16 @@ final class StatementEditorMountTests: XCTestCase {
                 atPath: fixture.projectURL.appendingPathComponent("intent.md").path),
             "mounting the pane wrote intent.md before a keystroke")
 
-        await fixture.type("what this book is for", into: textView)
-        await fixture.pumpUntil(deadline: 5) {
+        await fixture.type("what this book is for", into: textView, until: {
             fixture.store.statement(kind: .intent, scope: .project) != nil
-        }
+        })
 
         let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: .project),
                                       "the first keystroke minted no statement")
         XCTAssertEqual(statement.path, "intent.md")
-        try await fixture.settle(window, expectingOpsFor: statement.id)
+        try await fixture.settle(window, expectingOpsFor: statement.id, until: {
+            fixture.derivedText(forDocId: statement.id) == "what this book is for"
+        })
         XCTAssertEqual(fixture.derivedText(forDocId: statement.id), "what this book is for",
                        "the statement was minted but the words typed before it "
                        + "existed did not reach its op log")
@@ -192,7 +202,9 @@ final class StatementEditorMountTests: XCTestCase {
         let statement = try XCTUnwrap(
             fixture.store.statement(kind: .visualLanguage, scope: .project))
         XCTAssertEqual(statement.path, "visual-language.md")
-        try await fixture.settle(window, expectingOpsFor: statement.id)
+        try await fixture.settle(window, expectingOpsFor: statement.id, until: {
+            fixture.derivedText(forDocId: statement.id) == typed
+        })
         XCTAssertEqual(fixture.derivedText(forDocId: statement.id), typed)
     }
 
@@ -223,6 +235,10 @@ final class StatementEditorMountTests: XCTestCase {
         await fixture.pumpUntil(deadline: 5) {
             fixture.store.statement(kind: .visualLanguage, scope: .project) != nil
         }
+        // fixed window: asserting nothing happens. The claim below is that the
+        // editor is NOT torn down and rebuilt across the mint's two suspensions,
+        // so the span after the mint lands IS the test — a condition wait would
+        // return before the body pass that does the damage.
         await fixture.waitOut(0.4)
 
         XCTAssertNotNil(fixture.store.statement(kind: .visualLanguage, scope: .project),
@@ -265,8 +281,9 @@ final class StatementEditorMountTests: XCTestCase {
 
         // Nothing is selected any more: the pane falls back to the project's
         // intent, which does not exist.
-        await fixture.selectDocument(nil)
-        await fixture.pumpUntil(deadline: 5) { !fixture.ops(forDocId: statement.id).isEmpty }
+        await fixture.selectDocument(nil, until: {
+            !fixture.ops(forDocId: statement.id).isEmpty
+        })
 
         XCTAssertEqual(fixture.derivedText(forDocId: statement.id), "the aim of this chapter",
                        "changing scope did not flush the outgoing statement — its "
@@ -334,6 +351,10 @@ final class StatementEditorMountTests: XCTestCase {
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o500], ofItemAtPath: opsDirectory.path)
         await fixture.selectDocument(nil)
+        // fixed window: asserting nothing happens. "No editor" has to hold for a
+        // span — a wait that stopped the moment the surface went away would pass
+        // on a transient nil and miss the editor coming back over content that
+        // never arrived, which is the whole defect.
         await fixture.waitOut(0.4)
         XCTAssertNil(fixture.firstTextView(in: window),
                      "a scope whose Document failed to load must show no editor — "
@@ -343,7 +364,9 @@ final class StatementEditorMountTests: XCTestCase {
             [.posixPermissions: 0o700], ofItemAtPath: opsDirectory.path)
 
         // Back to the chapter. The marker must not still be claiming it.
-        await fixture.selectDocument(docId)
+        await fixture.selectDocument(docId, until: {
+            fixture.firstTextView(in: window) != nil
+        })
         let backOnA = try fixture.textView(in: window)
         await fixture.pumpUntil(deadline: 5) { !backOnA.string.isEmpty }
         XCTAssertEqual(backOnA.string, prose,
@@ -355,6 +378,10 @@ final class StatementEditorMountTests: XCTestCase {
 
         // …and the next keystroke adds to the prose rather than replacing it.
         await fixture.type("!", into: backOnA)
+        // fixed window: asserting nothing happens. The claim is that one
+        // keystroke did NOT replace the writer's intent, and the prefix it
+        // checks is already true before the close flushes — so there is nothing
+        // to wait for, only a span in which a replacing burst could land.
         try await fixture.settle(window, expectingOpsFor: chapterIntent.id)
         XCTAssertTrue(
             fixture.derivedText(forDocId: chapterIntent.id).hasPrefix(prose),
@@ -379,14 +406,15 @@ final class StatementEditorMountTests: XCTestCase {
 
         let first = await fixture.host(kind: .intent, subject: .item(docId))
         let textView = try fixture.textView(in: first)
-        await fixture.type("a chapter about weather", into: textView)
-        await fixture.pumpUntil(deadline: 5) {
+        await fixture.type("a chapter about weather", into: textView, until: {
             fixture.store.statement(kind: .intent, scope: .document(docId)) != nil
-        }
+        })
         let statement = try XCTUnwrap(
             fixture.store.statement(kind: .intent, scope: .document(docId)),
             "typing into a document-scoped intent minted no statement")
-        try await fixture.settle(first, expectingOpsFor: statement.id)
+        try await fixture.settle(first, expectingOpsFor: statement.id, until: {
+            fixture.derivedText(forDocId: statement.id) == "a chapter about weather"
+        })
 
         try await fixture.store.renameStructureItem(id: docId, newTitle: "The Storm")
 
@@ -442,7 +470,10 @@ final class StatementEditorMountTests: XCTestCase {
                       "the manuscript editor registered no undo action, so this "
                       + "test cannot observe one being destroyed")
 
-        // Take the statement pane down the way a pane switch does.
+        // Take the statement pane down the way a pane switch does. Its settle
+        // window stays fixed: asserting nothing happens — `canUndo` is already
+        // true, and the span after the pane goes is where `detach()`'s
+        // `removeAllActions()` would make it false.
         await fixture.dropStatementPane(in: window)
 
         XCTAssertTrue(manuscriptUndo.canUndo,
@@ -522,7 +553,10 @@ final class StatementEditorMountTests: XCTestCase {
         XCTAssertFalse(statementPane.isReviewMode)
 
         MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
-        await fixture.waitOut(0.3)
+        // One post, both observers: the delivery that flips the manuscript is
+        // the same one that must leave the statement pane alone, so waiting for
+        // the positive half settles the negative one too.
+        await fixture.pumpUntil(deadline: 5) { manuscript.isReviewMode }
 
         XCTAssertTrue(manuscript.isReviewMode,
                       "⌘⌥R did not reach the manuscript editor, so the assertion "
@@ -594,6 +628,10 @@ final class StatementEditorMountTests: XCTestCase {
         await fixture.selectDocument(nil)
         // Let the superseded load through.
         fixture.store.unlockStatementOpen(chapterIntent.id)
+        // fixed window: asserting nothing happens. The released load has to be
+        // given room to (wrongly) register — a shorter wait passes because the
+        // load had not landed yet, which is green whether or not the bug is
+        // there.
         await fixture.waitOut(0.5)
 
         XCTAssertNil(fixture.store.openStatementDocument(id: chapterIntent.id),
@@ -607,6 +645,10 @@ final class StatementEditorMountTests: XCTestCase {
         // nothing about a keystroke until the pane's teardown flushes it.
         let textView = try fixture.textView(in: window)
         await fixture.type("y", into: textView)
+        // fixed window: asserting nothing happens. The chapter's derived text
+        // must be UNCHANGED, so it is already what the assertion wants before
+        // the close flushes; the span is what gives a wrongful write time to
+        // arrive.
         try await fixture.settle(window)
         XCTAssertEqual(fixture.derivedText(forDocId: chapterIntent.id), prose,
                        "typing into the pane while it showed the PROJECT's intent "
@@ -651,6 +693,7 @@ final class StatementEditorMountTests: XCTestCase {
         // Park the mint's load on the production gate.
         await fixture.store.lockStatementOpen(projectIntent.id)
         await fixture.type("x", into: onProject)
+        // fixed window: asserting nothing happens — the wedge held.
         await fixture.waitOut(0.3)
         XCTAssertNil(fixture.store.openStatementDocument(id: projectIntent.id),
                      "the mint's load got past the gate this test is holding, so "
@@ -660,6 +703,9 @@ final class StatementEditorMountTests: XCTestCase {
         // synchronously and mounts an empty editor.
         await fixture.selectDocument(docId)
         fixture.store.unlockStatementOpen(projectIntent.id)
+        // fixed window: asserting nothing happens. The released mint has to be
+        // given room to (wrongly) register the project's `Document`; a wait
+        // that stopped sooner would be green whether or not it does.
         await fixture.waitOut(0.5)
 
         XCTAssertNil(fixture.store.openStatementDocument(id: projectIntent.id),
@@ -669,7 +715,17 @@ final class StatementEditorMountTests: XCTestCase {
 
         let onChapter = try fixture.textView(in: window)
         await fixture.type("y", into: onChapter)
-        try await fixture.settle(window)
+        // The close is what flushes the "y", and where it lands is the whole
+        // question: the last assertion below wants it in the CHAPTER's intent,
+        // and the middle one wants it out of the project's. One delivery
+        // settles both, so waiting for the positive half is enough — and if the
+        // "y" goes to the project instead, this waits out its deadline and the
+        // assertions fail as they always did.
+        try await fixture.settle(window, until: {
+            guard let chapter = fixture.store.statement(
+                kind: .intent, scope: .document(docId)) else { return false }
+            return fixture.derivedText(forDocId: chapter.id) == "y"
+        })
         // **This asserted `prose` for a whole milestone, and that expectation was
         // wrong** (issue #21). It was written to pin one claim — the "y" typed
         // under the chapter's header must not reach the project's intent — but
@@ -745,6 +801,7 @@ final class StatementEditorMountTests: XCTestCase {
         // Park the mint's load on the production gate.
         await fixture.store.lockStatementOpen(projectIntent.id)
         await fixture.type("x", into: onProject)
+        // fixed window: asserting nothing happens — the wedge held.
         await fixture.waitOut(0.3)
         XCTAssertNil(fixture.store.openStatementDocument(id: projectIntent.id),
                      "the mint's load got past the gate this test is holding, so "
@@ -754,7 +811,13 @@ final class StatementEditorMountTests: XCTestCase {
         let between = Task { @MainActor in
             await fixture.store.lockStatementOpen(projectIntent.id)
         }
-        await fixture.waitOut(0.2)
+        // Both the mint and this wedge must be PARKED before the pane moves, or
+        // the wedge does not sit between them. Same reading as the poll below,
+        // and for the same reason (Measured 2026-08-02): a fixed window here is
+        // a guess about how long the mint takes to reach the gate.
+        await fixture.pumpUntil(deadline: 5) {
+            (fixture.store.statementOpenWaiters[projectIntent.id]?.count ?? 0) >= 2
+        }
 
         // The writer visits the chapter (no intent, so it resolves
         // synchronously) and comes back. `reconcile` finds the statement that
@@ -784,6 +847,9 @@ final class StatementEditorMountTests: XCTestCase {
         // Before any assertion, so a failing one cannot leave the pane's load
         // parked on a gate nobody will open.
         fixture.store.unlockStatementOpen(projectIntent.id)
+        // fixed window: asserting nothing happens. The released load has to be
+        // given room to displace the first `Document` (or close it) — the
+        // assertions below read state that must be UNCHANGED once it has run.
         await fixture.waitOut(0.6)
 
         XCTAssertEqual(queuedBehindUs, 1,

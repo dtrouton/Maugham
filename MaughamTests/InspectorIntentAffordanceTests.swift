@@ -26,7 +26,7 @@ final class InspectorIntentAffordanceTests: XCTestCase {
 
     override func tearDown() async throws {
         for window in windows { window.contentView = NSView(frame: .zero) }
-        pump(0.05)
+        pump(0.05)  // fixed: teardown settle, nothing observable to wait on
         windows.removeAll()
         temp = nil
     }
@@ -43,12 +43,12 @@ final class InspectorIntentAffordanceTests: XCTestCase {
         window.orderFront(nil)
         hosting.layoutSubtreeIfNeeded()
         windows.append(window)
+        // Fixed. The condition worth waiting on is "SwiftUI has published its
+        // accessibility tree", but the only way to read that is `axTree(in:)`,
+        // which throws `XCTSkip` when no assistive client could attach — and a
+        // condition wait would then burn its whole deadline before that skip.
         pump()
         return window
-    }
-
-    private func pump(_ seconds: TimeInterval = 0.2) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
     }
 
     // MARK: - Reaching the button
@@ -118,9 +118,13 @@ final class InspectorIntentAffordanceTests: XCTestCase {
         ) { received.append($0) }
         defer { NotificationCenter.default.removeObserver(token) }
         _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.2)
-        try? await Task.sleep(for: .milliseconds(300))
-        pump(0.2)
+        // The press dispatches through SwiftUI, so the FIRST note is a
+        // condition worth waiting on rather than a fixed window.
+        await pumpUntil(deadline: 5) { !received.isEmpty }
+        // …but `assertAsksForTheIntentPane` also pins `notes.count == 1`, which
+        // is a NEGATIVE assertion (no second, duplicate post). Keep a fixed
+        // window after the first delivery for a duplicate to show up in.
+        await waitOut(0.3)
         return received
     }
 

@@ -120,25 +120,6 @@ final class ArchiveAllDoneUndoTests: XCTestCase {
         return try box.result!.get()
     }
 
-    /// Spin the main run loop for a fixed interval (services the MainActor
-    /// executor + the groupsByEvent group-close observer).
-    private func pump(_ seconds: TimeInterval) {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-        }
-    }
-
-    /// Pump the main run loop until `predicate` holds (or `timeout` elapses).
-    private func waitUntil(
-        _ predicate: @MainActor () -> Bool, timeout: TimeInterval = 5
-    ) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !predicate() && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-        }
-    }
-
     private func status(_ doc: Document, _ id: String) -> TaskStatus? {
         doc.tasks(filter: .init(
             scope: .document(docId: doc.docId),
@@ -171,8 +152,14 @@ final class ArchiveAllDoneUndoTests: XCTestCase {
         XCTAssertNil(doc.paragraph(id: h.taskPid),
             "sole-task paragraph collapses on the inline archive")
 
-        // Let groupsByEvent close its event group before undoing.
-        pump(0.2)
+        // Let groupsByEvent close its event group before undoing. `archiveAllDone`
+        // is fully synchronous (its manual group is begun AND ended inside the
+        // call), so the only thing left outstanding is the enclosing EVENT
+        // group — and that close is not readable as a value. `canUndo` reads
+        // true the instant the registration lands, group still open; and
+        // measured 2026-08-08 a `waitUntil { um.canUndo && um.groupingLevel
+        // == 0 }` never goes true here, burning its whole deadline instead.
+        pumpFor(0.2)  // fixed window: the event-group close — see the note above
         XCTAssertTrue(um.canUndo, "the batch registered exactly one undoable group")
 
         um.undo()
@@ -201,7 +188,7 @@ final class ArchiveAllDoneUndoTests: XCTestCase {
         let pane = try bridge { try await self.makePane(for: doc) }
 
         pane.archiveAllDone(in: .document, undoManager: um)
-        pump(0.1)
+        pumpFor(0.1)  // fixed window: asserting nothing happens (no group opened)
         XCTAssertFalse(um.canUndo,
             "an empty batch must not open a group / leave a do-nothing ⌘Z entry")
     }

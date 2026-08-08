@@ -70,7 +70,7 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
                 + "List in the hierarchy — there is no row to select, so the "
                 + "project is unreachable")
 
-            await select(row: 0, in: table)
+            await select(row: 0, in: table, until: { probe.subject == .project })
 
             XCTAssertEqual(
                 probe.subject, .project,
@@ -94,7 +94,7 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         let (window, probe) = try await host(store: store, script: script)
         let table = try XCTUnwrap(firstTableView(in: window))
 
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project,
                        "the scene navigator's head row must be the project row, "
                        + "not the first slugline")
@@ -118,7 +118,7 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
                 + "hierarchy — the writer opens Plan, clicks Structure, and gets "
                 + "a blank column")
 
-            await select(row: 0, in: table)
+            await select(row: 0, in: table, until: { probe.subject == .project })
 
             XCTAssertEqual(
                 probe.subject, .project,
@@ -157,7 +157,7 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
                        + "would show two rows and no scenes at all — the "
                        + "2026-07-02 one-row-binder defect, on the new segment")
 
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project)
     }
 
@@ -236,7 +236,7 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window))
         XCTAssertEqual(table.numberOfRows, 2, "the project row and the one piece")
 
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project)
     }
 
@@ -275,7 +275,10 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        // Row 2 — the first slugline, one below the script row.
+        // Row 2 — the first slugline, one below the script row. Fixed window,
+        // deliberately: `posted.count == 1` is half a negative assertion — that
+        // the click posted the navigation ONCE — and a wait that stopped at the
+        // first arrival would no longer see a duplicate.
         await click(row: 2, in: table, window: window)
 
         XCTAssertEqual(posted.count, 1,
@@ -392,6 +395,10 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     /// slugline `Button` actually takes. `selectRowIndexes` cannot stand in:
     /// scene rows carry no `.tag`, so the selection path and the Button path are
     /// two different things (`SceneNavigatorProjectRowTests` measures why).
+    ///
+    /// The trailing wait stays a fixed window: its one caller counts the posts
+    /// the click produced, and "exactly one" is not a condition a wait can stop
+    /// at without ceasing to see the second.
     private func click(row: Int, in table: NSTableView, window: NSWindow) async {
         let rect = table.rect(ofRow: row)
         let inWindow = table.convert(CGPoint(x: rect.midX, y: rect.midY), to: nil)
@@ -409,16 +416,19 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         await waitOut(0.4)
     }
 
-    private func select(row: Int, in table: NSTableView) async {
+    /// - Parameter settled: what the caller is about to assert. Given a
+    ///   condition, the wait ends the moment the selection has been written
+    ///   through the binding rather than burning its worst case; the caller's
+    ///   own assertion still reports the failure in its own words. Given none,
+    ///   the wait is a fixed window, which is what a caller asserting that the
+    ///   selection changed NOTHING would need.
+    private func select(row: Int, in table: NSTableView,
+                        until settled: (() -> Bool)? = nil) async {
         table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        await waitOut(0.4)
-    }
-
-    private func waitOut(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
+        if let settled {
+            await pumpUntil(deadline: 5, settled)
+        } else {
+            await waitOut(0.4)
         }
     }
 
@@ -434,19 +444,6 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         for sub in view.subviews { collect(type, in: sub, into: &out) }
     }
 
-    private func pumpUntil(deadline: TimeInterval, _ condition: () -> Bool) async {
-        let end = Date().addingTimeInterval(deadline)
-        while Date() < end {
-            if condition() { return }
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        _ = condition()
-    }
-
-    private func pump(_ seconds: TimeInterval = 0.15) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
-    }
 }
 
 /// The left column as `ProjectWindow.binderColumn` builds it — the same shell

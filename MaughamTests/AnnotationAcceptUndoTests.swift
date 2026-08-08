@@ -95,25 +95,6 @@ final class AnnotationAcceptUndoTests: XCTestCase {
         return try box.result!.get()
     }
 
-    /// Spin the main run loop for a fixed interval (services the MainActor
-    /// executor + the groupsByEvent group-close observer).
-    private func pump(_ seconds: TimeInterval) {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-        }
-    }
-
-    /// Pump the main run loop until `predicate` holds (or `timeout` elapses).
-    private func waitUntil(
-        _ predicate: @MainActor () -> Bool, timeout: TimeInterval = 3
-    ) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !predicate() && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-        }
-    }
-
     /// The annotation with `id`, across ALL statuses (`annotations()` defaults to
     /// `.open` only, which would hide an accepted one).
     private func annotation(_ doc: Document, _ id: String) -> Annotation? {
@@ -133,7 +114,16 @@ final class AnnotationAcceptUndoTests: XCTestCase {
         }
         let um = UndoManager()
         try bridge { try await doc.acceptAnnotation(id: annId, undoManager: um) }
-        pump(0.25)  // let the default event group close so undo() has a group to pop
+        // let the default event group close so undo() has a group to pop.
+        // **Fixed on purpose.** The splice and the registration both completed
+        // inside `bridge`, so the assertions below are already settled — the
+        // only thing left to wait for is `groupsByEvent` closing the event
+        // group, and that close is not readable as a value. `canUndo` is not
+        // it (true the instant `registerUndo` runs, group still open), and
+        // measured 2026-08-08 neither is `groupingLevel`: a
+        // `waitUntil { um.canUndo && um.groupingLevel == 0 }` here never goes
+        // true and burns its whole deadline. A window, not a poll.
+        pumpFor(0.25)  // fixed window: the event-group close — see the note above
 
         XCTAssertEqual(doc.paragraph(id: pid), "The night was pitch-black and stormy.")
         XCTAssertTrue(doc.consumeUndoCoherentApplyFlag(), "accept must flag the next external apply as undo-coherent")
@@ -159,7 +149,7 @@ final class AnnotationAcceptUndoTests: XCTestCase {
         }
         let um = UndoManager()
         try bridge { try await doc.acceptAnnotation(id: annId, userResponse: "looks right", undoManager: um) }
-        pump(0.25)
+        pumpFor(0.25)  // fixed window: the event-group close
 
         um.undo()
         waitUntil { self.annotation(doc, annId)?.status == .open }
@@ -233,9 +223,13 @@ final class AnnotationAcceptUndoTests: XCTestCase {
         }
         let um = UndoManager()
         try bridge { try await doc.acceptAnnotation(id: ann1, undoManager: um) }
-        pump(0.25)
+        // Load-bearing between the two accepts, not just before the undo:
+        // accept 2's up-front `removeAllActions()` must NOT fire inside accept
+        // 1's still-open event group (that is the documented NSUndoManager
+        // corruption). No value reports that close, so this is a window.
+        pumpFor(0.25)  // fixed window: the event-group close
         try bridge { try await doc.acceptAnnotation(id: ann2, undoManager: um) }
-        pump(0.25)
+        pumpFor(0.25)  // fixed window: the event-group close
         XCTAssertEqual(doc.paragraph(id: pid1), "Para one changed.")
         XCTAssertEqual(doc.paragraph(id: pid2), "Para two changed.")
 
@@ -293,13 +287,16 @@ final class AnnotationAcceptUndoTests: XCTestCase {
         let um = UndoManager()
         try bridge { try await doc.acceptAnnotation(
             id: annId, userResponse: "keep it", undoManager: um) }
-        pump(0.25)
+        // Load-bearing before the revert below, which does its own up-front
+        // `removeAllActions()` — that must not fire inside the accept's
+        // still-open event group.
+        pumpFor(0.25)  // fixed window: the event-group close
         XCTAssertEqual(doc.paragraph(id: pid), "Replacement text here.")
 
         // Direct revert with the window's manager — the pane path.
         try bridge { try await doc.revertAcceptedAnnotation(
             id: annId, undoManager: um) }
-        pump(0.25)
+        pumpFor(0.25)  // fixed window: the event-group close
         XCTAssertEqual(doc.paragraph(id: pid), "Original text here.")
         XCTAssertEqual(annotation(doc, annId)?.status, .open)
         XCTAssertTrue(doc.consumeUndoCoherentApplyFlag(),

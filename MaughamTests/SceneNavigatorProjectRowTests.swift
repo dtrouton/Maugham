@@ -141,7 +141,7 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window))
 
         XCTAssertNil(probe.subject)
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
 
         XCTAssertEqual(probe.subject, .project,
                        "selecting the head row must produce BinderSubject.project "
@@ -160,10 +160,12 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         let (window, probe, _) = try await host(script: Self.twoScenes)
         let table = try XCTUnwrap(firstTableView(in: window))
 
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project, "precondition")
 
         // Row 2 — row 1 is the script row, which IS a subject.
+        // fixed window: asserting nothing happens — the subject must still be
+        // .project after a scene row's write has had its full chance to arrive.
         await select(row: 2, in: table)
         XCTAssertEqual(probe.subject, .project,
                        "a scene row is not a subject — selecting one must leave "
@@ -178,9 +180,11 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
             AnyView(NaiveSceneNavigatorOffender(script: Self.twoScenes, probe: probe)))
         let table = try XCTUnwrap(firstTableView(in: window))
 
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project, "precondition")
 
+        // fixed window: the assertion below is an XCTAssertNil, and a plant that
+        // failed to fire looks exactly like one that has not landed yet.
         await select(row: 2, in: table)
         XCTAssertNil(probe.subject,
                      "PLANT DID NOT FIRE: an untagged scene row was expected to "
@@ -197,11 +201,13 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         let (window, probe, navigations) = try await host(script: Self.twoScenes)
         let table = try XCTUnwrap(firstTableView(in: window))
 
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project, "precondition")
 
         // Row 2 — the first slugline, one below the script row.
-        await click(row: 2, in: table, window: window)
+        await click(row: 2, in: table, window: window,
+                    until: { navigations.locations.count == 1
+                             && probe.subject == .item("doc-1") })
 
         XCTAssertEqual(navigations.locations.count, 1,
                        "the scene row must still navigate — its Button is the "
@@ -220,8 +226,12 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
             script: Self.twoScenes, initial: .item("doc-1"))
         let table = try XCTUnwrap(firstTableView(in: window))
 
-        // Row 3 — the second slugline.
-        await click(row: 3, in: table, window: window)
+        // Row 3 — the second slugline. Mixed: the navigation below is positive and
+        // the subject assertion is "unchanged", but `sceneRow`'s Button writes the
+        // subject and calls `onSelect` in the same action, so the navigation
+        // arriving means the subject write has already had its chance.
+        await click(row: 3, in: table, window: window,
+                    until: { navigations.locations.count == 1 })
 
         XCTAssertEqual(navigations.locations.count, 1)
         XCTAssertEqual(probe.subject, .item("doc-1"))
@@ -245,9 +255,9 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
                        + "the 'No scenes yet' message must not be a row — an "
                        + "untagged row is selectable and writes through the "
                        + "binding when it is clicked")
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project)
-        await select(row: 1, in: table)
+        await select(row: 1, in: table, until: { probe.subject == .item("doc-1") })
         XCTAssertEqual(probe.subject, .item("doc-1"))
     }
 
@@ -308,7 +318,7 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         let (window, probe, _) = try await host(script: nil)
         let table = try XCTUnwrap(firstTableView(in: window))
 
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project, "precondition: in the trap")
 
         let escape = await firstRowReachingADocument(
@@ -337,11 +347,14 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         XCTAssertEqual(table.numberOfRows, 1 + 1 + 2,
                        "project row, script row, then the two sluglines")
 
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project, "precondition")
 
         // Both drivers, because this test must not assume which kind of row it
-        // is — see `actuate`.
+        // is — see `actuate`. Left FIXED: the two assertions below are settled by
+        // different deliveries — `select` writes the subject, and it is `click`
+        // that would navigate if row 1 were a slugline — so shortening on the
+        // subject would delete the window the empty-navigations assertion needs.
         await actuate(row: 1, in: table, window: window)
 
         XCTAssertEqual(
@@ -355,7 +368,8 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
             + "the whole file, so it asks for no scroll. A navigation here "
             + "means row 1 is still the first scene and this test proves nothing")
 
-        await click(row: 2, in: table, window: window)
+        await click(row: 2, in: table, window: window,
+                    until: { navigations.locations.count == 1 })
         XCTAssertEqual(navigations.locations.count, 1,
                        "the sluglines are still under it, and still navigate")
     }
@@ -370,7 +384,7 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
             AnyView(StaleProjectionOffender(script: nil, probe: probe)))
         let table = try XCTUnwrap(firstTableView(in: window))
 
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project, "precondition: in the trap")
 
         let escape = await firstRowReachingADocument(
@@ -394,9 +408,13 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         probe: BinderSubjectProbe
     ) async -> BinderSubject? {
         for row in 0..<table.numberOfRows {
+            // `actuate` keeps its fixed windows: this loop's whole job is to give
+            // every row its full chance to produce an escape, and a row that never
+            // does is exactly the reading the planted offender needs.
             await actuate(row: row, in: table, window: window)
             if case .item = probe.subject { return probe.subject }
-            await select(row: 0, in: table)
+            // Restoring the trap, though, is a positive: wait for it, not out.
+            await select(row: 0, in: table, until: { probe.subject == .project })
         }
         return nil
     }
@@ -528,16 +546,35 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         return window
     }
 
-    private func select(row: Int, in table: NSTableView) async {
+    /// Drives the table's selection and lets SwiftUI's list coordinator write it
+    /// back through the projection.
+    ///
+    /// `until` is the thing the caller's next assertion checks, so the wait costs
+    /// what the write-back really takes rather than its worst case. A caller with
+    /// no condition to name — a NEGATIVE assertion ("the subject did not move",
+    /// "the write was swallowed"), where the window of wall clock *is* the test —
+    /// passes nothing and gets the fixed wait.
+    private func select(row: Int, in table: NSTableView,
+                        until settled: (() -> Bool)? = nil) async {
         table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        await waitOut(0.4)
+        if let settled {
+            await pumpUntil(deadline: 5, settled)
+        } else {
+            // fixed window: no condition named — the caller is asserting an absence
+            await waitOut(0.4)
+        }
     }
 
     /// A real click at the centre of a row: down and up, through the window, so
     /// the Button in the row gets its chance exactly as it does under a mouse.
     /// `selectRowIndexes` proves nothing about a Button — it drives the table's
     /// selection directly and never touches the row's own hit-testing.
-    private func click(row: Int, in table: NSTableView, window: NSWindow) async {
+    ///
+    /// `until` follows the same rule as `select`'s: name what the next assertion
+    /// checks and the wait ends when it holds; name nothing and the fixed window
+    /// stands, because proving a click did NOT do something needs the wall clock.
+    private func click(row: Int, in table: NSTableView, window: NSWindow,
+                       until settled: (() -> Bool)? = nil) async {
         let rect = table.rect(ofRow: row)
         let inWindow = table.convert(CGPoint(x: rect.midX, y: rect.midY), to: nil)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
@@ -550,7 +587,12 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
             }
             pump(0.05)
         }
-        await waitOut(0.4)
+        if let settled {
+            await pumpUntil(deadline: 5, settled)
+        } else {
+            // fixed window: no condition named — the caller is asserting an absence
+            await waitOut(0.4)
+        }
     }
 
     private func hitTestCentre(ofRow row: Int, in table: NSTableView,
@@ -559,14 +601,6 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         let rect = table.rect(ofRow: row)
         let centre = CGPoint(x: rect.midX, y: rect.midY)
         return content.hitTest(content.convert(centre, from: table))
-    }
-
-    private func waitOut(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
-        }
     }
 
     private func firstTableView(in window: NSWindow) -> NSTableView? {
@@ -579,19 +613,5 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
     private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {
         if let hit = view as? T { out.append(hit) }
         for sub in view.subviews { collect(type, in: sub, into: &out) }
-    }
-
-    private func pumpUntil(deadline: TimeInterval, _ condition: () -> Bool) async {
-        let end = Date().addingTimeInterval(deadline)
-        while Date() < end {
-            if condition() { return }
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        _ = condition()
-    }
-
-    private func pump(_ seconds: TimeInterval = 0.15) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
     }
 }

@@ -63,7 +63,8 @@ final class TransientSegmentReturnTests: XCTestCase {
     /// canvas; the manuscript segment is not even in Plan's registry.
     func test_closingFindInPlanReturnsToPlansHomeAndNotToTheManuscript() async throws {
         for type in ProjectType.allCases where type != .unknown {
-            let box = try await closeFind(persona: .plan, type: type)
+            let box = try await closeFind(persona: .plan, type: type,
+                                          landingOn: Persona.plan.binderHome(for: type))
             XCTAssertEqual(box.segment, Persona.plan.binderHome(for: type),
                            "\(type): closing find in Plan must return to Plan's "
                            + "own home")
@@ -82,7 +83,8 @@ final class TransientSegmentReturnTests: XCTestCase {
     func test_closingFindEverywhereElseLandsExactlyWhereItAlwaysDid() async throws {
         for persona in [Persona.author, .review, .publish] {
             for type in ProjectType.allCases where type != .unknown {
-                let box = try await closeFind(persona: persona, type: type)
+                let box = try await closeFind(persona: persona, type: type,
+                                              landingOn: .documentHome(for: type))
                 XCTAssertEqual(box.segment, .documentHome(for: type),
                                "\(persona)/\(type): unchanged behaviour")
             }
@@ -93,8 +95,17 @@ final class TransientSegmentReturnTests: XCTestCase {
 
     /// Mounts the binder shell production mounts for this type, sitting in Find,
     /// then clears the flag the ✕ button clears.
+    ///
+    /// - Parameter landingOn: the segment the caller is about to assert on. Given
+    ///   one, the wait for the `.onChange` ends the moment the exit lands there
+    ///   rather than burning its worst case — the caller's own assertion is still
+    ///   what reports a failure, and still reports it in its own words. Omitted,
+    ///   the wait is a fixed window, which is what a caller asserting that the
+    ///   binder did NOT move would need.
     private func closeFind(persona: Persona,
-                           type: ProjectType) async throws -> TransientExitBox {
+                           type: ProjectType,
+                           landingOn expected: BinderSegment? = nil)
+    async throws -> TransientExitBox {
         let store = try await project(of: type)
         let box = TransientExitBox(segment: .find, findActive: true)
         let window = host(TransientExitProbeView(store: store, box: box,
@@ -102,7 +113,11 @@ final class TransientSegmentReturnTests: XCTestCase {
         XCTAssertEqual(box.segment, .find, "premise: the binder is in find")
 
         box.findActive = false
-        await waitOut(0.4)
+        if let expected {
+            await pumpUntil(deadline: 5) { box.segment == expected }
+        } else {
+            await waitOut(0.4)
+        }
         _ = window
         return box
     }
@@ -141,17 +156,6 @@ final class TransientSegmentReturnTests: XCTestCase {
         return window
     }
 
-    private func waitOut(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-    }
-
-    private func pump(_ seconds: TimeInterval = 0.15) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
-    }
 }
 
 /// The left column as `ProjectWindow.binderColumn` builds it, with the find flag

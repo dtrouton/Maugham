@@ -60,7 +60,8 @@ final class PlanTreeStructureCreationTests: XCTestCase {
             XCTAssertTrue(store.manifest.structure.isEmpty, "\(type): fixture")
 
             let window = host(store: store, persona: .plan, segment: .tree)
-            try await press("New Document", in: window)
+            try await press("New Document", in: window,
+                            until: { store.manifest.structure.count == 1 })
 
             XCTAssertEqual(store.manifest.structure.count, 1,
                            "\(type): pressing New Document in Plan's tree must "
@@ -76,7 +77,8 @@ final class PlanTreeStructureCreationTests: XCTestCase {
     func test_aGroupCanBeMadeFromPlansTree() async throws {
         let store = try await emptyProject(of: .novel)
         let window = host(store: store, persona: .plan, segment: .tree)
-        try await press("New Group", in: window)
+        try await press("New Group", in: window,
+                        until: { store.manifest.structure.first?.type == .group })
 
         XCTAssertEqual(store.manifest.structure.first?.type, .group)
     }
@@ -88,7 +90,8 @@ final class PlanTreeStructureCreationTests: XCTestCase {
         let store = try await emptyProject(of: .novel)
         let window = host(store: store, persona: .author,
                           segment: .documentHome(for: .novel))
-        try await press("New Document", in: window)
+        try await press("New Document", in: window,
+                        until: { store.manifest.structure.count == 1 })
         XCTAssertEqual(store.manifest.structure.count, 1)
     }
 
@@ -266,7 +269,14 @@ final class PlanTreeStructureCreationTests: XCTestCase {
         }
     }
 
-    private func press(_ label: String, in window: NSWindow) async throws {
+    /// - Parameter settled: what the caller is about to assert of the store.
+    ///   Given a condition, the wait ends the moment the press's `addItem` has
+    ///   landed in the manifest rather than burning its worst case; the caller's
+    ///   own assertion still reports the failure in its own words. Given none,
+    ///   the wait is a fixed window — what a caller asserting that a press
+    ///   created NOTHING would need.
+    private func press(_ label: String, in window: NSWindow,
+                       until settled: (() -> Bool)? = nil) async throws {
         let all = try axTree(in: window)
             .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
         let labels = all.map { axAttribute($0, "accessibilityLabel") as? String ?? "nil" }
@@ -276,20 +286,13 @@ final class PlanTreeStructureCreationTests: XCTestCase {
             "no button labelled \u{201C}\(label)\u{201D} reached the hosted "
             + "column. Buttons found: \(labels)")
         _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
-        await waitOut(0.6)
-    }
-
-    private func waitOut(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
+        if let settled {
+            await pumpUntil(deadline: 5, settled)
+        } else {
+            await waitOut(0.6)
         }
     }
 
-    private func pump(_ seconds: TimeInterval = 0.15) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
-    }
 }
 
 /// The left column as `ProjectWindow.binderColumn` builds it — same shell rule,

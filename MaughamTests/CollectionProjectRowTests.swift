@@ -85,7 +85,7 @@ final class CollectionProjectRowTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window))
 
         XCTAssertNil(probe.subject)
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
 
         XCTAssertEqual(probe.subject, .project,
                        "selecting the head row must produce BinderSubject.project "
@@ -100,15 +100,16 @@ final class CollectionProjectRowTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window))
         let firstPiece = try XCTUnwrap(store.manifest.structure.first)
 
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project)
 
-        await select(row: 1, in: table)
+        await select(row: 1, in: table,
+                     until: { probe.subject == .item(firstPiece.id) })
         XCTAssertEqual(probe.subject, .item(firstPiece.id),
                        "the piece below the project row must still select itself "
                        + "— the head row must not have shifted the tags")
 
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project)
     }
 
@@ -150,7 +151,7 @@ final class CollectionProjectRowTests: XCTestCase {
                        "the 'No pieces yet' message must not be a row — an "
                        + "untagged row writes nil through the selection binding "
                        + "when it is clicked (measured on the novel binder)")
-        await select(row: 0, in: table)
+        await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project)
     }
 
@@ -202,9 +203,22 @@ final class CollectionProjectRowTests: XCTestCase {
         return (window, probe)
     }
 
-    private func select(row: Int, in table: NSTableView) async {
+    /// Move the table's selection and let SwiftUI's list coordinator write it back
+    /// through the binding.
+    ///
+    /// `until` is the thing the caller's next assertion checks, so the wait costs
+    /// what the write-back really takes rather than its worst case. A caller with
+    /// no condition to name — a NEGATIVE assertion, where the window of wall clock
+    /// *is* the test — passes nothing and gets the fixed wait.
+    private func select(row: Int, in table: NSTableView,
+                        until settled: (() -> Bool)? = nil) async {
         table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        await waitOut(0.4)
+        if let settled {
+            await pumpUntil(deadline: 5, settled)
+        } else {
+            // fixed window: no condition named — the caller is asserting an absence
+            await waitOut(0.4)
+        }
     }
 
     /// What AppKit says is at the centre of `row`, asked of the window's whole
@@ -215,14 +229,6 @@ final class CollectionProjectRowTests: XCTestCase {
         let rect = table.rect(ofRow: row)
         let centre = CGPoint(x: rect.midX, y: rect.midY)
         return content.hitTest(content.convert(centre, from: table))
-    }
-
-    private func waitOut(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
-        }
     }
 
     private func firstTableView(in window: NSWindow) -> NSTableView? {
@@ -248,19 +254,5 @@ final class CollectionProjectRowTests: XCTestCase {
     private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {
         if let hit = view as? T { out.append(hit) }
         for sub in view.subviews { collect(type, in: sub, into: &out) }
-    }
-
-    private func pumpUntil(deadline: TimeInterval, _ condition: () -> Bool) async {
-        let end = Date().addingTimeInterval(deadline)
-        while Date() < end {
-            if condition() { return }
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        _ = condition()
-    }
-
-    private func pump(_ seconds: TimeInterval = 0.15) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
     }
 }

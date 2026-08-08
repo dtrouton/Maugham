@@ -267,13 +267,18 @@ final class StatementPaneTests: XCTestCase {
         _ = try made.textView(in: window)
 
         // Move to the chapter, whose intent does not exist yet, and type.
+        //
+        // Fixed window, and it has to be: BOTH scopes here are undeclared, so the
+        // pane looks identical before and after the change — an empty editor over
+        // no statement — and every condition available reads true the instant it
+        // is asked. Waiting on one would type into whichever scope the pane
+        // happened to still be on, which is the exact thing this test is about.
         await made.selectDocument(made.documentItemId)
         let onChapter = try made.textView(in: window)
-        await made.type("The chapter's own aim.", into: onChapter)
-        await made.pumpUntil(deadline: 5) {
+        await made.type("The chapter's own aim.", into: onChapter, until: {
             made.store.statement(kind: .intent,
                                  scope: .document(made.documentItemId)) != nil
-        }
+        })
 
         XCTAssertNotNil(
             made.store.statement(kind: .intent,
@@ -365,7 +370,9 @@ final class StatementPaneTests: XCTestCase {
         let window = await fixture.host(kind: .intent, subject: nil)
         let textView = try fixture.textView(in: window)
         await fixture.type("- [ ] find the ending", into: textView)
-        try await fixture.settle(window, expectingOpsFor: statement.id)
+        try await fixture.settle(window, expectingOpsFor: statement.id, until: {
+            fixture.derivedText(forDocId: statement.id).contains("find the ending")
+        })
 
         // The task IS derived — the statement is an ordinary Document.
         let reloaded = try await Document.load(

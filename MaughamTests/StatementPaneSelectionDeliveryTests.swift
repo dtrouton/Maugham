@@ -70,7 +70,9 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
 
         // Row zero is the project row (`BinderProjectRowTests` pins that it is
         // exactly one row and that it is the head).
-        await made.selectBinderRow(0, in: window)
+        await made.selectBinderRow(0, in: window, until: {
+            made.subjectProbe.subject == BinderSubject.project
+        })
         XCTAssertEqual(made.subjectProbe.subject, .project,
                        "precondition: the head row must have written the project "
                        + "subject through the binding")
@@ -78,7 +80,9 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
                                   "the project row is selected, so the Intent pane "
                                   + "must be showing the book's intent")
 
-        await made.selectBinderRow(1, in: window)
+        await made.selectBinderRow(1, in: window, until: {
+            made.subjectProbe.subject == BinderSubject.item(seeded.chapterItemId)
+        })
         XCTAssertEqual(made.subjectProbe.subject, .item(seeded.chapterItemId),
                        "precondition: row one is the first chapter")
         try await assertPaneShows(seeded.chapterText, in: window, of: made,
@@ -88,7 +92,9 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
 
         // And back, because a scope change is not a one-way trip: the return is
         // the direction that reconciles onto a scope the host has already been on.
-        await made.selectBinderRow(0, in: window)
+        await made.selectBinderRow(0, in: window, until: {
+            made.subjectProbe.subject == BinderSubject.project
+        })
         try await assertPaneShows(seeded.projectText, in: window, of: made,
                                   "returning to the project row left the pane on the "
                                   + "chapter's intent")
@@ -107,14 +113,24 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
         let made = seeded.fixture
         let window = await made.hostTheBinderBesideThePane(subject: nil)
 
-        await made.selectBinderRow(1, in: window)
+        await made.selectBinderRow(1, in: window, until: {
+            made.subjectProbe.subject == BinderSubject.item(seeded.chapterItemId)
+        })
         XCTAssertEqual(made.subjectProbe.subject, .item(seeded.chapterItemId),
                        "precondition: row one is the first chapter")
         try await assertPaneShows(seeded.chapterText, in: window, of: made,
                                   "precondition: the pane starts on the chapter's intent")
 
+        // Leaving keeps its fixed window: what must have finished before the
+        // return trip is the intent host's TEARDOWN, and the incoming pane's
+        // editor reports the segment change rather than the outgoing host's
+        // `.onDisappear`. This test IS the teardown, so it is not shortened on a
+        // proxy for it. Coming back has a condition — the words the assertion
+        // below reads.
         await made.showSegment(.visualLanguage)
-        await made.showSegment(.intent)
+        await made.showSegment(.intent, until: {
+            made.firstTextView(in: window)?.string == seeded.chapterText
+        })
 
         try await assertPaneShows(seeded.chapterText, in: window, of: made,
                                   "coming back to Intent landed on a different scope "
@@ -137,7 +153,9 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
 
         let table = try XCTUnwrap(made.firstTableView(in: window))
         let groupRow = table.numberOfRows - 1
-        await made.selectBinderRow(groupRow, in: window)
+        await made.selectBinderRow(groupRow, in: window, until: {
+            made.subjectProbe.subject == BinderSubject.item(group.id)
+        })
         XCTAssertEqual(made.subjectProbe.subject, .item(group.id),
                        "precondition: the last row is the group just added")
 

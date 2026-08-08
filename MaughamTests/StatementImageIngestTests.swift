@@ -105,7 +105,10 @@ final class StatementImageIngestTests: XCTestCase {
         try putImageOnTheClipboard()
         textView.paste(nil)
         await fixture.pumpUntil(deadline: 5) { !self.files(in: assets).isEmpty }
-        try await fixture.settle(window, expectingOpsFor: statement.id)
+        try await fixture.settle(window, expectingOpsFor: statement.id, until: {
+            fixture.derivedText(forDocId: statement.id)
+                .contains("![](./\(assets.lastPathComponent)/")
+        })
 
         let landed = files(in: assets)
         XCTAssertEqual(landed.count, 1,
@@ -215,7 +218,11 @@ final class StatementImageIngestTests: XCTestCase {
         // the same keystroke `setFullText("a")` and took the ref with it; it was
         // measured, and removed. See `take`.
         await fixture.type("a", into: textView)
-        try await fixture.settle(window, expectingOpsFor: statement.id)
+        try await fixture.settle(window, expectingOpsFor: statement.id, until: {
+            guard let filename = self.files(in: assets).first else { return false }
+            return fixture.derivedText(forDocId: statement.id)
+                == "![](./\(assets.lastPathComponent)/\(filename))\n\na"
+        })
 
         let filename = try XCTUnwrap(files(in: assets).first)
         let ref = "![](./\(assets.lastPathComponent)/\(filename))"
@@ -253,7 +260,10 @@ final class StatementImageIngestTests: XCTestCase {
             "pasting a picture is an act, and an act mints the statement")
         let assets = well(beside: statement, in: fixture.projectURL)
         await fixture.pumpUntil(deadline: 5) { !self.files(in: assets).isEmpty }
-        try await fixture.settle(window, expectingOpsFor: statement.id)
+        try await fixture.settle(window, expectingOpsFor: statement.id, until: {
+            fixture.derivedText(forDocId: statement.id)
+                .contains("![](./\(assets.lastPathComponent)/")
+        })
 
         XCTAssertEqual(files(in: assets).count, 1, "the picture is in the well")
         let text = fixture.derivedText(forDocId: statement.id)
@@ -275,6 +285,10 @@ final class StatementImageIngestTests: XCTestCase {
 
         try putImageOnTheClipboard()
         textView.paste(nil)
+        // fixed window: asserting nothing happens. Both assertions below prove an
+        // ABSENCE — no file in the well, no ref in the log — and an absence is
+        // only worth the wall clock given to it. Not to be shortened, and `settle`
+        // keeps its fixed window for the same reason (no `until:` here).
         await fixture.waitOut(0.5)
         try await fixture.settle(window)
 
@@ -381,7 +395,9 @@ final class StatementImageIngestTests: XCTestCase {
 
         try await fixture.store.appendToStatement(
             landed.ref, to: landed.statement, session: "test-\(UUID().uuidString)")
-        await fixture.waitOut(0.4)
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.derivedText(forDocId: landed.statement.id) == landed.ref
+        }
 
         XCTAssertEqual(fixture.derivedText(forDocId: landed.statement.id), landed.ref,
                        "the ref reached the statement's OWN op log")
