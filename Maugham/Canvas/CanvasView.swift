@@ -1250,7 +1250,8 @@ struct CanvasView: View {
         let now = Date()
 
         // BEFORE the fold — see the doc above.
-        if fromKeystroke, ScrapUndoBeat.hasGoneIdle(since: lastKeystrokeAt, now: now) {
+        if fromKeystroke, ScrapUndoBeat.hasGoneIdle(since: lastKeystrokeAt, now: now,
+                                                    idleAfter: model.undoIdleInterval) {
             model.breakGesture()
         }
 

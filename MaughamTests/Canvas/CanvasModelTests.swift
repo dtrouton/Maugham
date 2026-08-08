@@ -28,6 +28,19 @@ final class CanvasModelTests: XCTestCase {
         return model
     }
 
+    /// The canary for the mounted suite's shortened clocks: a model nobody
+    /// configured runs the production intervals. `CanvasViewMountingTests`
+    /// shortens both on every model it mints; if either default here drifts,
+    /// it is the APP's save rhythm or undo beat that moved, not a test's.
+    func test_anUnconfiguredModelRunsTheProductionClocks() {
+        let model = CanvasModel()
+        XCTAssertEqual(model.saveDebounceInterval, 0.75,
+                       "the save debounce no longer matches DocumentStore's "
+                       + "autosave rhythm")
+        XCTAssertEqual(model.undoIdleInterval, 1.5,
+                       "the idle beat that closes a typing step moved")
+    }
+
     /// The seam, end to end: an edit made through the model — which is the ONLY
     /// thing the inspector holds — lands in the sidecar on disk.
     func test_aRegionEditThroughTheModelReachesDisk() {

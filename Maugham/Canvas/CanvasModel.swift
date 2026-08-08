@@ -257,12 +257,31 @@ final class CanvasModel {
 
     @ObservationIgnored private var store: CanvasStore?
 
+    /// How long an edit sits before the debounced save writes it. Production
+    /// never touches this; mounted-view tests shorten it so a wait for
+    /// "reached disk" is a wait on a fast real timer instead of 750 ms of wall
+    /// clock per test. Read once, at `attach` — set it before the view mounts.
+    @ObservationIgnored var saveDebounceInterval: TimeInterval =
+        CanvasStore.defaultDebounceInterval
+
+    /// How long the writer must be still before `ScrapUndoBeat` closes a
+    /// typing step. Same contract as `saveDebounceInterval`: production
+    /// default, shortened by mounted-view tests.
+    @ObservationIgnored var undoIdleInterval: TimeInterval = ScrapUndoBeat.idleSeconds
+
+    /// Whether the debounced save has been scheduled and not yet written —
+    /// the condition mounted tests pump against instead of a fixed wall-clock
+    /// wait. False when unattached, because nothing can be pending in a store
+    /// that does not exist.
+    var hasPendingSave: Bool { store?.hasPendingWrite ?? false }
+
     // MARK: - Lifecycle
 
     /// Build a store, read both files, wire the recorder. This is 1C-a's
     /// `CanvasView.load()` moved one object outwards and otherwise unchanged.
     func attach(projectRoot: URL) {
-        let s = CanvasStore(projectRoot: projectRoot)
+        let s = CanvasStore(projectRoot: projectRoot,
+                            debounceInterval: saveDebounceInterval)
         s.beforeFlush = { [weak self] in self?.beforeFlush?() }
         store = s
         let loaded = s.load()

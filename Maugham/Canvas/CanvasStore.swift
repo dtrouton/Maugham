@@ -26,10 +26,14 @@ final class CanvasStore {
 
     /// Matches `DocumentStore`'s autosave debounce, so canvas edits and
     /// manuscript edits settle on the same rhythm.
-    private let debounceInterval: TimeInterval = 0.75
+    static let defaultDebounceInterval: TimeInterval = 0.75
 
-    init(projectRoot: URL) {
+    private let debounceInterval: TimeInterval
+
+    init(projectRoot: URL,
+         debounceInterval: TimeInterval = CanvasStore.defaultDebounceInterval) {
         self.projectRoot = projectRoot
+        self.debounceInterval = debounceInterval
         // `.onDisappear` does NOT fire on app quit, and the 750ms debounce is
         // exactly long enough to lose the writer's last drag. This is an AppKit
         // lifecycle notification, not a `maugham.*` one, so it is outside

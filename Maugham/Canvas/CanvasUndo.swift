@@ -400,9 +400,10 @@ enum ScrapUndoBeat {
     /// True when the writer has been still long enough that the run of typing
     /// before the pause should stand as its own step. Asked BEFORE the new
     /// keystroke is folded in, so the step that closes ends at the pause.
-    static func hasGoneIdle(since last: Date?, now: Date) -> Bool {
+    static func hasGoneIdle(since last: Date?, now: Date,
+                            idleAfter: TimeInterval = ScrapUndoBeat.idleSeconds) -> Bool {
         guard let last else { return false }
-        return now.timeIntervalSince(last) >= idleSeconds
+        return now.timeIntervalSince(last) >= idleAfter
     }
 
     /// True when this edit just finished a sentence — the text now ends in a
