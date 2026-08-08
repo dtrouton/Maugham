@@ -69,18 +69,45 @@ struct BinderSegmentPicker: View {
     /// expression. If a future segment wants a text label, every segment gets
     /// a text label — see `BinderSegment.pickerSymbolName` for why that is not
     /// affordable in a 240pt column today.
+    ///
+    /// **A picker exists only where a real choice exists** (shell-finish stage
+    /// 1, spec §9): `pickerSegments.count <= 1` renders nothing — no bar, no
+    /// divider, no reserved height, so the tree's header sits exactly where
+    /// it would if this view were never mounted. The `Divider()` beneath the
+    /// segmented control is folded in HERE rather than left for each caller
+    /// to place — a divider left behind by a caller after its picker goes
+    /// empty is the strip's ghost, a 1pt residue of the very bar the rule
+    /// exists to remove. Fix round 1 of shell-finish stage 1 task 2 caught
+    /// exactly that: the picker alone rendered nothing, but both
+    /// `BinderPaneToggle` and `CollectionBinderPaneToggle` still called
+    /// `Divider()` unconditionally right after it. Folding bar and divider
+    /// together into one `if` is the one spelling of "is there a real
+    /// choice" — the two callers now call this view and place nothing of
+    /// their own beside it, so a third caller cannot forget the divider
+    /// either.
+    ///
+    /// Everything — the `Picker`'s padding AND the `Divider()` — lives
+    /// INSIDE the `if`, so a choiceless mount produces the implicit
+    /// `EmptyView` with nothing wrapping it; anything hoisted outside the
+    /// condition would reserve space even with zero content, which is the
+    /// "empty bar" this exists to avoid.
     var body: some View {
-        Picker("Binder", selection: $segment) {
-            ForEach(pickerSegments, id: \.self) { seg in
-                Image(systemName: seg.pickerSymbolName)
-                    .tag(seg)
-                    .help(seg.displayName(for: projectType))
-                    .accessibilityLabel(seg.displayName(for: projectType))
+        if pickerSegments.count > 1 {
+            VStack(spacing: 0) {
+                Picker("Binder", selection: $segment) {
+                    ForEach(pickerSegments, id: \.self) { seg in
+                        Image(systemName: seg.pickerSymbolName)
+                            .tag(seg)
+                            .help(seg.displayName(for: projectType))
+                            .accessibilityLabel(seg.displayName(for: projectType))
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                Divider()
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
     }
 }

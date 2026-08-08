@@ -17,13 +17,16 @@ struct BinderPaneToggle: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // The divider beneath the strip is the picker's own, not this
+            // caller's — see `BinderSegmentPicker.body`'s fix-round-1 note.
+            // Placing one here too is exactly the ghost-divider defect that
+            // fix caught.
             BinderSegmentPicker(
                 segment: $segment,
                 persona: persona,
                 projectType: projectType,
                 hasTrash: !store.trashEntries.isEmpty,
                 findActive: findActive)
-            Divider()
             Group {
                 switch segment {
                 case .manuscript:

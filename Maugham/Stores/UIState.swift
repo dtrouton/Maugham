@@ -83,6 +83,52 @@ public struct UIState: Codable, Equatable, Sendable {
             assistantColumnWidthRange.upperBound)
     }
 
+    /// How wide the window's RIGHT column is — one width, held through every
+    /// persona and every pane switch (shell-finish stage 1, Task 1).
+    ///
+    /// **Spelled like `assistantColumnWidth` on purpose**: a non-optional
+    /// `Double` with a default and a clamp on every way in, rather than a
+    /// `Double?` whose `nil` would mean "never dragged". Nothing distinguishes
+    /// a never-dragged column from one dragged back to 280, and two spellings
+    /// of one rule is how the second comes to differ. No schema bump, for the
+    /// same reason as its sibling: one additive key with a default reads
+    /// cleanly in both directions of the version skew.
+    ///
+    /// **The reason it has to be persisted at all is a measured one.** The
+    /// column used to declare a RANGE (`min: 240, ideal: 280, max: 360`), and a
+    /// range is not a width — AppKit re-resolves a position inside it whenever
+    /// the pane's content wants a different one, and a `columnVisibility`
+    /// transition drops it on the range's floor. See `DetailColumnWidthTests`,
+    /// which measures both.
+    public var detailColumnWidth: Double
+
+    /// The width a project that has never been dragged opens at — the `ideal`
+    /// the range used to carry, so nothing moves for a writer who never touches
+    /// the divider.
+    public static let defaultDetailColumnWidth: Double = 280
+
+    /// **The floor is the old `min`**; below it the inspector's labelled rows
+    /// wrap into unreadability. The ceiling is deliberately wider than the old
+    /// `max: 360` — a writer-owned width may be wider than a designer's cap,
+    /// and the clamp is the safety rather than the opinion.
+    ///
+    /// **What protects the prose is the clamp, not this range.** A window that
+    /// cannot afford the ceiling never shows it:
+    /// `ProjectWindow.effectiveDetailColumnWidth` reduces what is displayed to
+    /// what the window has left after the binder and the writing column take
+    /// their floors, and `test_theWidestWishDoesNotGrowTheNarrowestWindow` holds
+    /// that measurement. No worked example here on purpose — this comment
+    /// carried one ("at 480 the writing column still lays out at 499pt") that
+    /// was taken on a silently-GROWN window, describing a layout the clamp has
+    /// since made impossible. A number in prose about arithmetic the code does
+    /// is the unmaintainable-count defect wearing math.
+    public static let detailColumnWidthRange: ClosedRange<Double> = 240...480
+
+    public static func clampedDetailColumnWidth(_ width: Double) -> Double {
+        min(max(width, detailColumnWidthRange.lowerBound),
+            detailColumnWidthRange.upperBound)
+    }
+
     public init(
         schemaVersion: Int = UIState.currentSchemaVersion,
         selectedSubject: BinderSubject? = nil,
@@ -95,7 +141,8 @@ public struct UIState: Codable, Equatable, Sendable {
         persona: Persona = .default,
         personaMemory: PersonaMemory = .empty,
         compilerModel: CompilerModelChoice = .standard,
-        assistantColumnWidth: Double = UIState.defaultAssistantColumnWidth
+        assistantColumnWidth: Double = UIState.defaultAssistantColumnWidth,
+        detailColumnWidth: Double = UIState.defaultDetailColumnWidth
     ) {
         self.schemaVersion = schemaVersion
         self.selectedSubject = selectedSubject
@@ -110,6 +157,8 @@ public struct UIState: Codable, Equatable, Sendable {
         self.compilerModel = compilerModel
         self.assistantColumnWidth =
             UIState.clampedAssistantColumnWidth(assistantColumnWidth)
+        self.detailColumnWidth =
+            UIState.clampedDetailColumnWidth(detailColumnWidth)
     }
 
     public static let empty = UIState()
@@ -118,7 +167,8 @@ public struct UIState: Codable, Equatable, Sendable {
         case schemaVersion, selectedItemId, selectedSubjectIsProject,
              isNoChromeOn, binderSegment,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
-             persona, personaMemory, compilerModel, assistantColumnWidth
+             persona, personaMemory, compilerModel, assistantColumnWidth,
+             detailColumnWidth
     }
 
     /// Hand-written because `selectedSubject` is not stored the way it is
@@ -145,6 +195,7 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(personaMemory, forKey: .personaMemory)
         try c.encode(compilerModel, forKey: .compilerModel)
         try c.encode(assistantColumnWidth, forKey: .assistantColumnWidth)
+        try c.encode(detailColumnWidth, forKey: .detailColumnWidth)
     }
 
     public init(from decoder: Decoder) throws {
@@ -176,6 +227,12 @@ public struct UIState: Codable, Equatable, Sendable {
         self.assistantColumnWidth = UIState.clampedAssistantColumnWidth(
             (try? c.decode(Double.self, forKey: .assistantColumnWidth))
                 ?? UIState.defaultAssistantColumnWidth)
+        // Clamped on the way IN for its sibling's reason: a hand-edited
+        // `ui-state.json` is a writer of this field too, and it has no gesture
+        // with a limit.
+        self.detailColumnWidth = UIState.clampedDetailColumnWidth(
+            (try? c.decode(Double.self, forKey: .detailColumnWidth))
+                ?? UIState.defaultDetailColumnWidth)
         // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
         // v0.3.1 (dead-code sweep). JSONDecoder ignores unknown keys, so old
         // ui-state.json files load cleanly. Cursor restore actually flows

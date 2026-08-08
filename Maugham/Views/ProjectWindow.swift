@@ -71,6 +71,19 @@ struct ProjectWindow: View {
     @State private var binderSegment: BinderSegment = .manuscript
     @State private var activeSheet: ProjectActiveSheet?
     @State private var showInspector: Bool = true
+    /// The right column's one width (shell-finish stage 1). Restored from
+    /// `UIState` in `load()`; written back by the column's own drag handle and
+    /// by nothing else — see `detailColumn`.
+    @State private var detailColumnWidth: Double = UIState.defaultDetailColumnWidth
+    /// The drag's starting width, so the gesture reads its own translation
+    /// rather than accumulating. Mirrors `AssistantColumnModifier`.
+    @State private var detailDragStartWidth: Double?
+    /// The window content's measured width, and the ONLY reason it is measured:
+    /// the three columns' floors can out-arithmetic the window's own, and the
+    /// right column is the one that has to give. `nil` until the first
+    /// measurement arrives — see `effectiveDetailColumnWidth`, whose answer for
+    /// `nil` is deliberately the conservative one.
+    @State private var containerWidth: Double?
     @State private var showingTidyAllConfirmation: Bool = false
     @State private var sessionLog: SessionLog = .empty
     @State private var lastParsedScript: FountainScript? = nil
@@ -143,7 +156,8 @@ struct ProjectWindow: View {
             if let store, let documentStore {
                 NavigationSplitView(columnVisibility: $columnVisibility) {
                     binderColumn(store: store)
-                        .navigationSplitViewColumnWidth(min: 200, ideal: 240)
+                        .navigationSplitViewColumnWidth(
+                            min: ProjectWindow.binderColumnFloor, ideal: 240)
                 } content: {
                     contentColumn(store: store, documentStore: documentStore)
                 } detail: {
@@ -217,7 +231,8 @@ struct ProjectWindow: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minWidth: 980, minHeight: 540)
+        .frame(minWidth: ProjectWindow.windowFloor, minHeight: 540)
+        .modifier(ContainerWidthReporter(onWidth: noteContainerWidth))
         .modifier(TopChromeModifier(
             projectURL: url,
             persona: persona,
@@ -1053,7 +1068,8 @@ struct ProjectWindow: View {
             // the window's content column, which would push the binder shut
             // instead. The clamp on `assistant.width` is what keeps the prose a
             // column rather than a margin.
-            .navigationSplitViewColumnWidth(min: 480, ideal: 720)
+            .navigationSplitViewColumnWidth(
+                min: ProjectWindow.centreColumnFloor, ideal: 720)
     }
 
     /// The intent strip's line, or nil for no strip (M2 §6.1).
@@ -1352,12 +1368,238 @@ struct ProjectWindow: View {
         return documentStore.document(for: path)
     }
 
+    // MARK: - The three columns' arithmetic
+
+    /// The binder column's declared floor — **the one source**, read by its own
+    /// `navigationSplitViewColumnWidth` and by the right column's affordability
+    /// sum below. Two spellings of one number is how the sum comes to disagree
+    /// with the layout it is reasoning about.
+    static let binderColumnFloor: CGFloat = 200
+
+    /// What macOS 26 draws AROUND the sidebar: a 200pt sidebar occupies 208 in
+    /// the split view (measured — see `DetailColumnWidthTests`). Eight points is
+    /// the whole of the difference between "the window holds" and "the window
+    /// silently grows by 8", so it is part of the sum rather than a rounding
+    /// error somebody later trims.
+    static let sidebarInset: CGFloat = 8
+
+    /// The writing column's declared floor, same rule as the binder's.
+    static let centreColumnFloor: CGFloat = 480
+
+    /// The window's own declared minimum (`body`'s `.frame(minWidth:)`), and the
+    /// container width assumed before anything has been measured.
+    static let windowFloor: CGFloat = 980
+
+    /// Records the measured container width, but **only when it changes what
+    /// the window can afford**. A window drag-resize is 60 frames a second and
+    /// this view's `body` is not something to re-evaluate at that rate; the
+    /// affordable ceiling is unchanged across almost all of that range, so
+    /// almost all of those frames write nothing.
+    ///
+    /// **Keyed on the CEILING, and deliberately blind to the persisted width.**
+    /// The stored container has two consumers — `effectiveDetailColumnWidth`,
+    /// which reads it at the *current* width, and `draggableDetailCeiling`,
+    /// which reads it at the range's *upper bound* — and a memo is only sound
+    /// when it is keyed on something that determines every consumer. This was
+    /// keyed on the effective width at the current persisted value, which is
+    /// the first consumer and not the second, and the consequence was total:
+    /// for any persisted width the window could already afford (the 280 default,
+    /// and every value a drag could produce, since the drag is capped by the
+    /// very ceiling being starved) the guard compared a value to itself, never
+    /// recorded, and left `containerWidth` nil for the life of every window. The
+    /// drag ceiling was then permanently the nil fallback — narrower than the
+    /// range the column replaced, on a display of any size, self-sealing across
+    /// relaunches because drag-end persisted the starved value. Found by
+    /// whole-branch review, 2026-08-08, in the seam between two of this task's
+    /// own fix rounds; `test_aFreshProjectOnAWideDisplayCanDragPastTheFallback`
+    /// is the regression, and it goes through this guard rather than around it.
+    ///
+    /// The persisted width is not a parameter any more, so the shape that caused
+    /// this cannot be spelled here again.
+    static func recordsContainerWidth(_ width: Double, over current: Double?) -> Bool {
+        draggableDetailCeiling(containerWidth: width)
+            != draggableDetailCeiling(containerWidth: current)
+    }
+
+    private func noteContainerWidth(_ width: Double) {
+        guard Self.recordsContainerWidth(width, over: containerWidth) else { return }
+        containerWidth = width
+    }
+
+    /// **The width actually handed to the split view: the writer's wish, reduced
+    /// only as far as this window can afford it.**
+    ///
+    /// The three columns' floors out-arithmetic the window's own: at the window
+    /// floor the binder and the prose between them want more than the window has
+    /// to give, and what is left is less than the 480 a writer is allowed to
+    /// wish for. **The number is not written here** — the code above computes it
+    /// from the constants and `test_theAffordabilitySumGivesTheWindowWhatItNeedsAndTheWriterTheRest`
+    /// asserts it the same way; a worked example in prose is the
+    /// unmaintainable-count defect wearing arithmetic, and this one shipped
+    /// wrong (it said 300 against a true 292, having dropped the sidebar inset
+    /// it is standing next to). AppKit does not resolve the shortfall
+    /// that by squeezing anything; it silently GROWS the window past its
+    /// declared minimum, which is the same "the app moved something under me"
+    /// complaint this task exists to kill, relocated from the divider to the
+    /// window edge. Found by review, 2026-08-08; the shipped test had asserted a
+    /// 980pt window while measuring a 1169pt one.
+    ///
+    /// **The asymmetry is deliberate and is the point.** This reduces what is
+    /// DISPLAYED; it never touches what is STORED. A writer who dragged to 480
+    /// on a large display and then opens the project on a laptop gets what that
+    /// laptop affords, and their 480 back the moment the window can afford it —
+    /// their wish is not edited by the furniture it happened to be opened in
+    /// front of.
+    ///
+    /// `containerWidth` is nil until the window has been measured, and the
+    /// answer for nil is deliberately the CONSERVATIVE one (the window's own
+    /// floor): a first pass that guessed generously would grow the window
+    /// before the measurement could arrive, and a grown window does not shrink
+    /// back on its own.
+    static func effectiveDetailColumnWidth(persisted: Double,
+                                           containerWidth: Double?) -> Double {
+        let container = containerWidth ?? Double(windowFloor)
+        let affordable = container
+            - Double(binderColumnFloor + sidebarInset)
+            - Double(centreColumnFloor)
+        return UIState.clampedDetailColumnWidth(min(persisted, affordable))
+    }
+
+    /// The same sum, as the ceiling a drag may reach: the writer can only wish
+    /// for a width they can be shown. A wish wider than this survives only by
+    /// having been made in a window that could afford it.
+    static func draggableDetailCeiling(containerWidth: Double?) -> Double {
+        effectiveDetailColumnWidth(
+            persisted: UIState.detailColumnWidthRange.upperBound,
+            containerWidth: containerWidth)
+    }
+
+    /// **Where a drag of the right column's handle lands.**
+    ///
+    /// Pure, and holding all three of the rules the gesture used to hold inline,
+    /// because a `DragGesture` body is not something a test can drive without
+    /// building gesture-driving machinery for one assertion (re-review, 2026-08-08:
+    /// the window-aware ceiling shipped with zero coverage precisely because it
+    /// lived in there):
+    ///
+    /// 1. **The sign.** The handle is on the column's LEADING edge, so a
+    ///    leftward drag — a negative translation — makes the column WIDER. The
+    ///    subtraction is the whole of that, and it was previously verifiable
+    ///    only by reading it.
+    /// 2. **The column's own range** (`UIState.clampedDetailColumnWidth`).
+    /// 3. **What this window can afford** — a writer may only wish for a width
+    ///    they can be shown, so on a narrow window the gesture stops where the
+    ///    column stops moving instead of silently banking a wider number that
+    ///    would reappear on a bigger display.
+    ///
+    /// Kept as a static here rather than in a type of its own: its three
+    /// siblings above are statics on this view for the same reason, and one more
+    /// namespace would be one more place to look for the same arithmetic.
+    static func draggedDetailColumnWidth(startWidth: Double,
+                                         translation: Double,
+                                         containerWidth: Double?) -> Double {
+        min(UIState.clampedDetailColumnWidth(startWidth - translation),
+            draggableDetailCeiling(containerWidth: containerWidth))
+    }
+
+    /// **One width, held.** The right column is pinned to the writer's own
+    /// `detailColumnWidth` and resized by the handle below — it does NOT declare
+    /// a range, and the difference is the whole of Task 1.
+    ///
+    /// `navigationSplitViewColumnWidth(min:ideal:max:)` does not hold a width;
+    /// it declares a range, and AppKit re-resolves a position inside that range
+    /// whenever something re-proposes. Two things do, both measured in
+    /// `DetailColumnWidthTests` against a real mounted `NavigationSplitView`:
+    ///
+    /// - **a pane whose content wants to be wider** pushes the column out to the
+    ///   range's `max` — so every ⌘⌥-letter switch between panes of different
+    ///   intrinsic width moved the divider under the writer;
+    /// - **a `columnVisibility` transition** (`⌘\` on the canvas sets
+    ///   `.doubleColumn`, `PersonaModifier` hands back `.all`) drops the column
+    ///   on the range's `min` — 240 out of a dragged 329, measured.
+    ///
+    /// The single-argument spelling holds through both — **measured, and worth
+    /// stating no more strongly than that.** It is tempting to say a range with
+    /// one value in it has nothing left to re-resolve; that overclaims. A pane
+    /// whose content is genuinely unbreakable still raises a real Auto Layout
+    /// conflict against the fixed column, which AppKit resolves by breaking its
+    /// `NSSplitViewItem.MaxSize` constraint rather than the content's
+    /// intrinsic-width demand — undocumented tie-breaking we do not control, and
+    /// the reason the width comes out right today. It logs a
+    /// `Conflicting constraints detected` line when it happens.
+    /// `test_theFixedColumnWinsAgainstAnUnbreakablePane` is the canary on that
+    /// tie-break, not a proof of it. Real Inspector and Outline content wraps or
+    /// scrolls, so the conflict wants a `.fixedSize()` to provoke it.
+    ///
+    /// The cost of the fixed column is that the split view's own divider goes
+    /// inert — a fixed column is not draggable — so the column brings its own
+    /// handle, exactly as the assistant column does one directory over
+    /// (`AssistantColumnModifier.resizeHandle`).
+    ///
+    /// What is applied is the **effective** width, not the stored one; see
+    /// `effectiveDetailColumnWidth` for the window-affordability sum and why the
+    /// reduction never reaches the stored value.
     @ViewBuilder
     private func detailColumn(store: ProjectStore, documentStore: DocumentStore) -> some View {
         if showInspector {
-            inspectorPane(store: store, documentStore: documentStore)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
+            HStack(spacing: 0) {
+                detailResizeHandle(documentStore: documentStore)
+                inspectorPane(store: store, documentStore: documentStore)
+            }
+            .navigationSplitViewColumnWidth(
+                Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,
+                                                containerWidth: containerWidth))
         }
+    }
+
+    /// The right column's own resize affordance, on its leading edge.
+    ///
+    /// **A gutter in the layout rather than an overlay over the pane**, which is
+    /// the same shape `AssistantColumnModifier.resizeHandle` ships and the same
+    /// reason: a `contentShape`d strip laid *over* the pane swallows every click
+    /// in the leftmost 8pt of every row, list and control in the column, for the
+    /// whole height of the window, and it does it silently. Eight points of
+    /// layout is the cheaper mistake. It is deliberately not drawn — the split
+    /// view's own divider is still there and is still the seam a writer aims at;
+    /// this sits just inside it, and the resize cursor on hover is what says so.
+    ///
+    /// Live during the gesture and persisted only at its end — a `UIState` write
+    /// per drag frame is 60 a second through the manuscript's own debounce, and
+    /// the assistant column already settled that question.
+    ///
+    /// **Nothing else writes this width.** There is no geometry observation
+    /// feeding the COLUMN's width back, because a fixed column has no geometry
+    /// of its own to report — it is exactly as wide as it was asked to be. (The
+    /// window's width is measured, but that is the container's geometry and it
+    /// is never persisted.) That is what makes
+    /// `test_aPersonaSwitchDoesNotWriteTheWidth` structurally true rather than a
+    /// debounce racing a persona change.
+    private func detailResizeHandle(documentStore: DocumentStore) -> some View {
+        Color.clear
+            .frame(width: 8)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        let start = detailDragStartWidth ?? detailColumnWidth
+                        detailDragStartWidth = start
+                        // Every rule this drag obeys — the leading edge's sign,
+                        // the column's range, and what this window can afford —
+                        // lives in the pure function, where a test can reach it.
+                        detailColumnWidth = Self.draggedDetailColumnWidth(
+                            startWidth: start,
+                            translation: value.translation.width,
+                            containerWidth: containerWidth)
+                    }
+                    .onEnded { _ in
+                        detailDragStartWidth = nil
+                        let width = detailColumnWidth
+                        documentStore.updateUIState { $0.detailColumnWidth = width }
+                    })
     }
 
     // MARK: - Which column shows what
@@ -2130,6 +2372,11 @@ struct ProjectWindow: View {
             // restoring a subject would put a reference column over the prose
             // before the writer had asked for anything.
             self.assistant.width = ds.uiState.assistantColumnWidth
+            // The right column's width, restored for the assistant column's
+            // reason and by the same read. A window that opened before this
+            // line existed opened at the range's `max` or its `min` depending
+            // on what the last visibility transition had left behind.
+            self.detailColumnWidth = ds.uiState.detailColumnWidth
             // The Intent pane's strata, on the same device slug and the same
             // rule as every other derived sidecar (tripwire 24 at the filename
             // point, which both stores take care of themselves).
@@ -2474,6 +2721,31 @@ private struct CanvasCollapseModifier: ViewModifier {
             showInspector: &showInspector,
             stash: &inspectorWasVisibleBeforeCanvasCollapse,
             paletteStash: &inspectorWasVisibleBeforePalette)
+    }
+}
+
+/// Reports the width of whatever it is applied to — once at mount, and again
+/// whenever that width changes.
+///
+/// A `Color.clear` in a `.background` measures without proposing anything back,
+/// which is the whole difference between reading the CONTAINER's geometry and
+/// the feedback loop tripwire 3 is about. Nothing it reports is ever persisted.
+///
+/// **Internal rather than private because `DetailColumnWidthTests` mounts this
+/// exact modifier.** The right column's affordability sum is only as good as the
+/// number it is fed, and a harness that measured the window its own way would be
+/// testing the harness.
+struct ContainerWidthReporter: ViewModifier {
+    let onWidth: (Double) -> Void
+
+    func body(content: Content) -> some View {
+        content.background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onChange(of: proxy.size.width, initial: true) { _, width in
+                        onWidth(Double(width))
+                    }
+            })
     }
 }
 
