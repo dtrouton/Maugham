@@ -380,4 +380,274 @@ final class DiagnosticsStoreTests: XCTestCase {
         XCTAssertNil(store.lastRun(docId: docId)?.truncatedReader,
             "a run written before the field existed has no reader truncation to report")
     }
+
+    // MARK: - Clause-status history (the drift ring, Task 1)
+
+    /// The ring is a separate append, never a mirror of the run record:
+    /// `replace` supersedes `run`/`diagnostics` every time, and the ring is
+    /// exactly the thing that must survive that supersession — see
+    /// `DriftDetector`.
+    func test_clauseStatusHistory_appendsOnEveryReplaceThatCarriesStatuses() {
+        let store = DiagnosticsStore(
+            projectRoot: URL(fileURLWithPath: "/tmp/unused"),
+            device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docHistory"
+
+        let statusesA = [DiagnosticIngest.ClauseStatus(
+            clauseQuote: "Cold, and never wistful.", status: "strains", refs: [])]
+        var run1 = makeRun()
+        run1.clauseStatuses = statusesA
+        store.replace(run: run1, diagnostics: [], docId: docId)
+
+        let statusesB = [DiagnosticIngest.ClauseStatus(
+            clauseQuote: "Cold, and never wistful.", status: "holds", refs: [])]
+        var run2 = makeRun()
+        run2.clauseStatuses = statusesB
+        store.replace(run: run2, diagnostics: [], docId: docId)
+
+        XCTAssertEqual(store.clauseStatusHistory(docId: docId), [statusesA, statusesB],
+            "oldest first, newest last")
+    }
+
+    /// `nil` (nothing declared to check) and `[]` (checked, found nothing
+    /// straining) are different answers — only `nil` leaves no mark on the
+    /// ring.
+    func test_clauseStatusHistory_aRunWithNilStatusesDoesNotAppend() {
+        let store = DiagnosticsStore(
+            projectRoot: URL(fileURLWithPath: "/tmp/unused"),
+            device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docNoStatuses"
+
+        let statuses = [DiagnosticIngest.ClauseStatus(
+            clauseQuote: "Cold, and never wistful.", status: "strains", refs: [])]
+        var run1 = makeRun()
+        run1.clauseStatuses = statuses
+        store.replace(run: run1, diagnostics: [], docId: docId)
+
+        let run2 = makeRun() // clauseStatuses defaults to nil
+        store.replace(run: run2, diagnostics: [], docId: docId)
+
+        XCTAssertEqual(store.clauseStatusHistory(docId: docId), [statuses],
+            "the second run checked nothing, so it leaves the ring untouched")
+    }
+
+    func test_clauseStatusHistory_capsAtDepth_oldestDropped() {
+        let store = DiagnosticsStore(
+            projectRoot: URL(fileURLWithPath: "/tmp/unused"),
+            device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docCap"
+
+        var expected: [[DiagnosticIngest.ClauseStatus]] = []
+        for i in 0..<(DiagnosticsStore.clauseHistoryDepth + 2) {
+            let statuses = [DiagnosticIngest.ClauseStatus(
+                clauseQuote: "clause \(i)", status: "strains", refs: [])]
+            var run = makeRun()
+            run.clauseStatuses = statuses
+            store.replace(run: run, diagnostics: [], docId: docId)
+            expected.append(statuses)
+        }
+
+        XCTAssertEqual(
+            store.clauseStatusHistory(docId: docId),
+            Array(expected.suffix(DiagnosticsStore.clauseHistoryDepth)),
+            "the oldest entries fall off the ring, never the newest")
+    }
+
+    func test_clauseStatusHistory_roundTripsThroughRelaunch() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docHistoryRoundTrip"
+
+        let statuses = [DiagnosticIngest.ClauseStatus(
+            clauseQuote: "Kelly never speaks first.", status: "strains",
+            refs: [Diagnostic.Ref(paragraphId: "a1b2", excerpt: "Kelly spoke.")])]
+        var run = makeRun()
+        run.clauseStatuses = statuses
+        DiagnosticsStore(projectRoot: project, device: device)
+            .replace(run: run, diagnostics: [], docId: docId)
+
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: docId)
+        XCTAssertEqual(reopened.clauseStatusHistory(docId: docId), [statuses])
+    }
+
+    /// A v1 sidecar (no `clauseStatuses` on the run at all, from before Task
+    /// 3) still loads, with an empty ring — never a crash, never a wipe of
+    /// the run record.
+    func test_aV1SidecarWithNoClauseStatuses_stillLoads_withEmptyRing() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docLegacyHistory"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("""
+            {"diagnostics":[],"run":{"at":"2026-08-04T09:00:00Z","deltaSummary":"1 new, 0 revised",
+            "id":"01JABC","lastOpId":"op1","model":"sonnet"}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        XCTAssertEqual(store.clauseStatusHistory(docId: docId), [],
+            "a sidecar written before the ring existed has nothing to report, not a crash")
+    }
+
+    /// A v2 sidecar (Task 3: `clauseStatuses` on the run, but written before
+    /// the ring existed) also loads clean, with an empty ring rather than a
+    /// backfill from the standing run — the ring is only ever written by
+    /// `replace`, never reconstructed on load.
+    func test_aV2SidecarWithClauseStatusesButNoRing_stillLoads_withEmptyRing() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docV2NoRing"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("""
+            {"diagnostics":[],"run":{"at":"2026-08-04T09:00:00Z","deltaSummary":"1 new, 0 revised",
+            "id":"01JABC","lastOpId":"op1","model":"sonnet",\
+            "clauseStatuses":[{"clauseQuote":"Cold.","status":"strains","refs":[]}]}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        XCTAssertEqual(store.lastRun(docId: docId)?.clauseStatuses?.first?.clauseQuote, "Cold.",
+            "the run record still carries what it checked")
+        XCTAssertEqual(store.clauseStatusHistory(docId: docId), [],
+            "the ring starts empty rather than backfilling from the standing run")
+    }
+
+    /// `replace` supersedes the standing run and notes every time; the ring
+    /// must not be swept along with them (doc-comment on the ring: history
+    /// outlives runs by design — drift needs what replace forgets).
+    func test_replace_doesNotClearThePreviouslyAppendedHistory() {
+        let store = DiagnosticsStore(
+            projectRoot: URL(fileURLWithPath: "/tmp/unused"),
+            device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docHistoryPersists"
+
+        let statuses = [DiagnosticIngest.ClauseStatus(
+            clauseQuote: "Cold, and never wistful.", status: "strains", refs: [])]
+        var run1 = makeRun()
+        run1.clauseStatuses = statuses
+        store.replace(run: run1, diagnostics: [], docId: docId)
+
+        let plainRun = makeRun()
+        let note = makeDiagnostic(docId: docId, runId: plainRun.id)
+        store.replace(run: plainRun, diagnostics: [note], docId: docId)
+
+        XCTAssertEqual(store.clauseStatusHistory(docId: docId), [statuses],
+            "replace-on-run supersedes the standing notes, never the drift ring")
+        XCTAssertEqual(store.lastRun(docId: docId)?.id, plainRun.id,
+            "the run record itself still supersedes normally")
+    }
+
+    // MARK: - The cold-start offer's refusal memory (Stage 3)
+
+    /// **Not `/tmp/unused`** — every other test in this file gets away with
+    /// that shared, fixed path because it only exercises `replace`/`dismiss`,
+    /// which never read a sidecar back on init. `refusedColdStart` is loaded
+    /// EAGERLY at `init()` (`refusedColdStart`'s own doc), so a fixed path
+    /// reused across separate invocations of this test binary is a real
+    /// cross-run leak: a `docId` refused by a PRIOR run of this very test is
+    /// still marked refused in the file the NEXT run's fresh store reads at
+    /// construction — measured live (`XCTAssertFalse` on a brand-new store
+    /// failed because a previous run's own write was still on disk).
+    func test_refuseColdStart_isRememberedAndBumpsVersion() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-refuse"
+
+        XCTAssertFalse(store.hasRefusedColdStart(docId: docId))
+        let versionBefore = store.version
+
+        store.refuseColdStart(docId: docId)
+
+        XCTAssertTrue(store.hasRefusedColdStart(docId: docId))
+        XCTAssertGreaterThan(store.version, versionBefore,
+            "the pane's `showsColdStartOffer` re-render must be able to key off this")
+    }
+
+    /// A second refusal of an already-refused document changes nothing —
+    /// no version bump the pane would re-render for pointlessly.
+    func test_refuseColdStart_aSecondRefusalIsANoOp() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-refuse-twice"
+        store.refuseColdStart(docId: docId)
+        let versionAfterFirst = store.version
+
+        store.refuseColdStart(docId: docId)
+
+        XCTAssertEqual(store.version, versionAfterFirst)
+    }
+
+    /// **The refusal is a bit a document can carry before it has ever been
+    /// run at all** — before `FileContent` for it exists, unlike every other
+    /// record this store keeps. Refusing an unrun document must not
+    /// fabricate a run or otherwise change what `lastRun`/`live` report.
+    func test_refuseColdStart_worksForADocumentWithNoRunAtAll_andMintsNoRun() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-never-run"
+
+        store.refuseColdStart(docId: docId)
+
+        XCTAssertTrue(store.hasRefusedColdStart(docId: docId))
+        XCTAssertNil(store.lastRun(docId: docId))
+        XCTAssertEqual(store.live(docId: docId, currentText: { _ in nil }), [])
+    }
+
+    /// Persisted immediately and survives a relaunch — a fresh store instance
+    /// against the same project and device must still say "refused" without
+    /// `load(docId:)` ever being called for it, since `refusedColdStart` is
+    /// read once at `init` rather than lazily per document.
+    func test_refuseColdStart_survivesRelaunch() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "doc-refuse-relaunch"
+
+        let store1 = DiagnosticsStore(projectRoot: project, device: device)
+        store1.refuseColdStart(docId: docId)
+
+        let store2 = DiagnosticsStore(projectRoot: project, device: device)
+        XCTAssertTrue(store2.hasRefusedColdStart(docId: docId))
+    }
+
+    /// Per-device, on the same discipline as every other sidecar here: a
+    /// refusal recorded on one Mac must not silence the offer's own "never
+    /// re-asked" promise on a document a DIFFERENT device has never seen
+    /// refused.
+    func test_refuseColdStart_isPerDevice() throws {
+        let project = try makeProject()
+        let docId = "doc-refuse-cross-device"
+
+        let storeA = DiagnosticsStore(
+            projectRoot: project, device: DeviceSlug.make(from: "mac-a"))
+        storeA.refuseColdStart(docId: docId)
+
+        let storeB = DiagnosticsStore(
+            projectRoot: project, device: DeviceSlug.make(from: "mac-b"))
+        XCTAssertFalse(storeB.hasRefusedColdStart(docId: docId))
+    }
+
+    /// A missing or corrupt refusal file reads as empty, the same
+    /// derived-state contract every other sidecar in this store follows —
+    /// losing it costs nothing worse than the offer asking once more.
+    func test_refuseColdStart_corruptFileReadsAsEmpty() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let url = project
+            .appendingPathComponent(".maugham/diagnostics")
+            .appendingPathComponent("cold-start-refused.\(device.raw).json")
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+
+        XCTAssertFalse(store.hasRefusedColdStart(docId: "anything"))
+    }
 }

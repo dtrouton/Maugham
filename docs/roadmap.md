@@ -196,22 +196,49 @@ AI assist for drafting, transcription, and project understanding.
   (`parseSection`/`parseAll` as a fold) for exactly this upgrade, but the session still
   resolves each turn as one terminal event rather than surfacing partial assistant text —
   the whole-turn shape was deliberate this stage, not an oversight.
+- ✓ **The compiler's second draft, Stage 3 — cold start, drift-as-pattern, streaming, and
+  the close** (2026-08-08, branch `feat/third-stage-2026-08-08`; spec
+  `docs/superpowers/specs/2026-08-07-compiler-second-draft-design.md` §8; plan
+  `docs/superpowers/plans/2026-08-08-third-stage.md`; area guide `Maugham/Compiler/AREA.md`) —
+  **pending Denver's full-loop smoke.** The three-stage rewrite closes here. **Drift returns
+  as a pattern**, not a note kind: a clause straining the same way across
+  `DriftDetector.consecutiveRunsThreshold` (3) consecutive runs, read on demand from the
+  sidecar's own clause-status ring and drawn as one line above the conformance summary —
+  "Your line may have moved — '…' has strained three runs running. Draft's right, or
+  intent's right?" — never a `Diagnostic` (no id, no dismissal, no reply field); pressing it
+  opens Intent, and the pattern breaking on a later run is what takes it away. **The bible's
+  third door closes**: `BibleStore` remembers the `(subject, fact)` keys the writer has
+  graduated — blessed or corrected into a ruling — so a re-emitted reading does not return to
+  the stratum and get briefed twice, once as a fact and once as the ruling's derived clause; a
+  correction marks BOTH the reading's key and the writer's own ruled sentence, closing the gap
+  fix round 1 found (the writer's corrected text returning as a fresh candidate).
+  **Streaming ships**: `--include-partial-messages` adds partial assistant text to the warm
+  session; the orchestrator accumulates and closes on newlines, feeding complete sections to
+  the pane as they arrive (the conformance summary readable while the reader's report is still
+  being written); the header keeps saying "Checking…" throughout, deliberately undecorated,
+  and the final `result` event RECONCILES the whole turn and replaces the preview wholesale —
+  never folds into it, so a restated section is never shown twice, and a cancelled or failed
+  run takes its half-report with it. **The cold-start offer**: a document this build has never
+  run, carrying more than a stub of prose (`>1` live paragraph — the discriminator is
+  paragraphs, never ops), shows one refusable line in place of the plain empty state — "I
+  haven't read this piece. Read it whole and take notes?" — with **Read** (the same first-run
+  `runRequested` path ⌘R takes; no new run kind) and **Not now**, which records the refusal in
+  the sidecar so the offer never renders again for that document — on-demand, never a nag
+  (spec §4). **The derivation deadline**: `ClaudeWorldDeriver`'s one-shot subprocess now
+  carries a 120s budget, four times the spike's measured 30s sonnet cost; an overrunning
+  process is `terminate()`d (no orphan billing) and the derivation returns its ordinary honest
+  `nil` through the same EOF-and-exit resolution every other unreadable answer already goes
+  through, not a new forced-resume case. *Left open, on the record:* the `--resume` fallback
+  remains pre-authorized and unbuilt; the essay-sourced-clause double-brief door
+  (`Maugham/Compiler/AREA.md`'s "the atomic switch") is unchanged from Stage 2 — a real
+  derivation can still quote a sentence of the essay as a clause and double-brief it, and
+  nothing today measures it. **The second draft is closed as of this stage** — all three
+  stages are on local main; the outstanding gate is one full-loop smoke covering the whole
+  rebuilt loop (declared world → four-section run → streaming → drift pattern → cold start →
+  bless-converges) rather than a per-stage one.
 - ✓ **Skills over MCP** (2026-07-18, branch `feat/skills-over-mcp-2026-07-18`) — Maugham now carries two task procedures as Agent Skills — `transcribing-notebooks` (the notebook-photo transcription workflow, now run through Claude Code after the 2026-07-17 Claude Desktop image regression) and `editing-pass` (reads `read_craft_intent` first, then works the annotation layer) — single-sourced at `docs/skills/<name>/SKILL.md` (agentskills.io flat-frontmatter format, loaded by the new `Maugham/Help/SkillIndex.swift`) and served across three surfaces: the emerging **SEP-2640 Skills Extension** (`skills/list`/`skills/get`/`resources/read` for `skill://` URIs, one pinned seam `Maugham/MCP/SkillsExtension.swift` against the still-unmerged draft PR #2640 — these are protocol methods, not tools, so the **48-tool count is unchanged**; no shipping MCP client consumes the extension yet), `get_help` (topic `"skills"` = index, a skill's name = its full body; one nudge sentence each on `read_document`/`add_comment`), and a new **Claude Code** section in the MCP setup sheet (copyable variant-aware `claude mcp add …` command + a one-click bootstrap-skill installer with staleness detection, writing a router skill to `~/.claude/skills/maugham/SKILL.md` that tells Claude Code to fetch the current procedure via `get_help` rather than improvise). Phone and `Packages/MaughamCore` untouched. Spec `docs/superpowers/specs/2026-07-18-skills-over-mcp-design.md`.
 
 **Open:**
-- • **The compiler's second draft, Stage 3 — cold start, drift-as-pattern, docs** (spec
-  `docs/superpowers/specs/2026-08-07-compiler-second-draft-design.md` §8) — the
-  read-it-whole offer on a manuscript the compiler has never checked ("I haven't read this
-  piece. Read it whole and take notes?", on-demand, never re-asked as a nag); drift
-  returning as a **pattern** rather than a note kind — a clause straining the same way
-  across consecutive runs, computed from the run records the sidecar already keeps, never a
-  background process; and the streaming upgrade Stage 2 built the ingest for but did not
-  ship (`parseSection`/`parseAll` already fold section-at-a-time — Task 3 recorded that the
-  whole-turn shape was this stage's deliberate choice, not a gap — so the upgrade is a
-  session that surfaces partial assistant events plus an orchestrator that folds them as
-  they land, and not a change to what a section means). **Watch item carried from
-  Stage 2**: the derivation subprocess (`ClaudeWorldDeriver`) has no timeout of its own —
-  wants a measured budget, not a number copied from the run's 120s.
 - • **Handwritten note import** — drag photos of handwritten pages in, Claude transcribes to `.md` using phone-camera filenames as ordering hints, page-by-page accept/edit/reject UI, automatic placement into manuscript or research. The annotation-layer approval UX from the editing milestone is the model.
 - • **Project-level Claude prompt templates** — curated prompts like "Brainstorm character motivations for this scene" / "Find continuity errors in Chapter 3", pre-wired to MCP read-tools so Claude is grounded.
 - ✓ **Voice notes / Whisper transcription** (2026-05-30, via the iPhone companion) — record voice in the phone Capture tab → inbox → WhisperKit transcribes → promote to research. *Still open:* a Mac-side drag-audio-file-in entry point (the shipped path is phone-capture, not desktop drop).

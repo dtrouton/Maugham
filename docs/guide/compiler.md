@@ -9,6 +9,12 @@ persona (⌘2). A capsule flashes **Checking…**, the same register as ⌘S's;
 press ⌘R again while one is already running and it flashes **Still
 checking…** instead of starting a second one.
 
+The report arrives in sections rather than all at once. Your clauses come back
+first, so you are reading the conformance summary while the reader's report is
+still being written; the header keeps saying **Checking…** until the whole
+check is done. A check you cancel takes its half-finished report with it and
+puts the last completed one back.
+
 It runs when you press the key, and at no other time. There is no background
 check, no linting as you type, no badge that appears while you are mid-sentence.
 That is deliberate: the point is a check you can reach for constantly because it
@@ -93,10 +99,23 @@ your own prose back, never a four-character token.
 A clean run says so plainly — *"Nothing to flag."* — even when every clause
 held: that is the good outcome the check exists to report, not an empty pane.
 
-**Drift has no note of its own here.** A clause that strains the same way
-across several checks in a row will surface as a pattern in a later stage,
-computed from what each run already keeps on record; for now, a straining
-clause tells you in the moment, and nothing about it accumulates across runs.
+**Drift is one line, not a note.** When a clause has strained the same way
+across three checks running, a line appears above the conformance summary —
+*"Your line may have moved — '…' has strained three runs running. Draft's
+right, or intent's right?"* — computed from what each run already keeps on
+record, never a background process. It carries no id, offers no dismissal and
+no reply field: press it and it takes you to Intent, and the pattern breaking
+on a later check is what takes the line away, not a tap.
+
+## Reading a piece for the first time
+
+The first time you check a document that has some real prose in it, the pane
+offers before it runs anything: *"I haven't read this piece. Read it whole
+and take notes?"* — **Read** starts the same check ⌘R would (the first check
+on any document already reads the whole thing), and **Not now** declines.
+Say no once and Maugham does not ask again for that document; a stub of a
+document — a title and a line — is not offered at all, and neither is one
+you have already checked, however that check turned out.
 
 ## The bible, filling quietly
 
@@ -106,7 +125,12 @@ a voice. These land in the Intent pane's paler strip beneath your rulings —
 *What Claude has read* — with three actions: **Bless** (graduate it to a
 ruling, in your own words), **Correct** (edit it before it becomes one), and
 **Dismiss** (it may return if the manuscript re-establishes it). Nothing there
-is truth until you act on it; it is inspected, never tended. See [Inspector,
+is truth until you act on it; it is inspected, never tended.
+
+Blessing or correcting is permanent in a way dismissing is not: once a reading
+is a ruling of yours, later checks never offer it again, even when you rewrite
+the scene that established it. Dismissing says *not so*, and your manuscript is
+allowed to argue back. See [Inspector,
 Research & Outline → Intent mode](right-pane.md#intent-mode-n).
 
 ## What you can do with a note
@@ -137,6 +161,15 @@ survive; the notes do not. ⌘Z takes the task back.
 **Leave it.** A note you neither answer nor keep disappears at the next check.
 If it still stands, the next check raises it again.
 
+**While a check is still running, you can read but not act.** The report
+arrives section by section, so your conformance summary is on screen long
+before the reader's report is written — that is what the streaming is for. The
+notes under it carry no **Answer** and no **Promote to Task** until the check
+finishes, because a check that has not finished has not decided: cancel it and
+those notes were never raised, let it run and it may say something different by
+the end. The actions appear the moment the check is done, on the report it
+actually settled on.
+
 ## Choosing how hard it looks
 
 The gear menu in the pane's header picks the model: **Fast**, **Standard** (the
@@ -146,7 +179,9 @@ in the model it started in, and the next one is the one that changes. That
 next check starts a fresh session behind the scenes, so it's a few seconds
 slower than the warm session you're used to — a one-time cost of the switch.
 
-**Cancel** appears in the header while a check is running.
+**Cancel** appears in the header while a check is running. Anything the check
+had already put on the pane goes with it — a report from a check that stopped
+half way is not a report — and the last completed check comes back.
 
 ## What you need for it to work
 

@@ -94,7 +94,7 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `CompilerRunner.swift` | The seam: `send(message:systemPreamble:) -> CompilerRunEvent`, plus every way a run can fail |
 | `ClaudeCLISession.swift` | The warm subprocess behind that seam |
 | `DiagnosticIngest.swift` | The structured message → notes, clause statuses and fact-candidates, anchored against the LIVE document. One section is one unit, so arrival can become incremental without the fold changing |
-| `DeclaredWorldDeriver.swift` | Also the one-shot's pipe discipline: stdout is drained WHILE the process runs. Reading it from `terminationHandler` deadlocked on any answer past ~64 KB — the child blocks on its own write, so it never exits, so the handler never fires |
+| `DeclaredWorldDeriver.swift` | Also the one-shot's pipe discipline: stdout is drained WHILE the process runs. Reading it from `terminationHandler` deadlocked on any answer past ~64 KB — the child blocks on its own write, so it never exits, so the handler never fires. **120s deadline** (Stage 3), four times the spike's measured 30s sonnet cost: an overrunning process is `terminate()`d and the derivation returns its ordinary honest `nil` through the SAME EOF-and-exit resolution every other unreadable answer already goes through — no separate forced-resume path |
 | `Diagnostic.swift` | `Diagnostic` + `CompilerRun` — the wire and sidecar shapes |
 | `DiagnosticsStore.swift` | The per-device, per-document sidecar, and the staleness rule |
 | `DiagnosticPromotion.swift` | What a kept note says once it is an op-logged task |
@@ -183,12 +183,18 @@ is the resumed session id, not the process.
 - **17 / 24 — the sidecar.** `.maugham/diagnostics/<docId>.<slug>.json` is
   per-`(document, device)`: two Macs running the compiler against one document
   must not race each other's file. `DeviceSlug.raw` is interpolated in
-  `DiagnosticsStore.sidecarURL` and **nowhere else** — the slug lives only in
-  filenames and is never serialised into content. Two more per-device sidecars
-  joined this stage, both on the same discipline: `.maugham/derived/
-  <scopeKey>.<slug>.json` (`DeclaredWorldStore.sidecarURL`, one per statement
-  scope) and `.maugham/bible.<slug>.json` (`BibleStore.sidecarURL`, one per
-  project). `.raw` is interpolated only at each of those two call sites.
+  `DiagnosticsStore.sidecarURL` and in `DiagnosticsStore.refusedColdStartURL`
+  — the cold-start offer's refusal memory, `.maugham/diagnostics/
+  cold-start-refused.<slug>.json`, ONE small per-device file for the whole
+  project rather than per-document (a refusal is a single bit with no run
+  beside it, and can be recorded before a document has ever been run at all,
+  before its own `FileContent` exists) — and nowhere else in this file: the
+  slug lives only in filenames and is never serialised into content. Two more
+  per-device sidecars joined Stage 2, both on the same discipline:
+  `.maugham/derived/<scopeKey>.<slug>.json` (`DeclaredWorldStore.sidecarURL`,
+  one per statement scope) and `.maugham/bible.<slug>.json`
+  (`BibleStore.sidecarURL`, one per project). `.raw` is interpolated only at
+  each of those two call sites.
 - **3 / 6 — the arrival.** Nothing here holds an editor binding or a
   `Document`. What a run needs off the live document arrives as a
   `DocumentReading` value captured at the keystroke, and paragraph text is
@@ -223,12 +229,15 @@ is the resumed session id, not the process.
 
 This is what the milestone exists for, and the two halves are asymmetric:
 
-- **Drift — no longer a note, and not yet a pattern.** v1 raised it as an
+- **Drift — no longer a note, and now a pattern.** v1 raised it as an
   anchorless diagnostic from an `intent_drift` field; the v2 contract has no
-  such field and the run carries nothing in its place. It returns in Stage 3 as
-  a pattern computed from the run records the sidecar already keeps — a clause
-  straining the same way across consecutive runs (spec §3.4). Between the two
-  it is simply absent, which is the honest state rather than a gap to fill.
+  such field and the run carries nothing in its place. Stage 3 reads it back
+  from the run records the sidecar already keeps — a clause straining the same
+  way across `DriftDetector.consecutiveRunsThreshold` (3) consecutive runs
+  (spec §3.4) — and surfaces it as one line above the pane's conformance
+  summary (`DiagnosticsPane.driftNote`), not a `Diagnostic`: no id, no
+  dismissal, no reply field. Pressing it opens Intent; the pattern breaking on
+  the next run is what takes the line away, not a tap.
 - **Accretion** — an anchored note offers **Answer**, and the writer's sentence
   becomes a **ruling** on the **piece's** intent statement (never the
   project's), minting it if absent: an itemized, dated line under `## Rulings`
@@ -333,13 +342,47 @@ briefing embed clause quotes some other way, this is the paragraph to re-read
 first. A watch item for Stage 3, recorded here because a reader of
 `worldSection` cannot see it.
 
-## The third door: bless, and the fact that comes back
+## The third door: bless converges, and graduated is not dismissed
 
-`BibleStore.record` deliberately keeps no memory of what was dismissed (spec
-§3.3, "may return if the manuscript re-establishes it"; the method's own doc
-says it "must not grow one"). For **dismiss** that is the designed behaviour.
-For **bless** it composes into a trap, and the walk is short enough to state
-verbatim:
+**Closed in Stage 3.** `BibleStore` remembers the `(subject, fact)` keys the
+writer has GRADUATED — blessed or corrected into a ruling — and `record` drops
+a candidate whose key is one of them. `BibleStratum.graduate` marks the key
+after `RulingPerformer.rule` succeeds and before `bible.dismiss`, so a refused
+ruling leaves both the fact and the door exactly as it found them. The keys ride
+in the per-device sidecar beside the ledger (one envelope, because a graduated
+key that outlived its facts would put the blessed reading back on the pane the
+launch after somebody deleted the wrong half; a bare-array sidecar from a
+previous build still loads and simply has nothing graduated).
+
+It is deliberately NOT a memory of **dismissal** — spec §3.3 is unchanged, a
+plain dismiss keeps no memory, and a manuscript that re-establishes a dismissed
+fact is a reading returning rather than a record surviving
+(`BibleStoreTests.test_dismissedFactCanReturn_thisIsIntended` sits adjacent to
+`test_aBlessedFactDoesNotComeBack`, each naming the other).
+
+**A correction marks two keys, and the second one is the half that reopened the
+door.** It rules "Kelly is a paramedic" over a reading of "Kelly is a nurse",
+and the manuscript can establish either afterwards — the reading, because the
+prose that produced it is still there, and the ruling, because the writer has
+since written toward what they decided. Marking only Claude's reading left the
+writer's own sentence free to come back as a fresh candidate, which is door 3's
+step 4 (a duplicate ruling row) reached through correction instead of bless;
+measured against the shipped code in fix round 1's review. Both are declared or
+superseded now, so a candidate matching either is not news. A bless has one
+sentence in both roles and marks one key.
+`StatementPaneStrataTests.test_correctingGraduatesClaudesReading` and
+`test_correctingAlsoGraduatesTheWritersOwnRuling` are adjacent, each naming the
+other, because neither is the whole rule.
+
+**Revoking the ruling does not reopen the door**, by decision rather than
+oversight — a revoke is the writer unmaking a decision, not asking to be
+re-offered the reading days later about prose they have since rewritten, and
+resurrection would have to guess which of a correction's two sentences was ever
+a fact. The reasoning lives on `BibleStore.markGraduated`; if a smoke says
+otherwise the fix is one `graduatedKeys.remove` at the revoke site.
+
+The walk below is what the design answers, kept because it is the rationale and
+because every step of it is what the tests assert against:
 
 1. Run N reads a fact; the writer blesses it. `BibleStratum.graduate` mints a
    ruling through `RulingPerformer.rule` and then calls `bible.dismiss` —
@@ -356,15 +399,24 @@ verbatim:
    renders as duplicate conformance rows, which `conformanceRows` embraces by
    design.
 
-The design answer is **Stage 3's**, alongside drift — the honest fixes all
-touch design (tombstoning graduated `(subject, fact)` pairs in the bible
-sidecar is derived-state-shaped and does not touch the membrane; string-matching
-`record` against ruling texts is fragile and misses corrections), and choosing
-between them wants a milestone that can measure the result. This paragraph
-exists so the next reader **decides** it rather than discovering it. Note also
-what does not exist: **no test walks the bible loop across two runs at all** —
-nothing records facts in run N and watches run N+1's briefing carry them, let
-alone with a bless in the middle.
+Of the two candidate fixes, the shipped one is the tombstone: it is
+derived-state-shaped and does not touch the membrane. String-matching `record`
+against ruling texts was rejected — it is fragile, and it misses corrections
+entirely, where the ruled sentence and the re-emitted reading are different
+strings by construction.
+
+**The loop is walked end to end by one test.**
+`CompilerRunCommandTests.test_theBibleLoopConvergesAcrossRunsWithABlessInTheMiddle`
+drives three runs over a real project with a real mounted `StatementPane`: run 1
+reads the fact and the stratum shows it, the writer presses the real `Bless`
+button through the accessibility tree, run 2 re-emits the identical candidate,
+and run 3 is where a returned fact would have been briefed. Three runs and not
+two because **the ledger is read at the start of a run (`bibleSlice`) and
+written at its end (`recordFacts`)** — the run that re-emits a blessed fact is
+never the run that would brief it. Falsified by deleting `record`'s graduated
+guard: the fact returns to the register and to the pane, and run 3's message
+carries the same declaration twice, once as a bible fact and once as the
+ruling's derived clause.
 
 ## The four fates of a note
 
@@ -386,6 +438,105 @@ The sidecar is derived state: a missing or corrupt file reads as empty rather
 than throwing, and losing it costs nothing because the next run repopulates it.
 There is no repair path, only "start from nothing" — `CanvasStore.load`'s
 contract, one directory over.
+
+## Streaming — the report arrives in sections, and a preview is not a run
+
+Built third stage (Task 4). Stage 2 named it a follow-on and left the ingest
+ready for it: `parseAll` is `parseSection` folded over the turn and nothing
+else, so sections could always be read one at a time. Four things carry it, and
+three of them are about what a half-arrived report may NOT do.
+
+- **The stream is asked for, and only one delta kind is the answer.**
+  `ClaudeCLISession.arguments` adds `--include-partial-messages`; `classify`
+  gained `.partialText`, keyed on `stream_event → event.content_block_delta →
+  delta.text_delta`. **All three delta kinds arrive as `content_block_delta`**
+  — `thinking_delta` carries the model's private reasoning, `signature_delta`
+  an opaque blob — so a classifier keyed one level too high feeds the
+  orchestrator a report made of the model thinking out loud, and nothing
+  downstream can tell. Captured from a real turn rather than guessed;
+  `ClaudeCLISessionTests`' `captured…` constants are that turn's lines
+  verbatim, and the falsification (accept `thinking` too) fails two tests.
+- **Deltas ride `receive`, behind the SAME two guards as the result** — live
+  generation, turn in flight. A retired process's enqueued deltas would
+  otherwise be spliced into the run that replaced it, and that run would still
+  resolve normally, so nothing would look wrong
+  (`test_aRetiredProcessesDeltasNeverReachTheHandler`, planted).
+- **A chunk is not a line.** `CompilerOrchestrator.receivePartial` accumulates
+  and reads only what a newline closed. The transport cuts wherever it likes,
+  and a truncated object can look complete.
+- **The result REPLACES the preview; it never folds into it.** `finish` runs
+  `parseAll` over the whole turn and calls `replace`. Accumulating instead
+  shows a model's restated section twice, persisted
+  (`test_theFinalResultReconcilesTheStream`, falsified).
+
+`DiagnosticsStore.preview` is the storage verb and is deliberately weaker than
+`replace` in three ways, each a defect if a preview did it: **no persistence**
+(a half-report on disk reads back as the standing answer), **no drift ring**
+(`DriftDetector` counts consecutive RUNS — one check's four sections would
+fabricate a pattern), **no unread badge** (a badge for notes the cancel
+removed is a badge nothing can clear). `discardPreview` is a re-read of the
+untouched sidecar, which is why a cancelled preview puts the previous *finished*
+run back rather than clearing the document. Every path where a run ends without
+an answer discards: `finish`'s failure arm, the unusable-output arm, `cancel()`
+(also directly — the continuation resumes a tick later, and the writer watches
+the half-report until it does) and `shutdown()`.
+
+The pane needed no new state to DRAW a preview. The version counter already
+draws whatever is stored, and `headerState` prefers the run state for this
+document, so the wait copy keeps saying "Checking…" while the report grows
+under it.
+
+**A preview's rows carry no fates, and that took two guards** (the whole-branch
+Critical, fixed in the fix wave). `preview` weakened three of `replace`'s
+verbs, but `dismiss` — this store's third writer, and the only one older than
+streaming — still persisted, and BOTH fates end in it: `DiagnosticsPane.promote`
+and `commitAnswer` each call `dismiss` last. So answering a streamed note wrote
+the half-report to the sidecar as the standing answer, **with the marker
+`beginRun` mints before the send on it**, and a cancel then read it back — the
+prose the aborted run stopped reading would never be checked again. A run that
+completed instead resurrected the answered note through `parseAll`-replace (the
+turn's own text still contains it, with a fresh id) and a second answer minted a
+duplicate ruling. Neither task's suite composed the two: the streaming tests
+only ever *watch* a preview, and the fates' tests never stream.
+
+The fix is one bit and one precondition, no new run-state reading:
+
+- `DiagnosticsPane.offersDurableActions(state:)` — pure, taking `HeaderState`
+  so it inherits `headerState`'s per-document scoping. Only `.running`
+  withholds Answer and Promote; a run on ANOTHER document reaches it as
+  `.idle`/`.clean` and that pane keeps its fates. `.failed`/`.nothingNew`
+  describe runs that are over and their rows are the last finished report's.
+- `DiagnosticsStore.dismiss` refuses outright while `previewing.contains(docId)`
+  — in memory as well as on disk, so the door is shut rather than the handle
+  hidden, and any future per-note mutator inherits the rule.
+
+Falsified both ways: force the gate true and the mounted preview test goes red;
+drop the precondition and the byte-identical sidecar test does
+(`test_aDismissalCannotReachAPreview_soTheSidecarSurvivesACancelByteIdentical`,
+which asserts the file did not change *at all* — the only assertion a write
+that merely round-trips cannot satisfy).
+
+## The cold-start offer — refusable once, per document, forever
+
+Built Stage 3. Spec §4's "one refusable offer... never re-asked as a nag" for
+a document this build has never run. Almost all of it is `DiagnosticsPane`'s
+(the pure decision `showsColdStartOffer(state:liveParagraphCount:hasRefused:)`
+and the two-button view) and therefore across the seam like the rest of the
+pane — this area's only piece is the memory the "Not now" side writes into.
+
+`DiagnosticsStore.refuseColdStart`/`hasRefusedColdStart` are a fourth,
+deliberately different sidecar shape: every other record in this store is
+keyed by `docId` and requires a `CompilerRun` to exist first (`FileContent`'s
+`run` field is non-optional), but a refusal can happen before a document has
+ever been checked at all — before `FileContent` for it exists. Rather than
+fabricate a run to hang a boolean off, the refusal set lives in its own tiny
+per-device file, `.maugham/diagnostics/cold-start-refused.<slug>.json`, on the
+same derived-state contract as everything else here: a missing or corrupt
+file reads as empty, and losing it costs nothing worse than the offer asking
+once more. **Reading is not a new run kind** — the offer's `Read` button
+calls `CompilerOrchestrator.runRequested` exactly as ⌘R does, which already
+treats a document with no marker as "everything is new"; nothing in this area
+special-cases a first run reached through the offer versus the keystroke.
 
 ## Tests worth knowing about
 
@@ -418,15 +569,22 @@ drifted from them is a defect in this file.
   `scopeKey` spelling, and the missing-or-corrupt-sidecar-reads-empty contract.
 - `DeclaredWorldDeriverTests` — the one-shot subprocess: its stricter
   confinement than `ClaudeCLISession` (no `--mcp-config` at all, `--tools ""`),
-  the prompt/parser wire-shape agreement, and honest `nil` on every failure
-  mode. One live probe against the real CLI is recorded in the task-3 report,
-  not run here.
+  the prompt/parser wire-shape agreement, honest `nil` on every failure mode,
+  and (Stage 3) the 120s deadline against a fixture that never answers and
+  never exits on its own, with an injected short deadline so the test does
+  not wait the real budget out. One live probe against the real CLI is
+  recorded in the task-3 report, not run here.
 - `BibleStoreTests` — the ledger: `(subject, fact)` dedupe (and that a
   dismissed fact can return), the per-device sidecar, and the subject-slice
-  `facts(subjects:)` Stage 2 will call.
+  `facts(subjects:)` the run calls.
 - `DiagnosticsPaneTests` — the report the pane draws (the conformance summary
   first, the excerpt chips, the legible wait) and the answer flow end to end,
-  including that it lands as a ruling and drops the derivation it outdated.
+  including that it lands as a ruling and drops the derivation it outdated;
+  also the drift line above the summary — its register, that it names no
+  count beyond "three runs", and that it is not a `Diagnostic`; and (Stage 3)
+  the cold-start offer's pure decision (`showsColdStartOffer`) plus its
+  refusal — the offer for a never-run, non-stub document, gone once refused,
+  gone for good once any run happens.
 - `CompilerRunCommandTests` — ⌘R's real delivery path.
 - `PinnedReferencesTests` — the union and its resolution, including the
   dedup/dangling/sort rules; its census keeps `linkedResearchIds` (not
@@ -462,17 +620,5 @@ everything it touches.
   changes nothing structural — the editor stays the editor — so a policy object
   with nothing to produce would be ceremony. **Built as designed, 2026-08-05**:
   Plan 2 shipped Author with none, and nothing since has argued otherwise.
-- **Streaming — and it is now a NAMED follow-on rather than an absence.**
-  `CompilerRunEvent.started` still exists for a consumer that does not exist,
-  and `send` still resolves with a terminal event: `ClaudeCLISession.receive`
-  classifies every stream line and forwards only `type == "result"`, so
-  partial assistant text never reaches the orchestrator at all. Stage 2's
-  ingest was built section-at-a-time for this — `parseAll` is `parseSection`
-  folded over the turn and nothing else — so the upgrade is a session that
-  surfaces partial assistant events plus an orchestrator that folds them as
-  they land, and NOT a change to what a section means. **Stage 2 landed the
-  whole-turn shape deliberately** (the session was not rebuilt for it); the
-  writer-facing half of that requirement — a wait that says what it is
-  reading — is the pane's, and does not depend on this.
 - **A new MCP tool, in either direction.** The compiler is an MCP *client*. The
   catalogue did not move for M2.

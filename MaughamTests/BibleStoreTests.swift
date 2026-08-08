@@ -285,6 +285,14 @@ final class BibleStoreTests: XCTestCase {
     /// re-establishing a dismissed fact is a reading returning, not a
     /// record surviving (spec §3.3: "may return if the manuscript
     /// re-establishes it"). This is intended behavior, not a dedupe gap.
+    ///
+    /// **Its opposite is the test below it**,
+    /// `test_aBlessedFactDoesNotComeBack`: a fact the writer GRADUATED is
+    /// gone for good, because it is now a ruling in their own layer and a
+    /// return would brief the same declaration twice. The two directions are
+    /// adjacent on purpose — the difference between them is the whole of this
+    /// design, and a reader who finds only one of them will read it as the
+    /// rule.
     func test_dismissedFactCanReturn_thisIsIntended() throws {
         let store = try makeStore()
         let fact = makeFact(subject: "Kelly", fact: "has a scar on her left hand")
@@ -299,6 +307,133 @@ final class BibleStoreTests: XCTestCase {
             store.allFacts().map(\.id), [reestablished.id],
             "a re-record of a dismissed fact's (subject, fact) pair is intended to return \u{2014} " +
             "it is a fresh reading, not a record the dismissal is meant to keep blocking")
+    }
+
+    // MARK: - graduated / no return (the third door)
+
+    /// **A blessed fact does not come back.** The writer graduated it: the
+    /// claim now lives in their own layer as a ruling, and the run is briefed
+    /// on it as a derived clause. A later run re-reading the establishing
+    /// prose re-emits the same candidate — and `record` must drop it, or the
+    /// same declaration is in front of the model twice and a second bless
+    /// mints a duplicate ruling row (`Maugham/Compiler/AREA.md`, "the third
+    /// door").
+    ///
+    /// **Its opposite is the test above it**,
+    /// `test_dismissedFactCanReturn_thisIsIntended`. Plain dismiss keeps no
+    /// memory and spec §3.3 is unchanged by any of this: dismissed means
+    /// "not so", and a manuscript that re-establishes it has answered back.
+    /// Graduated means "so, and mine now" — there is nothing left for the
+    /// register to offer.
+    func test_aBlessedFactDoesNotComeBack() throws {
+        let store = try makeStore()
+        let fact = makeFact(subject: "Kelly", fact: "has a scar on her left hand")
+        store.record([fact])
+
+        // `BibleStratum.graduate`'s order, spelled out: the ruling lands, the
+        // key is marked, and only then does the reading leave the register.
+        store.markGraduated(subject: fact.subject, fact: fact.fact)
+        store.dismiss(fact.id)
+        XCTAssertEqual(store.allFacts(), [], "the graduation must have taken")
+
+        let reemitted = makeFact(subject: "Kelly", fact: "has a scar on her left hand")
+        store.record([reemitted])
+
+        XCTAssertEqual(
+            store.allFacts(), [],
+            "the blessed fact returned to the register \u{2014} from here the same "
+            + "declaration is briefed twice (as a bible fact and as the ruling's "
+            + "derived clause) and a second bless mints a duplicate ruling row")
+    }
+
+    /// The graduated key is the DEDUPE key — one function, so a fact that
+    /// dedupes against another cannot fail to be recognised as graduated. The
+    /// case difference is what makes that assertable from outside: `record`
+    /// dedupes case-insensitively, so a case-sensitive graduated check would
+    /// be a second spelling and this test is what says there is not one.
+    func test_graduationMatchesTheDedupeKey_caseInsensitively() throws {
+        let store = try makeStore()
+        store.markGraduated(subject: "KELLY", fact: "HAS A SCAR ON HER LEFT HAND")
+
+        XCTAssertTrue(store.isGraduated(subject: "Kelly", fact: "has a scar on her left hand"))
+        store.record([makeFact(subject: "Kelly", fact: "has a scar on her left hand")])
+
+        XCTAssertEqual(store.allFacts(), [],
+                       "the graduated check reads a different key from the dedupe it "
+                       + "is supposed to share")
+    }
+
+    /// Graduating one claim about a subject says nothing about the next one.
+    /// A run that reads something new about Kelly must still be able to offer
+    /// it — the door closes on a fact, never on a character.
+    func test_graduationBlocksOnlyTheFactItNames() throws {
+        let store = try makeStore()
+        store.markGraduated(subject: "Kelly", fact: "has a scar on her left hand")
+
+        store.record([makeFact(subject: "Kelly", fact: "is left-handed")])
+
+        XCTAssertEqual(store.allFacts().map(\.fact), ["is left-handed"])
+        XCTAssertFalse(store.isGraduated(subject: "Kelly", fact: "is left-handed"))
+    }
+
+    /// The keys survive a relaunch, or the door reopens every time the writer
+    /// quits — which is the defect with a delay on it rather than a fix.
+    ///
+    /// Through `init` alone, on the round-trip test's discipline: nothing
+    /// calls `load()` by hand in production.
+    func test_graduatedKeysSurviveTheSidecar() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+
+        let store1 = BibleStore(projectRoot: project, device: device)
+        let fact = makeFact(subject: "Kelly", fact: "has a scar on her left hand")
+        store1.record([fact])
+        store1.markGraduated(subject: fact.subject, fact: fact.fact)
+        store1.dismiss(fact.id)
+
+        let store2 = BibleStore(projectRoot: project, device: device)
+
+        XCTAssertTrue(store2.isGraduated(subject: "Kelly", fact: "has a scar on her left hand"),
+                      "the graduated keys did not reach the sidecar, so the blessed "
+                      + "fact comes back on the next launch")
+        store2.record([makeFact(subject: "Kelly", fact: "has a scar on her left hand")])
+        XCTAssertEqual(store2.allFacts(), [])
+    }
+
+    /// The ledger a previous build wrote — a bare array, no envelope — still
+    /// loads, and simply has nothing graduated. The field is additive on
+    /// derived state and this is what says "additive" was true (the excerpt
+    /// field's own test, one shape later).
+    func test_aSidecarFromBeforeGraduationExistedStillLoadsItsFacts() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let url = BibleStore.sidecarURL(projectRoot: project, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("""
+            [{"id":"f1","subject":"Kelly","fact":"Kelly is a nurse.",\
+            "establishedAt":"abcd","docId":"docA","recordedAt":"2026-08-07T09:00:00Z"}]
+            """.utf8).write(to: url)
+
+        let store = BibleStore(projectRoot: project, device: device)
+
+        XCTAssertEqual(store.allFacts().count, 1,
+                       "the envelope's arrival cost a previous build's whole ledger")
+        XCTAssertFalse(store.isGraduated(subject: "Kelly", fact: "Kelly is a nurse."))
+    }
+
+    func test_markGraduated_bumpsVersion_andIsIdempotent() throws {
+        let store = try makeStore()
+        let before = store.version
+
+        store.markGraduated(subject: "Kelly", fact: "has a scar")
+        let afterFirst = store.version
+        XCTAssertGreaterThan(afterFirst, before)
+
+        store.markGraduated(subject: "Kelly", fact: "has a scar")
+        XCTAssertEqual(store.version, afterFirst,
+                       "re-marking a key that is already graduated rewrote the sidecar "
+                       + "and told every observer the ledger had changed")
     }
 
     func test_dismiss_removesOnlyTheNamedFact() throws {

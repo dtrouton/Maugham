@@ -76,15 +76,21 @@ struct BibleFact: Codable, Equatable, Sendable, Identifiable {
 /// (spec §9) — the slice the store offers is by subject, not by document.
 @Observable @MainActor
 final class BibleStore {
-    /// Monotonic; bumped by every mutation (`record`, `dismiss`, `load`) so
-    /// an observing pane can invalidate a cached read without diffing
-    /// arrays.
+    /// Monotonic; bumped by every mutation (`record`, `dismiss`,
+    /// `markGraduated`, `load`) so an observing pane can invalidate a cached
+    /// read without diffing arrays.
     private(set) var version: Int = 0
 
     private let projectRoot: URL
     private let device: DeviceSlug
 
     private var byId: [String: BibleFact] = [:]
+
+    /// The dedupe keys of readings the writer has GRADUATED — blessed or
+    /// corrected into a ruling of their own. The one thing this store
+    /// remembers about a fact that has left it, and the reason it remembers
+    /// exactly this and nothing else is in `markGraduated`'s doc.
+    private var graduatedKeys: Set<String> = []
 
     init(projectRoot: URL, device: DeviceSlug) {
         self.projectRoot = projectRoot
@@ -121,13 +127,22 @@ final class BibleStore {
     /// was removed — so a later `record` of the identical pair is not a
     /// duplicate here. That return is intended (spec §3.3: "may return if
     /// the manuscript re-establishes it"); this method has no memory of what
-    /// was dismissed and must not grow one.
+    /// was DISMISSED and must not grow one.
+    ///
+    /// **A GRADUATED pair is the one exception, and it is a different
+    /// question.** A blessed or corrected reading is now a ruling in the
+    /// writer's own layer, briefed to every run as a derived clause; letting
+    /// it back in would put the same declaration in front of the model twice
+    /// and invite a second bless that mints a duplicate ruling row
+    /// (`Maugham/Compiler/AREA.md`, "the third door"). Dismissed means "not
+    /// so" and the manuscript may argue; graduated means "so, and mine" and
+    /// there is nothing left to offer.
     func record(_ candidates: [BibleFact]) {
         var seen = Set(byId.values.map { dedupeKey(subject: $0.subject, fact: $0.fact) })
         var changed = false
         for candidate in candidates {
             let key = dedupeKey(subject: candidate.subject, fact: candidate.fact)
-            guard !seen.contains(key) else { continue }
+            guard !seen.contains(key), !graduatedKeys.contains(key) else { continue }
             seen.insert(key)
             byId[candidate.id] = candidate
             changed = true
@@ -147,6 +162,48 @@ final class BibleStore {
         version += 1
     }
 
+    /// **The writer graduated this reading**: it is a ruling in their own
+    /// layer now, and the register must not offer it again.
+    ///
+    /// Called by `BibleStratum.graduate` AFTER `RulingPerformer.rule` succeeds
+    /// and BEFORE the fact is dismissed — the same ordering rule the dismiss
+    /// already obeyed, one step earlier: a refused ruling must leave both the
+    /// fact and the door exactly as it found them, or the writer loses the
+    /// reading to a graduation that never happened.
+    ///
+    /// **A correction marks TWO keys, and both of them earn it.** It rules
+    /// "Kelly is a paramedic" over a reading of "Kelly is a nurse", and the
+    /// manuscript can go on to establish either sentence: the reading, because
+    /// the prose that produced it is still there, and the ruling, because the
+    /// writer has since written toward what they decided. Neither is news any
+    /// more — one was superseded and the other was declared — and a candidate
+    /// matching either would invite a bless of something already settled,
+    /// which `RulingsSection.appending` would happily write as a duplicate
+    /// row. A bless has one sentence in both roles and marks one key.
+    ///
+    /// **Revoking the ruling does not reopen this door**, and that is a
+    /// decision rather than an omission. A revoke is the writer unmaking a
+    /// decision they made; it is not a request to be asked the question again
+    /// by a compiler run that may not happen for days, about prose they have
+    /// since rewritten. Resurrection would also have to guess WHICH reading a
+    /// revoked ruling came from — the corrected case has two sentences and
+    /// only one of them was ever a fact. If a smoke says otherwise, the fix is
+    /// one `graduatedKeys.remove` at the revoke site, not a second memory.
+    func markGraduated(subject: String, fact: String) {
+        guard graduatedKeys.insert(dedupeKey(subject: subject, fact: fact)).inserted else {
+            return
+        }
+        persist()
+        version += 1
+    }
+
+    /// Whether this `(subject, fact)` pair has graduated. The pane has no use
+    /// for it — a graduated fact is not on the pane — but the door has to be
+    /// assertable from outside, and `record`'s silence is not evidence.
+    func isGraduated(subject: String, fact: String) -> Bool {
+        graduatedKeys.contains(dedupeKey(subject: subject, fact: fact))
+    }
+
     /// `.maugham/bible.<slug>.json` — per-device so two machines running the
     /// compiler over the same project never race each other's sidecar.
     /// `.raw` is interpolated only here (tripwire 24).
@@ -158,15 +215,44 @@ final class BibleStore {
     /// that knows the file moved underneath it can refresh.
     func load() {
         let url = Self.sidecarURL(projectRoot: projectRoot, device: device)
-        guard let data = try? Data(contentsOf: url), // adr-0018-ok: bible sidecar, derived, not manuscript
-              let facts = try? Self.makeDecoder().decode([BibleFact].self, from: data)
-        else {
-            byId = [:]
-            version += 1
-            return
+        let decoder = Self.makeDecoder()
+        guard let data = try? Data(contentsOf: url) // adr-0018-ok: bible sidecar, derived, not manuscript
+        else { return adopt(facts: [], graduated: []) }
+
+        if let sidecar = try? decoder.decode(Sidecar.self, from: data) {
+            adopt(facts: sidecar.facts, graduated: Set(sidecar.graduated))
+        } else if let legacy = try? decoder.decode([BibleFact].self, from: data) {
+            // A sidecar this build's envelope did not write: every row is a
+            // fact and nothing has graduated. Derived state takes no
+            // migration (tripwire 11) — but silently discarding a ledger a
+            // previous build spent real runs building is a cost with no
+            // symptom, so the old shape is READ and the next `persist`
+            // rewrites it as an envelope.
+            adopt(facts: legacy, graduated: [])
+        } else {
+            adopt(facts: [], graduated: [])
         }
+    }
+
+    private func adopt(facts: [BibleFact], graduated: Set<String>) {
         byId = Dictionary(facts.map { ($0.id, $0) }, uniquingKeysWith: Self.survivor)
+        graduatedKeys = graduated
         version += 1
+    }
+
+    /// The sidecar as this build writes it: the ledger, and the keys that have
+    /// graduated out of it.
+    ///
+    /// An envelope rather than a second file, because the two answer one
+    /// question — *what does this device's register hold, and what has it
+    /// already handed over* — and a graduated key that outlived its ledger (or
+    /// the reverse) would put the blessed fact back on the pane on exactly the
+    /// launch after somebody deleted the wrong half.
+    private struct Sidecar: Codable {
+        let facts: [BibleFact]
+        /// Dedupe keys (`dedupeKey`), sorted on the way out so the file does
+        /// not churn on a rewrite that changed nothing.
+        let graduated: [String]
     }
 
     /// Which of two facts sharing one id survives the load (whole-branch
@@ -206,7 +292,8 @@ final class BibleStore {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
-        if let data = try? encoder.encode(Array(byId.values)) {
+        let sidecar = Sidecar(facts: Array(byId.values), graduated: graduatedKeys.sorted())
+        if let data = try? encoder.encode(sidecar) {
             try? data.write(to: url, options: .atomic)
         }
     }

@@ -21,11 +21,46 @@ import MaughamCore
 /// draws those words as a chip that clicks through to the prose
 /// (requirement 3, `test_noParagraphIdIsEverRendered`).
 ///
-/// **Drift has no section here.** v2 dropped the `intent_drift` field, and
-/// drift-as-a-pattern — a clause straining the same way across consecutive runs
-/// — is Stage 3's, computed from the run records the sidecar already keeps.
-/// Nothing replaces it in this stage, and a section standing empty for it would
-/// be the pane promising a reading nothing produces.
+/// **The report can be half-arrived, and the pane needs no case for it.** The
+/// compiler streams its answer, so `CompilerOrchestrator` stores each section
+/// as its line closes (`DiagnosticsStore.preview`) and the version counter
+/// draws it — the conformance summary is readable while the reader's report is
+/// still being written. Nothing here *labels* a preview as one, deliberately:
+/// the header is already saying "Checking…", which is the one sentence that has
+/// to be true, and a second badge saying the same thing would be the pane
+/// narrating its own plumbing. What a preview must never do is OUTLIVE its run
+/// — that is the orchestrator's discard, not this view's.
+///
+/// **But a preview is not a run, so its rows carry no fates** (`offersDurableActions`).
+/// Reading is the preview's whole value; Answer and Promote arrive with the
+/// reconciled report at finish. Acting on a streamed note used to write the
+/// half-report to the sidecar through `DiagnosticsStore.dismiss` — a cancelled
+/// run then read it back as the standing answer, carrying a delta marker the
+/// finished check never earned, and a completed run resurrected the answered
+/// note for a second, duplicate ruling. The store refuses that write on its own
+/// side too (`dismiss`'s precondition), so this is a hidden button over a shut
+/// door rather than the only guard.
+///
+/// **Drift is one line, above the conformance summary.** v2 dropped the
+/// `intent_drift` field; what stands in its place is not a note kind but a
+/// PATTERN — a clause straining the same way across consecutive runs, read
+/// on demand from `DiagnosticsStore.clauseStatusHistory` by the pure
+/// `DriftDetector`. It is deliberately not a `Diagnostic`: no id, no
+/// dismissal, no reply field. Pressing it opens Intent (spec §4's last
+/// bullet); the pattern breaking is what takes it away, the next time the
+/// version bumps. See `driftNote`.
+///
+/// **The cold-start offer replaces the plain empty state, once, for a
+/// document worth reading.** Spec §4: *"one refusable offer... On-demand,
+/// never background, never re-asked as a nag."* Drawn only in place of
+/// `.neverRun`'s "Not checked yet" line — never a sheet, never something that
+/// appears unasked — for a manuscript with more than a stub of prose
+/// (`showsColdStartOffer`'s `liveParagraphCount > 1`). **Read** calls
+/// `orchestrator.runRequested` exactly as ⌘R does: the offer is UI over the
+/// existing first-run path (a document with no prior marker already reads as
+/// "everything is new"), never a second run kind. **Not now** records the
+/// refusal in `DiagnosticsStore` and the offer never renders again for this
+/// document — the writer says no once, not every time they open the pane.
 @MainActor
 struct DiagnosticsPane: View {
     let orchestrator: CompilerOrchestrator
@@ -88,6 +123,16 @@ struct DiagnosticsPane: View {
     /// array and absence is valid (spec §7).
     private var clauses: [DiagnosticIngest.ClauseStatus] { lastRun?.clauseStatuses ?? [] }
 
+    /// Every clause straining a pattern across runs, for the document this
+    /// pane is showing. `DriftDetector` is pure — no store, no caching — and
+    /// is read fresh off the version-gated ring the same way `rows`/`lastRun`
+    /// read the store's notes; its own doc: "computed from records, never a
+    /// background process."
+    private var driftFindings: [DriftFinding] {
+        _ = diagnostics.version
+        return DriftDetector.drift(history: diagnostics.clauseStatusHistory(docId: docId))
+    }
+
     /// The three note kinds, split into the sections that render them.
     ///
     /// A note whose `kind` is `nil` belongs to none of them — and cannot reach
@@ -105,6 +150,30 @@ struct DiagnosticsPane: View {
     private var state: HeaderState {
         Self.headerState(runState: orchestrator.runState, lastRun: lastRun,
                           noteCount: rows.count, docId: docId)
+    }
+
+    /// Whether the rows on screen may be acted on — read through `state`, which
+    /// is this view's ONE reading of `orchestrator.runState` and already scopes
+    /// it to this document (`headerState`'s `where runDocId == docId`). A run on
+    /// another document leaves this pane's fates exactly where they were.
+    private var offersDurableActions: Bool { Self.offersDurableActions(state: state) }
+
+    /// Whether the pane's empty state should offer the cold-start read rather
+    /// than show the plain "Not checked yet" line. Reads `activeDocument()`
+    /// directly rather than through a closure of its own — the discriminator
+    /// is the manuscript's LIVE paragraph count (tripwire-relevant: not the
+    /// delta's "new" count, which counts ops since a marker this document has
+    /// never had), and `activeDocument` already exists on this pane for
+    /// `promote()`. Scoped to the `.neverRun` window only: once any run
+    /// happens `state` moves off `.neverRun` for good (`headerState` never
+    /// returns to it with a `lastRun` on record), so this stops reading
+    /// `sequence` again for the rest of the document's life.
+    private var showsColdStartOffer: Bool {
+        _ = diagnostics.version
+        return Self.showsColdStartOffer(
+            state: state,
+            liveParagraphCount: activeDocument()?.sequence.count ?? 0,
+            hasRefused: diagnostics.hasRefusedColdStart(docId: docId))
     }
 
     var body: some View {
@@ -170,6 +239,48 @@ struct DiagnosticsPane: View {
             guard let lastRun else { return .neverRun }
             return noteCount == 0 ? .clean(lastRun: lastRun) : .idle(lastRun: lastRun)
         }
+    }
+
+    /// **Whether a row offers a fate at all — false for every row of a preview.**
+    ///
+    /// The notes on screen during `.running` came from a turn that has not
+    /// ended: `finish` reconciles the whole turn with `parseAll` and REPLACES
+    /// all of them, so a note answered mid-stream is answered against a record
+    /// about to be superseded. Both fates end in `DiagnosticsStore.dismiss`,
+    /// whose write would put the half-report on disk as the standing sidecar —
+    /// with the run-start marker on it, so the prose the run stopped reading is
+    /// never re-checked — and a completed turn would then raise the answered
+    /// note again for a duplicate ruling.
+    ///
+    /// Pure and taking `HeaderState` rather than `RunState`, so it inherits
+    /// `headerState`'s per-document scoping instead of reading the run state a
+    /// second way: a run on ANOTHER document reaches here as `.idle`/`.clean`
+    /// and this pane's rows keep their fates.
+    ///
+    /// Only `.running` withholds them. `.failed` and `.nothingNew` describe runs
+    /// that are over, and the rows under them are the last finished run's, on
+    /// disk — a writer must still be able to answer those.
+    static func offersDurableActions(state: HeaderState) -> Bool {
+        if case .running = state { return false }
+        return true
+    }
+
+    /// **The cold-start offer's decision, pure** — no view mounted, the same
+    /// idiom `headerState`/`emptyState` use for exactly this reason.
+    ///
+    /// True only for a document this build has genuinely never run
+    /// (`state == .neverRun`; any run at all, even one that found nothing,
+    /// moves `state` off this case for good), whose manuscript is more than a
+    /// stub (`liveParagraphCount > 1` — the discriminator is LIVE paragraphs,
+    /// never ops: an op count would call a document "worth reading" for a
+    /// checkpoint or an annotation that touched no prose), and that the
+    /// writer has not already refused.
+    static func showsColdStartOffer(
+        state: HeaderState, liveParagraphCount: Int, hasRefused: Bool
+    ) -> Bool {
+        guard case .neverRun = state else { return false }
+        guard liveParagraphCount > 1 else { return false }
+        return !hasRefused
     }
 
     /// One honest sentence per failure — no apology, no chirp. `cliNotFound`
@@ -336,7 +447,9 @@ struct DiagnosticsPane: View {
 
     @ViewBuilder
     private var content: some View {
-        if !hasReport {
+        if showsColdStartOffer {
+            coldStartOffer
+        } else if !hasReport {
             let empty = Self.emptyState(for: state)
             ContentUnavailableView(
                 empty.title,
@@ -346,12 +459,64 @@ struct DiagnosticsPane: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    driftLine
                     conformanceSection
                     continuitySection
                     readerSection
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+
+    /// **The cold-start offer** (spec §4). Understated, on `content`'s
+    /// register: no sheet, no alert — the same two-button margin-note shape
+    /// the pane uses everywhere else (`DiagnosticRow`'s Answer/Promote row).
+    @ViewBuilder
+    private var coldStartOffer: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "text.book.closed")
+                .font(.system(size: 26))
+                .foregroundStyle(.secondary)
+            Text("I haven\u{2019}t read this piece. Read it whole and take notes?")
+                .font(.callout)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 280)
+            HStack(spacing: 8) {
+                Button("Not now") { diagnostics.refuseColdStart(docId: docId) }
+                    .buttonStyle(.bordered)
+                Button("Read") { orchestrator.runRequested(docId: docId) }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// **The drift line — a pattern across runs, not a note about one.**
+    /// Above the conformance summary because it is a claim about a clause the
+    /// summary is about to name again (spec §4's last bullet). Not a
+    /// `Diagnostic`: no id, no dismissal, no reply field — pressing it opens
+    /// Intent, and the pattern breaking is what takes the line away, not a
+    /// tap. See `driftNote`.
+    @ViewBuilder
+    private var driftLine: some View {
+        if let line = Self.driftNote(driftFindings) {
+            Button {
+                MaughamEvent.postDetailSegment(.intent)
+            } label: {
+                Text(line)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            Divider()
         }
     }
 
@@ -371,7 +536,8 @@ struct DiagnosticsPane: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(paired.rows) { row in
-                ClauseRow(row: row, canAnswer: store != nil,
+                ClauseRow(row: row, canAnswer: store != nil && offersDurableActions,
+                          canPromote: offersDurableActions,
                           answering: answering, answerFailures: answerFailures,
                           onJump: { jump(toParagraph: $0) },
                           onPromote: { promote($0) },
@@ -427,7 +593,8 @@ struct DiagnosticsPane: View {
     private func noteRow(_ diagnostic: Diagnostic) -> some View {
         DiagnosticRow(
             diagnostic: diagnostic,
-            canAnswer: store != nil && Self.offersAnAnswer(diagnostic),
+            canAnswer: store != nil && Self.offersAnAnswer(diagnostic) && offersDurableActions,
+            canPromote: offersDurableActions,
             isSubmitting: answering.contains(diagnostic.id),
             answerFailure: answerFailures[diagnostic.id],
             onJump: { jump(toParagraph: $0) },
@@ -478,6 +645,47 @@ struct DiagnosticsPane: View {
             return !quotes.contains(quote)
         }
         return (rows, orphans)
+    }
+
+    // MARK: - Drift (spec §4's last bullet; findings computed by `DriftDetector`)
+
+    /// **The one line above the conformance summary when a clause is
+    /// drifting** — pinned to `findings.first`, in the order
+    /// `DriftDetector.drift` reports it (the newest run's own clause order).
+    /// With more than one, "and one more" says a second is drifting without
+    /// counting how many — two findings and five read identically, the same
+    /// discipline `readerSection`'s "The reader had more to say." keeps: how
+    /// many is forensic detail the writer did not ask for.
+    ///
+    /// **No count beyond the fixed "three runs" is ever spoken**, either —
+    /// not `DriftFinding.runsStraining`'s true streak length, which the
+    /// detector reports honestly and can run past the threshold (its own
+    /// doc: "the pane ... can choose to say so"; this pane chooses not to,
+    /// for the reason above).
+    static func driftNote(_ findings: [DriftFinding]) -> String? {
+        guard let first = findings.first else { return nil }
+        let quote = truncatedDriftQuote(first.clauseQuote)
+        let andOneMore = findings.count > 1 ? " \u{2014} and one more" : ""
+        return "Your line may have moved \u{2014} \u{201C}\(quote)\u{201D} has strained "
+            + "three runs running\(andOneMore). Draft\u{2019}s right, or intent\u{2019}s right?"
+    }
+
+    /// How much of the clause the drift line's one sentence can carry —
+    /// smaller than `IntentStrip.maximumLength` because this quote sits
+    /// inside a longer sentence rather than filling a strip on its own.
+    private static let driftQuoteMaxLength = 60
+
+    /// `quote` if it fits, else cut at the last word boundary inside the
+    /// budget and ellipsised — `IntentStrip.truncated`'s idiom, restated here
+    /// because that one is `private` to its own file and the two truncate
+    /// different budgets for different reasons.
+    static func truncatedDriftQuote(_ quote: String) -> String {
+        guard quote.count > driftQuoteMaxLength else { return quote }
+        let head = String(quote.prefix(driftQuoteMaxLength))
+        guard let lastSpace = head.lastIndex(of: " ") else { return head + "\u{2026}" }
+        let cut = String(head[head.startIndex..<lastSpace])
+            .trimmingCharacters(in: .whitespaces)
+        return (cut.isEmpty ? head : cut) + "\u{2026}"
     }
 
     /// The glyph for one clause's answer. Deliberately three quiet marks: a
@@ -717,6 +925,11 @@ private struct PaneSectionHeader<Trailing: View>: View {
 private struct ClauseRow: View {
     let row: DiagnosticsPane.ConformanceRow
     let canAnswer: Bool
+    /// Passed through to every strain under this clause — see
+    /// `DiagnosticsPane.offersDurableActions`. Separate from `canAnswer`
+    /// because the two are false for different reasons: no project to write a
+    /// ruling into, versus a run still arriving.
+    let canPromote: Bool
     let answering: Set<String>
     let answerFailures: [String: String]
     let onJump: (String) -> Void
@@ -762,6 +975,7 @@ private struct ClauseRow: View {
                     DiagnosticRow(
                         diagnostic: strain,
                         canAnswer: canAnswer && DiagnosticsPane.offersAnAnswer(strain),
+                        canPromote: canPromote,
                         isSubmitting: answering.contains(strain.id),
                         answerFailure: answerFailures[strain.id],
                         onJump: onJump,
@@ -779,8 +993,14 @@ private struct ClauseRow: View {
 private struct DiagnosticRow: View {
     let diagnostic: Diagnostic
     /// Whether this row offers the **Answer** action at all — false for a
-    /// reader report, and false with no project to write into.
+    /// reader report, false with no project to write into, and false for every
+    /// row of a preview (`DiagnosticsPane.offersDurableActions`).
     let canAnswer: Bool
+    /// Whether this row offers **Promote to Task**. Its own flag rather than
+    /// `canAnswer`'s: a reader's report has no answer to give and promotes
+    /// perfectly well, so the two are false on different rows for different
+    /// reasons and only a preview takes both away at once.
+    let canPromote: Bool
     /// An answer of this row's already on its way to the piece's rulings.
     let isSubmitting: Bool
     /// What the last answer refused with, or `nil`. Its arrival is what tells
@@ -820,10 +1040,12 @@ private struct DiagnosticRow: View {
                         .help("Say why this is deliberate. It becomes a ruling in your "
                               + "intent, and the next check reads it.")
                 }
-                Button("Promote to Task", action: onPromote)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Keep this note as a task on the document.")
+                if canPromote {
+                    Button("Promote to Task", action: onPromote)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Keep this note as a task on the document.")
+                }
             }
             if isAnswering { replyField }
         }

@@ -321,6 +321,139 @@ final class DiagnosticsPaneTests: XCTestCase {
                        "a second version bump (two rows now live) did not re-render either")
     }
 
+    // MARK: - Streaming (Task 4)
+
+    /// **The report grows in place, within one run** — two version bumps, the
+    /// same run id, and the pane picking up each of them.
+    ///
+    /// This is the version-counter idiom doing the streaming's whole job on
+    /// this side of the seam, which is why the pane needed no new state for
+    /// it. What makes the test worth writing anyway is that the two bumps are
+    /// PREVIEWS of one check rather than two finished runs: the conformance
+    /// summary is on screen while the continuity section is still generating,
+    /// which is the experience the task exists to produce.
+    func test_thePaneGrowsTheReportAcrossPreviewsWithinOneRun() {
+        let docId = "doc-streaming"
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let anchor = Diagnostic.Anchor(paragraphId: "p1", anchorText: "Body one.")
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(),
+            diagnostics: store,
+            docId: docId,
+            currentText: { _ in "Body one." },
+            compilerModel: .standard)))
+
+        XCTAssertEqual(staticTextLabels(in: window, containing: "The last line reaches"), [],
+                       "the pane drew a section before any had arrived")
+
+        // Section one: conformance, the first thing a turn emits.
+        let runId = ULID.generate()
+        store.preview(
+            run: makeStreamingRun(id: runId, clauseStatuses: [
+                makeClause("Cold, and never wistful.", "strains")]),
+            diagnostics: [makeDiagnostic(
+                docId: docId, anchor: anchor, body: "The last line reaches for a sigh.",
+                kind: .conformanceStrain, clauseQuote: "Cold, and never wistful.")],
+            docId: docId)
+        waitUntil { self.staticTextLabels(in: window, containing: "The last line reaches").count == 1 }
+        XCTAssertEqual(staticTextLabels(in: window, containing: "The last line reaches").count, 1,
+                       "the first section did not reach the pane")
+        XCTAssertEqual(staticTextLabels(in: window, containing: "Should she already").count, 0)
+
+        // Section two arrives while the turn is still open — SAME run.
+        store.preview(
+            run: makeStreamingRun(id: runId, clauseStatuses: [
+                makeClause("Cold, and never wistful.", "strains")]),
+            diagnostics: [makeDiagnostic(
+                docId: docId, anchor: anchor, body: "The last line reaches for a sigh.",
+                kind: .conformanceStrain, clauseQuote: "Cold, and never wistful."),
+                          makeDiagnostic(
+                docId: docId, anchor: anchor, body: "Should she already know?",
+                kind: .continuity)],
+            docId: docId)
+        waitUntil { self.staticTextLabels(in: window, containing: "Should she already").count == 1 }
+
+        XCTAssertEqual(staticTextLabels(in: window, containing: "Should she already").count, 1,
+                       "the second section did not re-render the pane")
+        XCTAssertEqual(staticTextLabels(in: window, containing: "The last line reaches").count, 1,
+                       "the first section should still be standing")
+    }
+
+    /// **The wait copy stays while the report grows.** The header describes the
+    /// RUN, and the run is still going — a section landing must not flip it to
+    /// "Last checked just now" over a check that has not finished.
+    ///
+    /// Pure, because that is where the decision lives: `headerState` prefers
+    /// `runState` for this document over anything on disk, and a preview is on
+    /// disk's side of that fence.
+    func test_theWaitCopyStaysWhileSectionsLand() {
+        let previewed = makeRun(clauseStatuses: [makeClause("Cold.", "strains")])
+
+        let state = DiagnosticsPane.headerState(
+            runState: .running(docId: "doc-1", checking: counts(new: 1, revised: 0)),
+            lastRun: previewed, noteCount: 1, docId: "doc-1")
+
+        XCTAssertEqual(state, .running(checking: counts(new: 1, revised: 0)),
+                       "a section arriving must not end the wait")
+        XCTAssertEqual(DiagnosticsPane.headerCopy(for: state), "Checking 1 new paragraph\u{2026}")
+    }
+
+    /// **Opening the pane mid-check must not blink the report away.**
+    ///
+    /// `onAppear` reads the sidecar, which holds the last run that FINISHED —
+    /// so a writer who presses ⌘R from the editor and then switches to
+    /// Diagnostics would mount over the arriving report and watch the previous
+    /// run reappear under a header saying "Checking…". Mounted rather than
+    /// asserted against the store, because `onAppear` is the caller and a
+    /// store-level test would not have one.
+    func test_openingThePaneMidStreamKeepsTheArrivingReport() throws {
+        let docId = "doc-mounted-mid-stream"
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let anchor = Diagnostic.Anchor(paragraphId: "p1", anchorText: "Body one.")
+
+        // A run that finished earlier, on disk.
+        store.replace(
+            run: makeRun(),
+            diagnostics: [makeDiagnostic(
+                docId: docId, anchor: anchor, body: "Last week's finding.")],
+            docId: docId)
+
+        // A new check, one section in — the pane is not open yet.
+        store.preview(
+            run: makeStreamingRun(id: ULID.generate(), clauseStatuses: [
+                makeClause("Cold, and never wistful.", "strains")]),
+            diagnostics: [makeDiagnostic(
+                docId: docId, anchor: anchor, body: "The last line reaches for a sigh.",
+                kind: .conformanceStrain, clauseQuote: "Cold, and never wistful.")],
+            docId: docId)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(),
+            diagnostics: store,
+            docId: docId,
+            currentText: { _ in "Body one." },
+            compilerModel: .standard)))
+        waitUntil { self.staticTextLabels(in: window, containing: "The last line reaches").count == 1 }
+
+        XCTAssertEqual(staticTextLabels(in: window, containing: "The last line reaches").count, 1,
+                       "mounting read the sidecar back over the arriving report")
+        XCTAssertEqual(staticTextLabels(in: window, containing: "Last week's finding").count, 0,
+                       "the previous run reappeared under a check that is still running")
+    }
+
+    /// A run record as the stream builds one — the run id is the caller's
+    /// because a preview and the answer that supersedes it are the same run.
+    private func makeStreamingRun(
+        id: String, clauseStatuses: [DiagnosticIngest.ClauseStatus]
+    ) -> CompilerRun {
+        CompilerRun(id: id, at: Date(), model: "sonnet", lastOpId: "op1",
+                    deltaSummary: "1 new, 0 revised \u{00b6}", intentSnapshot: nil,
+                    droppedDangling: 0, clauseStatuses: clauseStatuses, truncatedReader: 0)
+    }
+
     /// Turn the runloop until `condition` holds or the deadline passes —
     /// `StatementMountFixture.pumpUntil`'s pattern, synchronous here because
     /// nothing in this suite awaits real async work across the wait.
@@ -568,6 +701,153 @@ final class DiagnosticsPaneTests: XCTestCase {
             "2 notes arrived against paragraphs that have changed and were discarded")
     }
 
+    // MARK: - The cold-start offer (Stage 3) — pure decision
+
+    /// **The pure gate, no view mounted** — the `headerState`/`emptyState`
+    /// idiom. True only when all three conditions hold at once; each
+    /// assertion below flips exactly one of them.
+    func test_showsColdStartOffer_trueOnlyForANeverRunNonTrivialUnrefusedDocument() {
+        XCTAssertTrue(DiagnosticsPane.showsColdStartOffer(
+            state: .neverRun, liveParagraphCount: 2, hasRefused: false))
+
+        XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
+            state: .neverRun, liveParagraphCount: 1, hasRefused: false),
+            "a stub manuscript (\u{2264}1 live paragraph) is not worth offering to read")
+        XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
+            state: .neverRun, liveParagraphCount: 0, hasRefused: false))
+        XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
+            state: .neverRun, liveParagraphCount: 2, hasRefused: true),
+            "a refused document never offers again")
+        XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
+            state: .idle(lastRun: makeRun()), liveParagraphCount: 2, hasRefused: false),
+            "any run at all — even one with nothing to show — moves state off .neverRun")
+        XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
+            state: .clean(lastRun: makeRun()), liveParagraphCount: 2, hasRefused: false))
+        XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
+            state: .running(checking: counts(new: 1, revised: 0)), liveParagraphCount: 2,
+            hasRefused: false),
+            "a run already under way is not the never-run window either")
+    }
+
+    // MARK: - The cold-start offer, mounted (real Document, real buttons)
+
+    /// A real, on-disk, multi-paragraph document — `activeDocument()`'s own
+    /// contract, so the offer's `liveParagraphCount` discriminator is read
+    /// off the same `sequence` `promote()` already reads, not a stand-in.
+    private func makeMultiParagraphDocument(
+        paragraphs: [String] = ["First paragraph, with some words in it.",
+                                "Second paragraph, with some more."]
+    ) async throws -> Document {
+        let (_, docURL) = try makeTestProject(
+            prefix: "COLDSTART", initialMd: paragraphs.joined(separator: "\n\n"))
+        return try await Document.load(
+            url: docURL, device: "macA", session: "s1", presenter: nil)
+    }
+
+    /// **The offer itself, and Read starting the same first run \u{2318}R
+    /// takes.** No `activeDocument` closure was threaded through
+    /// `makeEnvironment`'s canned reading — the orchestrator's own delta is
+    /// independent of the pane's `activeDocument` in every other mounted test
+    /// here too, and this one only needs to prove the button reaches
+    /// `runRequested` for THIS docId, not that the two descriptions of the
+    /// document agree.
+    func test_theOfferAppearsAndReadStartsTheFirstRun() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let docId = document.docId
+        let runner = SpyRunner()
+        let orchestrator = CompilerOrchestrator()
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        orchestrator.configure(
+            environment: makeEnvironment(docId: docId, runner: runner),
+            diagnostics: diagnostics)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: orchestrator, diagnostics: diagnostics, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            activeDocument: { document })))
+
+        let readButton = try button(labelled: "Read", in: window)
+        XCTAssertNotNil(findButton(labelled: "Not now", in: window))
+
+        _ = readButton.perform(NSSelectorFromString("accessibilityPerformPress"))
+        await awaitSends(1, on: runner)
+
+        XCTAssertEqual(runner.sendCount, 1,
+            "Read must reach the orchestrator's real runRequested \u{2014} the same "
+            + "first-run path \u{2318}R takes, not a second run kind")
+    }
+
+    /// **Not now records the refusal, and the offer never renders again for
+    /// this document** — asserted in both directions: gone from the pane
+    /// that just refused it, and gone from a SECOND, freshly mounted pane
+    /// over the same store, because the promise is about the document, not
+    /// about one pane instance.
+    func test_notNowRefusesAndTheOfferNeverRendersAgainForThatDocument() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let docId = document.docId
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            activeDocument: { document })))
+
+        let notNow = try button(labelled: "Not now", in: window)
+        _ = notNow.perform(NSSelectorFromString("accessibilityPerformPress"))
+        pump(0.2)
+
+        XCTAssertTrue(diagnostics.hasRefusedColdStart(docId: docId))
+        XCTAssertNil(findButton(labelled: "Read", in: window),
+            "the offer must not re-render in place after its own refusal")
+        XCTAssertNil(findButton(labelled: "Not now", in: window))
+
+        let secondWindow = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            activeDocument: { document })))
+        XCTAssertNil(findButton(labelled: "Read", in: secondWindow),
+            "a second pane over the same store must not offer again either")
+    }
+
+    /// A manuscript with one live paragraph or fewer never offers — the
+    /// plain "Not checked yet" empty state stands instead.
+    func test_aTrivialManuscriptNeverOffersColdStart() async throws {
+        let document = try await makeMultiParagraphDocument(paragraphs: ["Only paragraph."])
+        let docId = document.docId
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            activeDocument: { document })))
+
+        XCTAssertNil(findButton(labelled: "Read", in: window))
+        XCTAssertNil(findButton(labelled: "Not now", in: window))
+    }
+
+    /// A document with ANY run on record never offers, even a run that found
+    /// nothing to say — `headerState` only returns `.neverRun` with no
+    /// `lastRun` at all, so this is the structural half of "a doc already run
+    /// never shows the offer."
+    func test_aDocumentAlreadyRunNeverOffersColdStart() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let docId = document.docId
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.replace(run: makeRun(), diagnostics: [], docId: docId)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            activeDocument: { document })))
+
+        XCTAssertNil(findButton(labelled: "Read", in: window))
+        XCTAssertNil(findButton(labelled: "Not now", in: window))
+    }
+
     // MARK: - Cancel (real running state, real button)
 
     /// The Cancel button is visible only while a run for THIS document is in
@@ -631,6 +911,193 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(notes.count, 1, "pressing Open Intent should post exactly one request")
         XCTAssertEqual(notes.first?.userInfo?[MaughamEvent.detailSegmentKey] as? String,
                        DetailSegment.intent.rawValue)
+    }
+
+    // MARK: - Drift (spec §4's last bullet, computed in Stage 3 by `DriftDetector`)
+    //
+    // `DriftDetector.drift` has its own suite (`DriftDetectorTests`) for
+    // whether a finding fires; these pin what the PANE says once one does,
+    // and that the line behaves as the register requires — not a `Diagnostic`.
+
+    func test_driftNote_isNilWithNoFindings() {
+        XCTAssertNil(DiagnosticsPane.driftNote([]))
+    }
+
+    func test_driftNote_formatsTheRegisterVerbatim() {
+        let finding = DriftFinding(clauseQuote: "Cold, and never wistful.", runsStraining: 3)
+        XCTAssertEqual(
+            DiagnosticsPane.driftNote([finding]),
+            "Your line may have moved \u{2014} \u{201C}Cold, and never wistful.\u{201D} "
+            + "has strained three runs running. Draft\u{2019}s right, or intent\u{2019}s right?")
+    }
+
+    /// **No count beyond the fixed "three runs" is ever spoken** — not the
+    /// finding's true streak length, which `DriftDetector` reports honestly and
+    /// can run past the threshold
+    /// (`DriftDetectorTests.test_aStreakLongerThanTheThresholdReportsItsFullLength`).
+    /// Saying "seven runs running" would be exactly the forensic detail the
+    /// register refuses elsewhere on this pane (`readerSection`'s truncation
+    /// sentence is the same discipline: "The reader had more to say.", no count).
+    func test_driftNote_neverSpeaksTheTrueStreakLength() {
+        let finding = DriftFinding(clauseQuote: "Cold, and never wistful.", runsStraining: 7)
+        guard let line = DiagnosticsPane.driftNote([finding]) else {
+            return XCTFail("expected a line")
+        }
+        XCTAssertTrue(line.contains("three runs running"), "got: \(line)")
+        XCTAssertFalse(line.contains("7"), "got: \(line)")
+    }
+
+    /// **More than one finding still reads as one line.** The first clause
+    /// (the newest run's own order — `DriftDetector.drift`'s) is named, and
+    /// "and one more" says there is a second without counting how many —
+    /// two findings and five read identically, the same discipline as the
+    /// streak length above.
+    func test_driftNote_multipleFindingsNameTheFirstAndSayAndOneMoreWithoutACount() {
+        let first = DriftFinding(clauseQuote: "Cold, and never wistful.", runsStraining: 3)
+        let second = DriftFinding(clauseQuote: "Kelly never speaks first.", runsStraining: 4)
+        let third = DriftFinding(clauseQuote: "The weather is a character.", runsStraining: 3)
+
+        let two = DiagnosticsPane.driftNote([first, second])
+        XCTAssertEqual(
+            two,
+            "Your line may have moved \u{2014} \u{201C}Cold, and never wistful.\u{201D} has "
+            + "strained three runs running \u{2014} and one more. Draft\u{2019}s right, "
+            + "or intent\u{2019}s right?")
+
+        let three = DiagnosticsPane.driftNote([first, second, third])
+        XCTAssertEqual(two, three,
+            "the line reads the same for two findings and for three \u{2014} \u{201C}and "
+            + "one more\u{201D} must never become \u{201C}and 2 more\u{201D}")
+        XCTAssertFalse(three?.contains("Kelly") ?? true,
+                       "only the first finding's clause is ever quoted")
+    }
+
+    func test_truncatedDriftQuote_fitsAsIs() {
+        XCTAssertEqual(DiagnosticsPane.truncatedDriftQuote("Cold, and never wistful."),
+                       "Cold, and never wistful.")
+    }
+
+    /// `IntentStrip.truncated`'s idiom: cut at the last word boundary inside
+    /// the budget, ellipsised — never mid-word, and never a trailing space
+    /// left dangling before the ellipsis.
+    func test_truncatedDriftQuote_cutsOnAWordBoundaryAndEllipsises() {
+        let long = "Kelly never speaks first, not once, not even when the silence "
+            + "would have been the crueler thing to let stand between them."
+        let truncated = DiagnosticsPane.truncatedDriftQuote(long)
+
+        XCTAssertTrue(truncated.hasSuffix("\u{2026}"), "got: \(truncated)")
+        XCTAssertLessThan(truncated.count, long.count, "control: it actually cut something")
+        let withoutEllipsis = String(truncated.dropLast())
+        XCTAssertFalse(withoutEllipsis.hasSuffix(" "),
+                       "trimmed before the ellipsis, not left with a trailing space")
+        XCTAssertTrue(long.hasPrefix(withoutEllipsis),
+                      "the cut is a true prefix of the source \u{2014} a word boundary, not "
+                      + "a mid-word chop")
+    }
+
+    /// **The pattern's line, mounted for real.** Three straining runs of the
+    /// same clause puts the line above "Conformance", and pressing it opens
+    /// Intent the same way the summary's own "Open Intent" button does — spec
+    /// §4's "your line may have moved" is the same door as the clause it is
+    /// about.
+    func test_driftLine_rendersAboveConformanceSummary_andOpensIntentOnPress() async throws {
+        let docId = "doc-drift"
+        let quote = "Cold, and never wistful."
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        for _ in 0..<3 {
+            store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")]),
+                          diagnostics: [], docId: docId)
+        }
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard)))
+        pump(0.3)
+
+        let expectedLine = try XCTUnwrap(DiagnosticsPane.driftNote(
+            DriftDetector.drift(history: store.clauseStatusHistory(docId: docId))))
+
+        let labels = allLabels(in: window)
+        let driftIndex = labels.firstIndex { $0 == expectedLine }
+        let conformanceIndex = labels.firstIndex { $0 == "CONFORMANCE" }
+        XCTAssertNotNil(driftIndex, "got: \(labels)")
+        XCTAssertNotNil(conformanceIndex, "got: \(labels)")
+        XCTAssertTrue((driftIndex ?? .max) < (conformanceIndex ?? -1),
+                      "the drift line must sit above the conformance summary")
+
+        let notes = await notesPosted(pressing: try button(labelled: expectedLine, in: window))
+        XCTAssertEqual(notes.count, 1, "pressing the line should post exactly one request")
+        XCTAssertEqual(notes.first?.userInfo?[MaughamEvent.detailSegmentKey] as? String,
+                       DetailSegment.intent.rawValue,
+                       "the drift line's action is Open Intent's successor \u{2014} the "
+                       + "existing drift-note affordance")
+    }
+
+    /// **The line disappears when the pattern breaks.** There is nothing to
+    /// dismiss: the next run's history simply stops reporting a finding, and
+    /// the pane's version-bump re-render (already proven by
+    /// `test_thePaneRerendersOnVersionBump`) carries the line away with
+    /// everything else that no longer applies.
+    func test_driftLine_disappearsWhenTheNextRunBreaksThePattern() {
+        let docId = "doc-drift-breaks"
+        let quote = "Cold, and never wistful."
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        for _ in 0..<3 {
+            store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")]),
+                          diagnostics: [], docId: docId)
+        }
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard)))
+        pump(0.3)
+        XCTAssertFalse(
+            staticTextLabels(in: window, containing: "Your line may have moved").isEmpty,
+            "control: the line rendered while the pattern held")
+
+        store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "holds")]),
+                      diagnostics: [], docId: docId)
+        pump(0.3)
+
+        XCTAssertTrue(
+            staticTextLabels(in: window, containing: "Your line may have moved").isEmpty,
+            "the clause holding this run must break the streak, and the line with it")
+    }
+
+    /// **Not a `Diagnostic`.** No dismissal and no reply field: pressing the
+    /// line opens Intent and nothing else changes — the line is still exactly
+    /// where it was, and no `TextField` appeared the way one does under a
+    /// question's "Answer".
+    func test_driftLineIsNotADiagnostic_offersNoDismissalOrAnswerField() async throws {
+        let docId = "doc-drift-not-a-diagnostic"
+        let quote = "Cold, and never wistful."
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        for _ in 0..<3 {
+            store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")]),
+                          diagnostics: [], docId: docId)
+        }
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard)))
+        pump(0.3)
+
+        let expectedLine = try XCTUnwrap(DiagnosticsPane.driftNote(
+            DriftDetector.drift(history: store.clauseStatusHistory(docId: docId))))
+        XCTAssertTrue(textFields(in: window).isEmpty,
+                     "the drift line must not offer a reply field the way a question's row does")
+
+        _ = try button(labelled: expectedLine, in: window)
+            .perform(NSSelectorFromString("accessibilityPerformPress"))
+        pump(0.3)
+
+        XCTAssertFalse(staticTextLabels(in: window, containing: expectedLine).isEmpty,
+                       "pressing the line must not dismiss it \u{2014} it has nothing to dismiss")
+        XCTAssertTrue(textFields(in: window).isEmpty,
+                     "and it must not have opened a reply field either")
     }
 
     // MARK: - Click-to-jump (wiring census — see reasoning below)
@@ -1263,6 +1730,144 @@ final class DiagnosticsPaneTests: XCTestCase {
             + "RulingPerformer.rule directly")
     }
 
+    // MARK: - A preview carries no fates (C1)
+
+    /// **The pure gate.** Only a run in flight for THIS document withholds the
+    /// fates; every other state is a report that finished, and its rows are the
+    /// writer's to act on.
+    ///
+    /// `.failed` and `.nothingNew` are the interesting arms: both describe a
+    /// run that is over, and what stands under them is the previous run's
+    /// report off the sidecar. Withholding there would strand answerable notes
+    /// behind a check that died.
+    func test_offersDurableActions_isFalseOnlyWhileThisDocumentIsRunning() {
+        let run = makeRun()
+        XCTAssertFalse(DiagnosticsPane.offersDurableActions(
+            state: .running(checking: counts(new: 1, revised: 0))))
+        XCTAssertTrue(DiagnosticsPane.offersDurableActions(state: .neverRun))
+        XCTAssertTrue(DiagnosticsPane.offersDurableActions(state: .idle(lastRun: run)))
+        XCTAssertTrue(DiagnosticsPane.offersDurableActions(state: .clean(lastRun: run)))
+        XCTAssertTrue(DiagnosticsPane.offersDurableActions(state: .nothingNew(at: Date())),
+                      "a run that found nothing is over \u{2014} what stands is the last "
+                      + "finished report, and it is answerable")
+        XCTAssertTrue(DiagnosticsPane.offersDurableActions(
+            state: .failed(.timedOut, at: Date())),
+                      "a run that died never replaced anything, so the previous run's "
+                      + "notes must not be frozen behind it")
+    }
+
+    /// **The whole of C1, on the mounted pane and driven by a real stream.**
+    ///
+    /// A section landing mid-turn is readable — that is what streaming is for —
+    /// but it carries neither fate, because both end in
+    /// `DiagnosticsStore.dismiss` and a dismissal against a preview persists
+    /// the half-report. The affordances arrive with the reconciled report when
+    /// the turn ends.
+    ///
+    /// The two arms are each other's falsification: the note's own words are
+    /// asserted present in the first arm (so "no Answer button" is not "no row
+    /// rendered"), and the buttons are asserted present in the second (so the
+    /// first arm's absence is the gate rather than the query). Force
+    /// `offersDurableActions` to `true` and the first arm goes red; drop the
+    /// second and the test could pass over a pane that never draws them at all.
+    func test_aPreviewsRowsCarryNoFates_andTheReconciledReportDoes() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "PreviewNoFates")
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // hold the turn open
+        let orchestrator = CompilerOrchestrator()
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+        orchestrator.configure(
+            environment: makeEnvironment(docId: chapter.id, runner: runner),
+            diagnostics: diagnostics)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: orchestrator, diagnostics: diagnostics, docId: chapter.id,
+            currentText: { _ in "The fog came." }, compilerModel: .standard,
+            store: store)))
+
+        orchestrator.runRequested(docId: chapter.id)
+        await awaitSends(1, on: runner)
+        runner.stream(Self.streamedQuestion + "\n")
+        waitUntil { self.staticTextLabels(in: window, containing: Self.questionBody).count == 1 }
+
+        XCTAssertEqual(staticTextLabels(in: window, containing: Self.questionBody).count, 1,
+                       "the streamed section must be READABLE \u{2014} that is the whole "
+                       + "value of the preview, and the control for the two assertions below")
+        XCTAssertNil(findButton(labelled: "Answer", in: window),
+                     "answering a preview persists the half-report through dismiss")
+        XCTAssertNil(findButton(labelled: "Promote to Task", in: window),
+                     "promoting a preview persists it the same way")
+
+        runner.release(.resultText(Self.turnCarryingTheQuestion))
+        try? await Task.sleep(for: .milliseconds(300))
+        pump(0.3)
+
+        XCTAssertNotNil(findButton(labelled: "Answer", in: window),
+                        "the fates arrive with the reconciled report")
+        XCTAssertNotNil(findButton(labelled: "Promote to Task", in: window))
+    }
+
+    /// **A run on another document leaves this pane's fates exactly where they
+    /// were.** The run state is per-window and this pane is per-document — the
+    /// same asymmetry `headerState`'s `where runDocId == docId` exists for, and
+    /// the reason `offersDurableActions` reads `HeaderState` rather than
+    /// reaching for `runState` a second way.
+    func test_aRunOnAnotherDocumentLeavesThisPanesFatesAlone() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "OtherDocRunning")
+        let otherDocId = "doc-somewhere-else"
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let orchestrator = CompilerOrchestrator()
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+        orchestrator.configure(
+            environment: makeEnvironment(docId: otherDocId, runner: runner),
+            diagnostics: diagnostics)
+        diagnostics.replace(
+            run: makeRun(),
+            diagnostics: [makeDiagnostic(
+                docId: chapter.id,
+                anchor: Diagnostic.Anchor(paragraphId: "a1b2", anchorText: "The fog came."),
+                body: "Was that learned offstage?", kind: .continuity)],
+            docId: chapter.id)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: orchestrator, diagnostics: diagnostics, docId: chapter.id,
+            currentText: { _ in "The fog came." }, compilerModel: .standard,
+            store: store)))
+        XCTAssertNotNil(findButton(labelled: "Answer", in: window),
+                        "control: the finished run's note is answerable before anything runs")
+
+        orchestrator.runRequested(docId: otherDocId)
+        await awaitSends(1, on: runner)
+        pump(0.3)
+
+        XCTAssertNotNil(findButton(labelled: "Answer", in: window),
+                        "another document's run must not freeze this document's report")
+        XCTAssertNotNil(findButton(labelled: "Promote to Task", in: window))
+
+        runner.release(.resultText(Self.turnCarryingTheQuestion))
+        try? await Task.sleep(for: .milliseconds(200))
+    }
+
+    /// The one continuity question this section streams, and the words that
+    /// prove its row reached the pane.
+    private static let questionBody = "Should she already know?"
+
+    private static let streamedQuestion =
+        "{\"section\":\"continuity\",\"questions\":[{\"cites\":\"the fog\","
+        + "\"refs\":[\"a1b2\"],\"question\":\"\(questionBody)\"}]}"
+
+    /// The turn's own text, carrying the streamed section again — where it
+    /// always was. `finish` reconciles from this, not from the stream.
+    private static let turnCarryingTheQuestion = """
+        {"section":"conformance","checks":[]}
+        \(streamedQuestion)
+        {"section":"reader","reports":[]}
+        {"section":"facts","candidates":[]}
+        """
+
     // MARK: - Fixtures: a fake compiler runner (mirrors CompilerRunCommandTests.SpyRunner)
 
     @MainActor
@@ -1279,6 +1884,16 @@ final class DiagnosticsPaneTests: XCTestCase {
         var onSend: (() -> Void)?
         private var held: CheckedContinuation<CompilerRunEvent, Never>?
         private(set) var sendCount = 0
+        /// Where the orchestrator asked its stream to go — the same seam
+        /// `CompilerRunCommandTests.SpyRunner` records, so this suite can BE
+        /// the CLI's stdout and put a real preview on a mounted pane.
+        private var partialHandler: (@MainActor (String) -> Void)?
+
+        func setPartialHandler(_ handler: (@MainActor (String) -> Void)?) {
+            partialHandler = handler
+        }
+
+        func stream(_ chunk: String) { partialHandler?(chunk) }
 
         func send(message: String, systemPreamble: String?) async -> CompilerRunEvent {
             sendCount += 1

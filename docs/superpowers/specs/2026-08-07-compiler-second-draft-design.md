@@ -214,7 +214,8 @@ Then one milestone, three ordered stages:
    `feat/run-rebuilt-2026-08-07` — pending Denver's smoke.
 3. **Cold start + drift-as-pattern + docs** — the read-it-whole offer, the
    straining-pattern summary, guide rewritten around the two jobs, ADR 0027
-   amendment.
+   amendment. **Shipped 2026-08-08**, branch `feat/third-stage-2026-08-08` —
+   pending Denver's full-loop smoke.
 
 Whole-branch review; merge to local main; no push, no tag — the paired
 release gate is unchanged.
