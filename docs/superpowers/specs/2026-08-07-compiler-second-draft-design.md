@@ -206,10 +206,12 @@ Then one milestone, three ordered stages:
 
 1. **The declared world** — derivation layer (hash-cached), Rulings format +
    forgiving parser, the Intent pane's three strata, bless/correct/revoke.
-   Provable without touching the run.
+   Provable without touching the run. **Shipped 2026-08-07**, branch
+   `feat/declared-world-2026-08-07`.
 2. **The run rebuilt** — four-section contract, bible cache +
    fact-candidates, subject-sliced context, reorganized pane, reworked
-   fates, structural register enforcement.
+   fates, structural register enforcement. **Shipped 2026-08-08**, branch
+   `feat/run-rebuilt-2026-08-07` — pending Denver's smoke.
 3. **Cold start + drift-as-pattern + docs** — the read-it-whole offer, the
    straining-pattern summary, guide rewritten around the two jobs, ADR 0027
    amendment.

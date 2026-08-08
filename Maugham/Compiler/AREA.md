@@ -15,12 +15,11 @@ workflow half: notes, fates, the answer flow and the pane's organization.
 conformance against the writer's derived clauses, continuity questions, a
 reader's report, and fact-candidates that land silently in the bible.
 `CompilerPrompt.sectionSchemaDescription` is what is asked for and
-`DiagnosticIngest.parseSection`/`parseAll` is what reads it; the v1
-`runMessage`/`outputSchemaDescription`/`DiagnosticIngest.parse` trio is still
-compiled and still tested but **has no production caller** as of the atomic
-switch — retiring it is Stage 2's own docs task, and until then a grep for
-`runMessage(` finding only tests is the expected answer rather than a
-symptom.
+`DiagnosticIngest.parseSection`/`parseAll` is what reads it. **The v1 contract
+is gone**: `runMessage`, `CompilerContext` and `DiagnosticIngest.parse` were
+retired in Stage 2's own docs task once the atomic switch (below) proved they
+had no production caller — a grep for `runMessage(` today finds nothing at
+all, not even a test.
 
 Two things v1 had that v2 does not: a free-form category tag (the section a
 note came from is its whole classification), and the drift diagnostic — drift
@@ -364,8 +363,10 @@ drifted from them is a defect in this file.
 - `CompilerAllowlistTests` — the membrane census and its planted offenders.
 - `DeltaBuilderTests` — what "changed since the marker" means, in the writer's
   order.
-- `CompilerPromptTests` — the prompt's two questions, and the wire-name
-  agreement with `DiagnosticIngest.Field`.
+- `CompilerPromptTests` — the section schema's fixed order and register
+  enforcement (no severity, no suggestion field), the v2 briefing (essay +
+  derived world + bible facts diffed in as one unit), and the session
+  preamble.
 - `ClaudeCLISessionTests` — the process, its arguments, and every path it has to
   die on.
 - `DiagnosticIngestTests` — live anchoring, and a bad note never failing a run.
@@ -417,8 +418,10 @@ everything it touches.
   — but they live in `Maugham/Views/`, not here, on the same principle as the
   pane: this directory holds no view state. What lives here is what feeds them
   — `PinnedReferences`/`PinnedReferenceResolver` — and the run's own
-  `CompilerContext.pinnedListing`/`paletteListing` read the identical
-  projection. Both still ship empty-capable, but the reason changed: the
+  `Environment.pinnedListing`/`paletteListing` closures
+  (`CompilerOrchestrator.runRequested`, wired to `runMessageV2`'s
+  `pinnedListing`/`paletteListing` parameters) read the identical projection.
+  Both still ship empty-capable, but the reason changed: the
   prompt omits an empty section by design, and today a document with nothing
   linked or clustered is the only thing that produces one — not an unbuilt
   surface.
