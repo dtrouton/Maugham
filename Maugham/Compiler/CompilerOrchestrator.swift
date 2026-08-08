@@ -500,7 +500,10 @@ final class CompilerOrchestrator {
                 droppedDangling: outcome.droppedDangling,
                 // The clauses that produced no note are most of the summary:
                 // stored with the run, superseded with the run.
-                clauseStatuses: outcome.conformance)
+                clauseStatuses: outcome.conformance,
+                // How many reader reports were over the schema's cap of three,
+                // stored with the run so the pane can report the truncation.
+                truncatedReader: outcome.truncatedReader)
             // The notes stay in the order the sections arrived — conformance,
             // continuity, reader — because a store the pane has to re-sort is
             // two places that can disagree about the order.

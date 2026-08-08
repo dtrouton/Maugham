@@ -103,6 +103,11 @@ final class DiagnosticsStore {
     /// qualifies while its paragraph's current text still matches the text
     /// the compiler anchored it to. `currentText(paragraphId) == nil` means
     /// the paragraph is gone, which is also not live.
+    ///
+    /// **Refs are display-only, not liveness.** A note's anchor is its first
+    /// resolving ref; the other `refs` are the excerpt chips the pane shows
+    /// beside the note. Liveness depends only on the anchor, so changing a
+    /// non-anchor ref's paragraph does not dismiss the note.
     func live(docId: String, currentText: (String) -> String?) -> [Diagnostic] {
         guard let content = byDoc[docId] else { return [] }
         return content.diagnostics.filter { diagnostic in

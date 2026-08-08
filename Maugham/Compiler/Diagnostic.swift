@@ -112,9 +112,17 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// here because the run that writes it is this task's.
     var clauseStatuses: [DiagnosticIngest.ClauseStatus]?
 
+    /// How many reader reports this run discarded over the schema's cap of
+    /// three. `nil` marks a record written before the reader section existed.
+    /// The run record carries it so the pane can say how many the model
+    /// over-reported; the register never shows the truncation — the schema's
+    /// enforcement is the cap of three accepted, not a count of the rest.
+    var truncatedReader: Int?
+
     init(id: String, at: Date, model: String, lastOpId: String?,
          deltaSummary: String, intentSnapshot: String?, droppedDangling: Int = 0,
-         clauseStatuses: [DiagnosticIngest.ClauseStatus]? = nil) {
+         clauseStatuses: [DiagnosticIngest.ClauseStatus]? = nil,
+         truncatedReader: Int? = nil) {
         self.id = id
         self.at = at
         self.model = model
@@ -123,6 +131,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
         self.intentSnapshot = intentSnapshot
         self.droppedDangling = droppedDangling
         self.clauseStatuses = clauseStatuses
+        self.truncatedReader = truncatedReader
     }
 
     /// Hand-written for one field: a sidecar written before `droppedDangling`
@@ -130,9 +139,10 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// synthesised decoder does not fall back to a property's default, and a
     /// throw here reads to the writer as a document that was never checked
     /// (`DiagnosticsStore.load` treats an undecodable file as empty).
-    /// `clauseStatuses` needs no such care — it is optional, so
-    /// `decodeIfPresent` is what the synthesised decoder would have written
-    /// anyway; it is spelled out here only because this initializer exists.
+    /// `clauseStatuses` and `truncatedReader` need no such care — they are
+    /// optional, so `decodeIfPresent` is what the synthesised decoder would
+    /// have written anyway; they are spelled out here only because this
+    /// initializer exists.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -144,5 +154,6 @@ struct CompilerRun: Codable, Equatable, Sendable {
         droppedDangling = try c.decodeIfPresent(Int.self, forKey: .droppedDangling) ?? 0
         clauseStatuses = try c.decodeIfPresent(
             [DiagnosticIngest.ClauseStatus].self, forKey: .clauseStatuses)
+        truncatedReader = try c.decodeIfPresent(Int.self, forKey: .truncatedReader)
     }
 }

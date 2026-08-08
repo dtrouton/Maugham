@@ -311,4 +311,73 @@ final class DiagnosticsStoreTests: XCTestCase {
         XCTAssertNil(store.lastOpId(docId: "never-run"))
         XCTAssertNil(store.lastRun(docId: "never-run"))
     }
+
+    /// **Refs are display-only, not liveness.** A note's anchor is its first
+    /// resolving ref; the other refs are the excerpt chips the pane shows the
+    /// writer. When a non-anchor ref's paragraph changes, the note stays live
+    /// because the anchor has not moved.
+    func test_aChangedRefDoesNotDismissTheNote() {
+        let store = DiagnosticsStore(
+            projectRoot: URL(fileURLWithPath: "/tmp/unused"),
+            device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docRefs"
+        let run = makeRun()
+        // A note anchored to the first ref, with a second display-only ref
+        let anchor = Diagnostic.Anchor(paragraphId: "a1b2", anchorText: "The fog came.")
+        let refs = [
+            Diagnostic.Ref(paragraphId: "a1b2", excerpt: "The fog came."),
+            Diagnostic.Ref(paragraphId: "c3d4", excerpt: "Cold, and never…")
+        ]
+        var diag = makeDiagnostic(docId: docId, runId: run.id, anchor: anchor)
+        diag.refs = refs
+        store.replace(run: run, diagnostics: [diag], docId: docId)
+
+        // The anchor stays the same, the display ref changes — note stays live
+        let live = store.live(docId: docId, currentText: { id in
+            id == "a1b2" ? "The fog came." : "New text for the second ref"
+        })
+        XCTAssertEqual(live.map(\.id), [diag.id],
+                       "refs are display, never liveness — anchor alone pins the note")
+    }
+
+    /// The truncated-reader count survives the relaunch, so the pane can say
+    /// how many reader reports a run discarded over the schema's cap of three.
+    func test_roundTrip_carriesTruncatedReaderCount() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docTruncated"
+
+        var run = makeRun()
+        run.truncatedReader = 2
+        DiagnosticsStore(projectRoot: project, device: device)
+            .replace(run: run, diagnostics: [], docId: docId)
+
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: docId)
+        XCTAssertEqual(reopened.lastRun(docId: docId)?.truncatedReader, 2)
+    }
+
+    /// A sidecar written before the truncatedReader field existed decodes as
+    /// nil rather than failing — the reader count is optional and honoring its
+    /// absence is the contract.
+    func test_aSidecarWithoutTruncatedReaderStillLoads() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docNoTruncated"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Run written before truncatedReader existed (no truncatedReader field)
+        try Data("""
+            {"diagnostics":[],"run":{"at":"2026-08-04T09:00:00Z","deltaSummary":"1 new, 0 revised",
+            "id":"01JABC","lastOpId":"op1","model":"sonnet"}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        XCTAssertEqual(store.lastRun(docId: docId)?.model, "sonnet")
+        XCTAssertNil(store.lastRun(docId: docId)?.truncatedReader,
+            "a run written before the field existed has no reader truncation to report")
+    }
 }
