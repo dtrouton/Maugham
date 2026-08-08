@@ -277,6 +277,7 @@ final class ReferencesPaneTests: XCTestCase {
         let window = mount(AnyView(
             ReferencesPane(rows: ReferencesPane.rows(for: pins, in: index()),
                            projectRoot: temp.url,
+                           persona: .author,
                            assistant: model)
                 .frame(width: 300, height: 500)))
 
@@ -291,12 +292,45 @@ final class ReferencesPaneTests: XCTestCase {
     func test_anEmptyShelfShowsTheEmptyStateAndNoRows() async throws {
         let model = AssistantColumnModel()
         let window = mount(AnyView(
-            ReferencesPane(rows: [], projectRoot: temp.url, assistant: model)
+            ReferencesPane(rows: [], projectRoot: temp.url, persona: .author, assistant: model)
                 .frame(width: 300, height: 500)))
 
         let text = allStrings(in: window).joined(separator: "\n")
         XCTAssertTrue(text.contains(ReferencesPane.emptyTitle),
                       "the empty state's title is not on screen. Found: \(text)")
+    }
+
+    // MARK: - Contract: outside Author, a pin is inert, and says why
+
+    /// **The assistant column is Author-only (2026-08-08 ruling).** `.references`
+    /// stays reachable from Review, so a Review mount must not be a dead click —
+    /// no button reaches the model, and the pane says where studying happens.
+    func test_aReviewMountRendersRowsInertWithAFooterAndNoDeadClick() async throws {
+        let model = AssistantColumnModel()
+        let pins = [pin("res-note", .research(itemId: "res-note"), "The falls at night")]
+
+        let window = mount(AnyView(
+            ReferencesPane(rows: ReferencesPane.rows(for: pins, in: index()),
+                           projectRoot: temp.url,
+                           persona: .review,
+                           assistant: model)
+                .frame(width: 300, height: 500)))
+
+        let text = allStrings(in: window).joined(separator: "\n")
+        XCTAssertTrue(text.contains(ReferencesPane.nonAuthorFooter),
+                      "outside Author the pane must explain where studying a pin "
+                      + "happens. Found: \(text)")
+        XCTAssertTrue(text.contains("The falls at night"),
+                      "the row's title must still be on screen, just not pressable")
+
+        do {
+            _ = try findButton(labelled: "The falls at night", in: window)
+            XCTFail("a pin row outside Author must not be a pressable button — "
+                    + "the column it would promote into is Author-only, so a press "
+                    + "here would be a dead click")
+        } catch is XCTSkip {
+            // Expected: no such button was built.
+        }
     }
 
     // MARK: - Hosting

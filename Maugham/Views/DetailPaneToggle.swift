@@ -432,7 +432,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         if let projectURL, let assistant,
            activeDocId != BinderSubject.noDocumentSubject {
             ReferencesPaneHost(store: store, projectURL: projectURL,
-                               docId: activeDocId, assistant: assistant)
+                               docId: activeDocId, persona: persona, assistant: assistant)
         } else {
             ContentUnavailableView(
                 "Select a document",

@@ -50,6 +50,13 @@ struct ReferencesPane: View {
         "Link research to this document, or cluster its cards inside a region on "
         + "the planning canvas."
 
+    /// **Author-only, 2026-08-08.** `.references` stays reachable from Review
+    /// (§6.3 marks it ○ there) but the assistant column it promotes into does
+    /// not (`AssistantColumn.isPresented`). Rather than a dead click — a row
+    /// that looks pressable and silently does nothing — a non-Author mount
+    /// renders every row inert and says where studying happens instead.
+    static let nonAuthorFooter = "Studying a pin opens in Author (⌘2)."
+
     /// How many pixels a row's thumbnail is decoded at. The drawn box is
     /// `thumbnailSize` points; `CanvasThumbnails.assumedPixelScale` is the
     /// points→pixels allowance, and the bucket ladder snaps it up from there.
@@ -57,7 +64,14 @@ struct ReferencesPane: View {
 
     let rows: [Row]
     let projectRoot: URL
+    /// **Whether a row's click can reach the assistant column.** The shelf
+    /// itself is ● for Author and ○ for Review (§6.3); the column it promotes
+    /// into is Author-only, so a Review mount draws the same rows inert rather
+    /// than a click that promotes into a column nobody sees.
+    let persona: Persona
     @Bindable var assistant: AssistantColumnModel
+
+    private var isInteractive: Bool { persona == .author }
 
     /// Thumbnails decoded for this shelf, by project-relative path.
     ///
@@ -72,45 +86,52 @@ struct ReferencesPane: View {
     @State private var images: [String: CGImage] = [:]
 
     var body: some View {
-        Group {
-            if rows.isEmpty {
-                // Tripwire 15: without the full frame chain SwiftUI sizes to the
-                // intrinsic content and the enclosing stack collapses, floating
-                // the pane's picker to the window's centre.
-                ContentUnavailableView(
-                    Self.emptyTitle,
-                    systemImage: "pin",
-                    description: Text(Self.emptyDescription))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                // **A `ScrollView` of `Button`s and not a `List`, and the reason
-                // is not styling.** These rows are a shelf of chunky picture
-                // tiles rather than a browser's outline, and a `List` renders
-                // them as an `AXOutline` whose row elements expose no role at
-                // all — measured 2026-08-05: the mounted shelf produced
-                // `AXGroup > AXScrollArea > AXOutline > (three roleless
-                // children)` and a click test could not find a single button to
-                // press. That is the same family as tripwire 9 (hit-testing
-                // inside a `List` is unreliable), and here it also makes the
-                // behaviour untestable, which is worse: the test skips and the
-                // suite reads green.
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(rows) { row in
-                            Button {
-                                assistant.study(row.reference)
-                            } label: {
-                                rowLabel(row)
+        VStack(spacing: 0) {
+            Group {
+                if rows.isEmpty {
+                    // Tripwire 15: without the full frame chain SwiftUI sizes to
+                    // the intrinsic content and the enclosing stack collapses,
+                    // floating the pane's picker to the window's centre.
+                    ContentUnavailableView(
+                        Self.emptyTitle,
+                        systemImage: "pin",
+                        description: Text(Self.emptyDescription))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    // **A `ScrollView` of `Button`s and not a `List`, and the
+                    // reason is not styling.** These rows are a shelf of chunky
+                    // picture tiles rather than a browser's outline, and a
+                    // `List` renders them as an `AXOutline` whose row elements
+                    // expose no role at all — measured 2026-08-05: the mounted
+                    // shelf produced `AXGroup > AXScrollArea > AXOutline >
+                    // (three roleless children)` and a click test could not find
+                    // a single button to press. That is the same family as
+                    // tripwire 9 (hit-testing inside a `List` is unreliable),
+                    // and here it also makes the behaviour untestable, which is
+                    // worse: the test skips and the suite reads green.
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(rows) { row in
+                                rowView(row)
                             }
-                            .buttonStyle(.plain)
-                            .background(
-                                assistant.isStudying(row.reference)
-                                    ? Color.accentColor.opacity(0.15)
-                                    : Color.clear)
                         }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
                 }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+            // **Outside Author the rows above are inert** — see
+            // `isInteractive` — and this line is the whole of what replaces
+            // the click: nothing on the shelf is a dead control.
+            if !isInteractive {
+                Divider()
+                Text(Self.nonAuthorFooter)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -120,6 +141,26 @@ struct ReferencesPane: View {
         // change, which is the only time a new picture can be wanted.
         .task(id: rows.map(\.id).joined(separator: "\u{1}")) {
             await loadThumbnails()
+        }
+    }
+
+    /// One row, interactive or not. **Never a disabled `Button`** — a disabled
+    /// control still reads to VoiceOver as "button, dimmed", which restates the
+    /// affordance the footer just took away; a plain row reads as what it is.
+    @ViewBuilder
+    private func rowView(_ row: Row) -> some View {
+        let highlighted = assistant.isStudying(row.reference)
+        if isInteractive {
+            Button {
+                assistant.study(row.reference)
+            } label: {
+                rowLabel(row)
+            }
+            .buttonStyle(.plain)
+            .background(highlighted ? Color.accentColor.opacity(0.15) : Color.clear)
+        } else {
+            rowLabel(row)
+                .background(highlighted ? Color.accentColor.opacity(0.15) : Color.clear)
         }
     }
 
@@ -223,6 +264,7 @@ struct ReferencesPaneHost: View {
     let store: ProjectStore
     let projectURL: URL
     let docId: String
+    let persona: Persona
     @Bindable var assistant: AssistantColumnModel
 
     @State private var rows: [ReferencesPane.Row] = []
@@ -255,7 +297,8 @@ struct ReferencesPaneHost: View {
     }
 
     var body: some View {
-        ReferencesPane(rows: rows, projectRoot: projectURL, assistant: assistant)
+        ReferencesPane(rows: rows, projectRoot: projectURL, persona: persona,
+                       assistant: assistant)
             .task(id: reloadKey) {
                 let pins = PinnedReferenceResolver.pins(
                     forDocId: docId, store: store, projectRoot: projectURL)

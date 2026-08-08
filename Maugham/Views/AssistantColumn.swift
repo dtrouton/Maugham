@@ -131,8 +131,21 @@ struct AssistantColumn: View {
     /// and it vetoes for the same reason: ⌘\ means *nothing but my prose*, and a
     /// reference column that survived it would be the loudest thing left on
     /// screen.
-    static func isPresented(studied: PinnedReference?, isNoChromeOn: Bool) -> Bool {
-        studied != nil && !isNoChromeOn
+    ///
+    /// **`persona` is the third veto, and Denver's ruling (2026-08-08): the
+    /// assistant column is Author's only, for now.** In Plan it would take
+    /// 260–620pt from the canvas §8A.3 protects; in Publish it would be a study
+    /// column a registry never offered. `.references` stays reachable from
+    /// Review (the shelf itself is still ● there, §6.3) — clicking a pin outside
+    /// Author does not present a column; see `ReferencesPane.isInteractive`,
+    /// which keeps that a non-event rather than a dead click.
+    ///
+    /// **A persona input, not dismiss-on-switch** — the recorded clean cut from
+    /// the escape-arbiter fix. Switching away from Author hides the column but
+    /// leaves `studied` alone, so ⌘2 back restores exactly what was up.
+    static func isPresented(studied: PinnedReference?, persona: Persona,
+                            isNoChromeOn: Bool) -> Bool {
+        studied != nil && persona == .author && !isNoChromeOn
     }
 
     @State private var subject: Subject?
@@ -266,6 +279,13 @@ final class AssistantColumnEscape {
     /// changed.
     private var isNoChromeOn = false
 
+    /// The window's persona, refreshed by every `sync` and read at event time
+    /// beside the model and the chrome flag, for the same reason both are: the
+    /// column is Author-only (2026-08-08), and a claim answering from a value
+    /// frozen at registration would go on watching for a persona the writer
+    /// left minutes ago.
+    private var persona: Persona = .default
+
     /// The arbiter this consumer is currently registered with, or nil. Held
     /// weakly: the table in `WindowEscapeArbiter` owns them, keyed by window.
     private weak var arbiter: WindowEscapeArbiter?
@@ -284,7 +304,8 @@ final class AssistantColumnEscape {
     /// registration and the event-time claim go through it, because a second
     /// condition written out here is exactly how the two diverged.
     private var isColumnPresented: Bool {
-        AssistantColumn.isPresented(studied: model?.studied, isNoChromeOn: isNoChromeOn)
+        AssistantColumn.isPresented(studied: model?.studied, persona: persona,
+                                    isNoChromeOn: isNoChromeOn)
     }
 
     /// Register or resign to match **the column's presentation**. Idempotent in
@@ -310,8 +331,16 @@ final class AssistantColumnEscape {
     /// syncs on the window changing as well as on the studied reference — which
     /// also closes the review's finding 3 (the previous comment claimed the
     /// window was read at event time when it was really read at last-sync time).
-    func sync(model: AssistantColumnModel, window: NSWindow?, isNoChromeOn: Bool) {
+    ///
+    /// **`persona` joined `isNoChromeOn` as a third input the mounting site must
+    /// sync on (2026-08-08).** A writer who leaves Author with a pin studied
+    /// must not go on holding the window's highest-priority Escape claim for a
+    /// column nobody can see — the same hazard C1 found for `isNoChromeOn`,
+    /// one input later.
+    func sync(model: AssistantColumnModel, window: NSWindow?, persona: Persona,
+             isNoChromeOn: Bool) {
         self.model = model
+        self.persona = persona
         self.isNoChromeOn = isNoChromeOn
         guard isColumnPresented, let window else {
             stop()
@@ -367,6 +396,10 @@ struct AssistantColumnModifier: ViewModifier {
     let documentStore: DocumentStore?
     let window: NSWindow?
     let isNoChromeOn: Bool
+    /// The window's persona. **The column is Author's only (2026-08-08)** —
+    /// see `AssistantColumn.isPresented`. Not `dismiss`-on-switch: the studied
+    /// pin survives a persona change, and only the presentation reacts.
+    let persona: Persona
     /// Clearing on a document change is the honest behaviour: the shelf is
     /// per-document, so a pin studied for chapter one is not pinned to chapter
     /// three and would sit there claiming otherwise.
@@ -382,7 +415,7 @@ struct AssistantColumnModifier: ViewModifier {
     func body(content: Content) -> some View {
         HStack(spacing: 0) {
             if let store,
-               AssistantColumn.isPresented(studied: assistant.studied,
+               AssistantColumn.isPresented(studied: assistant.studied, persona: persona,
                                            isNoChromeOn: isNoChromeOn) {
                 AssistantColumn(store: store, projectRoot: projectURL,
                                 assistant: assistant)
@@ -403,12 +436,18 @@ struct AssistantColumnModifier: ViewModifier {
         // column registered nowhere.
         .onChange(of: window) { _, _ in syncEscape() }
         .onChange(of: isNoChromeOn) { _, _ in syncEscape() }
+        // **Not `assistant.dismiss()`.** Leaving Author must drop the Escape
+        // claim for a column nobody can see, exactly like `isNoChromeOn` — but
+        // the studied pin itself survives, so ⌘2 back restores it. See
+        // `AssistantColumn.isPresented`'s doc comment for the ruling.
+        .onChange(of: persona) { _, _ in syncEscape() }
         .onChange(of: activeDocId) { _, _ in assistant.dismiss() }
         .onDisappear { escape.stop() }
     }
 
     private func syncEscape() {
-        escape.sync(model: assistant, window: window, isNoChromeOn: isNoChromeOn)
+        escape.sync(model: assistant, window: window, persona: persona,
+                    isNoChromeOn: isNoChromeOn)
     }
 
     /// A draggable divider. `.resizeLeftRight` on hover, because a divider that
