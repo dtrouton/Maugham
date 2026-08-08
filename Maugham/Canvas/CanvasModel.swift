@@ -96,7 +96,8 @@ final class CanvasModel {
     /// registration and still 1 after `RunLoop.run(until:)`, twice over. So with
     /// the default, every canvas step a test makes lands in ONE group that never
     /// closes and one ⌘Z unwinds the whole test; the sentence-granularity tests
-    /// in `CanvasViewMountingTests` were written, run, and failed exactly that way
+    /// in `CanvasViewMountingEditingTests` were written, run, and failed exactly
+    /// that way
     /// before this line existed. Leaving it on would also mean the shipping
     /// manager is configured differently from every manager the tests exercise,
     /// since `undo()` called synchronously against an open implicit group raises

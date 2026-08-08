@@ -312,7 +312,7 @@ final class CanvasAccessibilityTests: XCTestCase {
     /// content-space rect this file builds, the camera, SwiftUI's publication of
     /// it, the accessibility runtime, and the screen coordinates that come back.
     /// The last three need a hosted window and an attached assistive client, and
-    /// `CanvasViewMountingTests` owns them — they are also the hops that behave
+    /// `CanvasViewMountingSurfaceTests` owns them — they are also the hops that behave
     /// differently on different macOS versions, which is what split this coverage
     /// in two on 2026-07-31.
     ///

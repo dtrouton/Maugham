@@ -10,7 +10,7 @@ import XCTest
 /// The LIVE half of this task — that the editor really does mount into SwiftUI's
 /// own hosting hierarchy on a click, that the responder chain reaches the canvas
 /// undo stack from there, and that the writer's words reach disk — is
-/// `CanvasViewMountingTests`, which hosts this view in a real window.
+/// the `CanvasViewMounting*` family, which hosts this view in a real window.
 final class CanvasCompositionTests: XCTestCase {
 
     private func canvasViewSource() throws -> String {
@@ -196,7 +196,7 @@ final class CanvasCompositionTests: XCTestCase {
     ///
     /// Source-level because both are private `@State`. The live half — that the
     /// palette closure is actually pulled when the canvas appears — is
-    /// `CanvasViewMountingTests.test_theProjectsPaletteIsPulledWhenTheCanvasAppears`.
+    /// `CanvasViewMountingSurfaceTests.test_theProjectsPaletteIsPulledWhenTheCanvasAppears`.
     func test_theGroundIsHandedTheLiveCameraAndTheProjectsWash() throws {
         let src = codeOnly(try canvasViewSource())
         XCTAssertTrue(src.contains("CanvasGround(camera: camera, wash: wash)"),

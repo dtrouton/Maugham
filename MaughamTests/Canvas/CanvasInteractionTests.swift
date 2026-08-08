@@ -149,7 +149,7 @@ final class CanvasInteractionTests: XCTestCase {
     /// scrap's is.
     ///
     /// **The safety property is asserted through the real delivery path** by
-    /// `CanvasViewMountingTests.test_aCornerDragOnClaudesSourcePageResizesItAndStaysOnTheCanvas`,
+    /// `CanvasViewMountingSurfaceTests.test_aCornerDragOnClaudesSourcePageResizesItAndStaysOnTheCanvas`,
     /// mid-drag. This is the state-machine half: the decision, with no view.
     ///
     /// The condition was REMOVED rather than widened to `.item`. Every kind
@@ -427,7 +427,7 @@ final class CanvasInteractionTests: XCTestCase {
     /// That is a state the model is entitled to be in — the width IS
     /// authoritative and the height IS derived — but it means the view's
     /// re-measure may not be gated on `hasMoved`. It is not; the live proof is
-    /// `CanvasViewMountingTests.test_aCornerPressThatNeverMovedLeavesTheCardOnTheCanvas`.
+    /// `CanvasViewMountingSurfaceTests.test_aCornerPressThatNeverMovedLeavesTheCardOnTheCanvas`.
     func test_aResizeSampleAtThePressPointStillClearsTheCachedHeight() {
         var scene = sceneWithOneScrap()
         var i = CanvasInteraction()

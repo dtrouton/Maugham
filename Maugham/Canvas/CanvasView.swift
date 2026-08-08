@@ -356,7 +356,7 @@ struct CanvasView: View {
     /// 0.12 s animation by 208% and the card snaps level under the writer's
     /// cursor. That is spec §7A.2's text-jump arriving through §7A.5's own
     /// mechanism, and it is invisible to every test that steps the straighten by
-    /// hand — `CanvasViewMountingTests.test_theMountedEditorIsInvisibleUntilTheCardHasStraightened`
+    /// hand — `CanvasViewMountingSurfaceTests.test_theMountedEditorIsInvisibleUntilTheCardHasStraightened`
     /// runs the real clock and is what caught it.
     ///
     /// 1/30 s is longer than a frame at 60 Hz or 120 Hz, so it never shortens a
@@ -966,7 +966,7 @@ struct CanvasView: View {
     /// through `NSTextView(frame:textContainer:)` owns its TextKit 2 stack
     /// itself. `ScrapLayoutTests.test_theMountedEditorOutlivesTheScrapLayoutThatBuiltIt`
     /// is that measurement in isolation, and
-    /// `CanvasViewMountingTests.test_anUndoInsideAScrapLeavesItsLiveEditorUsableBeforeTheRebind`
+    /// `CanvasViewMountingEditingTests.test_anUndoInsideAScrapLeavesItsLiveEditorUsableBeforeTheRebind`
     /// is the same window reached through a real ⌘Z on the real surface.
     ///
     /// What that buys is a window that is safe, not one that is correct: through
@@ -1058,7 +1058,7 @@ struct CanvasView: View {
     /// accessibility tree once rather than twice**, and a writer holding ⌘Z pays
     /// a scene sort and a copy of every scrap's string per step.
     /// The test that catches a mirror which stops delivering is
-    /// `CanvasViewMountingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`,
+    /// `CanvasViewMountingEditingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`,
     /// which asks the published accessibility tree whether the deleted card has
     /// left it.
     private func rebuildLayouts(bumpsStructuralCounter: Bool = true,
@@ -1165,7 +1165,7 @@ struct CanvasView: View {
     /// there is off the surface for the whole length of the drag — invisible to
     /// `topmostNode(at:)`, to `nodes(intersecting:)` and to the renderer while
     /// the writer holds the mouse down, which is exactly how they meet it.
-    /// `CanvasViewMountingTests.test_aCornerDragOnClaudesSourcePageResizesItAndStaysOnTheCanvas`
+    /// `CanvasViewMountingSurfaceTests.test_aCornerDragOnClaudesSourcePageResizesItAndStaysOnTheCanvas`
     /// reads the scene BETWEEN the samples for that reason.
     ///
     /// **The aspect is read off the presentation resolved by the last rebuild,
@@ -1714,7 +1714,7 @@ struct CanvasView: View {
             // reaches this view through the mirror in `body`, so bumping here as
             // well rebuilds the whole accessibility tree twice for one ⌫. The
             // deleted card leaving that tree is what
-            // `CanvasViewMountingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`
+            // `CanvasViewMountingEditingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`
             // asserts, so the delivery of that single bump is pinned rather than
             // assumed.
             //
@@ -1909,7 +1909,7 @@ struct CanvasView: View {
             // to come along. This is the one path `commitActiveEdit`'s formerly
             // unconditional bump covered by accident, which is why it arrived
             // with the guard that removed it.
-            // `CanvasViewMountingTests.test_aPressThatStopsACoastRefreshesTheAccessibilityFrame`
+            // `CanvasViewMountingSurfaceTests.test_aPressThatStopsACoastRefreshesTheAccessibilityFrame`
             // reads 40 against a card drawn at 64 without it — and its cheap
             // half, `…BumpsTheCounterTheTreeIsRebuiltOn`, catches the same
             // removal without needing an assistive client to be attached.

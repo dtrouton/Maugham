@@ -72,7 +72,7 @@ final class CanvasEscapeMonitor {
     ///    that covers all of them: an `NSTextField` hands first responder to the
     ///    window's **field editor**, which is an `NSTextView`, which is an
     ///    `NSText` — measured against a real SwiftUI `TextField` in
-    ///    `CanvasViewMountingTests`, not read off the hierarchy.
+    ///    `CanvasViewMountingEditingTests`, not read off the hierarchy.
     /// 4. **The canvas did not use it.** `CanvasView.escapeAsksForTheWholeBoard()`
     ///    is the one answer to "what does Escape do here" and it refuses an
     ///    undimmed board and an open scrap itself. A monitor that swallowed a key

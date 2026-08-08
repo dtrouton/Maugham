@@ -372,7 +372,7 @@ struct RegionInspector: View {
         // canvas that bumped only the view's copy would leave these lists frozen,
         // and five of them did for one commit — including the drop-to-join at
         // `handleDrag(.ended)`.
-        // `CanvasViewMountingTests.test_aDropIntoARegionReachesThatRegionsInspector`
+        // `CanvasViewMountingRegionTests.test_aDropIntoARegionReachesThatRegionsInspector`
         // is that premise test; the gate itself is pinned in `RegionBindingTests`,
         // which drives the bump by hand and so cannot see it.
         //
@@ -392,7 +392,7 @@ struct RegionInspector: View {
         // structural bump. It refreshes when the writer leaves the scrap —
         // `CanvasView.commitActiveEdit` bumps the model's counter, so that claim
         // is about the counter this gate actually reads, and
-        // `CanvasViewMountingTests.test_leavingAScrapRefreshesTheRegionInspectorItIsSittingBeside`
+        // `CanvasViewMountingRegionTests.test_leavingAScrapRefreshesTheRegionInspectorItIsSittingBeside`
         // is what makes it a claim rather than a hope.
         //
         // It was neither for one commit: that bump went to the view's copy, and

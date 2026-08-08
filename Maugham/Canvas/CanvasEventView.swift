@@ -304,7 +304,7 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// It only ever reaches here with NO scrap focused — the mounted editor is
     /// frontmost and first responder while the writer is in a scrap, so ⌫ there
     /// deletes a character, which is what they meant.
-    /// `CanvasViewMountingTests.test_backspaceInsideAScrapDeletesACharacterAndNotTheCard`
+    /// `CanvasViewMountingEditingTests.test_backspaceInsideAScrapDeletesACharacterAndNotTheCard`
     /// pins that rather than assuming it.
     ///
     /// **A ⌫ that deleted nothing goes to `super` — the canvas does not claim a
@@ -353,7 +353,8 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     ///
     /// `CanvasEventViewTests.test_escapeIsNotHandledHereBecauseTheMonitorIsWhatRuns`
     /// pins the absence, and it is paired rather than trusted:
-    /// `CanvasViewMountingTests` drives the same key through `NSApp.sendEvent(_:)`
+    /// `CanvasViewMountingEditingTests` drives the same key through
+    /// `NSApp.sendEvent(_:)`
     /// and watches the dim lift, so between them exactly one mechanism runs and
     /// the tests name which.
     ///

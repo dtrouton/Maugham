@@ -139,7 +139,7 @@ final class CanvasEventViewTests: XCTestCase {
 
     /// The view's half of delete: a delete key is REPORTED and an ordinary key
     /// is not. What the callback then does is `CanvasView`'s business, and
-    /// `CanvasViewMountingTests` is where the two meet on a real surface.
+    /// `CanvasViewMountingEditingTests` is where the two meet on a real surface.
     ///
     /// `charactersIgnoringModifiers` is what `keyDown` switches on, so it is what
     /// these events carry. **Both delete keys are here, and the codes are the
@@ -252,7 +252,7 @@ final class CanvasEventViewTests: XCTestCase {
                        "`keyDown` claimed an Escape. Two mechanisms now answer the "
                        + "same key under the same condition and only one of them "
                        + "can run — see the argument on `keyDown`, and "
-                       + "`CanvasViewMountingTests"
+                       + "`CanvasViewMountingEditingTests"
                        + ".test_theEventViewNoLongerHandlesEscapeItselfBecauseTheMonitorDoes`, "
                        + "which drives the same thing through a mounted canvas")
 

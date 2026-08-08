@@ -204,8 +204,8 @@ final class CanvasUndo {
     /// Second path to the same state: an uncommitted rename in the label field,
     /// committed on focus loss by the very click that opens the gesture.
     ///
-    /// `CanvasViewMountingTests` drives both the working repro and the one that
-    /// does not work, because **a repro nobody can reproduce is worse than
+    /// `CanvasViewMountingEditingTests` drives both the working repro and the
+    /// one that does not work, because **a repro nobody can reproduce is worse than
     /// none** — the next author tries it, fails, and concludes the rule is
     /// stale.
     ///
@@ -236,7 +236,7 @@ final class CanvasUndo {
     /// Undoing the manager directly therefore steps straight over it to the one
     /// before: type a sentence, pause, type another, press ⌘Z, and both vanish.
     /// Measured that way in
-    /// `CanvasViewMountingTests.test_aPauseInsideAScrapEndsTheStepWhereTheWriterStopped`
+    /// `CanvasViewMountingEditingTests.test_aPauseInsideAScrapEndsTheStepWhereTheWriterStopped`
     /// before this existed. So the open gesture is closed FIRST — which is what
     /// AppKit does with its own event group before servicing an undo.
     ///

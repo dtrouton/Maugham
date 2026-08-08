@@ -371,7 +371,7 @@ final class CanvasLineGestureTests: XCTestCase {
     /// Named for what it checks — the ROUTING function's answer on bare ground.
     /// The assignment that actually clears `model.selection` is covered through
     /// the real click path in
-    /// `CanvasViewMountingTests.test_aSingleClickSelectsTheThingUnderIt`.
+    /// `CanvasViewMountingEditingTests.test_aSingleClickSelectsTheThingUnderIt`.
     func test_aClickOnBareCanvasResolvesToNothing() {
         let scene = linkedCards()
         // Same x, well clear of the 6 pt tolerance around y = 40.

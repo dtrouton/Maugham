@@ -29,7 +29,7 @@ final class CanvasModelTests: XCTestCase {
     }
 
     /// The canary for the mounted suite's shortened clocks: a model nobody
-    /// configured runs the production intervals. `CanvasViewMountingTests`
+    /// configured runs the production intervals. `CanvasViewMountingCase`
     /// shortens both on every model it mints; if either default here drifts,
     /// it is the APP's save rhythm or undo beat that moved, not a test's.
     func test_anUnconfiguredModelRunsTheProductionClocks() {

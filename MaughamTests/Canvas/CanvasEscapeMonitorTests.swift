@@ -5,7 +5,7 @@ import AppKit
 /// The four refusals in `CanvasEscapeMonitor.disposition`, one at a time.
 ///
 /// **These are not the test that matters most for this fix** — that one is
-/// `CanvasViewMountingTests.test_escapeLeavesTheDimWithTheKeyboardSomewhereElseEntirely`,
+/// `CanvasViewMountingEditingTests.test_escapeLeavesTheDimWithTheKeyboardSomewhereElseEntirely`,
 /// which sends a real `NSEvent` through `NSApp.sendEvent(_:)` with the canvas
 /// holding no keyboard at all, because a decision function proves nothing about
 /// whether the mechanism is reachable. What these add is exhaustiveness on the
@@ -116,7 +116,7 @@ final class CanvasEscapeMonitorTests: XCTestCase {
 
     /// **The rename hazard, as a predicate.** The behaviour is driven end to end
     /// against a real SwiftUI `TextField` in
-    /// `CanvasViewMountingTests.test_theMonitorDoesNotEatTheEscapeThatCancelsAnInlineRename`;
+    /// `CanvasViewMountingEditingTests.test_theMonitorDoesNotEatTheEscapeThatCancelsAnInlineRename`;
     /// what this adds is the full set of types the guard has to recognise, which
     /// no single hosted field can show.
     func test_everyTextResponderKeepsItsEscape() {

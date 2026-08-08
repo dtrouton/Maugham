@@ -10,7 +10,7 @@ import XCTest
 /// with every resize test in the suite green, because all of them asserted after
 /// `.ended`. The other half — a real `CanvasEventNSView` driven through
 /// `drag(_:from:through:)`, asserting on what reached disk — is in
-/// `CanvasViewMountingTests`.
+/// `CanvasViewMountingRegionTests`.
 final class CanvasRegionInteractionTests: XCTestCase {
 
     private let r1 = CanvasRegionID("r1")
@@ -313,7 +313,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
     // tested and reachable on one path only because the tests drove the
     // mechanism instead of the route; a rule with four meaningfully different
     // inputs gets all four asked of it here, and the route asked separately in
-    // `CanvasViewMountingTests`.
+    // `CanvasViewMountingRegionTests`.
 
     /// The centre decides — the same rule a drop uses, so the writer learns it
     /// once. Both directions, because "absorbs everything it touches" and

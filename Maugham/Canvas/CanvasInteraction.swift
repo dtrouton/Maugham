@@ -49,7 +49,7 @@ struct CanvasInteraction {
     /// **What guards the tight direction is the BAND assertion in
     /// `test_theFlickStalenessBoundaryIsWhereItSaysItIs`, not the live one.**
     /// Measured, not assumed: tightening this to `1.0 / 60` leaves all nine of
-    /// `CanvasViewMountingTests` green, and only setting it to `0` makes
+    /// the `CanvasViewMounting*` tests green, and only setting it to `0` makes
     /// `test_aFlickCarriesTheCardOnPastWhereThePointerLetGo` fail. That test
     /// drives `mouseDragged`/`mouseUp` as back-to-back synchronous calls, so the
     /// age it produces is a microsecond, not the frame-plus-latency a real

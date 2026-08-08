@@ -448,7 +448,7 @@ final class CanvasUndoTests: XCTestCase {
     /// ⌘Z takes the visit back. It says nothing about `ScrapUndoBeat` — no
     /// keystroke and no clock goes through it, so no break is ever attempted.
     /// The policy running for real is
-    /// `CanvasViewMountingTests.test_undoInsideAScrapTakesBackASentenceAtATime`.
+    /// `CanvasViewMountingEditingTests.test_undoInsideAScrapTakesBackASentenceAtATime`.
     func test_oneUndoAfterTypingRestoresTheTextTheWriterStartedWith() {
         let box = boxWithScrap()
         let m = manager()

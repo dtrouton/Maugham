@@ -831,7 +831,7 @@ final class RegionBindingTests: XCTestCase {
     /// went stale on a card the canvas had already drawn inside the region. Do
     /// not add a hand-driven "drop" case here to cover it; the test that can see
     /// it drops a real card through the real event view, and it is
-    /// `CanvasViewMountingTests.test_aDropIntoARegionReachesThatRegionsInspector`.
+    /// `CanvasViewMountingRegionTests.test_aDropIntoARegionReachesThatRegionsInspector`.
     func test_theMemberListsAreRebuiltOnlyOnAStructuralChange() {
         let m = model()
         m.withScene { CanvasMembership.join(self.a, home: self.r1, in: &$0) }
