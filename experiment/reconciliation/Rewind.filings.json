@@ -14,7 +14,7 @@
   "call_path": "HistoryPane row → 'Rewind to before this…' (HistoryPane.swift:350) → .maughamOpenRewind with scrub_op_id → RewindModifier sets .atOp → RewindWindow → 'Restore here…' → restoreToOp",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "7e5e48661090877ea3d80930bf73534a981d735d",
+   "commit": "c5ca4d5e83032c4ec942417255221a5b47ff94f0",
    "date": "2026-08-08",
    "authorised_by": "RULING-22 disposition_M4_RW_002_RULED — Denver: fix the behaviour, not the label",
    "pinned_by": "MaughamTests/Views/HistoryPaneRewindTargetTests (production, runs in the Mac suite)",
@@ -276,7 +276,7 @@
     "M4-RW-012"
    ],
    "specificity_current_ruling_set": "12/15 = 80%",
-   "distinct_defects": "6 violations over 5 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op and are counted once in the register; M4-RW-002 fixed 2026-08-08 (7e5e486610) and flipped to COMPLIES"
+   "distinct_defects": "6 violations over 5 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op and are counted once in the register; M4-RW-002 fixed 2026-08-08 (c5ca4d5e83) and flipped to COMPLIES"
   }
  }
 ]

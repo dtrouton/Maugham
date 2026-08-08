@@ -16,7 +16,7 @@ layer alone, and how much of a codebase a small ruling set actually reaches.
 
 Everything is under `experiment/`. **For its first 47+ phases the experiment changed zero
 production files.** That era ended deliberately on 2026-08-08, with Denver's approval, when the
-fix loop first ran (M4-RW-002, commit `7e5e4866`) and consumption was wired into CLAUDE.md, two
+fix loop first ran (M4-RW-002, commit `c5ca4d5e`) and consumption was wired into CLAUDE.md, two
 AREA.md files and CI. The discipline that replaces it: **production changes ride the fix loop** —
 a ruling authorising them, a pinned production test, and the claim + filing flipped in the same
 branch. Characterisation of a NEW module still changes nothing outside `experiment/`.
@@ -103,7 +103,7 @@ test.** Treat every entry as a lead. Of the ones checked so far:
   Discipline 5's citation is now real, and the generator fails on dangling ruling references in the
   process docs.
 - **The first fix loop ran end-to-end on M4-RW-002.** Fix + pinned production test
-  (`HistoryPaneRewindTargetTests`) in commit `7e5e4866`; claim updated; composition claim M4-RW-032
+  (`HistoryPaneRewindTargetTests`) in commit `c5ca4d5e`; claim updated; composition claim M4-RW-032
   added; filing flipped VIOLATES→COMPLIES; `_summary` recomputed. The lifecycle is encoded in
   `scripts/25-flip-m4-rw-002.py`'s docstring — **that is the pattern for every future fix.**
 - **Consumption is wired**: CI job `behavioural-claims` runs the MaughamCore claims package on every
