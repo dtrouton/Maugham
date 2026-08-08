@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// The Pieces segment of a Collection binder. Flat list with kind icons,
 /// inline rename support, and a right-click context menu.
@@ -69,42 +70,7 @@ struct CollectionPiecesPane: View {
         List(selection: BinderTreeSelection.binding($selectedSubject)) {
             projectRow
             ForEach(store.manifest.structure) { piece in
-                PieceRow(
-                    piece: piece,
-                    renamingItemId: $renamingItemId,
-                    onRename: { id, newTitle in
-                        Task {
-                            try? await store.renamePiece(
-                                pieceId: id, newTitle: newTitle)
-                        }
-                    },
-                    onDrop: { draggedId, position in
-                        handleDrop(
-                            draggedId: draggedId,
-                            targetId: piece.id,
-                            position: position)
-                    })
-                    // Inset under the project row above. Before the `.tag`, so
-                    // the padding is part of the row the List tags rather than a
-                    // wrapper around it.
-                    .padding(.leading, ProjectRowLabel.childIndent)
-                    .tag(BinderSubject.item(piece.id))
-                    .contextMenu {
-                        Button("Rename") {
-                            renamingItemId = piece.id
-                        }
-                        if piece.pieceKind == .loose {
-                            Button("Promote to Standalone Project…") {
-                                MaughamEvent.post(.maughamPromotePiece, to: .keyWindow, payload: ["piece_id": piece.id])
-                            }
-                        }
-                        Divider()
-                        Button("Delete", role: .destructive) {
-                            Task {
-                                try? await store.deleteStructureItem(id: piece.id)
-                            }
-                        }
-                    }
+                pieceRow(for: piece)
             }
             // Below the pieces — furniture at the foot of the column, with the
             // project row still row zero.
@@ -116,6 +82,68 @@ struct CollectionPiecesPane: View {
             if store.manifest.structure.isEmpty { emptyState }
         }
         .binderTreeSections(store: store, state: treeState)
+    }
+
+    /// One piece's row, whole — the modifier chain is unchanged from when it was
+    /// written inline inside `pieceList`'s `ForEach`.
+    ///
+    /// **Extracted for headroom, NOT because the ceiling was reached** — and the
+    /// distinction is recorded because a SourceKit report said otherwise
+    /// (stage-2a Task 4). After the sections went into `pieceList`, SourceKit
+    /// reported *"the compiler is unable to type-check this expression in
+    /// reasonable time"* here — the one diagnostic class CLAUDE.md says to heed
+    /// rather than triage as noise, since ignoring it shipped a Release-only
+    /// build failure on v0.8.0. **`xcodebuild` was then asked directly and did
+    /// not agree.** With `-warn-long-expression-type-checking` /
+    /// `-warn-long-function-bodies` at 400ms, a Release build of the inline
+    /// shape reported nothing anywhere in the app; at 100ms the only two bodies
+    /// over the limit were `EditorHost.body` (151ms) and `ProjectWindow.body`
+    /// (114ms), and nothing in this file appeared at all. So the report was a
+    /// stale index, and the extraction is kept on its own merits: it is
+    /// `BinderView.row(for:)`'s shape, and Task 6 grows this same `ForEach`
+    /// again with the per-piece research fold.
+    ///
+    /// The `.tag` stays INSIDE, after the padding and before the context menu,
+    /// exactly where it was: the padding has to be part of the row the List
+    /// tags rather than a wrapper around it, and moving the tag to the call site
+    /// would have made this refactor a behaviour change.
+    private func pieceRow(for piece: StructureItem) -> some View {
+        PieceRow(
+            piece: piece,
+            renamingItemId: $renamingItemId,
+            onRename: { id, newTitle in
+                Task {
+                    try? await store.renamePiece(
+                        pieceId: id, newTitle: newTitle)
+                }
+            },
+            onDrop: { draggedId, position in
+                handleDrop(
+                    draggedId: draggedId,
+                    targetId: piece.id,
+                    position: position)
+            })
+            // Inset under the project row above. Before the `.tag`, so
+            // the padding is part of the row the List tags rather than a
+            // wrapper around it.
+            .padding(.leading, ProjectRowLabel.childIndent)
+            .tag(BinderSubject.item(piece.id))
+            .contextMenu {
+                Button("Rename") {
+                    renamingItemId = piece.id
+                }
+                if piece.pieceKind == .loose {
+                    Button("Promote to Standalone Project…") {
+                        MaughamEvent.post(.maughamPromotePiece, to: .keyWindow, payload: ["piece_id": piece.id])
+                    }
+                }
+                Divider()
+                Button("Delete", role: .destructive) {
+                    Task {
+                        try? await store.deleteStructureItem(id: piece.id)
+                    }
+                }
+            }
     }
 
     /// Shown when the Collection holds no pieces — an overlay on the list rather
