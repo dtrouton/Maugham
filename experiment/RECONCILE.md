@@ -11,7 +11,7 @@ Maugham's behavioural specification is being built as two layers:
 - **Claims** — verified facts about what the code does. Machine-generable, cheap, and *pinned by a
   passing test against HEAD*. An unpinned claim is an assertion, not a claim.
 - **Rulings** — human product decisions about what *should* be true. Expensive, scarce, authored by
-  Denver. In `experiment/RULINGS.md`: 3 roots, 20 subs, 4 principles.
+  Denver. In `experiment/RULINGS.md`: 4 roots, 21 subs, 4 principles.
 
 **Reconciliation** is running the rulings over the claims. The mismatches are the output: places the
 code violates a stated decision, and places no decision exists yet.

@@ -754,7 +754,8 @@
     "statement": "Where the same product question is answered in more than one place, it has one answer. A second surface or a second code path may not answer it differently.",
     "consequence": "A meta-rule: cheap to state, expensive to enforce. It is what makes the 17 INCONSISTENT findings defects rather than observations.",
     "ruled_by": "proposed by machine, not objected to",
-    "date": "2026-08-01"
+    "date": "2026-08-01",
+    "sameness_clause_RULED": "Two situations that merely look alike may legitimately differ. Sameness is judged from the WRITER'S question — whether the writer is asking the same thing — never from whether the code paths differ. (Recommended by the phase-22 audit and cited by RECONCILE.md discipline 5 before it was written; ruled by Denver 2026-08-08. R8 was unqualified until this date — filings made before it, including M4-RW-019's, weighed an escape clause that did not yet exist.)"
    },
    "RULING-10": {
     "family": "C/E — a slug collision rewrites the writer's title",
@@ -965,7 +966,8 @@
     },
     "escalation_clause": "'complex or confusing warrants an additional confirmation' bears directly on rewind, which is the most complex action in the app and the source of four of these six.",
     "ruled_by": "human",
-    "date": "2026-08-02"
+    "date": "2026-08-02",
+    "disposition_M4_RW_002_RULED": "Denver, 2026-08-08: fix the BEHAVIOUR, not the label. 'Rewind to before this…' must land BEFORE the selected op (exclusive) — the label already says what a writer wants: pick the change you regret and land before it. First defect taken through the claim→fix→re-verify loop."
    },
    "RULING-23": {
     "family": "trash retention",
@@ -995,6 +997,18 @@
     "future": "Denver: 'in future we might version control parts of research too'",
     "ruled_by": "human",
     "date": "2026-08-02"
+   },
+   "RULING-25": {
+    "family": "N — annotations ride the writer's history",
+    "verdict": "RATIFIED",
+    "statement": "Annotations — comments, tasks, suggestion status — are protected to the same standard as the work they annotate. Anything Maugham closes on the writer's behalf when they travel through their history is reopened when they travel back. Time travel never costs an annotation permanently or silently.",
+    "basis": "Denver, 2026-08-08, ruling on GAP-R1 as presented: chose SYMMETRIC TRAVEL — annotations are protected to the same standard as the work; anything Maugham closes on the writer's behalf during time travel is reopened when they travel back — over 'marked stale, never closed' (GAP-R6's shape) and 'recoverable by hand' (GAP-R2's shape).",
+    "resolves_GAP_R1": "RULING-24's partition (the work / research / ingested) had no class for annotations — a tiering root with a hole in the middle of its own domain. This places them: for the travel case they inherit THE WORK's standard. M4-RW-019 — a forward rewind returns the paragraph and the pane task but leaves the comment archived, permanently and silently — is a clean DEFECT under this ruling, no longer settled by RULING-8 alone.",
+    "scope": "Maugham closing an annotation on ITS OWN initiative during history travel — rewind auto-archive and the return journey. The writer's own archive/resolve actions are their intent (RULING-23's shape) and are untouched by this ruling.",
+    "relation_to_RULING_13": "R13 governs lost IDENTITY: annotations move with the text and are marked STALE, the author adjudicates. This ruling governs TIME TRAVEL, where identity is not lost — the paragraph genuinely did not exist yet at the travelled-to moment. Complementary, not overlapping. GAP-R6's proposal to stretch R13 over the travel case is superseded by this ruling.",
+    "relation_to_GAP_R2": "A Reopen action on the annotations pane (GAP-R2) remains an open surface question, but symmetric travel removes the rewind case's dependency on it: the return journey itself is the recovery route.",
+    "ruled_by": "Denver, structured ruling question, recommended option accepted",
+    "date": "2026-08-08"
    }
   },
   "schema_note": "`warrant` = how well evidenced a claim is. `verdict` = whether the behaviour is WANTED. They are independent: a HIGH-warrant claim can be a DEFECT (well-proven wrong behaviour), and a LOW-warrant claim can be RATIFIED. The Phase 10 regeneration reproduced a defect faithfully because this field did not exist.",

@@ -3,7 +3,7 @@
 **GENERATED from `experiment/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
 Regenerate with `python3 experiment/scripts/23-generate-rulings.py` after any ruling change.
 
-24 rulings, 4 principles.
+25 rulings, 4 principles.
 
 Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:
 applying a ruling to a new case means re-checking the basis, not pattern-matching the
@@ -137,6 +137,8 @@ The boundary is PRACTICAL ECONOMICS: images, voice notes and PDFs are large, and
 > Where the same product question is answered in more than one place, it has one answer. A second surface or a second code path may not answer it differently.
 
 *consequence:* A meta-rule: cheap to state, expensive to enforce. It is what makes the 17 INCONSISTENT findings defects rather than observations.
+
+*sameness clause RULED:* Two situations that merely look alike may legitimately differ. Sameness is judged from the WRITER'S question — whether the writer is asking the same thing — never from whether the code paths differ. (Recommended by the phase-22 audit and cited by RECONCILE.md discipline 5 before it was written; ruled by Denver 2026-08-08. R8 was unqualified until this date — filings made before it, including M4-RW-019's, weighed an escape clause that did not yet exist.)
 
 ### RULING-10 — C/E — a slug collision rewrites the writer's title  `CLOSE`
 
@@ -293,6 +295,8 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 
 *escalation clause:* 'complex or confusing warrants an additional confirmation' bears directly on rewind, which is the most complex action in the app and the source of four of these six.
 
+*disposition M4 RW 002 RULED:* Denver, 2026-08-08: fix the BEHAVIOUR, not the label. 'Rewind to before this…' must land BEFORE the selected op (exclusive) — the label already says what a writer wants: pick the change you regret and land before it. First defect taken through the claim→fix→re-verify loop.
+
 ### RULING-23 — trash retention  `RATIFIED`
 
 > Trash destroying its contents is Maugham HONOURING the writer's intent — they chose to delete. The retention window is leeway to change their mind, not a promise of permanence. Losing trash is not a defect.
@@ -304,6 +308,20 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 *sharpens RULING 4:* R4's 'words the writer AUTHORED are always recoverable' means recoverable FROM ACCIDENTS AND FROM MAUGHAM'S OWN ACTIONS — not recoverable forever from the writer's own deliberate deletion. Without this clause R4 and R23 read as a contradiction; with it there is none.
 
 *premise corrected:* I reported that the op log surviving 'permanently delete' meant R23 was made on a false premise. RULING-24 shows the error was mine: deleting state is not deleting history, and the two have different contracts. R23 stands as ruled.
+
+### RULING-25 — N — annotations ride the writer's history  `RATIFIED`
+
+> Annotations — comments, tasks, suggestion status — are protected to the same standard as the work they annotate. Anything Maugham closes on the writer's behalf when they travel through their history is reopened when they travel back. Time travel never costs an annotation permanently or silently.
+
+*basis:* Denver, 2026-08-08, ruling on GAP-R1 as presented: chose SYMMETRIC TRAVEL — annotations are protected to the same standard as the work; anything Maugham closes on the writer's behalf during time travel is reopened when they travel back — over 'marked stale, never closed' (GAP-R6's shape) and 'recoverable by hand' (GAP-R2's shape).
+
+*resolves GAP R1:* RULING-24's partition (the work / research / ingested) had no class for annotations — a tiering root with a hole in the middle of its own domain. This places them: for the travel case they inherit THE WORK's standard. M4-RW-019 — a forward rewind returns the paragraph and the pane task but leaves the comment archived, permanently and silently — is a clean DEFECT under this ruling, no longer settled by RULING-8 alone.
+
+*scope:* Maugham closing an annotation on ITS OWN initiative during history travel — rewind auto-archive and the return journey. The writer's own archive/resolve actions are their intent (RULING-23's shape) and are untouched by this ruling.
+
+*relation to RULING 13:* R13 governs lost IDENTITY: annotations move with the text and are marked STALE, the author adjudicates. This ruling governs TIME TRAVEL, where identity is not lost — the paragraph genuinely did not exist yet at the travelled-to moment. Complementary, not overlapping. GAP-R6's proposal to stretch R13 over the travel case is superseded by this ruling.
+
+*relation to GAP R2:* A Reopen action on the annotations pane (GAP-R2) remains an open surface question, but symmetric travel removes the rewind case's dependency on it: the return journey itself is the recovery route.
 
 ## Principles — how to judge, not what to decide
 
