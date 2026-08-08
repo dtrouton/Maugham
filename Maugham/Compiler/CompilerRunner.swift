@@ -87,4 +87,28 @@ public protocol CompilerRunner: AnyObject {
     /// declared world and bible are "unchanged since last run", describing a
     /// run it never saw, and it would judge the prose against nothing at all.
     @MainActor var sessionEpoch: Int { get }
+    /// Where a turn's text goes **as it arrives**, or `nil` to stop listening.
+    ///
+    /// Chunks are fragments exactly as the transport cut them: they close no
+    /// line, no sentence and no JSON object, so a caller accumulates and
+    /// decides for itself when it has enough to read. What the seam guarantees
+    /// is that a chunk belongs to the LIVE turn — a runner whose process was
+    /// retired mid-turn drops that process's late deltas rather than splicing
+    /// them into the turn that replaced it.
+    ///
+    /// **Whatever the stream said, the turn's own `resultText` is the truth.**
+    /// The chunks are a preview: a caller may render off them, but must
+    /// reconcile against the result when `send` resolves. They can be
+    /// truncated, re-ordered by a model that revises itself, or absent
+    /// entirely — a runner that cannot stream is a runner that never calls
+    /// this, which is exactly what the default below is.
+    @MainActor func setPartialHandler(_ handler: (@MainActor (String) -> Void)?)
+}
+
+public extension CompilerRunner {
+    /// Streaming is optional, so a runner that does not do it needs to say
+    /// nothing. The default is the whole of "this runner answers only at the
+    /// end", and it is what keeps every existing conformer — including the
+    /// suites' doubles — compiling unchanged.
+    @MainActor func setPartialHandler(_ handler: (@MainActor (String) -> Void)?) {}
 }

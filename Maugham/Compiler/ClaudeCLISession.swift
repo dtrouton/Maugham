@@ -71,6 +71,16 @@ final class ClaudeCLISession: CompilerRunner {
     /// Remembered so a respawn re-applies the session's system prompt.
     private var lastPreamble: String?
 
+    /// Where the turn's text goes as it arrives, or `nil` for a caller that
+    /// only wants the answer.
+    ///
+    /// **Owned by the caller, not by the process.** A respawn does not clear
+    /// it: the handler describes who is listening, which does not change
+    /// because the CLI died and came back. What a retired process's deltas
+    /// cannot do is reach it — that guard is `receive`'s, shared with the
+    /// `result` path, and the reason the two travel the same road.
+    private var partialHandler: (@MainActor (String) -> Void)?
+
     /// Resolved once per session and reused by every respawn — locating the
     /// CLI can cost a login shell, and death/cancel/timeout/toggle cycles all
     /// respawn. Only a SUCCESS is cached: a writer who installs `claude`
@@ -210,6 +220,10 @@ final class ClaudeCLISession: CompilerRunner {
         return event
     }
 
+    func setPartialHandler(_ handler: (@MainActor (String) -> Void)?) {
+        partialHandler = handler
+    }
+
     func cancelCurrentRun() {
         // `isRunning`, not `inFlight`: a send still resolving its CLI has no
         // continuation yet, and must still be stoppable — `teardown` moves
@@ -322,6 +336,13 @@ final class ClaudeCLISession: CompilerRunner {
             "--model", model,
             "--mcp-config", mcpConfigPath.path,
             "--strict-mcp-config",
+            // **The stream has to be asked for.** Without this the CLI batches
+            // the whole turn into its `result` and the writer waits out a
+            // two-minute check with nothing on the pane; with it the same turn
+            // emits `stream_event` lines from about four seconds in (spiked
+            // 2026-08-08). It changes nothing about how a turn ENDS — the
+            // `result` event is still the only thing that resolves one.
+            "--include-partial-messages",
             "--tools", ""
         ]
         if let preamble, !preamble.isEmpty {
@@ -473,6 +494,13 @@ final class ClaudeCLISession: CompilerRunner {
         switch Self.classify(line: line) {
         case .ignore:
             return
+        case .partialText(let chunk):
+            // The same two guards the result path is already behind, which is
+            // the whole reason this rides `receive` rather than being read off
+            // the pipe on its own: a retired process's enqueued deltas would
+            // otherwise be spliced into the live run's report, and the run they
+            // corrupted would still resolve normally.
+            partialHandler?(chunk)
         case .result(let text):
             resolve(.resultText(text), token: runToken)
         case .unusableResult:
@@ -522,29 +550,65 @@ final class ClaudeCLISession: CompilerRunner {
     }
 
     enum StreamLine: Equatable {
-        /// Anything that is not a terminal `result`: `system`, `assistant`,
-        /// `rate_limit_event`, a type that does not exist yet, or a line that
-        /// is not JSON at all.
+        /// Anything that is neither a terminal `result` nor a fragment of the
+        /// assistant's answer: `system`, `assistant`, `rate_limit_event`, a
+        /// block opening or closing, the model's own thinking, a type that
+        /// does not exist yet, or a line that is not JSON at all.
         case ignore
+        /// A fragment of the answer, mid-turn. Fragments are exactly as the
+        /// CLI cut them — they close no sentence and respect no boundary, so
+        /// a reader has to accumulate before it can parse anything.
+        case partialText(String)
         case result(String)
         case unusableResult
     }
 
-    /// Classify one stream-json line. Keys on `type == "result"` and tolerates
-    /// everything else (spike note §Consequences). Note the real CLI does not
-    /// put `type` first in the object, so this parses rather than sniffs.
+    /// Classify one stream-json line. Keys on `type` and tolerates everything
+    /// else (spike note §Consequences). Note the real CLI does not put `type`
+    /// first in the object, so this parses rather than sniffs.
     static func classify(line: String) -> StreamLine {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               let data = trimmed.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data),
               let dict = object as? [String: Any],
-              let type = dict["type"] as? String,
-              type == "result" else { return .ignore }
+              let type = dict["type"] as? String
+        else { return .ignore }
+        if type == streamEventType { return classifyStreamEvent(dict) }
+        guard type == "result" else { return .ignore }
         guard let text = dict["result"] as? String, !text.isEmpty else {
             return .unusableResult
         }
         return .result(text)
+    }
+
+    /// The wire names of the partial-message stream, in one place, captured
+    /// from `claude` 2.1.222 on 2026-08-08 rather than guessed
+    /// (`ClaudeCLISessionTests`' `captured…` constants are the same turn's
+    /// lines verbatim).
+    private static let streamEventType = "stream_event"
+    private static let deltaEventType = "content_block_delta"
+    private static let textDeltaType = "text_delta"
+
+    /// One `stream_event`, which nests the Anthropic streaming event under
+    /// `event`.
+    ///
+    /// **Only `text_delta` is the answer.** A turn's deltas come in three
+    /// kinds and all three arrive as `content_block_delta`, differing one
+    /// level deeper: `thinking_delta` carries the model's private reasoning,
+    /// `signature_delta` carries an opaque blob, and `text_delta` carries what
+    /// the assistant is actually saying. A classifier keyed on
+    /// `content_block_delta` alone would hand the orchestrator a report made
+    /// of the model thinking out loud — and nothing downstream could tell,
+    /// because it would parse as prose that simply contains no sections.
+    private static func classifyStreamEvent(_ dict: [String: Any]) -> StreamLine {
+        guard let event = dict["event"] as? [String: Any],
+              event["type"] as? String == deltaEventType,
+              let delta = event["delta"] as? [String: Any],
+              delta["type"] as? String == textDeltaType,
+              let text = delta["text"] as? String, !text.isEmpty
+        else { return .ignore }
+        return .partialText(text)
     }
 
     // MARK: - Resolution, timers, teardown

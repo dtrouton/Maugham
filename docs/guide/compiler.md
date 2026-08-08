@@ -9,6 +9,12 @@ persona (⌘2). A capsule flashes **Checking…**, the same register as ⌘S's;
 press ⌘R again while one is already running and it flashes **Still
 checking…** instead of starting a second one.
 
+The report arrives in sections rather than all at once. Your clauses come back
+first, so you are reading the conformance summary while the reader's report is
+still being written; the header keeps saying **Checking…** until the whole
+check is done. A check you cancel takes its half-finished report with it and
+puts the last completed one back.
+
 It runs when you press the key, and at no other time. There is no background
 check, no linting as you type, no badge that appears while you are mid-sentence.
 That is deliberate: the point is a check you can reach for constantly because it
@@ -151,7 +157,9 @@ in the model it started in, and the next one is the one that changes. That
 next check starts a fresh session behind the scenes, so it's a few seconds
 slower than the warm session you're used to — a one-time cost of the switch.
 
-**Cancel** appears in the header while a check is running.
+**Cancel** appears in the header while a check is running. Anything the check
+had already put on the pane goes with it — a report from a check that stopped
+half way is not a report — and the last completed check comes back.
 
 ## What you need for it to work
 

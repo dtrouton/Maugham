@@ -35,6 +35,18 @@ final class CompilerRunCommandTests: XCTestCase {
         var nextEvent: CompilerRunEvent? = .resultText(CompilerRunCommandTests.fourEmptySections)
         var onSend: (() -> Void)?
         private var held: CheckedContinuation<CompilerRunEvent, Never>?
+        /// Where the orchestrator asked its stream to go. Recorded rather than
+        /// counted so a test can BE the CLI's stdout — `stream(_:)` below is
+        /// the same call `ClaudeCLISession.receive` makes for one delta.
+        private(set) var partialHandler: (@MainActor (String) -> Void)?
+
+        func setPartialHandler(_ handler: (@MainActor (String) -> Void)?) {
+            partialHandler = handler
+        }
+
+        /// Deliver text the way the CLI's deltas do — in fragments the
+        /// transport chose, which close nothing.
+        func stream(_ chunk: String) { partialHandler?(chunk) }
 
         func send(message: String, systemPreamble: String?) async -> CompilerRunEvent {
             sends.append((message, systemPreamble))
@@ -2253,5 +2265,292 @@ final class CompilerRunCommandTests: XCTestCase {
             return XCTFail("the failure was erased by an unrelated teardown")
         }
         XCTAssertEqual(failure, .cliNotFound)
+    }
+
+    // MARK: - Streaming (Task 4)
+
+    /// One conformance section, as a line the model would write.
+    private func conformanceLine(
+        _ quote: String, _ status: String, whatPulls: String? = nil,
+        about paragraphId: String = "a1b2"
+    ) -> String {
+        let pulls = whatPulls.map { ",\"what_pulls\":\"\($0)\"" } ?? ""
+        return "{\"section\":\"conformance\",\"checks\":[{\"clause_quote\":\"\(quote)\","
+            + "\"status\":\"\(status)\",\"refs\":[\"\(paragraphId)\"]\(pulls)}]}"
+    }
+
+    /// Start a run and hold its turn open, with the stream armed.
+    private func streamingRun(
+        runner: SpyRunner, harness: Harness
+    ) {
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+    }
+
+    /// **A section renders while the rest of the turn is still generating** —
+    /// the whole of the task, in one assertion.
+    ///
+    /// Conformance is the first section the schema asks for and the one the
+    /// pane leads with, so it is the one that earns the streaming: the writer
+    /// reads their own clauses back within seconds of pressing ⌘R rather than
+    /// after two minutes of "Checking…".
+    func test_sectionsRenderWhileTheTurnIsStillGenerating() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // the turn stays open
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        streamingRun(runner: runner, harness: harness)
+
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
+                     "nothing may be on the pane before a section closes")
+
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+
+        let clauses = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId)?.clauseStatuses)
+        XCTAssertEqual(clauses.map(\.clauseQuote), ["Cold, and never wistful."],
+                       "the conformance summary should be readable mid-turn")
+        let notes = harness.diagnostics.live(docId: docId, currentText: { _ in "The fog came." })
+        XCTAssertEqual(notes.map(\.body), ["The last line reaches for a sigh."])
+        XCTAssertEqual(harness.orchestrator.runState, runningOnTheStandingReading,
+                       "a preview must not end the run")
+
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+    }
+
+    /// **A chunk is not a line.** The transport cuts wherever it likes — a
+    /// section's JSON object routinely arrives in pieces — so nothing may be
+    /// read until a newline says the line is whole. A parser fed the fragments
+    /// would see unbalanced JSON and, worse, could see a `}` land early and
+    /// read a truncated section as a complete one.
+    func test_aSectionIsNotReadUntilItsLineCloses() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        streamingRun(runner: runner, harness: harness)
+
+        let line = conformanceLine("Cold, and never wistful.", "holds")
+        let cut = line.index(line.startIndex, offsetBy: 30)
+        runner.stream(String(line[line.startIndex..<cut]))
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
+                     "half a section is not a section")
+
+        runner.stream(String(line[cut...]))
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
+                     "the line has not closed — its newline has not arrived")
+
+        runner.stream("\n")
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.clauseStatuses?.count, 1,
+            "the closed line should have been read")
+
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+    }
+
+    /// **The result is the truth, and it REPLACES the preview** — the contract
+    /// that keeps one source of truth at the end of a turn.
+    ///
+    /// The sharp case is a section that appears in both: streamed once, and
+    /// present again in the turn's own text, which is where it always was.
+    /// Accumulate instead of reconcile and the writer reads the same finding
+    /// twice, with the duplicate persisted.
+    func test_theFinalResultReconcilesTheStream() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        streamingRun(runner: runner, harness: harness)
+
+        let conformance = conformanceLine(
+            "Cold, and never wistful.", "strains", whatPulls: "The last line reaches for a sigh.")
+        runner.stream(conformance + "\n")
+        XCTAssertEqual(
+            harness.diagnostics.live(docId: docId, currentText: { _ in "The fog came." }).count, 1)
+
+        // The turn's own text — the same conformance section, plus the three
+        // that never got their newline out.
+        runner.release(.resultText("""
+            \(conformance)
+            {"section":"continuity","questions":[]}
+            {"section":"reader","reports":[]}
+            {"section":"facts","candidates":[]}
+            """))
+        settle()
+
+        let notes = harness.diagnostics.live(docId: docId, currentText: { _ in "The fog came." })
+        XCTAssertEqual(notes.map(\.body), ["The last line reaches for a sigh."],
+                       "the streamed section must be replaced by the result, not added to it")
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.clauseStatuses?.count, 1,
+                       "one clause was checked; the summary must say so once")
+        XCTAssertEqual(harness.orchestrator.runState, .idle)
+    }
+
+    /// **A run that never finished leaves nothing behind.** The writer pressed
+    /// Cancel; what was on the pane came from a check that stopped half way,
+    /// and the answer that stood before it is the honest thing to show.
+    func test_aCancelMidStreamLeavesNoHalfReport() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        streamingRun(runner: runner, harness: harness)
+
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+        XCTAssertNotNil(harness.diagnostics.lastRun(docId: docId))
+
+        harness.orchestrator.cancel()
+        settle()
+
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
+                     "the half-report survived a cancel")
+        XCTAssertEqual(
+            harness.diagnostics.live(docId: docId, currentText: { _ in "The fog came." }), [])
+        XCTAssertEqual(harness.orchestrator.runState, .idle)
+    }
+
+    /// The same, through the toggle: Claude switched off mid-check takes the
+    /// half-report with it.
+    func test_aToggleOffMidStreamLeavesNoHalfReport() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        streamingRun(runner: runner, harness: harness)
+
+        runner.stream(conformanceLine("Cold, and never wistful.", "holds") + "\n")
+        XCTAssertNotNil(harness.diagnostics.lastRun(docId: docId))
+
+        harness.orchestrator.shutdown()
+        settle()
+
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
+                     "the half-report survived the toggle going off")
+    }
+
+    /// **A cancelled preview restores the run that DID finish** — the case a
+    /// blanket "clear the doc" discard would get wrong, because the sidecar it
+    /// re-reads is the previous run's and was never overwritten.
+    func test_aCancelledPreviewPutsTheLastFinishedRunBack() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            oneQuestion("Should she already know?", about: "a1b2"))
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+
+        // A second run, streamed and then cancelled.
+        runner.nextEvent = nil
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "Something else entirely.") + "\n")
+        harness.orchestrator.cancel()
+        settle()
+
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.id, finished.id,
+                       "the run that finished should be back on the pane")
+        XCTAssertEqual(
+            harness.diagnostics.live(docId: docId, currentText: { _ in "The fog came." })
+                .map(\.body),
+            ["Should she already know?"])
+    }
+
+    /// **A preview is not a run, and the drift ring must not count it as one.**
+    ///
+    /// `DriftDetector` reads a clause straining across CONSECUTIVE RUNS. A
+    /// preview appending a snapshot per section would let a single ⌘R
+    /// contribute several, and three sections of one check would announce a
+    /// drift the writer's prose never had.
+    func test_aPreviewNeverEntersTheDriftRing() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        streamingRun(runner: runner, harness: harness)
+
+        let strain = conformanceLine("Cold, and never wistful.", "strains",
+                                     whatPulls: "The last line reaches for a sigh.")
+        runner.stream(strain + "\n")
+        runner.stream(strain + "\n")
+        runner.stream(strain + "\n")
+        XCTAssertEqual(harness.diagnostics.clauseStatusHistory(docId: docId).count, 0,
+                       "a preview must not touch the ring at all")
+
+        runner.release(.resultText("""
+            \(strain)
+            {"section":"continuity","questions":[]}
+            {"section":"reader","reports":[]}
+            {"section":"facts","candidates":[]}
+            """))
+        settle()
+
+        XCTAssertEqual(harness.diagnostics.clauseStatusHistory(docId: docId).count, 1,
+                       "one run is one entry in the ring, however many sections streamed")
+    }
+
+    /// **A preview is never written to disk.** A half-report in the sidecar
+    /// would be read back on the next launch as the standing answer, and
+    /// nothing on the pane would distinguish it from a check that finished.
+    func test_aPreviewIsNotPersisted() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        streamingRun(runner: runner, harness: harness)
+
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+        XCTAssertNotNil(harness.diagnostics.lastRun(docId: docId), "it is on the pane")
+
+        // A second store over the same project reads only what is on disk.
+        let onDisk = DiagnosticsStore(
+            projectRoot: harness.root, device: DeviceSlug.make(from: "test-mac"))
+        onDisk.load(docId: docId)
+        XCTAssertNil(onDisk.lastRun(docId: docId),
+                     "the preview reached the sidecar")
+
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+
+        onDisk.load(docId: docId)
+        XCTAssertNotNil(onDisk.lastRun(docId: docId),
+                        "the finished run must persist as it always did")
+    }
+
+    /// A superseded run's late chunks touch nothing. The orchestrator's own
+    /// generation guard, distinct from the session's: the session drops a
+    /// retired PROCESS's deltas, and this drops a retired RUN's — a shutdown
+    /// abandons the run without the runner ever being asked to stop.
+    func test_lateChunksFromAnAbandonedRunAreIgnored() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        streamingRun(runner: runner, harness: harness)
+
+        harness.orchestrator.shutdown()
+        settle()
+
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
+                     "an abandoned run's chunk reached the pane")
+    }
+
+    /// Prose, fences and anything else the model puts around its sections read
+    /// as nothing — `parseSection`'s own tolerance, exercised on the path
+    /// where a non-section line arrives on its own rather than inside a turn.
+    func test_narrationBetweenSectionsIsNotASection() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        streamingRun(runner: runner, harness: harness)
+
+        runner.stream("Here is what I found.\n```json\n")
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId))
+
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
     }
 }

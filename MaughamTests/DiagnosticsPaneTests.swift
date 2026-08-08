@@ -321,6 +321,139 @@ final class DiagnosticsPaneTests: XCTestCase {
                        "a second version bump (two rows now live) did not re-render either")
     }
 
+    // MARK: - Streaming (Task 4)
+
+    /// **The report grows in place, within one run** — two version bumps, the
+    /// same run id, and the pane picking up each of them.
+    ///
+    /// This is the version-counter idiom doing the streaming's whole job on
+    /// this side of the seam, which is why the pane needed no new state for
+    /// it. What makes the test worth writing anyway is that the two bumps are
+    /// PREVIEWS of one check rather than two finished runs: the conformance
+    /// summary is on screen while the continuity section is still generating,
+    /// which is the experience the task exists to produce.
+    func test_thePaneGrowsTheReportAcrossPreviewsWithinOneRun() {
+        let docId = "doc-streaming"
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let anchor = Diagnostic.Anchor(paragraphId: "p1", anchorText: "Body one.")
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(),
+            diagnostics: store,
+            docId: docId,
+            currentText: { _ in "Body one." },
+            compilerModel: .standard)))
+
+        XCTAssertEqual(staticTextLabels(in: window, containing: "The last line reaches"), [],
+                       "the pane drew a section before any had arrived")
+
+        // Section one: conformance, the first thing a turn emits.
+        let runId = ULID.generate()
+        store.preview(
+            run: makeStreamingRun(id: runId, clauseStatuses: [
+                makeClause("Cold, and never wistful.", "strains")]),
+            diagnostics: [makeDiagnostic(
+                docId: docId, anchor: anchor, body: "The last line reaches for a sigh.",
+                kind: .conformanceStrain, clauseQuote: "Cold, and never wistful.")],
+            docId: docId)
+        waitUntil { self.staticTextLabels(in: window, containing: "The last line reaches").count == 1 }
+        XCTAssertEqual(staticTextLabels(in: window, containing: "The last line reaches").count, 1,
+                       "the first section did not reach the pane")
+        XCTAssertEqual(staticTextLabels(in: window, containing: "Should she already").count, 0)
+
+        // Section two arrives while the turn is still open — SAME run.
+        store.preview(
+            run: makeStreamingRun(id: runId, clauseStatuses: [
+                makeClause("Cold, and never wistful.", "strains")]),
+            diagnostics: [makeDiagnostic(
+                docId: docId, anchor: anchor, body: "The last line reaches for a sigh.",
+                kind: .conformanceStrain, clauseQuote: "Cold, and never wistful."),
+                          makeDiagnostic(
+                docId: docId, anchor: anchor, body: "Should she already know?",
+                kind: .continuity)],
+            docId: docId)
+        waitUntil { self.staticTextLabels(in: window, containing: "Should she already").count == 1 }
+
+        XCTAssertEqual(staticTextLabels(in: window, containing: "Should she already").count, 1,
+                       "the second section did not re-render the pane")
+        XCTAssertEqual(staticTextLabels(in: window, containing: "The last line reaches").count, 1,
+                       "the first section should still be standing")
+    }
+
+    /// **The wait copy stays while the report grows.** The header describes the
+    /// RUN, and the run is still going — a section landing must not flip it to
+    /// "Last checked just now" over a check that has not finished.
+    ///
+    /// Pure, because that is where the decision lives: `headerState` prefers
+    /// `runState` for this document over anything on disk, and a preview is on
+    /// disk's side of that fence.
+    func test_theWaitCopyStaysWhileSectionsLand() {
+        let previewed = makeRun(clauseStatuses: [makeClause("Cold.", "strains")])
+
+        let state = DiagnosticsPane.headerState(
+            runState: .running(docId: "doc-1", checking: counts(new: 1, revised: 0)),
+            lastRun: previewed, noteCount: 1, docId: "doc-1")
+
+        XCTAssertEqual(state, .running(checking: counts(new: 1, revised: 0)),
+                       "a section arriving must not end the wait")
+        XCTAssertEqual(DiagnosticsPane.headerCopy(for: state), "Checking 1 new paragraph\u{2026}")
+    }
+
+    /// **Opening the pane mid-check must not blink the report away.**
+    ///
+    /// `onAppear` reads the sidecar, which holds the last run that FINISHED —
+    /// so a writer who presses ⌘R from the editor and then switches to
+    /// Diagnostics would mount over the arriving report and watch the previous
+    /// run reappear under a header saying "Checking…". Mounted rather than
+    /// asserted against the store, because `onAppear` is the caller and a
+    /// store-level test would not have one.
+    func test_openingThePaneMidStreamKeepsTheArrivingReport() throws {
+        let docId = "doc-mounted-mid-stream"
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let anchor = Diagnostic.Anchor(paragraphId: "p1", anchorText: "Body one.")
+
+        // A run that finished earlier, on disk.
+        store.replace(
+            run: makeRun(),
+            diagnostics: [makeDiagnostic(
+                docId: docId, anchor: anchor, body: "Last week's finding.")],
+            docId: docId)
+
+        // A new check, one section in — the pane is not open yet.
+        store.preview(
+            run: makeStreamingRun(id: ULID.generate(), clauseStatuses: [
+                makeClause("Cold, and never wistful.", "strains")]),
+            diagnostics: [makeDiagnostic(
+                docId: docId, anchor: anchor, body: "The last line reaches for a sigh.",
+                kind: .conformanceStrain, clauseQuote: "Cold, and never wistful.")],
+            docId: docId)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(),
+            diagnostics: store,
+            docId: docId,
+            currentText: { _ in "Body one." },
+            compilerModel: .standard)))
+        waitUntil { self.staticTextLabels(in: window, containing: "The last line reaches").count == 1 }
+
+        XCTAssertEqual(staticTextLabels(in: window, containing: "The last line reaches").count, 1,
+                       "mounting read the sidecar back over the arriving report")
+        XCTAssertEqual(staticTextLabels(in: window, containing: "Last week's finding").count, 0,
+                       "the previous run reappeared under a check that is still running")
+    }
+
+    /// A run record as the stream builds one — the run id is the caller's
+    /// because a preview and the answer that supersedes it are the same run.
+    private func makeStreamingRun(
+        id: String, clauseStatuses: [DiagnosticIngest.ClauseStatus]
+    ) -> CompilerRun {
+        CompilerRun(id: id, at: Date(), model: "sonnet", lastOpId: "op1",
+                    deltaSummary: "1 new, 0 revised \u{00b6}", intentSnapshot: nil,
+                    droppedDangling: 0, clauseStatuses: clauseStatuses, truncatedReader: 0)
+    }
+
     /// Turn the runloop until `condition` holds or the deadline passes —
     /// `StatementMountFixture.pumpUntil`'s pattern, synchronous here because
     /// nothing in this suite awaits real async work across the wait.

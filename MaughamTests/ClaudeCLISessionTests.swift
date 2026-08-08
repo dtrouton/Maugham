@@ -34,6 +34,14 @@ final class ClaudeCLISessionTests: XCTestCase {
         /// login. The last line written is blank, so a test can tell "the last
         /// line" from "the last line with something on it".
         case dieWithStderr
+        /// Emit the partial-message events a real turn emits — captured
+        /// verbatim from `claude` 2.1.222 on 2026-08-08 — and then answer.
+        ///
+        /// The capture is the point. A guessed fixture would have carried one
+        /// delta shape; the real stream carries THREE (`thinking_delta`,
+        /// `signature_delta`, `text_delta`) and only the last is the assistant's
+        /// output. See `test_onlyTheAssistantsOwnTextReachesTheHandler`.
+        case streaming
         /// Withhold the answer for as long as the `slow` flag file exists.
         ///
         /// Deliberately keyed on a file the TEST owns rather than on the
@@ -45,6 +53,37 @@ final class ClaudeCLISessionTests: XCTestCase {
         /// waiting out the stale process.
         case slowWhileFlagged
     }
+
+    /// A main-actor box, so an escaping handler can record what it saw.
+    /// File-local by the suite convention (`CompilerRunCommandTests` keeps its
+    /// own); a shared one would be a test-support module for four lines.
+    @MainActor
+    private final class Box<T> {
+        var value: T
+        init(_ value: T) { self.value = value }
+    }
+
+    // MARK: - The captured stream
+
+    /// **Real `stream_event` lines, captured rather than invented** — one
+    /// `claude -p --include-partial-messages --model haiku` turn on
+    /// 2026-08-08, copied out of the capture with only the session/uuid fields
+    /// left exactly as they came.
+    ///
+    /// They are constants rather than a fixture file because their SHAPE is
+    /// the contract `classify` reads, and a shape nobody can see in the test
+    /// is a shape the next reader has to take on trust. Two facts here were
+    /// not guessable and both changed the implementation: the deltas nest
+    /// under `event`, and the stream carries the model's **thinking** as
+    /// `thinking_delta` alongside the assistant's `text_delta` — forwarding
+    /// the wrong one would have fed the orchestrator the model's private
+    /// reasoning as though it were the report.
+    static let capturedThinkingStart = #"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}},"session_id":"586491a3-9c71-4c09-af23-cf920396a799","parent_tool_use_id":null,"uuid":"7d39f702-6b39-4aff-8df4-bdaf626b7537"}"#
+    static let capturedThinkingDelta = #"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"THE MODELS PRIVATE REASONING","estimated_tokens":null}},"session_id":"586491a3-9c71-4c09-af23-cf920396a799","parent_tool_use_id":null,"uuid":"abf7bf18-8c9c-4627-9d53-73d28e4eabb6"}"#
+    static let capturedTextStart = #"{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}},"session_id":"586491a3-9c71-4c09-af23-cf920396a799","parent_tool_use_id":null,"uuid":"92ccc01d-23e1-44f3-bb6c-6d55180357f6"}"#
+    static let capturedTextDelta = #"{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"hello "}},"session_id":"586491a3-9c71-4c09-af23-cf920396a799","parent_tool_use_id":null,"uuid":"e43f7a65-0886-4e0e-9e79-579bf54aa4bf"}"#
+    static let capturedSecondTextDelta = #"{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"world"}},"session_id":"586491a3-9c71-4c09-af23-cf920396a799","parent_tool_use_id":null,"uuid":"e43f7a65-0886-4e0e-9e79-579bf54aa4bg"}"#
+    static let capturedTextStop = #"{"type":"stream_event","event":{"type":"content_block_stop","index":1},"session_id":"586491a3-9c71-4c09-af23-cf920396a799","parent_tool_use_id":null,"uuid":"ec36f353-60a8-408a-aef2-45fe16924d89"}"#
 
     private var tempDir: URL!
     /// One line per spawn of the fake CLI.
@@ -116,6 +155,14 @@ final class ClaudeCLISessionTests: XCTestCase {
               sleep 0.1
               waited=$((waited+1))
             done
+          fi
+          if [ "$MODE" = "streaming" ]; then
+            printf '%s\\n' '\(Self.capturedThinkingStart)'
+            printf '%s\\n' '\(Self.capturedThinkingDelta)'
+            printf '%s\\n' '\(Self.capturedTextStart)'
+            printf '%s\\n' '\(Self.capturedTextDelta)'
+            printf '%s\\n' '\(Self.capturedSecondTextDelta)'
+            printf '%s\\n' '\(Self.capturedTextStop)'
           fi
           if [ "$MODE" = "noisy" ]; then
             printf '%s\\n' '{"type":"wibble","payload":7}'
@@ -713,6 +760,132 @@ final class ClaudeCLISessionTests: XCTestCase {
                 .deletingLastPathComponent().resolvingSymlinksInPath().path,
             "the session runs in its own config directory, never an inherited cwd")
 
+        session.shutdown()
+    }
+
+    // MARK: - Streaming (Task 4)
+
+    /// The stream has to be **asked for**. Without the flag the CLI batches the
+    /// whole turn into its `result` and nothing arrives mid-turn — the sections
+    /// would still render, all at once, at the end.
+    ///
+    /// Additive to `test_spawnArgumentsMatchTheSpike` rather than folded into
+    /// it: that test is the membrane's standing proof and stays exactly as it
+    /// was.
+    func test_theSessionAsksForPartialMessages() async throws {
+        let cli = try makeFakeCLI(mode: .normal)
+        let session = makeSession(cli: cli)
+
+        _ = await session.send(message: "hello", systemPreamble: nil)
+
+        let argv = try String(contentsOf: argsURL, encoding: .utf8)
+            .components(separatedBy: "\n")
+        XCTAssertTrue(argv.contains("--include-partial-messages"),
+            "without the flag there is no stream to render: \(argv)")
+
+        session.shutdown()
+    }
+
+    /// **The captured shape, read by the classifier** — the same four lines the
+    /// real CLI wrote, classified without a subprocess.
+    ///
+    /// The `thinking_delta` assertion is the one that earns this test. Both
+    /// delta kinds arrive as `content_block_delta` and differ only in
+    /// `delta.type`, so a classifier keyed one level too high would forward the
+    /// model's reasoning as report text — and every existing test would still
+    /// be green, because none of them looks at a delta at all.
+    func test_classifyReadsTheCapturedDeltaShape() {
+        XCTAssertEqual(
+            ClaudeCLISession.classify(line: Self.capturedTextDelta),
+            .partialText("hello "),
+            "the assistant's own text is what streams")
+        XCTAssertEqual(
+            ClaudeCLISession.classify(line: Self.capturedThinkingDelta), .ignore,
+            "a thinking_delta is the model reasoning, not the report")
+        XCTAssertEqual(
+            ClaudeCLISession.classify(line: Self.capturedTextStart), .ignore,
+            "a block opening carries no text yet")
+        XCTAssertEqual(
+            ClaudeCLISession.classify(line: Self.capturedTextStop), .ignore)
+    }
+
+    /// End to end through a real subprocess: the deltas reach the handler, in
+    /// order, and the turn still resolves with its `result` exactly as before.
+    func test_onlyTheAssistantsOwnTextReachesTheHandler() async throws {
+        let cli = try makeFakeCLI(mode: .streaming)
+        let session = makeSession(cli: cli)
+        let chunks = Box<[String]>([])
+        session.setPartialHandler { chunks.value.append($0) }
+
+        let event = await session.send(message: "hello", systemPreamble: nil)
+
+        XCTAssertEqual(event, .resultText("FAKE RESULT"),
+            "streaming must not disturb how a turn ends")
+        XCTAssertEqual(chunks.value, ["hello ", "world"],
+            "the deltas arrive whole and in order")
+        XCTAssertFalse(chunks.value.contains { $0.contains("PRIVATE REASONING") },
+            "the model's thinking must never be forwarded as report text")
+
+        session.shutdown()
+    }
+
+    /// **The stale-delta guard, planted** — tripwire-shaped, and the reason
+    /// this path rides the same `receive` the result does.
+    ///
+    /// A cancelled process can have deltas already enqueued on the main actor
+    /// when its replacement spawns. Delivered without the generation check they
+    /// would be appended to the LIVE run's accumulator, and the orchestrator
+    /// would splice a dead turn's half-sentence into a living report — with
+    /// nothing red anywhere, because the run it corrupts still resolves
+    /// normally.
+    func test_aRetiredProcessesDeltasNeverReachTheHandler() async throws {
+        let cli = try makeFakeCLI(mode: .slowWhileFlagged)
+        try Data().write(to: slowFlagURL)
+        let session = makeSession(cli: cli)
+        let chunks = Box<[String]>([])
+        session.setPartialHandler { chunks.value.append($0) }
+
+        async let first = session.send(message: "first", systemPreamble: nil)
+        let firstStarted = await waitUntil { session.isRunning }
+        XCTAssertTrue(firstStarted, "the first turn should be in flight")
+        let retiredGeneration = session.sessionEpoch
+
+        session.cancelCurrentRun()
+        _ = await first
+        async let live = session.send(message: "second", systemPreamble: nil)
+        let liveStarted = await waitUntil { session.isRunning }
+        XCTAssertTrue(liveStarted, "the second turn should be in flight")
+        XCTAssertNotEqual(session.sessionEpoch, retiredGeneration)
+
+        // The corpse streams.
+        session.deliverAsIfFromProcess(
+            line: Self.capturedTextDelta, generation: retiredGeneration)
+
+        XCTAssertEqual(chunks.value, [],
+            "a retired process's delta must not reach the live run's reader")
+
+        try FileManager.default.removeItem(at: slowFlagURL)
+        _ = await live
+        session.shutdown()
+    }
+
+    /// A delta arriving with no turn in flight is dropped too — the same guard
+    /// `receive` already applies to a `result`, restated for the path that now
+    /// shares it. Without a run there is no accumulator for a chunk to belong
+    /// to, and the next run's would start with someone else's words in it.
+    func test_aDeltaWithNoTurnInFlightIsDropped() async throws {
+        let cli = try makeFakeCLI(mode: .normal)
+        let session = makeSession(cli: cli)
+        let chunks = Box<[String]>([])
+        session.setPartialHandler { chunks.value.append($0) }
+
+        _ = await session.send(message: "hello", systemPreamble: nil)
+        chunks.value = []
+
+        session.deliverAsIfFromProcess(
+            line: Self.capturedTextDelta, generation: session.sessionEpoch)
+
+        XCTAssertEqual(chunks.value, [], "no turn is in flight to stream into")
         session.shutdown()
     }
 }

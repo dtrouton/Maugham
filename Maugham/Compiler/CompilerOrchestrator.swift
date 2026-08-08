@@ -262,6 +262,36 @@ final class CompilerOrchestrator {
     /// session a toggle-off was there to prevent, seconds later.
     private var runGeneration = 0
 
+    /// **The turn as it arrives**, or `nil` between runs.
+    ///
+    /// Everything a preview needs to build a `CompilerRun` before the turn has
+    /// produced one, plus the two things the stream itself accumulates. The
+    /// record fields are read at the keystroke and carried rather than
+    /// re-derived at the end, so the run the pane shows mid-check and the run
+    /// it shows afterwards cannot describe the same check differently.
+    private struct StreamingRun {
+        let generation: Int
+        let docId: String
+        let runId: String
+        let model: String
+        let lastOpId: String?
+        let deltaSummary: String
+        let intentSnapshot: String?
+        /// Text delivered that has not closed a line yet. A chunk is cut by
+        /// the transport, not by the contract — a section's JSON object
+        /// routinely arrives in three pieces — so nothing is read until a
+        /// newline says the line is whole.
+        var buffer = ""
+        /// Every section that HAS closed, folded exactly the way `parseAll`
+        /// folds a whole turn (`DiagnosticIngest.combining`).
+        var outcome = DiagnosticIngest.SectionedOutcome.empty
+        /// Whether anything reached the pane, so a discard knows whether it
+        /// has something to take back.
+        var isShowing = false
+    }
+
+    private var streaming: StreamingRun?
+
     var isRunning: Bool {
         if isPreparingRun { return true }
         if case .running = runState { return true }
@@ -405,6 +435,17 @@ final class CompilerOrchestrator {
         // later — the pane's header says what is being read from this moment on
         // rather than from the moment the answer comes back (requirement 5).
         runState = .running(docId: docId, checking: DeltaCounts(of: delta))
+        // Minted here rather than when the answer lands, because the stream
+        // stores notes against it before there is an answer — and a note whose
+        // run id changed at the end would be a different run's note as far as
+        // every record downstream is concerned.
+        let runId = ULID.generate()
+        // `?? marker` rather than a bare `newestOpId`: a delta built with
+        // nothing after the marker still checked the prose it was given, and
+        // nil-ing the marker would make the next run re-read the whole
+        // document.
+        let lastOpId = delta.newestOpId ?? marker
+        let deltaSummary = Self.summary(of: delta)
         Task { [weak self] in
             let world = await Self.resolveWorld(briefing, model: model, in: environment)
             // The derivation is the run's second suspension, and everything the
@@ -423,11 +464,116 @@ final class CompilerOrchestrator {
                 delta: delta, world: world, essay: essay, bibleFacts: bibleFacts,
                 paletteListing: paletteListing, pinnedListing: pinnedListing,
                 previousBriefingHash: previousHash)
+
+            // **Armed immediately before the send, and never earlier.** A run
+            // abandoned while its declared world derived — a subprocess, and
+            // the longer of the two suspensions — must leave nothing for a
+            // stream to land in.
+            self.streaming = StreamingRun(
+                generation: generation, docId: docId, runId: runId, model: model,
+                lastOpId: lastOpId, deltaSummary: deltaSummary,
+                intentSnapshot: briefing?.statementText)
+            runner.setPartialHandler { [weak self] chunk in
+                self?.receivePartial(chunk, generation: generation)
+            }
+
             let event = await runner.send(message: message, systemPreamble: preamble)
-            self.finish(event, docId: docId, delta: delta, marker: marker,
+            self.finish(event, docId: docId, runId: runId, lastOpId: lastOpId,
+                        deltaSummary: deltaSummary,
                         intentSnapshot: briefing?.statementText,
                         briefingHash: briefingHash, model: model)
         }
+    }
+
+    // MARK: - The turn arriving
+
+    /// **One chunk of the answer, mid-turn** — accumulate, and read whatever
+    /// lines it closed.
+    ///
+    /// The sections are the contract's unit (`DiagnosticIngest.parseSection`'s
+    /// own doc: "one section is one unit ... so sections can be ingested as
+    /// they arrive"), and a section is one line, so a closed line is the
+    /// smallest thing worth showing. A line that is not a section — a fence
+    /// marker, a sentence of narration, the last section still missing its
+    /// newline — reads as nothing and simply waits for the result.
+    ///
+    /// **What lands here is a PREVIEW and never the answer.** It is stored
+    /// through `DiagnosticsStore.preview`, which does not persist, does not
+    /// enter the drift ring and does not raise the unread badge; `finish`
+    /// reconciles the whole turn with `parseAll` and REPLACES all of it. A
+    /// stream can be cut short, can double a section a model restates, and is
+    /// absent entirely from a runner that does not stream — so nothing may be
+    /// concluded from it that outlives the turn.
+    private func receivePartial(_ chunk: String, generation: Int) {
+        guard runGeneration == generation,
+              var run = streaming, run.generation == generation,
+              let diagnostics
+        else { return }
+
+        let docId = run.docId
+        let runId = run.runId
+        run.buffer += chunk
+        var closedASection = false
+        while let newline = run.buffer.firstIndex(of: "\n") {
+            let line = String(run.buffer[run.buffer.startIndex..<newline])
+            run.buffer = String(run.buffer[run.buffer.index(after: newline)...])
+            guard let section = DiagnosticIngest.parseSection(
+                line: line, runId: runId, docId: docId,
+                liveParagraphText: { [weak self] paragraphId in
+                    self?.environment?.liveParagraphText(docId, paragraphId)
+                })
+            else { continue }
+            run.outcome = DiagnosticIngest.combining(run.outcome, section)
+            closedASection = true
+        }
+
+        guard closedASection else {
+            streaming = run
+            return
+        }
+        run.isShowing = true
+        streaming = run
+        diagnostics.preview(
+            run: Self.record(id: runId, model: run.model, lastOpId: run.lastOpId,
+                             deltaSummary: run.deltaSummary,
+                             intentSnapshot: run.intentSnapshot, outcome: run.outcome),
+            diagnostics: run.outcome.accepted, docId: docId)
+    }
+
+    /// Throw away whatever the stream put on the pane, and forget the stream.
+    ///
+    /// Called wherever a run ends without an answer — cancel, toggle-off,
+    /// project close, a death, output that could not be read. **No half-report
+    /// survives a run**: the notes on the pane came from a check that did not
+    /// finish, and leaving them would be the compiler reporting on prose it
+    /// stopped reading half way through.
+    private func discardStreamPreview() {
+        guard let run = streaming else { return }
+        streaming = nil
+        guard run.isShowing else { return }
+        diagnostics?.discardPreview(docId: run.docId)
+    }
+
+    /// The run record — **one spelling, read by the preview and by the final
+    /// answer**, so what the pane says mid-check and what it says afterwards
+    /// cannot describe the same check differently.
+    private static func record(
+        id: String, model: String, lastOpId: String?, deltaSummary: String,
+        intentSnapshot: String?, outcome: DiagnosticIngest.SectionedOutcome
+    ) -> CompilerRun {
+        CompilerRun(
+            id: id, at: Date(), model: model, lastOpId: lastOpId,
+            deltaSummary: deltaSummary, intentSnapshot: intentSnapshot,
+            // Carried, not swallowed. A run whose every note named a paragraph
+            // the writer has since changed accepts nothing, and without this
+            // the pane would wear the seal over it.
+            droppedDangling: outcome.droppedDangling,
+            // The clauses that produced no note are most of the summary:
+            // stored with the run, superseded with the run.
+            clauseStatuses: outcome.conformance,
+            // How many reader reports were over the schema's cap of three,
+            // stored with the run so the pane can report the truncation.
+            truncatedReader: outcome.truncatedReader)
     }
 
     /// The declared world for this run: the cached reading if one was made from
@@ -482,6 +628,12 @@ final class CompilerOrchestrator {
     func cancel() {
         let hasUnsentRun = isRunning && runner?.isRunning != true
         runner?.cancelCurrentRun()
+        // Here as well as in `finish`'s failure arm, and not instead of it.
+        // The turn's continuation resumes on a later tick, so a report left
+        // standing until then is a half-report the writer watches for as long
+        // as the runloop takes — and a runner that answers a cancel with
+        // something other than a failure would never reach `finish` at all.
+        discardStreamPreview()
         guard hasUnsentRun else { return }
         runGeneration &+= 1
         isPreparingRun = false
@@ -501,6 +653,10 @@ final class CompilerOrchestrator {
         // by the run it was meant to prevent.
         runGeneration &+= 1
         isPreparingRun = false
+        // The toggle going off takes the half-report with it, for the same
+        // reason it abandons the run: nothing on the pane may outlive the check
+        // that produced it.
+        discardStreamPreview()
         // A turn cut short leaves the surface saying "running" forever
         // otherwise. A REPORTED failure is left alone: the toggle going off
         // must not erase the banner explaining why the last run failed.
@@ -519,61 +675,57 @@ final class CompilerOrchestrator {
     // MARK: - The turn coming back
 
     private func finish(
-        _ event: CompilerRunEvent, docId: String, delta: CompilerDelta,
-        marker: String?, intentSnapshot: String?, briefingHash: String?, model: String
+        _ event: CompilerRunEvent, docId: String, runId: String, lastOpId: String?,
+        deltaSummary: String, intentSnapshot: String?, briefingHash: String?, model: String
     ) {
         switch event {
         case .started:
             // Unreachable through `send`, which resolves with a terminal event
-            // (`CompilerRunner`'s own contract). The case exists for a
-            // streaming consumer that does not exist yet — the section-by-
-            // section arrival Stage 2 recorded as a follow-on (AREA.md,
-            // "Streaming"); noted rather than silently ignored.
+            // (`CompilerRunner`'s own contract). Streaming does NOT arrive
+            // here: a chunk reaches `receivePartial` through the runner's
+            // partial handler, because a turn has many chunks and exactly one
+            // terminal event. Named rather than silently ignored.
             return
 
         case .failed(let failure):
             // The marker and the briefing hash are both left exactly where they
             // were. A run that produced nothing checked nothing — advance
             // either and the next run describes a session that never read it.
+            // The stream goes with them: what it showed was a check that did
+            // not finish.
+            discardStreamPreview()
             runState = failure.isTheWritersOwnDoing
                 ? .idle
                 : .failed(docId: docId, failure: failure, at: Date())
 
         case .resultText(let text):
-            let runId = ULID.generate()
-            // The whole turn at once. `parseAll` is `parseSection` folded over
-            // the turn's objects and nothing else, so the day the session
-            // surfaces partial text this becomes a per-section feed without the
-            // meaning of a section changing (`DiagnosticIngest`'s own contract).
+            // **The whole turn at once, and it REPLACES whatever streamed.**
+            // `parseAll` is `parseSection` folded over the turn's objects and
+            // nothing else (`DiagnosticIngest`'s own contract), so this is the
+            // same reading of the same sections — but of ALL of them, including
+            // a last one whose newline never came and a first one the model
+            // restated. Reconciliation rather than accumulation is what leaves
+            // one source of truth at the end of a turn: fold the preview into
+            // this and a section the model wrote twice would be shown twice.
             guard let outcome = DiagnosticIngest.parseAll(
                 resultText: text, runId: runId, docId: docId,
                 liveParagraphText: { [weak self] paragraphId in
                     self?.environment?.liveParagraphText(docId, paragraphId)
                 })
             else {
+                discardStreamPreview()
                 runState = .failed(docId: docId, failure: .unusableOutput, at: Date())
                 return
             }
 
-            let run = CompilerRun(
-                id: runId, at: Date(), model: model,
-                // `?? marker` rather than a bare `newestOpId`: a delta built
-                // with nothing after the marker still checked the prose it was
-                // given, and nil-ing the marker would make the next run re-read
-                // the whole document.
-                lastOpId: delta.newestOpId ?? marker,
-                deltaSummary: Self.summary(of: delta),
-                intentSnapshot: intentSnapshot,
-                // Carried, not swallowed. A run whose every note named a
-                // paragraph the writer has since changed accepts nothing, and
-                // without this the pane would wear the seal over it.
-                droppedDangling: outcome.droppedDangling,
-                // The clauses that produced no note are most of the summary:
-                // stored with the run, superseded with the run.
-                clauseStatuses: outcome.conformance,
-                // How many reader reports were over the schema's cap of three,
-                // stored with the run so the pane can report the truncation.
-                truncatedReader: outcome.truncatedReader)
+            let run = Self.record(
+                id: runId, model: model, lastOpId: lastOpId,
+                deltaSummary: deltaSummary, intentSnapshot: intentSnapshot,
+                outcome: outcome)
+            // Dropped rather than discarded: `replace` below supersedes the
+            // preview wholesale, so taking it off the pane first would blink
+            // the report out and back.
+            streaming = nil
             // The notes stay in the order the sections arrived — conformance,
             // continuity, reader — because a store the pane has to re-sort is
             // two places that can disagree about the order.

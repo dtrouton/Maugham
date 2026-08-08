@@ -433,6 +433,52 @@ than throwing, and losing it costs nothing because the next run repopulates it.
 There is no repair path, only "start from nothing" — `CanvasStore.load`'s
 contract, one directory over.
 
+## Streaming — the report arrives in sections, and a preview is not a run
+
+Built third stage (Task 4). Stage 2 named it a follow-on and left the ingest
+ready for it: `parseAll` is `parseSection` folded over the turn and nothing
+else, so sections could always be read one at a time. Four things carry it, and
+three of them are about what a half-arrived report may NOT do.
+
+- **The stream is asked for, and only one delta kind is the answer.**
+  `ClaudeCLISession.arguments` adds `--include-partial-messages`; `classify`
+  gained `.partialText`, keyed on `stream_event → event.content_block_delta →
+  delta.text_delta`. **All three delta kinds arrive as `content_block_delta`**
+  — `thinking_delta` carries the model's private reasoning, `signature_delta`
+  an opaque blob — so a classifier keyed one level too high feeds the
+  orchestrator a report made of the model thinking out loud, and nothing
+  downstream can tell. Captured from a real turn rather than guessed;
+  `ClaudeCLISessionTests`' `captured…` constants are that turn's lines
+  verbatim, and the falsification (accept `thinking` too) fails two tests.
+- **Deltas ride `receive`, behind the SAME two guards as the result** — live
+  generation, turn in flight. A retired process's enqueued deltas would
+  otherwise be spliced into the run that replaced it, and that run would still
+  resolve normally, so nothing would look wrong
+  (`test_aRetiredProcessesDeltasNeverReachTheHandler`, planted).
+- **A chunk is not a line.** `CompilerOrchestrator.receivePartial` accumulates
+  and reads only what a newline closed. The transport cuts wherever it likes,
+  and a truncated object can look complete.
+- **The result REPLACES the preview; it never folds into it.** `finish` runs
+  `parseAll` over the whole turn and calls `replace`. Accumulating instead
+  shows a model's restated section twice, persisted
+  (`test_theFinalResultReconcilesTheStream`, falsified).
+
+`DiagnosticsStore.preview` is the storage verb and is deliberately weaker than
+`replace` in three ways, each a defect if a preview did it: **no persistence**
+(a half-report on disk reads back as the standing answer), **no drift ring**
+(`DriftDetector` counts consecutive RUNS — one check's four sections would
+fabricate a pattern), **no unread badge** (a badge for notes the cancel
+removed is a badge nothing can clear). `discardPreview` is a re-read of the
+untouched sidecar, which is why a cancelled preview puts the previous *finished*
+run back rather than clearing the document. Every path where a run ends without
+an answer discards: `finish`'s failure arm, the unusable-output arm, `cancel()`
+(also directly — the continuation resumes a tick later, and the writer watches
+the half-report until it does) and `shutdown()`.
+
+The pane needed no new state. The version counter already draws whatever is
+stored, and `headerState` prefers the run state for this document, so the wait
+copy keeps saying "Checking…" while the report grows under it.
+
 ## Tests worth knowing about
 
 **Count the tests, not this file.** The list below says what each suite is
@@ -510,17 +556,5 @@ everything it touches.
   changes nothing structural — the editor stays the editor — so a policy object
   with nothing to produce would be ceremony. **Built as designed, 2026-08-05**:
   Plan 2 shipped Author with none, and nothing since has argued otherwise.
-- **Streaming — and it is now a NAMED follow-on rather than an absence.**
-  `CompilerRunEvent.started` still exists for a consumer that does not exist,
-  and `send` still resolves with a terminal event: `ClaudeCLISession.receive`
-  classifies every stream line and forwards only `type == "result"`, so
-  partial assistant text never reaches the orchestrator at all. Stage 2's
-  ingest was built section-at-a-time for this — `parseAll` is `parseSection`
-  folded over the turn and nothing else — so the upgrade is a session that
-  surfaces partial assistant events plus an orchestrator that folds them as
-  they land, and NOT a change to what a section means. **Stage 2 landed the
-  whole-turn shape deliberately** (the session was not rebuilt for it); the
-  writer-facing half of that requirement — a wait that says what it is
-  reading — is the pane's, and does not depend on this.
 - **A new MCP tool, in either direction.** The compiler is an MCP *client*. The
   catalogue did not move for M2.

@@ -68,6 +68,11 @@ final class DiagnosticsStore {
 
     private var byDoc: [String: FileContent] = [:]
 
+    /// Documents whose in-memory content is a `preview` — a run still
+    /// arriving — rather than a run that finished. Read by `load`, which must
+    /// not read the sidecar back over one.
+    private var previewing: Set<String> = []
+
     init(projectRoot: URL, device: DeviceSlug) {
         self.projectRoot = projectRoot
         self.device = device
@@ -84,7 +89,18 @@ final class DiagnosticsStore {
     /// them would be work to preserve something the next ⌘R deletes. The RUN
     /// RECORD is kept, so the pane can still say when the document was last
     /// checked and what that run discarded.
+    ///
+    /// **A standing preview is never read over.** A run still arriving is by
+    /// construction newer than the sidecar, which holds the last run that
+    /// finished — so re-reading the file mid-stream would put an OLDER answer
+    /// on a pane whose header says "Checking…". The real caller is
+    /// `DiagnosticsPane.onAppear`: a writer who presses ⌘R from the editor and
+    /// then opens the pane mounts it mid-check, and without this the report
+    /// they came to watch blinks back to the previous run until the next
+    /// section lands. `discardPreview` is how a preview is deliberately
+    /// dropped, and it clears this first.
     func load(docId: String) {
+        guard !previewing.contains(docId) else { return }
         let url = Self.sidecarURL(projectRoot: projectRoot, docId: docId, device: device)
         guard let data = try? Data(contentsOf: url), // adr-0018-ok: diagnostics sidecar, derived, not manuscript
               let content = try? Self.makeDecoder().decode(FileContent.self, from: data)
@@ -118,6 +134,9 @@ final class DiagnosticsStore {
                 history.removeFirst(history.count - Self.clauseHistoryDepth)
             }
         }
+        // The run finished: what is in memory is an answer again, and the
+        // sidecar below is about to say the same thing.
+        previewing.remove(docId)
         let content = FileContent(run: run, diagnostics: diagnostics, clauseHistory: history)
         byDoc[docId] = content
         persist(docId: docId, content: content)
@@ -125,6 +144,47 @@ final class DiagnosticsStore {
         // previous run's count standing over an empty pane.
         unread[docId] = diagnostics.isEmpty ? nil : diagnostics.count
         version += 1
+    }
+
+    /// **Show a run that is still arriving.** The compiler streams its report
+    /// section by section, and this is what puts a section on the pane before
+    /// the turn it belongs to has ended.
+    ///
+    /// Three things `replace` does that this deliberately does not, each of
+    /// them a defect if a preview did it:
+    ///
+    /// - **It does not persist.** A preview is not a run that happened. A
+    ///   half-report on disk would be read back as the standing answer by the
+    ///   next launch, and the writer would have no way to tell it from a check
+    ///   that finished.
+    /// - **It does not touch the drift ring.** `DriftDetector` reads a clause
+    ///   straining across *consecutive runs*; a preview appending a snapshot
+    ///   per section would let one run contribute four, and the pane would
+    ///   announce a drift the writer's prose never had.
+    /// - **It does not set the unread badge.** Unread counts notes a finished
+    ///   run left somewhere the writer wasn't looking. A preview's notes may
+    ///   not survive the turn, and a badge for notes that no longer exist is a
+    ///   badge nothing can clear.
+    ///
+    /// Undone by `discardPreview`; superseded by `replace` when the turn ends.
+    func preview(run: CompilerRun, diagnostics: [Diagnostic], docId: String) {
+        previewing.insert(docId)
+        byDoc[docId] = FileContent(
+            run: run, diagnostics: diagnostics,
+            clauseHistory: byDoc[docId]?.clauseHistory ?? [])
+        version += 1
+    }
+
+    /// Take back everything `preview` put on screen for `docId`.
+    ///
+    /// It re-reads the sidecar, and that is the whole implementation *because*
+    /// a preview never wrote one: what is on disk is still the last run that
+    /// actually finished, so reading it back is exactly "put the standing
+    /// answer back". A document with no finished run reads as nothing, which
+    /// is the correct answer for a first check the writer cancelled.
+    func discardPreview(docId: String) {
+        previewing.remove(docId)
+        load(docId: docId)
     }
 
     /// The writer has the pane in front of them — drop `docId`'s badge.

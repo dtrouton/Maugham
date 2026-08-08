@@ -21,6 +21,16 @@ import MaughamCore
 /// draws those words as a chip that clicks through to the prose
 /// (requirement 3, `test_noParagraphIdIsEverRendered`).
 ///
+/// **The report can be half-arrived, and the pane needs no case for it.** The
+/// compiler streams its answer, so `CompilerOrchestrator` stores each section
+/// as its line closes (`DiagnosticsStore.preview`) and the version counter
+/// draws it — the conformance summary is readable while the reader's report is
+/// still being written. Nothing here distinguishes a preview from a finished
+/// run, deliberately: the header is already saying "Checking…", which is the
+/// one sentence that has to be true, and a second badge saying the same thing
+/// would be the pane narrating its own plumbing. What a preview must never do
+/// is OUTLIVE its run — that is the orchestrator's discard, not this view's.
+///
 /// **Drift is one line, above the conformance summary.** v2 dropped the
 /// `intent_drift` field; what stands in its place is not a note kind but a
 /// PATTERN — a clause straining the same way across consecutive runs, read
