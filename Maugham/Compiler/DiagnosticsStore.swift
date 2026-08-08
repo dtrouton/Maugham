@@ -73,9 +73,22 @@ final class DiagnosticsStore {
     /// not read the sidecar back over one.
     private var previewing: Set<String> = []
 
+    /// docIds the writer has told the cold-start offer "Not now" to, on THIS
+    /// device — spec §4's "never re-asked as a nag" (`DiagnosticsPane`'s
+    /// `showsColdStartOffer`). Loaded once here rather than per-doc-lazily
+    /// like `FileContent`: a refusal is a single bit with no run, no notes and
+    /// no drift ring beside it, and a document can be refused before it has
+    /// ever been run at all — before `FileContent` for it exists — so this
+    /// cannot live inside that struct without fabricating a run that never
+    /// happened. One small file for the whole project, on the same
+    /// derived-state contract as everything else here: losing it costs
+    /// nothing worse than the offer asking once more.
+    private var refusedColdStart: Set<String>
+
     init(projectRoot: URL, device: DeviceSlug) {
         self.projectRoot = projectRoot
         self.device = device
+        self.refusedColdStart = Self.loadRefusedColdStart(projectRoot: projectRoot, device: device)
     }
 
     /// Read this device's sidecar for `docId` into memory. A missing or
@@ -269,6 +282,26 @@ final class DiagnosticsStore {
         byDoc[docId]?.run.lastOpId
     }
 
+    // MARK: - The cold-start offer's refusal memory
+
+    /// Whether the writer has already told the cold-start offer "Not now" for
+    /// `docId`, on this device.
+    func hasRefusedColdStart(docId: String) -> Bool {
+        refusedColdStart.contains(docId)
+    }
+
+    /// Remember the refusal so the offer never renders again for `docId`
+    /// (`DiagnosticsPane.showsColdStartOffer`) — persisted immediately, the
+    /// same "a decision the writer made must survive a relaunch" discipline
+    /// every other write in this store follows. A second refusal of an
+    /// already-refused doc is a no-op: nothing changed, nothing to persist
+    /// twice, and no `version` bump the pane would re-render for.
+    func refuseColdStart(docId: String) {
+        guard refusedColdStart.insert(docId).inserted else { return }
+        persistRefusedColdStart()
+        version += 1
+    }
+
     /// `.maugham/diagnostics/<docId>.<slug>.json` — per-device so two
     /// machines running the compiler against the same doc never race each
     /// other's sidecar. `.raw` is interpolated only here (tripwire 24).
@@ -276,6 +309,37 @@ final class DiagnosticsStore {
         projectRoot
             .appendingPathComponent(".maugham/diagnostics")
             .appendingPathComponent("\(docId).\(device.raw).json")
+    }
+
+    /// `.maugham/diagnostics/cold-start-refused.<slug>.json` — one small
+    /// per-device file for the whole project, unlike every other sidecar
+    /// here: see `refusedColdStart`'s doc for why a per-doc file would not
+    /// work. `.raw` is interpolated only here (tripwire 24) — a second site
+    /// in this file rather than the one `sidecarURL` names, because the two
+    /// build genuinely different filenames for genuinely different content.
+    private static func refusedColdStartURL(projectRoot: URL, device: DeviceSlug) -> URL {
+        projectRoot
+            .appendingPathComponent(".maugham/diagnostics")
+            .appendingPathComponent("cold-start-refused.\(device.raw).json")
+    }
+
+    private static func loadRefusedColdStart(
+        projectRoot: URL, device: DeviceSlug
+    ) -> Set<String> {
+        let url = refusedColdStartURL(projectRoot: projectRoot, device: device)
+        guard let data = try? Data(contentsOf: url), // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+              let docIds = try? JSONDecoder().decode([String].self, from: data)
+        else { return [] }
+        return Set(docIds)
+    }
+
+    private func persistRefusedColdStart() {
+        let url = Self.refusedColdStartURL(projectRoot: projectRoot, device: device)
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(refusedColdStart.sorted()) {
+            try? data.write(to: url, options: .atomic)
+        }
     }
 
     private func persist(docId: String, content: FileContent) {

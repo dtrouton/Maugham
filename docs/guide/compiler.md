@@ -99,10 +99,23 @@ your own prose back, never a four-character token.
 A clean run says so plainly — *"Nothing to flag."* — even when every clause
 held: that is the good outcome the check exists to report, not an empty pane.
 
-**Drift has no note of its own here.** A clause that strains the same way
-across several checks in a row will surface as a pattern in a later stage,
-computed from what each run already keeps on record; for now, a straining
-clause tells you in the moment, and nothing about it accumulates across runs.
+**Drift is one line, not a note.** When a clause has strained the same way
+across three checks running, a line appears above the conformance summary —
+*"Your line may have moved — '…' has strained three runs running. Draft's
+right, or intent's right?"* — computed from what each run already keeps on
+record, never a background process. It carries no id, offers no dismissal and
+no reply field: press it and it takes you to Intent, and the pattern breaking
+on a later check is what takes the line away, not a tap.
+
+## Reading a piece for the first time
+
+The first time you check a document that has some real prose in it, the pane
+offers before it runs anything: *"I haven't read this piece. Read it whole
+and take notes?"* — **Read** starts the same check ⌘R would (the first check
+on any document already reads the whole thing), and **Not now** declines.
+Say no once and Maugham does not ask again for that document; a stub of a
+document — a title and a line — is not offered at all, and neither is one
+you have already checked, however that check turned out.
 
 ## The bible, filling quietly
 

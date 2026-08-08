@@ -543,4 +543,111 @@ final class DiagnosticsStoreTests: XCTestCase {
         XCTAssertEqual(store.lastRun(docId: docId)?.id, plainRun.id,
             "the run record itself still supersedes normally")
     }
+
+    // MARK: - The cold-start offer's refusal memory (Stage 3)
+
+    /// **Not `/tmp/unused`** — every other test in this file gets away with
+    /// that shared, fixed path because it only exercises `replace`/`dismiss`,
+    /// which never read a sidecar back on init. `refusedColdStart` is loaded
+    /// EAGERLY at `init()` (`refusedColdStart`'s own doc), so a fixed path
+    /// reused across separate invocations of this test binary is a real
+    /// cross-run leak: a `docId` refused by a PRIOR run of this very test is
+    /// still marked refused in the file the NEXT run's fresh store reads at
+    /// construction — measured live (`XCTAssertFalse` on a brand-new store
+    /// failed because a previous run's own write was still on disk).
+    func test_refuseColdStart_isRememberedAndBumpsVersion() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-refuse"
+
+        XCTAssertFalse(store.hasRefusedColdStart(docId: docId))
+        let versionBefore = store.version
+
+        store.refuseColdStart(docId: docId)
+
+        XCTAssertTrue(store.hasRefusedColdStart(docId: docId))
+        XCTAssertGreaterThan(store.version, versionBefore,
+            "the pane's `showsColdStartOffer` re-render must be able to key off this")
+    }
+
+    /// A second refusal of an already-refused document changes nothing —
+    /// no version bump the pane would re-render for pointlessly.
+    func test_refuseColdStart_aSecondRefusalIsANoOp() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-refuse-twice"
+        store.refuseColdStart(docId: docId)
+        let versionAfterFirst = store.version
+
+        store.refuseColdStart(docId: docId)
+
+        XCTAssertEqual(store.version, versionAfterFirst)
+    }
+
+    /// **The refusal is a bit a document can carry before it has ever been
+    /// run at all** — before `FileContent` for it exists, unlike every other
+    /// record this store keeps. Refusing an unrun document must not
+    /// fabricate a run or otherwise change what `lastRun`/`live` report.
+    func test_refuseColdStart_worksForADocumentWithNoRunAtAll_andMintsNoRun() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-never-run"
+
+        store.refuseColdStart(docId: docId)
+
+        XCTAssertTrue(store.hasRefusedColdStart(docId: docId))
+        XCTAssertNil(store.lastRun(docId: docId))
+        XCTAssertEqual(store.live(docId: docId, currentText: { _ in nil }), [])
+    }
+
+    /// Persisted immediately and survives a relaunch — a fresh store instance
+    /// against the same project and device must still say "refused" without
+    /// `load(docId:)` ever being called for it, since `refusedColdStart` is
+    /// read once at `init` rather than lazily per document.
+    func test_refuseColdStart_survivesRelaunch() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "doc-refuse-relaunch"
+
+        let store1 = DiagnosticsStore(projectRoot: project, device: device)
+        store1.refuseColdStart(docId: docId)
+
+        let store2 = DiagnosticsStore(projectRoot: project, device: device)
+        XCTAssertTrue(store2.hasRefusedColdStart(docId: docId))
+    }
+
+    /// Per-device, on the same discipline as every other sidecar here: a
+    /// refusal recorded on one Mac must not silence the offer's own "never
+    /// re-asked" promise on a document a DIFFERENT device has never seen
+    /// refused.
+    func test_refuseColdStart_isPerDevice() throws {
+        let project = try makeProject()
+        let docId = "doc-refuse-cross-device"
+
+        let storeA = DiagnosticsStore(
+            projectRoot: project, device: DeviceSlug.make(from: "mac-a"))
+        storeA.refuseColdStart(docId: docId)
+
+        let storeB = DiagnosticsStore(
+            projectRoot: project, device: DeviceSlug.make(from: "mac-b"))
+        XCTAssertFalse(storeB.hasRefusedColdStart(docId: docId))
+    }
+
+    /// A missing or corrupt refusal file reads as empty, the same
+    /// derived-state contract every other sidecar in this store follows —
+    /// losing it costs nothing worse than the offer asking once more.
+    func test_refuseColdStart_corruptFileReadsAsEmpty() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let url = project
+            .appendingPathComponent(".maugham/diagnostics")
+            .appendingPathComponent("cold-start-refused.\(device.raw).json")
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+
+        XCTAssertFalse(store.hasRefusedColdStart(docId: "anything"))
+    }
 }

@@ -39,6 +39,18 @@ import MaughamCore
 /// dismissal, no reply field. Pressing it opens Intent (spec §4's last
 /// bullet); the pattern breaking is what takes it away, the next time the
 /// version bumps. See `driftNote`.
+///
+/// **The cold-start offer replaces the plain empty state, once, for a
+/// document worth reading.** Spec §4: *"one refusable offer... On-demand,
+/// never background, never re-asked as a nag."* Drawn only in place of
+/// `.neverRun`'s "Not checked yet" line — never a sheet, never something that
+/// appears unasked — for a manuscript with more than a stub of prose
+/// (`showsColdStartOffer`'s `liveParagraphCount > 1`). **Read** calls
+/// `orchestrator.runRequested` exactly as ⌘R does: the offer is UI over the
+/// existing first-run path (a document with no prior marker already reads as
+/// "everything is new"), never a second run kind. **Not now** records the
+/// refusal in `DiagnosticsStore` and the offer never renders again for this
+/// document — the writer says no once, not every time they open the pane.
 @MainActor
 struct DiagnosticsPane: View {
     let orchestrator: CompilerOrchestrator
@@ -130,6 +142,24 @@ struct DiagnosticsPane: View {
                           noteCount: rows.count, docId: docId)
     }
 
+    /// Whether the pane's empty state should offer the cold-start read rather
+    /// than show the plain "Not checked yet" line. Reads `activeDocument()`
+    /// directly rather than through a closure of its own — the discriminator
+    /// is the manuscript's LIVE paragraph count (tripwire-relevant: not the
+    /// delta's "new" count, which counts ops since a marker this document has
+    /// never had), and `activeDocument` already exists on this pane for
+    /// `promote()`. Scoped to the `.neverRun` window only: once any run
+    /// happens `state` moves off `.neverRun` for good (`headerState` never
+    /// returns to it with a `lastRun` on record), so this stops reading
+    /// `sequence` again for the rest of the document's life.
+    private var showsColdStartOffer: Bool {
+        _ = diagnostics.version
+        return Self.showsColdStartOffer(
+            state: state,
+            liveParagraphCount: activeDocument()?.sequence.count ?? 0,
+            hasRefused: diagnostics.hasRefusedColdStart(docId: docId))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -193,6 +223,24 @@ struct DiagnosticsPane: View {
             guard let lastRun else { return .neverRun }
             return noteCount == 0 ? .clean(lastRun: lastRun) : .idle(lastRun: lastRun)
         }
+    }
+
+    /// **The cold-start offer's decision, pure** — no view mounted, the same
+    /// idiom `headerState`/`emptyState` use for exactly this reason.
+    ///
+    /// True only for a document this build has genuinely never run
+    /// (`state == .neverRun`; any run at all, even one that found nothing,
+    /// moves `state` off this case for good), whose manuscript is more than a
+    /// stub (`liveParagraphCount > 1` — the discriminator is LIVE paragraphs,
+    /// never ops: an op count would call a document "worth reading" for a
+    /// checkpoint or an annotation that touched no prose), and that the
+    /// writer has not already refused.
+    static func showsColdStartOffer(
+        state: HeaderState, liveParagraphCount: Int, hasRefused: Bool
+    ) -> Bool {
+        guard case .neverRun = state else { return false }
+        guard liveParagraphCount > 1 else { return false }
+        return !hasRefused
     }
 
     /// One honest sentence per failure — no apology, no chirp. `cliNotFound`
@@ -359,7 +407,9 @@ struct DiagnosticsPane: View {
 
     @ViewBuilder
     private var content: some View {
-        if !hasReport {
+        if showsColdStartOffer {
+            coldStartOffer
+        } else if !hasReport {
             let empty = Self.emptyState(for: state)
             ContentUnavailableView(
                 empty.title,
@@ -377,6 +427,31 @@ struct DiagnosticsPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    /// **The cold-start offer** (spec §4). Understated, on `content`'s
+    /// register: no sheet, no alert — the same two-button margin-note shape
+    /// the pane uses everywhere else (`DiagnosticRow`'s Answer/Promote row).
+    @ViewBuilder
+    private var coldStartOffer: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "text.book.closed")
+                .font(.system(size: 26))
+                .foregroundStyle(.secondary)
+            Text("I haven\u{2019}t read this piece. Read it whole and take notes?")
+                .font(.callout)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 280)
+            HStack(spacing: 8) {
+                Button("Not now") { diagnostics.refuseColdStart(docId: docId) }
+                    .buttonStyle(.bordered)
+                Button("Read") { orchestrator.runRequested(docId: docId) }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// **The drift line — a pattern across runs, not a note about one.**

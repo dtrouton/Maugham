@@ -94,7 +94,7 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `CompilerRunner.swift` | The seam: `send(message:systemPreamble:) -> CompilerRunEvent`, plus every way a run can fail |
 | `ClaudeCLISession.swift` | The warm subprocess behind that seam |
 | `DiagnosticIngest.swift` | The structured message → notes, clause statuses and fact-candidates, anchored against the LIVE document. One section is one unit, so arrival can become incremental without the fold changing |
-| `DeclaredWorldDeriver.swift` | Also the one-shot's pipe discipline: stdout is drained WHILE the process runs. Reading it from `terminationHandler` deadlocked on any answer past ~64 KB — the child blocks on its own write, so it never exits, so the handler never fires |
+| `DeclaredWorldDeriver.swift` | Also the one-shot's pipe discipline: stdout is drained WHILE the process runs. Reading it from `terminationHandler` deadlocked on any answer past ~64 KB — the child blocks on its own write, so it never exits, so the handler never fires. **120s deadline** (Stage 3), four times the spike's measured 30s sonnet cost: an overrunning process is `terminate()`d and the derivation returns its ordinary honest `nil` through the SAME EOF-and-exit resolution every other unreadable answer already goes through — no separate forced-resume path |
 | `Diagnostic.swift` | `Diagnostic` + `CompilerRun` — the wire and sidecar shapes |
 | `DiagnosticsStore.swift` | The per-device, per-document sidecar, and the staleness rule |
 | `DiagnosticPromotion.swift` | What a kept note says once it is an op-logged task |
@@ -183,12 +183,18 @@ is the resumed session id, not the process.
 - **17 / 24 — the sidecar.** `.maugham/diagnostics/<docId>.<slug>.json` is
   per-`(document, device)`: two Macs running the compiler against one document
   must not race each other's file. `DeviceSlug.raw` is interpolated in
-  `DiagnosticsStore.sidecarURL` and **nowhere else** — the slug lives only in
-  filenames and is never serialised into content. Two more per-device sidecars
-  joined this stage, both on the same discipline: `.maugham/derived/
-  <scopeKey>.<slug>.json` (`DeclaredWorldStore.sidecarURL`, one per statement
-  scope) and `.maugham/bible.<slug>.json` (`BibleStore.sidecarURL`, one per
-  project). `.raw` is interpolated only at each of those two call sites.
+  `DiagnosticsStore.sidecarURL` and in `DiagnosticsStore.refusedColdStartURL`
+  — the cold-start offer's refusal memory, `.maugham/diagnostics/
+  cold-start-refused.<slug>.json`, ONE small per-device file for the whole
+  project rather than per-document (a refusal is a single bit with no run
+  beside it, and can be recorded before a document has ever been run at all,
+  before its own `FileContent` exists) — and nowhere else in this file: the
+  slug lives only in filenames and is never serialised into content. Two more
+  per-device sidecars joined Stage 2, both on the same discipline:
+  `.maugham/derived/<scopeKey>.<slug>.json` (`DeclaredWorldStore.sidecarURL`,
+  one per statement scope) and `.maugham/bible.<slug>.json`
+  (`BibleStore.sidecarURL`, one per project). `.raw` is interpolated only at
+  each of those two call sites.
 - **3 / 6 — the arrival.** Nothing here holds an editor binding or a
   `Document`. What a run needs off the live document arrives as a
   `DocumentReading` value captured at the keystroke, and paragraph text is
@@ -479,6 +485,28 @@ The pane needed no new state. The version counter already draws whatever is
 stored, and `headerState` prefers the run state for this document, so the wait
 copy keeps saying "Checking…" while the report grows under it.
 
+## The cold-start offer — refusable once, per document, forever
+
+Built Stage 3. Spec §4's "one refusable offer... never re-asked as a nag" for
+a document this build has never run. Almost all of it is `DiagnosticsPane`'s
+(the pure decision `showsColdStartOffer(state:liveParagraphCount:hasRefused:)`
+and the two-button view) and therefore across the seam like the rest of the
+pane — this area's only piece is the memory the "Not now" side writes into.
+
+`DiagnosticsStore.refuseColdStart`/`hasRefusedColdStart` are a fourth,
+deliberately different sidecar shape: every other record in this store is
+keyed by `docId` and requires a `CompilerRun` to exist first (`FileContent`'s
+`run` field is non-optional), but a refusal can happen before a document has
+ever been checked at all — before `FileContent` for it exists. Rather than
+fabricate a run to hang a boolean off, the refusal set lives in its own tiny
+per-device file, `.maugham/diagnostics/cold-start-refused.<slug>.json`, on the
+same derived-state contract as everything else here: a missing or corrupt
+file reads as empty, and losing it costs nothing worse than the offer asking
+once more. **Reading is not a new run kind** — the offer's `Read` button
+calls `CompilerOrchestrator.runRequested` exactly as ⌘R does, which already
+treats a document with no marker as "everything is new"; nothing in this area
+special-cases a first run reached through the offer versus the keystroke.
+
 ## Tests worth knowing about
 
 **Count the tests, not this file.** The list below says what each suite is
@@ -510,17 +538,22 @@ drifted from them is a defect in this file.
   `scopeKey` spelling, and the missing-or-corrupt-sidecar-reads-empty contract.
 - `DeclaredWorldDeriverTests` — the one-shot subprocess: its stricter
   confinement than `ClaudeCLISession` (no `--mcp-config` at all, `--tools ""`),
-  the prompt/parser wire-shape agreement, and honest `nil` on every failure
-  mode. One live probe against the real CLI is recorded in the task-3 report,
-  not run here.
+  the prompt/parser wire-shape agreement, honest `nil` on every failure mode,
+  and (Stage 3) the 120s deadline against a fixture that never answers and
+  never exits on its own, with an injected short deadline so the test does
+  not wait the real budget out. One live probe against the real CLI is
+  recorded in the task-3 report, not run here.
 - `BibleStoreTests` — the ledger: `(subject, fact)` dedupe (and that a
   dismissed fact can return), the per-device sidecar, and the subject-slice
-  `facts(subjects:)` Stage 2 will call.
+  `facts(subjects:)` the run calls.
 - `DiagnosticsPaneTests` — the report the pane draws (the conformance summary
   first, the excerpt chips, the legible wait) and the answer flow end to end,
   including that it lands as a ruling and drops the derivation it outdated;
   also the drift line above the summary — its register, that it names no
-  count beyond "three runs", and that it is not a `Diagnostic`.
+  count beyond "three runs", and that it is not a `Diagnostic`; and (Stage 3)
+  the cold-start offer's pure decision (`showsColdStartOffer`) plus its
+  refusal — the offer for a never-run, non-stub document, gone once refused,
+  gone for good once any run happens.
 - `CompilerRunCommandTests` — ⌘R's real delivery path.
 - `PinnedReferencesTests` — the union and its resolution, including the
   dedup/dangling/sort rules; its census keeps `linkedResearchIds` (not

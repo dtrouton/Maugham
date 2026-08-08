@@ -701,6 +701,153 @@ final class DiagnosticsPaneTests: XCTestCase {
             "2 notes arrived against paragraphs that have changed and were discarded")
     }
 
+    // MARK: - The cold-start offer (Stage 3) — pure decision
+
+    /// **The pure gate, no view mounted** — the `headerState`/`emptyState`
+    /// idiom. True only when all three conditions hold at once; each
+    /// assertion below flips exactly one of them.
+    func test_showsColdStartOffer_trueOnlyForANeverRunNonTrivialUnrefusedDocument() {
+        XCTAssertTrue(DiagnosticsPane.showsColdStartOffer(
+            state: .neverRun, liveParagraphCount: 2, hasRefused: false))
+
+        XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
+            state: .neverRun, liveParagraphCount: 1, hasRefused: false),
+            "a stub manuscript (\u{2264}1 live paragraph) is not worth offering to read")
+        XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
+            state: .neverRun, liveParagraphCount: 0, hasRefused: false))
+        XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
+            state: .neverRun, liveParagraphCount: 2, hasRefused: true),
+            "a refused document never offers again")
+        XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
+            state: .idle(lastRun: makeRun()), liveParagraphCount: 2, hasRefused: false),
+            "any run at all — even one with nothing to show — moves state off .neverRun")
+        XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
+            state: .clean(lastRun: makeRun()), liveParagraphCount: 2, hasRefused: false))
+        XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
+            state: .running(checking: counts(new: 1, revised: 0)), liveParagraphCount: 2,
+            hasRefused: false),
+            "a run already under way is not the never-run window either")
+    }
+
+    // MARK: - The cold-start offer, mounted (real Document, real buttons)
+
+    /// A real, on-disk, multi-paragraph document — `activeDocument()`'s own
+    /// contract, so the offer's `liveParagraphCount` discriminator is read
+    /// off the same `sequence` `promote()` already reads, not a stand-in.
+    private func makeMultiParagraphDocument(
+        paragraphs: [String] = ["First paragraph, with some words in it.",
+                                "Second paragraph, with some more."]
+    ) async throws -> Document {
+        let (_, docURL) = try makeTestProject(
+            prefix: "COLDSTART", initialMd: paragraphs.joined(separator: "\n\n"))
+        return try await Document.load(
+            url: docURL, device: "macA", session: "s1", presenter: nil)
+    }
+
+    /// **The offer itself, and Read starting the same first run \u{2318}R
+    /// takes.** No `activeDocument` closure was threaded through
+    /// `makeEnvironment`'s canned reading — the orchestrator's own delta is
+    /// independent of the pane's `activeDocument` in every other mounted test
+    /// here too, and this one only needs to prove the button reaches
+    /// `runRequested` for THIS docId, not that the two descriptions of the
+    /// document agree.
+    func test_theOfferAppearsAndReadStartsTheFirstRun() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let docId = document.docId
+        let runner = SpyRunner()
+        let orchestrator = CompilerOrchestrator()
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        orchestrator.configure(
+            environment: makeEnvironment(docId: docId, runner: runner),
+            diagnostics: diagnostics)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: orchestrator, diagnostics: diagnostics, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            activeDocument: { document })))
+
+        let readButton = try button(labelled: "Read", in: window)
+        XCTAssertNotNil(findButton(labelled: "Not now", in: window))
+
+        _ = readButton.perform(NSSelectorFromString("accessibilityPerformPress"))
+        await awaitSends(1, on: runner)
+
+        XCTAssertEqual(runner.sendCount, 1,
+            "Read must reach the orchestrator's real runRequested \u{2014} the same "
+            + "first-run path \u{2318}R takes, not a second run kind")
+    }
+
+    /// **Not now records the refusal, and the offer never renders again for
+    /// this document** — asserted in both directions: gone from the pane
+    /// that just refused it, and gone from a SECOND, freshly mounted pane
+    /// over the same store, because the promise is about the document, not
+    /// about one pane instance.
+    func test_notNowRefusesAndTheOfferNeverRendersAgainForThatDocument() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let docId = document.docId
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            activeDocument: { document })))
+
+        let notNow = try button(labelled: "Not now", in: window)
+        _ = notNow.perform(NSSelectorFromString("accessibilityPerformPress"))
+        pump(0.2)
+
+        XCTAssertTrue(diagnostics.hasRefusedColdStart(docId: docId))
+        XCTAssertNil(findButton(labelled: "Read", in: window),
+            "the offer must not re-render in place after its own refusal")
+        XCTAssertNil(findButton(labelled: "Not now", in: window))
+
+        let secondWindow = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            activeDocument: { document })))
+        XCTAssertNil(findButton(labelled: "Read", in: secondWindow),
+            "a second pane over the same store must not offer again either")
+    }
+
+    /// A manuscript with one live paragraph or fewer never offers — the
+    /// plain "Not checked yet" empty state stands instead.
+    func test_aTrivialManuscriptNeverOffersColdStart() async throws {
+        let document = try await makeMultiParagraphDocument(paragraphs: ["Only paragraph."])
+        let docId = document.docId
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            activeDocument: { document })))
+
+        XCTAssertNil(findButton(labelled: "Read", in: window))
+        XCTAssertNil(findButton(labelled: "Not now", in: window))
+    }
+
+    /// A document with ANY run on record never offers, even a run that found
+    /// nothing to say — `headerState` only returns `.neverRun` with no
+    /// `lastRun` at all, so this is the structural half of "a doc already run
+    /// never shows the offer."
+    func test_aDocumentAlreadyRunNeverOffersColdStart() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let docId = document.docId
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.replace(run: makeRun(), diagnostics: [], docId: docId)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            activeDocument: { document })))
+
+        XCTAssertNil(findButton(labelled: "Read", in: window))
+        XCTAssertNil(findButton(labelled: "Not now", in: window))
+    }
+
     // MARK: - Cancel (real running state, real button)
 
     /// The Cancel button is visible only while a run for THIS document is in

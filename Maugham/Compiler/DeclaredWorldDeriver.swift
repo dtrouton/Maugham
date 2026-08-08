@@ -40,16 +40,31 @@ final class ClaudeWorldDeriver: WorldDeriver {
     private let model: String
     private let cliOverride: URL?
     private let isEnabled: () -> Bool
+    private let deadline: TimeInterval
 
     /// Resolved once and reused — see `ClaudeCLISession.resolvedCLI`, the
     /// same reasoning: locating the CLI can cost a login shell, and only a
     /// SUCCESS is worth remembering.
     private var resolvedCLI: URL?
 
-    init(model: String, cliOverride: URL?, isEnabled: @escaping () -> Bool) {
+    /// **The derivation deadline: 120s, matching `ClaudeCLISession`'s own
+    /// `runTimeout`.** Four times headroom over the spike's measured cost —
+    /// a real derivation against Denver's Tribute intent finished in **30s**
+    /// on sonnet (`docs/superpowers/notes/2026-08-07-second-draft-spike.md`,
+    /// "Cost $0.09 / 30 s"). A derivation is disposable convenience, never
+    /// truth (spec §3.1) — the run it feeds must not wait indefinitely on a
+    /// subprocess that has genuinely hung, so a deadline this generous still
+    /// bounds the wait without punishing an ordinary slow answer.
+    static let defaultDeadline: TimeInterval = 120
+
+    init(
+        model: String, cliOverride: URL?, isEnabled: @escaping () -> Bool,
+        deadline: TimeInterval = ClaudeWorldDeriver.defaultDeadline
+    ) {
         self.model = model
         self.cliOverride = cliOverride
         self.isEnabled = isEnabled
+        self.deadline = deadline
     }
 
     /// The wire shape sent to the CLI and read back from it. Verbatim
@@ -83,7 +98,7 @@ final class ClaudeWorldDeriver: WorldDeriver {
 
         guard let envelope = await Self.runOneShot(
             cli: cli, arguments: Self.arguments(model: model),
-            input: Self.prompt(statementText: statementText))
+            input: Self.prompt(statementText: statementText), deadline: deadline)
         else { return nil }
 
         guard let resultText = Self.extractResultText(fromEnvelope: envelope),
@@ -170,8 +185,17 @@ final class ClaudeWorldDeriver: WorldDeriver {
     /// byte read) and the child's exit — because either alone can precede
     /// the other and resuming on the first would truncate or race. See
     /// `OneShotOutput`, which owns that pairing and the resume-once rule.
+    ///
+    /// **`deadline` is the honest degrade, not a new failure mode.** A process
+    /// still running past its budget is `terminate()`d — no orphan billing —
+    /// which closes its stdout and ends it, so the SAME EOF-and-exit pairing
+    /// above resolves the continuation exactly as it does for any other
+    /// process death; a truncated or empty envelope then fails
+    /// `extractResultText`/`parse` the way `.dies`/`.garbage` already do, and
+    /// `derive` returns its ordinary honest `nil`. No separate forced-resume
+    /// path exists, so the resume-once rule has only ever the one door.
     private nonisolated static func runOneShot(
-        cli: URL, arguments: [String], input: String
+        cli: URL, arguments: [String], input: String, deadline: TimeInterval
     ) async -> String? {
         await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
             let process = Process()
@@ -226,6 +250,19 @@ final class ClaudeWorldDeriver: WorldDeriver {
                 stdin.fileHandleForWriting.write(data)
             }
             try? stdin.fileHandleForWriting.close()
+
+            // The deadline. Cancelled the moment the run resolves normally
+            // (`OneShotOutput.armDeadline`'s pairing with
+            // `takeContinuationIfReadyLocked`), so an ordinary derivation
+            // does not leave a sleeping task behind for the rest of its
+            // budget — only a genuinely overrunning one reaches `terminate()`.
+            let deadlineTask = Task.detached(priority: .utility) {
+                try? await Task.sleep(
+                    nanoseconds: UInt64(max(0, deadline) * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                if process.isRunning { process.terminate() }
+            }
+            output.armDeadline(deadlineTask)
         }
     }
 
@@ -347,6 +384,12 @@ private final class OneShotOutput: @unchecked Sendable {
     private var buffer = Data()
     private var readerFinished = false
     private var processExited = false
+    /// The deadline timer, attached once the process is spawned and stdin is
+    /// closed. Cancelled the moment a normal resume claims the continuation
+    /// (`takeContinuationIfReadyLocked`) or the spawn itself fails
+    /// (`spawnFailed`), so an ordinary run does not leave a sleeping task
+    /// behind for the rest of its budget.
+    private var deadlineTask: Task<Void, Never>?
 
     init(continuation: CheckedContinuation<String?, Never>) {
         self.continuation = continuation
@@ -356,6 +399,18 @@ private final class OneShotOutput: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         buffer.append(chunk)
+    }
+
+    /// Attach the deadline timer — cancelled immediately, rather than stored,
+    /// if the run has already resolved by the time this arrives (the guard
+    /// for the vanishingly unlikely race between arming and a process that
+    /// exits before its own countdown is even attached).
+    func armDeadline(_ task: Task<Void, Never>) {
+        lock.lock()
+        let alreadyResolved = continuation == nil
+        if !alreadyResolved { deadlineTask = task }
+        lock.unlock()
+        if alreadyResolved { task.cancel() }
     }
 
     /// stdout reached EOF: everything the child wrote has been read.
@@ -383,6 +438,8 @@ private final class OneShotOutput: @unchecked Sendable {
         lock.lock()
         let resumable = continuation
         continuation = nil
+        deadlineTask?.cancel()
+        deadlineTask = nil
         lock.unlock()
         resumable?.resume(returning: nil)
     }
@@ -390,6 +447,8 @@ private final class OneShotOutput: @unchecked Sendable {
     private func takeContinuationIfReadyLocked() -> CheckedContinuation<String?, Never>? {
         guard readerFinished, processExited, let held = continuation else { return nil }
         continuation = nil
+        deadlineTask?.cancel()
+        deadlineTask = nil
         return held
     }
 }

@@ -33,6 +33,10 @@ final class DeclaredWorldDeriverTests: XCTestCase {
         /// Answer with a well-formed envelope far larger than a pipe buffer —
         /// see `test_aLargeDerivationDoesNotDeadlock`.
         case large
+        /// Never answer and never exit on its own — the fixture for
+        /// `test_theDeadlineTerminatesAnOverrunningProcess`. Ignores nothing;
+        /// it simply never gets there, so only `terminate()` ends it.
+        case hangs
     }
 
     /// How much padding the `.large` fixture carries. A macOS pipe holds 64 KB;
@@ -100,6 +104,10 @@ final class DeclaredWorldDeriverTests: XCTestCase {
             let padding = String(repeating: "a very long reading. ",
                                  count: largePaddingBytes / 21)
             return #"{"clauses":[{"quote":"Kelly never speaks first.","check":"\#(padding)"}],"rules":[]}"#
+        case .hangs:
+            // Never printed — the script exits via `terminate()` before it
+            // would reach this line.
+            return ""
         }
     }
 
@@ -138,6 +146,11 @@ final class DeclaredWorldDeriverTests: XCTestCase {
           exit 0
         fi
 
+        if [ "$MODE" = "hangs" ]; then
+          sleep 999999
+          exit 0
+        fi
+
         echo '\(envelopeBase64)' | base64 -D
         """
         try script.write(to: url, atomically: true, encoding: .utf8)
@@ -148,9 +161,11 @@ final class DeclaredWorldDeriverTests: XCTestCase {
 
     private func makeDeriver(
         cli: URL?,
-        isEnabled: @escaping () -> Bool = { true }
+        isEnabled: @escaping () -> Bool = { true },
+        deadline: TimeInterval = ClaudeWorldDeriver.defaultDeadline
     ) -> ClaudeWorldDeriver {
-        ClaudeWorldDeriver(model: "haiku", cliOverride: cli, isEnabled: isEnabled)
+        ClaudeWorldDeriver(
+            model: "haiku", cliOverride: cli, isEnabled: isEnabled, deadline: deadline)
     }
 
     private func lineCount(_ url: URL) -> Int {
@@ -352,6 +367,82 @@ final class DeclaredWorldDeriverTests: XCTestCase {
     private final class Box<T>: @unchecked Sendable {
         var value: T
         init(_ value: T) { self.value = value }
+    }
+
+    // MARK: - The deadline
+
+    /// **A derivation that has genuinely hung still comes back — as the
+    /// ordinary honest `nil`, not a new failure mode.** An injected 0.3s
+    /// deadline against a process that never answers and never exits on its
+    /// own: the derivation must resolve well inside a few seconds (proving
+    /// `terminate()` actually ran rather than the wait falling through to the
+    /// real 120s production default) and must return `nil` (the empty output
+    /// a terminated process leaves fails `extractResultText` exactly as
+    /// `.garbage`/`.dies` already do — no separate forced-resume path
+    /// exists). Also asserts the process is actually gone, not merely that
+    /// `derive` gave up on it — the whole point of `terminate()` is that nothing
+    /// keeps running (and billing) after this call returns.
+    func test_theDeadlineTerminatesAnOverrunningProcess() async throws {
+        let cli = try makeFakeCLI(mode: .hangs)
+        let deriver = makeDeriver(cli: cli, deadline: 0.3)
+
+        let returned = expectation(description: "the derivation came back")
+        let result = Box<DerivedWorld?>(nil)
+        let started = Date()
+        Task {
+            result.value = await deriver.derive(statementText: "Kelly never speaks first.")
+            returned.fulfill()
+        }
+        await fulfillment(of: [returned], timeout: 10)
+
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 5,
+            "the deadline must end the run itself, not merely be outrun by a "
+            + "longer test timeout")
+        XCTAssertNil(
+            result.value,
+            "a terminated process's empty output is the same honest nil every "
+            + "other unreadable answer produces")
+
+        // The process is gone rather than merely abandoned — bounded polling
+        // rather than a bare assertion, since `terminate()`'s SIGTERM and the
+        // shell noticing it are not instantaneous. `/usr/bin/pgrep`, not
+        // `/bin/pgrep` — the wrong path throws inside `run()`, and `Process`
+        // hangs forever in `waitUntilExit()` on a process that never
+        // launched, which is exactly the false "still running" this check
+        // exists to catch, so a missing binary must fail loudly rather than
+        // silently pass.
+        let pgrepPath = "/usr/bin/pgrep"
+        guard FileManager.default.isExecutableFile(atPath: pgrepPath) else {
+            throw XCTSkip("no \(pgrepPath) on this machine to verify termination with")
+        }
+        let deadlinePoll = Date().addingTimeInterval(3)
+        var stillRunning = true
+        while Date() < deadlinePoll {
+            let check = Process()
+            check.executableURL = URL(fileURLWithPath: pgrepPath)
+            check.arguments = ["-f", cli.path]
+            let pipe = Pipe()
+            check.standardOutput = pipe
+            try check.run()
+            check.waitUntilExit()
+            let output = pipe.fileHandleForReading.readDataToEndOfFile()
+            stillRunning = !output.isEmpty
+            if !stillRunning { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertFalse(stillRunning, "the overrunning process must be terminated, not orphaned")
+    }
+
+    /// Well inside the deadline, an ordinary run is unaffected — the timer
+    /// exists only for the case that never resolves on its own.
+    func test_anOrdinaryRunFinishesWellInsideTheDeadline() async throws {
+        let cli = try makeFakeCLI(mode: .bare)
+        let deriver = makeDeriver(cli: cli, deadline: 0.3)
+
+        let world = await deriver.derive(statementText: "Kelly never speaks first.")
+
+        XCTAssertNotNil(world, "a fast, well-formed answer must not be caught by the deadline")
     }
 
     /// The prompt and the parser are pinned to the same wire shape — Task 3
