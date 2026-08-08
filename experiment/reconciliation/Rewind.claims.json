@@ -512,5 +512,37 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M4-RW-035",
+  "scope": "Document.restoreToOp — step 9's accepted branch",
+  "kind": "POSTCONDITION",
+  "statement": "an accepted suggestion archived by the stranded-accept resolution returns to .accepted when a .rewind restore's target lies at-or-after its changes-carrying accept — via a status-only .rewind-stamped .claudeAccept preserving the original userResponse; the applied text is back via the restore fold",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MaughamTests/Integration/RewindTravelReopenTests.test_forwardTravelPastTheAccept_restoresTheSuggestionToAccepted"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-26, Denver 2026-08-08)",
+  "reachability": "LIVE — any forward Restore past a previously-rewound accept",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-036",
+  "scope": "Document.restoreToOp — step 9's accepted branch, the before-accept arm",
+  "kind": "POSTCONDITION",
+  "statement": "the same archived-accepted suggestion reopens to .open instead when the restore target lies after the paragraph's creation but BEFORE the accept — the change was unapplied at the travelled-to moment, and the manuscript at that target does not contain it",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MaughamTests/Integration/RewindTravelReopenTests.test_travelToBeforeTheAccept_reopensTheSuggestionToOpen"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-26's principle clause)",
+  "reachability": "LIVE — scrub anywhere in the creation→accept window",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]

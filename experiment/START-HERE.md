@@ -23,7 +23,7 @@ branch. Characterisation of a NEW module still changes nothing outside `experime
 
 | | Path | Note |
 |---|---|---|
-| **Rulings — source of truth** | `01-claims-ledger.json` → `_meta.rulings` | 25 rulings + 4 principles, structured |
+| **Rulings — source of truth** | `01-claims-ledger.json` → `_meta.rulings` | count the keys, not this cell — `RULINGS.md`'s header carries the generated count |
 | **Rulings — readable** | `RULINGS.md` | **GENERATED.** Do not hand-edit |
 | Regenerate the above | `scripts/23-generate-rulings.py` | verifies no ruling or clause is dropped; exits non-zero if any is |
 | **Claims + filings** | `reconciliation/<Module>.{claims,filings}.json` | one pair per module |
@@ -48,9 +48,9 @@ why. **Read `experiment/RULINGS.md` and nothing else.**
 | `MaughamCore.PaletteCardParser` | 47 | 34% | 16 reached | `07-summary.md` |
 | `MaughamCore.PaletteCardModel` | 40 | 40% | 16 reached | `07-summary.md` |
 | `Stores/TrashStore` + `ProjectStore+Trash` | 51 | 47% | 13 / 11 | `22-trash-reconciliation.md` |
-| `OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`) | 32 | 56% | 13 / 5 | `24-rewind-reconciliation.md` |
+| `OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`) | 34 | 59% | 15 / 5 | `24-rewind-reconciliation.md` |
 
-The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 83 further claims in their own files. **252 claims in the experiment, 231 reconciled.** The app layer stands at **26 complies / 16 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
+The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 85 further claims in their own files. **254 claims in the experiment, 233 reconciled.** The app layer stands at **28 complies / 16 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
 App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `experiment/ExperimentTests` (CI job `behavioural-claims`).
 
@@ -65,13 +65,15 @@ failures.)
 ### The two results that have held across modules
 
 1. **Coverage tracks writer-proximity, and discriminates.** 0% on a tree algorithm a writer never
-   meets → 34–40% on a file format they edit → 47% on a pane they click → 52% on the most complex
-   action in the app. A ruling set that reached everything would be too generic to be useful.
+   meets → 34–40% on a file format they edit → 47% on a pane they click → ~60% on the most complex
+   action in the app (current figures live in the generated table above). A ruling set that
+   reached everything would be too generic to be useful. Coverage is a DIAGNOSTIC, not a target —
+   chasing it invites the stretching discipline 3 forbids.
 
 2. **The comply/violate ratio inverts across the layers.** MaughamCore's pure modules ran 31:1.
-   The app layer runs 26:16 (21:18 as first reconciled; the drift since is the two 2026-08-08
-   fixes flipping their filings plus the claims that pin the fixed behaviour). The old "97% of
-   what a ruling reaches is already right" headline is a fact about pure, writer-distant code and
+   The app layer's live ratio is in the generated table above (21:18 as first reconciled; every
+   fix loop moves it complies-ward, which is the layer doing its job). The old "97% of what a
+   ruling reaches is already right" headline is a fact about pure, writer-distant code and
    **must not be restated about the codebase**.
 
 ### The methodological correction (accepted, and now confirmed twice)

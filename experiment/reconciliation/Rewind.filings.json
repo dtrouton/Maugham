@@ -295,13 +295,39 @@
   }
  },
  {
+  "claim_id": "M4-RW-035",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-26",
+  "clause_that_reaches_it": "Travelling forward past an accept restores the suggestion to ACCEPTED, not merely to present.",
+  "why_in_scope": "The ruling's headline case verbatim: Maugham itself archived the accepted suggestion during travel, the paragraph and applied text return with the restore, and the status the annotation held at the travelled-to moment (at-or-after the accept: .accepted) is what returns. Fixed at 09dee301.",
+  "intent_expressed_when": "contemporaneous — the writer's forward Restore",
+  "call_path": "Rewind modal → Restore (target ≥ accept op) → restoreToOp step 9 accepted branch",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "09dee301",
+   "date": "2026-08-08",
+   "authorised_by": "RULING-26 — Denver 2026-08-08, no recommendation offered",
+   "pinned_by": "RewindTravelReopenTests (production)"
+  }
+ },
+ {
+  "claim_id": "M4-RW-036",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-26",
+  "clause_that_reaches_it": "Where Maugham itself closed an annotation during history travel, the status it had at the travelled-to moment is what returns.",
+  "why_in_scope": "The principle clause, applied to the other side of the accept: at a target inside the creation→accept window the suggestion was open and its change unapplied, so .open — not .accepted, which would claim an application the manuscript at that moment does not contain (RULING-7's shape avoided).",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "Rewind modal → Restore (creation ≤ target < accept op) → step 9 accepted branch, reopen arm",
+  "violation_or_enhancement": "neither"
+ },
+ {
   "_summary": {
-   "reached": 18,
-   "complies": 13,
+   "reached": 20,
+   "complies": 15,
    "violates": 5,
    "no_ruling": 14,
-   "total": 32,
-   "coverage": "56%",
+   "total": 34,
+   "coverage": "59%",
    "by_ruling": {
     "RULING-22": [
      "M4-RW-002",
@@ -322,6 +348,10 @@
      "M4-RW-019",
      "M4-RW-033",
      "M4-RW-034"
+    ],
+    "RULING-26": [
+     "M4-RW-035",
+     "M4-RW-036"
     ],
     "RULING-7": [
      "M4-RW-026"

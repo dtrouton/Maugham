@@ -207,8 +207,8 @@ Failure modes:
 ## Behavioural claims
 
 `Document+Rewind` (+`Document+RewindUndo`, `Deriver+Rewind`) is claim-covered:
-`experiment/reconciliation/Rewind.{claims,filings}.json` — 29 test-pinned facts and their verdicts
-against the ruling set. **Read the filings before changing rewind behaviour**: a `VIOLATES` row is a
+`experiment/reconciliation/Rewind.{claims,filings}.json` — test-pinned facts and their verdicts
+against the ruling set (count the `_summary`, not this sentence). **Read the filings before changing rewind behaviour**: a `VIOLATES` row is a
 known defect with a ruling behind it, a `COMPLIES` row is behaviour a ruling protects, and changing
 pinned behaviour means updating the claim + filing in the same commit (CLAUDE.md, "Behavioural
 claims + rulings").
