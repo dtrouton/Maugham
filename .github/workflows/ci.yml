@@ -270,7 +270,38 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # Job 3 — Swift strict-concurrency warning scan
+  # Job 3 — MaughamCore package tests (swift test, no app host)
+  #
+  # These 465 tests ran NOWHERE until 2026-08-08: the Maugham scheme's test
+  # action only carries MaughamTests, the phone scheme only MaughamPhoneTests,
+  # and nothing invoked `swift test`. The package is Apple-frameworks-only, so
+  # this job needs no xcodegen, no Metal toolchain and no simulator — the whole
+  # parallel run takes ~6 s locally.
+  # ---------------------------------------------------------------------------
+  core-tests:
+    name: MaughamCore package tests (swift test)
+    # Pure Foundation/CryptoKit — no UI mounting, so runner-OS drift is not the
+    # mounted-view hazard the mac-tests comment describes. Still macos-26 +
+    # Xcode 26.6 to keep the toolchain identical to the dev machine's.
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Xcode 26.6
+        # Same pin as mac-tests; keep the two in step.
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '26.6'
+
+      - name: Run MaughamCore tests
+        run: swift test --parallel --package-path Packages/MaughamCore
+
+  # ---------------------------------------------------------------------------
+  # Job 4 — Swift strict-concurrency warning scan
   #
   # Builds with SWIFT_STRICT_CONCURRENCY=complete and prints the warning count.
   # This job NEVER fails on warnings — its sole purpose is to make the count

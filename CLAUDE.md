@@ -28,12 +28,23 @@ These are non-negotiable. Violating one is a regression even if tests pass.
 ## Build flow
 
 ```
-./gen.sh                                                                       # xcodegen → Maugham.xcodeproj (run after every clone + after project.yml edits)
-xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO   # Mac app + MaughamCore
+./gen.sh                    # xcodegen → Maugham.xcodeproj (run after every clone + after project.yml edits)
+./scripts/test.sh           # fast loop: MaughamCore package tests + Mac scheme minus the two slow suites
+./scripts/test.sh full      # pre-merge/tag gate: core + full Mac scheme (only the documented MCP skip)
+./scripts/test.sh phone     # iOS simulator run
+```
+
+Raw invocations, when you need them:
+
+```
+xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO   # Mac app tests ONLY — MaughamCore is NOT in this scheme
+swift test --parallel --package-path Packages/MaughamCore                            # MaughamCore's 465 package tests (~6s); no scheme hosts them
 xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone -destination 'platform=iOS Simulator,name=iPhone 17' test CODE_SIGNING_ALLOWED=NO
 ```
 
-- **The two schemes are independent.** A change to MaughamCore should be tested against BOTH. Transient simulator "Busy / failed preflight checks" is a flake — re-run; don't `simctl shutdown all` before a launch.
+- **MaughamCore's package tests belong to NO scheme.** Until 2026-08-08 they ran nowhere — not locally, not in CI (the "Mac app + MaughamCore" comment this section used to carry was false). CI's `core-tests` job and both `test.sh` modes now run them; if you bypass `test.sh`, run the `swift test` line yourself after touching `Packages/MaughamCore`.
+- **The Mac scheme runs test classes in parallel worker processes** (`parallelizable: true` in `project.yml`, 2026-08-08): full suite measured 7.6 → 2.75 min, 4,313/4,313 green on the first parallel run. Each worker hosts its own app process, so window-mount tests don't collide. A test that fails in the parallel suite but passes alone now has TWO possible confounders — apply the in-suite/in-isolation discriminator before blaming your branch, and check whether it assumes a globally unique resource (fixed socket path, shared UserDefaults key, a hardcoded temp dir) that another worker can hold at the same time.
+- **The two schemes are independent.** A change to MaughamCore should be tested against BOTH (plus the package's own `swift test`). Transient simulator "Busy / failed preflight checks" is a flake — re-run; don't `simctl shutdown all` before a launch.
 - **Iterating? Skip the mounted-canvas suite until the end.** `CanvasViewMountingTests` mounts a real window per test and costs ~70s on its own — about a sixth of the whole Mac run — while every other canvas suite together finishes in ~37s. When the change doesn't touch the canvas view/event/undo/save wiring, add `-skip-testing:MaughamTests/CanvasViewMountingTests` (alongside the MCP skip below) during iteration. It is NOT optional before calling work done: run the full suite before merge/tag. The suite already runs on shortened real clocks (`makeModel()`, 2026-08-08) — the remaining cost is the per-test window mount, so don't try to claw it back with shorter pumps.
 - **`Maugham.xcodeproj/` is generated, not tracked.** `project.yml` is the source of truth; `./gen.sh` produces the whole `.xcodeproj/`. Never hand-edit `project.pbxproj`; never commit anything under `Maugham.xcodeproj/`.
 - **Triage SourceKit diagnostics by class.** Most are noise (`No such module`, stale index). Trust `xcodebuild`. **Exception: `the compiler is unable to type-check this expression in reasonable time` is REAL** — heed it. Blanket-ignoring is how a Release-only build failure shipped to CI on v0.8.0. **Second exception: a `Sendable`/concurrency diagnostic on a file you just wrote is real** — SourceKit reported one on a new canvas file (2026-08-04) that two separate `xcodebuild` greps declared absent.
