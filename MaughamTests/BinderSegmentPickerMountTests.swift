@@ -14,6 +14,23 @@ final class BinderSegmentProbe {
     init(_ segment: BinderSegment) { self.segment = segment }
 }
 
+/// Holds the two runtime-gated inputs outside the view, so a test can flip one
+/// on a mounted picker and watch the control appear or disappear — the
+/// transient join/leave contract needs the SAME mount observed twice, not two
+/// separate mounts that could each be measuring a coincidence. At file scope
+/// for the same reason as `BinderSegmentProbe`: `@Observable` cannot expand
+/// inside a `private` nested type.
+@Observable
+@MainActor
+final class BinderPickerVisibilityProbe {
+    var hasTrash: Bool
+    var findActive: Bool
+    init(hasTrash: Bool = false, findActive: Bool = false) {
+        self.hasTrash = hasTrash
+        self.findActive = findActive
+    }
+}
+
 @MainActor
 private struct PickerProbeView: View {
     let probe: BinderSegmentProbe
@@ -35,22 +52,81 @@ private struct PickerProbeView: View {
     }
 }
 
+/// The picker plus the `Divider()` every real caller mounts directly beneath
+/// it (`BinderPaneToggle.swift`, `CollectionBinderPaneToggle.swift`) — used to
+/// measure whether a choiceless picker leaves the divider (and whatever sits
+/// below it) exactly where they would stand without the picker at all, rather
+/// than merely confirming the control is absent.
+@MainActor
+private struct PickerPlusDividerProbeView: View {
+    let persona: Persona
+    let projectType: ProjectType
+    let hasTrash: Bool
+    let findActive: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            BinderSegmentPicker(
+                segment: .constant(persona.binderHome(for: projectType)),
+                persona: persona,
+                projectType: projectType,
+                hasTrash: hasTrash,
+                findActive: findActive)
+            Divider()
+        }
+        .frame(width: 240)
+    }
+}
+
+/// Just the `Divider()`, no picker at all — the baseline
+/// `PickerPlusDividerProbeView`'s choiceless configuration must match exactly,
+/// or the picker is reserving height nobody can see by eye.
+@MainActor
+private struct DividerOnlyProbeView: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+        }
+        .frame(width: 240)
+    }
+}
+
+@MainActor
+private struct VisibilityProbeView: View {
+    let probe: BinderPickerVisibilityProbe
+    let persona: Persona
+    let projectType: ProjectType
+
+    var body: some View {
+        BinderSegmentPicker(
+            segment: .constant(persona.binderHome(for: projectType)),
+            persona: persona,
+            projectType: projectType,
+            hasTrash: probe.hasTrash,
+            findActive: probe.findActive)
+        .frame(width: 240)
+    }
+}
+
 /// **The one-segment left column, measured rather than reasoned about.**
 ///
 /// Slice 2 of the persona shell (§6.1 of
-/// `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`) takes
-/// Review and Publish down to a single binder segment. The reconnaissance read
-/// `BinderSegmentPicker.body` — a `[BinderSegment]` fed to a `ForEach` inside a
-/// segmented `Picker` — and marked the single-button rendering **unverified by
-/// measurement**. It is verified here, on the real `NSSegmentedControl` SwiftUI
-/// builds: how many segments it has, that the one segment carries its image, that
-/// it is selected, and that it does not stretch the whole 240pt column.
+/// `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`) took
+/// Review and Publish down to a single binder segment, and Author followed in
+/// task 6b. The reconnaissance for that slice read `BinderSegmentPicker.body`
+/// and marked the single-button rendering **unverified by measurement**; it
+/// verified a real, selected, non-stretching `NSSegmentedControl` at count 1.
 ///
-/// It matters because a segmented control's failure modes at count 1 are all
-/// silent: a control with `segmentCount == 0`, a segment with no image, or one
-/// with nothing selected all *render* — they just render as broken chrome, which
-/// is the exact worry `Persona.swift`'s Publish case argued about for a slice and
-/// nobody put a number on.
+/// **Shell-finish stage 1 (`docs/superpowers/specs/2026-08-08-shell-finish-design.md`
+/// §9) overturns that measurement on purpose**: "a picker exists only where a
+/// real choice exists," so a one-segment (or zero-segment) list now renders
+/// **nothing** — no `NSSegmentedControl` reaches the hierarchy at all. What
+/// stays true from the original recon and is still worth measuring here: how
+/// many segments a *multi*-segment mount produces, that each carries its
+/// image and tooltip, that the selected one is highlighted, and that the
+/// control never stretches the whole 240pt column. What is NEW is the
+/// choiceless half — absence, layout (not just absence), and both directions
+/// of a transient joining and leaving.
 ///
 /// **What a mounted SwiftUI picker will and will not tell you, measured
 /// 2026-08-02 on macOS 26.5 so the next person does not spend the afternoon on
@@ -74,55 +150,118 @@ final class BinderSegmentPickerMountTests: XCTestCase {
         windows.removeAll()
     }
 
-    // MARK: - Count 1 renders as one real, selected, sized segment
+    // MARK: - A choiceless picker renders nothing
 
-    /// `.author` joined `.review` and `.publish` here in task 6b (§6.1). Task 6
-    /// measured the one-segment shape and there is nothing to re-measure — this
-    /// asks only whether **Author specifically** is different, since it is the
-    /// default persona and the one an upgrading writer opens into.
-    func test_aOneSegmentPickerRendersExactlyOneSegment() async throws {
-        for persona in [Persona.review, .publish, .author] {
-            XCTAssertEqual(BinderSegmentPicker.visibleSegments(
-                persona: persona, projectType: .novel,
-                hasTrash: false, findActive: false).count, 1,
-                "premise: \(persona) is the one-segment case")
-
-            let control = try await mount(persona: persona, on: .manuscript)
-            XCTAssertEqual(control.segmentCount, 1,
-                           "\(persona): a one-element ForEach must produce one "
-                           + "segment, not zero and not a collapsed control")
-            XCTAssertNotNil(control.image(forSegment: 0),
-                            "\(persona): the segment must carry its symbol — an "
-                            + "imageless segment is an invisible button")
-            XCTAssertEqual(control.selectedSegment, 0,
-                           "\(persona): nothing highlighted is the defect the "
-                           + "right pane's picker already shipped once")
+    /// **The registry, not literals** (shell-finish stage 1 task 2's own
+    /// contract): every persona's expected count comes from
+    /// `Persona.binderSegments(for:)` itself, never a number written here, so
+    /// this test cannot drift the way a hardcoded "Author is 1, Plan is 4"
+    /// table would the next time a registry changes.
+    ///
+    /// A choiceless persona (count ≤ 1 — today Author, Review, Publish) must
+    /// mount NO `NSSegmentedControl`. A multi-segment persona (today only
+    /// Plan) must mount exactly as many segments as its registry lists.
+    func test_choicelessPersonasRenderNothingMultiSegmentPersonasRenderTheirCount() async throws {
+        var sawChoiceless = false
+        var sawMultiSegment = false
+        for persona in Persona.allCases {
+            let expectedCount = persona.binderSegments(for: .novel).count
+            let control = try await tryMount(persona: persona,
+                                              on: persona.binderHome(for: .novel))
+            if expectedCount <= 1 {
+                sawChoiceless = true
+                XCTAssertNil(control,
+                             "\(persona): a choiceless picker (\(expectedCount) "
+                             + "segment) must render nothing")
+            } else {
+                sawMultiSegment = true
+                XCTAssertEqual(control?.segmentCount, expectedCount, "\(persona)")
+            }
         }
+        XCTAssertTrue(sawChoiceless,
+                      "the control: this run must exercise at least one "
+                      + "choiceless persona or the nil assertions above never fired")
+        XCTAssertTrue(sawMultiSegment,
+                      "the control: this run must exercise at least one "
+                      + "multi-segment persona (Plan) or the count assertions "
+                      + "above never fired")
     }
 
-    /// It is a BUTTON, not a bar. A single segment stretched across the whole
-    /// column reads as a header rather than a control, which is the "broken
-    /// chrome" shape argued about in prose for a whole slice; a single segment
-    /// sized like any other reads as a picker with one choice in it.
+    /// **Plan unchanged, asked rather than pinned.** Stage 1's interim rule is
+    /// about choice count, not persona identity — Plan already has four
+    /// segments and stays a real picker. Asked of the registry so a future
+    /// change to Plan's own list updates this test's expectation instead of
+    /// breaking it.
+    func test_planStillRendersARealMultiSegmentPicker() async throws {
+        let expected = Persona.plan.binderSegments(for: .novel)
+        XCTAssertGreaterThan(expected.count, 1,
+                             "premise: Plan is still the multi-segment case")
+        let control = try await mount(persona: .plan, on: .canvas)
+        XCTAssertEqual(control.segmentCount, expected.count)
+        XCTAssertEqual(control.selectedSegment, 0)
+    }
+
+    /// **Layout, not just absence.** A choiceless mount must not merely fail
+    /// to produce an `NSSegmentedControl` — it must leave no reserved
+    /// vertical space where the strip used to sit, so the `Divider()` every
+    /// real caller (`BinderPaneToggle`, `CollectionBinderPaneToggle`) places
+    /// directly beneath the picker sits exactly where a `Divider()` with no
+    /// picker above it would. `NSHostingView.fittingSize` reads the laid-out
+    /// AppKit tree, not the SwiftUI view's declared body, so this catches the
+    /// footgun a purely structural check (asserting `body` returns
+    /// `EmptyView`) would miss: `.padding` applied OUTSIDE the visibility
+    /// check would still add its vertical inset around a zero-size child.
+    func test_choicelessPickerReservesNoHeightAboveTheDivider() async throws {
+        let baseline = try await fittingHeight(DividerOnlyProbeView())
+        let choiceless = try await fittingHeight(
+            PickerPlusDividerProbeView(persona: .author, projectType: .novel,
+                                       hasTrash: false, findActive: false))
+        XCTAssertEqual(choiceless, baseline, accuracy: 0.5,
+                       "a choiceless picker must add nothing above the divider "
+                       + "— the tree's header has to sit exactly where it would "
+                       + "if the picker were never there")
+
+        let shown = try await fittingHeight(
+            PickerPlusDividerProbeView(persona: .plan, projectType: .novel,
+                                       hasTrash: false, findActive: false))
+        XCTAssertGreaterThan(shown, baseline + 10,
+                             "the control: a real picker must reserve visible "
+                             + "height, or this comparison is measuring nothing")
+    }
+
+    // MARK: - Count > 1 renders as real, selected, sized segments
+
+    /// The same control shape the original recon measured, now exercised
+    /// through a genuinely rendered multi-segment case rather than the
+    /// one-segment personas that no longer mount anything.
+    func test_aMultiSegmentPickerRendersEverySegmentImagedAndSelected() async throws {
+        let control = try await mount(persona: .plan, on: .canvas)
+        let expected = Persona.plan.binderSegments(for: .novel).count
+        XCTAssertEqual(control.segmentCount, expected)
+        for index in 0..<control.segmentCount {
+            XCTAssertNotNil(control.image(forSegment: index),
+                            "segment \(index) must carry its symbol — an "
+                            + "imageless segment is an invisible button")
+        }
+        XCTAssertEqual(control.selectedSegment, 0,
+                       "nothing highlighted is the defect the right pane's "
+                       + "picker already shipped once")
+    }
+
+    /// It is a BUTTON, not a bar. A rendered picker with fewer segments than
+    /// Plan's must not stretch across the whole column — the "broken chrome"
+    /// shape argued about in prose for a whole slice.
     ///
-    /// **Measured 2026-08-02, macOS 26.5:** the one-segment control lays out at
-    /// **24 × 24 pt** inside a 240pt column — so the segmented control hugs its
-    /// content rather than filling the column. Consistent with the 87–145pt
-    /// figures already recorded at `BinderSegment.pickerSymbolName`, which is
-    /// how we know this measurement is reading the real control. Plan's own
-    /// width is not written down: it moves with its segment list (slice 2 added
-    /// one), and the assertion below compares the two rather than pinning
-    /// either.
-    ///
-    /// **Plan's segment count is asked, never asserted as a literal.** It read
-    /// `XCTAssertEqual(three.segmentCount, 3)` and slice 2's `.tree` made it 4 —
-    /// a count over a list, the shape
-    /// `memory/feedback_prose_counts_are_unmaintainable.md` is about. What this
-    /// test needs of Plan is only that it has MORE segments than the
-    /// single-segment personas, which is the premise the width comparison rests
-    /// on; the exact list is `PersonaBinderSegmentTests`' business.
-    func test_theOneSegmentDoesNotStretchTheWholeColumn() async throws {
-        let one = try await mount(persona: .review, on: .manuscript)
+    /// **Measured 2026-08-02, macOS 26.5:** a one-segment control laid out at
+    /// **24 × 24 pt** inside a 240pt column, so the segmented control hugs its
+    /// content rather than filling the column; that measurement is preserved
+    /// here through the two-segment forced-selection case (Author's own
+    /// segment plus an appended Research), which is the smallest picker that
+    /// still renders under the choiceless rule. Plan's own width is not
+    /// written down: it moves with its segment list, and the assertion below
+    /// compares the two rather than pinning either.
+    func test_aRenderedPickerDoesNotStretchTheWholeColumn() async throws {
+        let fewer = try await mount(persona: .author, on: .research)
         let many = try await mount(persona: .plan, on: .canvas)
 
         XCTAssertEqual(many.segmentCount,
@@ -130,25 +269,25 @@ final class BinderSegmentPickerMountTests: XCTestCase {
                         persona: .plan, projectType: .novel,
                         hasTrash: false, findActive: false).count,
                        "what is drawn and what `visibleSegments` says must agree")
-        XCTAssertGreaterThan(many.segmentCount, one.segmentCount,
-                             "premise: Plan is the multi-segment case, and if it "
-                             + "ever stops being one this comparison measures "
-                             + "nothing")
-        let oneWidth = one.frame.width
+        XCTAssertGreaterThan(many.segmentCount, fewer.segmentCount,
+                             "premise: Plan has more segments than Author's "
+                             + "forced two, and if it ever stops being one this "
+                             + "comparison measures nothing")
+        let fewerWidth = fewer.frame.width
         let manyWidth = many.frame.width
-        XCTAssertGreaterThan(oneWidth, 0, "the control must have laid out at all")
-        XCTAssertLessThan(oneWidth, 240,
-                          "a single segment must not fill the 240pt binder column")
-        XCTAssertLessThan(oneWidth, manyWidth,
+        XCTAssertGreaterThan(fewerWidth, 0, "the control must have laid out at all")
+        XCTAssertLessThan(fewerWidth, 240,
+                          "a two-segment picker must not fill the 240pt binder column")
+        XCTAssertLessThan(fewerWidth, manyWidth,
                           "and it must be narrower than Plan's picker — measured "
-                          + "\(oneWidth)pt against \(manyWidth)pt over "
+                          + "\(fewerWidth)pt against \(manyWidth)pt over "
                           + "\(many.segmentCount) segments")
     }
 
-    /// **The icon-only picker's only text, read off the real control.** At count
-    /// 1 the whole left column is one 24pt glyph, so the tooltip is the entire
-    /// answer to "what is this button" — an empty one would leave a writer with
-    /// an unlabelled square and no picker to compare it against.
+    /// **The icon-only picker's only text, read off the real control.** Only
+    /// exercised through configurations that actually render: the
+    /// choiceless personas need `hasTrash: true` to grow a second segment
+    /// first, or there is no control to read a tooltip from.
     ///
     /// `.help()` DOES reach `NSSegmentedControl.toolTip(forSegment:)` — measured,
     /// because the reconnaissance assumed otherwise. `label(forSegment:)` is nil
@@ -160,14 +299,16 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     /// tooltip *i* must name segment *i*, which is the invariant a cached
     /// `_ConditionalContent` branch broke by leaving a label on a stale index.
     func test_everyRenderedSegmentCarriesItsOwnTooltip() async throws {
-        for (persona, selected) in [(Persona.review, BinderSegment.manuscript),
-                                    (.publish, .manuscript),
-                                    (.author, .manuscript),
-                                    (.plan, .canvas)] {
-            let control = try await mount(persona: persona, on: selected)
+        for (persona, selected, hasTrash) in [
+            (Persona.review, BinderSegment.manuscript, true),
+            (.publish, .manuscript, true),
+            (.author, .manuscript, true),
+            (.plan, .canvas, false)
+        ] as [(Persona, BinderSegment, Bool)] {
+            let control = try await mount(persona: persona, on: selected, hasTrash: hasTrash)
             let expected = BinderSegmentPicker.visibleSegments(
                 persona: persona, projectType: .novel,
-                hasTrash: false, findActive: false, including: selected)
+                hasTrash: hasTrash, findActive: false, including: selected)
                 .map { $0.displayName(for: .novel) }
 
             let actual = (0..<control.segmentCount).map { control.toolTip(forSegment: $0) }
@@ -177,25 +318,16 @@ final class BinderSegmentPickerMountTests: XCTestCase {
         }
     }
 
-    /// **The control.** The same mount at counts 1, 2 and 3, so the count-1
-    /// assertions above are reading something that varies rather than a constant
-    /// the harness would produce for any input.
-    ///
-    /// **Author moved from 2 to 1 in task 6b** (§6.1 — palette followed research
-    /// off its left column), which took the last persona whose own registry
-    /// offers exactly two segments. The count-2 row is therefore driven by
-    /// `hasTrash`, which is persona-independent and is a real rendering rather
-    /// than a stand-in — the same lever
-    /// `test_theOneSegmentPersonaStillGrowsForTrashAndFind` uses.
+    /// **The control.** The same mount at counts 0 (rendering nothing), 2 and
+    /// 3, so the assertions elsewhere in this file are reading something that
+    /// varies rather than a constant the harness would produce for any input.
     ///
     /// **Every expectation is ASKED of `visibleSegments`, and the control is
-    /// that the answers differ.** The table carried literal counts (1, 1, 2, 3)
-    /// and slice 2's `.tree` made the last one 4 — a count over a list. What
-    /// this test is for is the harness reading something that varies rather than
-    /// a constant, and "more than one distinct count, including a 1" says that
-    /// without any number having to be maintained.
-    func test_theSegmentCountTracksTheRenderedList() async throws {
-        var observed: [Int] = []
+    /// that the answers differ**, including the choiceless case: a count ≤ 1
+    /// must mount no control at all, never a control with that many segments.
+    func test_theSegmentCountTracksTheRenderedListIncludingTheChoicelessCase() async throws {
+        var observedNilCount = 0
+        var observedCounts: [Int] = []
         for (persona, selected, hasTrash) in [
             (Persona.review, BinderSegment.manuscript, false),
             (.author, .manuscript, false),
@@ -205,31 +337,79 @@ final class BinderSegmentPickerMountTests: XCTestCase {
             let expected = BinderSegmentPicker.visibleSegments(
                 persona: persona, projectType: .novel,
                 hasTrash: hasTrash, findActive: false).count
-            let control = try await mount(persona: persona, on: selected, hasTrash: hasTrash)
-            XCTAssertEqual(
-                control.segmentCount, expected,
-                "\(persona) trash=\(hasTrash): what is drawn and what "
-                + "`visibleSegments` says must be the same list")
-            observed.append(control.segmentCount)
+            let control = try await tryMount(persona: persona, on: selected, hasTrash: hasTrash)
+            if expected <= 1 {
+                observedNilCount += 1
+                XCTAssertNil(control,
+                             "\(persona) trash=\(hasTrash): a choiceless list "
+                             + "(\(expected)) must mount no control")
+            } else {
+                XCTAssertEqual(control?.segmentCount, expected,
+                               "\(persona) trash=\(hasTrash): what is drawn and "
+                               + "what `visibleSegments` says must be the same list")
+                observedCounts.append(expected)
+            }
         }
-        XCTAssertGreaterThan(Set(observed).count, 1,
+        XCTAssertGreaterThan(observedNilCount, 0,
+                             "the control: the choiceless case must be among "
+                             + "what was exercised, or the nil assertions above "
+                             + "never fired")
+        XCTAssertGreaterThan(Set(observedCounts).count, 1,
                              "the control: a harness that returned the same "
-                             + "count for every input would satisfy every "
-                             + "assertion above — observed \(observed)")
-        XCTAssertTrue(observed.contains(1),
-                      "and the one-segment shape must be among what was "
-                      + "rendered, or the count-1 tests above are measuring a "
-                      + "case this harness never produces")
+                             + "count for every rendered input would satisfy "
+                             + "every non-nil assertion above — observed "
+                             + "\(observedCounts)")
     }
 
-    /// And the runtime-gated segments still reach a one-segment persona, so
-    /// Review mid-search is a two-segment picker rather than a stranded one.
-    func test_theOneSegmentPersonaStillGrowsForTrashAndFind() async throws {
+    /// And the runtime-gated segments still reach a choiceless persona, so
+    /// Review mid-search is a two-segment picker rather than a stranded one —
+    /// unchanged by stage 1, since Trash+Find joining is exactly what makes a
+    /// choiceless list a real choice.
+    func test_theChoicelessPersonaStillGrowsForTrashAndFind() async throws {
+        let hidden = try await tryMount(persona: .review, on: .manuscript)
+        XCTAssertNil(hidden, "premise: Review alone is choiceless")
+
         let control = try await mount(persona: .review, on: .manuscript,
                                       hasTrash: true, findActive: true)
         XCTAssertEqual(control.segmentCount, 3,
                        "Trash and Find are persona-INDEPENDENT — a reviewer "
                        + "mid-search keeps the Find segment")
+    }
+
+    // MARK: - Transient joining and leaving, driven on one mount
+
+    /// **Both directions, on the SAME mounted picker.** Two separate mounts
+    /// (one with the transient, one without) could each be measuring a
+    /// coincidence of that particular mount rather than a real appear/disappear
+    /// transition; flipping `BinderPickerVisibilityProbe`'s flags on a picker
+    /// already on screen and re-observing is the only way to see the strip
+    /// actually come and go.
+    func test_transientJoiningAndLeavingTogglesThePickerBothDirections() async throws {
+        let probe = BinderPickerVisibilityProbe()
+        let window = mountVisibility(probe: probe, persona: .author, projectType: .novel)
+        await pumpUntil(deadline: 2) { self.firstSegmentedControl(in: window) == nil }
+        XCTAssertNil(firstSegmentedControl(in: window),
+                     "premise: Author alone, no trash, no find — choiceless")
+
+        probe.hasTrash = true
+        await pumpUntil(deadline: 2) { self.firstSegmentedControl(in: window) != nil }
+        XCTAssertNotNil(firstSegmentedControl(in: window),
+                        "trash joining must make the picker appear")
+
+        probe.hasTrash = false
+        await pumpUntil(deadline: 2) { self.firstSegmentedControl(in: window) == nil }
+        XCTAssertNil(firstSegmentedControl(in: window),
+                     "and trash leaving must make it disappear again")
+
+        probe.findActive = true
+        await pumpUntil(deadline: 2) { self.firstSegmentedControl(in: window) != nil }
+        XCTAssertNotNil(firstSegmentedControl(in: window),
+                        "find joining must also make the picker appear")
+
+        probe.findActive = false
+        await pumpUntil(deadline: 2) { self.firstSegmentedControl(in: window) == nil }
+        XCTAssertNil(firstSegmentedControl(in: window),
+                     "and find leaving must also make it disappear")
     }
 
     // MARK: - A forced selection the persona does not offer still renders
@@ -240,12 +420,6 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     /// (**Show** on the MCP note banner) both set `binderSegment = .research`
     /// without consulting the persona. In Author, which no longer offers it,
     /// the appended segment must appear AND be the selected one.
-    ///
-    /// **`.palette` is here too as of task 6b**, and it arrives by a third route
-    /// no event fires: `ProjectWindow.loadProject` restores `UIState.binderSegment`
-    /// verbatim, so a project last quit in Author on the palette wall reopens
-    /// there once, on the build that takes the segment away. Author renders one
-    /// segment of its own now, so both cases are counts of 2 rather than 3.
     func test_aForcedSelectionRendersAndIsSelectedInAuthor() async throws {
         for forced in [BinderSegment.research, .palette] {
             XCTAssertFalse(Persona.author.binderSegments(for: .novel).contains(forced),
@@ -261,9 +435,11 @@ final class BinderSegmentPickerMountTests: XCTestCase {
         }
     }
 
-    /// The same, in the one-segment personas: Review and Publish grow a second
-    /// segment rather than swallowing the selection.
-    func test_aForcedResearchSelectionRendersInTheOneSegmentPersonas() async throws {
+    /// The same, in the choiceless personas: Review and Publish grow a second
+    /// segment rather than swallowing the selection — and rather than staying
+    /// hidden, since a forced selection not already in the list is exactly a
+    /// second real choice.
+    func test_aForcedResearchSelectionRendersInTheChoicelessPersonas() async throws {
         for persona in [Persona.review, .publish] {
             let control = try await mount(persona: persona, on: .research)
             XCTAssertEqual(control.segmentCount, 2, "\(persona)")
@@ -274,22 +450,27 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     /// **Planted offender.** If `visibleSegments` ever stopped appending the
     /// current selection, the picker would render without it — and this proves
     /// the assertions above can see that, rather than passing on any input.
+    /// Uses `.research` (not already in Author's own one-segment list) rather
+    /// than `.manuscript`, which the choiceless rule now hides on its own and
+    /// so cannot demonstrate the append at all.
     func test_plantedOffender_withoutTheAppendTheForcedSegmentIsNotThere() async throws {
         let withoutAppend = BinderSegmentPicker.visibleSegments(
             persona: .author, projectType: .novel, hasTrash: false, findActive: false)
         XCTAssertFalse(withoutAppend.contains(.research),
                        "the offender: no append, no Research")
+        XCTAssertEqual(withoutAppend.count, 1,
+                       "premise: Author's own list is choiceless without the append")
 
-        let control = try await mount(persona: .author, on: .manuscript)
-        XCTAssertEqual(control.segmentCount, withoutAppend.count,
-                       "and it is 2 rather than 3 on screen, so the 3 asserted "
-                       + "above is the append and not a coincidence")
+        let control = try await mount(persona: .author, on: .research)
+        XCTAssertEqual(control.segmentCount, 2,
+                       "the append turns a choiceless 1 into a real 2 on screen")
     }
 
     // MARK: - Clicking still works at count 1
 
-    /// A one-segment picker whose one segment is already selected has nothing to
-    /// write, so the useful drive is the two-segment case a forced selection
+    /// A one-segment picker whose one segment is already selected renders
+    /// nothing under the choiceless rule (there is nothing to click), so the
+    /// useful drive is still the two-segment case a forced selection
     /// produces: click segment 0 and the writer must leave Research.
     func test_clickingASegmentWritesThroughTheBinding() async throws {
         let probe = BinderSegmentProbe(.research)
@@ -322,10 +503,44 @@ final class BinderSegmentPickerMountTests: XCTestCase {
                        projectType: ProjectType,
                        hasTrash: Bool,
                        findActive: Bool) async throws -> NSSegmentedControl {
+        let window = mountWindow(PickerProbeView(probe: probe, persona: persona,
+                                                 projectType: projectType,
+                                                 hasTrash: hasTrash, findActive: findActive))
+        await pumpUntil(deadline: 5) { self.firstSegmentedControl(in: window) != nil }
+        return try XCTUnwrap(firstSegmentedControl(in: window),
+                             "the picker's NSSegmentedControl never reached the "
+                             + "hierarchy — a `Picker` that renders nothing is "
+                             + "the failure this whole file exists to see")
+    }
+
+    /// The non-throwing counterpart, for configurations expected to render
+    /// nothing under the choiceless rule: a plain `mount` would fail the test
+    /// on every one of those cases via `XCTUnwrap`, which is exactly backwards
+    /// when "no control" is the assertion being made.
+    private func tryMount(persona: Persona,
+                          on segment: BinderSegment,
+                          projectType: ProjectType = .novel,
+                          hasTrash: Bool = false,
+                          findActive: Bool = false) async throws -> NSSegmentedControl? {
+        let window = mountWindow(PickerProbeView(probe: BinderSegmentProbe(segment),
+                                                 persona: persona, projectType: projectType,
+                                                 hasTrash: hasTrash, findActive: findActive))
+        // Give a real render pass a chance to produce a control before
+        // concluding there is none — the same budget `pumpUntil` uses
+        // elsewhere, just tolerant of the condition never becoming true.
+        await pumpUntil(deadline: 1) { self.firstSegmentedControl(in: window) != nil }
+        return firstSegmentedControl(in: window)
+    }
+
+    private func mountVisibility(probe: BinderPickerVisibilityProbe,
+                                 persona: Persona,
+                                 projectType: ProjectType) -> NSWindow {
+        mountWindow(VisibilityProbeView(probe: probe, persona: persona, projectType: projectType))
+    }
+
+    private func mountWindow(_ view: some View) -> NSWindow {
         let frame = CGRect(x: 0, y: 0, width: 240, height: 60)
-        let hosting = NSHostingView(rootView: AnyView(
-            PickerProbeView(probe: probe, persona: persona, projectType: projectType,
-                            hasTrash: hasTrash, findActive: findActive)))
+        let hosting = NSHostingView(rootView: AnyView(view))
         hosting.frame = frame
         let window = NSWindow(contentRect: frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -333,11 +548,26 @@ final class BinderSegmentPickerMountTests: XCTestCase {
         window.orderFront(nil)
         hosting.layoutSubtreeIfNeeded()
         windows.append(window)
-        await pumpUntil(deadline: 5) { self.firstSegmentedControl(in: window) != nil }
-        return try XCTUnwrap(firstSegmentedControl(in: window),
-                             "the picker's NSSegmentedControl never reached the "
-                             + "hierarchy — a `Picker` that renders nothing is "
-                             + "the failure this whole file exists to see")
+        return window
+    }
+
+    /// `NSHostingView.fittingSize.height` for a probe view laid out at the
+    /// binder column's real 240pt width — reads the laid-out AppKit tree
+    /// rather than the SwiftUI view's declared body, which is the "layout,
+    /// not just absence" measurement the choiceless contract asks for.
+    private func fittingHeight(_ view: some View) async throws -> CGFloat {
+        let frame = CGRect(x: 0, y: 0, width: 240, height: 200)
+        let hosting = NSHostingView(rootView: AnyView(view))
+        hosting.frame = frame
+        let window = NSWindow(contentRect: frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.orderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        windows.append(window)
+        pump(0.1)
+        hosting.layoutSubtreeIfNeeded()
+        return hosting.fittingSize.height
     }
 
     private func firstSegmentedControl(in window: NSWindow) -> NSSegmentedControl? {
@@ -350,5 +580,167 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {
         if let hit = view as? T { out.append(hit) }
         for sub in view.subviews { collect(type, in: sub, into: &out) }
+    }
+}
+
+// MARK: - AX: commands reach their segment even while the picker is hidden
+
+/// **Delivery-path check, not a structural one** (shell-finish stage 1 task
+/// 2's fourth contract). `⌘⌥F`'s handler
+/// (`ProjectWindow`'s `.onKeyWindowCommand(.maughamFindInProject)`) writes
+/// `binderSegment = .find` directly — it never touches the picker, clicks a
+/// segment, or consults `visibleSegments`. This mounts the real
+/// `BinderPaneToggle`, starts it in a choiceless persona (Author, no trash, no
+/// active find — the picker absent from the hierarchy), then drives the
+/// segment binding exactly the way that handler does and confirms Find still
+/// mounts. If the content pane depended on the picker being present to
+/// deliver a selection, this would find no search field.
+@MainActor
+final class BinderSegmentPickerAXReachabilityTests: XCTestCase {
+
+    private var temp: TempDirectory!
+    private var windows: [NSWindow] = []
+
+    override func setUp() async throws {
+        temp = TempDirectory()
+    }
+
+    override func tearDown() async throws {
+        for window in windows { window.contentView = NSView(frame: .zero) }
+        pump(0.05)
+        windows.removeAll()
+        temp.cleanup()
+        temp = nil
+    }
+
+    func test_findCommandStillReachesItsContentWhileThePickerIsHidden() async throws {
+        let store = try await project(of: .novel)
+        let box = TransientExitBox(segment: .manuscript, findActive: false)
+        let window = host(AXProbeView(store: store, box: box, persona: .author))
+
+        XCTAssertNil(firstSegmentedControl(in: window),
+                     "premise: Author, no trash, no find — the picker is hidden")
+        XCTAssertNil(firstTextField(placeholder: "Find in project", in: window),
+                     "premise: Find is not open yet")
+
+        // Mirrors `ProjectWindow`'s `.onKeyWindowCommand(.maughamFindInProject)`
+        // handler verbatim: a direct write to the bound segment, nothing routed
+        // through the picker or a click. It does not touch `findActive` either
+        // — the production handler never does — so this is exactly what the
+        // real command sends.
+        box.segment = .find
+        await waitOut(0.4)
+
+        XCTAssertNotNil(firstTextField(placeholder: "Find in project", in: window),
+                        "the Find command must still reach its content even "
+                        + "though nothing in the strip was clickable to get there")
+
+        // The picker itself is not the point of this contract (content
+        // reachability is), but it is worth confirming `visibleSegments`'
+        // append-the-current-selection rule still recovers a real choice on
+        // its own: Author's one segment plus the now-selected `.find` is a
+        // real second option, so the strip returns too.
+        guard let control = firstSegmentedControl(in: window) else {
+            return XCTFail("the picker should have grown a second segment "
+                           + "(Author's own, plus the now-selected Find) once "
+                           + "the command landed")
+        }
+        XCTAssertEqual(control.segmentCount, 2)
+        XCTAssertEqual(control.selectedSegment, 1,
+                       "Find must be the highlighted segment once it is the "
+                       + "current one")
+    }
+
+    // MARK: - Hosting
+
+    private func project(of type: ProjectType) async throws -> ProjectStore {
+        let name = "\(type.rawValue)-\(UUID().uuidString.prefix(6))"
+        let url = try await ProjectFactory.createNovelProject(named: name, in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        await store.wordCountPopulationTask?.value
+        return store
+    }
+
+    private func host(_ view: some View) -> NSWindow {
+        let frame = CGRect(x: 0, y: 0, width: 320, height: 600)
+        let hosting = NSHostingView(rootView: AnyView(view))
+        hosting.frame = frame
+        let window = NSWindow(contentRect: frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.orderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        windows.append(window)
+        pump(0.15)
+        return window
+    }
+
+    private func firstSegmentedControl(in window: NSWindow) -> NSSegmentedControl? {
+        guard let root = window.contentView else { return nil }
+        var found: [NSSegmentedControl] = []
+        collect(NSSegmentedControl.self, in: root, into: &found)
+        return found.first
+    }
+
+    private func firstTextField(placeholder: String, in window: NSWindow) -> NSTextField? {
+        guard let root = window.contentView else { return nil }
+        var found: [NSTextField] = []
+        collect(NSTextField.self, in: root, into: &found)
+        return found.first { $0.placeholderString == placeholder }
+    }
+
+    private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {
+        if let hit = view as? T { out.append(hit) }
+        for sub in view.subviews { collect(type, in: sub, into: &out) }
+    }
+
+    private func waitOut(_ seconds: TimeInterval) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            pump(0.02)
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    private func pump(_ seconds: TimeInterval = 0.15) {
+        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    }
+}
+
+/// The left column as `ProjectWindow.binderColumn` builds it, with the segment
+/// and find flag hoisted out so a test can drive them exactly as the real
+/// `.onKeyWindowCommand` handlers do. A local copy of
+/// `TransientSegmentReturnTests`' `TransientExitProbeView` rather than a
+/// shared one: that struct is `private` to its own file, and duplicating a
+/// dozen lines of harness is cheaper than widening another suite's visibility
+/// for one caller.
+@MainActor
+private struct AXProbeView: View {
+    let store: ProjectStore
+    let box: TransientExitBox
+    let persona: Persona
+    @State private var subject: BinderSubject?
+    @State private var researchId: String?
+    @State private var paletteCardId: String?
+
+    private var segment: Binding<BinderSegment> {
+        Binding(get: { box.segment }, set: { box.segment = $0 })
+    }
+
+    private var findActive: Binding<Bool> {
+        Binding(get: { box.findActive }, set: { box.findActive = $0 })
+    }
+
+    var body: some View {
+        BinderPaneToggle(
+            store: store,
+            segment: segment,
+            selectedSubject: $subject,
+            selectedResearchId: $researchId,
+            selectedPaletteCardId: $paletteCardId,
+            projectType: store.manifest.type,
+            lastParsedScript: nil,
+            findActive: findActive,
+            persona: persona)
     }
 }

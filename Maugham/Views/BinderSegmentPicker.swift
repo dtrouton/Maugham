@@ -69,18 +69,31 @@ struct BinderSegmentPicker: View {
     /// expression. If a future segment wants a text label, every segment gets
     /// a text label — see `BinderSegment.pickerSymbolName` for why that is not
     /// affordable in a 240pt column today.
+    ///
+    /// **A picker exists only where a real choice exists** (shell-finish stage
+    /// 1, spec §9): `pickerSegments.count <= 1` renders nothing — no bar, no
+    /// reserved height. The padding lives INSIDE this `if`, on the `Picker`
+    /// alone, so a choiceless mount produces the implicit `EmptyView` with
+    /// nothing wrapping it; padding applied outside the condition would
+    /// reserve the vertical inset even with zero content, which is the "empty
+    /// bar" this exists to avoid. This is the single spelling of the rule —
+    /// both `BinderPaneToggle` and `CollectionBinderPaneToggle` call this view
+    /// unconditionally and never recompute the count themselves, so a third
+    /// caller inherits the rule instead of having to remember it.
     var body: some View {
-        Picker("Binder", selection: $segment) {
-            ForEach(pickerSegments, id: \.self) { seg in
-                Image(systemName: seg.pickerSymbolName)
-                    .tag(seg)
-                    .help(seg.displayName(for: projectType))
-                    .accessibilityLabel(seg.displayName(for: projectType))
+        if pickerSegments.count > 1 {
+            Picker("Binder", selection: $segment) {
+                ForEach(pickerSegments, id: \.self) { seg in
+                    Image(systemName: seg.pickerSymbolName)
+                        .tag(seg)
+                        .help(seg.displayName(for: projectType))
+                        .accessibilityLabel(seg.displayName(for: projectType))
+                }
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
     }
 }
