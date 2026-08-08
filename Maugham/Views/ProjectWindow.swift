@@ -2228,7 +2228,8 @@ struct ProjectWindow: View {
     /// here — see `SubjectValidationModifier`, where it is also what keeps the
     /// sweep out of `load()`'s own window.
     static func validSubject(_ subject: BinderSubject?,
-                             in structure: [StructureItem]) -> BinderSubject {
+                             in structure: [StructureItem],
+                             research: [ResearchItem]) -> BinderSubject {
         switch subject {
         case .project:
             return .project
@@ -2236,10 +2237,9 @@ struct ProjectWindow: View {
             return .item(id)
         case .item, nil:
             return .project
+        case .research(let id) where TreeWalk.contains(id: id, in: research):
+            return .research(id)
         case .research:
-            // stage-2a Task 2 widens this to validate against the research
-            // tree; the narrowest correct interim answer is the same safe
-            // landing an unvalidated id already gets.
             return .project
         }
     }
@@ -2414,7 +2414,8 @@ struct ProjectWindow: View {
             // answer — `.project` needs no document to exist — so there is
             // nothing to leave alone and no `if let` here.
             self.selectedSubject = Self.validSubject(
-                ds.uiState.selectedSubject, in: s.manifest.structure)
+                ds.uiState.selectedSubject, in: s.manifest.structure,
+                research: s.manifest.research)
             self.isNoChromeOn = ds.uiState.isNoChromeOn
             self.isReviewModeOn = ds.uiState.isReviewModeOn
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible

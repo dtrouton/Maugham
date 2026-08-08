@@ -84,9 +84,10 @@ final class SubjectValidationTests: XCTestCase {
         XCTAssertFalse(TreeWalk.contains(id: "doc-1", in: after),
                        "fixture assumption: removing the group removes its child")
 
-        XCTAssertEqual(ProjectWindow.validSubject(.item("doc-1"), in: after),
-                       .project,
-                       "the subject named a row that left with its group")
+        XCTAssertEqual(
+            ProjectWindow.validSubject(.item("doc-1"), in: after, research: []),
+            .project,
+            "the subject named a row that left with its group")
     }
 
     /// **Plant: the id-equality rule this replaces.** It is written out here
@@ -107,9 +108,10 @@ final class SubjectValidationTests: XCTestCase {
         XCTAssertFalse(TreeWalk.contains(id: "doc-1", in: after),
                        "…and that subject names nothing")
 
-        XCTAssertEqual(ProjectWindow.validSubject(.item("doc-1"), in: after),
-                       .project,
-                       "the rule under test must not agree with the plant here")
+        XCTAssertEqual(
+            ProjectWindow.validSubject(.item("doc-1"), in: after, research: []),
+            .project,
+            "the rule under test must not agree with the plant here")
     }
 
     /// **The control for that plant.** The two rules agree on the direct case —
@@ -125,16 +127,18 @@ final class SubjectValidationTests: XCTestCase {
 
         XCTAssertNil(planted(.item("doc-1"), afterDeleting: "doc-1"),
                      "the plant moves the window off the deleted document")
-        XCTAssertEqual(ProjectWindow.validSubject(.item("doc-1"), in: after),
-                       .project,
-                       "and so does the rule — to a subject rather than to none")
+        XCTAssertEqual(
+            ProjectWindow.validSubject(.item("doc-1"), in: after, research: []),
+            .project,
+            "and so does the rule — to a subject rather than to none")
     }
 
     /// The other survivor: a sibling's delete moves nothing.
     func test_somebodyElsesDeleteLeavesTheSubjectAlone() {
         let after = TreeWalk.remove(id: "doc-2", in: groupedStructure())
-        XCTAssertEqual(ProjectWindow.validSubject(.item("doc-1"), in: after),
-                       .item("doc-1"))
+        XCTAssertEqual(
+            ProjectWindow.validSubject(.item("doc-1"), in: after, research: []),
+            .item("doc-1"))
     }
 
     // MARK: - `.project` is never invalidated
@@ -145,9 +149,11 @@ final class SubjectValidationTests: XCTestCase {
         XCTAssertEqual(
             ProjectWindow.validSubject(.project,
                                        in: TreeWalk.remove(id: "grp",
-                                                           in: groupedStructure())),
+                                                           in: groupedStructure()),
+                                       research: []),
             .project)
-        XCTAssertEqual(ProjectWindow.validSubject(.project, in: []), .project)
+        XCTAssertEqual(
+            ProjectWindow.validSubject(.project, in: [], research: []), .project)
     }
 
     /// **Plant: containment over the extracted id.** *"Take the subject's item
@@ -178,8 +184,9 @@ final class SubjectValidationTests: XCTestCase {
 
         // The rule under test asks about the SUBJECT, not about an id extracted
         // from one, which is the whole reason `.project` survives it.
-        XCTAssertEqual(ProjectWindow.validSubject(.project, in: structure),
-                       .project)
+        XCTAssertEqual(
+            ProjectWindow.validSubject(.project, in: structure, research: []),
+            .project)
     }
 
     /// **Plant: the historical fallback.** The same containment check, falling
@@ -206,7 +213,7 @@ final class SubjectValidationTests: XCTestCase {
             CanvasSubject.resolve(plantedAnswer, in: structure).dimsTheBoard,
             "…and that is what puts the canvas into the dim without a click")
 
-        let real = ProjectWindow.validSubject(.project, in: structure)
+        let real = ProjectWindow.validSubject(.project, in: structure, research: [])
         XCTAssertEqual(real, .project)
         XCTAssertFalse(CanvasSubject.resolve(real, in: structure).dimsTheBoard)
     }
@@ -218,7 +225,7 @@ final class SubjectValidationTests: XCTestCase {
     /// the value is byte-identical and there is no change to deliver.
     func test_theTriggerIsBlindToTitlesOrderAndNesting() {
         let base = groupedStructure()
-        let fingerprint = SubjectValidationModifier.fingerprint(of: base)
+        let fingerprint = SubjectValidationModifier.fingerprint(of: base, research: [])
 
         var renamed = TreeWalk.mutate(id: "doc-1", in: base) { item in
             var item = item
@@ -226,8 +233,9 @@ final class SubjectValidationTests: XCTestCase {
             item.path = "manuscript/01-part-one/01-chapter-one-revised.md"
             return item
         }
-        XCTAssertEqual(SubjectValidationModifier.fingerprint(of: renamed), fingerprint,
-                       "a rename must be invisible to the trigger")
+        XCTAssertEqual(
+            SubjectValidationModifier.fingerprint(of: renamed, research: []), fingerprint,
+            "a rename must be invisible to the trigger")
 
         // Reorder within the group.
         renamed = TreeWalk.mutate(id: "grp", in: renamed) { group in
@@ -235,8 +243,9 @@ final class SubjectValidationTests: XCTestCase {
             group.children = group.children.map { Array($0.reversed()) }
             return group
         }
-        XCTAssertEqual(SubjectValidationModifier.fingerprint(of: renamed), fingerprint,
-                       "a reorder moves no id in or out")
+        XCTAssertEqual(
+            SubjectValidationModifier.fingerprint(of: renamed, research: []), fingerprint,
+            "a reorder moves no id in or out")
 
         // Reparent everything to the root — the drop case.
         let flattened = TreeWalk.collect(in: base, where: { _ in true })
@@ -245,8 +254,9 @@ final class SubjectValidationTests: XCTestCase {
                 item.children = nil
                 return item
             }
-        XCTAssertEqual(SubjectValidationModifier.fingerprint(of: flattened), fingerprint,
-                       "a reparent moves no id in or out")
+        XCTAssertEqual(
+            SubjectValidationModifier.fingerprint(of: flattened, research: []), fingerprint,
+            "a reparent moves no id in or out")
     }
 
     /// …and it does fire on the two changes that can invalidate a subject. The
@@ -254,19 +264,22 @@ final class SubjectValidationTests: XCTestCase {
     /// one perfectly.
     func test_theTriggerMovesWhenAnIdLeavesOrArrives() {
         let base = groupedStructure()
-        let fingerprint = SubjectValidationModifier.fingerprint(of: base)
+        let fingerprint = SubjectValidationModifier.fingerprint(of: base, research: [])
 
         XCTAssertNotEqual(
-            SubjectValidationModifier.fingerprint(of: TreeWalk.remove(id: "doc-1", in: base)),
+            SubjectValidationModifier.fingerprint(
+                of: TreeWalk.remove(id: "doc-1", in: base), research: []),
             fingerprint)
         XCTAssertNotEqual(
-            SubjectValidationModifier.fingerprint(of: TreeWalk.remove(id: "grp", in: base)),
+            SubjectValidationModifier.fingerprint(
+                of: TreeWalk.remove(id: "grp", in: base), research: []),
             fingerprint,
             "removing the group removes three ids, not one")
         XCTAssertNotEqual(
             SubjectValidationModifier.fingerprint(
                 of: base + [StructureItem(id: "doc-3", title: "Chapter 3",
-                                          type: .document, path: "manuscript/03.md")]),
+                                          type: .document, path: "manuscript/03.md")],
+                research: []),
             fingerprint)
     }
 
@@ -275,8 +288,77 @@ final class SubjectValidationTests: XCTestCase {
     /// window whose last document is deleted and a window with no store yet look
     /// identical to the trigger.
     func test_anEmptyStructureIsNotTheAbsenceOfAStructure() {
-        XCTAssertNotEqual(SubjectValidationModifier.fingerprint(of: []),
-                          SubjectValidationModifier.fingerprint(of: groupedStructure()))
+        XCTAssertNotEqual(
+            SubjectValidationModifier.fingerprint(of: [], research: []),
+            SubjectValidationModifier.fingerprint(of: groupedStructure(), research: []))
+    }
+
+    /// **The research half of the trigger, mirroring the structure half above.**
+    /// A rename, a reorder and a reparent within the research tree cannot fire
+    /// the sweep for the same reason: `TreeWalk.collectIds` sees the same ids
+    /// either side.
+    func test_theTriggerIsBlindToResearchTitlesOrderAndNesting() {
+        let structure = groupedStructure()
+        let base = groupedResearch()
+        let fingerprint = SubjectValidationModifier.fingerprint(of: structure, research: base)
+
+        let renamed = TreeWalk.mutate(id: "r-1", in: base) { item in
+            var item = item
+            item.title = "A Note, Revised"
+            item.path = "research/notes/a-note-revised.md"
+            return item
+        }
+        XCTAssertEqual(
+            SubjectValidationModifier.fingerprint(of: structure, research: renamed),
+            fingerprint, "a research rename must be invisible to the trigger")
+    }
+
+    /// **A scope MOVE keeps the id, so a research subject must survive its own
+    /// rescope** — the same trip `moveResearchItem` makes on a cross-group drag.
+    /// The fingerprint is built from ids alone, so reparenting a research item
+    /// (even across the whole tree, the drop case) moves nothing in the trigger.
+    func test_theResearchTriggerIsBlindToItsOwnRescope() {
+        let structure = groupedStructure()
+        let base = groupedResearch()
+        let fingerprint = SubjectValidationModifier.fingerprint(of: structure, research: base)
+
+        // Reparent the note out of its group to the root — what a cross-group
+        // `moveResearchItem` produces: the id survives, only its position moves.
+        let rescoped = TreeWalk.collect(in: base, where: { _ in true })
+            .map { item -> ResearchItem in
+                var item = item
+                item.children = item.type == .group ? [] : nil
+                return item
+            }
+        XCTAssertEqual(TreeWalk.collectIds(in: rescoped).sorted(),
+                       TreeWalk.collectIds(in: base).sorted(),
+                       "fixture assumption: a rescope keeps every id")
+        XCTAssertEqual(
+            SubjectValidationModifier.fingerprint(of: structure, research: rescoped),
+            fingerprint, "a rescope must not fire the sweep")
+    }
+
+    /// …and it does fire when a research id leaves or arrives, same as the
+    /// structure half.
+    func test_theTriggerMovesWhenAResearchIdLeavesOrArrives() {
+        let structure = groupedStructure()
+        let base = groupedResearch()
+        let fingerprint = SubjectValidationModifier.fingerprint(of: structure, research: base)
+
+        XCTAssertNotEqual(
+            SubjectValidationModifier.fingerprint(
+                of: structure, research: TreeWalk.remove(id: "r-1", in: base)),
+            fingerprint)
+    }
+
+    private func groupedResearch() -> [ResearchItem] {
+        [
+            ResearchItem(id: "rgrp", title: "Notes", type: .group,
+                        path: "research/notes", children: [
+                ResearchItem(id: "r-1", title: "A Note", type: .asset,
+                            kind: .document, path: "research/notes/a-note.md")
+            ])
+        ]
     }
 
     // MARK: - Through the mounted modifier, on the real delivery path
@@ -363,6 +445,78 @@ final class SubjectValidationTests: XCTestCase {
         XCTAssertEqual(harness.subject, .item(doc.id))
         XCTAssertTrue(TreeWalk.contains(id: doc.id, in: store.manifest.structure),
                       "fixture assumption: the move actually happened")
+        await ds.close()
+    }
+
+    // MARK: - The research half, driven the same way
+
+    /// **The gap this task closes: no test anywhere pinned a research
+    /// selection sweep.** Deleting the selected research note through the real
+    /// store must move the window to `.project`, exactly as a deleted
+    /// structure document does.
+    func test_mounted_deletingTheSelectedResearchNoteMovesTheWindowOff() async throws {
+        let store = try await novel(named: "ResearchDelete")
+        let note = try await store.addResearchTextNote(parentId: nil, title: "A Note")
+        let harness = SubjectValidationHarness(store: store, subject: .research(note.id))
+        try await host(harness)
+
+        try await store.deleteResearchItem(id: note.id)
+        await settle(until: { harness.subject == .project })
+
+        XCTAssertFalse(TreeWalk.contains(id: note.id, in: store.manifest.research),
+                       "fixture assumption: the note is gone")
+        XCTAssertEqual(harness.subject, .project,
+                       "the window was left naming a research note that no longer exists")
+    }
+
+    /// The same case for a palette card — an ordinary research `.document`
+    /// asset under `research/palette/`, so no second validation path is
+    /// needed for it to sweep correctly.
+    func test_mounted_deletingTheSelectedPaletteCardMovesTheWindowOff() async throws {
+        let store = try await novel(named: "PaletteDelete")
+        // `ensurePaletteGroup` creates the palette group's folder through the
+        // typed mover (tripwire 14) and refuses without one, same as the
+        // structure move test below.
+        let ds = try await DocumentStore.open(url: store.url)
+        store.documentStore = ds
+        defer { store.documentStore = nil }
+
+        let card = try await store.addPaletteCard(title: "A Card", kind: .character)
+        let harness = SubjectValidationHarness(store: store, subject: .research(card.id))
+        try await host(harness)
+
+        try await store.deleteResearchItem(id: card.id)
+        await settle(until: { harness.subject == .project })
+
+        XCTAssertEqual(harness.subject, .project)
+        await ds.close()
+    }
+
+    /// **A scope MOVE keeps the id, so a research subject survives its own
+    /// rescope** — the mounted mirror of the fingerprint-blindness tests
+    /// above, driven through the real cross-group mover.
+    func test_mounted_rescopingTheSelectedResearchItemDoesNotDisturbTheSubject() async throws {
+        let store = try await novel(named: "ResearchRescope")
+        // `addResearchItem(kind: nil)` creates a group folder through the
+        // typed mover (tripwire 14) and refuses without one.
+        let ds = try await DocumentStore.open(url: store.url)
+        store.documentStore = ds
+        defer { store.documentStore = nil }
+
+        let note = try await store.addResearchTextNote(parentId: nil, title: "A Note")
+        let group = try await store.addResearchItem(
+            parentId: nil, title: "A Group", kind: nil)
+        let harness = SubjectValidationHarness(store: store, subject: .research(note.id))
+        try await host(harness)
+
+        try await store.moveResearchItem(id: note.id, toParentId: group.id, atIndex: 0)
+        // Fixed window: asserting nothing happens (the subject must survive
+        // the rescope untouched).
+        await settle()
+
+        XCTAssertEqual(harness.subject, .research(note.id))
+        XCTAssertTrue(TreeWalk.contains(id: note.id, in: store.manifest.research),
+                      "fixture assumption: the rescope actually happened")
         await ds.close()
     }
 

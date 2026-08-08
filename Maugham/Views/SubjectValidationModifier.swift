@@ -33,7 +33,9 @@ struct SubjectValidationModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: store.map { Self.fingerprint(of: $0.manifest.structure) }) {
+            .onChange(of: store.map {
+                Self.fingerprint(of: $0.manifest.structure, research: $0.manifest.research)
+            }) {
                 oldValue, newValue in
                 // The structure APPEARING is not the structure changing, and nor
                 // is it vanishing. `load()` sets `store` and then awaits before
@@ -50,22 +52,34 @@ struct SubjectValidationModifier: ViewModifier {
                 // clicked into empty space, on a delete somewhere else in the
                 // tree. Choosing is the restore's job and the writer's.
                 selectedSubject = ProjectWindow.validSubject(
-                    subject, in: store.manifest.structure)
+                    subject, in: store.manifest.structure,
+                    research: store.manifest.research)
             }
     }
 
-    /// The trigger: the SET of structure ids, sorted and hashed.
+    /// The trigger: the SET of structure ids UNION the set of research ids,
+    /// sorted together and hashed.
+    ///
+    /// **One fingerprint, not two.** A subject is either a structure item or a
+    /// research item (never both), so a single sweep needs to fire on either
+    /// tree changing shape — two separate `.onChange`s would be two places that
+    /// can fall out of step about which one repairs a given subject kind, and
+    /// palette cards live inside `manifest.research` (under the palette group),
+    /// so the research half already covers them with no third tree to watch.
     ///
     /// **Blind to title, path, order and nesting by construction**, which is how
     /// a rename, a reorder and a drop cannot fire this. That is not a timing
-    /// argument — `renameStructureItem` and `moveStructureItem` both preserve
+    /// argument — `renameStructureItem`/`moveStructureItem` and their research
+    /// counterparts (including `moveResearchItem`, a scope move) all preserve
     /// every id, so the value they produce is byte-identical and `.onChange`
     /// never sees a change to deliver. An `.onChange` that fired on those would
     /// be watching every intermediate state a multi-step mutation passes
     /// through, and clearing the writer's selection during a drag is a worse bug
-    /// than the dangling subject this exists to fix.
+    /// than the dangling subject this exists to fix — and a research subject
+    /// must survive its own rescope exactly as a structure one survives a
+    /// reparent.
     ///
-    /// **A scalar, not the structure itself.** `.onChange(of: structure)`
+    /// **A scalar, not the trees themselves.** `.onChange(of: structure)`
     /// compiles and compares every item and every title on every body pass;
     /// `CanvasItemIndex.fingerprint` is the same shape for the same reason and
     /// its comment carries the derivation. `StableHash.fnv1a64Hex` rather than
@@ -73,13 +87,18 @@ struct SubjectValidationModifier: ViewModifier {
     /// here needed seeding — same walk, same cost, and no hole in
     /// `TripwireGrepTests.test_noHashValueInPersistedIdConstruction`.
     ///
-    /// **Sorted before hashing.** `collectIds` is pre-order, so an unsorted join
-    /// would move on a reparent that changes no membership — the drop case,
-    /// straight back.
-    static func fingerprint(of structure: [StructureItem]) -> String {
+    /// **Sorted before hashing, structure and research ids together.**
+    /// `collectIds` is pre-order, so an unsorted join would move on a reparent
+    /// or a rescope that changes no membership — the drop/move case, straight
+    /// back. The two id spaces are joined into one sorted list rather than
+    /// hashed separately and combined, so an id moving between the two trees
+    /// (which does not happen today) could never cancel out against itself.
+    static func fingerprint(
+        of structure: [StructureItem], research: [ResearchItem]
+    ) -> String {
         // A control character, so no id can spell the separator and make two
-        // different structures hash alike.
-        StableHash.fnv1a64Hex(
-            TreeWalk.collectIds(in: structure).sorted().joined(separator: "\u{1}"))
+        // different trees hash alike.
+        let ids = TreeWalk.collectIds(in: structure) + TreeWalk.collectIds(in: research)
+        return StableHash.fnv1a64Hex(ids.sorted().joined(separator: "\u{1}"))
     }
 }
