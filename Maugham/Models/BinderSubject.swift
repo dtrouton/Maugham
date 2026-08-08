@@ -47,16 +47,35 @@ public enum BinderSubject: Hashable, Sendable {
     /// the case would be free to disagree with it.
     case item(String)
 
+    /// A research item, by id — the tree's other kind of leaf (stage-2a Task 1,
+    /// the shell-finish "tree grows" milestone). `itemID` returns `nil` for
+    /// this case, same as `.project`: every existing reader of `itemID`
+    /// assumes structure (`activeItemID`, `OutlineTable`, `CanvasSubject.resolve`
+    /// among them), and a research id answering there would be a document id
+    /// no `TreeWalk` can find. `researchID` is this case's own one-way
+    /// accessor, the mirror of `itemID`.
+    case research(String)
+
     /// The structure-item id this subject names, or `nil` when it names the
-    /// project.
+    /// project or a research item.
     ///
     /// One-way on purpose: there is no inverse. A caller reaching for this has
-    /// to handle the `nil` that means *"the subject is the project"*, which is
-    /// the decision the old `String?` let every site skip.
+    /// to handle the `nil` that means *"the subject is not a structure item"*,
+    /// which is the decision the old `String?` let every site skip.
     public var itemID: String? {
         switch self {
         case .project: return nil
         case .item(let id): return id
+        case .research: return nil
+        }
+    }
+
+    /// The research-item id this subject names, or `nil` when it names the
+    /// project or a structure item. The mirror of `itemID`.
+    public var researchID: String? {
+        switch self {
+        case .project, .item: return nil
+        case .research(let id): return id
         }
     }
 

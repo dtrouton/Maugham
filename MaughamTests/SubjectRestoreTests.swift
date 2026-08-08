@@ -83,6 +83,18 @@ final class SubjectRestoreTests: XCTestCase {
             + "choose — the next sweep then binds to it silently")
     }
 
+    /// **The narrowest correct interim answer, not the final one.** Stage-2a
+    /// Task 2 is what teaches `validSubject` to validate a research id against
+    /// the research tree; until then a saved research subject restores to the
+    /// project — the same safe landing an unvalidatable id already gets — and
+    /// never crashes or restores something wrong.
+    func test_aResearchSubjectRestoresToTheProjectForNow() {
+        XCTAssertEqual(
+            ProjectWindow.validSubject(.research("r-1"), in: structure()),
+            .project,
+            "stage-2a Task 2 widens this to validate against the research tree")
+    }
+
     // MARK: - The edges of the fallback
 
     /// A structure with no document in it, which used to be the one shape with

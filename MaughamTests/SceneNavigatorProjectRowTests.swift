@@ -457,13 +457,18 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         XCTAssertNil(
             SceneNavigatorPane.listSelection(for: .item("doc-1"), documentID: nil),
             "with no document there is no script row to select")
+        XCTAssertNil(
+            SceneNavigatorPane.listSelection(for: .research("r-1"), documentID: "doc-1"),
+            "a research subject is pass-through-foreign here — this pane draws "
+            + "no row for it (stage-2a Task 1)")
     }
 
     /// **The three writes the projection has to tell apart.** `.project` and the
     /// script's own item are rows; everything else — `nil` from an untagged
     /// scene row, and a foreign item — leaves the subject alone.
     func test_onlyThisPanesOwnRowsMoveTheSubjectThroughTheList() {
-        for current: BinderSubject? in [nil, .project, .item("doc-1"), .item("doc-9")] {
+        for current: BinderSubject? in [nil, .project, .item("doc-1"), .item("doc-9"),
+                                        .research("r-1")] {
             let where_ = "current: \(String(describing: current))"
             XCTAssertEqual(
                 SceneNavigatorPane.subject(current, whenListWrites: .project,
@@ -489,6 +494,12 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
                 "this pane draws no row for another document — such an item "
                 + "arriving through the List is not a signal it can act on "
                 + "(\(where_))")
+            XCTAssertEqual(
+                SceneNavigatorPane.subject(current, whenListWrites: .research("r-1"),
+                                           documentID: "doc-1"),
+                current,
+                "this pane draws no row for a research subject either — "
+                + "pass-through-foreign (\(where_))")
         }
     }
 
@@ -508,6 +519,12 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
             SceneNavigatorPane.subject(.project, whenNavigatingTo: nil),
             .project,
             "a screenplay with no document at all has nothing to restore to")
+        XCTAssertEqual(
+            SceneNavigatorPane.subject(.research("r-1"), whenNavigatingTo: "doc-1"),
+            .research("r-1"),
+            "a research subject is left alone here too, same posture as "
+            + "`.item` — deciding whether a scene click should reclaim the "
+            + "script from a research subject is out of this task's scope")
     }
 
     // MARK: - Hosting and driving

@@ -177,6 +177,8 @@ struct SceneNavigatorPane: View {
         switch subject {
         case .project: return .project
         case .item(let id): return id == documentID ? .item(id) : nil
+        case .research: return nil  // pass-through-foreign — this pane draws no
+                                     // row for a research subject (stage-2a Task 1)
         case .none: return nil
         }
     }
@@ -190,6 +192,9 @@ struct SceneNavigatorPane: View {
         switch written {
         case .project: return .project
         case .item(let id): return id == documentID ? .item(id) : current
+        case .research: return current  // this pane never tags a row .research,
+                                         // so this case cannot actually fire —
+                                         // kept for exhaustiveness (stage-2a Task 1)
         case .none: return current
         }
     }
@@ -219,7 +224,11 @@ struct SceneNavigatorPane: View {
     static func subject(_ current: BinderSubject?,
                         whenNavigatingTo documentID: String?) -> BinderSubject? {
         switch current {
-        case .item: return current
+        case .item, .research: return current  // a research subject is left
+            // alone here too, same posture as `.item` (stage-2a Task 1) —
+            // whether a scene click should reclaim the script from a research
+            // subject is a decision for the task that gives research a real
+            // home in this pane, not this one
         case .project, .none: return documentID.map(BinderSubject.item) ?? current
         }
     }

@@ -2236,6 +2236,11 @@ struct ProjectWindow: View {
             return .item(id)
         case .item, nil:
             return .project
+        case .research:
+            // stage-2a Task 2 widens this to validate against the research
+            // tree; the narrowest correct interim answer is the same safe
+            // landing an unvalidated id already gets.
+            return .project
         }
     }
 

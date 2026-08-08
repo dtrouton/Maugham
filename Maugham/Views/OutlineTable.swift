@@ -27,6 +27,12 @@ struct OutlineTable: View {
     /// `nil` on the way out for a project subject is the honest answer: this
     /// table lists documents, and the project is not one of its rows. The
     /// setter is deliberately trivial — tripwire 3.
+    ///
+    /// **Already research-safe, unchanged by stage-2a Task 1.** The getter
+    /// reads `.itemID`, which is `nil` for `.research` exactly as it is for
+    /// `.project`, so a research subject shows no row selected here — no
+    /// row IS one. The setter only ever writes `.item`, so this table cannot
+    /// itself produce a research subject.
     private var rowSelection: Binding<String?> {
         Binding(
             get: { selectedSubject?.itemID },
