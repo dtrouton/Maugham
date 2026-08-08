@@ -142,16 +142,25 @@ enum BibleStratum {
     }
 
     /// The half `bless` and `correct` share: write the writer's sentence as a
-    /// ruling, mark the reading graduated, and only then take it off the pane.
+    /// ruling, mark what has graduated, and only then take the reading off the
+    /// pane.
     ///
-    /// **Three steps in that order, and the order is the same contract twice.**
-    /// The ruling first, because a refusal must leave the writer something to
-    /// press again; the graduation before the dismissal, because between the
-    /// two the fact is a reading the writer has already ruled on and a run
-    /// landing in that window would re-record it. What is marked is
-    /// `fact.fact` — Claude's reading — never `words`, which for a correction
-    /// are the writer's own and are briefed as a clause rather than proposed as
-    /// a candidate (`BibleStore.markGraduated`).
+    /// **The ruling comes first because a refusal must leave the writer
+    /// something to press again** — `bless`'s own contract, one step earlier:
+    /// nothing is marked and nothing is dismissed unless `rule` succeeded.
+    /// After that there is no race to guard (both calls are synchronous on the
+    /// main actor with nothing between them); marking before dismissing is
+    /// coherence — the register is never briefly missing a fact whose
+    /// graduation has not been recorded.
+    ///
+    /// **TWO keys, and a correction is why.** `fact.fact` is Claude's reading,
+    /// which the next run re-emits from the same prose. `words` is what the
+    /// writer ruled — identical to the reading for a bless, their own sentence
+    /// for a correction — and the manuscript can establish that too, at which
+    /// point a run would offer them back the decision they already made and a
+    /// second press would mint a duplicate ruling row. Both are declared now;
+    /// a candidate matching either is not news (`BibleStore.markGraduated`).
+    /// For a bless the two calls are one key and the second is a no-op.
     ///
     /// A refusal is swallowed here rather than surfaced, on the pane's own
     /// terms: `RulingPerformer`'s refusals are all structural (a scope naming no
@@ -169,6 +178,7 @@ enum BibleStratum {
             return
         }
         bible.markGraduated(subject: fact.subject, fact: fact.fact)
+        bible.markGraduated(subject: fact.subject, fact: words)
         bible.dismiss(fact.id)
     }
 }

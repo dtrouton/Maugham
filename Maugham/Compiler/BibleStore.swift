@@ -171,11 +171,15 @@ final class BibleStore {
     /// fact and the door exactly as it found them, or the writer loses the
     /// reading to a graduation that never happened.
     ///
-    /// **The key is Claude's reading, never the writer's amendment.** A
-    /// correction rules "Kelly is a paramedic" and graduates *"Kelly is a
-    /// nurse"* — because what a later run re-emits is what it reads off the
-    /// prose, and the writer's own sentence is a clause the run is briefed on
-    /// rather than a candidate anything will ever propose.
+    /// **A correction marks TWO keys, and both of them earn it.** It rules
+    /// "Kelly is a paramedic" over a reading of "Kelly is a nurse", and the
+    /// manuscript can go on to establish either sentence: the reading, because
+    /// the prose that produced it is still there, and the ruling, because the
+    /// writer has since written toward what they decided. Neither is news any
+    /// more — one was superseded and the other was declared — and a candidate
+    /// matching either would invite a bless of something already settled,
+    /// which `RulingsSection.appending` would happily write as a duplicate
+    /// row. A bless has one sentence in both roles and marks one key.
     ///
     /// **Revoking the ruling does not reopen this door**, and that is a
     /// decision rather than an omission. A revoke is the writer unmaking a

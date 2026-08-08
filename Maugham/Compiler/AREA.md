@@ -348,14 +348,25 @@ key that outlived its facts would put the blessed reading back on the pane the
 launch after somebody deleted the wrong half; a bare-array sidecar from a
 previous build still loads and simply has nothing graduated).
 
-Two things the rule is deliberately NOT. It is not a memory of **dismissal** —
-spec §3.3 is unchanged, a plain dismiss keeps no memory, and a manuscript that
-re-establishes a dismissed fact is a reading returning rather than a record
-surviving (`BibleStoreTests.test_dismissedFactCanReturn_thisIsIntended` sits
-adjacent to `test_aBlessedFactDoesNotComeBack`, each naming the other). And it
-is not keyed on the writer's words: a **correction** rules "Kelly is a
-paramedic" and graduates *"Kelly is a nurse"*, because what a later run
-re-emits is what it reads off the prose.
+It is deliberately NOT a memory of **dismissal** — spec §3.3 is unchanged, a
+plain dismiss keeps no memory, and a manuscript that re-establishes a dismissed
+fact is a reading returning rather than a record surviving
+(`BibleStoreTests.test_dismissedFactCanReturn_thisIsIntended` sits adjacent to
+`test_aBlessedFactDoesNotComeBack`, each naming the other).
+
+**A correction marks two keys, and the second one is the half that reopened the
+door.** It rules "Kelly is a paramedic" over a reading of "Kelly is a nurse",
+and the manuscript can establish either afterwards — the reading, because the
+prose that produced it is still there, and the ruling, because the writer has
+since written toward what they decided. Marking only Claude's reading left the
+writer's own sentence free to come back as a fresh candidate, which is door 3's
+step 4 (a duplicate ruling row) reached through correction instead of bless;
+measured against the shipped code in fix round 1's review. Both are declared or
+superseded now, so a candidate matching either is not news. A bless has one
+sentence in both roles and marks one key.
+`StatementPaneStrataTests.test_correctingGraduatesClaudesReading` and
+`test_correctingAlsoGraduatesTheWritersOwnRuling` are adjacent, each naming the
+other, because neither is the whole rule.
 
 **Revoking the ruling does not reopen the door**, by decision rather than
 oversight — a revoke is the writer unmaking a decision, not asking to be

@@ -813,12 +813,14 @@ final class StatementPaneStrataTests: XCTestCase {
                       "a blessed fact came back as a new reading")
     }
 
-    /// **Correcting closes the door on CLAUDE's reading, not on the writer's
-    /// words.** What the model will re-emit is what it read — "Kelly is a
-    /// nurse." — so that is the key the graduation has to hold. The amended
-    /// sentence is a ruling and is briefed as a clause; marking it here would
-    /// close a door nothing ever knocks on and leave the real one open.
-    func test_correctingGraduatesClaudesReadingAndNotTheWritersWords() async throws {
+    /// **Correcting closes the door on CLAUDE's reading.** What the model
+    /// re-emits is what it read — "Kelly is a nurse." — so that is the first of
+    /// the two keys a correction has to hold.
+    ///
+    /// Its other half is the test below it,
+    /// `test_correctingAlsoGraduatesTheWritersOwnRuling`. Neither is the whole
+    /// rule and a reader who finds one alone will think it is.
+    func test_correctingGraduatesClaudesReading() async throws {
         let fixture = try await StatementMountFixture.novel(named: "correct-converges")
         defer { fixture.tearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
@@ -834,9 +836,73 @@ final class StatementPaneStrataTests: XCTestCase {
         XCTAssertTrue(bible.isGraduated(subject: "Kelly", fact: "Kelly is a nurse."),
                       "the reading the writer amended is exactly what the next run "
                       + "re-emits, and it was left free to return")
-        XCTAssertFalse(bible.isGraduated(subject: "Kelly", fact: "Kelly is a paramedic."),
-                       "the writer's own sentence was marked graduated: it is a ruling, "
-                       + "not a reading, and no run will ever offer it")
+        bible.record([makeFact(id: "f2", subject: "Kelly", fact: "Kelly is a nurse.",
+                               docId: fixture.documentItemId)])
+        XCTAssertTrue(bible.allFacts().isEmpty,
+                      "the amended reading came back as a fresh candidate")
+    }
+
+    /// **…and on the writer's own ruling, which is the half that reopened the
+    /// door** (fix round 1's finding, demonstrated against the shipped code:
+    /// the corrected sentence came back as a new, unsuppressed fact).
+    ///
+    /// A correction leaves TWO sentences that are no longer news — the reading
+    /// Claude made and the ruling the writer made from it — and the manuscript
+    /// can establish either. A run that reads the amended prose and phrases the
+    /// candidate the way the writer already ruled it would invite them to bless
+    /// their own decision a second time, and `RulingsSection.appending` does
+    /// not dedupe: that is door 3's duplicate ruling row (AREA.md), reached
+    /// through correction instead of bless.
+    ///
+    /// Its other half is the test above it,
+    /// `test_correctingGraduatesClaudesReading`. Falsify by removing the second
+    /// `markGraduated` from `BibleStratum.graduate`.
+    func test_correctingAlsoGraduatesTheWritersOwnRuling() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "correct-both")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+        let bible = BibleStore(projectRoot: fixture.projectURL,
+                               device: DeviceSlug.make(from: "test-mac"))
+        let fact = makeFact(id: "f1", subject: "Kelly", fact: "Kelly is a nurse.",
+                            docId: fixture.documentItemId)
+        bible.record([fact])
+
+        await BibleStratum.correct(fact, to: "Kelly is a paramedic.", forScope: scope,
+                                   store: fixture.store, bible: bible, world: nil)
+
+        XCTAssertTrue(
+            bible.isGraduated(subject: "Kelly", fact: "Kelly is a paramedic."),
+            "the writer's own ruled sentence is not graduated, so a run that reads "
+            + "it off the prose offers it back to them as a reading to bless")
+        bible.record([makeFact(id: "f2", subject: "Kelly", fact: "Kelly is a paramedic.",
+                               docId: fixture.documentItemId)])
+        XCTAssertTrue(
+            bible.allFacts().isEmpty,
+            "the writer's already-ruled sentence returned to the provisional "
+            + "register: \(bible.allFacts().map(\.fact))")
+    }
+
+    /// A plain bless has one sentence, not two, and marks it once — the second
+    /// `markGraduated` is the same key and must not cost a second write or a
+    /// second `version` bump, which every observer of this store reads as the
+    /// ledger having moved.
+    func test_blessingMarksOneKeyAndWritesOnce() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "bless-one-key")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+        let bible = BibleStore(projectRoot: fixture.projectURL,
+                               device: DeviceSlug.make(from: "test-mac"))
+        let fact = makeFact(id: "f1", subject: "Kelly", fact: "Kelly is a nurse.",
+                            docId: fixture.documentItemId)
+        bible.record([fact])
+        let versionBefore = bible.version
+
+        await BibleStratum.bless(fact, forScope: scope, store: fixture.store,
+                                 bible: bible, world: nil)
+
+        XCTAssertEqual(bible.version, versionBefore + 2,
+                       "a bless is one graduation and one dismissal \u{2014} a third "
+                       + "bump means the reading was marked twice under two keys")
     }
 
     /// Correcting is blessing the writer's own words instead of Claude's — the
