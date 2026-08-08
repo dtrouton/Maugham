@@ -3,7 +3,7 @@
 **GENERATED from `experiment/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
 Regenerate with `python3 experiment/scripts/23-generate-rulings.py` after any ruling change.
 
-25 rulings, 4 principles.
+29 rulings, 4 principles.
 
 Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:
 applying a ruling to a new case means re-checking the basis, not pattern-matching the
@@ -325,7 +325,43 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 
 *provenance note:* Ruled via a structured question with a recommended option (accepted). The option labels and ALL surrounding rationale text are the agent's, ratified by Denver — a materially weaker basis than the interview-era rulings, whose bases are Denver verbatim. Weigh accordingly when this ruling's basis is load-bearing for a novel case; where the basis is decisive and thin, ask rather than extrapolate.
 
-*scope boundary note:* 'Symmetric travel' compensates MAUGHAM'S OWN travel-archives only — narrower than the phrase suggests (independent verification, 2026-08-08). Lifecycle ops never ride the timeline prefix: rewinding back past the writer's own archive op does not reopen it (their intent has duration, RULING-23's shape), and an ACCEPTED suggestion the rewind archived stays archived on forward travel — its honest forward status would be .accepted, which is unruled and sits in the gap queue. Two edges recorded with it: the genuine-no-op restore path returns before the return journey runs, and the reopen is direction-agnostic (any .rewind restore whose target contains the anchor paragraph), which is broader than M4-RW-019's forward-travel framing.
+*scope boundary note:* 'Symmetric travel' compensates MAUGHAM'S OWN travel-archives. Lifecycle ops never ride the timeline prefix: rewinding back past the writer's own archive op does not reopen it (their intent has duration, RULING-23's shape). The accepted-then-archived case, recorded here as unruled from 2026-08-08 until later the same day, is now RULED by RULING-26: forward travel restores it to .accepted. Two edges stand: the genuine-no-op restore path returns before the return journey runs, and the reopen is direction-agnostic (any .rewind restore whose target contains the anchor paragraph).
+
+### RULING-26 — N — accepted status rides travel too  `RATIFIED_FROM_OPTIONS`
+
+> Travelling forward past an accept restores the suggestion to ACCEPTED, not merely to present. Where Maugham itself closed an annotation during history travel, the status it had at the travelled-to moment is what returns: full symmetry extends to accepted suggestions whose paragraph and applied text come back.
+
+*basis:* Denver, 2026-08-08, structured question presented WITHOUT a recommendation (ratification-drift mitigation): chose 'Restore to accepted — full symmetry; status rides travel for everything Maugham itself closed' over 'stay archived' (the shipped behaviour) and 'reopen to open'.
+
+*resolves:* The accepted-then-archived residual (independently confirmed blind, reconciliation/Rewind.verification-2026-08-08.json). RULING-25's wasOpen guard was the recorded boundary of the unruled case; this rules it.
+
+*mechanism note:* The status-only .claudeAccept re-emission already exists — it is the rewind-undo's own instrument (Document+RewindUndo re-accepts with empty changes). Step 9 gains an accepted branch beside the reopen branch.
+
+### RULING-27 — O — a missing moment is honoured approximately, never silently replaced  `RATIFIED_FROM_OPTIONS`
+
+> A moment the writer selected in their history that no longer exists restores to the NEAREST SURVIVING MOMENT, the notice names what happened ('that exact moment is gone — restored to the nearest'), and the notice itself carries REVERT — the surfaced undo, one click at the moment of surprise. A missing moment is never quietly replaced by the present.
+
+*basis:* Denver, 2026-08-08, structured question presented WITHOUT a recommendation: chose 'nearest surviving moment' — and ADDED the revert requirement unprompted; it was not among the offered options. The strongest provenance of the questionnaire era: the augmentation is Denver's own, verbatim in intent ('2 but with an option to revert'). The revert-form refinement (in the notice, not just ⌘Z) was recommended and accepted.
+
+*settles:* GAP-R4. M4-RW-003/M4-RW-008/M4-RW-022's silent restore-to-the-present — already a defect under RULING-22 — now has its ruled replacement: nearest, named, revertible.
+
+*relation to RULING 19:* If the vanished-cursor case proves impossible by construction (the UNTRACED note suggests the mirror always contains the cursor), R19's corollary still applies to the DERIVER's silent fallback — a repair defending nothing is deleted, and the nearest-moment behaviour lives at the restore boundary where the writer can be told.
+
+### RULING-28 — M — the collateral report has two halves  `RATIFIED_FROM_OPTIONS`
+
+> An operation that changes more than the writer asked about states the FULL set of collateral changes BEFORE they commit AND confirms what it actually did AFTER. Both halves ship: the confirmation names archives and reopens alike; the post-restore report confirms them. Naming one class of collateral change and omitting another is worse than naming none.
+
+*basis:* Denver, 2026-08-08, structured question, no recommendation marked: chose 'Both halves' — the gap's own proposed text — over toast-only and confirm-only.
+
+*settles:* GAP-R5. ProjectWindow's `_ =` discard of RewindRestoreResult (the truth produced and thrown away) is now a clean defect; RewindWindow's confirm-time impactSummary omitting reopens and archives is the other half of the same defect.
+
+### RULING-29 — H — resolution is the writer's to reverse, from the surface that shows it  `RATIFIED_FROM_OPTIONS`
+
+> Any archived or rejected annotation can be reopened by the writer from the annotations pane. Resolution is the writer's to reverse — whether Maugham made it or they did. A single undo immediately afterwards is not a recovery route; it expires. The pane action does not.
+
+*basis:* Denver, 2026-08-08, structured question, no recommendation marked: chose 'Reopen for all archived' over Maugham-archived-only and no-pane-action. Matches RULING-13's basis: staleness and resolution are signals to the author, 'who decides whether each one still applies'.
+
+*settles:* GAP-R2. Document.reopenAnnotation gains its first non-undo production caller; reopening a withdrawn annotation stays out of scope (withdraw is absence from the projection, a different act).
 
 ## Principles — how to judge, not what to decide
 

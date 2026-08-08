@@ -1010,7 +1010,45 @@
     "ruled_by": "Denver, structured ruling question, recommended option accepted",
     "date": "2026-08-08",
     "provenance_note": "Ruled via a structured question with a recommended option (accepted). The option labels and ALL surrounding rationale text are the agent's, ratified by Denver — a materially weaker basis than the interview-era rulings, whose bases are Denver verbatim. Weigh accordingly when this ruling's basis is load-bearing for a novel case; where the basis is decisive and thin, ask rather than extrapolate.",
-    "scope_boundary_note": "'Symmetric travel' compensates MAUGHAM'S OWN travel-archives only — narrower than the phrase suggests (independent verification, 2026-08-08). Lifecycle ops never ride the timeline prefix: rewinding back past the writer's own archive op does not reopen it (their intent has duration, RULING-23's shape), and an ACCEPTED suggestion the rewind archived stays archived on forward travel — its honest forward status would be .accepted, which is unruled and sits in the gap queue. Two edges recorded with it: the genuine-no-op restore path returns before the return journey runs, and the reopen is direction-agnostic (any .rewind restore whose target contains the anchor paragraph), which is broader than M4-RW-019's forward-travel framing."
+    "scope_boundary_note": "'Symmetric travel' compensates MAUGHAM'S OWN travel-archives. Lifecycle ops never ride the timeline prefix: rewinding back past the writer's own archive op does not reopen it (their intent has duration, RULING-23's shape). The accepted-then-archived case, recorded here as unruled from 2026-08-08 until later the same day, is now RULED by RULING-26: forward travel restores it to .accepted. Two edges stand: the genuine-no-op restore path returns before the return journey runs, and the reopen is direction-agnostic (any .rewind restore whose target contains the anchor paragraph)."
+   },
+   "RULING-26": {
+    "family": "N — accepted status rides travel too",
+    "verdict": "RATIFIED_FROM_OPTIONS",
+    "statement": "Travelling forward past an accept restores the suggestion to ACCEPTED, not merely to present. Where Maugham itself closed an annotation during history travel, the status it had at the travelled-to moment is what returns: full symmetry extends to accepted suggestions whose paragraph and applied text come back.",
+    "basis": "Denver, 2026-08-08, structured question presented WITHOUT a recommendation (ratification-drift mitigation): chose 'Restore to accepted — full symmetry; status rides travel for everything Maugham itself closed' over 'stay archived' (the shipped behaviour) and 'reopen to open'.",
+    "resolves": "The accepted-then-archived residual (independently confirmed blind, reconciliation/Rewind.verification-2026-08-08.json). RULING-25's wasOpen guard was the recorded boundary of the unruled case; this rules it.",
+    "mechanism_note": "The status-only .claudeAccept re-emission already exists — it is the rewind-undo's own instrument (Document+RewindUndo re-accepts with empty changes). Step 9 gains an accepted branch beside the reopen branch.",
+    "ruled_by": "Denver, structured question, no recommendation offered",
+    "date": "2026-08-08"
+   },
+   "RULING-27": {
+    "family": "O — a missing moment is honoured approximately, never silently replaced",
+    "verdict": "RATIFIED_FROM_OPTIONS",
+    "statement": "A moment the writer selected in their history that no longer exists restores to the NEAREST SURVIVING MOMENT, the notice names what happened ('that exact moment is gone — restored to the nearest'), and the notice itself carries REVERT — the surfaced undo, one click at the moment of surprise. A missing moment is never quietly replaced by the present.",
+    "basis": "Denver, 2026-08-08, structured question presented WITHOUT a recommendation: chose 'nearest surviving moment' — and ADDED the revert requirement unprompted; it was not among the offered options. The strongest provenance of the questionnaire era: the augmentation is Denver's own, verbatim in intent ('2 but with an option to revert'). The revert-form refinement (in the notice, not just ⌘Z) was recommended and accepted.",
+    "settles": "GAP-R4. M4-RW-003/M4-RW-008/M4-RW-022's silent restore-to-the-present — already a defect under RULING-22 — now has its ruled replacement: nearest, named, revertible.",
+    "relation_to_RULING_19": "If the vanished-cursor case proves impossible by construction (the UNTRACED note suggests the mirror always contains the cursor), R19's corollary still applies to the DERIVER's silent fallback — a repair defending nothing is deleted, and the nearest-moment behaviour lives at the restore boundary where the writer can be told.",
+    "ruled_by": "Denver, structured question, no recommendation offered; revert clause Denver's own",
+    "date": "2026-08-08"
+   },
+   "RULING-28": {
+    "family": "M — the collateral report has two halves",
+    "verdict": "RATIFIED_FROM_OPTIONS",
+    "statement": "An operation that changes more than the writer asked about states the FULL set of collateral changes BEFORE they commit AND confirms what it actually did AFTER. Both halves ship: the confirmation names archives and reopens alike; the post-restore report confirms them. Naming one class of collateral change and omitting another is worse than naming none.",
+    "basis": "Denver, 2026-08-08, structured question, no recommendation marked: chose 'Both halves' — the gap's own proposed text — over toast-only and confirm-only.",
+    "settles": "GAP-R5. ProjectWindow's `_ =` discard of RewindRestoreResult (the truth produced and thrown away) is now a clean defect; RewindWindow's confirm-time impactSummary omitting reopens and archives is the other half of the same defect.",
+    "ruled_by": "Denver, structured question, no recommendation marked",
+    "date": "2026-08-08"
+   },
+   "RULING-29": {
+    "family": "H — resolution is the writer's to reverse, from the surface that shows it",
+    "verdict": "RATIFIED_FROM_OPTIONS",
+    "statement": "Any archived or rejected annotation can be reopened by the writer from the annotations pane. Resolution is the writer's to reverse — whether Maugham made it or they did. A single undo immediately afterwards is not a recovery route; it expires. The pane action does not.",
+    "basis": "Denver, 2026-08-08, structured question, no recommendation marked: chose 'Reopen for all archived' over Maugham-archived-only and no-pane-action. Matches RULING-13's basis: staleness and resolution are signals to the author, 'who decides whether each one still applies'.",
+    "settles": "GAP-R2. Document.reopenAnnotation gains its first non-undo production caller; reopening a withdrawn annotation stays out of scope (withdraw is absence from the projection, a different act).",
+    "ruled_by": "Denver, structured question, no recommendation marked",
+    "date": "2026-08-08"
    }
   },
   "schema_note": "`warrant` = how well evidenced a claim is. `verdict` = whether the behaviour is WANTED. They are independent: a HIGH-warrant claim can be a DEFECT (well-proven wrong behaviour), and a LOW-warrant claim can be RATIFIED. The Phase 10 regeneration reproduced a defect faithfully because this field did not exist.",
@@ -1108,7 +1146,7 @@
     ],
     "note": "A new class. Not 'the code violates the ruling' but 'the ruling was made on a belief about the code that does not hold'. Neither direction is visible to a test: the first is me mis-reading, the second is the product owner mis-remembering their own architecture. Both were caught only by tracing the claim before recording the ruling."
    },
-   "questionnaire_rulings_and_ratification_drift": "2026-08-08: three rulings (GAP-R1→RULING-25, the RULING-8 sameness clause, the M4-RW-002 disposition) were made via structured questions with a recommended option first; the recommendation was accepted 3/3. Two consequences, both to watch: (1) questionnaire-format bases are thin — the choice is recorded, not the reasoning; RULING-25 carries a provenance_note and the RATIFIED_FROM_OPTIONS verdict for this. (2) A recommendation-always-accepted pattern means the ruling process is drifting toward agent judgment wearing Denver's signature. Mitigations in force: some future rulings presented WITHOUT a recommendation; the acceptance rate tracked here (currently 3/3); independent re-filing of author-flipped verdicts. The register's authority is exactly its honesty about whose judgment each entry is."
+   "questionnaire_rulings_and_ratification_drift": "2026-08-08: three rulings (GAP-R1→RULING-25, the RULING-8 sameness clause, the M4-RW-002 disposition) were made via structured questions with a recommended option first; the recommendation was accepted 3/3. Two consequences, both to watch: (1) questionnaire-format bases are thin — the choice is recorded, not the reasoning; RULING-25 carries a provenance_note and the RATIFIED_FROM_OPTIONS verdict for this. (2) A recommendation-always-accepted pattern means the ruling process is drifting toward agent judgment wearing Denver's signature. Mitigations in force: some future rulings presented WITHOUT a recommendation; the acceptance rate tracked here (currently 3/3); independent re-filing of author-flipped verdicts. The register's authority is exactly its honesty about whose judgment each entry is. ROUND 2 (2026-08-08, later): four substantive rulings (RULING-26..29); three presented WITHOUT a recommendation per the mitigation. Denver's vanished-moment answer AUGMENTED the offered options with a revert requirement none contained — evidence the no-recommendation format elicits genuine judgment rather than ratification. Recommended-option acceptance where offered: 4/4 (the revert-form refinement)."
   },
   "rederivation": {
    "collapse": {

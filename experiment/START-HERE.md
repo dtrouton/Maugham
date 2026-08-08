@@ -133,25 +133,38 @@ test.** Treat every entry as a lead. Of the ones checked so far:
   `Maugham/Stores/AREA.md` point at their filings; the constitution↔rulings precedence paragraph is
   in `RECONCILE.md`.
 
+## Ruled 2026-08-08, round 2 (three of four with NO recommendation offered — the mitigation)
+
+- **RULING-26** — accepted status rides travel too: forward travel restores an accept to
+  `.accepted`, closing the accepted-then-archived residual. Fix loop pending in step 9.
+- **RULING-27** — a missing moment restores to the NEAREST SURVIVING MOMENT, named in a notice
+  that itself carries Revert. **The revert clause is Denver's own addition, offered by no option**
+  — the strongest provenance of the questionnaire era. Convicts M4-RW-003/008/022's silent
+  restore-to-the-present with a specified replacement. Fix loop pending.
+- **RULING-28** — the collateral report has two halves: the confirm sheet states the full set
+  (archives AND reopens) before commit, the post-restore report confirms what happened.
+  `ProjectWindow`'s `_ =` discard and the impactSummary's omissions are now clean defects. Fix
+  loop pending.
+- **RULING-29** — any archived or rejected annotation is reopenable from the annotations pane;
+  resolution is the writer's to reverse. `reopenAnnotation` gains its first non-undo caller.
+  Fix pending, best built after the Document+Annotations characterisation pins that module.
+
 ## Open, and ordered by what I would do next
 
-1. **Next module: `Maugham/OpLog/Document+Annotations.swift`.** Now triply motivated — it is where
-   RULING-25's wider reach gets tested against pinned claims, where GAP-R2 lands, and where the
-   M4-RW-019 fix's step 9 now lives adjacent. `Maugham/Canvas/Promotion*.swift` (75% survey
-   specificity) remains the harder falsification of the sampling correction.
-2. **The accepted-then-archived residual — now independently confirmed as the sharpest R25 gap.**
-   The step-9 `wasOpen` guard deliberately leaves an accepted suggestion the rewind archived in
-   `.archived` on forward travel — its honest forward status would be `.accepted`, which is
-   unruled. A product statement for the queue: *"travelling forward past an accept restores the
-   suggestion to accepted, not merely to present."* The 2026-08-08 independent verification
-   (`reconciliation/Rewind.verification-2026-08-08.json`) reached the same gap blind, and RULING-25
-   now carries a `scope_boundary_note` recording that "symmetric travel" compensates Maugham's own
-   travel-archives only — the five flipped/authored filings were **confirmed 5/5** by a
-   fresh-context verifier given the rulings, claims and code but not the original filings.
-3. **10 gaps remain open** — 6 from trash (`22-*.md`), 4 from rewind (`24-*.md`; R1 ruled, R6
-   superseded), each phrased as a product statement a non-programmer can rule on. They are the
-   scarce-resource queue. The 2026-08-08 precedent: presented as structured questions with a
-   recommended option, all three were ruled in one sitting.
+1. **The four fix loops above**, smallest first: RULING-26 (step 9's accepted branch, fully
+   claim-covered today), then 27+28 together (both live at the restore boundary and its
+   rendering), then 29 (after the module below is characterised).
+2. **Next module: `Maugham/OpLog/Document+Annotations.swift`.** Now quadruply motivated — RULING-25
+   and RULING-29 both get tested against pinned claims there, GAP-R2's fix lands there, and the
+   verifier's not-chased thread (can a merge append into a live mirror unsorted?) is its probe
+   target. `Maugham/Canvas/Promotion*.swift` (75% survey specificity) remains the harder
+   falsification of the sampling correction.
+3. **7 gaps remain open** — 6 from trash (`22-*.md`) and rewind's GAP-R3 (an action that changes
+   nothing costs nothing — stands only if M4-RW-021 is argued down), each phrased as a product
+   statement a non-programmer can rule on. Rewind's GAP-R2/R4/R5 and the accepted residual were
+   ruled 2026-08-08 round 2; the independent verification that confirmed the residual blind is at
+   `reconciliation/Rewind.verification-2026-08-08.json` (all five flipped filings confirmed 5/5 by
+   a fresh-context verifier).
 4. **`premise_verified` as a seventh template field** — recommended, but **only on a proposed
    ruling**, not on every filing. A filing is already pinned by a test, which is a premise check with
    teeth; a proposed ruling has no test and propagates to every future case. REW-D9 is the case for
