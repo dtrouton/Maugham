@@ -1000,7 +1000,7 @@
    },
    "RULING-25": {
     "family": "N — annotations ride the writer's history",
-    "verdict": "RATIFIED",
+    "verdict": "RATIFIED_FROM_OPTIONS",
     "statement": "Annotations — comments, tasks, suggestion status — are protected to the same standard as the work they annotate. Anything Maugham closes on the writer's behalf when they travel through their history is reopened when they travel back. Time travel never costs an annotation permanently or silently.",
     "basis": "Denver, 2026-08-08, ruling on GAP-R1 as presented: chose SYMMETRIC TRAVEL — annotations are protected to the same standard as the work; anything Maugham closes on the writer's behalf during time travel is reopened when they travel back — over 'marked stale, never closed' (GAP-R6's shape) and 'recoverable by hand' (GAP-R2's shape).",
     "resolves_GAP_R1": "RULING-24's partition (the work / research / ingested) had no class for annotations — a tiering root with a hole in the middle of its own domain. This places them: for the travel case they inherit THE WORK's standard. M4-RW-019 — a forward rewind returns the paragraph and the pane task but leaves the comment archived, permanently and silently — is a clean DEFECT under this ruling, no longer settled by RULING-8 alone.",
@@ -1008,7 +1008,8 @@
     "relation_to_RULING_13": "R13 governs lost IDENTITY: annotations move with the text and are marked STALE, the author adjudicates. This ruling governs TIME TRAVEL, where identity is not lost — the paragraph genuinely did not exist yet at the travelled-to moment. Complementary, not overlapping. GAP-R6's proposal to stretch R13 over the travel case is superseded by this ruling.",
     "relation_to_GAP_R2": "A Reopen action on the annotations pane (GAP-R2) remains an open surface question, but symmetric travel removes the rewind case's dependency on it: the return journey itself is the recovery route.",
     "ruled_by": "Denver, structured ruling question, recommended option accepted",
-    "date": "2026-08-08"
+    "date": "2026-08-08",
+    "provenance_note": "Ruled via a structured question with a recommended option (accepted). The option labels and ALL surrounding rationale text are the agent's, ratified by Denver — a materially weaker basis than the interview-era rulings, whose bases are Denver verbatim. Weigh accordingly when this ruling's basis is load-bearing for a novel case; where the basis is decisive and thin, ask rather than extrapolate."
    }
   },
   "schema_note": "`warrant` = how well evidenced a claim is. `verdict` = whether the behaviour is WANTED. They are independent: a HIGH-warrant claim can be a DEFECT (well-proven wrong behaviour), and a LOW-warrant claim can be RATIFIED. The Phase 10 regeneration reproduced a defect faithfully because this field did not exist.",
@@ -1105,7 +1106,8 @@
      "RULING-24 — the ⌘S-covers-research clause IS false, verified three ways"
     ],
     "note": "A new class. Not 'the code violates the ruling' but 'the ruling was made on a belief about the code that does not hold'. Neither direction is visible to a test: the first is me mis-reading, the second is the product owner mis-remembering their own architecture. Both were caught only by tracing the claim before recording the ruling."
-   }
+   },
+   "questionnaire_rulings_and_ratification_drift": "2026-08-08: three rulings (GAP-R1→RULING-25, the RULING-8 sameness clause, the M4-RW-002 disposition) were made via structured questions with a recommended option first; the recommendation was accepted 3/3. Two consequences, both to watch: (1) questionnaire-format bases are thin — the choice is recorded, not the reasoning; RULING-25 carries a provenance_note and the RATIFIED_FROM_OPTIONS verdict for this. (2) A recommendation-always-accepted pattern means the ruling process is drifting toward agent judgment wearing Denver's signature. Mitigations in force: some future rulings presented WITHOUT a recommendation; the acceptance rate tracked here (currently 3/3); independent re-filing of author-flipped verdicts. The register's authority is exactly its honesty about whose judgment each entry is."
   },
   "rederivation": {
    "collapse": {

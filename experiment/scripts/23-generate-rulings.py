@@ -97,6 +97,63 @@ for doc in ("experiment/RECONCILE.md", "experiment/reconciliation/PROTOCOL.md"):
 if dangling:
     sys.exit(f"FAILED: {len(dangling)} dangling ruling references: {dangling}")
 
+# Amendment detection: a ruling's TEXT changing invalidates the judgments made
+# against the old text, and nothing else in the system notices. R8 gained its
+# sameness clause on 2026-08-08 and every earlier filing citing R8 had weighed
+# an escape clause that did not exist. So: ruling-text hashes are recorded;
+# a change fails this script, listing every filing that cites the amended
+# ruling, until re-run with --amend RULING-n — which updates the baseline and
+# prints the citing filings as the re-check queue.
+import glob
+import hashlib
+HASHES = "experiment/reconciliation/ruling-hashes.json"
+amend_ok = set()
+for i, arg in enumerate(sys.argv):
+    if arg == "--amend" and i + 1 < len(sys.argv):
+        amend_ok.update(sys.argv[i + 1].split(","))
+
+current = {k: hashlib.sha256(
+    json.dumps(r, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    for k, r in R.items()}
+
+def citing_filings(ruling):
+    hits = []
+    for path in sorted(glob.glob("experiment/reconciliation/*.filings.json")):
+        for f in json.load(open(path)):
+            if isinstance(f, dict) and f.get("ruling") == ruling:
+                hits.append(f"{path.split('/')[-1]}:{f['claim_id']}")
+    return hits
+
+try:
+    baseline = json.load(open(HASHES))
+except FileNotFoundError:
+    baseline = None
+
+if baseline is None:
+    with open(HASHES, "w") as fh:
+        json.dump(current, fh, indent=1, sort_keys=True)
+        fh.write("\n")
+    print(f"baseline ruling hashes written to {HASHES}")
+else:
+    changed = [k for k in current
+               if k in baseline and baseline[k] != current[k]]
+    unacknowledged = [k for k in changed if k not in amend_ok]
+    if unacknowledged:
+        for k in unacknowledged:
+            cites = citing_filings(k)
+            print(f"AMENDED without acknowledgment: {k} — "
+                  f"{len(cites)} filing(s) cite it: {cites}")
+        sys.exit("FAILED: ruling text changed. Re-run with "
+                 f"--amend {','.join(unacknowledged)} and re-check the filings above.")
+    if changed:
+        for k in changed:
+            cites = citing_filings(k)
+            print(f"AMENDED (acknowledged): {k} — re-check queue "
+                  f"({len(cites)} filings): {cites}")
+    with open(HASHES, "w") as fh:
+        json.dump(current, fh, indent=1, sort_keys=True)
+        fh.write("\n")
+
 print(f"wrote {OUT}: {len([k for k in R if k.startswith('RULING')])} rulings, "
       f"{len([k for k in R if k.startswith('PRINCIPLE')])} principles, "
       f"{len(txt.splitlines())} lines")

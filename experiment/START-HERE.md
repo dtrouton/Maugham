@@ -40,6 +40,8 @@ why. **Read `experiment/RULINGS.md` and nothing else.**
 
 ### Modules reconciled
 
+<!-- BEGIN GENERATED STATE (experiment/scripts/27-generate-state.py) -->
+
 | Module | Claims | Coverage | Complies / Violates | Report |
 |---|---|---|---|---|
 | `MaughamCore.TreeWalk` | 61 | 0% | — | `07-summary.md` |
@@ -48,15 +50,17 @@ why. **Read `experiment/RULINGS.md` and nothing else.**
 | `Stores/TrashStore` + `ProjectStore+Trash` | 51 | 47% | 13 / 11 | `22-trash-reconciliation.md` |
 | `OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`) | 32 | 56% | 13 / 5 | `24-rewind-reconciliation.md` |
 
-The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the two app-layer
-rows are 83 further claims in their own files. **252 claims in the experiment, 231 reconciled.**
-(The rewind row moved twice on 2026-08-08: M4-RW-002 fixed and flipped, M4-RW-032 pinning its
-composition; then M4-RW-019 fixed under RULING-25 and flipped, with M4-RW-033/034 pinning the
-scope guard and the undo symmetry — two exercised fix loops, see below.)
+The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 83 further claims in their own files. **252 claims in the experiment, 231 reconciled.** The app layer stands at **26 complies / 16 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
-**All 80 app-layer claims re-verified passing at HEAD `f2b2b5e2` on 2026-08-08** —
-98 commits after they were pinned at `db1bea2c`, including changes to `ProjectStore.swift`,
-`ProjectManifest.swift` and `Document+Load.swift`. 61 tests, 0 failures.
+App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `experiment/ExperimentTests` (CI job `behavioural-claims`).
+
+<!-- END GENERATED STATE -->
+
+(History: the rewind row moved twice on 2026-08-08 — M4-RW-002 fixed and flipped with M4-RW-032
+pinning its composition, then M4-RW-019 fixed under RULING-25 with M4-RW-033/034 pinning the scope
+guard and the undo symmetry — the first two exercised fix loops, see below. Before promotion the
+copies were re-verified at `f2b2b5e2`, 98 commits after their `db1bea2c` pinning: 61 tests, 0
+failures.)
 
 ### The two results that have held across modules
 
@@ -106,8 +110,13 @@ test.** Treat every entry as a lead. Of the ones checked so far:
   process docs.
 - **The first fix loop ran end-to-end on M4-RW-002.** Fix + pinned production test
   (`HistoryPaneRewindTargetTests`) in commit `c5ca4d5e`; claim updated; composition claim M4-RW-032
-  added; filing flipped VIOLATES→COMPLIES; `_summary` recomputed. The lifecycle is encoded in
-  `scripts/25-flip-m4-rw-002.py`'s docstring — **that is the pattern for every future fix.**
+  added; filing flipped VIOLATES→COMPLIES; `_summary` recomputed. The lifecycle now has ONE tool —
+  **`scripts/flip-claim.py`** (flip / recompute / repoint-after-rebase); the per-fix scripts 25/26
+  are kept as history of the first two loops. State in this file between the GENERATED markers is
+  written by `scripts/27-generate-state.py` — run it after any flip; hand-edits there are
+  overwritten. Ruling-text amendments are caught by `scripts/23-generate-rulings.py`'s hash check,
+  which fails listing every filing citing the amended ruling until re-run with `--amend` — the
+  re-check queue is printed, not assumed done.
 - **The second fix loop closed M4-RW-019 — the first fix authorised by a NEW ruling.** Commit
   `12d763c9`: `restoreToOp` gains step 9, the sweep's mirror — a forward restore reopens (a
   `.rewind`-stamped `.annotationReopen`) every annotation whose latest lifecycle op is a

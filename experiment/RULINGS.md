@@ -309,7 +309,7 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 
 *premise corrected:* I reported that the op log surviving 'permanently delete' meant R23 was made on a false premise. RULING-24 shows the error was mine: deleting state is not deleting history, and the two have different contracts. R23 stands as ruled.
 
-### RULING-25 — N — annotations ride the writer's history  `RATIFIED`
+### RULING-25 — N — annotations ride the writer's history  `RATIFIED_FROM_OPTIONS`
 
 > Annotations — comments, tasks, suggestion status — are protected to the same standard as the work they annotate. Anything Maugham closes on the writer's behalf when they travel through their history is reopened when they travel back. Time travel never costs an annotation permanently or silently.
 
@@ -322,6 +322,8 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 *relation to RULING 13:* R13 governs lost IDENTITY: annotations move with the text and are marked STALE, the author adjudicates. This ruling governs TIME TRAVEL, where identity is not lost — the paragraph genuinely did not exist yet at the travelled-to moment. Complementary, not overlapping. GAP-R6's proposal to stretch R13 over the travel case is superseded by this ruling.
 
 *relation to GAP R2:* A Reopen action on the annotations pane (GAP-R2) remains an open surface question, but symmetric travel removes the rewind case's dependency on it: the return journey itself is the recovery route.
+
+*provenance note:* Ruled via a structured question with a recommended option (accepted). The option labels and ALL surrounding rationale text are the agent's, ratified by Denver — a materially weaker basis than the interview-era rulings, whose bases are Denver verbatim. Weigh accordingly when this ruling's basis is load-bearing for a novel case; where the basis is decisive and thin, ask rather than extrapolate.
 
 ## Principles — how to judge, not what to decide
 
