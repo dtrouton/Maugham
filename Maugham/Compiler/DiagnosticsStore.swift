@@ -38,6 +38,32 @@ final class DiagnosticsStore {
     private struct FileContent: Codable, Equatable {
         var run: CompilerRun
         var diagnostics: [Diagnostic]
+        /// The drift ring: clause-status snapshots from ingests that carried
+        /// them, oldest→newest, capped at `clauseHistoryDepth`. Appended only
+        /// by `replace` — never reconstructed on `load` — so a sidecar
+        /// written before this field existed decodes with an empty ring
+        /// rather than a backfill from the standing run.
+        var clauseHistory: [[DiagnosticIngest.ClauseStatus]]
+
+        init(
+            run: CompilerRun, diagnostics: [Diagnostic],
+            clauseHistory: [[DiagnosticIngest.ClauseStatus]] = []
+        ) {
+            self.run = run
+            self.diagnostics = diagnostics
+            self.clauseHistory = clauseHistory
+        }
+
+        /// Hand-written so a v1/v2 sidecar (written before this field
+        /// existed) decodes clean instead of failing the whole file — the
+        /// same discipline as `CompilerRun.init(from:)`.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            run = try c.decode(CompilerRun.self, forKey: .run)
+            diagnostics = try c.decode([Diagnostic].self, forKey: .diagnostics)
+            clauseHistory = try c.decodeIfPresent(
+                [[DiagnosticIngest.ClauseStatus]].self, forKey: .clauseHistory) ?? []
+        }
     }
 
     private var byDoc: [String: FileContent] = [:]
@@ -68,15 +94,31 @@ final class DiagnosticsStore {
             return
         }
         byDoc[docId] = FileContent(
-            run: content.run, diagnostics: content.diagnostics.filter { $0.kind != nil })
+            run: content.run, diagnostics: content.diagnostics.filter { $0.kind != nil },
+            clauseHistory: content.clauseHistory)
         version += 1
     }
 
     /// A new run's diagnostics wholly replace the previous run's for
     /// `docId` — un-promoted notes from the prior run are dropped, not
     /// merged. Persists immediately.
+    ///
+    /// **The drift ring is not swept along with them.** When `run` carries
+    /// clause statuses (an ingest that actually checked something — `nil`
+    /// means nothing was declared to check, distinct from an empty list
+    /// meaning it checked and found nothing straining), that snapshot is
+    /// appended to the ring, oldest dropped past `clauseHistoryDepth`. The
+    /// ring outlives any single run's supersession by design: `DriftDetector`
+    /// needs the pattern across runs that `replace` otherwise forgets.
     func replace(run: CompilerRun, diagnostics: [Diagnostic], docId: String) {
-        let content = FileContent(run: run, diagnostics: diagnostics)
+        var history = byDoc[docId]?.clauseHistory ?? []
+        if let statuses = run.clauseStatuses {
+            history.append(statuses)
+            if history.count > Self.clauseHistoryDepth {
+                history.removeFirst(history.count - Self.clauseHistoryDepth)
+            }
+        }
+        let content = FileContent(run: run, diagnostics: diagnostics, clauseHistory: history)
         byDoc[docId] = content
         persist(docId: docId, content: content)
         // A run that raised nothing clears the badge rather than leaving the
@@ -149,6 +191,17 @@ final class DiagnosticsStore {
 
     func lastRun(docId: String) -> CompilerRun? {
         byDoc[docId]?.run
+    }
+
+    /// How many clause-status snapshots the drift ring keeps — enough for
+    /// `DriftDetector.consecutiveRunsThreshold`'s k=3 pattern with headroom,
+    /// small enough that this stays a sidecar rather than a second op log.
+    static let clauseHistoryDepth = 5
+
+    /// The drift ring for `docId`, oldest→newest, capped at
+    /// `clauseHistoryDepth`. Feeds `DriftDetector.drift` directly.
+    func clauseStatusHistory(docId: String) -> [[DiagnosticIngest.ClauseStatus]] {
+        byDoc[docId]?.clauseHistory ?? []
     }
 
     /// The delta marker: the op-log position the last run checked as of.

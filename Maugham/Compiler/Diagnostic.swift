@@ -110,6 +110,12 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// `nil` marks a record written before the sections existed, exactly as
     /// `Diagnostic.kind == nil` does. Task 4 owns this field's own suite; it is
     /// here because the run that writes it is this task's.
+    ///
+    /// **This one run's snapshot is also `DiagnosticsStore.replace`'s source
+    /// for the drift ring** (`DiagnosticsStore.clauseStatusHistory`,
+    /// `DriftDetector`): every non-`nil` value here is appended there,
+    /// oldest dropped past `DiagnosticsStore.clauseHistoryDepth`, so a
+    /// pattern across runs survives this field's own supersession.
     var clauseStatuses: [DiagnosticIngest.ClauseStatus]?
 
     /// How many reader reports this run discarded over the schema's cap of
