@@ -46,12 +46,13 @@ why. **Read `experiment/RULINGS.md` and nothing else.**
 | `MaughamCore.PaletteCardParser` | 47 | 34% | 16 reached | `07-summary.md` |
 | `MaughamCore.PaletteCardModel` | 40 | 40% | 16 reached | `07-summary.md` |
 | `Stores/TrashStore` + `ProjectStore+Trash` | 51 | 47% | 13 / 11 | `22-trash-reconciliation.md` |
-| `OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`) | 30 | 53% | 10 / 6 | `24-rewind-reconciliation.md` |
+| `OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`) | 32 | 56% | 13 / 5 | `24-rewind-reconciliation.md` |
 
 The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the two app-layer
-rows are 81 further claims in their own files. **250 claims in the experiment, 229 reconciled.**
-(The rewind row moved 2026-08-08: M4-RW-002 was FIXED and flipped to COMPLIES, and M4-RW-032 pins
-the new composition — the first exercised fix loop, see below.)
+rows are 83 further claims in their own files. **252 claims in the experiment, 231 reconciled.**
+(The rewind row moved twice on 2026-08-08: M4-RW-002 fixed and flipped, M4-RW-032 pinning its
+composition; then M4-RW-019 fixed under RULING-25 and flipped, with M4-RW-033/034 pinning the
+scope guard and the undo symmetry — two exercised fix loops, see below.)
 
 **All 80 app-layer claims re-verified passing at HEAD `f2b2b5e2` on 2026-08-08** —
 98 commits after they were pinned at `db1bea2c`, including changes to `ProjectStore.swift`,
@@ -64,9 +65,10 @@ the new composition — the first exercised fix loop, see below.)
    action in the app. A ruling set that reached everything would be too generic to be useful.
 
 2. **The comply/violate ratio inverts across the layers.** MaughamCore's pure modules ran 31:1.
-   The app layer runs 23:17 (was 21:18 before the M4-RW-002 fix and its companion claim). The old
-   "97% of what a ruling reaches is already right" headline is a fact about pure, writer-distant
-   code and **must not be restated about the codebase**.
+   The app layer runs 26:16 (21:18 as first reconciled; the drift since is the two 2026-08-08
+   fixes flipping their filings plus the claims that pin the fixed behaviour). The old "97% of
+   what a ruling reaches is already right" headline is a fact about pure, writer-distant code and
+   **must not be restated about the codebase**.
 
 ### The methodological correction (accepted, and now confirmed twice)
 
@@ -106,6 +108,17 @@ test.** Treat every entry as a lead. Of the ones checked so far:
   (`HistoryPaneRewindTargetTests`) in commit `c5ca4d5e`; claim updated; composition claim M4-RW-032
   added; filing flipped VIOLATES→COMPLIES; `_summary` recomputed. The lifecycle is encoded in
   `scripts/25-flip-m4-rw-002.py`'s docstring — **that is the pattern for every future fix.**
+- **The second fix loop closed M4-RW-019 — the first fix authorised by a NEW ruling.** Commit
+  `12d763c9`: `restoreToOp` gains step 9, the sweep's mirror — a forward restore reopens (a
+  `.rewind`-stamped `.annotationReopen`) every annotation whose latest lifecycle op is a
+  rewind-stamped archive from an open status and whose paragraph exists in the target state. The
+  writer's own archives are untouched (M4-RW-033); undo re-archives through the compensating
+  restore's own sweep, with zero bespoke undo code (M4-RW-034); the accepted-then-archived case
+  deliberately stays archived — an unruled residual recorded in the filing. Pinned by
+  `RewindTravelReopenTests` (production) and the rewritten characterisation copy, re-verified in
+  place. Filing re-filed from RULING-8 to RULING-25 — the new ruling is the more specific reach.
+  One lifecycle addition from the rebase that preceded this: **a filing citing a commit hash must
+  be re-pointed when the branch is rebased** (`ad37df90`).
 - **Consumption is wired**: CI job `behavioural-claims` runs the MaughamCore claims package on every
   push; CLAUDE.md has a "Behavioural claims + rulings" section; `Maugham/OpLog/AREA.md` and
   `Maugham/Stores/AREA.md` point at their filings; the constitution↔rulings precedence paragraph is
@@ -113,14 +126,14 @@ test.** Treat every entry as a lead. Of the ones checked so far:
 
 ## Open, and ordered by what I would do next
 
-1. **Fix M4-RW-019 under RULING-25.** The sharpest live defect now has a ruling behind it: a
-   forward rewind must reopen the comments it auto-archived on the way back. This lands in
-   `Document+Rewind`/`Document+Annotations` and is the second run of the fix loop — on a much
-   harder change than M4-RW-002.
-2. **Next module: `Maugham/OpLog/Document+Annotations.swift`.** Now doubly motivated — it is where
-   RULING-25 will be tested against pinned claims, and where GAP-R2 lands.
-   `Maugham/Canvas/Promotion*.swift` (75% survey specificity) remains the harder falsification of
-   the sampling correction.
+1. **Next module: `Maugham/OpLog/Document+Annotations.swift`.** Now triply motivated — it is where
+   RULING-25's wider reach gets tested against pinned claims, where GAP-R2 lands, and where the
+   M4-RW-019 fix's step 9 now lives adjacent. `Maugham/Canvas/Promotion*.swift` (75% survey
+   specificity) remains the harder falsification of the sampling correction.
+2. **The accepted-then-archived residual.** The step-9 `wasOpen` guard deliberately leaves an
+   accepted suggestion the rewind archived in `.archived` on forward travel — its honest forward
+   status would be `.accepted`, which is unruled. A product statement for the queue: *"travelling
+   forward past an accept restores the suggestion to accepted, not merely to present."*
 3. **10 gaps remain open** — 6 from trash (`22-*.md`), 4 from rewind (`24-*.md`; R1 ruled, R6
    superseded), each phrased as a product statement a non-programmer can rule on. They are the
    scarce-resource queue. The 2026-08-08 precedent: presented as structured questions with a

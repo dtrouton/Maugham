@@ -291,17 +291,18 @@
   "claim_id": "M4-RW-019",
   "scope": "Document.restoreToOp",
   "kind": "INVARIANT",
-  "statement": "rewinding FORWARD past the moment a paragraph was created brings the paragraph back and brings the pane TASK back, but leaves a sweep-archived ANNOTATION archived: a forward rewind computes an empty removedIds, flags no sweep, and nothing reopens. The task window is derived and moves; the archive is a real op and is never reversed",
+  "statement": "rewinding FORWARD past the moment a paragraph was created brings the paragraph, the pane task AND the sweep-archived annotation back: the restore appends a `.rewind`-stamped `.annotationReopen` for every annotation whose latest lifecycle op is a rewind-stamped archive from an open status and whose anchor paragraph exists in the target state (RULING-25)",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "RewindCharacterization.test_forwardRewind_returnsTextAndTasks_butNotArchivedAnnotations"
+   "ref": "RewindCharacterization.test_forwardRewind_returnsTextTasks_andReopensWhatTheSweepArchived (copy, re-verified in place 2026-08-08) + production twin MaughamTests/Integration/RewindTravelReopenTests.test_forwardRewind_reopensTheCommentTheRewindArchived"
   },
   "warrant": "HIGH",
-  "intent": "INCIDENTAL",
+  "intent": "INTENTIONAL — ruled (RULING-25, Denver 2026-08-08)",
   "reachability": "LIVE — two consecutive Restores from the rewind modal, the second targeting a later op",
   "evidence": {
    "property_test": null
-  }
+  },
+  "fix_history": "Pinned the ASYMMETRY (comment stayed archived, permanently and silently) until fixed at 12d763c95a, 2026-08-08, under RULING-25"
  },
  {
   "claim_id": "M4-RW-020",
@@ -479,5 +480,37 @@
    "property_test": null
   },
   "out_of_module_note": "Lives in Maugham/Views, not the three rewind files — added here because it is the composition claim that makes M4-RW-002's flipped filing honest"
+ },
+ {
+  "claim_id": "M4-RW-033",
+  "scope": "Document.restoreToOp — the return journey's scope guard",
+  "kind": "INVARIANT",
+  "statement": "an annotation the WRITER archived (no synthesisSource on the archive op) stays archived across a full backward-and-forward travel; only Maugham's own rewind-stamped archives reopen",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MaughamTests/Integration/RewindTravelReopenTests.test_writersOwnArchive_staysArchivedAcrossTravel"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — RULING-25's scope clause verbatim",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-034",
+  "scope": "Document.restoreToOpUndoable × the return journey",
+  "kind": "POSTCONDITION",
+  "statement": "undoing a forward travel re-archives what the travel reopened — via the compensating restore's own step-7 sweep, no bespoke undo work; redo re-runs the forward restore and reopens again. The return journey is gated to `.rewind` restores so the `.undoRewind` compensating restore never double-acts",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MaughamTests/Integration/RewindTravelReopenTests.test_undoOfTheForwardRewind_reArchivesWhatItReopened"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — ⌘Z after a forward Restore",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]

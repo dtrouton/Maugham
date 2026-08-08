@@ -345,13 +345,16 @@ final class RewindCharacterization: XCTestCase {
         XCTAssertFalse(r.archivedAnnotationOpIds.isEmpty)
     }
 
-    // MARK: - The forward-rewind asymmetry
+    // MARK: - The forward rewind is symmetric (RULING-25, fixed 2026-08-08)
 
     /// M4-RW-019 / M4-RW-020 — rewinding FORWARD past the moment a paragraph
-    /// was created brings the paragraph back and brings the pane TASK back, but
-    /// leaves the archived ANNOTATION archived. A forward rewind computes an
-    /// empty `removedIds`, so no sweep runs and nothing reopens.
-    func test_forwardRewind_returnsTextAndTasks_butNotArchivedAnnotations() async throws {
+    /// was created brings the paragraph back, the pane TASK back, AND reopens
+    /// the comment the backward rewind's sweep archived — a `.rewind`-stamped
+    /// `.annotationReopen`, the sweep's mirror. Before the 2026-08-08 fix the
+    /// annotation stayed archived permanently and silently (the asymmetry this
+    /// test used to pin as the M4-RW-019 violation). Production twin:
+    /// `MaughamTests/Integration/RewindTravelReopenTests`.
+    func test_forwardRewind_returnsTextTasks_andReopensWhatTheSweepArchived() async throws {
         let h = try await makeHarness("First.")
         let doc = h.doc
         try await doc.flushBurstNow()
@@ -368,6 +371,8 @@ final class RewindCharacterization: XCTestCase {
         let back = try await doc.restoreToOp(opId: early)
         XCTAssertTrue(back.rewoundTaskOps)
         XCTAssertEqual(annotation(doc, annId)?.status, .archived)
+        XCTAssertTrue(back.travelReopenedAnnotationIds.isEmpty,
+                      "the backward leg reopens nothing — the paragraph is absent there")
         XCTAssertFalse(doc.tasks(filter: filter).contains { $0.id == task.id })
 
         let forward = try await doc.restoreToOp(opId: later)
@@ -375,11 +380,13 @@ final class RewindCharacterization: XCTestCase {
         XCTAssertTrue(doc.sequence.contains(p2), "the paragraph came back")
         XCTAssertTrue(doc.tasks(filter: filter).contains { $0.id == task.id },
                       "the task came back — TaskDeriver's window moved")
-        XCTAssertEqual(annotation(doc, annId)?.status, .archived,
-                       "the comment did NOT come back — the archive is a real op, never reversed")
+        XCTAssertEqual(annotation(doc, annId)?.status, .open,
+                       "and the comment came back with them — RULING-25's symmetric travel")
+        XCTAssertEqual(forward.travelReopenedAnnotationIds, [annId])
         XCTAssertTrue(forward.removedParagraphIds.isEmpty,
-                      "a forward rewind removes nothing, so no sweep runs")
-        XCTAssertTrue(forward.reopenedAnnotationOpIds.isEmpty)
+                      "a forward rewind removes nothing, so no archive sweep runs")
+        XCTAssertTrue(forward.reopenedAnnotationOpIds.isEmpty,
+                      "the accept-revert channel stays empty — this is the travel channel")
         XCTAssertFalse(forward.rewoundTaskOps)
     }
 

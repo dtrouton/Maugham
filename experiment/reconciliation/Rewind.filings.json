@@ -138,13 +138,20 @@
  },
  {
   "claim_id": "M4-RW-019",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-8",
-  "clause_that_reaches_it": "Where the same product question is answered in more than one place, it has one answer. A second surface or a second code path may not answer it differently.",
-  "why_in_scope": "The writer's question is 'I rewound too far and came back — is my document as it was?', asked of two things sitting in one document after one gesture. The pane task answers yes; the comment on the same restored paragraph answers no, permanently and without a word. Discipline 5 governs: sameness is judged from the WRITER'S question, never from whether the code paths differ — and 'a task window is derived while an archive is a recorded op' is precisely a code-path distinction. The counter-argument is real and is Denver's to make: if a recorded archive is an author-visible DECISION that only an author may reverse, while a task window is pure derivation, then these are two questions that merely look alike and the asymmetry is correct. Nothing in the current set draws that line, and drawing it would still leave the writer untold either way.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-25",
+  "clause_that_reaches_it": "Anything Maugham closes on the writer's behalf when they travel through their history is reopened when they travel back.",
+  "why_in_scope": "The sweep's archive is Maugham closing an annotation on its own initiative during history travel — RULING-25's stated scope verbatim. The old filing convicted under RULING-8 (the task answered yes, the comment answered no); R25 is now the more specific ruling and the behaviour matches it. The accepted-then-archived case deliberately does NOT reopen (its pre-archive status was not open; its honest forward status would be .accepted) — recorded as a residual, unruled.",
   "intent_expressed_when": "contemporaneous — the forward rewind IS the writer saying 'put it back'",
   "call_path": "Two consecutive Restores from the rewind modal, the second targeting a later op. RewindFlowTests.test_rewindThenScrubBeforePriorRewind_walksFullHistory exercises this sequence for text and asserts only the sequence count.",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "12d763c95ad4cf1f6385b7e44e3dc26f748a129e",
+   "date": "2026-08-08",
+   "authorised_by": "RULING-25 — Denver 2026-08-08, GAP-R1 ruled as symmetric travel",
+   "pinned_by": "MaughamTests/Integration/RewindTravelReopenTests (production) + the rewritten characterisation copy",
+   "note": "second defect through the claim→fix→re-verify loop; first fixed by a new ruling"
+  }
  },
  {
   "claim_id": "M4-RW-020",
@@ -237,13 +244,33 @@
   "violation_or_enhancement": "neither"
  },
  {
+  "claim_id": "M4-RW-033",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-25",
+  "clause_that_reaches_it": "The writer's own archive/resolve actions are their intent (RULING-23's shape) and are untouched by this ruling.",
+  "why_in_scope": "The scope clause names this case: a writer-made archive is intent to honour, not damage to repair. The discriminator is the archive op's synthesisSource — nil for the writer, .rewind for the sweep.",
+  "intent_expressed_when": "earlier — the writer archived it before travelling",
+  "call_path": "annotations pane → Archive → travel back and forward through the rewind modal",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M4-RW-034",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-25",
+  "clause_that_reaches_it": "Anything Maugham closes on the writer's behalf when they travel through their history is reopened when they travel back.",
+  "why_in_scope": "Undo of a forward travel IS a backward travel — the clause applies in both directions, and the sweep re-closing what the forward leg reopened is the same symmetry run in reverse.",
+  "intent_expressed_when": "contemporaneous — ⌘Z immediately after the Restore",
+  "call_path": "rewind modal → Restore (forward) → ⌘Z",
+  "violation_or_enhancement": "neither"
+ },
+ {
   "_summary": {
-   "reached": 16,
-   "complies": 10,
-   "violates": 6,
+   "reached": 18,
+   "complies": 13,
+   "violates": 5,
    "no_ruling": 14,
-   "total": 30,
-   "coverage": "53%",
+   "total": 32,
+   "coverage": "56%",
    "by_ruling": {
     "RULING-22": [
      "M4-RW-002",
@@ -260,13 +287,17 @@
      "M4-RW-011",
      "M4-RW-012"
     ],
+    "RULING-25": [
+     "M4-RW-019",
+     "M4-RW-033",
+     "M4-RW-034"
+    ],
     "RULING-7": [
      "M4-RW-026"
     ],
     "RULING-8": [
      "M4-RW-017",
      "M4-RW-018",
-     "M4-RW-019",
      "M4-RW-031"
     ]
    },
@@ -276,7 +307,7 @@
     "M4-RW-012"
    ],
    "specificity_current_ruling_set": "12/15 = 80%",
-   "distinct_defects": "6 violations over 5 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op and are counted once in the register; M4-RW-002 fixed 2026-08-08 (c5ca4d5e83) and flipped to COMPLIES"
+   "distinct_defects": "5 violations over 4 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op, counted once. Fixed and flipped: M4-RW-002 (2026-08-08), M4-RW-019 (12d763c95a, 2026-08-08)"
   }
  }
 ]
