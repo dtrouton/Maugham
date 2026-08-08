@@ -336,13 +336,36 @@ briefing embed clause quotes some other way, this is the paragraph to re-read
 first. A watch item for Stage 3, recorded here because a reader of
 `worldSection` cannot see it.
 
-## The third door: bless, and the fact that comes back
+## The third door: bless converges, and graduated is not dismissed
 
-`BibleStore.record` deliberately keeps no memory of what was dismissed (spec
-§3.3, "may return if the manuscript re-establishes it"; the method's own doc
-says it "must not grow one"). For **dismiss** that is the designed behaviour.
-For **bless** it composes into a trap, and the walk is short enough to state
-verbatim:
+**Closed in Stage 3.** `BibleStore` remembers the `(subject, fact)` keys the
+writer has GRADUATED — blessed or corrected into a ruling — and `record` drops
+a candidate whose key is one of them. `BibleStratum.graduate` marks the key
+after `RulingPerformer.rule` succeeds and before `bible.dismiss`, so a refused
+ruling leaves both the fact and the door exactly as it found them. The keys ride
+in the per-device sidecar beside the ledger (one envelope, because a graduated
+key that outlived its facts would put the blessed reading back on the pane the
+launch after somebody deleted the wrong half; a bare-array sidecar from a
+previous build still loads and simply has nothing graduated).
+
+Two things the rule is deliberately NOT. It is not a memory of **dismissal** —
+spec §3.3 is unchanged, a plain dismiss keeps no memory, and a manuscript that
+re-establishes a dismissed fact is a reading returning rather than a record
+surviving (`BibleStoreTests.test_dismissedFactCanReturn_thisIsIntended` sits
+adjacent to `test_aBlessedFactDoesNotComeBack`, each naming the other). And it
+is not keyed on the writer's words: a **correction** rules "Kelly is a
+paramedic" and graduates *"Kelly is a nurse"*, because what a later run
+re-emits is what it reads off the prose.
+
+**Revoking the ruling does not reopen the door**, by decision rather than
+oversight — a revoke is the writer unmaking a decision, not asking to be
+re-offered the reading days later about prose they have since rewritten, and
+resurrection would have to guess which of a correction's two sentences was ever
+a fact. The reasoning lives on `BibleStore.markGraduated`; if a smoke says
+otherwise the fix is one `graduatedKeys.remove` at the revoke site.
+
+The walk below is what the design answers, kept because it is the rationale and
+because every step of it is what the tests assert against:
 
 1. Run N reads a fact; the writer blesses it. `BibleStratum.graduate` mints a
    ruling through `RulingPerformer.rule` and then calls `bible.dismiss` —
@@ -359,15 +382,24 @@ verbatim:
    renders as duplicate conformance rows, which `conformanceRows` embraces by
    design.
 
-The design answer is **Stage 3's**, alongside drift — the honest fixes all
-touch design (tombstoning graduated `(subject, fact)` pairs in the bible
-sidecar is derived-state-shaped and does not touch the membrane; string-matching
-`record` against ruling texts is fragile and misses corrections), and choosing
-between them wants a milestone that can measure the result. This paragraph
-exists so the next reader **decides** it rather than discovering it. Note also
-what does not exist: **no test walks the bible loop across two runs at all** —
-nothing records facts in run N and watches run N+1's briefing carry them, let
-alone with a bless in the middle.
+Of the two candidate fixes, the shipped one is the tombstone: it is
+derived-state-shaped and does not touch the membrane. String-matching `record`
+against ruling texts was rejected — it is fragile, and it misses corrections
+entirely, where the ruled sentence and the re-emitted reading are different
+strings by construction.
+
+**The loop is walked end to end by one test.**
+`CompilerRunCommandTests.test_theBibleLoopConvergesAcrossRunsWithABlessInTheMiddle`
+drives three runs over a real project with a real mounted `StatementPane`: run 1
+reads the fact and the stratum shows it, the writer presses the real `Bless`
+button through the accessibility tree, run 2 re-emits the identical candidate,
+and run 3 is where a returned fact would have been briefed. Three runs and not
+two because **the ledger is read at the start of a run (`bibleSlice`) and
+written at its end (`recordFacts`)** — the run that re-emits a blessed fact is
+never the run that would brief it. Falsified by deleting `record`'s graduated
+guard: the fact returns to the register and to the pane, and run 3's message
+carries the same declaration twice, once as a bible fact and once as the
+ruling's derived clause.
 
 ## The four fates of a note
 

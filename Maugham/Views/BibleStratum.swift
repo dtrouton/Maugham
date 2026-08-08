@@ -142,7 +142,16 @@ enum BibleStratum {
     }
 
     /// The half `bless` and `correct` share: write the writer's sentence as a
-    /// ruling, and only then take the reading off the pane.
+    /// ruling, mark the reading graduated, and only then take it off the pane.
+    ///
+    /// **Three steps in that order, and the order is the same contract twice.**
+    /// The ruling first, because a refusal must leave the writer something to
+    /// press again; the graduation before the dismissal, because between the
+    /// two the fact is a reading the writer has already ruled on and a run
+    /// landing in that window would re-record it. What is marked is
+    /// `fact.fact` — Claude's reading — never `words`, which for a correction
+    /// are the writer's own and are briefed as a clause rather than proposed as
+    /// a candidate (`BibleStore.markGraduated`).
     ///
     /// A refusal is swallowed here rather than surfaced, on the pane's own
     /// terms: `RulingPerformer`'s refusals are all structural (a scope naming no
@@ -159,6 +168,7 @@ enum BibleStratum {
         } catch {
             return
         }
+        bible.markGraduated(subject: fact.subject, fact: fact.fact)
         bible.dismiss(fact.id)
     }
 }

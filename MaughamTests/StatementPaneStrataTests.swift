@@ -780,6 +780,63 @@ final class StatementPaneStrataTests: XCTestCase {
                         + "it was blessed")
         XCTAssertTrue(bible.allFacts().isEmpty,
                       "the blessed fact stayed in the provisional register")
+        XCTAssertTrue(
+            bible.isGraduated(subject: "Kelly", fact: "Kelly is a nurse."),
+            "the graduation was not recorded, so the next run that re-reads the "
+            + "establishing scene puts the blessed fact back on the pane")
+    }
+
+    /// **The door the graduation closes, through the real bless.** A run that
+    /// re-reads the establishing prose re-emits the same candidate; `record`
+    /// drops it, because the claim is the writer's now
+    /// (`Maugham/Compiler/AREA.md`, "the third door"). The store's own pair of
+    /// tests (`BibleStoreTests.test_aBlessedFactDoesNotComeBack` and its
+    /// opposite) fixes the rule; this one says `bless` is what reaches it.
+    func test_aFactBlessedHereIsNotRecordedAgainByALaterRun() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "bless-converges")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+        let bible = BibleStore(projectRoot: fixture.projectURL,
+                               device: DeviceSlug.make(from: "test-mac"))
+        let fact = makeFact(id: "f1", subject: "Kelly", fact: "Kelly is a nurse.",
+                            docId: fixture.documentItemId)
+        bible.record([fact])
+
+        await BibleStratum.bless(fact, forScope: scope, store: fixture.store,
+                                 bible: bible, world: nil)
+
+        // The next run's candidate: a fresh id, the same reading.
+        bible.record([makeFact(id: "f2", subject: "Kelly", fact: "Kelly is a nurse.",
+                               docId: fixture.documentItemId)])
+
+        XCTAssertTrue(bible.allFacts().isEmpty,
+                      "a blessed fact came back as a new reading")
+    }
+
+    /// **Correcting closes the door on CLAUDE's reading, not on the writer's
+    /// words.** What the model will re-emit is what it read — "Kelly is a
+    /// nurse." — so that is the key the graduation has to hold. The amended
+    /// sentence is a ruling and is briefed as a clause; marking it here would
+    /// close a door nothing ever knocks on and leave the real one open.
+    func test_correctingGraduatesClaudesReadingAndNotTheWritersWords() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "correct-converges")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+        let bible = BibleStore(projectRoot: fixture.projectURL,
+                               device: DeviceSlug.make(from: "test-mac"))
+        let fact = makeFact(id: "f1", subject: "Kelly", fact: "Kelly is a nurse.",
+                            docId: fixture.documentItemId)
+        bible.record([fact])
+
+        await BibleStratum.correct(fact, to: "Kelly is a paramedic.", forScope: scope,
+                                   store: fixture.store, bible: bible, world: nil)
+
+        XCTAssertTrue(bible.isGraduated(subject: "Kelly", fact: "Kelly is a nurse."),
+                      "the reading the writer amended is exactly what the next run "
+                      + "re-emits, and it was left free to return")
+        XCTAssertFalse(bible.isGraduated(subject: "Kelly", fact: "Kelly is a paramedic."),
+                       "the writer's own sentence was marked graduated: it is a ruling, "
+                       + "not a reading, and no run will ever offer it")
     }
 
     /// Correcting is blessing the writer's own words instead of Claude's — the
@@ -824,6 +881,11 @@ final class StatementPaneStrataTests: XCTestCase {
 
         XCTAssertEqual(bible.allFacts().map(\.id), ["f1"],
                        "a refused bless dismissed the fact anyway")
+        XCTAssertFalse(
+            bible.isGraduated(subject: "Kelly", fact: "Kelly is a nurse."),
+            "a refused bless closed the door anyway: nothing graduated, so the "
+            + "fact standing there is a reading the writer can still press \u{2014} "
+            + "and a run that re-establishes it must be able to")
     }
 
     /// Dismiss is the third action and is not undoable, on `DiagnosticsPane`'s

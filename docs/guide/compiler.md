@@ -106,7 +106,12 @@ a voice. These land in the Intent pane's paler strip beneath your rulings —
 *What Claude has read* — with three actions: **Bless** (graduate it to a
 ruling, in your own words), **Correct** (edit it before it becomes one), and
 **Dismiss** (it may return if the manuscript re-establishes it). Nothing there
-is truth until you act on it; it is inspected, never tended. See [Inspector,
+is truth until you act on it; it is inspected, never tended.
+
+Blessing or correcting is permanent in a way dismissing is not: once a reading
+is a ruling of yours, later checks never offer it again, even when you rewrite
+the scene that established it. Dismissing says *not so*, and your manuscript is
+allowed to argue back. See [Inspector,
 Research & Outline → Intent mode](right-pane.md#intent-mode-n).
 
 ## What you can do with a note

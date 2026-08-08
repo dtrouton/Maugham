@@ -2027,6 +2027,176 @@ final class CompilerRunCommandTests: XCTestCase {
                        + "the whole-statement briefing back through a real ruling")
     }
 
+    /// A turn that reads one fact off the delta — the same reading every time
+    /// it is asked, which is what a manuscript that still establishes the fact
+    /// produces. `refs` is empty on purpose: a fact with no anchor is valid
+    /// (`DiagnosticIngest.resolveRefs`' own escape hatch) and the stratum
+    /// captions it by its subject, which keeps this fixture about the loop
+    /// rather than about excerpt resolution.
+    private static let oneFactAboutKelly = """
+        {"section":"conformance","checks":[]}
+        {"section":"continuity","questions":[]}
+        {"section":"reader","reports":[]}
+        {"section":"facts","candidates":[{"subject":"Kelly","fact":"Kelly is a nurse.","refs":[]}]}
+        """
+
+    /// **The bible loop, across three runs, with a bless in the middle** — the
+    /// composition nothing walked until now (`Maugham/Compiler/AREA.md`, "the
+    /// third door": *"no test walks the bible loop across two runs at all"*).
+    ///
+    /// Production the whole way but the two subprocesses: the real orchestrator
+    /// over a real project, the real `BibleStore`, the real `StatementPane`
+    /// mounted in a window, and the writer's press delivered through the
+    /// accessibility tree to the real `Bless` button.
+    ///
+    /// **Why three runs and not two.** The ledger is read at the START of a run
+    /// (`bibleSlice`) and written at its END (`recordFacts`), so the run that
+    /// re-emits a blessed fact is never the run that would brief it — the one
+    /// after it is. Run 2 is where the suppression happens; run 3 is where the
+    /// damage would have shown. Falsify by deleting `record`'s graduated guard:
+    /// run 2's candidate returns to the register (assertions 3 and 4 go red)
+    /// and run 3's message carries the same declaration twice, once as a bible
+    /// fact and once as the ruling's derived clause (assertion 6).
+    func test_theBibleLoopConvergesAcrossRunsWithABlessInTheMiddle() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "bible-loop")
+        defer { fixture.tearDown() }
+        let docId = fixture.documentItemId
+        let device = DeviceSlug.make(from: "test-mac")
+        let bible = BibleStore(projectRoot: fixture.projectURL, device: device)
+        let declaredWorld = DeclaredWorldStore(projectRoot: fixture.projectURL, device: device)
+        let diagnostics = DiagnosticsStore(projectRoot: fixture.projectURL, device: device)
+        let runner = SpyRunner()
+        let deriver = EchoRulingsDeriver()
+        runner.nextEvent = .resultText(Self.oneFactAboutKelly)
+
+        // The manuscript the run reads. `reading` resolves the OPEN document by
+        // id, so the run has nothing to check until one is registered — the
+        // pane's mount opens the statement, never the chapter.
+        let item = try XCTUnwrap(
+            fixture.store.manifest.structure.first(where: { $0.id == docId }))
+        let path = try XCTUnwrap(item.path)
+        let document = try await Document.load(
+            url: fixture.projectURL.appendingPathComponent(path),
+            device: "test-mac", session: "s", presenter: nil)
+        fixture.documentStore.register(document: document, for: path)
+
+        var environment = CompilerOrchestrator.Environment.production(
+            store: fixture.store, documentStore: fixture.documentStore,
+            projectURL: fixture.projectURL, declaredWorld: declaredWorld, bible: bible,
+            preferences: fixture.preferences,
+            makeDeriver: { _ in deriver },
+            onRunAcknowledged: { _ in })
+        environment.writeMCPConfig = {
+            let url = fixture.projectURL.appendingPathComponent("compiler-mcp.json")
+            try Data("{}".utf8).write(to: url, options: .atomic)
+            return url
+        }
+        environment.makeRunner = { _, _ in runner }
+        let orchestrator = CompilerOrchestrator()
+        orchestrator.configure(environment: environment, diagnostics: diagnostics)
+        defer { orchestrator.detach() }
+
+        let window = await fixture.host(
+            kind: .intent, subject: .item(docId), bible: bible, world: declaredWorld)
+
+        // 1. Run 1 reads the fact off the writer's scene, and the mounted
+        //    stratum shows it.
+        document.setFullText("Kelly came off a double shift.")
+        orchestrator.runRequested(docId: docId)
+        await awaitSends(1, on: runner)
+        await settle()
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.shows("Kelly is a nurse.", in: window)
+        }
+        XCTAssertEqual(bible.allFacts().map(\.fact), ["Kelly is a nurse."],
+                       "run 1's candidate never reached the ledger, so there is no "
+                       + "fact on the pane to bless")
+        let onScreenAfterRunOne = try fixture.staticTexts(
+            in: window, containing: CanvasAccessibility.claudeTerm)
+        XCTAssertFalse(
+            onScreenAfterRunOne.isEmpty,
+            "the fact never reached the mounted stratum \u{2014} there is no control "
+            + "to press, and the assertion after run 2 would pass over an empty pane")
+
+        // 2. The writer blesses it, through the button they press.
+        try fixture.pressButton(labelled: "Bless", in: window)
+        await fixture.pumpUntil(deadline: 5) { bible.allFacts().isEmpty }
+        let ruled = "Kelly is a nurse."
+        let statement = try XCTUnwrap(
+            fixture.store.statement(kind: .intent, scope: .document(docId)),
+            "the bless minted no statement, so nothing graduated and the rest of "
+            + "this test is about a loop that never closed")
+        XCTAssertEqual(
+            RulingsStratum.rows(in: fixture.store.statementText(of: statement)).map(\.text),
+            [ruled])
+        XCTAssertTrue(bible.allFacts().isEmpty, "the blessed fact stayed in the register")
+
+        // 3. The writer revises the establishing scene; run 2 re-reads it and
+        //    re-emits the identical fact. It must not come back.
+        document.setFullText("Kelly came off a double shift.\n\nKelly took the long way home.")
+        orchestrator.runRequested(docId: docId)
+        await awaitSends(2, on: runner)
+        await settle()
+        await fixture.waitOut(0.4)
+
+        XCTAssertTrue(
+            bible.allFacts().isEmpty,
+            "the blessed fact came back: run 2 re-established it and `record` had no "
+            + "memory of the graduation, so the writer is asked to bless what they "
+            + "have already ruled")
+        let onScreenAfterRunTwo = try fixture.staticTexts(
+            in: window, containing: CanvasAccessibility.claudeTerm)
+        XCTAssertTrue(
+            onScreenAfterRunTwo.isEmpty,
+            "the provisional register put the blessed fact back on screen: "
+            + onScreenAfterRunTwo.description)
+
+        // 4. Run 2's own briefing: the ruling reaches the model as its derived
+        //    clause, exactly once, and no bible section repeats it.
+        let second = runner.sends[1].message
+        XCTAssertFalse(second.contains("Established so far:"),
+                       "the graduated fact was briefed as a reading as well as a ruling")
+        XCTAssertTrue(second.contains(EchoRulingsDeriver.check),
+                      "the blessed sentence did not reach run 2 as a clause at all, so "
+                      + "the writer graduated it into a briefing that ignores it")
+        XCTAssertEqual(occurrences(of: ruled, in: second), 1,
+                       "the declaration is in the message twice \u{2014} the "
+                       + "over-weighting the whole convergence exists to prevent")
+
+        // 5. Run 3 is where a returned fact would have been briefed. With the
+        //    ledger converged and the world unmoved there is nothing new to
+        //    embed at all, and the run says so in one line.
+        //
+        //    **The new paragraph names Kelly on purpose.** The slice matches a
+        //    subject against the DELTA's prose, not the document's, so prose
+        //    about anyone else would leave a returned fact out of this briefing
+        //    for a reason that has nothing to do with the graduation — and
+        //    these assertions would pass with the door wide open. Measured:
+        //    they did, on the red run, with "The fog came." here.
+        document.setFullText(
+            "Kelly came off a double shift.\n\nKelly took the long way home."
+            + "\n\nKelly did not come back for three days.")
+        orchestrator.runRequested(docId: docId)
+        await awaitSends(3, on: runner)
+        await settle()
+
+        let third = runner.sends[2].message
+        XCTAssertFalse(third.contains("Established so far:"),
+                       "the returned fact reached the briefing a run later")
+        XCTAssertEqual(
+            occurrences(of: ruled, in: third), 0,
+            "with nothing recorded and nothing ruled since run 2, the declared block "
+            + "is elided in one line \u{2014} a message carrying the sentence at all "
+            + "means the ledger moved, and one carrying it twice is the third door "
+            + "standing open")
+        XCTAssertTrue(third.contains("unchanged since last run"),
+                      "…and the elision is what says the ledger converged rather than "
+                      + "the assertion above passing on a message with no world in it")
+        XCTAssertEqual(deriver.calls, 1,
+                       "the statement did not move between runs 2 and 3, so the "
+                       + "reading made for run 2 is the one run 3 is elided against")
+    }
+
     // MARK: - Teardown
 
     /// Releasing the window releases the session AND the closures that hold the
