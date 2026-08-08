@@ -284,7 +284,7 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 *scope:* the writer forms an expectation from what Maugham showed, said or labelled, and the outcome differs from it
 
 *settles IN SCOPE:*
-  - **rewind label — FIXED 2026-08-08 (8fb77a81), historical evidence only**: 'Rewind to before this…' did ops.prefix(THROUGH: idx) — inclusive — landing AFTER the op; the deep-link now posts the PREDECESSOR op (HistoryPane.predecessorIndex) and the old line numbers no longer hold. The disposition below records the ruling; do not file from this bullet
+  - **rewind label — FIXED 2026-08-08 (7f741db4), historical evidence only**: 'Rewind to before this…' did ops.prefix(THROUGH: idx) — inclusive — landing AFTER the op; the deep-link now posts the PREDECESSOR op (HistoryPane.predecessorIndex) and the old line numbers no longer hold. The disposition below records the ruling; do not file from this bullet
   - snapshot impact count
   - stale cursor silent no-op
   - unmentioned auto-archive

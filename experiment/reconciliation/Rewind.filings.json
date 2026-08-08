@@ -14,7 +14,7 @@
   "call_path": "HistoryPane row → 'Rewind to before this…' (HistoryPane.swift:350) → .maughamOpenRewind with scrub_op_id → RewindModifier sets .atOp → RewindWindow → 'Restore here…' → restoreToOp",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "8fb77a81d20cdf94dc274f821846889d99994fbc",
+   "commit": "7f741db4b4280f75e956fd390916ea20840f5d91",
    "date": "2026-08-08",
    "authorised_by": "RULING-22 disposition_M4_RW_002_RULED — Denver: fix the behaviour, not the label",
    "pinned_by": "MaughamTests/Views/HistoryPaneRewindTargetTests (production, runs in the Mac suite)",
@@ -153,7 +153,7 @@
   "call_path": "Two consecutive Restores from the rewind modal, the second targeting a later op. RewindFlowTests.test_rewindThenScrubBeforePriorRewind_walksFullHistory exercises this sequence for text and asserts only the sequence count.",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "365de882ee57f6718276c7d9ddb850d55db55a77",
+   "commit": "fb08aaf96bf711bfcfa865101c3b14e389b883c4",
    "date": "2026-08-08",
    "authorised_by": "RULING-25 — Denver 2026-08-08, GAP-R1 ruled as symmetric travel",
    "pinned_by": "MaughamTests/Integration/RewindTravelReopenTests (production) + the rewritten characterisation copy",
@@ -299,12 +299,12 @@
   "outcome": "COMPLIES",
   "ruling": "RULING-26",
   "clause_that_reaches_it": "Travelling forward past an accept restores the suggestion to ACCEPTED, not merely to present.",
-  "why_in_scope": "The ruling's headline case verbatim: Maugham itself archived the accepted suggestion during travel, the paragraph and applied text return with the restore, and the status the annotation held at the travelled-to moment (at-or-after the accept: .accepted) is what returns. Fixed at 09dee301.",
+  "why_in_scope": "The ruling's headline case verbatim: Maugham itself archived the accepted suggestion during travel, the paragraph and applied text return with the restore, and the status the annotation held at the travelled-to moment (at-or-after the accept: .accepted) is what returns. Fixed at dfe2a77b2879.",
   "intent_expressed_when": "contemporaneous — the writer's forward Restore",
   "call_path": "Rewind modal → Restore (target ≥ accept op) → restoreToOp step 9 accepted branch",
   "violation_or_enhancement": "neither",
   "fix": {
-   "commit": "09dee301",
+   "commit": "dfe2a77b2879",
    "date": "2026-08-08",
    "authorised_by": "RULING-26 — Denver 2026-08-08, no recommendation offered",
    "pinned_by": "RewindTravelReopenTests (production)"
@@ -368,7 +368,7 @@
     "M4-RW-012"
    ],
    "specificity_current_ruling_set": "12/15 = 80%",
-   "distinct_defects": "5 violations over 4 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op, counted once. Fixed and flipped: M4-RW-002 (2026-08-08), M4-RW-019 (365de882ee, 2026-08-08)"
+   "distinct_defects": "5 violations over 4 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op, counted once. Fixed and flipped: M4-RW-002 (2026-08-08), M4-RW-019 (fb08aaf96b, 2026-08-08)"
   }
  }
 ]

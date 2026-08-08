@@ -18,7 +18,7 @@ layer alone, and how much of a codebase a small ruling set actually reaches.
 
 Everything is under `experiment/`. **For its first 47+ phases the experiment changed zero
 production files.** That era ended deliberately on 2026-08-08, with Denver's approval, when the
-fix loop first ran (M4-RW-002, commit `8fb77a81`) and consumption was wired into CLAUDE.md, two
+fix loop first ran (M4-RW-002, commit `7f741db4`) and consumption was wired into CLAUDE.md, two
 AREA.md files and CI. The discipline that replaces it: **production changes ride the fix loop** —
 a ruling authorising them, a pinned production test, and the claim + filing flipped in the same
 branch. Characterisation of a NEW module still changes nothing outside `experiment/`.
@@ -114,7 +114,7 @@ test.** Treat every entry as a lead. Of the ones checked so far:
   Discipline 5's citation is now real, and the generator fails on dangling ruling references in the
   process docs.
 - **The first fix loop ran end-to-end on M4-RW-002.** Fix + pinned production test
-  (`HistoryPaneRewindTargetTests`) in commit `8fb77a81`; claim updated; composition claim M4-RW-032
+  (`HistoryPaneRewindTargetTests`) in commit `7f741db4`; claim updated; composition claim M4-RW-032
   added; filing flipped VIOLATES→COMPLIES; `_summary` recomputed. The lifecycle now has ONE tool —
   **`scripts/flip-claim.py`** (flip / recompute / repoint-after-rebase); the per-fix scripts 25/26
   are kept as history of the first two loops. State in this file between the GENERATED markers is
@@ -123,7 +123,7 @@ test.** Treat every entry as a lead. Of the ones checked so far:
   which fails listing every filing citing the amended ruling until re-run with `--amend` — the
   re-check queue is printed, not assumed done.
 - **The second fix loop closed M4-RW-019 — the first fix authorised by a NEW ruling.** Commit
-  `365de882`: `restoreToOp` gains step 9, the sweep's mirror — a forward restore reopens (a
+  `fb08aaf9`: `restoreToOp` gains step 9, the sweep's mirror — a forward restore reopens (a
   `.rewind`-stamped `.annotationReopen`) every annotation whose latest lifecycle op is a
   rewind-stamped archive from an open status and whose paragraph exists in the target state. The
   writer's own archives are untouched (M4-RW-033); undo re-archives through the compensating

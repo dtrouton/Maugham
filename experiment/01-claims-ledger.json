@@ -955,7 +955,7 @@
     "relation_to_RULING_7": "R7 governs FAILURES — never misrepresent one. R22 governs SUCCESSES — never let one differ from what the writer understood. Together: Maugham tells the truth whether or not something went wrong. R7's scope gap (it reaches only failures and refusals) is what left the six cases below settled by a root only.",
     "scope": "the writer forms an expectation from what Maugham showed, said or labelled, and the outcome differs from it",
     "settles_IN_SCOPE": [
-     "**rewind label — FIXED 2026-08-08 (8fb77a81), historical evidence only**: 'Rewind to before this…' did ops.prefix(THROUGH: idx) — inclusive — landing AFTER the op; the deep-link now posts the PREDECESSOR op (HistoryPane.predecessorIndex) and the old line numbers no longer hold. The disposition below records the ruling; do not file from this bullet",
+     "**rewind label — FIXED 2026-08-08 (7f741db4), historical evidence only**: 'Rewind to before this…' did ops.prefix(THROUGH: idx) — inclusive — landing AFTER the op; the deep-link now posts the PREDECESSOR op (HistoryPane.predecessorIndex) and the old line numbers no longer hold. The disposition below records the ruling; do not file from this bullet",
      "snapshot impact count",
      "stale cursor silent no-op",
      "unmentioned auto-archive",

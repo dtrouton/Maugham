@@ -381,7 +381,7 @@
    ],
    "specificity_current_ruling_set": "14/15 = 93%",
    "distinct_defects": "9 violations over 7 distinct defects \u2014 M5-AN-049 and M5-AN-050 are two faces of the lost-anchor accept (applied at all; applied with no warning) and are counted once; M5-AN-046/047 are mechanism and consequence of the unsorted mirror and are counted once, the mechanism filed NO_RULING_REACHES. None fixed.",
-   "pinned_by": "MaughamTests/Claims/AnnotationsCharacterization.swift (41 test methods, all passing at HEAD e5a93f0f)"
+   "pinned_by": "MaughamTests/Claims/AnnotationsCharacterization.swift (41 test methods, all passing at HEAD ea4f4662)"
   }
  }
 ]

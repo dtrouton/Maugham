@@ -2,7 +2,7 @@
 
 Third app-layer module. `Maugham/OpLog/Document+Annotations.swift` + `AnnotationDeriver` /
 `AnnotationInverse` (MaughamCore). Characterised agent-run (worktree, probe-first, five probes),
-pinned against HEAD `e5a93f0f`, reconciled against the 29-ruling set. Suite promoted directly to
+pinned against HEAD `ea4f4662`, reconciled against the 29-ruling set. Suite promoted directly to
 `MaughamTests/Claims/AnnotationsCharacterization.swift` per the permanent-residents discipline —
 **41 tests, verified 41/41 green in place by the reviewing session, not only by the author.**
 
