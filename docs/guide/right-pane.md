@@ -135,6 +135,8 @@ The gear menu picks the model a check runs against — **Fast**, **Standard**, o
 
 Research notes, PDFs, recordings, links, palette cards, photographs and loose canvas scraps all appear; a photograph shows a thumbnail, everything else shows the same kind glyph the canvas draws it with. If you delete something, it simply leaves the shelf — you'll never see a row that's only an id.
 
-**Click a pin and it opens as a column beside your prose.** One at a time: clicking another swaps it, clicking the same one again sends it back, and Escape closes it. Drag the divider to set the width — it's remembered per project. The column squeezes your writing column while it's open and gives the width straight back when it isn't, and it goes away with everything else under ⌘\.
+**In Author, click a pin and it opens as a column beside your prose.** One at a time: clicking another swaps it, clicking the same one again sends it back, and Escape closes it. Drag the divider to set the width — it's remembered per project. The column squeezes your writing column while it's open and gives the width straight back when it isn't, and it goes away with everything else under ⌘\.
+
+**The column itself is Author's only.** In Review the shelf is still there — you can see what a piece is pinned to while you adjudicate it — but a row isn't a button there: a caption at the bottom reads *"Studying a pin opens in Author (⌘2)."* Study something in Author, switch to Review and back, and it's still up — Author remembers what you were looking at, so ⌘2 brings the column straight back.
 
 **This is the same set Claude is briefed on.** When you press ⌘R the compiler is told what this piece is pinned to, by name — so what you see on the shelf is what it can go and read.

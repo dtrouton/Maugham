@@ -1046,7 +1046,7 @@ struct ProjectWindow: View {
             // and clicking a pin does nothing visible.
             .modifier(AssistantColumnModifier(
                 store: store, projectURL: url, documentStore: documentStore,
-                window: window, isNoChromeOn: isNoChromeOn,
+                window: window, isNoChromeOn: isNoChromeOn, persona: persona,
                 activeDocId: activeDocId, assistant: assistant))
             // Unchanged, and deliberately: the column SQUEEZES the centred
             // writing column while it exists (spec §6.2) rather than widening
