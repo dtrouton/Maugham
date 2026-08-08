@@ -14,12 +14,16 @@ layer alone, and how much of a codebase a small ruling set actually reaches.
 
 ## Where everything lives
 
-Everything is under `experiment/`. **Nothing outside it has been modified — 47+ phases, zero
-production files changed.** Keep it that way.
+Everything is under `experiment/`. **For its first 47+ phases the experiment changed zero
+production files.** That era ended deliberately on 2026-08-08, with Denver's approval, when the
+fix loop first ran (M4-RW-002, commit `7e5e4866`) and consumption was wired into CLAUDE.md, two
+AREA.md files and CI. The discipline that replaces it: **production changes ride the fix loop** —
+a ruling authorising them, a pinned production test, and the claim + filing flipped in the same
+branch. Characterisation of a NEW module still changes nothing outside `experiment/`.
 
 | | Path | Note |
 |---|---|---|
-| **Rulings — source of truth** | `01-claims-ledger.json` → `_meta.rulings` | 24 rulings + 4 principles, structured |
+| **Rulings — source of truth** | `01-claims-ledger.json` → `_meta.rulings` | 25 rulings + 4 principles, structured |
 | **Rulings — readable** | `RULINGS.md` | **GENERATED.** Do not hand-edit |
 | Regenerate the above | `scripts/23-generate-rulings.py` | verifies no ruling or clause is dropped; exits non-zero if any is |
 | **Claims + filings** | `reconciliation/<Module>.{claims,filings}.json` | one pair per module |
@@ -42,10 +46,12 @@ why. **Read `experiment/RULINGS.md` and nothing else.**
 | `MaughamCore.PaletteCardParser` | 47 | 34% | 16 reached | `07-summary.md` |
 | `MaughamCore.PaletteCardModel` | 40 | 40% | 16 reached | `07-summary.md` |
 | `Stores/TrashStore` + `ProjectStore+Trash` | 51 | 47% | 13 / 11 | `22-trash-reconciliation.md` |
-| `OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`) | 29 | 52% | 8 / 7 | `24-rewind-reconciliation.md` |
+| `OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`) | 30 | 53% | 10 / 6 | `24-rewind-reconciliation.md` |
 
 The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the two app-layer
-rows are 80 further claims in their own files. **249 claims in the experiment, 228 reconciled.**
+rows are 81 further claims in their own files. **250 claims in the experiment, 229 reconciled.**
+(The rewind row moved 2026-08-08: M4-RW-002 was FIXED and flipped to COMPLIES, and M4-RW-032 pins
+the new composition — the first exercised fix loop, see below.)
 
 **All 80 app-layer claims re-verified passing at HEAD `f2b2b5e2` on 2026-08-08** —
 98 commits after they were pinned at `db1bea2c`, including changes to `ProjectStore.swift`,
@@ -58,8 +64,9 @@ rows are 80 further claims in their own files. **249 claims in the experiment, 2
    action in the app. A ruling set that reached everything would be too generic to be useful.
 
 2. **The comply/violate ratio inverts across the layers.** MaughamCore's pure modules ran 31:1.
-   The app layer runs 21:18. The old "97% of what a ruling reaches is already right" headline is a
-   fact about pure, writer-distant code and **must not be restated about the codebase**.
+   The app layer runs 23:17 (was 21:18 before the M4-RW-002 fix and its companion claim). The old
+   "97% of what a ruling reaches is already right" headline is a fact about pure, writer-distant
+   code and **must not be restated about the codebase**.
 
 ### The methodological correction (accepted, and now confirmed twice)
 
@@ -86,25 +93,39 @@ test.** Treat every entry as a lead. Of the ones checked so far:
 - **Two findings under-filed to a root** because the ruling set they were given was damaged
   (trash D4 → RULING-22, rewind D11 → RULING-22).
 
+## Resolved 2026-08-08 (Denver ruled; the loop ran)
+
+- **GAP-R1 → RULING-25** (symmetric travel): annotations are protected to the same standard as the
+  work during history travel — what Maugham closes on the way back is reopened on the return. This
+  makes **M4-RW-019 a clean defect** and supersedes GAP-R6's stretch-R13 proposal; GAP-R2's Reopen
+  action remains open as a surface question but is no longer the rewind case's recovery route.
+- **The RULING-8 phantom clause was written** (sameness judged from the writer's question).
+  Discipline 5's citation is now real, and the generator fails on dangling ruling references in the
+  process docs.
+- **The first fix loop ran end-to-end on M4-RW-002.** Fix + pinned production test
+  (`HistoryPaneRewindTargetTests`) in commit `7e5e4866`; claim updated; composition claim M4-RW-032
+  added; filing flipped VIOLATES→COMPLIES; `_summary` recomputed. The lifecycle is encoded in
+  `scripts/25-flip-m4-rw-002.py`'s docstring — **that is the pattern for every future fix.**
+- **Consumption is wired**: CI job `behavioural-claims` runs the MaughamCore claims package on every
+  push; CLAUDE.md has a "Behavioural claims + rulings" section; `Maugham/OpLog/AREA.md` and
+  `Maugham/Stores/AREA.md` point at their filings; the constitution↔rulings precedence paragraph is
+  in `RECONCILE.md`.
+
 ## Open, and ordered by what I would do next
 
-1. **GAP-R1 is the sharpest unruled question in the set.** RULING-24 is a ROOT that partitions
-   protection into three named classes — the work / research / ingested-or-derived — and **an
-   annotation is none of them.** It is the class rewind damages most (a forward rewind returns the
-   paragraph and the pane task but leaves the comment archived, permanently and silently). A tiering
-   root with a hole in the middle of its own domain. Needs Denver.
-2. **`RECONCILE.md` discipline 5 cites a RULING-8 clause that does not exist** — *"two situations
-   that merely look alike may legitimately differ"* is in neither `RULINGS.md` nor the ledger. Not a
-   generator drop: the phase-22 audit *recommended* the amendment and it was never made. R8 is
-   therefore **unqualified**, which makes rewind's M4-RW-019 violation cleaner than the survey
-   supposed. **Either write the clause or stop citing it.**
-3. **12 gaps are open** — 6 from trash (`22-*.md`), 6 from rewind (`24-*.md`), each phrased as a
-   product statement a non-programmer can rule on. They are the scarce-resource queue.
-4. **Next module.** `Maugham/OpLog/Document+Annotations.swift` is the obvious one: it is where
-   GAP-R1, GAP-R2 and GAP-R6 all land, and rewind's reconciliation kept bouncing off RULING-13's
-   scope. `Maugham/Canvas/Promotion*.swift` (75% survey specificity) would instead test the
-   correction on a module where the surveys already did well — the harder falsification.
-5. **`premise_verified` as a seventh template field** — recommended, but **only on a proposed
+1. **Fix M4-RW-019 under RULING-25.** The sharpest live defect now has a ruling behind it: a
+   forward rewind must reopen the comments it auto-archived on the way back. This lands in
+   `Document+Rewind`/`Document+Annotations` and is the second run of the fix loop — on a much
+   harder change than M4-RW-002.
+2. **Next module: `Maugham/OpLog/Document+Annotations.swift`.** Now doubly motivated — it is where
+   RULING-25 will be tested against pinned claims, and where GAP-R2 lands.
+   `Maugham/Canvas/Promotion*.swift` (75% survey specificity) remains the harder falsification of
+   the sampling correction.
+3. **10 gaps remain open** — 6 from trash (`22-*.md`), 4 from rewind (`24-*.md`; R1 ruled, R6
+   superseded), each phrased as a product statement a non-programmer can rule on. They are the
+   scarce-resource queue. The 2026-08-08 precedent: presented as structured questions with a
+   recommended option, all three were ruled in one sitting.
+4. **`premise_verified` as a seventh template field** — recommended, but **only on a proposed
    ruling**, not on every filing. A filing is already pinned by a test, which is a premise check with
    teeth; a proposed ruling has no test and propagates to every future case. REW-D9 is the case for
    it: correctly scoped, high confidence, false premise, and no scope argument could have caught it.

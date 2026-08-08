@@ -204,6 +204,11 @@ The canvas half is `Maugham/Canvas/CanvasCapture.swift` — read `Maugham/Canvas
 
 ## What to read before editing
 
+- **Trash is claim-covered**: `TrashStore` + `ProjectStore+Trash` have 51 test-pinned behavioural
+  claims and verdicts in `experiment/reconciliation/Trash.{claims,filings}.json`. Read the filings
+  before changing delete/restore behaviour — a `VIOLATES` row is a known defect with a ruling
+  behind it, a `COMPLIES` row is ruled-correct behaviour, and changing pinned behaviour means
+  updating the claim + filing in the same commit (CLAUDE.md, "Behavioural claims + rulings").
 - For project structure / binder mutations: start with `ProjectStore.swift` and find the relevant extension.
 - For document lifecycle / autosave / conflict: `DocumentStore.swift` + ADR 0001 (autosave) and ADR 0007 if it exists for conflict (check `docs/adr/`).
 - For new small store: read `RecentsStore.swift` or `TrashStore.swift` as the model.

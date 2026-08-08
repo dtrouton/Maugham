@@ -16,6 +16,18 @@ Maugham's behavioural specification is being built as two layers:
 **Reconciliation** is running the rulings over the claims. The mismatches are the output: places the
 code violates a stated decision, and places no decision exists yet.
 
+## Where rulings sit among Maugham's other "should" layers
+
+Maugham already has three normative layers: `docs/constitution.md` (identity/position principles
+with falsification conditions), `docs/adr/` (architectural decisions), and CLAUDE.md's tripwires
+(enforcement mechanics for past mistakes). Rulings are the **operational refinement of the
+constitution**: scoped, falsifiable decisions that settle individual cases the constitution only
+points at — RULING-24 tier 1 is the worked example, the constitution's "the words are safe" made
+operational. Precedence: a ruling that contradicts a constitution *identity* principle is itself a
+finding to escalate, never a decision to apply; ADRs govern architecture (how it is built), rulings
+govern behaviour (what the writer gets); tripwires enforce decisions, they do not make them. Do not
+restate a ruling's content in those other layers — link to it, so there is one answer (RULING-8).
+
 The ledger is `experiment/01-claims-ledger.json`. 169 claims, all reconciled. `_meta` carries the
 rulings, the method findings and the audit history.
 

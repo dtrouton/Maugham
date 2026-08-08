@@ -26,7 +26,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — HistoryPane's per-op button is labelled 'Rewind to before this…' and posts this cursor",
+  "reachability": "LIVE — RewindWindow scrub positions; since the M4-RW-002 fix (7e5e486610, 2026-08-08) HistoryPane's 'Rewind to before this…' posts the PREDECESSOR op, so the inclusive boundary composes with the label instead of contradicting it",
   "evidence": {
    "property_test": null
   }
@@ -462,5 +462,22 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M4-RW-032",
+  "scope": "HistoryPane.predecessorIndex + the 'Rewind to before this…' deep-link",
+  "kind": "POSTCONDITION",
+  "statement": "'Rewind to before this…' resolves to the row op's immediate predecessor in the opId-ordered log, so the opened cursor derives state EXCLUDING the selected op's effect; the first op (no predecessor) offers no deep-link",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MaughamTests/Views/HistoryPaneRewindTargetTests.test_rewindBeforeThis_excludesTheTargetOpsOwnEffect — a PERMANENT production test, not an experiment copy: the fix's own regression net"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-22 disposition, Denver 2026-08-08)",
+  "reachability": "LIVE — every History row with a manuscript-mutating op and a predecessor",
+  "evidence": {
+   "property_test": null
+  },
+  "out_of_module_note": "Lives in Maugham/Views, not the three rewind files — added here because it is the composition claim that makes M4-RW-002's flipped filing honest"
  }
 ]

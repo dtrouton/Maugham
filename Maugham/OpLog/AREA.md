@@ -204,6 +204,15 @@ Failure modes:
 5. **Don't bypass `PendingBuffer`** to write directly to the op log on every keystroke. The debounce is load-bearing for I/O cost; bypassing it will hit disk hundreds of times per second.
 - **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
 
+## Behavioural claims
+
+`Document+Rewind` (+`Document+RewindUndo`, `Deriver+Rewind`) is claim-covered:
+`experiment/reconciliation/Rewind.{claims,filings}.json` — 29 test-pinned facts and their verdicts
+against the ruling set. **Read the filings before changing rewind behaviour**: a `VIOLATES` row is a
+known defect with a ruling behind it, a `COMPLIES` row is behaviour a ruling protects, and changing
+pinned behaviour means updating the claim + filing in the same commit (CLAUDE.md, "Behavioural
+claims + rulings").
+
 ## Tests worth knowing about
 
 - `MaughamTests/OpLog/` — unit tests for each store + the matchers.

@@ -6,13 +6,20 @@
  },
  {
   "claim_id": "M4-RW-002",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-22",
   "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "RULING-22's own `settles IN SCOPE` list names this defect and cites THIS FILE: 'rewind label — Rewind to before this… does ops.prefix(THROUGH: idx) — inclusive — so it lands AFTER the op. VERIFIED at HistoryPane.swift:349-360 and Deriver+Rewind.swift:30-40. A control not doing what it says.' The defect is the pair — a label in HistoryPane and this inclusive boundary — and the ruling author scoped it to both halves. I pin the half that lives in this module; the label half is out of these three files and is verified by reading, not by my test.",
+  "why_in_scope": "RULING-22's 'controls do what they say' reaches the pair — the HistoryPane label and this inclusive boundary. As of the fix the pair AGREES: the label promises 'before this' and the deep-link posts the predecessor op, so the inclusive derive lands exactly where the label says. The boundary itself was never the defect (M4-RW-005: the method matches its doc); the composition was, and the composition is now pinned by M4-RW-032.",
   "intent_expressed_when": "contemporaneous — the writer clicked a button naming the moment they wanted",
   "call_path": "HistoryPane row → 'Rewind to before this…' (HistoryPane.swift:350) → .maughamOpenRewind with scrub_op_id → RewindModifier sets .atOp → RewindWindow → 'Restore here…' → restoreToOp",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "7e5e48661090877ea3d80930bf73534a981d735d",
+   "date": "2026-08-08",
+   "authorised_by": "RULING-22 disposition_M4_RW_002_RULED — Denver: fix the behaviour, not the label",
+   "pinned_by": "MaughamTests/Views/HistoryPaneRewindTargetTests (production, runs in the Mac suite)",
+   "note": "first defect taken through the claim→fix→re-verify loop"
+  }
  },
  {
   "claim_id": "M4-RW-003",
@@ -220,13 +227,23 @@
   "violation_or_enhancement": "neither"
  },
  {
+  "claim_id": "M4-RW-032",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "The control's label names a state ('before this') and the writer forms their expectation from it; the deep-link now opens the rewind at exactly that state. Same clause that convicted the old composition.",
+  "intent_expressed_when": "contemporaneous — the writer clicked a button naming the moment they wanted",
+  "call_path": "HistoryPane row → 'Rewind to before this…' → predecessorIndex → .maughamOpenRewind with the predecessor's opId → RewindModifier .atOp → RewindWindow → restoreToOp",
+  "violation_or_enhancement": "neither"
+ },
+ {
   "_summary": {
-   "reached": 15,
-   "complies": 8,
-   "violates": 7,
+   "reached": 16,
+   "complies": 10,
+   "violates": 6,
    "no_ruling": 14,
-   "total": 29,
-   "coverage": "52%",
+   "total": 30,
+   "coverage": "53%",
    "by_ruling": {
     "RULING-22": [
      "M4-RW-002",
@@ -235,7 +252,8 @@
      "M4-RW-021",
      "M4-RW-022",
      "M4-RW-023",
-     "M4-RW-024"
+     "M4-RW-024",
+     "M4-RW-032"
     ],
     "RULING-24": [
      "M4-RW-010",
@@ -258,7 +276,7 @@
     "M4-RW-012"
    ],
    "specificity_current_ruling_set": "12/15 = 80%",
-   "distinct_defects": "7 violations over 6 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op and are counted once in the register"
+   "distinct_defects": "6 violations over 5 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op and are counted once in the register; M4-RW-002 fixed 2026-08-08 (7e5e486610) and flipped to COMPLIES"
   }
  }
 ]

@@ -79,7 +79,25 @@ for k, r in R.items():
             lost.append(f"{k}.{f}")
 if lost:
     sys.exit(f"FAILED: {len(lost)} string clauses dropped: {lost[:8]}")
+
+# Reference check: every ruling/principle id cited by the process docs must
+# exist in the ledger. The id-level cousin of the phantom-clause failure —
+# RECONCILE.md discipline 5 cited a RULING-8 clause nobody had written, and
+# nothing caught it until a reconciliation run spent a filing on it.
+import re
+dangling = []
+for doc in ("experiment/RECONCILE.md", "experiment/reconciliation/PROTOCOL.md"):
+    try:
+        body = open(doc).read()
+    except FileNotFoundError:
+        continue
+    for ref in set(re.findall(r"(?:RULING|PRINCIPLE)-\d+", body)):
+        if ref not in R:
+            dangling.append(f"{doc} cites {ref}")
+if dangling:
+    sys.exit(f"FAILED: {len(dangling)} dangling ruling references: {dangling}")
+
 print(f"wrote {OUT}: {len([k for k in R if k.startswith('RULING')])} rulings, "
       f"{len([k for k in R if k.startswith('PRINCIPLE')])} principles, "
       f"{len(txt.splitlines())} lines")
-print("verification: every entry present, no string clause dropped")
+print("verification: every entry present, no string clause dropped, no dangling doc references")
