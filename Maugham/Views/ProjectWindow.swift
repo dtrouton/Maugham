@@ -71,6 +71,13 @@ struct ProjectWindow: View {
     @State private var binderSegment: BinderSegment = .manuscript
     @State private var activeSheet: ProjectActiveSheet?
     @State private var showInspector: Bool = true
+    /// The right column's one width (shell-finish stage 1). Restored from
+    /// `UIState` in `load()`; written back by the column's own drag handle and
+    /// by nothing else — see `detailColumn`.
+    @State private var detailColumnWidth: Double = UIState.defaultDetailColumnWidth
+    /// The drag's starting width, so the gesture reads its own translation
+    /// rather than accumulating. Mirrors `AssistantColumnModifier`.
+    @State private var detailDragStartWidth: Double?
     @State private var showingTidyAllConfirmation: Bool = false
     @State private var sessionLog: SessionLog = .empty
     @State private var lastParsedScript: FountainScript? = nil
@@ -1352,12 +1359,80 @@ struct ProjectWindow: View {
         return documentStore.document(for: path)
     }
 
+    /// **One width, held.** The right column is pinned to the writer's own
+    /// `detailColumnWidth` and resized by the handle below — it does NOT declare
+    /// a range, and the difference is the whole of Task 1.
+    ///
+    /// `navigationSplitViewColumnWidth(min:ideal:max:)` does not hold a width;
+    /// it declares a range, and AppKit re-resolves a position inside that range
+    /// whenever something re-proposes. Two things do, both measured in
+    /// `DetailColumnWidthTests` against a real mounted `NavigationSplitView`:
+    ///
+    /// - **a pane whose content wants to be wider** pushes the column out to the
+    ///   range's `max` — so every ⌘⌥-letter switch between panes of different
+    ///   intrinsic width moved the divider under the writer;
+    /// - **a `columnVisibility` transition** (`⌘\` on the canvas sets
+    ///   `.doubleColumn`, `PersonaModifier` hands back `.all`) drops the column
+    ///   on the range's `min` — 240 out of a dragged 329, measured.
+    ///
+    /// A range with one value in it has nothing left to re-resolve, which is why
+    /// the single-argument spelling holds through both. The cost is that the
+    /// split view's own divider goes inert — a fixed column is not draggable —
+    /// so the column brings its own handle, exactly as the assistant column does
+    /// one directory over (`AssistantColumnModifier.resizeHandle`).
     @ViewBuilder
     private func detailColumn(store: ProjectStore, documentStore: DocumentStore) -> some View {
         if showInspector {
-            inspectorPane(store: store, documentStore: documentStore)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
+            HStack(spacing: 0) {
+                detailResizeHandle(documentStore: documentStore)
+                inspectorPane(store: store, documentStore: documentStore)
+            }
+            .navigationSplitViewColumnWidth(detailColumnWidth)
         }
+    }
+
+    /// The right column's own resize affordance, on its leading edge.
+    ///
+    /// **A gutter in the layout rather than an overlay over the pane**, which is
+    /// the same shape `AssistantColumnModifier.resizeHandle` ships and the same
+    /// reason: a `contentShape`d strip laid *over* the pane swallows every click
+    /// in the leftmost 8pt of every row, list and control in the column, for the
+    /// whole height of the window, and it does it silently. Eight points of
+    /// layout is the cheaper mistake. It is deliberately not drawn — the split
+    /// view's own divider is still there and is still the seam a writer aims at;
+    /// this sits just inside it, and the resize cursor on hover is what says so.
+    ///
+    /// Live during the gesture and persisted only at its end — a `UIState` write
+    /// per drag frame is 60 a second through the manuscript's own debounce, and
+    /// the assistant column already settled that question.
+    ///
+    /// **Nothing else writes this width.** There is no geometry observation
+    /// feeding the value back, because a fixed column has no geometry of its own
+    /// to report — it is exactly as wide as it was asked to be. That is what
+    /// makes `test_aPersonaSwitchDoesNotWriteTheWidth` structurally true rather
+    /// than a debounce racing a persona change.
+    private func detailResizeHandle(documentStore: DocumentStore) -> some View {
+        Color.clear
+            .frame(width: 8)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        let start = detailDragStartWidth ?? detailColumnWidth
+                        detailDragStartWidth = start
+                        // Leading edge: dragging LEFT widens the column.
+                        detailColumnWidth = UIState.clampedDetailColumnWidth(
+                            start - value.translation.width)
+                    }
+                    .onEnded { _ in
+                        detailDragStartWidth = nil
+                        let width = detailColumnWidth
+                        documentStore.updateUIState { $0.detailColumnWidth = width }
+                    })
     }
 
     // MARK: - Which column shows what
@@ -2130,6 +2205,11 @@ struct ProjectWindow: View {
             // restoring a subject would put a reference column over the prose
             // before the writer had asked for anything.
             self.assistant.width = ds.uiState.assistantColumnWidth
+            // The right column's width, restored for the assistant column's
+            // reason and by the same read. A window that opened before this
+            // line existed opened at the range's `max` or its `min` depending
+            // on what the last visibility transition had left behind.
+            self.detailColumnWidth = ds.uiState.detailColumnWidth
             // The Intent pane's strata, on the same device slug and the same
             // rule as every other derived sidecar (tripwire 24 at the filename
             // point, which both stores take care of themselves).

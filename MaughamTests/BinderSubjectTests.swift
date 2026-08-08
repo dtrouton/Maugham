@@ -126,7 +126,8 @@ final class BinderSubjectTests: XCTestCase {
             compilerModel: .deep,
             // Away from the default, and inside the clamp — a value the
             // initialiser would correct is not a test of the encoder.
-            assistantColumnWidth: UIState.defaultAssistantColumnWidth + 40)
+            assistantColumnWidth: UIState.defaultAssistantColumnWidth + 40,
+            detailColumnWidth: UIState.defaultDetailColumnWidth + 40)
         original.personaMemory.record(persona: .review,
                                       binderSegment: .palette,
                                       detailSegment: .annotations)
