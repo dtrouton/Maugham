@@ -223,12 +223,15 @@ is the resumed session id, not the process.
 
 This is what the milestone exists for, and the two halves are asymmetric:
 
-- **Drift — no longer a note, and not yet a pattern.** v1 raised it as an
+- **Drift — no longer a note, and now a pattern.** v1 raised it as an
   anchorless diagnostic from an `intent_drift` field; the v2 contract has no
-  such field and the run carries nothing in its place. It returns in Stage 3 as
-  a pattern computed from the run records the sidecar already keeps — a clause
-  straining the same way across consecutive runs (spec §3.4). Between the two
-  it is simply absent, which is the honest state rather than a gap to fill.
+  such field and the run carries nothing in its place. Stage 3 reads it back
+  from the run records the sidecar already keeps — a clause straining the same
+  way across `DriftDetector.consecutiveRunsThreshold` (3) consecutive runs
+  (spec §3.4) — and surfaces it as one line above the pane's conformance
+  summary (`DiagnosticsPane.driftNote`), not a `Diagnostic`: no id, no
+  dismissal, no reply field. Pressing it opens Intent; the pattern breaking on
+  the next run is what takes the line away, not a tap.
 - **Accretion** — an anchored note offers **Answer**, and the writer's sentence
   becomes a **ruling** on the **piece's** intent statement (never the
   project's), minting it if absent: an itemized, dated line under `## Rulings`
@@ -426,7 +429,9 @@ drifted from them is a defect in this file.
   `facts(subjects:)` Stage 2 will call.
 - `DiagnosticsPaneTests` — the report the pane draws (the conformance summary
   first, the excerpt chips, the legible wait) and the answer flow end to end,
-  including that it lands as a ruling and drops the derivation it outdated.
+  including that it lands as a ruling and drops the derivation it outdated;
+  also the drift line above the summary — its register, that it names no
+  count beyond "three runs", and that it is not a `Diagnostic`.
 - `CompilerRunCommandTests` — ⌘R's real delivery path.
 - `PinnedReferencesTests` — the union and its resolution, including the
   dedup/dangling/sort rules; its census keeps `linkedResearchIds` (not

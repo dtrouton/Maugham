@@ -633,6 +633,193 @@ final class DiagnosticsPaneTests: XCTestCase {
                        DetailSegment.intent.rawValue)
     }
 
+    // MARK: - Drift (spec §4's last bullet, computed in Stage 3 by `DriftDetector`)
+    //
+    // `DriftDetector.drift` has its own suite (`DriftDetectorTests`) for
+    // whether a finding fires; these pin what the PANE says once one does,
+    // and that the line behaves as the register requires — not a `Diagnostic`.
+
+    func test_driftNote_isNilWithNoFindings() {
+        XCTAssertNil(DiagnosticsPane.driftNote([]))
+    }
+
+    func test_driftNote_formatsTheRegisterVerbatim() {
+        let finding = DriftFinding(clauseQuote: "Cold, and never wistful.", runsStraining: 3)
+        XCTAssertEqual(
+            DiagnosticsPane.driftNote([finding]),
+            "Your line may have moved \u{2014} \u{201C}Cold, and never wistful.\u{201D} "
+            + "has strained three runs running. Draft\u{2019}s right, or intent\u{2019}s right?")
+    }
+
+    /// **No count beyond the fixed "three runs" is ever spoken** — not the
+    /// finding's true streak length, which `DriftDetector` reports honestly and
+    /// can run past the threshold
+    /// (`DriftDetectorTests.test_aStreakLongerThanTheThresholdReportsItsFullLength`).
+    /// Saying "seven runs running" would be exactly the forensic detail the
+    /// register refuses elsewhere on this pane (`readerSection`'s truncation
+    /// sentence is the same discipline: "The reader had more to say.", no count).
+    func test_driftNote_neverSpeaksTheTrueStreakLength() {
+        let finding = DriftFinding(clauseQuote: "Cold, and never wistful.", runsStraining: 7)
+        guard let line = DiagnosticsPane.driftNote([finding]) else {
+            return XCTFail("expected a line")
+        }
+        XCTAssertTrue(line.contains("three runs running"), "got: \(line)")
+        XCTAssertFalse(line.contains("7"), "got: \(line)")
+    }
+
+    /// **More than one finding still reads as one line.** The first clause
+    /// (the newest run's own order — `DriftDetector.drift`'s) is named, and
+    /// "and one more" says there is a second without counting how many —
+    /// two findings and five read identically, the same discipline as the
+    /// streak length above.
+    func test_driftNote_multipleFindingsNameTheFirstAndSayAndOneMoreWithoutACount() {
+        let first = DriftFinding(clauseQuote: "Cold, and never wistful.", runsStraining: 3)
+        let second = DriftFinding(clauseQuote: "Kelly never speaks first.", runsStraining: 4)
+        let third = DriftFinding(clauseQuote: "The weather is a character.", runsStraining: 3)
+
+        let two = DiagnosticsPane.driftNote([first, second])
+        XCTAssertEqual(
+            two,
+            "Your line may have moved \u{2014} \u{201C}Cold, and never wistful.\u{201D} has "
+            + "strained three runs running \u{2014} and one more. Draft\u{2019}s right, "
+            + "or intent\u{2019}s right?")
+
+        let three = DiagnosticsPane.driftNote([first, second, third])
+        XCTAssertEqual(two, three,
+            "the line reads the same for two findings and for three \u{2014} \u{201C}and "
+            + "one more\u{201D} must never become \u{201C}and 2 more\u{201D}")
+        XCTAssertFalse(three?.contains("Kelly") ?? true,
+                       "only the first finding's clause is ever quoted")
+    }
+
+    func test_truncatedDriftQuote_fitsAsIs() {
+        XCTAssertEqual(DiagnosticsPane.truncatedDriftQuote("Cold, and never wistful."),
+                       "Cold, and never wistful.")
+    }
+
+    /// `IntentStrip.truncated`'s idiom: cut at the last word boundary inside
+    /// the budget, ellipsised — never mid-word, and never a trailing space
+    /// left dangling before the ellipsis.
+    func test_truncatedDriftQuote_cutsOnAWordBoundaryAndEllipsises() {
+        let long = "Kelly never speaks first, not once, not even when the silence "
+            + "would have been the crueler thing to let stand between them."
+        let truncated = DiagnosticsPane.truncatedDriftQuote(long)
+
+        XCTAssertTrue(truncated.hasSuffix("\u{2026}"), "got: \(truncated)")
+        XCTAssertLessThan(truncated.count, long.count, "control: it actually cut something")
+        let withoutEllipsis = String(truncated.dropLast())
+        XCTAssertFalse(withoutEllipsis.hasSuffix(" "),
+                       "trimmed before the ellipsis, not left with a trailing space")
+        XCTAssertTrue(long.hasPrefix(withoutEllipsis),
+                      "the cut is a true prefix of the source \u{2014} a word boundary, not "
+                      + "a mid-word chop")
+    }
+
+    /// **The pattern's line, mounted for real.** Three straining runs of the
+    /// same clause puts the line above "Conformance", and pressing it opens
+    /// Intent the same way the summary's own "Open Intent" button does — spec
+    /// §4's "your line may have moved" is the same door as the clause it is
+    /// about.
+    func test_driftLine_rendersAboveConformanceSummary_andOpensIntentOnPress() async throws {
+        let docId = "doc-drift"
+        let quote = "Cold, and never wistful."
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        for _ in 0..<3 {
+            store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")]),
+                          diagnostics: [], docId: docId)
+        }
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard)))
+        pump(0.3)
+
+        let expectedLine = try XCTUnwrap(DiagnosticsPane.driftNote(
+            DriftDetector.drift(history: store.clauseStatusHistory(docId: docId))))
+
+        let labels = allLabels(in: window)
+        let driftIndex = labels.firstIndex { $0 == expectedLine }
+        let conformanceIndex = labels.firstIndex { $0 == "CONFORMANCE" }
+        XCTAssertNotNil(driftIndex, "got: \(labels)")
+        XCTAssertNotNil(conformanceIndex, "got: \(labels)")
+        XCTAssertTrue((driftIndex ?? .max) < (conformanceIndex ?? -1),
+                      "the drift line must sit above the conformance summary")
+
+        let notes = await notesPosted(pressing: try button(labelled: expectedLine, in: window))
+        XCTAssertEqual(notes.count, 1, "pressing the line should post exactly one request")
+        XCTAssertEqual(notes.first?.userInfo?[MaughamEvent.detailSegmentKey] as? String,
+                       DetailSegment.intent.rawValue,
+                       "the drift line's action is Open Intent's successor \u{2014} the "
+                       + "existing drift-note affordance")
+    }
+
+    /// **The line disappears when the pattern breaks.** There is nothing to
+    /// dismiss: the next run's history simply stops reporting a finding, and
+    /// the pane's version-bump re-render (already proven by
+    /// `test_thePaneRerendersOnVersionBump`) carries the line away with
+    /// everything else that no longer applies.
+    func test_driftLine_disappearsWhenTheNextRunBreaksThePattern() {
+        let docId = "doc-drift-breaks"
+        let quote = "Cold, and never wistful."
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        for _ in 0..<3 {
+            store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")]),
+                          diagnostics: [], docId: docId)
+        }
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard)))
+        pump(0.3)
+        XCTAssertFalse(
+            staticTextLabels(in: window, containing: "Your line may have moved").isEmpty,
+            "control: the line rendered while the pattern held")
+
+        store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "holds")]),
+                      diagnostics: [], docId: docId)
+        pump(0.3)
+
+        XCTAssertTrue(
+            staticTextLabels(in: window, containing: "Your line may have moved").isEmpty,
+            "the clause holding this run must break the streak, and the line with it")
+    }
+
+    /// **Not a `Diagnostic`.** No dismissal and no reply field: pressing the
+    /// line opens Intent and nothing else changes — the line is still exactly
+    /// where it was, and no `TextField` appeared the way one does under a
+    /// question's "Answer".
+    func test_driftLineIsNotADiagnostic_offersNoDismissalOrAnswerField() async throws {
+        let docId = "doc-drift-not-a-diagnostic"
+        let quote = "Cold, and never wistful."
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        for _ in 0..<3 {
+            store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")]),
+                          diagnostics: [], docId: docId)
+        }
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard)))
+        pump(0.3)
+
+        let expectedLine = try XCTUnwrap(DiagnosticsPane.driftNote(
+            DriftDetector.drift(history: store.clauseStatusHistory(docId: docId))))
+        XCTAssertTrue(textFields(in: window).isEmpty,
+                     "the drift line must not offer a reply field the way a question's row does")
+
+        _ = try button(labelled: expectedLine, in: window)
+            .perform(NSSelectorFromString("accessibilityPerformPress"))
+        pump(0.3)
+
+        XCTAssertFalse(staticTextLabels(in: window, containing: expectedLine).isEmpty,
+                       "pressing the line must not dismiss it \u{2014} it has nothing to dismiss")
+        XCTAssertTrue(textFields(in: window).isEmpty,
+                     "and it must not have opened a reply field either")
+    }
+
     // MARK: - Click-to-jump (wiring census — see reasoning below)
 
     /// A diagnostic's row has no button role for its tap target (it is the

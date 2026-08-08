@@ -21,11 +21,14 @@ import MaughamCore
 /// draws those words as a chip that clicks through to the prose
 /// (requirement 3, `test_noParagraphIdIsEverRendered`).
 ///
-/// **Drift has no section here.** v2 dropped the `intent_drift` field, and
-/// drift-as-a-pattern — a clause straining the same way across consecutive runs
-/// — is Stage 3's, computed from the run records the sidecar already keeps.
-/// Nothing replaces it in this stage, and a section standing empty for it would
-/// be the pane promising a reading nothing produces.
+/// **Drift is one line, above the conformance summary.** v2 dropped the
+/// `intent_drift` field; what stands in its place is not a note kind but a
+/// PATTERN — a clause straining the same way across consecutive runs, read
+/// on demand from `DiagnosticsStore.clauseStatusHistory` by the pure
+/// `DriftDetector`. It is deliberately not a `Diagnostic`: no id, no
+/// dismissal, no reply field. Pressing it opens Intent (spec §4's last
+/// bullet); the pattern breaking is what takes it away, the next time the
+/// version bumps. See `driftNote`.
 @MainActor
 struct DiagnosticsPane: View {
     let orchestrator: CompilerOrchestrator
@@ -87,6 +90,16 @@ struct DiagnosticsPane: View {
     /// made with nothing declared — the schema tolerates an empty `checks`
     /// array and absence is valid (spec §7).
     private var clauses: [DiagnosticIngest.ClauseStatus] { lastRun?.clauseStatuses ?? [] }
+
+    /// Every clause straining a pattern across runs, for the document this
+    /// pane is showing. `DriftDetector` is pure — no store, no caching — and
+    /// is read fresh off the version-gated ring the same way `rows`/`lastRun`
+    /// read the store's notes; its own doc: "computed from records, never a
+    /// background process."
+    private var driftFindings: [DriftFinding] {
+        _ = diagnostics.version
+        return DriftDetector.drift(history: diagnostics.clauseStatusHistory(docId: docId))
+    }
 
     /// The three note kinds, split into the sections that render them.
     ///
@@ -346,12 +359,39 @@ struct DiagnosticsPane: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    driftLine
                     conformanceSection
                     continuitySection
                     readerSection
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+
+    /// **The drift line — a pattern across runs, not a note about one.**
+    /// Above the conformance summary because it is a claim about a clause the
+    /// summary is about to name again (spec §4's last bullet). Not a
+    /// `Diagnostic`: no id, no dismissal, no reply field — pressing it opens
+    /// Intent, and the pattern breaking is what takes the line away, not a
+    /// tap. See `driftNote`.
+    @ViewBuilder
+    private var driftLine: some View {
+        if let line = Self.driftNote(driftFindings) {
+            Button {
+                MaughamEvent.postDetailSegment(.intent)
+            } label: {
+                Text(line)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            Divider()
         }
     }
 
@@ -478,6 +518,47 @@ struct DiagnosticsPane: View {
             return !quotes.contains(quote)
         }
         return (rows, orphans)
+    }
+
+    // MARK: - Drift (spec §4's last bullet; findings computed by `DriftDetector`)
+
+    /// **The one line above the conformance summary when a clause is
+    /// drifting** — pinned to `findings.first`, in the order
+    /// `DriftDetector.drift` reports it (the newest run's own clause order).
+    /// With more than one, "and one more" says a second is drifting without
+    /// counting how many — two findings and five read identically, the same
+    /// discipline `readerSection`'s "The reader had more to say." keeps: how
+    /// many is forensic detail the writer did not ask for.
+    ///
+    /// **No count beyond the fixed "three runs" is ever spoken**, either —
+    /// not `DriftFinding.runsStraining`'s true streak length, which the
+    /// detector reports honestly and can run past the threshold (its own
+    /// doc: "the pane ... can choose to say so"; this pane chooses not to,
+    /// for the reason above).
+    static func driftNote(_ findings: [DriftFinding]) -> String? {
+        guard let first = findings.first else { return nil }
+        let quote = truncatedDriftQuote(first.clauseQuote)
+        let andOneMore = findings.count > 1 ? " \u{2014} and one more" : ""
+        return "Your line may have moved \u{2014} \u{201C}\(quote)\u{201D} has strained "
+            + "three runs running\(andOneMore). Draft\u{2019}s right, or intent\u{2019}s right?"
+    }
+
+    /// How much of the clause the drift line's one sentence can carry —
+    /// smaller than `IntentStrip.maximumLength` because this quote sits
+    /// inside a longer sentence rather than filling a strip on its own.
+    private static let driftQuoteMaxLength = 60
+
+    /// `quote` if it fits, else cut at the last word boundary inside the
+    /// budget and ellipsised — `IntentStrip.truncated`'s idiom, restated here
+    /// because that one is `private` to its own file and the two truncate
+    /// different budgets for different reasons.
+    static func truncatedDriftQuote(_ quote: String) -> String {
+        guard quote.count > driftQuoteMaxLength else { return quote }
+        let head = String(quote.prefix(driftQuoteMaxLength))
+        guard let lastSpace = head.lastIndex(of: " ") else { return head + "\u{2026}" }
+        let cut = String(head[head.startIndex..<lastSpace])
+            .trimmingCharacters(in: .whitespaces)
+        return (cut.isEmpty ? head : cut) + "\u{2026}"
     }
 
     /// The glyph for one clause's answer. Deliberately three quiet marks: a
