@@ -245,13 +245,15 @@ extension Document {
         //    `restoreToOpUndoable`, and its backward leg re-archives these
         //    through the step-7 sweep without any bespoke work.
         //
-        //    Deliberately out of scope: an accepted suggestion the rewind
-        //    archived (the step-8 removed-paragraph branch). Its pre-archive
-        //    status was `.accepted`, so reopening to `.open` would offer a
-        //    change whose text the forward restore already re-applied; its
-        //    honest forward status is `.accepted`, which is a different
-        //    (unruled) behaviour — the `wasOpen` guard is that boundary.
+        //    The accepted-then-archived case (the step-8 removed-paragraph
+        //    branch) follows RULING-26: the status the annotation had AT THE
+        //    TRAVELLED-TO MOMENT returns. Target at-or-after the accept → a
+        //    status-only `.claudeAccept` (the rewind-undo's own instrument),
+        //    because the restore already re-applied the text. Target after
+        //    the paragraph existed but before the accept → reopen to `.open`,
+        //    because the change was unapplied at that moment.
         var travelReopenedIds: [String] = []
+        var travelReacceptedIds: [String] = []
         if synthesisSource == .rewind {
             let statusKinds: Set<OpKind> = [
                 .claudeAccept, .claudeReject, .claudeArchive,
@@ -275,13 +277,39 @@ extension Document {
                 let wasOpen = beforeArchive == nil
                     || beforeArchive?.kind == .claudeAcceptRevert
                     || beforeArchive?.kind == .annotationReopen
-                guard wasOpen else { continue }
-                try await appendLifecycleOp(
-                    kind: .annotationReopen,
-                    sourceAnnotationId: ann.id,
-                    userResponse: nil,
-                    synthesisSource: .rewind)
-                travelReopenedIds.append(ann.id)
+                if wasOpen {
+                    try await appendLifecycleOp(
+                        kind: .annotationReopen,
+                        sourceAnnotationId: ann.id,
+                        userResponse: nil,
+                        synthesisSource: .rewind)
+                    travelReopenedIds.append(ann.id)
+                } else if beforeArchive?.kind == .claudeAccept {
+                    // RULING-26. The latest changes-carrying accept dates the
+                    // moment the change was applied; the target's position
+                    // against it (opId order) decides which status the
+                    // travelled-to moment held.
+                    guard let textAccept = _opLogMirror
+                        .filter({ $0.kind == .claudeAccept
+                                      && $0.provenance?.sourceAnnotationId == ann.id
+                                      && !$0.changes.isEmpty })
+                        .max(by: { $0.opId < $1.opId }) else { continue }
+                    if targetOpId >= textAccept.opId {
+                        try await appendLifecycleOp(
+                            kind: .claudeAccept,
+                            sourceAnnotationId: ann.id,
+                            userResponse: textAccept.provenance?.userResponse,
+                            synthesisSource: .rewind)
+                        travelReacceptedIds.append(ann.id)
+                    } else {
+                        try await appendLifecycleOp(
+                            kind: .annotationReopen,
+                            sourceAnnotationId: ann.id,
+                            userResponse: nil,
+                            synthesisSource: .rewind)
+                        travelReopenedIds.append(ann.id)
+                    }
+                }
             }
         }
 
@@ -293,7 +321,8 @@ extension Document {
             newSequenceCount: newCount,
             reopenedAnnotationOpIds: reopenedIds,
             rewoundTaskOps: hasTaskOpsAfterTarget,
-            travelReopenedAnnotationIds: travelReopenedIds)
+            travelReopenedAnnotationIds: travelReopenedIds,
+            travelReacceptedAnnotationIds: travelReacceptedIds)
     }
 
     /// Fold the document to `target` by appending a `.checkpointRestore` op

@@ -46,6 +46,14 @@ public struct RewindRestoreResult: Equatable, Sendable {
     /// own archives never appear here. Empty on `.undoRewind` restores — the
     /// undo choreography owns its own lifecycle compensations.
     public let travelReopenedAnnotationIds: [String]
+    /// Creation ids of accepted suggestions the return journey restored to
+    /// `.accepted` (RULING-26): each had been archived by the stranded-accept
+    /// resolution when its paragraph was rewound away, and this restore's
+    /// target lies at-or-after the accept, so a status-only `.claudeAccept`
+    /// (`.rewind`-stamped) returns the status the annotation had at the
+    /// travelled-to moment. A target before the accept lands in
+    /// `travelReopenedAnnotationIds` instead — the change was unapplied then.
+    public let travelReacceptedAnnotationIds: [String]
 
     public init(
         restoreOp: Op?,
@@ -55,7 +63,8 @@ public struct RewindRestoreResult: Equatable, Sendable {
         newSequenceCount: Int,
         reopenedAnnotationOpIds: [String],
         rewoundTaskOps: Bool = false,
-        travelReopenedAnnotationIds: [String] = []
+        travelReopenedAnnotationIds: [String] = [],
+        travelReacceptedAnnotationIds: [String] = []
     ) {
         self.restoreOp = restoreOp
         self.archivedAnnotationOpIds = archivedAnnotationOpIds
@@ -65,5 +74,6 @@ public struct RewindRestoreResult: Equatable, Sendable {
         self.reopenedAnnotationOpIds = reopenedAnnotationOpIds
         self.rewoundTaskOps = rewoundTaskOps
         self.travelReopenedAnnotationIds = travelReopenedAnnotationIds
+        self.travelReacceptedAnnotationIds = travelReacceptedAnnotationIds
     }
 }
