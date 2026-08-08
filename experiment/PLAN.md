@@ -5,14 +5,21 @@ lands; the queue detail lives in `START-HERE.md`, the numbers in the generated s
 
 ## Phase 1 — finish what's in flight (branch `experiment/behavioural-spec`)
 
-1. `Document+Annotations` characterisation lands (agent-run, worktree, probe-first) → review,
-   commit; the module where RULING-25/26/29 live gets pinned claims.
-2. **RULING-27+28 fix loop** — nearest-surviving-moment with revert + both halves of the
+1. ~~`Document+Annotations` characterisation~~ **DONE 2026-08-08** — 53 claims, 6/9, and the
+   register's most serious find yet: M5-AN-049/050, a live data-loss path under RULING-5.
+2. **RULING-5 fix loop — M5-AN-049+050, jumped the queue** (adopted from the module report): a
+   lost-anchor suggestion must be REFUSED, not applied over the whole paragraph; and the staleness
+   cache must invalidate on text edits so the warning gate actually fires. Live data loss on the
+   writer's prose outranks reporting polish — the constitution's first must.
+3. **RULING-27+28 fix loop** — nearest-surviving-moment with revert + both halves of the
    collateral report. One loop: they share the restore boundary and its rendering. Pins some
    UNTRACED view-layer facts (the `_ =` discard, the impact summary) with production tests.
-3. **RULING-29 fix** (pane Reopen) — deliberately AFTER the annotations module is claim-covered,
-   so the fix lands against pinned claims.
-4. **Whole-branch review, then merge to main.** Two rebases already; every pre-merge day is drift
+   RULING-28's scope now also covers M5-AN-041's silent typing-sweep by analogy — file, don't
+   assume; the typing half may need its own ruling.
+4. **RULING-29 fix** (pane Reopen) — now WITH its pinned claims (M5-AN-039's caller census goes
+   red when the fix lands). Must not walk into M5-AN-036 (the double-inverse reopen op) or GAP-A3
+   (the vanishing rejection reason); the module report records both.
+5. **Whole-branch review, then merge to main.** Three rebases now; every pre-merge day is drift
    risk, and the claims suites protect nothing until they run on main.
 
 *Exit: branch merged, CI green on main.*
