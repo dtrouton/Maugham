@@ -88,3 +88,19 @@ Stage 2/3 sequencing is next unless Denver redirects.
   `MCPBinaryIntegrationTests`) still fails under a loaded full suite and
   passes in isolation; apply the discriminator by name before blaming a
   branch. Baseline at this handoff: ~4,845 Mac / 482 Core / 233 phone.
+
+## Post-handoff addendum, 2026-08-08 evening — rebased onto remote's test framework
+
+Remote main gained five test-framework commits (parallel Mac workers,
+`RunLoopPump`, condition waits, the canvas mounting suite split three ways,
+`scripts/test.sh`). **Local main was rebased onto it** (`--rebase-merges`,
+topology preserved; backup at `backup/pre-rebase-2026-08-08` until confident).
+One real conflict: `Canvas/AREA.md`'s Escape paragraph — resolved as our
+arbiter text carrying remote's renamed suite
+(`CanvasViewMountingEditingTests`), verified against the tree. **The full
+parallel run is green**: 4,839 passed, one failure = the documented
+`MCPColdStartTests` clock flake (passed in isolation, discriminator run).
+Our 92 commits' tests met seven workers with zero collisions. **The test
+command is now `./scripts/test.sh` (fast) / `./scripts/test.sh full`
+(pre-merge gate, ~2.75 min)** — the next session should use it everywhere the
+old flat `-only-testing` xcodebuild spellings appear in these notes.
