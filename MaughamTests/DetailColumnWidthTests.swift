@@ -25,7 +25,18 @@ final class DetailColumnProbe {
     /// The window content's width, measured by production's own
     /// `ContainerWidthReporter` rather than by anything this file computes.
     /// `nil` until the first measurement lands, exactly as in `ProjectWindow`.
-    var containerWidth: Double?
+    private(set) var containerWidth: Double?
+
+    /// **Through production's guard, not around it.** This used to be a bare
+    /// `probe.containerWidth = $0` on the reporter, which is why sixteen green
+    /// tests could not see a memo that never recorded anything: production's
+    /// `noteContainerWidth` was exercised by nothing at all. Two lines,
+    /// mirroring that method exactly, and the predicate is asked of
+    /// `ProjectWindow` rather than restated.
+    func noteContainerWidth(_ width: Double) {
+        guard ProjectWindow.recordsContainerWidth(width, over: containerWidth) else { return }
+        containerWidth = width
+    }
 
     /// The writer's WISH — what `UIState` stores. What the column is given is
     /// `ProjectWindow.effectiveDetailColumnWidth` of this and the container, and
@@ -67,7 +78,7 @@ private struct DetailColumnHarness: View {
         } detail: {
             if probe.mounted { detailColumn }
         }
-        .modifier(ContainerWidthReporter(onWidth: { probe.containerWidth = $0 }))
+        .modifier(ContainerWidthReporter(onWidth: { probe.noteContainerWidth($0) }))
     }
 
     @ViewBuilder
@@ -513,23 +524,93 @@ final class DetailColumnWidthTests: XCTestCase {
                         containerWidth: Double(ProjectWindow.windowFloor)))
     }
 
-    /// The measurement is recorded only when it changes the answer, because a
-    /// window drag-resize is 60 frames a second and `ProjectWindow.body` is not
-    /// something to re-evaluate at that rate.
+    /// The measurement is recorded only when it changes what the window can
+    /// afford, because a window drag-resize is 60 frames a second and
+    /// `ProjectWindow.body` is not something to re-evaluate at that rate.
     func test_aResizeThatChangesNothingIsNotRecorded() {
-        XCTAssertFalse(ProjectWindow.recordsContainerWidth(
-            1700, over: 1600, persisted: 480),
-                       "both afford the whole wish, so there is nothing to say")
-        XCTAssertTrue(ProjectWindow.recordsContainerWidth(
-            980, over: 1600, persisted: 480),
+        XCTAssertFalse(ProjectWindow.recordsContainerWidth(1700, over: 1600),
+                       "both afford the whole range, so there is nothing to say")
+        XCTAssertTrue(ProjectWindow.recordsContainerWidth(980, over: 1600),
                       "crossing into the squeeze is exactly when it must be said")
-        XCTAssertFalse(ProjectWindow.recordsContainerWidth(
-            1600, over: nil, persisted: 260),
-                       "a narrow wish is afforded everywhere, so even the first "
-                       + "measurement has nothing to change")
+    }
+
+    /// **The first measurement always lands when it widens what is affordable —
+    /// whatever the writer's current width happens to be.**
+    ///
+    /// This is the assertion whose opposite this file used to make. It read
+    /// `recordsContainerWidth(1600, over: nil, persisted: 260)` must be FALSE,
+    /// reasoned as "a narrow wish is afforded everywhere, so there is nothing to
+    /// change" — true of the effective width and false of the ceiling, which is
+    /// the other consumer of the value being memoized. A test can enshrine a
+    /// defect as confidently as it can catch one, and this one did.
+    func test_theFirstMeasurementLandsWhateverTheWriterIsCurrentlyAt() {
+        for persisted in [UIState.detailColumnWidthRange.lowerBound,
+                          UIState.defaultDetailColumnWidth,
+                          UIState.detailColumnWidthRange.upperBound] {
+            XCTAssertTrue(
+                ProjectWindow.recordsContainerWidth(1600, over: nil),
+                "a wide window must be recorded on sight — at persisted "
+                + "\(persisted) as much as any other, because what the memo "
+                + "protects is the CEILING and the ceiling does not depend on "
+                + "where the writer currently is")
+        }
     }
 
     // MARK: - Where a drag lands
+
+    /// **The writer's own test, and the one that was missing.** A fresh project
+    /// at the default width, on a display with room to spare: hauling the handle
+    /// left must reach the range's ceiling, not the fallback the column falls
+    /// back to before its window has been measured.
+    ///
+    /// It failed for the whole of two fix rounds. The container width was
+    /// recorded only when it changed the effective width *at the current
+    /// persisted value* — and at any width the window already affords, that is a
+    /// comparison of a number with itself. So nothing was ever recorded, the
+    /// ceiling stayed the unmeasured fallback on every display, and drag-end
+    /// persisted a value below it, which kept the guard quiet across every
+    /// relaunch. The column could not be dragged as wide as the range it
+    /// replaced.
+    ///
+    /// **This goes through the guard rather than around it**: `probe.containerWidth`
+    /// is only non-nil if production's `recordsContainerWidth` said to record
+    /// it, and the harness reaches it through the real `ContainerWidthReporter`.
+    /// Restore the old predicate and this goes red; every other test in this
+    /// file stays green, which is exactly why it needs to exist.
+    func test_aFreshProjectOnAWideDisplayCanDragPastTheFallback() async throws {
+        let probe = DetailColumnProbe(width: UIState.defaultDetailColumnWidth)
+        let (window, _) = try await mount(probe, windowWidth: 1400)
+        await pump(0.8)
+
+        let unmeasured = ProjectWindow.draggableDetailCeiling(containerWidth: nil)
+        XCTAssertGreaterThanOrEqual(
+            Double(window.frame.width),
+            Double(ProjectWindow.binderColumnFloor + ProjectWindow.sidebarInset
+                   + ProjectWindow.centreColumnFloor)
+                + UIState.detailColumnWidthRange.upperBound,
+            "premise: this window can afford the whole range — it opened at "
+            + "\(window.frame.width)pt")
+
+        let measured = try XCTUnwrap(
+            probe.containerWidth,
+            "the guard must have recorded a window this much wider than the "
+            + "floor — a nil here is the starved memo itself")
+
+        let ceiling = ProjectWindow.draggableDetailCeiling(containerWidth: measured)
+        XCTAssertGreaterThan(ceiling, unmeasured,
+                             "a measured wide window must afford more than the "
+                             + "unmeasured fallback of \(unmeasured)pt")
+        XCTAssertEqual(ceiling, UIState.detailColumnWidthRange.upperBound,
+                       "and on a display with this much room the ceiling is the "
+                       + "writer's whole range")
+
+        let landed = ProjectWindow.draggedDetailColumnWidth(
+            startWidth: probe.width, translation: -400, containerWidth: measured)
+        XCTAssertEqual(landed, UIState.detailColumnWidthRange.upperBound,
+                       "so hauling the handle left reaches it — the branch's "
+                       + "headline capability, which was unreachable on every "
+                       + "display until this test existed")
+    }
 
     /// **The narrow-window drag, which is the corner the re-review found open.**
     /// A writer on a laptop hauls the handle as far left as it will go. The

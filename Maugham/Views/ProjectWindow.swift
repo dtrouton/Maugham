@@ -1390,26 +1390,39 @@ struct ProjectWindow: View {
     /// container width assumed before anything has been measured.
     static let windowFloor: CGFloat = 980
 
-    /// Records the measured container width, but **only when it changes the
-    /// answer**. A window drag-resize is 60 frames a second and this view's
-    /// `body` is not something to re-evaluate at that rate; the effective width
-    /// is unchanged across almost all of that range, so almost all of those
-    /// frames write nothing.
+    /// Records the measured container width, but **only when it changes what
+    /// the window can afford**. A window drag-resize is 60 frames a second and
+    /// this view's `body` is not something to re-evaluate at that rate; the
+    /// affordable ceiling is unchanged across almost all of that range, so
+    /// almost all of those frames write nothing.
     ///
-    /// Not storing a width that leaves the answer alone is safe rather than
-    /// merely cheap: the sum is monotonic in the container, so the value kept
-    /// here always yields the effective width currently on screen, which is
-    /// exactly what the next comparison needs.
-    static func recordsContainerWidth(_ width: Double,
-                                      over current: Double?,
-                                      persisted: Double) -> Bool {
-        effectiveDetailColumnWidth(persisted: persisted, containerWidth: width)
-            != effectiveDetailColumnWidth(persisted: persisted, containerWidth: current)
+    /// **Keyed on the CEILING, and deliberately blind to the persisted width.**
+    /// The stored container has two consumers — `effectiveDetailColumnWidth`,
+    /// which reads it at the *current* width, and `draggableDetailCeiling`,
+    /// which reads it at the range's *upper bound* — and a memo is only sound
+    /// when it is keyed on something that determines every consumer. This was
+    /// keyed on the effective width at the current persisted value, which is
+    /// the first consumer and not the second, and the consequence was total:
+    /// for any persisted width the window could already afford (the 280 default,
+    /// and every value a drag could produce, since the drag is capped by the
+    /// very ceiling being starved) the guard compared a value to itself, never
+    /// recorded, and left `containerWidth` nil for the life of every window. The
+    /// drag ceiling was then permanently the nil fallback — narrower than the
+    /// range the column replaced, on a display of any size, self-sealing across
+    /// relaunches because drag-end persisted the starved value. Found by
+    /// whole-branch review, 2026-08-08, in the seam between two of this task's
+    /// own fix rounds; `test_aFreshProjectOnAWideDisplayCanDragPastTheFallback`
+    /// is the regression, and it goes through this guard rather than around it.
+    ///
+    /// The persisted width is not a parameter any more, so the shape that caused
+    /// this cannot be spelled here again.
+    static func recordsContainerWidth(_ width: Double, over current: Double?) -> Bool {
+        draggableDetailCeiling(containerWidth: width)
+            != draggableDetailCeiling(containerWidth: current)
     }
 
     private func noteContainerWidth(_ width: Double) {
-        guard Self.recordsContainerWidth(width, over: containerWidth,
-                                         persisted: detailColumnWidth) else { return }
+        guard Self.recordsContainerWidth(width, over: containerWidth) else { return }
         containerWidth = width
     }
 

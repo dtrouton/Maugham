@@ -110,10 +110,18 @@ public struct UIState: Codable, Equatable, Sendable {
     /// **The floor is the old `min`**; below it the inspector's labelled rows
     /// wrap into unreadability. The ceiling is deliberately wider than the old
     /// `max: 360` — a writer-owned width may be wider than a designer's cap,
-    /// and the clamp is the safety rather than the opinion. Measured at the
-    /// window's own floor (`minWidth: 980`): at 480 the writing column still
-    /// lays out at 499pt, above its own `min: 480`, so the widest right column
-    /// cannot squeeze the prose out of the narrowest window.
+    /// and the clamp is the safety rather than the opinion.
+    ///
+    /// **What protects the prose is the clamp, not this range.** A window that
+    /// cannot afford the ceiling never shows it:
+    /// `ProjectWindow.effectiveDetailColumnWidth` reduces what is displayed to
+    /// what the window has left after the binder and the writing column take
+    /// their floors, and `test_theWidestWishDoesNotGrowTheNarrowestWindow` holds
+    /// that measurement. No worked example here on purpose — this comment
+    /// carried one ("at 480 the writing column still lays out at 499pt") that
+    /// was taken on a silently-GROWN window, describing a layout the clamp has
+    /// since made impossible. A number in prose about arithmetic the code does
+    /// is the unmaintainable-count defect wearing math.
     public static let detailColumnWidthRange: ClosedRange<Double> = 240...480
 
     public static func clampedDetailColumnWidth(_ width: Double) -> Double {
