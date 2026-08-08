@@ -25,16 +25,47 @@ private let compilerLog = Logger(
 /// capture policy can do.
 extension CompilerOrchestrator.Environment {
 
+    /// - Parameters:
+    ///   - declaredWorld: the per-device cache of Claude's readings. Held
+    ///     weakly like every other store here, and consulted before anything is
+    ///     derived — the whole point of the lazy trigger.
+    ///   - bible: the per-device ledger of facts the manuscript has
+    ///     established. Read before a run (sliced by subject) and written after
+    ///     one.
+    ///   - makeDeriver: how a derivation is spawned, given the model to spawn
+    ///     it on. `nil` — every production caller — means the real one-shot
+    ///     `claude -p`. A test that let that through would spawn a real,
+    ///     billing process, so the seam exists for the suite that proves a
+    ///     derived reading is CACHED
+    ///     (`CompilerRunCommandTests.test_productionCachesWhatItDerives`) and
+    ///     for nothing else.
     @MainActor
     static func production(
         store: ProjectStore,
         documentStore: DocumentStore,
         projectURL: URL,
+        declaredWorld: DeclaredWorldStore,
+        bible: BibleStore,
         preferences: UserPreferences,
         model: String = CompilerOrchestrator.defaultModel,
+        makeDeriver: (@MainActor (String) -> WorldDeriver)? = nil,
         onRunAcknowledged: @escaping @MainActor () -> Void
     ) -> CompilerOrchestrator.Environment {
-        CompilerOrchestrator.Environment(
+        // Built here rather than as a default argument, which cannot see
+        // `preferences`. One deriver per derivation, deliberately: the model is
+        // a spawn-time argument (as it is for the session), and a derivation
+        // holds nothing between calls worth keeping warm — its one cached
+        // value, the CLI's path, is re-found from well-known locations without
+        // a subprocess in the ordinary case.
+        let deriverFactory: @MainActor (String) -> WorldDeriver = makeDeriver ?? { model in
+            ClaudeWorldDeriver(
+                model: model, cliOverride: nil,
+                // Read at every spawn, never captured as a value — the toggle
+                // governs derivation exactly as it governs the run (ADR 0028's
+                // one toggle), and `nil` preferences means refuse.
+                isEnabled: { [weak preferences] in preferences?.mcpEnabled ?? false })
+        }
+        return CompilerOrchestrator.Environment(
             projectId: ProjectIdentifier.id(for: projectURL),
             // The Diagnostics pane's gear menu (Task 8) — read once here at
             // `configure()` and kept current afterward by
@@ -91,14 +122,67 @@ extension CompilerOrchestrator.Environment {
                 guard let store,
                       let resolved = store.effectiveIntent(forDocId: docId) else {
                     // Absence is valid and mints nothing (M1A's rule). The
-                    // prompt simply carries no intent section.
-                    return (nil, projectScopeLabel)
+                    // prompt simply carries nothing declared.
+                    return nil
                 }
-                let label: String = {
-                    guard case .document = resolved.scope else { return projectScopeLabel }
-                    return documentScopeLabel(forDocId: docId, in: store)
-                }()
-                return (store.statementText(of: resolved), label)
+                // The statement WHOLE: the briefing takes its essay half, and
+                // the derivation reads all of it — the rulings are half of what
+                // there is to derive, and a reading made from the essay alone
+                // would drop every decision the writer has ruled.
+                return CompilerOrchestrator.IntentBriefing(
+                    statementText: store.statementText(of: resolved),
+                    // `DeclaredWorldStore`'s own spelling, asked for rather
+                    // than rebuilt (that type's own doc: two spellings are two
+                    // caches, and one of them is never hit).
+                    scopeKey: DeclaredWorldStore.scopeKey(for: resolved.scope))
+            },
+            cachedWorld: { [weak declaredWorld] briefing in
+                // The hash gate is the whole cache: a reading is served only
+                // against the exact text it was made from, so the writer
+                // editing their statement retires it without anyone
+                // remembering to invalidate. `sourceHash` is asked of
+                // `DerivedWorld` — the one place it is computed.
+                declaredWorld?.cached(
+                    forScopeKey: briefing.scopeKey,
+                    sourceHash: DerivedWorld.sourceHash(of: briefing.statementText))
+            },
+            deriveWorld: { [weak declaredWorld] briefing, model in
+                guard let world = await deriverFactory(model)
+                    .derive(statementText: briefing.statementText) else {
+                    // A failure caches nothing. There is no such thing as a
+                    // cached "could not read this" — the next run retries, and
+                    // by then the CLI may be installed or the toggle back on.
+                    return nil
+                }
+                declaredWorld?.store(world, forScopeKey: briefing.scopeKey)
+                return world
+            },
+            bibleSlice: { [weak bible] deltaProse in
+                guard let bible else { return [] }
+                // **The slice rule, decided here because this is the only place
+                // that holds the ledger.** A fact rides along when its
+                // SUBJECT's string occurs in the delta's prose,
+                // case-insensitively — spec §5's "a run about Kelly's scene
+                // carries Kelly's facts, not the ledger". Substring rather than
+                // word-boundary matching on purpose: subjects are the model's
+                // own phrases ("the Fitzgerald house") as often as they are
+                // single names, and possessives and plurals ("Kelly's") must
+                // still count. The cost is a rare over-inclusion — a subject
+                // that happens to be a common word carries its facts into a run
+                // that is not about it — which is a slightly larger prompt, not
+                // a wrong note.
+                let subjects = Set(
+                    bible.allFacts().map(\.subject).filter { subject in
+                        !subject.isEmpty
+                            && deltaProse.range(of: subject, options: .caseInsensitive) != nil
+                    })
+                guard !subjects.isEmpty else { return [] }
+                return bible.facts(subjects: subjects)
+            },
+            recordFacts: { [weak bible] candidates in
+                // `record` dedupes on `(subject, fact)` itself, so a second run
+                // over the same delta lands nothing new.
+                bible?.record(candidates)
             },
             pinnedListing: { [weak store] docId in
                 guard let store else { return [] }
@@ -142,22 +226,6 @@ extension CompilerOrchestrator.Environment {
                     isEnabled: { [weak preferences] in preferences?.mcpEnabled ?? false })
             },
             onRunAcknowledged: onRunAcknowledged)
-    }
-
-    // MARK: - What the prompt calls the intent's scope
-
-    /// The project scope's name, in the prompt's voice.
-    private static let projectScopeLabel = "the project"
-
-    /// A document-scope intent is named by the document, because "this chapter"
-    /// is a novel's word and this window may be showing a screenplay or a piece
-    /// of a collection. The title is what the writer sees in the binder, so it
-    /// is what the note reads back to them.
-    @MainActor
-    private static func documentScopeLabel(
-        forDocId docId: String, in store: ProjectStore
-    ) -> String {
-        TreeWalk.find(id: docId, in: store.manifest.structure)?.title ?? "this document"
     }
 
     // MARK: - Pinned-reference formatting

@@ -30,12 +30,24 @@ final class DeclaredWorldDeriverTests: XCTestCase {
         case partiallyMalformed
         /// Exit non-zero without answering.
         case dies
+        /// Answer with a well-formed envelope far larger than a pipe buffer —
+        /// see `test_aLargeDerivationDoesNotDeadlock`.
+        case large
     }
+
+    /// How much padding the `.large` fixture carries. A macOS pipe holds 64 KB;
+    /// a quarter of a megabyte is decisively past it, so a reader that waits
+    /// for termination before reading has to block the writer.
+    private let largePaddingBytes = 256 * 1024
 
     private var tempDir: URL!
     private var counterURL: URL { tempDir.appendingPathComponent("invocations") }
     private var argsURL: URL { tempDir.appendingPathComponent("args") }
     private var stdinURL: URL { tempDir.appendingPathComponent("stdin") }
+    /// The `.large` fixture's envelope, written beside the script rather than
+    /// carried inside it: a quarter-megabyte base64 literal in a bash source
+    /// file is a script no one can read and a diff no one can review.
+    private var payloadURL: URL { tempDir.appendingPathComponent("payload.json") }
 
     override func setUp() async throws {
         try await super.setUp()
@@ -79,6 +91,15 @@ final class DeclaredWorldDeriverTests: XCTestCase {
             return #"{"clauses":[{"quote":"Good one.","check":"Checks fine."},{"quote":"Missing check."}],"rules":[]}"#
         case .dies:
             return ""
+        case .large:
+            // One real clause, and a `check` long enough that the envelope
+            // cannot fit in a pipe. The padding is inside the JSON rather than
+            // printed beside it, so the output is still exactly what the CLI
+            // contracts to emit — the deadlock this pins is about VOLUME, not
+            // about malformed output.
+            let padding = String(repeating: "a very long reading. ",
+                                 count: largePaddingBytes / 21)
+            return #"{"clauses":[{"quote":"Kelly never speaks first.","check":"\#(padding)"}],"rules":[]}"#
         }
     }
 
@@ -95,6 +116,7 @@ final class DeclaredWorldDeriverTests: XCTestCase {
             "is_error": false, "type": "result", "result": resultText(for: mode)
         ])
         let envelopeBase64 = envelope.base64EncodedString()
+        if mode == .large { try envelope.write(to: payloadURL, options: .atomic) }
 
         let script = """
         #!/bin/bash
@@ -109,6 +131,11 @@ final class DeclaredWorldDeriverTests: XCTestCase {
 
         if [ "$MODE" = "dies" ]; then
           exit 3
+        fi
+
+        if [ "$MODE" = "large" ]; then
+          cat "\(payloadURL.path)"
+          exit 0
         fi
 
         echo '\(envelopeBase64)' | base64 -D
@@ -277,6 +304,54 @@ final class DeclaredWorldDeriverTests: XCTestCase {
             "one-shot batch JSON, never stream-json")
         XCTAssertEqual(
             argv[argv.firstIndex(of: "--model")! + 1], "haiku")
+    }
+
+    // MARK: - The pipe
+
+    /// **A derivation bigger than a pipe buffer still comes back.**
+    ///
+    /// The original shape read stdout from the process's `terminationHandler`,
+    /// which is a deadlock with a pause button on it: a pipe holds about 64 KB,
+    /// so a CLI whose answer is larger blocks on its own `write`, never exits,
+    /// never fires the handler — and the continuation waiting on that handler
+    /// is never resumed. Not a slow run: a run that never ends, in a `Task` the
+    /// orchestrator is awaiting, with `runState` stuck on `.running` for the
+    /// life of the window. Reading concurrently with the wait is what keeps the
+    /// writer's end of the pipe moving.
+    ///
+    /// The wait is bounded rather than open, so a regression fails this suite in
+    /// half a minute instead of hanging CI until the job's own timeout.
+    func test_aLargeDerivationDoesNotDeadlock() async throws {
+        let cli = try makeFakeCLI(mode: .large)
+        let deriver = makeDeriver(cli: cli)
+        let payload = try Data(contentsOf: payloadURL)
+        XCTAssertGreaterThan(
+            payload.count, 200_000,
+            "the fixture must actually exceed a pipe buffer, or this test proves "
+            + "nothing about the drain")
+
+        let returned = expectation(description: "the derivation came back")
+        let result = Box<DerivedWorld?>(nil)
+        Task {
+            result.value = await deriver.derive(statementText: "Kelly never speaks first.")
+            returned.fulfill()
+        }
+        await fulfillment(of: [returned], timeout: 30)
+
+        let world = try XCTUnwrap(
+            result.value,
+            "the CLI answered in full; a nil here means the output was truncated "
+            + "rather than drained")
+        XCTAssertEqual(world.clauses.count, 1)
+        XCTAssertEqual(world.clauses.first?.quote, "Kelly never speaks first.")
+        XCTAssertGreaterThan(
+            world.clauses.first?.check.count ?? 0, 200_000,
+            "…and the whole of it arrived, not the first pipe-full")
+    }
+
+    private final class Box<T>: @unchecked Sendable {
+        var value: T
+        init(_ value: T) { self.value = value }
     }
 
     /// The prompt and the parser are pinned to the same wire shape — Task 3

@@ -141,6 +141,39 @@ final class DiagnosticsStoreTests: XCTestCase {
         XCTAssertEqual(reopened.lastRun(docId: docId)?.droppedDangling, 3)
     }
 
+    /// **The conformance summary rides on the run record and survives a
+    /// relaunch.** Most of what a run checked produces no note at all — a
+    /// clause that holds and a clause the delta is silent about are both real
+    /// answers — so the list the pane leads with lives here, superseded with
+    /// the run that made it rather than beside notes it does not have.
+    ///
+    /// Task 4 owns this field's own contract; the run that writes it is Task
+    /// 3's, so its round trip is pinned here rather than left to a later
+    /// commit that could ship after a release.
+    func test_roundTrip_carriesTheClausesTheRunChecked() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docClauses"
+
+        var run = makeRun()
+        run.clauseStatuses = [
+            DiagnosticIngest.ClauseStatus(
+                clauseQuote: "Cold, and never wistful.", status: "strains",
+                refs: [Diagnostic.Ref(paragraphId: "a1b2", excerpt: "The fog came.")]),
+            DiagnosticIngest.ClauseStatus(
+                clauseQuote: "Kelly never speaks first.", status: "silent", refs: [])
+        ]
+        DiagnosticsStore(projectRoot: project, device: device)
+            .replace(run: run, diagnostics: [], docId: docId)
+
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: docId)
+        XCTAssertEqual(reopened.lastRun(docId: docId)?.clauseStatuses, run.clauseStatuses,
+                       "quote, status and refs all survive — the refs are what the "
+                       + "pane renders as excerpt chips, and a chip with no excerpt "
+                       + "is the paragraph id the writer must never see")
+    }
+
     /// A sidecar written before the field existed decodes as zero rather than
     /// failing the whole file — an undecodable sidecar reads as empty, which
     /// would tell the writer their document had never been checked.
@@ -162,6 +195,9 @@ final class DiagnosticsStoreTests: XCTestCase {
         XCTAssertEqual(store.lastRun(docId: docId)?.model, "sonnet",
             "the record must still load")
         XCTAssertEqual(store.lastRun(docId: docId)?.droppedDangling, 0)
+        XCTAssertNil(store.lastRun(docId: docId)?.clauseStatuses,
+            "a run written before the sections existed checked no clauses, and "
+            + "an empty list would claim it checked and found nothing")
     }
 
     /// A sidecar a v1 run wrote decodes clean — the writer's existing file is

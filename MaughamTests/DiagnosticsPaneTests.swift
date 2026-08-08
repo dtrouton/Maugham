@@ -631,7 +631,11 @@ final class DiagnosticsPaneTests: XCTestCase {
                     : nil
             },
             liveParagraphText: { _, _ in "The fog came." },
-            intent: { _ in (nil, "this document") },
+            intent: { _ in nil },
+            cachedWorld: { _ in nil },
+            deriveWorld: { _, _ in nil },
+            bibleSlice: { _ in [] },
+            recordFacts: { _ in },
             pinnedListing: { _ in [] },
             paletteListing: { [] },
             writeMCPConfig: { self.temp.url.appendingPathComponent("compiler-mcp.json") },

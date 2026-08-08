@@ -96,8 +96,25 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// looked, spoke, and was mistranscribed; the surface says so.
     var droppedDangling: Int = 0
 
+    /// Every clause this run checked and how each fared — the conformance
+    /// summary the pane leads with (spec §5's first section).
+    ///
+    /// **On the run rather than beside the notes, because most of it produces
+    /// no note at all.** A clause that holds and a clause the delta is silent
+    /// about are both real answers the writer wants to see, and neither is a
+    /// `Diagnostic`; only a strain is. Keeping the whole list here means the
+    /// summary and the notes are superseded together by the next run, which is
+    /// the one thing that must never come apart — a summary from run N over run
+    /// N+1's notes reads as a check that was never made.
+    ///
+    /// `nil` marks a record written before the sections existed, exactly as
+    /// `Diagnostic.kind == nil` does. Task 4 owns this field's own suite; it is
+    /// here because the run that writes it is this task's.
+    var clauseStatuses: [DiagnosticIngest.ClauseStatus]?
+
     init(id: String, at: Date, model: String, lastOpId: String?,
-         deltaSummary: String, intentSnapshot: String?, droppedDangling: Int = 0) {
+         deltaSummary: String, intentSnapshot: String?, droppedDangling: Int = 0,
+         clauseStatuses: [DiagnosticIngest.ClauseStatus]? = nil) {
         self.id = id
         self.at = at
         self.model = model
@@ -105,6 +122,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
         self.deltaSummary = deltaSummary
         self.intentSnapshot = intentSnapshot
         self.droppedDangling = droppedDangling
+        self.clauseStatuses = clauseStatuses
     }
 
     /// Hand-written for one field: a sidecar written before `droppedDangling`
@@ -112,6 +130,9 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// synthesised decoder does not fall back to a property's default, and a
     /// throw here reads to the writer as a document that was never checked
     /// (`DiagnosticsStore.load` treats an undecodable file as empty).
+    /// `clauseStatuses` needs no such care — it is optional, so
+    /// `decodeIfPresent` is what the synthesised decoder would have written
+    /// anyway; it is spelled out here only because this initializer exists.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -121,5 +142,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
         deltaSummary = try c.decode(String.self, forKey: .deltaSummary)
         intentSnapshot = try c.decodeIfPresent(String.self, forKey: .intentSnapshot)
         droppedDangling = try c.decodeIfPresent(Int.self, forKey: .droppedDangling) ?? 0
+        clauseStatuses = try c.decodeIfPresent(
+            [DiagnosticIngest.ClauseStatus].self, forKey: .clauseStatuses)
     }
 }

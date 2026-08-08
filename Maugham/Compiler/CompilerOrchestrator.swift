@@ -57,6 +57,25 @@ final class CompilerOrchestrator {
         }
     }
 
+    /// What a run is checked against, resolved at the keystroke.
+    ///
+    /// **The statement WHOLE, and the key its reading is cached under.** Two
+    /// fields because the two halves are read by different things and must not
+    /// be re-derived apart: the derivation reads all of it (the rulings are
+    /// half of what there is to derive), the briefing embeds only its essay,
+    /// and the cache is keyed by the scope — spelled by `DeclaredWorldStore`
+    /// itself rather than rebuilt here, because two spellings are two caches
+    /// and one of them is never hit.
+    struct IntentBriefing: Equatable, Sendable {
+        let statementText: String
+        let scopeKey: String
+
+        init(statementText: String, scopeKey: String) {
+            self.statementText = statementText
+            self.scopeKey = scopeKey
+        }
+    }
+
     /// Everything the orchestrator needs from the window it belongs to. Closures
     /// rather than stores, so a test drives a run without a project on disk and
     /// so `detach()` can drop the window's whole object graph in one line.
@@ -85,9 +104,33 @@ final class CompilerOrchestrator {
         /// ingest, which is what makes `DiagnosticsStore.live`'s exact-match
         /// staleness rule correct.
         var liveParagraphText: @MainActor (String, String) -> String?
-        /// The intent this document answers to, piece-first, and what to call
-        /// its scope in the prompt.
-        var intent: @MainActor (String) -> (text: String?, scopeLabel: String)
+        /// The intent this document answers to, piece-first. `nil` is a valid
+        /// answer and mints nothing (M1A's rule): the run proceeds with nothing
+        /// declared, and the conformance section simply has nothing to check.
+        var intent: @MainActor (String) -> IntentBriefing?
+        /// The reading already held for this statement's EXACT text, or `nil`
+        /// for a miss. Pure — it never derives and never spawns, which is what
+        /// lets the run tell a hit from a miss before deciding to spend a
+        /// subprocess.
+        var cachedWorld: @MainActor (IntentBriefing) -> DerivedWorld?
+        /// Derive a reading of this statement and cache it, on the model given
+        /// — passed rather than captured, for `makeRunner`'s reason: `model`
+        /// above is the one place it is decided.
+        ///
+        /// **The lazy trigger's other half** (`AREA.md`, "the derivation
+        /// trigger"): called only on a miss, only from here, and never on a
+        /// timer. `nil` is honest and non-fatal — a missing CLI, the toggle
+        /// off, unreadable output — and costs the run its clauses, not the run.
+        var deriveWorld: @MainActor (IntentBriefing, String) async -> DerivedWorld?
+        /// What the ledger already believes about the subjects this delta's
+        /// prose names (spec §5: "a run about Kelly's scene carries Kelly's
+        /// facts, not the ledger"). The matching rule lives at the production
+        /// call site, which is the only thing that knows the ledger.
+        var bibleSlice: @MainActor (String) -> [BibleFact]
+        /// What this run established, on its way into the bible. Never a note:
+        /// a fact-candidate lands silently and surfaces in the Intent pane's
+        /// bible stratum, where the writer's three actions reach it.
+        var recordFacts: @MainActor ([BibleFact]) -> Void
         /// What the writer pinned beside this document — linked research
         /// unioned with the canvas cluster (`PinnedReferences`, §7.2) — as
         /// "title (id) — tool" lines. Empty is a valid answer (nothing
@@ -113,7 +156,15 @@ final class CompilerOrchestrator {
     /// The model a run uses before the Diagnostics pane's gear-menu setting
     /// has ever been read — a fresh project, or a `UIState` written before
     /// `compilerModel` existed. Sonnet is the spec's default (§3.5).
-    static let defaultModel = "sonnet"
+    ///
+    /// `nonisolated` because `Environment.production` uses it as a **default
+    /// argument**, which is evaluated in the caller's context rather than this
+    /// type's: main-actor isolation on a constant string bought nothing and was
+    /// a Swift 6 error waiting at that call site. The diagnostic had been there
+    /// since the gear menu landed and was invisible in every warm build that
+    /// did not recompile that file (CLAUDE.md's warning-census caveat, met in
+    /// the wild).
+    nonisolated static let defaultModel = "sonnet"
 
     private(set) var runState: RunState = .idle
     private(set) var diagnostics: DiagnosticsStore?
@@ -127,9 +178,14 @@ final class CompilerOrchestrator {
     /// the current setting to.
     private var runnerModel: String?
 
-    /// Per document: the intent hash the last successful run sent, and the
+    /// Per document: the briefing hash the last successful run sent, and the
     /// session epoch it was sent into. Both halves matter — see `previousHash`.
-    private var sentIntent: [String: (hash: String, epoch: Int)] = [:]
+    ///
+    /// The hash covers essay + derived world + bible slice as one unit
+    /// (`CompilerPrompt.runMessageV2`), widened from v1's intent-only hash: a
+    /// briefing that came apart — the essay elided while the facts re-embedded
+    /// — would describe a world the session was never told half of.
+    private var sentBriefing: [String: (hash: String, epoch: Int)] = [:]
 
     /// True between the keystroke and the delta, while `prepareForRun` closes
     /// the writer's burst. `isRunning` counts it, so the second ⌘R of a
@@ -138,13 +194,18 @@ final class CompilerOrchestrator {
     /// one of them would be reading a delta the other has already claimed.
     private var isPreparingRun = false
 
-    /// The generation a prepare hop belongs to. A teardown between the
-    /// keystroke and the delta **abandons** the hop rather than letting it
-    /// spawn a session the writer has just switched off; a boolean cleared and
-    /// re-set by the next keystroke could not tell the two apart. Same
-    /// reasoning as `ClaudeCLISession.generation` (AREA.md, "generations, not
-    /// booleans").
-    private var prepareGeneration = 0
+    /// The generation a run's suspensions belong to. A teardown between the
+    /// keystroke and the send **abandons** the run rather than letting it spawn
+    /// a session the writer has just switched off; a boolean cleared and re-set
+    /// by the next keystroke could not tell the two apart. Same reasoning as
+    /// `ClaudeCLISession.generation` (AREA.md, "generations, not booleans").
+    ///
+    /// **Two hops carry it, not one.** The burst flush was the first; the
+    /// declared world's derivation is the second, and it is the longer of the
+    /// two by orders of magnitude — a whole `claude -p` process. A run that
+    /// checked its generation before deriving and not after would spawn the
+    /// session a toggle-off was there to prevent, seconds later.
+    private var runGeneration = 0
 
     var isRunning: Bool {
         if isPreparingRun { return true }
@@ -204,12 +265,12 @@ final class CompilerOrchestrator {
         // for (spec §3.2). Nothing here touches the editor's binding: the
         // document closes its own burst and we take a value afterwards
         // (tripwires 3, 6).
-        prepareGeneration &+= 1
-        let generation = prepareGeneration
+        runGeneration &+= 1
+        let generation = runGeneration
         isPreparingRun = true
         Task { [weak self] in
             await environment.prepareForRun(docId)
-            guard let self, self.prepareGeneration == generation else { return }
+            guard let self, self.runGeneration == generation else { return }
             self.isPreparingRun = false
             // Re-asked after the hop: the window can have closed, Claude can
             // have been switched off, and the writer can have moved the
@@ -217,7 +278,7 @@ final class CompilerOrchestrator {
             guard let environment = self.environment,
                   let diagnostics = self.diagnostics,
                   let reading = environment.reading(docId) else { return }
-            self.beginRun(docId: docId, reading: reading,
+            self.beginRun(docId: docId, reading: reading, generation: generation,
                           environment: environment, diagnostics: diagnostics)
         }
     }
@@ -225,7 +286,7 @@ final class CompilerOrchestrator {
     /// The run proper, from the delta on — everything that was `runRequested`'s
     /// body before the burst-flush hop moved in above it.
     private func beginRun(
-        docId: String, reading: DocumentReading,
+        docId: String, reading: DocumentReading, generation: Int,
         environment: Environment, diagnostics: DiagnosticsStore
     ) {
         let marker = diagnostics.lastOpId(docId: docId)
@@ -243,16 +304,20 @@ final class CompilerOrchestrator {
             return
         }
 
-        let (intentText, scopeLabel) = environment.intent(docId)
-        let context = CompilerContext(
-            projectId: environment.projectId,
-            intentText: intentText,
-            intentScopeLabel: scopeLabel,
-            // Empty is a real answer (nothing pinned, no palette cards); the
-            // prompt omits an empty section by design, so this is a smaller
-            // prompt rather than a broken one.
-            pinnedListing: environment.pinnedListing(docId),
-            paletteListing: environment.paletteListing())
+        let briefing = environment.intent(docId)
+        // The essay half alone (spec §3.2). **This is the atomic switch**: the
+        // strata below the essay reach the run as the derived clauses resolved
+        // below, and briefing them as prose as well would put the same
+        // declaration in front of the model twice — see
+        // `CompilerRunCommandTests.test_rulingsAreBriefedAsClausesNotProse`.
+        let essay = briefing.map { StatementEssay.half(of: $0.statementText) }
+        // Empty is a real answer (nothing pinned, no palette cards); the prompt
+        // omits an empty section by design, so this is a smaller prompt rather
+        // than a broken one. Read here, at the keystroke's own moment, so the
+        // context and the delta describe one instant of the project.
+        let pinnedListing = environment.pinnedListing(docId)
+        let paletteListing = environment.paletteListing()
+        let bibleFacts = environment.bibleSlice(Self.prose(of: delta))
 
         guard let runner = ensureRunner(model: environment.model) else {
             runState = .failed(
@@ -263,27 +328,94 @@ final class CompilerOrchestrator {
             return
         }
 
-        // Elided only while the SAME process is still reading — see
-        // `CompilerRunner.sessionEpoch`.
-        let previousHash = sentIntent[docId].flatMap {
-            $0.epoch == runner.sessionEpoch ? $0.hash : nil
-        }
-        let (message, intentHash) = CompilerPrompt.runMessage(
-            delta: delta, context: context, previousIntentHash: previousHash)
         let preamble = CompilerPrompt.sessionSystemPreamble(projectId: environment.projectId)
         let model = environment.model
 
+        // Set before the derivation, not after it: deriving is a subprocess,
+        // and a window that said `idle` for the seconds it takes would take a
+        // second ⌘R and run the same delta twice.
         runState = .running(docId: docId)
         Task { [weak self] in
+            let world = await Self.resolveWorld(briefing, model: model, in: environment)
+            // The derivation is the run's second suspension, and everything the
+            // burst-flush hop can lose in its own window can be lost in this
+            // one — only over seconds rather than milliseconds.
+            guard let self, self.runGeneration == generation else { return }
+
+            // Elided only while the SAME process is still reading — see
+            // `CompilerRunner.sessionEpoch`. Asked after the derivation because
+            // the session can have been retired while it ran, and a fresh
+            // process has read nothing.
+            let previousHash = self.sentBriefing[docId].flatMap {
+                $0.epoch == runner.sessionEpoch ? $0.hash : nil
+            }
+            let (message, briefingHash) = CompilerPrompt.runMessageV2(
+                delta: delta, world: world, essay: essay, bibleFacts: bibleFacts,
+                paletteListing: paletteListing, pinnedListing: pinnedListing,
+                previousBriefingHash: previousHash)
             let event = await runner.send(message: message, systemPreamble: preamble)
-            self?.finish(event, docId: docId, delta: delta, marker: marker,
-                         intentSnapshot: intentText, intentHash: intentHash, model: model)
+            self.finish(event, docId: docId, delta: delta, marker: marker,
+                        intentSnapshot: briefing?.statementText,
+                        briefingHash: briefingHash, model: model)
         }
     }
 
+    /// The declared world for this run: the cached reading if one was made from
+    /// exactly this text, else one derived now and cached by the closure that
+    /// derived it.
+    ///
+    /// **The lazy trigger, and its only production site** (`AREA.md`, "the
+    /// derivation trigger"): nothing here runs on a timer or on a save. A
+    /// statement is edited for reasons that have nothing to do with a check
+    /// being imminent, and a derivation per edit would spawn `claude` for prose
+    /// nobody is about to compile against.
+    ///
+    /// `nil` at either step is honest and non-fatal — no statement at all, a
+    /// missing CLI, the toggle switched off, output that could not be read. The
+    /// run proceeds on the essay alone and the conformance section has nothing
+    /// to check, which the schema tolerates (an empty `checks` array). A run
+    /// that refused over a missing convenience would be the compiler holding
+    /// the writer's ⌘R hostage to a subprocess.
+    private static func resolveWorld(
+        _ briefing: IntentBriefing?, model: String, in environment: Environment
+    ) async -> DerivedWorld? {
+        guard let briefing else { return nil }
+        if let cached = environment.cachedWorld(briefing) { return cached }
+        return await environment.deriveWorld(briefing, model)
+    }
+
+    /// The delta's own words, as one string — what the bible slice is matched
+    /// against.
+    ///
+    /// A revision's BEFORE text counts as well as its after: the message shows
+    /// the model both, so a subject named in either is one the run is about,
+    /// and a fact about a character the writer has just written out of a
+    /// paragraph is exactly the kind of thing a continuity question is for.
+    static func prose(of delta: CompilerDelta) -> String {
+        (delta.new.map(\.text)
+            + delta.revised.map(\.prior)
+            + delta.revised.map(\.text))
+            .joined(separator: "\n")
+    }
+
     /// End the turn in flight. The session stays warm.
+    ///
+    /// **A run can be under way without a turn to end**, and that window is
+    /// now seconds rather than an instant: between the keystroke and the send
+    /// the run closes the writer's burst and then derives their declared
+    /// world, a whole subprocess. `cancelCurrentRun` guards on the session
+    /// having a turn, so it no-ops against exactly that run — Cancel would
+    /// mean "carry on", and the run it did not stop would go on to spend a
+    /// full turn. So the unsent case is abandoned here by generation, the way
+    /// `shutdown()` abandons it, and the session is left alone because there
+    /// is nothing of ours in it.
     func cancel() {
+        let hasUnsentRun = isRunning && runner?.isRunning != true
         runner?.cancelCurrentRun()
+        guard hasUnsentRun else { return }
+        runGeneration &+= 1
+        isPreparingRun = false
+        runState = .idle
     }
 
     /// End the session: the AI toggle going off, project close, app quit.
@@ -293,10 +425,11 @@ final class CompilerOrchestrator {
     /// window as a live, billing process.
     func shutdown() {
         retireSession()
-        // A run acknowledged a moment ago but still closing its burst has no
-        // session yet, so `retireSession` cannot reach it. Abandon it here, or
-        // the toggle going off is followed by the run it was meant to prevent.
-        prepareGeneration &+= 1
+        // A run acknowledged a moment ago but still closing its burst — or
+        // waiting on a derivation — has no session yet, so `retireSession`
+        // cannot reach it. Abandon it here, or the toggle going off is followed
+        // by the run it was meant to prevent.
+        runGeneration &+= 1
         isPreparingRun = false
         // A turn cut short leaves the surface saying "running" forever
         // otherwise. A REPORTED failure is left alone: the toggle going off
@@ -317,18 +450,19 @@ final class CompilerOrchestrator {
 
     private func finish(
         _ event: CompilerRunEvent, docId: String, delta: CompilerDelta,
-        marker: String?, intentSnapshot: String?, intentHash: String?, model: String
+        marker: String?, intentSnapshot: String?, briefingHash: String?, model: String
     ) {
         switch event {
         case .started:
             // Unreachable through `send`, which resolves with a terminal event
             // (`CompilerRunner`'s own contract). The case exists for a
-            // streaming consumer that does not exist yet; noted for the
-            // whole-branch review rather than silently ignored.
+            // streaming consumer that does not exist yet — the section-by-
+            // section arrival Stage 2 recorded as a follow-on (AREA.md,
+            // "Streaming"); noted rather than silently ignored.
             return
 
         case .failed(let failure):
-            // The marker and the intent hash are both left exactly where they
+            // The marker and the briefing hash are both left exactly where they
             // were. A run that produced nothing checked nothing — advance
             // either and the next run describes a session that never read it.
             runState = failure.isTheWritersOwnDoing
@@ -337,7 +471,11 @@ final class CompilerOrchestrator {
 
         case .resultText(let text):
             let runId = ULID.generate()
-            guard let outcome = DiagnosticIngest.parse(
+            // The whole turn at once. `parseAll` is `parseSection` folded over
+            // the turn's objects and nothing else, so the day the session
+            // surfaces partial text this becomes a per-section feed without the
+            // meaning of a section changing (`DiagnosticIngest`'s own contract).
+            guard let outcome = DiagnosticIngest.parseAll(
                 resultText: text, runId: runId, docId: docId,
                 liveParagraphText: { [weak self] paragraphId in
                     self?.environment?.liveParagraphText(docId, paragraphId)
@@ -347,9 +485,6 @@ final class CompilerOrchestrator {
                 return
             }
 
-            // Drift first: the pane pins it at the top, and a store the pane has
-            // to re-sort is two places that can disagree about the order.
-            let notes = (outcome.drift.map { [$0] } ?? []) + outcome.accepted
             let run = CompilerRun(
                 id: runId, at: Date(), model: model,
                 // `?? marker` rather than a bare `newestOpId`: a delta built
@@ -362,10 +497,21 @@ final class CompilerOrchestrator {
                 // Carried, not swallowed. A run whose every note named a
                 // paragraph the writer has since changed accepts nothing, and
                 // without this the pane would wear the seal over it.
-                droppedDangling: outcome.droppedDangling)
-            diagnostics?.replace(run: run, diagnostics: notes, docId: docId)
-            if let intentHash, let runner {
-                sentIntent[docId] = (intentHash, runner.sessionEpoch)
+                droppedDangling: outcome.droppedDangling,
+                // The clauses that produced no note are most of the summary:
+                // stored with the run, superseded with the run.
+                clauseStatuses: outcome.conformance)
+            // The notes stay in the order the sections arrived — conformance,
+            // continuity, reader — because a store the pane has to re-sort is
+            // two places that can disagree about the order.
+            diagnostics?.replace(run: run, diagnostics: outcome.accepted, docId: docId)
+            // Silently, and never as notes: the bible is a ledger the writer
+            // acts on in the Intent pane, not a thing the compiler reports.
+            if !outcome.facts.isEmpty {
+                environment?.recordFacts(outcome.facts)
+            }
+            if let briefingHash, let runner {
+                sentBriefing[docId] = (briefingHash, runner.sessionEpoch)
             }
             runState = .idle
         }
@@ -409,7 +555,7 @@ final class CompilerOrchestrator {
         configURL = nil
         // A new process has read nothing, so nothing may be elided from its
         // first message.
-        sentIntent.removeAll()
+        sentBriefing.removeAll()
     }
 
     /// The run record's one-line description of what was checked.

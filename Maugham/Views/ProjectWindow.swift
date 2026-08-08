@@ -2110,21 +2110,30 @@ struct ProjectWindow: View {
             // restoring a subject would put a reference column over the prose
             // before the writer had asked for anything.
             self.assistant.width = ds.uiState.assistantColumnWidth
+            // The Intent pane's strata, on the same device slug and the same
+            // rule as every other derived sidecar (tripwire 24 at the filename
+            // point, which both stores take care of themselves).
+            //
+            // **Built BEFORE the compiler, because the run reads both.** The
+            // declared world is what ⌘R briefs its clauses from and the bible
+            // is the ledger a run slices and then feeds; a compiler configured
+            // against stores that did not exist yet would be a run with no
+            // clauses and facts that go nowhere, all of it silent.
+            let device = DeviceSlug.make(from: MacDeviceID.current)
+            let bibleStore = BibleStore(projectRoot: url, device: device)
+            let worldStore = DeclaredWorldStore(projectRoot: url, device: device)
+            self.bible = bibleStore
+            self.declaredWorld = worldStore
             compiler.configure(
                 environment: .production(
                     store: s, documentStore: ds, projectURL: url,
+                    declaredWorld: worldStore, bible: bibleStore,
                     preferences: userPreferences,
                     model: ds.uiState.compilerModel.claudeModel,
                     onRunAcknowledged: { showCompilerFlash() }),
                 diagnostics: DiagnosticsStore(
                     projectRoot: url,
                     device: DeviceSlug.make(from: MacDeviceID.current)))
-            // The Intent pane's strata, on the same device slug and the same
-            // rule as every other derived sidecar (tripwire 24 at the filename
-            // point, which both stores take care of themselves).
-            let device = DeviceSlug.make(from: MacDeviceID.current)
-            self.bible = BibleStore(projectRoot: url, device: device)
-            self.declaredWorld = DeclaredWorldStore(projectRoot: url, device: device)
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
 
