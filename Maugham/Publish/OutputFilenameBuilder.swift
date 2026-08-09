@@ -14,6 +14,27 @@ import Foundation
 ///    That's a cosmetic choice the writer owns.
 enum OutputFilenameBuilder {
 
+    /// The occupied-destination refusal both compilers raise when they are not
+    /// allowed to replace what is at their output path (RULING-8, M7-PB-008 —
+    /// the compile path owes the republish path's refusal: whatever those
+    /// bytes are, they are not this job's to destroy). One spelling, shared,
+    /// because two spellings of one refusal is how the compile path came to
+    /// delete where the republish path refused.
+    static func occupiedDestinationRefusal(
+        destination: URL, projectURL: URL
+    ) -> TectonicLogParser.Diagnostic {
+        let prefix = projectURL.path + "/"
+        let rel = destination.path.hasPrefix(prefix)
+            ? String(destination.path.dropFirst(prefix.count)) : destination.path
+        return TectonicLogParser.Diagnostic(
+            level: .error, file: nil, line: nil,
+            message: "A file already exists at \(rel); refusing to overwrite it.",
+            contextLines: [
+                "This compile renders to that path, but something is already there and this compile did not put it there.",
+                "Move or delete that file yourself if it is expendable — or put {version} back in filename_template so each version renders its own name."
+            ])
+    }
+
     static func make(
         config: PublishConfig,
         format: PublishConfig.Format,

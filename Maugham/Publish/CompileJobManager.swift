@@ -41,9 +41,22 @@ public actor CompileJobManager {
     }
 
     public func updatePhase(jobID: String, phase: CompileJob.Phase) {
-        guard var job = jobs[jobID] else { return }
+        // A terminal job is never resurrected to `.inProgress` — without this
+        // the compilers' phase updates overwrote `.cancelled` back to
+        // in-progress the moment the writer's cancel landed between phases
+        // (RULING-22, M7-PB-009's companion hole).
+        guard var job = jobs[jobID], !job.status.isTerminal else { return }
         job.status = .inProgress(phase: phase)
         jobs[jobID] = job
+    }
+
+    /// RULING-22 (M7-PB-009): `.cancelled` is the writer's own instruction and
+    /// it STANDS — a compile that finishes anyway must not overwrite it, or
+    /// the record of what the writer asked for is erased by the thing they
+    /// asked to stop. Every terminal writer below runs through this guard.
+    private func isCancelledRecord(_ jobID: String) -> Bool {
+        if case .cancelled = jobs[jobID]?.status { return true }
+        return false
     }
 
     public func complete(
@@ -51,7 +64,7 @@ public actor CompileJobManager {
         warnings: [TectonicLogParser.Diagnostic],
         errors: [TectonicLogParser.Diagnostic]
     ) {
-        guard var job = jobs[jobID] else { return }
+        guard var job = jobs[jobID], !isCancelledRecord(jobID) else { return }
         job.status = .completed(
             outputPath: outputPath, warnings: warnings, errors: errors)
         jobs[jobID] = job
@@ -63,7 +76,7 @@ public actor CompileJobManager {
     public func completeDryRun(
         jobID: String, warnings: [TectonicLogParser.Diagnostic]
     ) {
-        guard var job = jobs[jobID] else { return }
+        guard var job = jobs[jobID], !isCancelledRecord(jobID) else { return }
         job.status = .dryRunPassed(warnings: warnings)
         jobs[jobID] = job
     }
@@ -73,7 +86,7 @@ public actor CompileJobManager {
         errors: [TectonicLogParser.Diagnostic],
         logExcerpt: String
     ) {
-        guard var job = jobs[jobID] else { return }
+        guard var job = jobs[jobID], !isCancelledRecord(jobID) else { return }
         job.status = .failed(errors: errors, logExcerpt: logExcerpt)
         jobs[jobID] = job
     }

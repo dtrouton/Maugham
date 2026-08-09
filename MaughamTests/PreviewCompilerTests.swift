@@ -53,6 +53,34 @@ final class PreviewCompilerTests: XCTestCase {
         XCTAssertEqual(cfg?.nextVersion, "0.1")
     }
 
+    /// RULING-7 (fix for M7-PB-010): a preview with no publish config is a
+    /// FAILURE and must say so — the Result carries the cause in `errors`, so
+    /// the tool renders the failed shape instead of completed-with-empty-path.
+    func testPreview_withNoConfigReturnsTheCauseAsAnError() async throws {
+        let bare = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PreviewNoConfig-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: bare, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bare) }
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] { [] }
+        }
+        let jobs = CompileJobManager()
+        let preview = PreviewCompiler(
+            projectURL: bare, astSource: Src(),
+            configStore: PublishConfigStore(projectURL: bare),
+            jobManager: jobs,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let result = try await preview.preview(format: .epub, sectionIDs: nil, maxPages: nil)
+        XCTAssertFalse(result.errors.isEmpty,
+                       "the failure must reach the caller as an error, not as "
+                       + "success with an empty path")
+        XCTAssertTrue(result.errors.first?.message.contains("config") == true,
+                      "and it names the real cause — found: "
+                      + String(describing: result.errors.first?.message))
+        let job = await jobs.allInProgress()
+        XCTAssertTrue(job.isEmpty, "the job is terminal either way")
+    }
+
     // MARK: - F5: EMISSION.md auto-refresh (previews are where iteration lives)
 
     /// A stale EMISSION.md seeded before a preview is refreshed to the
@@ -387,4 +415,29 @@ final class PreviewCompilerTests: XCTestCase {
             store: store, docA: (idA, docA), docB: (idB, docB),
             stores: stores, projectURL: projectDir)
     }
+    /// The deliberate other half of the occupied-destination refusal: previews
+    /// reuse their filenames by design, so a second preview must keep
+    /// OVERWRITING its own prior output rather than refusing.
+    func testPreview_overwritesItsOwnPriorOutput() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Twice", author: "X")))
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "A.")]
+            }
+        }
+        let preview = PreviewCompiler(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let one = try await preview.preview(format: .epub, sectionIDs: nil, maxPages: nil)
+        XCTAssertTrue(one.errors.isEmpty, "fixture: first preview must succeed")
+        let two = try await preview.preview(format: .epub, sectionIDs: nil, maxPages: nil)
+        XCTAssertTrue(two.errors.isEmpty,
+                      "a second preview overwrites its own output, never refuses "
+                      + "— found: \(two.errors.map { $0.message })")
+        XCTAssertEqual(two.outputPath, one.outputPath)
+    }
+
 }

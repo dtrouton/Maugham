@@ -20,12 +20,16 @@ public struct EPUBCompiler {
     /// `config.metadata.language`, which the orchestrator has already folded
     /// to the edition.
     public let language: String?
+    /// See `PDFCompiler.replacesExistingOutput` — false by default (refuse),
+    /// true only for previews.
+    public let replacesExistingOutput: Bool
 
     public init(
         projectURL: URL, astSource: ProjectASTBuilder.Source,
         config: PublishConfig, jobManager: CompileJobManager,
         maughamVersion: String, tectonicVersion: String,
-        jobID: String? = nil, language: String? = nil
+        jobID: String? = nil, language: String? = nil,
+        replacesExistingOutput: Bool = false
     ) {
         self.projectURL = projectURL
         self.astSource = astSource
@@ -35,6 +39,7 @@ public struct EPUBCompiler {
         self.tectonicVersion = tectonicVersion
         self.jobID = jobID
         self.language = language
+        self.replacesExistingOutput = replacesExistingOutput
     }
 
     public func compile(label: String?) async throws -> Result {
@@ -113,6 +118,11 @@ public struct EPUBCompiler {
             at: exports, withIntermediateDirectories: true)
         let dest = exports.appendingPathComponent(filename)
         if FileManager.default.fileExists(atPath: dest.path) {
+            guard replacesExistingOutput else {
+                let diag = OutputFilenameBuilder.occupiedDestinationRefusal(
+                    destination: dest, projectURL: projectURL)
+                return Result(outputPath: "", warnings: [], errors: [diag])
+            }
             try FileManager.default.removeItem(at: dest)
         }
 

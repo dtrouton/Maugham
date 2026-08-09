@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 @MainActor
@@ -110,7 +111,7 @@ final class CompileOrchestratorTests: XCTestCase {
             XCTAssertFalse(errs.isEmpty, "expected structured error in errors[]")
             XCTAssertTrue(errs.contains { $0.message.contains("0.1") && $0.message.lowercased().contains("already exists") })
             XCTAssertTrue(log.contains("version_collision"))
-        case .completed, .dryRunPassed:
+        case .completed, .dryRunPassed, .cancelled:
             XCTFail("expected .failed due to version collision; got \(result)")
         }
 
@@ -870,11 +871,14 @@ final class CompileOrchestratorTests: XCTestCase {
             "a refusal must not write output")
     }
 
-    /// A compile that THROWS out of the reserved section must hand its
-    /// reservation back — otherwise one transient disk error wedges that
-    /// edition for the life of the app. A plain file where `Exports/` belongs
-    /// makes the EPUB writer's `createDirectory` throw, well past the
-    /// reservation point; removing it and retrying must compile, not refuse.
+    /// A compile whose reserved section throws must hand its reservation
+    /// back — otherwise one transient disk error wedges that edition for the
+    /// life of the app. A plain file where `Exports/` belongs makes the EPUB
+    /// writer's `createDirectory` throw, well past the reservation point.
+    /// Since the RULING-52 fix the throw surfaces as a `.failed` outcome (the
+    /// honest report) rather than propagating raw — the reservation release
+    /// this test guards is unchanged: removing the file and retrying must
+    /// compile, not refuse.
     func testP2_reservationIsReleasedWhenTheCompileThrows() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
         try await configStore.save(PublishConfig(metadata: .init(title: "Throw", author: "T")))
@@ -884,11 +888,9 @@ final class CompileOrchestratorTests: XCTestCase {
 
         let exports = tmp.appendingPathComponent("Exports")
         try "not a directory".write(to: exports, atomically: true, encoding: .utf8)
-        do {
-            _ = try await orch.compile(format: .epub, label: nil)
-            return XCTFail("expected the compile to throw with a file where Exports/ belongs")
-        } catch {
-            // expected
+        let blocked = try await orch.compile(format: .epub, label: nil)
+        guard case .failed = blocked else {
+            return XCTFail("expected .failed with a file where Exports/ belongs, got \(blocked)")
         }
         try FileManager.default.removeItem(at: exports)
 
@@ -936,4 +938,155 @@ final class CompileOrchestratorTests: XCTestCase {
         let cfg = try await configStore.load()
         XCTAssertEqual(cfg?.nextVersion, "0.1", "a dry run must not bump next_version")
     }
+    /// RULING-22 (fix for M7-PB-009): a cancel that lands while the compile
+    /// is rendering stops it BEFORE anything durable is committed — no
+    /// snapshot, no export, no catalog row, no version bump, and the outcome
+    /// says cancelled rather than completed.
+    func test_aCancelledCompileDoesNotPublish() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Cxl", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let jobs = CompileJobManager()
+
+        /// Holds the emit until the test has cancelled the job — a slow
+        /// manuscript, not a mock: `orderedPieces` really is called on the
+        /// compile path.
+        final class Gate: @unchecked Sendable {
+            let semaphore = DispatchSemaphore(value: 0)
+        }
+        let gate = Gate()
+        struct SlowSrc: ProjectASTBuilder.Source {
+            let gate: Gate
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                gate.semaphore.wait()
+                return [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hi.")]
+            }
+        }
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: SlowSrc(gate: gate),
+            configStore: configStore,
+            publicationStore: pubStore,
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: jobs,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+
+        let compileTask = Task.detached {
+            try await orch.compile(format: .epub, label: nil)
+        }
+        // Wait for the job to exist, cancel it, then let the emit proceed.
+        let deadline = Date().addingTimeInterval(10)
+        var jobID: String?
+        while jobID == nil && Date() < deadline {
+            jobID = await jobs.allInProgress().first?.jobID
+            if jobID == nil { try await Task.sleep(nanoseconds: 20_000_000) }
+        }
+        let id = try XCTUnwrap(jobID, "the job never registered")
+        _ = await jobs.cancel(jobID: id)
+        gate.semaphore.signal()
+
+        let outcome = try await compileTask.value
+        guard case .cancelled = outcome else {
+            return XCTFail("a cancelled compile must not publish — got \(outcome)")
+        }
+        let catalog = try await pubStore.load()
+        XCTAssertTrue(catalog.isEmpty, "no catalog row")
+        let exports = (try? FileManager.default.contentsOfDirectory(
+            atPath: tmp.appendingPathComponent("Exports").path)) ?? []
+        XCTAssertEqual(exports, [],
+                       "no export file — the cancelled compile takes back the "
+                       + "artifact it had already staged there (the directory "
+                       + "shell may remain)")
+        let cfg = try await configStore.load()
+        XCTAssertEqual(cfg?.nextVersion, "0.1", "no version bump")
+        let job = await jobs.get(jobID: id)
+        if case .cancelled = job?.status {} else {
+            XCTFail("the record still says cancelled — got \(String(describing: job?.status))")
+        }
+    }
+
+    /// RULING-8 (fix for M7-PB-008): the compile path refuses an occupied
+    /// destination exactly as the republish path does — with a filename
+    /// template omitting {version}, the second source compile used to DELETE
+    /// the first record's bytes and point that record's catalog row at the
+    /// wrong edition. Whatever is at the destination, it is not this job's to
+    /// destroy.
+    func test_anOccupiedDestinationRefusesRatherThanReplacingAnEarlierRecordsBytes() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var config = PublishConfig(metadata: .init(title: "Occ", author: "T"))
+        config.outputs.filenameTemplate = "{title}.{ext}"
+        try await configStore.save(config)
+        let pubStore = PublicationStore(projectURL: tmp)
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hi.")]
+            }
+        }
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: pubStore,
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+
+        guard case .completed(let first, _) = try await orch.compile(format: .epub, label: nil)
+        else { return XCTFail("first compile failed") }
+        let firstURL = tmp.appendingPathComponent(first.outputPath)
+        let firstBytes = try Data(contentsOf: firstURL)
+
+        let outcome = try await orch.compile(format: .epub, label: nil)
+        guard case .failed(let errors, _) = outcome else {
+            return XCTFail("expected the occupied-destination refusal, got \(outcome)")
+        }
+        XCTAssertTrue(errors.first?.message.contains("refusing to overwrite") == true,
+                      "found: \(String(describing: errors.first?.message))")
+        XCTAssertEqual(try Data(contentsOf: firstURL), firstBytes,
+                       "the first record's bytes are untouched")
+        let catalog = try await pubStore.load()
+        XCTAssertEqual(catalog.count, 1, "and no second row was minted over them")
+    }
+
+    /// RULING-52 + RULING-7 (fix for M7-PB-005/006/007): a failure AFTER the
+    /// first durable mutation says what it did as well as what failed, and the
+    /// job record is terminal — never stranded in_progress. Injected at the
+    /// sharpest site: the catalog append throws (a directory squats on the
+    /// device catalog path) after the export and the snapshot have landed.
+    func test_aFailureAfterMutationNamesWhatLandedAndTerminalisesTheJob() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Led", author: "T")))
+        let jobs = CompileJobManager()
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hi.")]
+            }
+        }
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: PublicationStore(projectURL: tmp),
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: jobs,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let catalogURL = PublicationStore.fileURL(
+            deviceSlug: DeviceSlug.make(from: MacDeviceID.current), in: tmp)
+        try FileManager.default.createDirectory(
+            at: catalogURL, withIntermediateDirectories: true)
+
+        let outcome = try await orch.compile(format: .epub, label: nil)
+        guard case .failed(let errors, _) = outcome else {
+            return XCTFail("the thrown error must surface as .failed, got \(outcome)")
+        }
+        let context = (errors.first?.contextLines ?? []).joined(separator: "\n")
+        XCTAssertTrue(context.contains("Exports/"),
+                      "the report names the export that landed — found: \(context)")
+        XCTAssertTrue(context.lowercased().contains("snapshot"),
+                      "and the snapshot — found: \(context)")
+        XCTAssertTrue(context.contains("next_version")
+                        || context.lowercased().contains("not advanced")
+                        || context.lowercased().contains("did not happen"),
+                      "and says the remaining steps did not happen — found: \(context)")
+        let inFlight = await jobs.allInProgress()
+        XCTAssertTrue(inFlight.isEmpty, "the job is terminal, not stranded")
+    }
+
 }
