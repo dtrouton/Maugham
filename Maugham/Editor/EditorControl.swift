@@ -56,10 +56,13 @@ final class EditorControl {
     var translationBadges: TranslationBadgeModel = .empty
 
     /// The ordered translation-freshness entries (each carrying its own block
-    /// text). Equatable so the coordinator can no-op-guard the per-`applyControl`
+    /// text), plus the resolved orphan records for the same derivation — a
+    /// translation whose paragraph no longer exists in the manuscript (Task 5).
+    /// Equatable so the coordinator can no-op-guard the per-`applyControl`
     /// push (like `reviewAnnotations`).
     struct TranslationBadgeModel: Equatable {
         var entries: [TranslationBadgeLayout.Entry]
+        var orphans: [TranslationRecord] = []
         static let empty = TranslationBadgeModel(entries: [])
     }
 

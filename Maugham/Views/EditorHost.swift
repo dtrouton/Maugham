@@ -491,7 +491,8 @@ struct EditorHost: View {
         //
         let badgeEntries = Self.reviewBadgeEntries(from: derived.entries)
         translatedSurfaceText = badgeEntries.map(\.text).joined(separator: "\n\n")
-        control.translationBadges = EditorControl.TranslationBadgeModel(entries: badgeEntries)
+        control.translationBadges = EditorControl.TranslationBadgeModel(
+            entries: badgeEntries, orphans: derived.orphans)
     }
 
     /// Build the per-paragraph review entries from a derived translation. This
