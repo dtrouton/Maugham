@@ -712,24 +712,34 @@ extension ProjectStore {
         } else {
             // Asset: rename file, preserve extension.
             let ext = oldURL.pathExtension
-            var dedupedSlug = newSlug
-            var counter = 2
-            var newURL = ext.isEmpty
-                ? parentDir.appendingPathComponent(dedupedSlug)
-                : parentDir.appendingPathComponent("\(dedupedSlug).\(ext)")
-            while FileManager.default.fileExists(atPath: newURL.path) {
-                dedupedSlug = "\(newSlug)-\(counter)"
-                counter += 1
-                newURL = ext.isEmpty
-                    ? parentDir.appendingPathComponent(dedupedSlug)
-                    : parentDir.appendingPathComponent("\(dedupedSlug).\(ext)")
+            func leaf(_ stem: String) -> String {
+                ext.isEmpty ? stem : "\(stem).\(ext)"
             }
+            func isTaken(_ name: String) -> Bool {
+                FileManager.default.fileExists(
+                    atPath: parentDir.appendingPathComponent(name).path)
+            }
+
+            // A note travelling with a sibling `<slug>_assets` folder dedups the
+            // PAIR jointly, through the same helper `moveResearchItems` uses: the
+            // stem must be free for BOTH names. A leaf-only dedup happily takes a
+            // free `.md` beside an ORPHANED `<slug>_assets` at the target, commits
+            // the note's move, then throws on the assets move with the manifest
+            // still naming the old path — so the joint question has to be asked
+            // BEFORE the first move, not between the two (#31, W2's last sibling).
+            let oldAssetsURL = parentDir.appendingPathComponent("\(oldSlug)_assets")
+            let travelsWithAssets = FileManager.default.fileExists(
+                atPath: oldAssetsURL.path)
+            let dedupedSlug = travelsWithAssets
+                ? (Self.researchDedupedNotePair(leaf(newSlug), isTaken: isTaken)
+                    as NSString).deletingPathExtension
+                : Self.dedupedName(newSlug) { isTaken(leaf($0)) }
+            let newURL = parentDir.appendingPathComponent(leaf(dedupedSlug))
             try await move(oldURL, newURL)
 
-            // Propagate to sibling <slug>_assets/ folder if it exists.
-            let oldAssetsURL = parentDir.appendingPathComponent("\(oldSlug)_assets")
-            let newAssetsURL = parentDir.appendingPathComponent("\(dedupedSlug)_assets")
-            if FileManager.default.fileExists(atPath: oldAssetsURL.path) {
+            // Propagate to the sibling <slug>_assets/ folder when there is one.
+            if travelsWithAssets {
+                let newAssetsURL = parentDir.appendingPathComponent("\(dedupedSlug)_assets")
                 try await move(oldAssetsURL, newAssetsURL)
 
                 // Update internal refs in the renamed note. Cosmetic post-move
