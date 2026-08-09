@@ -723,13 +723,13 @@
   "claim_id": "M5-AN-046",
   "scope": "Document._opLogMirror",
   "kind": "POSTCONDITION",
-  "statement": "every annotation append pushes onto _opLogMirror without re-sorting. handleExternalLogChange REPLACES the mirror with a sorted merge, so the mirror is opId-ordered right up until the first local append after a merge that brought in a peer op with a higher ULID — after which it is not, and currentFoldBasis (documented as 'the last element is the newest') no longer holds",
+  "statement": "the live mirror stays opId-SORTED across merge-then-append: appendToMirror (the one mirror-append) re-sorts when a local op sorts before a merged-in peer op from an ahead clock; currentFoldBasis's 'last is newest' premise holds",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "AnnotationsCharacterization.test_theMirrorIsNotReSortedOnAppend"
+   "ref": "AnnotationsCharacterization.test_theMirrorStaysSortedAcrossMergeThenAppend"
   },
   "warrant": "HIGH",
-  "intent": "UNKNOWN",
+  "intent": "INTENTIONAL — ruled (RULING-36); fixed 2026-08-09",
   "reachability": "CROSS-DEVICE — needs a peer op whose ULID sorts after a subsequent local one, i.e. a second Mac whose clock is ahead",
   "evidence": {
    "property_test": null
@@ -739,13 +739,13 @@
   "claim_id": "M5-AN-047",
   "scope": "Deriver.derive(ops:upTo:) over _opLogMirror",
   "kind": "POSTCONDITION",
-  "statement": "over an unsorted mirror, derive(ops:upTo:) — which trusts caller order by design, being a timeline prefix — returns a state the document never held: a rewind to the writer's own newest moment renders the PEER's text. The annotation projection is unharmed, because it compares opIds rather than trusting order",
+  "statement": "a rewind's prefix is always the writer's real timeline: with the sorted mirror, derive(upTo:) at any moment renders what that moment held under the log's total order — never the peer's text at the writer's own moment",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "AnnotationsCharacterization.test_theMirrorIsNotReSortedOnAppend"
+   "ref": "AnnotationsCharacterization.test_theMirrorStaysSortedAcrossMergeThenAppend"
   },
   "warrant": "HIGH",
-  "intent": "UNKNOWN",
+  "intent": "INTENTIONAL — ruled (RULING-36); fixed 2026-08-09",
   "reachability": "CROSS-DEVICE — the verifier's not-chased thread, answered: yes, a merge path can leave a live mirror unsorted, and the opId-ordered premise breaks in rewind rather than in annotations",
   "evidence": {
    "property_test": null

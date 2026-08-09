@@ -51,9 +51,9 @@ why. **Read `experiment/RULINGS.md` and nothing else.**
 | `MaughamCore.PaletteCardModel` | 40 | 40% | 16 reached | `07-summary.md` |
 | `Stores/TrashStore` + `ProjectStore+Trash` | 51 | 47% | 13 / 11 | `22-trash-reconciliation.md` |
 | `OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`) | 35 | 60% | 20 / 1 | `24-rewind-reconciliation.md` |
-| `OpLog/Document+Annotations` (+`AnnotationDeriver`, `AnnotationInverse`) | 55 | 31% | 12 / 5 | `28-annotations-reconciliation.md` |
+| `OpLog/Document+Annotations` (+`AnnotationDeriver`, `AnnotationInverse`) | 55 | 33% | 14 / 4 | `28-annotations-reconciliation.md` |
 
-The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 141 further claims in their own files. **310 claims in the experiment, 289 reconciled.** The app layer stands at **45 complies / 17 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
+The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 141 further claims in their own files. **310 claims in the experiment, 289 reconciled.** The app layer stands at **47 complies / 16 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
 App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `experiment/ExperimentTests` (CI job `behavioural-claims`).
 
