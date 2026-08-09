@@ -595,14 +595,20 @@
  },
  {
   "claim_id": "M6-PR-024",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "reason": "Ruled 2026-08-09: RULING-50 settles the gap this filing recorded. The former NO_RULING_REACHES reason (no ruling said what makes two wiki-links the same link; PROMO-D7 NOT_SETTLED) is retired by the ruling's existence.",
   "ruling": "RULING-50",
   "clause_that_reaches_it": "promotion never adds a link to an artifact the note already points at, under any spelling — symmetric",
-  "why_in_scope": "the duplicate-link check IS the surface RULING-50 specifies. The raw substring test is asymmetric: a labelled link blocks the plain one (right outcome, by accident) while a plain one does not block a labelled one — under the ruling's identity both directions must block, because both are a second link to an artifact the note already points at",
+  "why_in_scope": "the duplicate-link check now compares link TARGETS through Promotion.alreadyLinks(to:in:) at all four containment sites; the plain-blocks-labelled direction the substring test missed is pinned red-then-green",
   "intent_expressed_when": "2026-08-09, GAP-P3's two-round sitting; ruling contemporaneous with conviction",
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "violation_or_enhancement": "violation — behaviour change owed (target-based comparison)"
+  "violation_or_enhancement": "violation — behaviour change owed (target-based comparison)",
+  "fix": {
+   "commit": "125b3fa6",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-50 (Denver, 2026-08-09, GAP-P3 two-round sitting, recommended option)",
+   "pinned_by": "PromotionCharacterization.test_theDuplicateLinkCheckComparesTargetsNotSpellings; PromotionTests.test_aPlainLinkAlreadyThereRefusesTheLabelledOne_RULING50; PromotionPerformerTests.test_labellingTheLineDoesNotSlipASecondLinkPastTheLiveFileCheck"
+  }
  },
  {
   "claim_id": "M6-PR-031",
@@ -700,8 +706,8 @@
  {
   "_summary": {
    "reached": 52,
-   "complies": 49,
-   "violates": 3,
+   "complies": 50,
+   "violates": 2,
    "no_ruling": 26,
    "specificity_sub_over_reached_pct": 81,
    "distinct_defects": 5,
