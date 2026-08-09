@@ -182,7 +182,7 @@ final class PromotionPerformerTests: XCTestCase {
         _ = try await PromotionPerformer(store: store, model: model)
             .perform(plan(.scrap(a), .researchNote, store: store, model: model))
 
-        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Scrap"),
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promotion Mark"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
         model.endGesture()
     }
@@ -769,7 +769,7 @@ final class PromotionPerformerTests: XCTestCase {
         let result = try await PromotionPerformer(store: store, model: model)
             .perform(plan(.region(r1), .paletteCard, store: store, model: model))
         XCTAssertEqual(model.scene.region(r1)?.promotedItemID, result.createdItemID)
-        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Region"),
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promotion Mark"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
         _ = root
     }
@@ -807,8 +807,8 @@ final class PromotionPerformerTests: XCTestCase {
         let result = try await PromotionPerformer(store: store, model: model)
             .perform(plan(.region(r1), .researchNote, store: store, model: model))
         XCTAssertEqual(model.scene.region(r1)?.promotedItemID, result.createdItemID)
-        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Region"),
-                      "a region's mark must read \"Promote Region\", not \"Promote "
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promotion Mark"),
+                      "a region's mark reads the honest scope, \"Promotion Mark\" — not \"Promote "
                       + "Scrap\", however it reaches performResearchNote. found: "
                       + model.undoManager.undoMenuItemTitle)
         _ = root

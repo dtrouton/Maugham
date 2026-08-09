@@ -534,7 +534,7 @@ struct PromotionPerformer {
         // artifact the canvas has forgotten it produced, because the writer's
         // retry would then mint a second one.
         mark(itemID, for: plan.source,
-             named: isRegion(plan.source) ? "Promote Region" : "Promote Scrap",
+             named: "Promotion Mark",
              contributors: plan.contributors)
         let written = try await writeOfferedLinks(plan, artifactTitle: title)
         return PromotionResult(createdItemID: itemID, title: title, writtenLinks: written)
@@ -627,7 +627,7 @@ struct PromotionPerformer {
 
         let title = TreeWalk.find(id: itemID, in: store.manifest.research)?.title ?? plan.title
         mark(itemID, for: plan.source,
-             named: isRegion(plan.source) ? "Promote Region" : "Promote Scrap",
+             named: "Promotion Mark",
              contributors: plan.contributors)
         let written = try await writeOfferedLinks(plan, artifactTitle: title)
         return PromotionResult(createdItemID: itemID, title: title, writtenLinks: written)
@@ -651,7 +651,7 @@ struct PromotionPerformer {
         // is always empty — but writing `[]` here would be a second rule about
         // who records, and if a region ever gains this target the second rule is
         // the one that would silently be wrong.
-        mark(statement.id, for: plan.source, named: "Promote Scrap",
+        mark(statement.id, for: plan.source, named: "Promotion Mark",
              contributors: plan.contributors)
         return PromotionResult(createdItemID: statement.id,
                                title: ArtifactIndex.statementTitle(

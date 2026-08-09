@@ -3,7 +3,7 @@
 **GENERATED from `register/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
 Regenerate with `python3 register/scripts/23-generate-rulings.py` after any ruling change.
 
-45 rulings, 4 principles.
+47 rulings, 4 principles.
 
 Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:
 applying a ruling to a new case means re-checking the basis, not pattern-matching the
@@ -494,6 +494,24 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 *basis:* Denver, no recommendation offered — and the chosen option only entered the option set after Denver asked for the concrete example (note vs link side by side): the example reframed the question from labelling the inequality to dissolving it. Recorded as a method finding.
 
 *settles:* Trash GAP-8; re-files M3-TR-035's forward-facing half with a specified fix.
+
+### RULING-46 — U — canvas undo is scene-scoped, and says so  `RATIFIED`
+
+> A canvas ⌘Z never reaches into the project's files — promotion's artifact stays when its mark is undone, by design (a canvas undo that deletes research files is its own scary surprise, and the Trash is the artifact's honest disposal route). The LABEL tells the truth about that scope: the undo action is named for the mark it takes back, never for the promotion it does not.
+
+*basis:* Denver, 2026-08-09, discussion of M6-PR-077: 'On 77 I agree with you' — the presented read being fix-the-label-keep-scene-scoped-undo, with the full undo living in the Trash. The inverse of the rewind-label case: there the behaviour was wrong and the label right; here the behaviour is right and the label lied.
+
+*settles:* M6-PR-077: the behaviour RATIFIED, the label convicted and fixed.
+
+### RULING-47 — V — the promotion mark is a bookmark  `RATIFIED`
+
+> A region or card's promotion mark is a BOOKMARK, not a promise: promoting again as New moves it, latest wins, because re-promoting IS the writer deciding what the material now relates to. No warning is owed.
+
+*basis:* Denver verbatim, 2026-08-09: 'latest wins is fine - it's a decision the writer makes. I no longer see this as having that relationship it's now this relationship. Bookmark is a good way of capturing it. If we ever support more complex mapping we could review but for now this would be my call.'
+
+*settles:* M6-PR-040: RATIFIED as ruled — the filing's argue-down path taken by ruling, not by default. GAP-P7's warning sentence dissolves (no warning owed on a ruled writer-decision); GAP-P4 (multi-artifact mapping) carries the revisit.
+
+*revisit when:* multi-artifact contribution mapping is ever supported (GAP-P4)
 
 ## The enforcement gradient — how each ruling is held
 
