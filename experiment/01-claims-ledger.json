@@ -6513,7 +6513,7 @@
     "method": "sweep-2 agent flagged it OUT OF MODULE and explicitly said it had not traced the save path; I traced it",
     "note": "The agent's own module was the MCP read surface. It noticed the identical swallow at a plainly writer-facing surface, said so, and said what it had not checked. That honesty is what made the find actionable — a confident claim would have been discounted."
    },
-   "_verdict_note": "Two rulings violated in sequence: RULING-7 (unreadable shown as empty) creates the condition, RULING-4 (authored words always recoverable) is broken by the consequence. Neither alone describes it — the compound is the defect.",
+   "_verdict_note": "Two rulings violated in sequence: RULING-7 (unreadable shown as empty) creates the condition, RULING-4 (authored words always recoverable) is broken by the consequence. Neither alone describes it — the compound is the defect. HALF-FIXED 9f68b65f5b (2026-08-09, RULING-7): an unreadable research note no longer opens blank — ResearchNoteLoad.read surfaces the cause and no editor mounts over a failed read (pinned: MaughamTests/Claims/ResearchNoteReadCharacterization). The second half — nothing to fall back to after a silent overwrite — remains the research-protection milestone's, ROI-parked under PRINCIPLE-4.",
    "verdict_filing": {
     "ruling": "RULING-7 + RULING-4",
     "clause_that_reaches_it": "R7: 'unreadable is never presented as empty'; R4: 'authored words are always recoverable' (against MAUGHAM'S OWN ACTIONS, per R23's scope clause)",

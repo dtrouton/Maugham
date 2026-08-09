@@ -146,8 +146,20 @@
  },
  {
   "claim_id": "M3-TR-021",
-  "outcome": "NO_RULING_REACHES",
-  "reason": "No clause obliges the trash to actually expire. RULING-23 permits destruction without requiring it, and the writer's words are not lost, so RULING-4 is not reached either. The INVISIBILITY half is convicted at M3-TR-015 and is not double-counted here. What is genuinely unruled — an entry Maugham can neither show nor destroy, travelling into every backup — is GAP-2."
+  "outcome": "COMPLIES",
+  "reason": "No clause obliges the trash to actually expire. RULING-23 permits destruction without requiring it, and the writer's words are not lost, so RULING-4 is not reached either. The INVISIBILITY half is convicted at M3-TR-015 and is not double-counted here. What is genuinely unruled — an entry Maugham can neither show nor destroy, travelling into every backup — is GAP-2.",
+  "ruling": "RULING-39",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "RULING-39's bugs-are-still-bugs clause, implemented without touching the ruled-quiet retention labels. Fixed at 9f68b65f5b.",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-39 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_sweep_reachesAnEntryListCannotSee_soAMetaLessEntryIsNotImmortal"
+  },
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "trash pane / binder delete / ⌘⌥Z — see the pin"
  },
  {
   "claim_id": "M3-TR-022",
@@ -181,13 +193,19 @@
  },
  {
   "claim_id": "M3-TR-027",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-20",
-  "clause_that_reaches_it": "We trust the writer to know what they want, and we do our best to honour it... what we do must be NON-DESTRUCTIVE and easy for them to recover from and correct.",
-  "why_in_scope": "RULING-15 does NOT reach: its basis is where a delete SENDS things ('we don't delete the file on disk, we move it to trash'), and here the item is still in the trash and still on disk — the clause's promise about the destination holds. RULING-22 does not reach either: Restore does not do the wrong thing, it refuses loudly. What is left is the root, and both its halves are in scope. The refusal IS non-destructive (first half honoured — nothing is overwritten and the entry survives). It is NOT 'easy for them to recover from and correct': the writer's words are on disk in a hidden dotfolder, there is no rename-on-restore, no restore-alongside and no reveal, and every subsequent Restore fails identically and forever. Root-only, so the missing sub-ruling is recorded as GAP-1.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-38",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "The ruling implemented with addResearchTextNote's own dedupe pattern, exactly as RULING-16's reclassification pointed. Fixed at 9f68b65f5b.",
   "intent_expressed_when": "contemporaneous — 'give me my chapter back' is perfectly parseable; only where to PUT it is in doubt",
   "call_path": "BinderView delete of the last chapter → binder New Document (FileNaming.nextNN and uniqueSlug both compute over SURVIVING siblings, so the trashed item's number and slug are free again) → same-titled replacement lands on exactly the trashed path → TrashView Restore → fm.moveItem throws",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-38 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_restore_intoAnOccupiedPath_landsBesideTheOccupant_overwritingNothing"
+  }
  },
  {
   "claim_id": "M3-TR-028",
@@ -226,13 +244,19 @@
  },
  {
   "claim_id": "M3-TR-032",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-4",
-  "clause_that_reaches_it": "Recoverability is owed against ACCIDENTS and against MAUGHAM'S OWN ACTIONS.",
-  "why_in_scope": "The scope clause owes recoverability against ACCIDENTS and against Maugham's own actions. The trigger here — a renamed trash folder — is an accident, and RULING-9 would place the rename itself at the writer's risk. But R9's second sentence draws the line the other way for what follows: what Maugham does on the writer's behalf is Maugham's, and the ORDERING is Maugham's own choice. Validating the entry id after the file has been moved and the entry destroyed means the one accident costs the writer both routes back — no trash entry and no binder row — where validating first would have cost nothing. This is the filing in this set most open to being overturned, and the counter-argument is stated rather than hidden.",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "The filing's own prescribed fix (validate-before-move), landed verbatim. Fixed at 9f68b65f5b.",
   "intent_expressed_when": "contemporaneous — they clicked Restore",
   "call_path": "UNTRACED as a writer gesture; renaming a .trash subfolder in Finder, then Restore",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-4 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_restore_malformedEntryId_throwsBeforeTouchingAnything"
+  }
  },
  {
   "claim_id": "M3-TR-033",
@@ -251,28 +275,52 @@
  },
  {
   "claim_id": "M3-TR-035",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-8",
-  "clause_that_reaches_it": "Where the same product question is answered in more than one place, it has one answer.",
-  "why_in_scope": "The writer's question is 'can I get this row back?', and it is asked of two rows sitting side by side in one research tree, under one Delete command, with nothing in the row to tell them apart beforehand. A note answers yes; a link answers no, permanently and at once. Discipline 5 is the whole of it: sameness is judged from the writer's question, never from whether the code paths differ — and the code's own justification is about the FILE ('a synthetic .link path has no backing file'), which is true of the file and not of the item. RULING-15's literal clause does not reach, because there is no file; that is exactly why RULING-8 is the one that does.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-45",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "RULING-45 verbatim — the option that existed because Denver asked for the example. Fixed at 9f68b65f5b.",
   "intent_expressed_when": "contemporaneous",
   "call_path": "ResearchView context-menu Delete on a .link row → deleteResearchItems → trashResearchItemCore's `item.kind != .link` guard is false → removeResearchItem → saveManifest. No TrashEntry is ever created.",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-45 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_deleteResearchLink_makesATrashEntry_andArmsTheUndoTokenWithIt + test_restoringADeletedResearchLink_returnsItToTheResearchTree"
+  }
  },
  {
   "claim_id": "M3-TR-036",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "The control is a menu item and a keystroke labelled 'Restore Last Deleted Item'. It restores an item that is not the last deleted one — it restores whatever was last deleted THAT LEFT A TRASH ENTRY, which after a link delete is an earlier, unrelated item. That is a control not doing what it says, which is RULING-22's stated scope, and it is a surprise in the ruling's first sentence too: a note deleted an hour ago reappears in the binder while the thing the writer just deleted stays gone. This CLOSES a gap the earlier sweep recorded: its D4 concluded 'no sub-ruling reaches a stale undo target' and filed the case under the root. RULING-22 reaches it.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-40",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "The stale-token surprise dissolves inside RULING-40's action-scoping: the token now names exactly what one gesture removed. Fixed at 9f68b65f5b.",
   "intent_expressed_when": "contemporaneous — they pressed ⌘⌥Z about the thing they just deleted",
   "call_path": "ResearchView Delete on a file-backed note, then Delete on a .link row, then ⌘⌥Z → restoreLastDeleted → restoreTrashEntry(id: the earlier entry)",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-40 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_deleteResearchItems_batch_armsTheUndoTokenWithTheWholeGesture"
+  }
  },
  {
   "claim_id": "M3-TR-037",
-  "outcome": "NO_RULING_REACHES",
-  "reason": "RULING-22 is not stretched to cover this. The label 'Restore Last Deleted ITEM' is singular and literal, and the command does precisely what those words say; what it does not match is the writer's model of ⌘⌥Z as an undo of their last ACTION, which is a different and genuinely unruled question. Filed as GAP-3 rather than convicted, so that RULING-22 does not become a catch-all — the discriminator against M3-TR-036 is that there the control demonstrably lies about which item is last."
+  "outcome": "COMPLIES",
+  "reason": "RULING-22 is not stretched to cover this. The label 'Restore Last Deleted ITEM' is singular and literal, and the command does precisely what those words say; what it does not match is the writer's model of ⌘⌥Z as an undo of their last ACTION, which is a different and genuinely unruled question. Filed as GAP-3 rather than convicted, so that RULING-22 does not become a catch-all — the discriminator against M3-TR-036 is that there the control demonstrably lies about which item is last.",
+  "ruling": "RULING-40",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "RULING-40 verbatim, label renamed to match. Fixed at 9f68b65f5b.",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-40 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_restoreLastDeletion_refusesAndSaysWhy_whenPartOfTheGestureIsGone"
+  },
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "trash pane / binder delete / ⌘⌥Z — see the pin"
  },
  {
   "claim_id": "M3-TR-038",
@@ -281,38 +329,86 @@
  },
  {
   "claim_id": "M3-TR-039",
-  "outcome": "NO_RULING_REACHES",
-  "reason": "Argued and declined. RULING-8's 'where does my Chapter 1 live?' is answerable from the binder and from Finder, and after this restore they disagree — but the binder-mirrors-disk correspondence is an implementation invariant rather than a stated product decision, and convicting on it would be reasoning from the symptom. What is unruled is stated as GAP-4. Note the consequence is not cosmetic: the resurrected folder is what later blocks the parent group's own restore under M3-TR-027."
+  "outcome": "COMPLIES",
+  "reason": "Argued and declined. RULING-8's 'where does my Chapter 1 live?' is answerable from the binder and from Finder, and after this restore they disagree — but the binder-mirrors-disk correspondence is an implementation invariant rather than a stated product decision, and convicting on it would be reasoning from the symptom. What is unruled is stated as GAP-4. Note the consequence is not cosmetic: the resurrected folder is what later blocks the parent group's own restore under M3-TR-027.",
+  "ruling": "RULING-41",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "Disk matches binder, ruled and shipped. Fixed at 9f68b65f5b.",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-41 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_restoreTrashEntry_whenTheParentIsGone_putsTheRowAndItsFileAtRoot"
+  },
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "trash pane / binder delete / ⌘⌥Z — see the pin"
  },
  {
   "claim_id": "M3-TR-040",
-  "outcome": "NO_RULING_REACHES",
-  "reason": "RULING-19 does not convict: the prune is a lower-layer repair and that ruling explicitly relieves lower layers of the duty to communicate. RULING-4's report clause has the right shape and the wrong subject — it is scoped to DERIVED or transient material, and a binder row is arrangement the writer authored (order, nesting, titles), not derived material. So the clause does not reach by scope, and nothing else does. Stated as GAP-5."
+  "outcome": "COMPLIES",
+  "reason": "RULING-19 does not convict: the prune is a lower-layer repair and that ruling explicitly relieves lower layers of the duty to communicate. RULING-4's report clause has the right shape and the wrong subject — it is scoped to DERIVED or transient material, and a binder row is arrangement the writer authored (order, nesting, titles), not derived material. So the clause does not reach by scope, and nothing else does. Stated as GAP-5.",
+  "ruling": "RULING-42",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "RULING-42's report, produced by the store and rendered — including the previously-invisible ⌘⌥Z refusal path. Fixed at 9f68b65f5b.",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-42 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_restoreTrashEntry_namesTheDescendantsItCouldNotBringBack"
+  },
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "trash pane / binder delete / ⌘⌥Z — see the pin"
  },
  {
   "claim_id": "M3-TR-041",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "'Restore' is a labelled control. It does not restore the item — it relocates it into a different tree, where the writer never put it and cannot have meant it to go, and it does so silently and successfully. That is the plainest possible case of a control not doing what it says, and of the surprise the ruling's first sentence forbids. RULING-15 reaches it as a second reading ('from which the writer can restore it' — the writer cannot restore their research note to their research tree), and RULING-22 is preferred as the more exact fit for the mechanism: the failure is that a named control does the wrong thing, not that the trash's destination is wrong. Contrast M3-TR-027, where the control refuses loudly and RULING-22 is therefore NOT cited.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-41",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "Binder and disk agree by construction now; the typed TrashSubject removes the research-into-manuscript-tree misfiling at its root. Fixed at 9f68b65f5b.",
   "intent_expressed_when": "contemporaneous",
   "call_path": "ResearchView context-menu Delete on any research note → Trash pane Restore, or ⌘⌥Z → ProjectStore.restoreTrashEntry → `if var item = try? JSONDecoder().decode(StructureItem.self, ...)` SUCCEEDS on a ResearchItem payload (type 'asset' forward-tolerates to .document per ADR 0015) → the row is inserted into manifest.structure. The `else if ResearchItem` branch below is unreachable for anything the research tree produces.",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-41 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_restoreTrashEntry_whenTheParentIsGone_putsTheRowAndItsFileAtRoot"
+  }
  },
  {
   "claim_id": "M3-TR-041b",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "The same control, the same misbehaviour, one node kind up: a research folder and its children arrive in the manuscript binder. Filed separately because a group carries descendants, which makes the corrupted state larger and gives RenamePlan a manuscript-tree node whose path is under research/.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-41",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "The phantom-folder half of the same fix. Fixed at 9f68b65f5b.",
   "intent_expressed_when": "contemporaneous",
   "call_path": "ResearchView Delete on a research folder → Trash pane Restore → the group lands in manifest.structure with its children",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-41 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_restoreTrashEntry_whenTheParentIsGone_putsTheRowAndItsFileAtRoot"
+  }
  },
  {
   "claim_id": "M3-TR-042",
-  "outcome": "NO_RULING_REACHES",
-  "reason": "The file IS restored and the operation reports what it did do. The writer sees a Trash row for a file they never deleted and a Restore that changes nothing they can observe, but naming the clause that breaks is where it fails: RULING-22's 'do what they say' is satisfied by a Restore that restores the file, and no clause covers whether Maugham's own internal safety copies belong in the writer's Trash at all. Stated as GAP-6. The general shape matters more than the one caller: the missing else branch means ANY future non-binder trash entry restores its file with no manifest consequence and reports success."
+  "outcome": "COMPLIES",
+  "reason": "The file IS restored and the operation reports what it did do. The writer sees a Trash row for a file they never deleted and a Restore that changes nothing they can observe, but naming the clause that breaks is where it fails: RULING-22's 'do what they say' is satisfied by a Restore that restores the file, and no clause covers whether Maugham's own internal safety copies belong in the writer's Trash at all. Stated as GAP-6. The general shape matters more than the one caller: the missing else branch means ANY future non-binder trash entry restores its file with no manifest consequence and reports success.",
+  "ruling": "RULING-43",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "RULING-43 plus its generalisation: no wiring, no claimed success. Fixed at 9f68b65f5b.",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-43 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_anInternalSafetyCopyIsNotInTheWritersTrash_andRefusesToBeRestored + test_restoreTrashEntry_withMetadataOfNeitherKind_refusesLoudly"
+  },
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "trash pane / binder delete / ⌘⌥Z — see the pin"
  },
  {
   "claim_id": "M3-TR-043",
@@ -375,41 +471,210 @@
   "violation_or_enhancement": "neither"
  },
  {
+  "claim_id": "M3-TR-052",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-39",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "New behaviour the RULING-39 fix guarantees; pinned at 9f68b65f5b.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "see the pin",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-39 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization (M3-TR-052 pin)"
+  }
+ },
+ {
+  "claim_id": "M3-TR-053",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-39",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "New behaviour the RULING-39 fix guarantees; pinned at 9f68b65f5b.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "see the pin",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-39 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization (M3-TR-053 pin)"
+  }
+ },
+ {
+  "claim_id": "M3-TR-054",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-38",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "New behaviour the RULING-38 fix guarantees; pinned at 9f68b65f5b.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "see the pin",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-38 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_restore_besideTwoOccupants_takesTheNextFreeName"
+  }
+ },
+ {
+  "claim_id": "M3-TR-055",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-45",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "New behaviour the RULING-45 fix guarantees; pinned at 9f68b65f5b.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "see the pin",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-45 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_restoringADeletedResearchLink_returnsItToTheResearchTree"
+  }
+ },
+ {
+  "claim_id": "M3-TR-056",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-40",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "New behaviour the RULING-40 fix guarantees; pinned at 9f68b65f5b.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "see the pin",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-40 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_restoreLastDeletion_refusesAndSaysWhy_whenPartOfTheGestureIsGone"
+  }
+ },
+ {
+  "claim_id": "M3-TR-057",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-43",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "New behaviour the RULING-43 fix guarantees; pinned at 9f68b65f5b.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "see the pin",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-43 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_restoreTrashEntry_withMetadataOfNeitherKind_refusesLoudly"
+  }
+ },
+ {
+  "claim_id": "M3-TR-058",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-38",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "New behaviour the RULING-38 fix guarantees; pinned at 9f68b65f5b.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "see the pin",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-38 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_restoreTrashEntry_besideAnOccupant_leavesBothRowsVisibleAndNamedApart"
+  }
+ },
+ {
+  "claim_id": "M3-TR-059",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-15",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "New behaviour the RULING-15 fix guarantees; pinned at 9f68b65f5b.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "see the pin",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-15 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_promotingACaptureSendsTheInboxOriginalToTheTrash_notOffTheDisk"
+  }
+ },
+ {
+  "claim_id": "M3-TR-060",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-15",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "New behaviour the RULING-15 fix guarantees; pinned at 9f68b65f5b.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "see the pin",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "9f68b65f5b24c028e7a7b80f7e91c02bd6078208",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-15 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_promotingACaptureSendsTheInboxOriginalToTheTrash_notOffTheDisk"
+  }
+ },
+ {
   "_summary": {
-   "reached": 24,
-   "complies": 13,
-   "violates": 11,
-   "no_ruling": 27,
-   "total": 51,
-   "coverage": "47%",
+   "reached": 38,
+   "complies": 33,
+   "violates": 5,
+   "no_ruling": 22,
+   "total": 60,
+   "coverage": "63%",
    "by_ruling": {
     "RULING-15": [
      "M3-TR-003",
      "M3-TR-004",
-     "M3-TR-026"
+     "M3-TR-026",
+     "M3-TR-059",
+     "M3-TR-060"
     ],
     "RULING-19": [
      "M3-TR-007",
      "M3-TR-030",
      "M3-TR-034"
     ],
-    "RULING-20": [
-     "M3-TR-027"
-    ],
-    "RULING-22": [
-     "M3-TR-036",
-     "M3-TR-041",
-     "M3-TR-041b"
-    ],
     "RULING-23": [
      "M3-TR-019",
      "M3-TR-020",
      "M3-TR-050"
     ],
+    "RULING-38": [
+     "M3-TR-027",
+     "M3-TR-054",
+     "M3-TR-058"
+    ],
+    "RULING-39": [
+     "M3-TR-021",
+     "M3-TR-052",
+     "M3-TR-053"
+    ],
     "RULING-4": [
      "M3-TR-011",
      "M3-TR-012",
      "M3-TR-032"
+    ],
+    "RULING-40": [
+     "M3-TR-036",
+     "M3-TR-037",
+     "M3-TR-056"
+    ],
+    "RULING-41": [
+     "M3-TR-039",
+     "M3-TR-041",
+     "M3-TR-041b"
+    ],
+    "RULING-42": [
+     "M3-TR-040"
+    ],
+    "RULING-43": [
+     "M3-TR-042",
+     "M3-TR-057"
+    ],
+    "RULING-45": [
+     "M3-TR-035",
+     "M3-TR-055"
     ],
     "RULING-7": [
      "M3-TR-015",
@@ -418,9 +683,6 @@
      "M3-TR-045",
      "M3-TR-046",
      "M3-TR-047"
-    ],
-    "RULING-8": [
-     "M3-TR-035"
     ],
     "RULING-9": [
      "M3-TR-016"
