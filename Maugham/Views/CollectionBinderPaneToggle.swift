@@ -99,12 +99,12 @@ struct CollectionBinderPaneToggle: View {
                     piecesTree
                 }
             }
-            // Exports footer, shown only on the Pieces segment — asked through
-            // the same helper `BinderPaneToggle` asks (see its note), so the two
-            // toggles cannot come to disagree about which segment carries it.
-            // `.collection` is the constant this view exists for, and its
-            // document home is `.manuscript`, so the answer is unchanged.
-            if segment == .documentHome(for: .collection)
+            // Exports footer — asked exactly as `BinderPaneToggle` asks it (see
+            // its note, which carries the whole reasoning and is not restated
+            // here), so the two toggles cannot come to disagree about when it
+            // renders. Re-based on the persona in stage 2b Task 6; the tree term
+            // is interim and dies with the enum in Task 7.
+            if persona != .plan && segment.interimLeftPaneIsTheTree
                 && PublishStarter.isInitialized(in: store.url) {
                 Divider()
                 ExportsListView(projectURL: store.url)

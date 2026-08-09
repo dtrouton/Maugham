@@ -40,59 +40,81 @@ final class ScreenplayScriptSourceTests: XCTestCase {
         let already = FountainTokenizer().parse(Self.twoScenes)
         XCTAssertFalse(
             ScreenplayScriptSource.needsDerivation(
-                binderSegment: .tree, projectType: .screenplay, existing: already),
+                persona: .plan, interimSegment: .tree,
+                projectType: .screenplay, existing: already),
             "an editor's parse must never be overwritten by an op-log derive — "
             + "that is two producers of one value disagreeing, which is the "
             + "shape tripwire 6 exists for")
         XCTAssertTrue(
             ScreenplayScriptSource.needsDerivation(
-                binderSegment: .tree, projectType: .screenplay, existing: nil),
+                persona: .plan, interimSegment: .tree,
+                projectType: .screenplay, existing: nil),
             "control: with nothing produced, Plan's tree must derive")
     }
 
-    /// **Exactly one (segment, project type) pair derives, and the census says
-    /// which** — asked over every pair rather than the one the fix was written
-    /// against, because that is how the original defect got in: `.tree` was a new
-    /// member of a set nobody re-enumerated.
+    /// **Exactly one (persona, segment, project type) triple derives, and the
+    /// census says which** — asked over every one rather than the one the fix
+    /// was written against, because that is how the original defect got in:
+    /// `.tree` was a new member of a set nobody re-enumerated.
     ///
     /// `.scenes` is the interesting NO. It shows the same navigator, but it
     /// mounts `EditorHost` beside it, so the coordinator posts within a frame —
     /// a derive there would be a duplicate op-log decode racing a fresher value.
+    /// **In the re-based rule it is Author that answers no rather than the
+    /// segment**, which is the same fact said one level up: the editor is there
+    /// because the persona puts it there.
+    ///
+    /// **This census caught the Task 6 re-base widening, which is why the list
+    /// is a list and not a count.** The re-base has to replace
+    /// `showsSceneNavigator(for:) && centresTheCanvas` — an intersection of two
+    /// SEGMENT predicates — with something a persona can express, and a persona
+    /// cannot tell `.tree` from `.scenes` or from `.manuscript`. Two widenings
+    /// were tried and both showed up here as extra rows: `plan×canvas×screenplay`
+    /// (Plan's Canvas tab mounts `ResearchView`, so there is no navigator to
+    /// feed) and `plan×manuscript×screenplay` (`.manuscript` mounts `BinderView`
+    /// unconditionally — a one-row novel binder, never sluglines). Each would
+    /// have been an op-log decode and a Fountain parse that no surface reads.
     func test_onlySluglineSurfacesWithNoEditorBehindThemDerive() throws {
         var derives: [String] = []
-        for segment in BinderSegment.allCases {
-            for type in ProjectType.allCases {
-                guard ScreenplayScriptSource.needsDerivation(
-                    binderSegment: segment, projectType: type, existing: nil)
-                else { continue }
-                derives.append("\(segment.rawValue)×\(type.rawValue)")
+        for persona in Persona.allCases {
+            for segment in BinderSegment.allCases {
+                for type in ProjectType.allCases {
+                    guard ScreenplayScriptSource.needsDerivation(
+                        persona: persona, interimSegment: segment,
+                        projectType: type, existing: nil)
+                    else { continue }
+                    derives.append(
+                        "\(persona.rawValue)×\(segment.rawValue)×\(type.rawValue)")
+                }
             }
         }
-        XCTAssertEqual(derives, ["tree×screenplay"],
+        XCTAssertEqual(derives, ["plan×tree×screenplay"],
                        "Plan's tree on a screenplay is the one surface that "
                        + "lists sluglines with no editor behind it. Anything "
                        + "else here is either an op-log decode nobody reads or "
                        + "a race with the editor's own parse")
     }
 
-    /// The registry predicate the rule above is built from, over every pair —
-    /// so a future project type whose tree is the scene navigator, or a future
-    /// segment that mounts it, is answered here rather than inheriting a `false`.
-    func test_theSceneNavigatorSegmentsAreTreeOnAScreenplayAndScenes() throws {
-        var shows: [String] = []
-        for segment in BinderSegment.allCases {
-            for type in ProjectType.allCases
-            where segment.showsSceneNavigator(for: type) {
-                shows.append("\(segment.rawValue)×\(type.rawValue)")
-            }
+    /// The project-type half of the rule above, over every type — so a future
+    /// project type whose tree is the scene navigator is answered here rather
+    /// than inheriting a `false`.
+    ///
+    /// **This replaces `BinderSegment.showsSceneNavigator(for:)`**, deleted in
+    /// stage 2b Task 6. That predicate asked the segment a question only the
+    /// project type could answer, and delegated its one interesting arm to
+    /// `treePane(for:)` anyway — so what survives is the delegate, asked
+    /// directly. The segment's half of the old answer is now
+    /// `interimLeftPaneIsTheTree`, censused by the triple above.
+    func test_theSceneNavigatorIsTheTreeOfAScreenplayAndOfNoOtherType() throws {
+        var shows: [ProjectType] = []
+        for type in ProjectType.allCases
+        where BinderSegment.treePane(for: type) == .sceneNavigator {
+            shows.append(type)
         }
-        XCTAssertEqual(
-            shows.sorted(),
-            ProjectType.allCases.map { "scenes×\($0.rawValue)" }.sorted()
-                + ["tree×screenplay"],
-            "`.scenes` is a screenplay's document home and is never offered for "
-            + "another type, so it answers yes unconditionally; `.tree` defers "
-            + "to `treePane(for:)` rather than re-deriving `== .screenplay`")
+        XCTAssertEqual(shows, [.screenplay],
+                       "a screenplay's tree IS its slugline navigator (one "
+                       + "`.fountain`, the Phase 3d invariant); no other type "
+                       + "has sluglines to list")
     }
 
     // MARK: - What it reads

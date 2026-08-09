@@ -219,7 +219,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 
         XCTAssertTrue(
             ScreenplayScriptSource.needsDerivation(
-                binderSegment: .tree, projectType: .screenplay, existing: nil),
+                persona: .plan, interimSegment: .tree,
+                projectType: .screenplay, existing: nil),
             "Plan's tree with no parse yet is exactly the state that has to "
             + "derive one")
         let derived = try XCTUnwrap(
@@ -264,23 +265,30 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     /// them back, and the subject persists through `UIState` into the next
     /// launch.
     ///
-    /// **Driven through the real binder shell**, at each segment, with the
-    /// subject seeded the way a persona or segment switch delivers it: if
-    /// selecting the head row of the left column cannot move the subject off the
-    /// research item, the segment is a trap. Row 0 is the project row in every
-    /// tree that has one, which is exactly the population this loop is about.
-    func test_everySegmentThatLetsAResearchSubjectStandCanAlsoClearIt() async throws {
+    /// **Driven through the real binder shell**, at each `(persona, segment)`
+    /// state, with the subject seeded the way a persona or segment switch
+    /// delivers it: if selecting the head row of the left column cannot move the
+    /// subject off the research item, the state is a trap. Row 0 is the project
+    /// row in every tree that has one, which is exactly the population this loop
+    /// is about.
+    ///
+    /// **The persona is in the loop since shell-finish stage 2b Task 6**, and it
+    /// is not decoration: the placement reads it now, and the pairing keeps the
+    /// mount honest — Plan on `.manuscript` is a state no writer can reach, and
+    /// a probe that hosted it would be testing a window the app cannot produce.
+    func test_everyWindowStateThatLetsAResearchSubjectStandCanAlsoClearIt() async throws {
         let stuck = BinderSubject.research("r1")
         for segment in BinderSegment.allCases {
+            let persona = Self.persona(hosting: segment)
             let placement = ProjectWindow.researchSubjectPlacement(
-                binderSegment: segment, subject: stuck)
+                persona: persona, interimSegment: segment, subject: stuck)
             guard placement != .segmentStands else { continue }
 
             let type = Self.projectType(hosting: segment)
             let store = try await project(of: type)
             let (window, probe) = try await host(
                 store: store, script: nil, segment: segment,
-                persona: segment.centresTheCanvas ? .plan : .author,
+                persona: persona,
                 subject: stuck)
             let table = try XCTUnwrap(
                 firstTableView(in: window),
@@ -312,6 +320,73 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         case .scenes: return .screenplay
         case .manuscript, .tree, .research, .palette, .canvas, .trash, .find:
             return .novel
+        }
+    }
+
+    /// The persona each segment is a real state in — Plan's four are Plan's, and
+    /// the rest belong to the personas that centre a document. Exhaustive with
+    /// no `default:` while the enum stands, for the same reason
+    /// `projectType(hosting:)` is: a new segment must say where it lives rather
+    /// than inheriting Author and being mounted in a window that never offers
+    /// it. Task 7 deletes both.
+    private static func persona(hosting segment: BinderSegment) -> Persona {
+        switch segment {
+        case .canvas, .tree, .research, .palette: return .plan
+        // The two transients are nobody's since Tasks 1 and 2 — nothing selects
+        // either — so they are asked of the persona that used to be able to
+        // reach them.
+        case .manuscript, .scenes, .trash, .find: return .author
+        }
+    }
+
+    /// **And the surviving form of the same question, one task before the
+    /// segment stops being able to ask it.**
+    ///
+    /// After Task 7 the tree is the whole left column in every persona, so
+    /// "can the writer point the window somewhere else again" is answered yes by
+    /// construction — with ONE exception, and it is the reason the question
+    /// survives at all: the find overlay REPLACES the column, strip included
+    /// (`BinderPaneToggle.body`), so while it is up there is no row to click.
+    ///
+    /// **That is not a trap, and this is what says so rather than assuming it.**
+    /// The 2a Critical was a trap because nothing in the window could clear the
+    /// subject AND the state persisted — `binderSegment` is written to `UIState`
+    /// on every change and Plan's `binderHome` was `.canvas`, so a relaunch
+    /// reopened into it. The overlay has neither property: `treeFindActive` is
+    /// window `@State` that no `UIState` carries, and `close()` puts the tree
+    /// back. So the research subject may stand while find is open, the way out
+    /// is Escape rather than a row, and the tree that comes back can clear it.
+    func test_theFindOverlayIsNotATrapBecauseTheTreeComesBack() async throws {
+        let stuck = BinderSubject.research("r1")
+        for persona in Persona.allCases {
+            let segment = persona.binderHome(for: .novel)
+            let placement = ProjectWindow.researchSubjectPlacement(
+                persona: persona, interimSegment: segment, subject: stuck)
+            let store = try await project(of: .novel)
+
+            // With the overlay up there is no tree at all — which is the
+            // premise, not the finding.
+            let (covered, _) = try await host(
+                store: store, script: nil, segment: segment, persona: persona,
+                subject: stuck, findActive: true)
+            XCTAssertNil(firstTableView(in: covered),
+                         "\(persona): premise — the overlay replaces the "
+                         + "column, so no tree row is available to clear a "
+                         + "subject with")
+
+            // And the way out restores it. `applyCloseFind` is the production
+            // path both exits take (the ✕ and `.onExitCommand`).
+            let (window, probe) = try await host(
+                store: store, script: nil, segment: segment, persona: persona,
+                subject: stuck)
+            guard placement != .segmentStands else { continue }
+            let table = try XCTUnwrap(
+                firstTableView(in: window),
+                "\(persona): with find closed the tree is back, and it is the "
+                + "control that can write the subject away")
+            await select(row: 0, in: table, until: { probe.subject != stuck })
+            XCTAssertNotEqual(probe.subject, stuck,
+                              "\(persona): the restored tree cleared it")
         }
     }
 
@@ -453,7 +528,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
                       script: FountainScript?,
                       segment: BinderSegment? = nil,
                       persona: Persona = .author,
-                      subject: BinderSubject? = nil)
+                      subject: BinderSubject? = nil,
+                      findActive: Bool = false)
     async throws -> (NSWindow, BinderSubjectProbe) {
         let probe = BinderSubjectProbe()
         probe.subject = subject
@@ -461,7 +537,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         let hosting = NSHostingView(
             rootView: AnyView(
                 BinderShellProbeView(store: store, probe: probe, script: script,
-                                     segment: segment, persona: persona)))
+                                     segment: segment, persona: persona,
+                                     findActive: findActive)))
         hosting.frame = frame
         let window = NSWindow(contentRect: frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -543,19 +620,25 @@ private struct BinderShellProbeView: View {
     @State private var segment: BinderSegment
     @State private var researchId: String?
     @State private var paletteCardId: String?
-    @State private var treeFindActive = false
+    @State private var treeFindActive: Bool
     @State private var renamingItemId: String?
 
     /// - Parameter segment: which binder segment to mount. Defaults to the
     ///   type's document home, which is where Author lands; slice 2's `.tree`
     ///   tests pass `.tree` and `persona: .plan`.
+    /// - Parameter findActive: mount with the find overlay already up. Seeded
+    ///   in `init` for `segment`'s reason — a frame with the tree in the
+    ///   hierarchy before the overlay covers it is a frame a table query would
+    ///   latch onto.
     init(store: ProjectStore, probe: BinderSubjectProbe, script: FountainScript?,
-         segment: BinderSegment? = nil, persona: Persona = .author) {
+         segment: BinderSegment? = nil, persona: Persona = .author,
+         findActive: Bool = false) {
         self.store = store
         self.probe = probe
         self.script = script
         self.persona = persona
         _segment = State(initialValue: segment ?? .documentHome(for: store.manifest.type))
+        _treeFindActive = State(initialValue: findActive)
     }
 
     private var subject: Binding<BinderSubject?> {

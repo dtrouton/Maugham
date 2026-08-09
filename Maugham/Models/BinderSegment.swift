@@ -18,7 +18,8 @@ public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
     /// `.tree` and `.canvas` differ only in the LEFT pane: the tree shows the
     /// project's manuscript (`treePane(for:)`), the canvas segment shows the
     /// research tree that §8A.1's drag-in route needs beside it. Both centre the
-    /// canvas — see `centresTheCanvas`, which is the one place that is spelled.
+    /// canvas, which since stage 2b Task 6 is a fact about the PERSONA rather
+    /// than about either of them — see `Persona.centresTheCanvas`.
     case tree
     case research
     case palette
@@ -78,153 +79,69 @@ public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
         }
     }
 
-    /// **The one spelling of "the centre column is the planning canvas".**
+    /// **INTERIM — this predicate and every caller of it die in Task 7.**
     ///
-    /// Two segments draw it: `.canvas`, whose left pane is the research tree the
-    /// drag-in route needs, and `.tree`, whose left pane is the manuscript. Three
-    /// separate sites spelled this as `binderSegment == .canvas` and the compiler
-    /// caught none of them, each with its own visible failure — the region
-    /// inspector unreachable from Plan's tree (the exact 2026-07-28 smoke
-    /// defect), a Collection's reference placeholder taking the centre column
-    /// from the canvas, and a `⌘\` collapse never handing the sidebar back.
+    /// **Which segments Plan still offers whose centre column is something
+    /// OTHER than the board.** It is the subtraction in
+    /// `Persona.centresTheCanvas(interimSegment:)`, and it exists because the
+    /// persona is nearly, but not yet, the whole answer to *"is the centre the
+    /// canvas"*: Plan's picker still carries Research and Palette, and both put
+    /// an old pane in the middle of the window
+    /// (`ProjectWindow.existingEditorSwitch`). `.trash` is on the list for the
+    /// same reason — its centre is a `ContentUnavailableView` — even though
+    /// nothing has selected it since Task 2 made the trash a foot disclosure.
     ///
-    /// Exhaustive with no `default:`, so a future segment has to say whether it
-    /// centres the canvas rather than inheriting "no".
-    var centresTheCanvas: Bool {
+    /// **`.find` is deliberately absent and it is the interesting row.** Find is
+    /// an overlay of the LEFT column since Task 1; it leaves the centre alone,
+    /// so whatever was in the middle is still there. Adding it here would make
+    /// the composite say the writer stopped looking at their document because a
+    /// search panel opened beside it — Denver's 2026-08-02 footer ruling, in the
+    /// one predicate that would quietly undo it.
+    ///
+    /// Exhaustive with no `default:`: while the enum stands, a new segment must
+    /// say what its centre column is rather than inheriting "the board".
+    var interimTakesTheCentreFromTheCanvas: Bool {
         switch self {
-        case .canvas, .tree: return true
-        case .manuscript, .research, .palette, .scenes, .trash, .find: return false
+        case .research, .palette, .trash: return true
+        case .manuscript, .tree, .scenes, .canvas, .find: return false
         }
     }
 
-    /// **Does this segment's left pane list a screenplay's sluglines?**
+    /// **INTERIM — this predicate and every caller of it die in Task 7.**
     ///
-    /// Two segments mount `SceneNavigatorPane`: `.scenes`, a screenplay's
-    /// document home, and `.tree`, Plan's structure segment, whose tree for a
-    /// screenplay is the same navigator (`treePane(for:)`). Both need a parsed
-    /// `FountainScript` to draw anything at all, which is why the question is
-    /// worth a name — `ScreenplayScriptSource` asks it to decide whether the
-    /// window has to derive that parse itself.
+    /// **Is this segment's left pane the project's tree?** Three views are the
+    /// tree — `BinderView`, `SceneNavigatorPane` and `CollectionPiecesPane`
+    /// (`treePane(for:)`) — and `.manuscript`, `.tree` and `.scenes` are what
+    /// mount them. Everything else in the left column is an old pane or no pane:
+    /// `ResearchView`, `PaletteBinderList`, `TrashView`, `ProjectSearchView`.
     ///
-    /// **`.tree`'s answer is delegated to `treePane(for:)` rather than spelled
-    /// as `projectType == .screenplay`** — that inline re-derivation is the one
-    /// `BinderPaneToggle`'s `.tree` arm names as the 2026-07-02 bug, and a
-    /// second copy here would be a third place the same routing lives.
-    /// Exhaustive with no `default:` for `centresTheCanvas`'s reason.
-    func showsSceneNavigator(for projectType: ProjectType) -> Bool {
-        switch self {
-        case .scenes: return true
-        case .tree: return Self.treePane(for: projectType) == .sceneNavigator
-        case .manuscript, .research, .palette, .canvas, .trash, .find: return false
-        }
-    }
-
-    /// **Does the manuscript status footer belong under this segment?**
+    /// **The question it answers is "can the writer point the window somewhere
+    /// else again", and it stops being a question in Task 7**, when the tree
+    /// becomes the whole left column in every persona. It was
+    /// `leftPaneWritesTheSubject`, and the defect it exists to stop is a TRAP
+    /// rather than a mis-route: a research subject took `.canvas`'s right column
+    /// and `.trash`'s centre while their left panes offered nothing that could
+    /// write the subject back, the subject persists through `UIState`, and
+    /// Plan's `binderHome` IS `.canvas` — so relaunching reopened into the same
+    /// trap. The three tree views are exactly the three that write
+    /// `selectedSubject`, which is why one predicate answers both halves.
     ///
-    /// `EditorStatusFooter` reports the writer's goal capsule, their live
-    /// session words, the paragraph id under the cursor and the current element
-    /// — all facts about a manuscript document — so it is silent on the canvas,
-    /// on Plan's tree, on research, on the palette and on the trash.
+    /// **After Task 7 the answer is unconditionally yes, and the surviving form
+    /// of the question is about the find OVERLAY** — with the panel over the
+    /// column there is no row to click. That is not a trap: Escape puts the tree
+    /// back and `treeFindActive` is `@State` that no relaunch restores.
+    /// `ProjectSubjectReachabilityTests` asserts the way out rather than
+    /// assuming it.
     ///
-    /// **It is NOT `centresTheCanvas` inverted.** It is close to *"the centre
-    /// column is a document"* — `existingEditorSwitch` and
-    /// `existingInspectorSwitch` both name `.manuscript, .scenes, .find` in one
-    /// arm — but it is not spelled as that, and the reason is `.trash`: the
-    /// trash has no centre column of its own to disagree about, so a predicate
-    /// shared with those switches would have to answer for a segment they never
-    /// see.
+    /// **It is NOT the question `ScreenplayScriptSource` asks**, though the two
+    /// are neighbours and an earlier draft of Task 6 conflated them. That one
+    /// needs *"is the left pane the slugline navigator"*, and `.manuscript`
+    /// mounts `BinderView` unconditionally — a one-row novel binder on a
+    /// screenplay, never sluglines. See `needsDerivation`, which spells its own
+    /// interim term and says why.
     ///
-    /// **`.find` says YES, and that is a fix rather than the inherited value.**
-    /// It said no until 2026-08-02, when slice 2's task 9 surfaced the
-    /// disagreement and Denver ruled it an oversight from before find had a
-    /// centre column: running `⌘⌥F` put the writer's document in the editor and
-    /// silently took away the goal capsule, the live session words and the
-    /// `¶id`/element readout, none of which stop being true because a search
-    /// panel is open on the left. The footer follows the DOCUMENT in the centre,
-    /// not the shape of the left column.
-    ///
-    /// **Nor is it `BinderPaneToggle`'s Exports gate**, which reads the same set
-    /// today and asks a different question — that one is about the LEFT column
-    /// (is the pane below the picker the manuscript tree?) and is derived from
-    /// `documentHome(for:)` rather than switched, because "not the Exports list"
-    /// is the right default for a segment that has not been thought about and
-    /// "not the status footer" is not.
-    ///
-    /// **Exhaustive with no `default:`** for `centresTheCanvas`'s reason: this
-    /// answered "no" for `.canvas` and again for `.tree` by inheriting a
-    /// hand-spelled `== .manuscript || == .scenes`, and both times it was right
-    /// by luck. M3's *"Pieces by review state"* left-hand surface is the near
-    /// case that would centre the editor and want the footer, and nothing but
-    /// the compiler would ask.
-    var showsManuscriptStatusFooter: Bool {
-        switch self {
-        case .manuscript, .scenes, .find: return true
-        case .tree, .research, .palette, .canvas, .trash: return false
-        }
-    }
-
-    /// **Does this segment's centre column answer to a research selection of
-    /// its OWN?**
-    ///
-    /// Two do, and both are transitional: `.research` still mounts
-    /// `ResearchView` over `ProjectWindow`'s `selectedResearchId`, and
-    /// `.palette` mounts the wall over `selectedPaletteCardId`. Neither writes
-    /// the window's subject, so a `.research` SUBJECT reaching over them would
-    /// leave a writer clicking rows in the old pane while the centre column
-    /// showed whatever the tree had named last — two controls disagreeing about
-    /// what the window is about, which is the shape the subject type exists to
-    /// remove.
-    ///
-    /// **It is not `centresTheCanvas` inverted and not its complement.** That
-    /// one answers *"is the canvas the centre"*; this answers *"is this centre
-    /// already about a research item"*, and `.canvas`/`.tree` say no to both.
-    ///
-    /// This is the one predicate stage 2b deletes outright: with `ResearchView`
-    /// and `CollectionResearchPane` gone, every segment answers `false` and the
-    /// subject is the only research selection there is. Exhaustive with no
-    /// `default:` for `centresTheCanvas`'s reason.
-    var keepsItsOwnResearchSelection: Bool {
-        switch self {
-        case .research, .palette: return true
-        case .manuscript, .tree, .scenes, .canvas, .trash, .find: return false
-        }
-    }
-
-    /// **Does this segment's LEFT PANE write the window's subject?**
-    ///
-    /// The question a research subject's placement turns on, and the one that
-    /// was missing: a research subject may only reach over a segment's columns
-    /// where the writer has a control that can point the window somewhere else
-    /// again. Three panes write `selectedSubject` — `BinderView`,
-    /// `SceneNavigatorPane` and `CollectionPiecesPane` — and they are what
-    /// `.manuscript`, `.tree` and `.scenes` mount (`BinderPaneToggle`,
-    /// `CollectionBinderPaneToggle`). Every other segment's left pane writes
-    /// something else or nothing: `ResearchView` writes `selectedResearchId`,
-    /// `PaletteBinderList` writes `selectedPaletteCardId`, `TrashView` and
-    /// `ProjectSearchView` write no subject at all.
-    ///
-    /// **The defect it exists to stop is a TRAP, not a mis-route.** `.canvas`
-    /// and `.trash` answered no to `keepsItsOwnResearchSelection` and so let a
-    /// research subject take a column — `.canvas`'s right column (the region,
-    /// scrap, line and item inspectors, and their Promote buttons), `.trash`'s
-    /// centre — while their left panes offered nothing that could write the
-    /// subject back. Nothing in the segment could clear it, the subject persists
-    /// through `UIState`, and Plan's `binderHome` IS `.canvas`, so relaunching
-    /// reopened into the same trap.
-    ///
-    /// **It is not `keepsItsOwnResearchSelection` renamed**, though the two
-    /// agree on every case today. That one asks whether this segment's CENTRE is
-    /// already about a research item — a reason to leave the centre alone that
-    /// survives even where the left column could clear the subject. This asks
-    /// whether the writer can get OUT. `ResearchSubjectRoutingTests`'
-    /// `test_everySegmentKeepingItsOwnResearchSelectionAlsoFailsToWriteTheSubject`
-    /// asserts the containment rather than leaving it to be noticed, and stage
-    /// 2b deletes the other one when the old panes go.
-    ///
-    /// Exhaustive with no `default:` for `centresTheCanvas`'s reason: a new
-    /// segment must say whether its left pane can point the window at something,
-    /// because inheriting "yes" is how the trap returns.
-    var leftPaneWritesTheSubject: Bool {
+    /// Exhaustive with no `default:` while the enum stands.
+    var interimLeftPaneIsTheTree: Bool {
         switch self {
         case .manuscript, .tree, .scenes: return true
         case .research, .palette, .canvas, .trash, .find: return false

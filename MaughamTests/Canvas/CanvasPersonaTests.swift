@@ -82,7 +82,8 @@ final class CanvasPersonaTests: XCTestCase {
     func test_theCanvasSegmentReachesTheRegionInspectorOnEveryProjectType() {
         for type in ProjectType.allCases {
             XCTAssertEqual(
-                ProjectWindow.inspectorRoute(binderSegment: .canvas, projectType: type),
+                ProjectWindow.inspectorRoute(persona: .plan, interimSegment: .canvas,
+                                             projectType: type),
                 .canvas,
                 "the canvas segment must reach the region inspector in a \(type) — "
                 + "there is ONE canvas per project regardless of type (spec §2), so "
@@ -103,7 +104,8 @@ final class CanvasPersonaTests: XCTestCase {
     func test_theTreeSegmentAlsoReachesTheRegionInspectorOnEveryProjectType() {
         for type in ProjectType.allCases {
             XCTAssertEqual(
-                ProjectWindow.inspectorRoute(binderSegment: .tree, projectType: type),
+                ProjectWindow.inspectorRoute(persona: .plan, interimSegment: .tree,
+                                             projectType: type),
                 .canvas,
                 "Plan's tree keeps the canvas in the centre (spec §3.1), so the "
                 + "right-hand column is the canvas's — \(type)")
@@ -115,20 +117,50 @@ final class CanvasPersonaTests: XCTestCase {
     /// type exactly as before. Without this, `inspectorRoute` returning
     /// `.canvas` unconditionally would pass the two tests above.
     ///
-    /// The loop excludes by the PREDICATE rather than by naming `.canvas`, so a
-    /// future segment that centres the canvas leaves this loop and joins the
-    /// positive assertions in one edit instead of silently failing here.
-    func test_everyOtherSegmentStillRoutesByProjectType() {
-        for segment in BinderSegment.allCases where !segment.centresTheCanvas {
+    /// The loop excludes by the PREDICATE rather than by naming Plan, so a
+    /// future persona that centres the canvas leaves this loop and joins the
+    /// positive assertions in one edit instead of silently failing here. It
+    /// walks the whole `(persona, segment)` product rather than the segments
+    /// alone, because that is what the route now reads — and because the
+    /// product is where the two forced arrivals live (Author on `.research`,
+    /// Author on `.palette`) that a registry walk would miss.
+    func test_everyOtherWindowStateStillRoutesByProjectType() {
+        for (persona, segment) in Self.statesThatDoNotCentreTheCanvas {
             XCTAssertEqual(
-                ProjectWindow.inspectorRoute(binderSegment: segment, projectType: .collection),
+                ProjectWindow.inspectorRoute(persona: persona, interimSegment: segment,
+                                             projectType: .collection),
                 .collectionPiece,
-                "a Collection still gets its piece inspector on .\(segment)")
+                "a Collection still gets its piece inspector in \(persona)/.\(segment)")
             XCTAssertEqual(
-                ProjectWindow.inspectorRoute(binderSegment: segment, projectType: .novel),
+                ProjectWindow.inspectorRoute(persona: persona, interimSegment: segment,
+                                             projectType: .novel),
                 .segment,
-                "and a novel still dispatches on the segment for .\(segment)")
+                "and a novel still dispatches on the segment in \(persona)/.\(segment)")
         }
+    }
+
+    /// Every `(persona, segment)` pair whose centre column is not the board.
+    ///
+    /// **The control's own control.** A filter that had gone empty — or one that
+    /// excluded everything — would make both loops below pass in silence, which
+    /// is how a census degrades into an exclusion list.
+    static let statesThatDoNotCentreTheCanvas: [(Persona, BinderSegment)] =
+        Persona.allCases.flatMap { persona in
+            BinderSegment.allCases.compactMap { segment in
+                persona.centresTheCanvas(interimSegment: segment)
+                    ? nil : (persona, segment)
+            }
+        }
+
+    func test_theExclusionIsNotTheWholeProduct() {
+        let all = Persona.allCases.count * BinderSegment.allCases.count
+        XCTAssertFalse(Self.statesThatDoNotCentreTheCanvas.isEmpty,
+                       "every state centres the canvas — both control loops "
+                       + "below would be vacuous")
+        XCTAssertLessThan(
+            Self.statesThatDoNotCentreTheCanvas.count, all,
+            "no state centres the canvas — the positive assertions above are "
+            + "asserting something the control loops also cover")
     }
 
     /// The sibling, found by asking the same question of every other
@@ -153,13 +185,15 @@ final class CanvasPersonaTests: XCTestCase {
     func test_theCanvasDrawsEvenWithAReferencePieceStillSelected() {
         for segment in [BinderSegment.canvas, .tree] {
             XCTAssertEqual(
-                ProjectWindow.editorRoute(binderSegment: segment, projectType: .collection,
+                ProjectWindow.editorRoute(persona: .plan, interimSegment: segment,
+                                          projectType: .collection,
                                           selectedPieceIsReference: true),
                 .canvas,
-                ".\(segment) owns the centre column; a piece selected in some "
-                + "other segment does not get to keep it")
+                "Plan/.\(segment) owns the centre column; a piece selected in "
+                + "some other segment does not get to keep it")
             XCTAssertEqual(
-                ProjectWindow.editorRoute(binderSegment: segment, projectType: .collection,
+                ProjectWindow.editorRoute(persona: .plan, interimSegment: segment,
+                                          projectType: .collection,
                                           selectedPieceIsReference: false),
                 .canvas)
         }
@@ -168,15 +202,18 @@ final class CanvasPersonaTests: XCTestCase {
     /// Its control: on every segment that does not centre the canvas, a selected
     /// reference piece still takes the editor column, which is the behaviour
     /// that was already right.
-    func test_aReferencePieceStillTakesTheEditorColumnOnEveryOtherSegment() {
-        for segment in BinderSegment.allCases where !segment.centresTheCanvas {
+    func test_aReferencePieceStillTakesTheEditorColumnInEveryOtherState() {
+        for (persona, segment) in Self.statesThatDoNotCentreTheCanvas {
             XCTAssertEqual(
-                ProjectWindow.editorRoute(binderSegment: segment, projectType: .collection,
+                ProjectWindow.editorRoute(persona: persona, interimSegment: segment,
+                                          projectType: .collection,
                                           selectedPieceIsReference: true),
                 .collectionReference,
-                "a reference piece still shows its placeholder on .\(segment)")
+                "a reference piece still shows its placeholder in "
+                + "\(persona)/.\(segment)")
             XCTAssertEqual(
-                ProjectWindow.editorRoute(binderSegment: segment, projectType: .collection,
+                ProjectWindow.editorRoute(persona: persona, interimSegment: segment,
+                                          projectType: .collection,
                                           selectedPieceIsReference: false),
                 .segment,
                 "and a non-reference piece never did")

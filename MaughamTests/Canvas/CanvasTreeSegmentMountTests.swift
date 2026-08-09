@@ -76,7 +76,11 @@ final class CanvasTreeSegmentMountTests: XCTestCase {
                 default: Color.clear
                 }
             case .hoisted:
-                switch ProjectWindow.editorRoute(binderSegment: box.segment,
+                // Plan, because this box only ever holds Plan's two canvas
+                // segments — the whole subject of the measurement is a flip
+                // between them.
+                switch ProjectWindow.editorRoute(persona: .plan,
+                                                 interimSegment: box.segment,
                                                  projectType: .novel,
                                                  selectedPieceIsReference: false) {
                 case .canvas: canvas

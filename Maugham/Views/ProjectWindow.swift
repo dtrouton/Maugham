@@ -439,7 +439,8 @@ struct ProjectWindow: View {
             selectedPaletteCardId: $selectedPaletteCardId,
             selectedSubject: $selectedSubject))
         .modifier(CanvasPromotionModifier(window: window, store: store,
-                                          model: canvasModel, binderSegment: binderSegment))
+                                          model: canvasModel, persona: persona,
+                                          binderSegment: binderSegment))
         // The writer's notice that Claude added cards to their canvas, and the way
         // to go and look. One line, because this body has no expression budget
         // (the Release type-check ceiling); the whole of the behaviour is in the
@@ -458,6 +459,7 @@ struct ProjectWindow: View {
         // is still present, every decision test still green, and ⌘\ on the
         // canvas moves nothing.
         .modifier(CanvasCollapseModifier(
+            persona: persona,
             binderSegment: binderSegment,
             projectType: store?.manifest.type ?? .novel,
             isNoChromeOn: isNoChromeOn,
@@ -965,12 +967,14 @@ struct ProjectWindow: View {
     private func binderColumn(store: ProjectStore) -> some View {
         binderShell(store: store)
             .task(id: ScreenplayScriptSource.needsDerivation(
-                binderSegment: binderSegment,
+                persona: persona,
+                interimSegment: binderSegment,
                 projectType: store.manifest.type,
                 existing: lastParsedScript)
             ) {
                 guard ScreenplayScriptSource.needsDerivation(
-                    binderSegment: binderSegment,
+                    persona: persona,
+                    interimSegment: binderSegment,
                     projectType: store.manifest.type,
                     existing: lastParsedScript) else { return }
                 let derived = ScreenplayScriptSource.derive(store: store)
@@ -1162,38 +1166,67 @@ struct ProjectWindow: View {
 
     private var shouldShowStatusFooter: Bool {
         guard userPreferences.goalIndicatorsVisible else { return false }
-        // `BinderSegment.showsManuscriptStatusFooter`, not the two equalities
-        // that used to be written out here. The canvas and Plan's tree are both
-        // deliberately absent — the footer reports manuscript metrics, and
-        // readiness stays silent about the canvas (umbrella §7, §9).
+        // The gate is a named pure function, not the two segment equalities
+        // that used to be written out here. Plan is deliberately absent — the
+        // footer reports manuscript metrics, and readiness stays silent about
+        // the canvas (umbrella §7, §9).
         //
-        // **The predicate's `.find` arm is now unreachable** — find is an
-        // overlay of the left column, not a segment, so this gate sees whatever
-        // segment the overlay is covering and Denver's 2026-08-02 ruling holds
-        // by construction rather than by an entry in a switch: opening find
-        // does not touch the centre column, so it cannot take the footer away.
-        // Task 6 re-bases the whole predicate.
-        guard Self.showsStatusFooter(binderSegment: binderSegment,
+        // **Denver's 2026-08-02 find ruling holds by construction and no input
+        // carries it** — find is an overlay of the left column, so this gate
+        // sees whatever the overlay is covering: opening find does not touch the
+        // centre column, so it cannot take the footer away. Task 1 asserted that
+        // (`test_openingTheOverlayCannotTakeTheStatusFooterAway`) rather than
+        // adding a parameter that could not change an answer, and the re-base
+        // onto the persona inherits the same shape.
+        guard Self.showsStatusFooter(persona: persona,
+                                     interimSegment: binderSegment,
                                      subject: selectedSubject) else { return false }
         if isNoChromeOn { return false }
         return true
     }
 
-    /// **The segment's answer, and then what the centre column actually holds.**
+    /// **Does the centre column hold a manuscript document?** — asked of the
+    /// persona, and then of what the writer has actually put in there.
     ///
-    /// `showsManuscriptStatusFooter` says the footer follows the DOCUMENT in the
-    /// centre rather than the shape of the left column — and until stage-2a Task
-    /// 5 the segment was a complete answer to that, because `.manuscript` and
-    /// `.scenes` could hold nothing else. A research subject can now take the
-    /// centre in either of them, and the footer's four readings are all about a
-    /// manuscript document: a goal capsule, the live session words, the `¶id`
-    /// under the cursor and the current element. Over a research note the first
-    /// is about a different thing and the last two are blank, so the strip is a
-    /// row of claims the centre column cannot support.
-    static func showsStatusFooter(binderSegment: BinderSegment,
+    /// The footer follows the DOCUMENT in the centre and never the shape of the
+    /// left column, which is the whole of Denver's 2026-08-02 ruling. Until
+    /// stage 2b Task 6 that was spelled as a switch over the binder segment
+    /// (`BinderSegment.showsManuscriptStatusFooter`, deleted here); the persona
+    /// is the durable basis, because Plan is the persona whose centre is the
+    /// board and the other three are where the editor lives.
+    ///
+    /// `Persona.showsManuscriptDocuments` rather than `!centresTheCanvas` at
+    /// this call site: they are the same value by construction, and this is the
+    /// question being asked.
+    ///
+    /// Two narrowings sit under it, and both are about what the centre column
+    /// actually holds rather than what the persona usually puts there:
+    ///
+    /// - **INTERIM**, dying in Task 7: Plan is not the only place an old pane
+    ///   can hold the centre. A forced `.research` in Author (`openResearchItem`
+    ///   and the MCP note banner's Show, the asymmetry recorded at
+    ///   `Persona.author`) and a restored `.palette` both put a list there, and
+    ///   the footer was silent under them before this re-base.
+    /// - A research subject can take the centre in any persona that hands it
+    ///   over (stage-2a Task 5), and the footer's four readings are all about a
+    ///   manuscript document: a goal capsule, the live session words, the `¶id`
+    ///   under the cursor and the current element. Over a research note the
+    ///   first is about a different thing and the last two are blank, so the
+    ///   strip is a row of claims the centre column cannot support.
+    ///
+    /// **What it still does NOT ask about is the palette wall**, which since
+    /// Task 5 can take the centre column in Author, Review and Publish with the
+    /// footer left underneath it. That is a live gap rather than a decision —
+    /// but closing it here would be a behaviour change, and this task's contract
+    /// is that every re-base answers exactly what it answered before. Recorded
+    /// for Task 8.
+    static func showsStatusFooter(persona: Persona,
+                                  interimSegment: BinderSegment,
                                   subject: BinderSubject?) -> Bool {
-        guard binderSegment.showsManuscriptStatusFooter else { return false }
-        return researchSubjectPlacement(binderSegment: binderSegment,
+        guard persona.showsManuscriptDocuments else { return false }
+        guard !interimSegment.interimTakesTheCentreFromTheCanvas else { return false }
+        return researchSubjectPlacement(persona: persona,
+                                        interimSegment: interimSegment,
                                         subject: subject).centreItemID == nil
     }
 
@@ -1339,7 +1372,8 @@ struct ProjectWindow: View {
         store: ProjectStore, documentStore: DocumentStore
     ) -> some View {
         let route = Self.editorRoute(
-            binderSegment: binderSegment,
+            persona: persona,
+            interimSegment: binderSegment,
             projectType: store.manifest.type,
             selectedPieceIsReference: selectedPieceIsReference(in: store))
         // **Above everything else, including `researchSubjectPlacement`**
@@ -1361,7 +1395,8 @@ struct ProjectWindow: View {
         // reaches here, so the board keeps its identity and the RIGHT column
         // takes the item (`researchSubjectPlacement`).
         } else if let id = Self.researchSubjectPlacement(
-            binderSegment: binderSegment, subject: selectedSubject).centreItemID {
+            persona: persona, interimSegment: binderSegment,
+            subject: selectedSubject).centreItemID {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: researchPreviewVisible)
         } else if route == .canvas {
@@ -1787,14 +1822,17 @@ struct ProjectWindow: View {
         case segment
     }
 
-    static func inspectorRoute(binderSegment: BinderSegment,
+    static func inspectorRoute(persona: Persona,
+                               interimSegment: BinderSegment,
                                projectType: ProjectType) -> InspectorRoute {
-        // `centresTheCanvas`, not `== .canvas`: since slice 2 the canvas is the
-        // centre column under `.tree` as well, and this equality spelled in three
-        // places with no compiler help is what the predicate replaces. Miss it
+        // The predicate, not `== .canvas`: the canvas was the centre column
+        // under two segments since slice 2, and that equality spelled in three
+        // places with no compiler help is what the predicate replaced. Miss it
         // here and the region inspector is unreachable from Plan's tree — the
-        // exact defect the doc comment above records.
-        if binderSegment.centresTheCanvas { return .canvas }
+        // exact defect the doc comment above records. Since stage 2b Task 6 the
+        // predicate is the PERSONA's, because the board is Plan's centre column
+        // and the segment was only ever a proxy for that.
+        if persona.centresTheCanvas(interimSegment: interimSegment) { return .canvas }
         return projectType == .collection ? .collectionPiece : .segment
     }
 
@@ -1984,14 +2022,15 @@ struct ProjectWindow: View {
         case segment
     }
 
-    static func editorRoute(binderSegment: BinderSegment,
+    static func editorRoute(persona: Persona,
+                            interimSegment: BinderSegment,
                             projectType: ProjectType,
                             selectedPieceIsReference: Bool) -> EditorRoute {
         // The canvas draws whatever else is selected. A reference piece chosen in
         // the Pieces segment stays selected across a persona switch — nothing
         // clears `selectedItemId` but a delete — so without this the centre
         // column shows the placeholder and the canvas never appears at all.
-        if binderSegment.centresTheCanvas { return .canvas }
+        if persona.centresTheCanvas(interimSegment: interimSegment) { return .canvas }
         return projectType == .collection && selectedPieceIsReference
             ? .collectionReference : .segment
     }
@@ -2054,13 +2093,15 @@ struct ProjectWindow: View {
     @ViewBuilder
     private func researchOrSegment(store: ProjectStore) -> some View {
         let placement = Self.researchSubjectPlacement(
-            binderSegment: binderSegment, subject: selectedSubject)
+            persona: persona, interimSegment: binderSegment,
+            subject: selectedSubject)
         if let id = placement.inspectedItemID {
             ResearchSubjectInspector(
                 store: store, itemID: id,
                 showsPreview: placement.previewsInTheRightColumn)
         } else {
-            switch Self.inspectorRoute(binderSegment: binderSegment,
+            switch Self.inspectorRoute(persona: persona,
+                                       interimSegment: binderSegment,
                                        projectType: store.manifest.type) {
             case .canvas:
                 canvasInspector(store: store)
@@ -2956,6 +2997,10 @@ private struct FocusPostureModifier: ViewModifier {
 ///
 /// So the case that loses the naming pane is the *jump*, not the local reveal.
 private struct CanvasCollapseModifier: ViewModifier {
+    /// The window's working mode — `inspectorRoute`'s basis since stage 2b
+    /// Task 6, and therefore one of this modifier's two triggers.
+    let persona: Persona
+    /// **INTERIM**, and it goes with the enum in Task 7.
     let binderSegment: BinderSegment
     let projectType: ProjectType
     let isNoChromeOn: Bool
@@ -2969,6 +3014,16 @@ private struct CanvasCollapseModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onChange(of: isNoChromeOn) { _, _ in apply() }
+            // **Both inputs of the route, not one of them.** The decision
+            // reads the persona and the segment since stage 2b Task 6, and
+            // watching only the half that used to be the whole answer is how
+            // a trigger comes to lag its own rule. It fires no new decision
+            // today — the personas' segment lists are disjoint, so no persona
+            // switch across Plan's boundary leaves the segment where it was —
+            // and `apply()` is idempotent by construction (see below), which
+            // is what makes the extra trigger free rather than a second
+            // stash.
+            .onChange(of: persona) { _, _ in apply() }
             .onChange(of: binderSegment) { _, _ in apply() }
     }
 
@@ -2976,7 +3031,8 @@ private struct CanvasCollapseModifier: ViewModifier {
     /// they fire together on a project reopen that restores focus mode *and* the
     /// canvas from `UIState`, and the second one must not stash over the first.
     private func apply() {
-        let route = ProjectWindow.inspectorRoute(binderSegment: binderSegment,
+        let route = ProjectWindow.inspectorRoute(persona: persona,
+                                                 interimSegment: binderSegment,
                                                  projectType: projectType)
         ProjectWindow.applyCanvasCollapse(
             ProjectWindow.canvasCollapse(
@@ -3137,28 +3193,30 @@ struct PersonaModifier: ViewModifier {
     /// dragged the sidebar shut themselves, and this is not the code that gets to
     /// undo that.
     ///
-    /// **`centresTheCanvas` rather than `== .canvas`, since slice 2.** The
-    /// canvas is also the centre column under `.tree`, so Plan-on-the-tree →
-    /// Author is a switch OFF the canvas and must hand the sidebar back, while
-    /// `.canvas` → `.tree` is not a switch off it at all and must move nothing.
-    static func releasesCanvasCollapse(from current: BinderSegment,
-                                       to next: BinderSegment,
-                                       stash: Bool?) -> Bool {
-        stash != nil && leaves(\.centresTheCanvas, from: current, to: next)
-    }
-
-    /// The shape both stashes share: a segment change that LEAVES a surface
-    /// which had temporarily taken the inspector's column. One spelling, because
-    /// two spellings of one rule is how the second one comes to differ.
+    /// **The predicate rather than `== .canvas`, since slice 2, and the
+    /// PERSONA's predicate since stage 2b Task 6.** The canvas was the centre
+    /// column under two segments, so Plan-on-the-tree → Author is a switch OFF
+    /// the canvas and must hand the sidebar back, while `.canvas` → `.tree` is
+    /// not a switch off it at all and must move nothing. Both facts survive the
+    /// re-base and neither is about the segment: the board is Plan's centre, so
+    /// what "leaving" means is leaving Plan.
     ///
-    /// **A predicate rather than a segment, since slice 2.** The palette wall is
-    /// one segment; the canvas CENTRE is two (`.canvas` and `.tree` both draw
-    /// it), so "leaves the canvas" stopped being an equality. Taking the test as
-    /// a parameter is what kept that from becoming a second copy of this line.
-    private static func leaves(_ isTheSurface: (BinderSegment) -> Bool,
-                               from current: BinderSegment,
-                               to next: BinderSegment) -> Bool {
-        isTheSurface(current) && !isTheSurface(next)
+    /// **Both ends take a persona AND a segment**, and the pair is what the
+    /// interim term needs: a writer standing on Plan's still-live Palette tab is
+    /// in Plan without the board in front of them, and a switch away from there
+    /// releases nothing because nothing was collapsed over the canvas. Task 7
+    /// deletes the two segment arguments with the enum.
+    ///
+    /// **Guarded on the stash rather than on the personas alone** — see the
+    /// paragraph above the signature.
+    static func releasesCanvasCollapse(fromPersona: Persona,
+                                       fromSegment: BinderSegment,
+                                       toPersona: Persona,
+                                       toSegment: BinderSegment,
+                                       stash: Bool?) -> Bool {
+        guard stash != nil else { return false }
+        return fromPersona.centresTheCanvas(interimSegment: fromSegment)
+            && !toPersona.centresTheCanvas(interimSegment: toSegment)
     }
 
     func body(content: Content) -> some View {
@@ -3185,7 +3243,8 @@ struct PersonaModifier: ViewModifier {
                     showsPaletteWall = false
                 }
                 if Self.releasesCanvasCollapse(
-                    from: binderSegment, to: change.binderSegment,
+                    fromPersona: persona, fromSegment: binderSegment,
+                    toPersona: change.persona, toSegment: change.binderSegment,
                     stash: inspectorWasVisibleBeforeCanvasCollapse) {
                     inspectorWasVisibleBeforeCanvasCollapse = nil
                     columnVisibility = .all
@@ -3455,6 +3514,12 @@ struct CanvasPromotionModifier: ViewModifier {
     let window: NSWindow?
     let store: ProjectStore?
     let model: CanvasModel
+    /// The window's working mode — the basis of `isPromotable` since stage 2b
+    /// Task 6, because the board is Plan's centre column.
+    let persona: Persona
+    /// **INTERIM**, and it goes with the enum in Task 7: Plan's picker still
+    /// offers Research and Palette, and neither of those has the board in the
+    /// centre for a selection to be promoted from.
     let binderSegment: BinderSegment
 
     @State private var sheet: PromotionSheetModel?
@@ -3490,16 +3555,19 @@ struct CanvasPromotionModifier: ViewModifier {
     /// decision drift: enabled here and empty there is the dead sheet above,
     /// disabled here and offered there is a command greyed out over a promotion
     /// that would work. `PromotionCommandTests` drives both from one table.
-    static func isPromotable(binderSegment: BinderSegment,
+    static func isPromotable(persona: Persona,
+                             interimSegment: BinderSegment,
                              selection: CanvasSelection?,
                              nodeKind: CanvasNodeKind?) -> Bool {
-        // **`centresTheCanvas`, and this is the FOURTH site that spelled the
-        // canvas check as an equality** — not one of the three the slice-2 plan
-        // named, found by grepping the comparison rather than reading the list.
-        // The canvas is on screen under `.tree` with a live selection in it, so
-        // an equality here would grey `Promote…` out and drop ⌘⇧↩ over a card
-        // the writer can see and has selected.
-        guard binderSegment.centresTheCanvas else { return false }
+        // **The predicate, and this was the FOURTH site that spelled the canvas
+        // check as an equality** — not one of the three the slice-2 plan named,
+        // found by grepping the comparison rather than reading the list. The
+        // canvas was on screen under `.tree` with a live selection in it, so an
+        // equality here greyed `Promote…` out and dropped ⌘⇧↩ over a card the
+        // writer could see and had selected. Re-based on the persona in stage 2b
+        // Task 6; the interim term still matters here, because Plan's Palette
+        // tab is Plan with no board in front of the writer.
+        guard persona.centresTheCanvas(interimSegment: interimSegment) else { return false }
         switch selection {
         case .node:
             switch nodeKind {
@@ -3527,7 +3595,8 @@ struct CanvasPromotionModifier: ViewModifier {
             // the condition `.disabled(promotable != true)` exists to prevent.
             .focusedSceneValue(\.canvasPromotable,
                                sheet == nil
-                               && Self.isPromotable(binderSegment: binderSegment,
+                               && Self.isPromotable(persona: persona,
+                                                    interimSegment: binderSegment,
                                                     selection: model.selection,
                                                     nodeKind: selectedNodeKind))
             // Reading `model.scene` HERE is safe and in `body` is not: an action
@@ -3576,7 +3645,8 @@ struct CanvasPromotionModifier: ViewModifier {
     /// The manifest is read ONCE, here, and handed to the sheet as plain values.
     private func begin() {
         guard let store, let selection = model.selection,
-              Self.isPromotable(binderSegment: binderSegment, selection: selection,
+              Self.isPromotable(persona: persona, interimSegment: binderSegment,
+                                selection: selection,
                                 nodeKind: selectedNodeKind) else { return }
         let source: PromotionSource
         switch selection {

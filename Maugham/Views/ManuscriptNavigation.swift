@@ -65,11 +65,12 @@ enum ManuscriptNavigation {
                             projectType: ProjectType,
                             memory: PersonaMemory) -> Destination {
         let home = BinderSegment.documentHome(for: projectType)
-        // **The guard, and it is the registry's answer rather than a persona
-        // name** — see `Persona.showsManuscriptDocuments(for:)` for why that
-        // distinction is the whole task. Review and Publish both centre the
+        // **The guard, and it is a question about the centre column rather than
+        // a persona name** — see `Persona.showsManuscriptDocuments` for why that
+        // distinction is the whole task, and why the basis moved off the binder
+        // registry in stage 2b Task 6. Review and Publish both centre the
         // editor, so a reviewer clicking an annotation stays in Review.
-        guard !persona.showsManuscriptDocuments(for: projectType) else {
+        guard !persona.showsManuscriptDocuments else {
             return Destination(persona: persona, binderSegment: home,
                                detailSegment: currentDetailSegment, memory: nil)
         }

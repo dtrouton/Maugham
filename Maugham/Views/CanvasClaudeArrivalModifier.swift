@@ -151,14 +151,22 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
     /// arranging, which is the one thing Plan's tree exists for — a navigation
     /// side effect nobody asked for, for no gain.
     ///
-    /// From every segment that does NOT centre the canvas — including the three
-    /// other personas, whose registries offer neither — `.canvas` remains the
-    /// answer, because there the writer has to be taken somewhere.
+    /// From anywhere that does NOT centre the canvas — including the three
+    /// other personas, whose registries offer neither segment — `.canvas`
+    /// remains the answer, because there the writer has to be taken somewhere.
+    ///
+    /// **It takes the persona as well as the segment since stage 2b Task 6**,
+    /// and the pair is what the question needs: "is the writer already looking
+    /// at the board" is a fact about the whole window, and a segment that
+    /// answers `.tree` in Plan answers nothing at all in Author, where the
+    /// `.tree` segment is not offered and the centre is the editor.
     static func destination(forRegion region: CanvasRegionID,
-                            from current: BinderSegment) -> Destination {
-        Destination(persona: .plan,
-                    binderSegment: current.centresTheCanvas ? current : .canvas,
-                    selection: .region(region), opensInspector: true)
+                            from current: BinderSegment,
+                            in persona: Persona) -> Destination {
+        let alreadyThere = persona.centresTheCanvas(interimSegment: current)
+        return Destination(persona: .plan,
+                           binderSegment: alreadyThere ? current : .canvas,
+                           selection: .region(region), opensInspector: true)
     }
 
     /// **The jump does not go through `PersonaModifier`, and that is deliberate.**
@@ -171,7 +179,8 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
     /// choice. The persona itself is persisted, or the next launch reopens in the
     /// old persona with the binder already on the canvas.
     private func show(_ arrival: Arrival) {
-        let to = Self.destination(forRegion: arrival.region, from: binderSegment)
+        let to = Self.destination(forRegion: arrival.region,
+                                  from: binderSegment, in: persona)
         persona = to.persona
         binderSegment = to.binderSegment
         model.selection = to.selection

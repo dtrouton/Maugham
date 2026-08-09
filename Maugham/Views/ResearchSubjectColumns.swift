@@ -20,16 +20,16 @@ extension ProjectWindow {
     ///   inspects it. Author, Review and Publish, whose left column is the
     ///   manuscript home and nothing else.
     /// - `besideTheCanvas` — Plan. The canvas STAYS MOUNTED
-    ///   (`BinderSegment.centresTheCanvas`) and the right column previews the
+    ///   (`Persona.centresTheCanvas`) and the right column previews the
     ///   item instead. `CanvasTreeSegmentMountTests` measured what a second
     ///   centre-column branch costs: the camera back to origin at zoom 1, every
     ///   scrap layout re-measured, the thumbnail cache emptied — on every
     ///   research click.
-    /// - `segmentStands` — nothing changes. The subject is not research, or the
-    ///   segment keeps a research selection of its own, or — the case the final
-    ///   review found — its left pane cannot write the subject, so a research
-    ///   item taking one of its columns would be a room with no door
-    ///   (`BinderSegment.leftPaneWritesTheSubject`).
+    /// - `segmentStands` — nothing changes. The subject is not research, or —
+    ///   the case the final review found — the left column is not the tree, so
+    ///   nothing in it could point the window anywhere else and a research item
+    ///   taking one of its columns would be a room with no door
+    ///   (`BinderSegment.interimLeftPaneIsTheTree`).
     enum ResearchSubjectPlacement: Equatable {
         case takesTheCentre(String)
         case besideTheCanvas(String)
@@ -60,26 +60,40 @@ extension ProjectWindow {
         }
     }
 
-    /// Pure, named and exhaustive over the segment, for `inspectorRoute`'s
+    /// Pure, named and exhaustive over its inputs, for `inspectorRoute`'s
     /// reason: the two routing bugs that shape says out loud were both a rule
     /// spelled inside a `@ViewBuilder` where no test could be exhaustive over
     /// it.
+    ///
+    /// **`keepsItsOwnResearchSelection` is gone as of stage 2b Task 6, and its
+    /// deletion moves nothing.** It was the first of two guards — is this centre
+    /// already about a research item — and the second, *can the writer get back
+    /// out*, is strictly wider: every segment keeping its own research selection
+    /// also fails to show the tree, which is the containment
+    /// `ResearchSubjectRoutingTests` asserted rather than left to be noticed.
+    /// So the narrower guard never decided a case the wider one did not already
+    /// decide the same way, and one question is left where two stood.
     static func researchSubjectPlacement(
-        binderSegment: BinderSegment, subject: BinderSubject?
+        persona: Persona, interimSegment: BinderSegment, subject: BinderSubject?
     ) -> ResearchSubjectPlacement {
         guard let id = subject?.researchID else { return .segmentStands }
-        // **Two guards, and they ask different questions.** The first is about
-        // the segment's own centre column (a transitional pane with a research
-        // selection of its own); the second is about whether the writer can get
-        // back out — a segment whose left pane cannot write the subject offers
-        // no control that clears it, so a research item taking one of its
-        // columns is a trap that survives a relaunch (`.canvas`, `.trash`; the
-        // final review's Critical). They agree on every case today and are held
-        // together by an asserted containment rather than by luck.
-        guard !binderSegment.keepsItsOwnResearchSelection else { return .segmentStands }
-        guard binderSegment.leftPaneWritesTheSubject else { return .segmentStands }
-        return binderSegment.centresTheCanvas
-            ? .besideTheCanvas(id) : .takesTheCentre(id)
+        // **The trap guard.** A research item may only take one of the window's
+        // columns where the writer has a control that can point the window
+        // somewhere else again. Nothing but the tree writes the subject, so on
+        // `.canvas` (whose left pane is the old `ResearchView`) or `.trash` a
+        // research subject took a column that nothing in the window could give
+        // back — and the subject persists through `UIState`, and Plan's
+        // `binderHome` IS `.canvas`, so a relaunch reopened into it. That is the
+        // final review's Critical. **INTERIM**: Task 7 makes the tree the whole
+        // left column, and the guard goes with the enum.
+        guard interimSegment.interimLeftPaneIsTheTree else { return .segmentStands }
+        // **And then the persona decides which column.** Plan keeps the board in
+        // the centre and previews beside it; everyone else hands the centre
+        // over. The bare property rather than
+        // `centresTheCanvas(interimSegment:)` on purpose — the guard above has
+        // already refused every segment the interim term subtracts, so the two
+        // spellings cannot differ here and the durable one is the one to read.
+        return persona.centresTheCanvas ? .besideTheCanvas(id) : .takesTheCentre(id)
     }
 
     /// Whether the window's subject resolves to a manuscript document — the only

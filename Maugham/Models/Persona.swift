@@ -173,9 +173,9 @@ public extension Persona {
             //
             // **`.inspector` here is the CANVAS's inspector and can never be
             // `InspectorView`, which is the reason it is worth keeping.**
-            // `ProjectWindow.inspectorRoute` tests `centresTheCanvas` before
-            // anything else, and both of Plan's canvas segments (`.canvas`,
-            // `.tree`) answer true, so ⌘⌥I in Plan inspects the selected
+            // `ProjectWindow.inspectorRoute` tests `Persona.centresTheCanvas`
+            // before anything else, and Plan is the persona that answers true,
+            // so ⌘⌥I in Plan inspects the selected
             // region, line or card. A later reader who "fixes" this by
             // expecting document metadata would be undoing that routing on
             // purpose; a chapter's metadata is Author's (⌘2).
@@ -287,7 +287,8 @@ public extension Persona {
             // writer can set `StructureItem.status`** — the draft/revising/
             // final field that Review is *about*. In Review the left column is
             // `binderHome` (`.manuscript`, or `.scenes` on a screenplay);
-            // neither `centresTheCanvas`, so `ProjectWindow.inspectorRoute`
+            // and Review does not `centresTheCanvas`, so
+            // `ProjectWindow.inspectorRoute`
             // returns `.collectionPiece` on a Collection and `.segment`
             // otherwise, and both arms land on a status control:
             // `PieceInspector.statusSection` and `InspectorView`'s Status
@@ -528,36 +529,91 @@ public extension Persona {
     /// manuscript I'm moving to Author"* — and the one question
     /// `ManuscriptNavigation` asks before it moves anyone.
     ///
-    /// **It is asked of the binder registry, never of a persona name.** The
-    /// centre column routes off the SEGMENT (`ProjectWindow.editorRoute`), and
-    /// `BinderSegment.documentHome(for:)` is the segment whose centre is the
-    /// document — `.manuscript` for a novel, a short story and a Collection,
-    /// `.scenes` for a screenplay. So a persona shows documents exactly when its
-    /// own column offers that segment, and today Plan is the only one that does
-    /// not. That fact FALLS OUT of the registry rather than being asserted: a
-    /// hardcoded `== .plan` reads identically today and ships the defect the
-    /// moment Review's left column changes, because clicking an annotation or a
-    /// history row navigates to a paragraph and a reviewer ejected into Author
-    /// cannot adjudicate — the one job Review exists for.
+    /// **It was asked of the binder registry until stage 2b Task 6, and now it
+    /// is asked of the centre column.** The old form was
+    /// `binderSegments(for:).contains(documentHome(for:))` — a persona shows
+    /// documents exactly when its own left column offers the segment whose
+    /// centre is the document. That basis is being deleted: Task 7 takes the
+    /// segment enum and both registries with it, and a rule resting on a list
+    /// that will not exist cannot be the one that survives.
     ///
-    /// This is the neighbour of `BinderSegment.centresTheCanvas` and is
-    /// deliberately NOT a second spelling of it: that answers "which segments
-    /// draw the canvas", this answers "which personas offer the document". Both
-    /// are asked at the segment level and neither re-derives the other.
-    func showsManuscriptDocuments(for projectType: ProjectType) -> Bool {
-        Self.showsManuscriptDocuments(in: binderSegments(for: projectType),
-                                      for: projectType)
+    /// **What replaced it is still not a persona NAME.** A hardcoded
+    /// `== .plan` reads identically today and ships the defect the moment
+    /// another persona's centre changes, because clicking an annotation or a
+    /// history row navigates to a paragraph and a reviewer ejected into Author
+    /// cannot adjudicate — the one job Review exists for. So it is derived from
+    /// `centresTheCanvas` through the falsifiable static below: the centre
+    /// column holds one thing or the other, and a persona shows documents
+    /// exactly when the board is not what it holds.
+    ///
+    /// **It is now openly the complement of `centresTheCanvas`, and the comment
+    /// that said the two were "deliberately NOT a second spelling" is retired
+    /// rather than dropped.** That was true while one was asked of segments and
+    /// the other of registries — two different questions at two different
+    /// levels. On one axis they are the same question, and leaving them as two
+    /// independent switches over four cases would be two answers that can
+    /// disagree about what Plan's centre column is.
+    var showsManuscriptDocuments: Bool {
+        Self.showsManuscriptDocuments(centresTheCanvas: centresTheCanvas)
     }
 
-    /// The rule over ANY column, so it can be falsified.
+    /// The rule over ANY centre column, so it can be falsified.
     ///
-    /// Split out because all four real registries agree with a `== .plan`
-    /// shortcut, so no test over `Persona.allCases` can tell the correct
-    /// implementation from the lazy one — the discriminator has to be a segment
-    /// list this app does not ship
-    /// (`ManuscriptNavigationTests.test_theRuleIsAboutTheDocumentHome_notAboutAnyParticularPersona`).
-    static func showsManuscriptDocuments(in segments: [BinderSegment],
-                                         for projectType: ProjectType) -> Bool {
-        segments.contains(BinderSegment.documentHome(for: projectType))
+    /// Split out for exactly the reason the segment-list version was: all four
+    /// real personas agree with a `== .plan` shortcut, so no test over
+    /// `Persona.allCases` can tell the correct implementation from the lazy
+    /// one. The discriminator has to be an input this app does not ship — a
+    /// centre column that draws the board without being Plan's, or Plan's
+    /// without drawing it
+    /// (`ManuscriptNavigationTests.test_theRuleIsAboutTheCentreColumn_notAboutAnyParticularPersona`).
+    static func showsManuscriptDocuments(centresTheCanvas: Bool) -> Bool {
+        !centresTheCanvas
+    }
+}
+
+// MARK: - The centre column
+
+public extension Persona {
+    /// **The one spelling of "the centre column is the planning canvas".**
+    ///
+    /// The successor to `BinderSegment.centresTheCanvas` (shell-finish stage 2b
+    /// Task 6), and the reason the question moved: the board is Plan's centre
+    /// column and always was. The segment was only ever a proxy for the persona
+    /// — Plan offered the two segments that drew it and nobody else offered
+    /// either — and that proxy cost three separate sites a `== .canvas`
+    /// equality the compiler could not check, each with its own visible failure
+    /// (the region inspector unreachable from Plan's tree, a Collection's
+    /// reference placeholder taking the centre from the canvas, a `⌘\` collapse
+    /// never handing the sidebar back). A fourth was found later by grepping
+    /// for the comparison rather than reading the list.
+    ///
+    /// Exhaustive with no `default:`, so a fifth persona has to say whether its
+    /// centre is the board rather than inheriting "no".
+    var centresTheCanvas: Bool {
+        switch self {
+        case .plan: return true
+        case .author, .review, .publish: return false
+        }
+    }
+
+    /// **INTERIM — Task 7 deletes this method and every call to it becomes the
+    /// property above.**
+    ///
+    /// The persona is the whole answer once the binder strip is gone. It is not
+    /// the whole answer *yet*, because Plan's picker still offers `.research`
+    /// and `.palette`, and both of those put an OLD PANE in the centre column
+    /// rather than the board (`ProjectWindow.existingEditorSwitch`). Asking the
+    /// bare property at the seven sites that used to ask the segment would
+    /// therefore not be a re-base — it would turn the region inspector on over
+    /// a research note, enable `Promote…` over the palette wall, and mount the
+    /// canvas where `ResearchView`'s own selection belongs.
+    ///
+    /// So the segment survives here as a subtraction, named for what it is and
+    /// carrying its own expiry: `BinderSegment.interimTakesTheCentreFromTheCanvas`.
+    /// `PersonaCanvasBasisBridgeTests` proves the composite answers exactly what
+    /// the old segment predicate answered, over every pair a writer can reach,
+    /// and goes with this method.
+    func centresTheCanvas(interimSegment: BinderSegment) -> Bool {
+        centresTheCanvas && !interimSegment.interimTakesTheCentreFromTheCanvas
     }
 }

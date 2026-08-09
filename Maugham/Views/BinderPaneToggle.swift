@@ -105,26 +105,34 @@ struct BinderPaneToggle: View {
                     binderTree
                 }
             }
-            // The Exports footer belongs under the project's manuscript tree and
-            // nowhere else — it's a publishing-pipeline surface, not relevant to
-            // Research / Palette / Trash / Find.
+            // The Exports footer belongs under the project's manuscript tree in
+            // a persona that publishes, and nowhere else — it's a
+            // publishing-pipeline surface, not relevant to Research / Palette /
+            // Trash, and not to Plan.
             //
-            // **`documentHome(for:)`, not the `.manuscript || .scenes` union
-            // this used to spell.** The union is that helper's answer over two
-            // project types at once, so on a screenplay it accepted a segment
-            // the screenplay picker does not offer and on a novel it accepted
-            // `.scenes` — and a fifth project type would have needed this line
-            // edited to stay right. Asking the helper makes that automatic.
+            // **`persona != .plan`, not `segment == .documentHome(for:)`, since
+            // stage 2b Task 6** — the recorded decision, and it reproduces
+            // today's visibility exactly: Author, Review and Publish each open
+            // on the document home, and no segment Plan offers has ever been
+            // one. What it stops resting on is the segment, which Task 7
+            // deletes.
             //
-            // **Deliberately NOT `BinderSegment.showsManuscriptStatusFooter`**,
-            // which reads the same set today. That one is about the CENTRE
-            // column and is a switch, because a future segment centring the
-            // editor must be asked whether the footer follows. This one is
-            // about the LEFT column, and "no Exports list" is the right answer
-            // for any segment that is not the manuscript tree — including
-            // `.tree`, which IS the manuscript tree but sits in Plan, where a
-            // compile-output list is not what the writer is doing.
-            if segment == .documentHome(for: projectType)
+            // **A persona NAME here, where nearly every other gate in this
+            // milestone refuses one.** The reason is that the question this gate
+            // asks stops having a derived answer: the Exports list is about the
+            // LEFT column, and after Task 7 all four personas have the same left
+            // column, so nothing about the tree can tell them apart. What is
+            // left is what the writer is *doing* — a compile-output list is not
+            // part of planning — and that is what the persona names. Deriving it
+            // from `centresTheCanvas` would say the Exports list is a fact about
+            // the centre column, which it is not.
+            //
+            // **The `interimLeftPaneIsTheTree` term is INTERIM and dies with the
+            // enum in Task 7.** It is not decorative: Author can be forced onto
+            // `.research` (`openResearchItem`, the MCP note banner's Show) and
+            // can restore onto `.palette`, and the Exports list has never
+            // rendered under either of those lists.
+            if persona != .plan && segment.interimLeftPaneIsTheTree
                 && PublishStarter.isInitialized(in: store.url) {
                 Divider()
                 ExportsListView(projectURL: store.url)

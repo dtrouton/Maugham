@@ -17,18 +17,19 @@ final class PromotionCommandTests: XCTestCase {
 
     func test_theCommandIsOfferedOnlyOnTheCanvasWithSomethingSelected() {
         let model = CanvasModel()
-        XCTAssertFalse(CanvasPromotionModifier.isPromotable(binderSegment: .canvas,
-                                                            selection: model.selection,
-                                                            nodeKind: nil))
-        XCTAssertTrue(CanvasPromotionModifier.isPromotable(binderSegment: .canvas,
-                                                           selection: .node(a),
-                                                           nodeKind: .scrap))
-        XCTAssertFalse(CanvasPromotionModifier.isPromotable(binderSegment: .manuscript,
-                                                            selection: .node(a),
-                                                            nodeKind: .scrap),
-                       "the manuscript editor has no canvas selection to promote")
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            binderSegment: .research, selection: .region(CanvasRegionID("r")), nodeKind: nil))
+            persona: .plan, interimSegment: .canvas,
+            selection: model.selection, nodeKind: nil))
+        XCTAssertTrue(CanvasPromotionModifier.isPromotable(
+            persona: .plan, interimSegment: .canvas,
+            selection: .node(a), nodeKind: .scrap))
+        XCTAssertFalse(CanvasPromotionModifier.isPromotable(
+            persona: .author, interimSegment: .manuscript,
+            selection: .node(a), nodeKind: .scrap),
+            "the manuscript editor has no canvas selection to promote")
+        XCTAssertFalse(CanvasPromotionModifier.isPromotable(
+            persona: .plan, interimSegment: .research,
+            selection: .region(CanvasRegionID("r")), nodeKind: nil))
     }
 
     /// A REFERENCED item node already exists as itself, so `Promotion.targets`
@@ -41,12 +42,12 @@ final class PromotionCommandTests: XCTestCase {
     /// selection case.
     func test_aReferencedItemNodeIsNotPromotableBecauseItAlreadyExistsAsItself() {
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            binderSegment: .canvas, selection: .node(a), nodeKind: .scrap))
+            persona: .plan, interimSegment: .canvas, selection: .node(a), nodeKind: .scrap))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            binderSegment: .canvas, selection: .node(a),
+            persona: .plan, interimSegment: .canvas, selection: .node(a),
             nodeKind: .item(.project(id: "r-9"))))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            binderSegment: .canvas, selection: .node(a), nodeKind: nil),
+            persona: .plan, interimSegment: .canvas, selection: .node(a), nodeKind: nil),
             "a selection naming a node the scene no longer holds resolves to no "
             + "kind, and an enabled command with nothing behind it is the "
             + "condition the flag exists to prevent")
@@ -59,22 +60,26 @@ final class PromotionCommandTests: XCTestCase {
     /// the same argument the refusal above does.
     func test_anOwnedItemNodeIsPromotable() {
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            binderSegment: .canvas, selection: .node(a),
+            persona: .plan, interimSegment: .canvas, selection: .node(a),
             nodeKind: .item(.owned(path: "canvas_assets/image-20260730-121314.png"))))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            binderSegment: .research, selection: .node(a),
+            persona: .plan, interimSegment: .research, selection: .node(a),
             nodeKind: .item(.owned(path: "canvas_assets/image-20260730-121314.png"))),
-            "the control: the segment guard still runs first — this is not an "
-            + "escape hatch past it")
+            "the control: the centre-column guard still runs first — this is "
+            + "not an escape hatch past it. Plan's Research tab is Plan with an "
+            + "old pane in the middle, which is what the interim term in "
+            + "`Persona.centresTheCanvas(interimSegment:)` is for")
     }
 
     /// A region and a line carry no node kind, so the kind term must not reach
     /// them — passing nil for a region is the ordinary case, not a defect.
     func test_theNodeKindTermDoesNotReachARegionOrALine() {
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            binderSegment: .canvas, selection: .region(CanvasRegionID("r")), nodeKind: nil))
+            persona: .plan, interimSegment: .canvas,
+            selection: .region(CanvasRegionID("r")), nodeKind: nil))
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            binderSegment: .canvas, selection: .line(CanvasLineID("l")), nodeKind: nil))
+            persona: .plan, interimSegment: .canvas,
+            selection: .line(CanvasLineID("l")), nodeKind: nil))
     }
 
     func test_everySelectionKindIsPromotable() {
@@ -90,10 +95,10 @@ final class PromotionCommandTests: XCTestCase {
         // deleted by the next author who checks the reason.
         for selection: CanvasSelection in [.node(a), .region(CanvasRegionID("r")),
                                            .line(CanvasLineID("l"))] {
-            XCTAssertTrue(CanvasPromotionModifier.isPromotable(binderSegment: .canvas,
-                                                               selection: selection,
-                                                               nodeKind: .scrap),
-                          "\(selection)")
+            XCTAssertTrue(CanvasPromotionModifier.isPromotable(
+                persona: .plan, interimSegment: .canvas,
+                selection: selection, nodeKind: .scrap),
+                "\(selection)")
         }
     }
 

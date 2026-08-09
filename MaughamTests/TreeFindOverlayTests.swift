@@ -120,8 +120,11 @@ final class TreeFindOverlayTests: XCTestCase {
     /// Denver's 2026-08-02 ruling — running `⌘⌥F` must not silently remove the
     /// goal capsule, the session words and the `¶id`/element readout — used to
     /// be carried by `BinderSegment.showsManuscriptStatusFooter`'s `.find` arm.
-    /// It holds by construction now: the gate's two inputs are the segment and
-    /// the subject, and opening the overlay writes neither.
+    /// It holds by construction now: the gate's inputs are the persona, the
+    /// segment and the subject, and opening the overlay writes none of them.
+    /// (The predicate the `.find` arm lived on was deleted in stage 2b Task 6
+    /// and the gate re-based onto the persona; this assertion is what says the
+    /// ruling survived the move, because it never depended on the arm.)
     func test_openingTheOverlayCannotTakeTheStatusFooterAway() async throws {
         let store = try await project(of: .novel)
         let subject = BinderSubject.item("ch-1")
@@ -132,13 +135,15 @@ final class TreeFindOverlayTests: XCTestCase {
             let window = host(box, FindOverlayProbeView(
                 store: store, box: box, persona: persona))
             let before = ProjectWindow.showsStatusFooter(
-                binderSegment: box.segment, subject: box.subject)
+                persona: persona, interimSegment: box.segment,
+                subject: box.subject)
 
             box.treeFindActive = true
             await pumpUntil(deadline: 5) { self.queryField(in: window) != nil }
 
             let after = ProjectWindow.showsStatusFooter(
-                binderSegment: box.segment, subject: box.subject)
+                persona: persona, interimSegment: box.segment,
+                subject: box.subject)
             XCTAssertEqual(before, after,
                            "\(persona): opening find changed the footer's "
                            + "answer, so it moved one of the two inputs the "
@@ -146,7 +151,8 @@ final class TreeFindOverlayTests: XCTestCase {
         }
         XCTAssertTrue(
             ProjectWindow.showsStatusFooter(
-                binderSegment: Persona.author.binderHome(for: .novel),
+                persona: .author,
+                interimSegment: Persona.author.binderHome(for: .novel),
                 subject: subject),
             "premise: the case the ruling is about — a writer in Author with a "
             + "document in the centre — has a footer to lose in the first place")
@@ -306,7 +312,7 @@ final class TreeFindOverlayTests: XCTestCase {
     /// its own `selectedResearchId` rather than the window's subject, so a
     /// subject taking one of its columns would be a room with no door — the 2a
     /// final review's Critical, guarded by
-    /// `BinderSegment.leftPaneWritesTheSubject`. A match clicked there is still
+    /// `BinderSegment.interimLeftPaneIsTheTree`. A match clicked there is still
     /// visible: the second write puts the selection in that same tree, which is
     /// what the writer sees when the overlay comes down. Plan's `.tree` — the
     /// segment whose left column IS the subject-writing tree — routes it beside
@@ -315,20 +321,22 @@ final class TreeFindOverlayTests: XCTestCase {
         let subject = BinderSubject.research("res-note")
         XCTAssertEqual(
             ProjectWindow.researchSubjectPlacement(
-                binderSegment: Persona.author.binderHome(for: .novel),
+                persona: .author,
+                interimSegment: Persona.author.binderHome(for: .novel),
                 subject: subject),
             .takesTheCentre("res-note"),
             "in Author the note the writer just found must take the centre — "
             + "the whole of the gap was that it took nothing")
         XCTAssertEqual(
             ProjectWindow.researchSubjectPlacement(
-                binderSegment: .tree, subject: subject),
+                persona: .plan, interimSegment: .tree, subject: subject),
             .besideTheCanvas("res-note"),
             "on Plan's tree the canvas stays mounted and the right column "
             + "previews it")
         XCTAssertEqual(
             ProjectWindow.researchSubjectPlacement(
-                binderSegment: Persona.plan.binderHome(for: .novel),
+                persona: .plan,
+                interimSegment: Persona.plan.binderHome(for: .novel),
                 subject: subject),
             .segmentStands,
             "Plan's canvas home still refuses a research subject, and must — "

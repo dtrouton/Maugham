@@ -248,8 +248,10 @@ final class CanvasCollapseTests: XCTestCase {
         XCTAssertEqual(window.canvasStash, false, "the closed inspector is what gets remembered")
 
         // Pass 2 — ⌘2. PersonaModifier's own handler, synchronously.
-        if PersonaModifier.releasesCanvasCollapse(from: .canvas,
-                                                  to: .manuscript,
+        if PersonaModifier.releasesCanvasCollapse(fromPersona: .plan,
+                                                  fromSegment: .canvas,
+                                                  toPersona: .author,
+                                                  toSegment: .manuscript,
                                                   stash: window.canvasStash) {
             window.canvasStash = nil
             window.columnVisibility = .all
@@ -382,31 +384,45 @@ final class CanvasCollapseTests: XCTestCase {
 
     func test_thePredicateFiresOnlyWhenALiveCollapseLeavesTheCanvas() {
         XCTAssertTrue(
-            PersonaModifier.releasesCanvasCollapse(from: .canvas, to: .manuscript, stash: true),
+            PersonaModifier.releasesCanvasCollapse(
+                fromPersona: .plan, fromSegment: .canvas,
+                toPersona: .author, toSegment: .manuscript, stash: true),
             "leaving the canvas with a collapse in force releases it")
         XCTAssertTrue(
-            PersonaModifier.releasesCanvasCollapse(from: .canvas, to: .research, stash: false),
+            PersonaModifier.releasesCanvasCollapse(
+                fromPersona: .plan, fromSegment: .canvas,
+                toPersona: .plan, toSegment: .research, stash: false),
             "and a stashed `false` is a live collapse just as much as a `true` — "
-            + "the flag is optionality, not the value")
+            + "the flag is optionality, not the value. **The destination is Plan "
+            + "here and the release still fires**: Plan's Research tab has an "
+            + "old pane in the centre, not the board, so the writer HAS left "
+            + "the canvas without leaving the persona (the interim term in "
+            + "`Persona.centresTheCanvas(interimSegment:)`, Task 7's to delete)")
     }
 
     /// The controls, one per way the predicate could be made to fire everywhere.
     func test_thePredicateIsFalseWhenTheCanvasSurvivesTheSwitch() {
         XCTAssertFalse(
-            PersonaModifier.releasesCanvasCollapse(from: .canvas, to: .canvas, stash: true),
+            PersonaModifier.releasesCanvasCollapse(
+                fromPersona: .plan, fromSegment: .canvas,
+                toPersona: .plan, toSegment: .canvas, stash: true),
             "⌘1 while already in Plan keeps the collapse")
     }
 
     func test_thePredicateIsFalseWhenNothingWasCollapsed() {
         XCTAssertFalse(
-            PersonaModifier.releasesCanvasCollapse(from: .canvas, to: .manuscript, stash: nil),
+            PersonaModifier.releasesCanvasCollapse(
+                fromPersona: .plan, fromSegment: .canvas,
+                toPersona: .author, toSegment: .manuscript, stash: nil),
             "a persona switch off an UNCOLLAPSED canvas reopens nothing — the "
             + "writer may have dragged the sidebar shut themselves")
     }
 
     func test_thePredicateIsFalseWhenTheBinderWasNotOnTheCanvas() {
         XCTAssertFalse(
-            PersonaModifier.releasesCanvasCollapse(from: .manuscript, to: .research, stash: true),
+            PersonaModifier.releasesCanvasCollapse(
+                fromPersona: .author, fromSegment: .manuscript,
+                toPersona: .author, toSegment: .research, stash: true),
             "a switch that never touched the canvas is not this rule's business")
     }
 
@@ -444,7 +460,9 @@ final class CanvasCollapseTests: XCTestCase {
         for from in [BinderSegment.canvas, .tree] {
             for to in [BinderSegment.canvas, .tree] {
                 XCTAssertFalse(
-                    PersonaModifier.releasesCanvasCollapse(from: from, to: to, stash: true),
+                    PersonaModifier.releasesCanvasCollapse(
+                        fromPersona: .plan, fromSegment: from,
+                        toPersona: .plan, toSegment: to, stash: true),
                     "\(from) → \(to): the canvas is the centre on both sides")
             }
         }
@@ -453,11 +471,22 @@ final class CanvasCollapseTests: XCTestCase {
     /// And the half that says the widening did not swallow the rule: leaving the
     /// canvas centre ALTOGETHER still releases, from either segment.
     func test_leavingTheCanvasCentreFromEitherSegmentStillReleases() {
+        // The destination persona is the one that OWNS the destination segment,
+        // which is what a real `applyPersonaChange` hands this predicate: the
+        // manuscript home belongs to Author, and Plan's own two old panes are
+        // still Plan's until Task 7 takes them.
+        let destinations: [(Persona, BinderSegment)] = [
+            (.author, .manuscript), (.author, .scenes),
+            (.plan, .research), (.plan, .palette)
+        ]
         for from in [BinderSegment.canvas, .tree] {
-            for to in [BinderSegment.manuscript, .scenes, .research, .palette] {
+            for (toPersona, to) in destinations {
                 XCTAssertTrue(
-                    PersonaModifier.releasesCanvasCollapse(from: from, to: to, stash: true),
-                    "\(from) → \(to): the canvas is gone, so the sidebar comes back")
+                    PersonaModifier.releasesCanvasCollapse(
+                        fromPersona: .plan, fromSegment: from,
+                        toPersona: toPersona, toSegment: to, stash: true),
+                    "\(from) → \(toPersona)/\(to): the canvas is gone, so the "
+                    + "sidebar comes back")
             }
         }
     }
@@ -471,12 +500,14 @@ final class CanvasCollapseTests: XCTestCase {
             for isNoChromeOn in [true, false] {
                 for stash in stashes {
                     let onCanvas = ProjectWindow.canvasCollapse(
-                        route: ProjectWindow.inspectorRoute(binderSegment: .canvas,
+                        route: ProjectWindow.inspectorRoute(persona: .plan,
+                                                            interimSegment: .canvas,
                                                             projectType: type),
                         isNoChromeOn: isNoChromeOn, showInspector: true,
                         stash: stash, paletteStash: nil)
                     let onTree = ProjectWindow.canvasCollapse(
-                        route: ProjectWindow.inspectorRoute(binderSegment: .tree,
+                        route: ProjectWindow.inspectorRoute(persona: .plan,
+                                                            interimSegment: .tree,
                                                             projectType: type),
                         isNoChromeOn: isNoChromeOn, showInspector: true,
                         stash: stash, paletteStash: nil)

@@ -70,11 +70,13 @@ final class ManuscriptForceCensusTests: XCTestCase {
     /// project types, so each accepted a segment its own project type never
     /// offers and each would have needed editing by hand for a fifth type.
     ///
-    /// The footer now asks `BinderSegment.showsManuscriptStatusFooter` (a
-    /// switch, because a future segment centring the editor has to be asked)
-    /// and both Exports gates ask `documentHome(for:)` (a derivation, because
-    /// "not the manuscript tree, so no Exports list" needs no asking). Neither
-    /// spelling is writable in these three files any more.
+    /// The footer asks `ProjectWindow.showsStatusFooter`, and since shell-finish
+    /// stage 2b Task 6 that reads the PERSONA (`Persona.showsManuscriptDocuments`)
+    /// — a question about the centre column, which is what the footer follows.
+    /// Both Exports gates read the persona too (`persona != .plan`), because
+    /// after Task 7 all four personas have the same left column and nothing
+    /// about the tree can tell them apart; what is left is what the writer is
+    /// doing. Neither hand-spelling is writable in these three files any more.
     private static let handSpelledHomes: [(name: String, pattern: String, plant: String)] = [
         ("the document home hand-spelled as a segment equality",
          #"(?:binderSegment|segment) == \.(?:manuscript|scenes)\b"#,
@@ -133,13 +135,24 @@ final class ManuscriptForceCensusTests: XCTestCase {
     /// there at all.** Deleting the Exports condition outright leaves no wrong
     /// spelling behind — the list simply renders under every segment, including
     /// Plan's canvas. Both toggles are named rather than counted.
-    func test_bothTogglesStillGateExportsOnTheDocumentHome() throws {
+    func test_bothTogglesStillGateExportsOnAPersonaThatPublishes() throws {
         for path in ["Maugham/Views/BinderPaneToggle.swift",
                      "Maugham/Views/CollectionBinderPaneToggle.swift"] {
             let text = try source(path)
-            XCTAssertTrue(text.contains("segment == .documentHome(for:"),
+            XCTAssertTrue(text.contains("if persona != .plan"),
                           "\(path): the Exports footer no longer gates on the "
-                          + "project's document home")
+                          + "persona — a compile-output list under Plan's tree "
+                          + "is not what a writer arranging structure is doing")
+            // **The interim half, and it is load-bearing until Task 7 deletes
+            // it.** Author can be FORCED onto `.research` (`openResearchItem`,
+            // the MCP note banner's Show) and can restore onto `.palette`, and
+            // the Exports list has never rendered under either of those lists.
+            // Dropping this conjunct with the persona one in place is not a
+            // simplification; it is a visibility change.
+            XCTAssertTrue(text.contains("segment.interimLeftPaneIsTheTree"),
+                          "\(path): the Exports footer no longer asks whether "
+                          + "the left column is the tree, so it now renders "
+                          + "under a forced Research or a restored Palette")
         }
     }
 

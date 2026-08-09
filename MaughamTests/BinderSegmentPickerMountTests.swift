@@ -701,7 +701,10 @@ final class BinderSegmentPickerMountTests: XCTestCase {
 /// `fittingSize` measurement (`test_theCallerWrapperAddsNoResidueBeyondThePickerItself`)
 /// or a source read can see one. This is the source read: two `Divider()`s in
 /// each caller as of shell-finish stage 2b Task 2 — the Exports footer's own
-/// (gated on `segment == .documentHome(for:)`) and the trash foot disclosure's
+/// (gated on the persona since stage 2b Task 6 — it was
+/// `segment == .documentHome(for:)`, and `ManuscriptForceCensusTests` owns that
+/// gate's spelling; all this census cares about is that it is still ONE
+/// conditional `Divider()`) and the trash foot disclosure's
 /// (gated on `!store.trashEntries.isEmpty`) — never a THIRD, and never one
 /// spelled unconditionally beside `BinderSegmentPicker(...)` — the shape fix
 /// round 1 removed. The count alone would miss a ghost that swapped places
