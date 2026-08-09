@@ -342,10 +342,12 @@ struct BinderTreeVerbs {
             delete: { id in
                 perform { try await store.deleteResearchItem(id: id) }
             },
-            // **2a is single-select** (plan constraint): the tree's selection is
-            // the window's one subject, so the acting set for a row is that row.
-            // Multiselect survives in the old panes until 2b, which carries it.
-            selectionForRow: { [$0] },
+            // **The whole selection when the row is inside one** (stage-2b Task
+            // 3). 2a's `{ [$0] }` was the tree's one concession to being
+            // single-select, and the batch verbs the old panes carry — "Delete N
+            // Items", a multi "Move to ▸", a batch drag — are all built on this
+            // one closure, so widening it is what carries them across.
+            selectionForRow: { rowId in actingIds(forRow: rowId) },
             moveTargets: { ids in
                 ResearchSelectionSync.moveTargets(forIds: ids, manifest: store.manifest)
             },
@@ -355,6 +357,27 @@ struct BinderTreeVerbs {
             deleteMany: { ids in
                 perform { try await store.deleteResearchItems(ids: ids) }
             })
+    }
+
+    /// **What a verb aimed at `rowId` acts on** — the tree's whole selection
+    /// when that row is in it, else the row alone (stage-2b Task 3).
+    ///
+    /// It reads the SHOWN selection rather than the stored one, which matters
+    /// the moment the subject moved without a click: a note created from a
+    /// section header collapses the tree onto itself, and a menu built from the
+    /// stored set would still offer "Delete 3 Items" over rows the tree has
+    /// stopped highlighting. One projection, both readers.
+    ///
+    /// Not `private`: `BinderTreeDrops` is a file over and a batch DRAG carries
+    /// the same ids a batch menu verb does — a drag that moved only the row
+    /// under the cursor while three were highlighted is the same defect wearing
+    /// a different gesture.
+    func actingIds(forRow rowId: String) -> [String] {
+        BinderTreeSelection.actingResearchIds(
+            forRow: rowId,
+            selection: BinderTreeSelection.shown(state.selection,
+                                                 subject: selectedSubject),
+            research: store.manifest.research)
     }
 
     private func addFile(parentId: String?) {
@@ -464,6 +487,21 @@ final class BinderTreeSectionsState {
     var addLinkParentId: String?
     /// Palette cards, parsed from disk once per manifest change (tripwire 4).
     var cards: [PaletteCard] = []
+    /// **The tree's `List` selection** (stage-2b Task 3) — every row of it, not
+    /// just the sections': the whole tree is one `List`, and one selection is
+    /// what a `List` has.
+    ///
+    /// It lives on the sections' state rather than in each host because that is
+    /// where the verbs can already reach it. `BinderTreeVerbs` is handed this
+    /// object, and *what a right-click acts on* is a verb's question
+    /// (`selectionForRow`) — a selection held privately by each of the three
+    /// hosts would have to be threaded back down to the bundle through three
+    /// call sites and `BinderPieceFold`, and the copy that drifts is the one
+    /// nobody has to keep in step.
+    ///
+    /// The window's subject is DERIVED from this and never stored twice — see
+    /// `BinderTreeSelection`.
+    var selection: Set<BinderSubject> = []
 
     init() {}
 }
@@ -573,15 +611,142 @@ enum BinderTreeSelection {
         }
     }
 
-    /// `subject` as a `List(selection:)` binding: reads the window's subject
-    /// straight through (a tree highlights whichever of its rows the window is
-    /// about, and nothing when it draws no row for it), writes through the rule.
-    static func binding(_ subject: Binding<BinderSubject?>) -> Binding<BinderSubject?> {
+    // MARK: - More than one row (stage-2b Task 3)
+
+    /// **The tree selects a SET, and the window's subject is derived from it.**
+    ///
+    /// Stage 2b deletes `ResearchView` and `CollectionResearchPane`, which are
+    /// the only surfaces in the app that can act on more than one note at a
+    /// time — a "Delete 3 Items", a multi "Move to ▸", a batch drag. Those
+    /// capabilities do not survive their panes unless the tree learns them, and
+    /// the tree cannot learn them while its `List` selects one value.
+    ///
+    /// **The subject is derived, never a second state.** There is no flag and no
+    /// `.onChange` reconciling the two (tripwire 2 — a flag-based loop guard
+    /// between two mirrors of the same thing leaked in exactly this shape in
+    /// Phase 3d): `shown` projects the stored set through the subject on the way
+    /// out, `resolved` derives the subject from the set on the way in, and both
+    /// are pure.
+    ///
+    /// **A write of one row never reaches the anchor rule.** `resolved` sends it
+    /// straight to `subject(_:whenListWrites:)` — the function stage 2a shipped,
+    /// unchanged — so single-click behaviour is what it was, structurally rather
+    /// than by argument, and 2a's mounted selection tests are this task's
+    /// regression net without a line changed in them.
+    ///
+    /// **There is no sweep here, deliberately.** A deleted note leaves its id in
+    /// the stored set, and nothing needs to chase it: the two places the set is
+    /// *read for meaning* — `ordered` and `actingResearchIds` — are built by
+    /// walking the live manifest, so a ghost cannot come out of either. A stale
+    /// id highlights no row (the `List` draws none for it) and reaches no plural
+    /// store verb. A second sweep beside `SubjectValidationModifier`'s would be
+    /// a second rule about what a dead id means, and the two would be free to
+    /// disagree.
+    static func shown(_ stored: Set<BinderSubject>,
+                      subject: BinderSubject?) -> Set<BinderSubject> {
+        guard let subject else { return [] }
+        // A subject the set does not hold arrived from somewhere other than a
+        // click — a creation, a restore, a navigation from another column — and
+        // it collapses the tree onto itself.
+        return stored.contains(subject) ? stored : [subject]
+    }
+
+    /// The selection and the subject after the `List` writes `written`.
+    ///
+    /// - Parameter single: the surface's own one-row rule. It defaults to this
+    ///   type's, and `SceneNavigatorPane` passes its own — that pane refuses an
+    ///   item it draws no row for, which is the one thing about its list the
+    ///   other two trees do not have. Handing the rule in keeps the count-of-one
+    ///   case each surface's own and the anchor case shared, rather than forking
+    ///   the whole projection.
+    static func resolved(
+        written: Set<BinderSubject>,
+        stored: Set<BinderSubject>,
+        subject: BinderSubject?,
+        structure: [StructureItem],
+        research: [ResearchItem],
+        single: (BinderSubject?, BinderSubject?) -> BinderSubject? = {
+            BinderTreeSelection.subject($0, whenListWrites: $1)
+        }
+    ) -> (selection: Set<BinderSubject>, subject: BinderSubject?) {
+        guard written.count > 1 else {
+            let next = single(subject, written.first)
+            // ACCEPTED — the surface's rule gave back the row that was written,
+            // so the tree holds that row and nothing else: a plain click
+            // replaces a selection, it does not add to one.
+            if let next, next == written.first { return ([next], next) }
+            // REFUSED — an untagged placeholder's empty write, or a document
+            // this surface draws no row for. Nothing moves, and that includes
+            // the selection: emptying it would take the writer's whole
+            // multi-selection away on a click at "No research yet."
+            return (stored, next)
+        }
+        // The anchor survives a set it is still in, so ⌘-clicking a second note
+        // does not move the editor off the first.
+        if let anchor = subject, written.contains(anchor) { return (written, anchor) }
+        // Otherwise the first of what is left, in the order the TREE draws —
+        // never `Set.first`, which is whatever hashing yields today.
+        return (written,
+                ordered(written, structure: structure, research: research).first
+                    ?? subject)
+    }
+
+    /// A selection in the order the tree draws it: the project row, then the
+    /// structure in tree order, then research — and nothing else, because it is
+    /// built by walking those two trees. That is what prunes a dead id.
+    static func ordered(_ selection: Set<BinderSubject>,
+                        structure: [StructureItem],
+                        research: [ResearchItem]) -> [BinderSubject] {
+        var out: [BinderSubject] = []
+        if selection.contains(.project) { out.append(.project) }
+        out += TreeWalk.collect(in: structure, where: { selection.contains(.item($0.id)) })
+            .map { BinderSubject.item($0.id) }
+        // The research half is `ResearchSelectionSync`'s, called rather than
+        // restated — it is the ordering the two research panes have always used
+        // and the one their batch verbs were built on.
+        out += ResearchSelectionSync.orderedSelection(
+            Set(selection.compactMap(\.researchID)), in: research)
+            .map(BinderSubject.research)
+        return out
+    }
+
+    /// **The ids a research row's verbs act on**: the whole selection when the
+    /// row is inside one, else that row alone — `ResearchSelectionSync`'s
+    /// shipped `expandedDragIds`, which is what both old panes' "Delete N
+    /// Items", multi "Move to ▸" and batch drag are built on.
+    ///
+    /// **Only a homogeneous research selection batches.** Structure has no
+    /// plural verbs — no batch delete, no batch move — so a set holding the
+    /// project row or a chapter degrades every research verb to the row it was
+    /// aimed at rather than inventing one for the manuscript.
+    static func actingResearchIds(forRow rowId: String,
+                                  selection: Set<BinderSubject>,
+                                  research: [ResearchItem]) -> [String] {
+        guard selection.count > 1,
+              selection.allSatisfy({ $0.researchID != nil }) else { return [rowId] }
+        return ResearchSelectionSync.expandedDragIds(
+            draggedId: rowId,
+            selection: Set(selection.compactMap(\.researchID)),
+            in: research)
+    }
+
+    /// The tree's `List(selection:)` binding, for the two hosts whose rows are
+    /// all their own. `SceneNavigatorPane` builds its own out of the same parts
+    /// — see its `listSelection`.
+    @MainActor
+    static func binding(subject: Binding<BinderSubject?>,
+                        state: BinderTreeSectionsState,
+                        store: ProjectStore) -> Binding<Set<BinderSubject>> {
         Binding(
-            get: { subject.wrappedValue },
+            get: { shown(state.selection, subject: subject.wrappedValue) },
             set: { written in
-                subject.wrappedValue = Self.subject(
-                    subject.wrappedValue, whenListWrites: written)
+                let next = resolved(
+                    written: written, stored: state.selection,
+                    subject: subject.wrappedValue,
+                    structure: store.manifest.structure,
+                    research: store.manifest.research)
+                state.selection = next.selection
+                subject.wrappedValue = next.subject
             })
     }
 }

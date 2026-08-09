@@ -39,7 +39,13 @@ struct BinderView: View {
         // are empty, and the measurement above is exactly why one of those may
         // not reach the binding. `BinderTreeSelection` refuses the `nil`; every
         // tagged row still writes straight through.
-        List(selection: BinderTreeSelection.binding($selectedSubject)) {
+        //
+        // **And it is a SET** (stage-2b Task 3), because 2b deletes the panes
+        // that hold the app's only batch verbs and the tree has to carry them.
+        // The window still has exactly one subject: it is derived from the set,
+        // and a write of one row goes through the very rule 2a shipped.
+        List(selection: BinderTreeSelection.binding(
+                subject: $selectedSubject, state: treeState, store: store)) {
             projectRow
             outline(items: store.manifest.structure)
             // Below everything the tree already had — the sections are furniture

@@ -713,7 +713,10 @@ private struct FoldAndSectionsProbeView: View {
 
     var body: some View {
         let subject = Binding(get: { probe.subject }, set: { probe.subject = $0 })
-        List(selection: BinderTreeSelection.binding(subject)) {
+        // The hosts' own binding — a SET since stage-2b Task 3, over the same
+        // state this probe already hands the fold and the sections.
+        List(selection: BinderTreeSelection.binding(
+                subject: subject, state: state, store: store)) {
             DisclosureGroup {
                 BinderPieceFold(
                     store: store, state: state, selectedSubject: subject,

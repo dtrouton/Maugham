@@ -176,12 +176,37 @@ struct SceneNavigatorPane: View {
     /// means, through `subject(_:whenNavigatingTo:)`. Ordering between the two
     /// does not matter, which is the point — there is no flag and no guard here
     /// (tripwire 2), just a value that ignores writes it has no meaning for.
-    private var listSelection: Binding<BinderSubject?> {
+    ///
+    /// **It selects a SET as of stage-2b Task 3**, like the other two trees, and
+    /// the pane's own rules do the same job one element at a time. Each is used
+    /// as a MAP rather than a test: `listSelection(for:)` sends a subject to the
+    /// row this pane shows for it, and `subject(_:whenListWrites:documentID:)`
+    /// — asked from no subject at all — sends a written row to the signal it
+    /// carries. A foreign document is the one input either drops, which is
+    /// exactly the refusal that made this pane's list a projection in the first
+    /// place. There is no second predicate beside them to fall out of step.
+    private var listSelection: Binding<Set<BinderSubject>> {
         Binding(
-            get: { Self.listSelection(for: selectedSubject, documentID: documentID) },
+            get: {
+                Set(BinderTreeSelection
+                    .shown(treeState.selection, subject: selectedSubject)
+                    .compactMap { Self.listSelection(for: $0, documentID: documentID) })
+            },
             set: { written in
-                selectedSubject = Self.subject(
-                    selectedSubject, whenListWrites: written, documentID: documentID)
+                let mine = Set(written.compactMap {
+                    Self.subject(nil, whenListWrites: $0, documentID: documentID)
+                })
+                let next = BinderTreeSelection.resolved(
+                    written: mine, stored: treeState.selection,
+                    subject: selectedSubject,
+                    structure: store.manifest.structure,
+                    research: store.manifest.research,
+                    // One row written is still this pane's own rule, unchanged
+                    // — including the `nil` an untagged slugline writes.
+                    single: { Self.subject($0, whenListWrites: $1,
+                                           documentID: documentID) })
+                treeState.selection = next.selection
+                selectedSubject = next.subject
             })
     }
 

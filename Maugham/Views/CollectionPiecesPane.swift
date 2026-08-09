@@ -66,8 +66,13 @@ struct CollectionPiecesPane: View {
     /// when they are empty, and an untagged row writes `nil` through the
     /// binding — the same measurement this pane's empty state is shaped by.
     /// `BinderTreeSelection` refuses that `nil`; every tagged row is unaffected.
+    ///
+    /// **And it selects a SET** (stage-2b Task 3): the tree carries the batch
+    /// verbs the research panes 2b deletes used to hold. The window's one
+    /// subject is derived from that set — see `BinderTreeSelection`.
     private var pieceList: some View {
-        List(selection: BinderTreeSelection.binding($selectedSubject)) {
+        List(selection: BinderTreeSelection.binding(
+                subject: $selectedSubject, state: treeState, store: store)) {
             projectRow
             ForEach(store.manifest.structure) { piece in
                 pieceEntry(for: piece)

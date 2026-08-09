@@ -320,7 +320,13 @@ enum TreeDropIntent {
 
     /// The move destination that means "beside this row": its parent group, or
     /// the root of the scope the row is in.
-    private static func container(
+    ///
+    /// Not `private` since stage-2b Task 3: a BATCH reorder has to name its
+    /// destination to the plural mover, and *"beside this row"* is this rule and
+    /// must not be spelled a second time in the performer — the piece-root case,
+    /// where a `nil` parent id reads as the shared root, is exactly the one a
+    /// re-derivation gets wrong (`BinderTreeVerbs.reorder`).
+    static func container(
         ofRow id: String, structure: [StructureItem], research: [ResearchItem]
     ) -> ResearchMoveTarget {
         if let parent = TreeWalk.first(in: research, where: {
