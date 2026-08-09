@@ -269,25 +269,36 @@ public struct CompileOrchestrator {
         // same `next_version`). Reserved AFTER the catalog guard so an
         // already-published edition still gets the "already exists" refusal,
         // which names the actual remedy.
+        //
+        // A dry run is EXEMPT (M1, whole-branch review): it answers "would this
+        // compile?" and returns before the snapshot, the compilers and the
+        // catalog append, so it mints nothing a concurrent compile could
+        // duplicate. Refusing it — or letting it hold the triple against a real
+        // compile — would be the gate charging a mutation's price for a
+        // question. The release below is paired to this same condition: a dry
+        // run that never reserved must never release, or it would hand back the
+        // in-flight compile's reservation.
         let mintKey = PublishMintGate.Key(
             version: effectiveVersion, language: language, format: format)
-        guard await mintGate.reserve(mintKey) else {
-            let langLabel = language ?? "source"
-            let diag = TectonicLogParser.Diagnostic(
-                level: .error,
-                file: nil, line: nil,
-                message: "Publication v\(effectiveVersion) (\(langLabel), \(format.rawValue)) is already compiling; wait for it to finish.",
-                contextLines: [
-                    "Another compile of the (version, language, format) triple '\(effectiveVersion)/\(langLabel)/\(format.rawValue)' is in flight in this app.",
-                    "Poll it with compile_status, or compile a different format/language."
-                ])
-            await jobManager.fail(
-                jobID: jobID,
-                errors: [diag],
-                logExcerpt: "mint_in_flight: \(effectiveVersion)/\(langLabel)/\(format.rawValue)")
-            return .failed(
-                errors: [diag],
-                logExcerpt: "mint_in_flight: \(effectiveVersion)/\(langLabel)/\(format.rawValue)")
+        if !dryRun {
+            guard await mintGate.reserve(mintKey) else {
+                let langLabel = language ?? "source"
+                let diag = TectonicLogParser.Diagnostic(
+                    level: .error,
+                    file: nil, line: nil,
+                    message: "Publication v\(effectiveVersion) (\(langLabel), \(format.rawValue)) is already compiling; wait for it to finish.",
+                    contextLines: [
+                        "Another compile of the (version, language, format) triple '\(effectiveVersion)/\(langLabel)/\(format.rawValue)' is in flight in this app.",
+                        "Poll it with compile_status, or compile a different format/language."
+                    ])
+                await jobManager.fail(
+                    jobID: jobID,
+                    errors: [diag],
+                    logExcerpt: "mint_in_flight: \(effectiveVersion)/\(langLabel)/\(format.rawValue)")
+                return .failed(
+                    errors: [diag],
+                    logExcerpt: "mint_in_flight: \(effectiveVersion)/\(langLabel)/\(format.rawValue)")
+            }
         }
 
         // Everything past the reservation lives in `compileReserved` so the
@@ -305,10 +316,10 @@ public struct CompileOrchestrator {
                 config: config, effective: effective,
                 effectiveVersion: effectiveVersion,
                 emitSource: emitSource, excludedSectionIDs: excludedSectionIDs)
-            await mintGate.release(mintKey)
+            if !dryRun { await mintGate.release(mintKey) }
             return outcome
         } catch {
-            await mintGate.release(mintKey)
+            if !dryRun { await mintGate.release(mintKey) }
             throw error
         }
     }

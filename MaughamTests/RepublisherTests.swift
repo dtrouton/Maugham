@@ -855,6 +855,178 @@ final class RepublisherTests: XCTestCase {
             "expected the republished filename '\(filename)' to contain its own version '\(pub.version)'")
     }
 
+    // MARK: - I1 (whole-branch review): the republish version is unique by
+    // construction, and a name already taken on disk is a loud failure
+    //
+    // The `-r<suffix>` is four hex characters — a 65,536-value pool that every
+    // republish of one edition draws from, since the mint always composes off
+    // the ORIGINAL row's version. Two draws colliding renders the identical
+    // filename, and the punishment used to be a silent `removeItem` of the
+    // earlier republish's artifact: the exact loss this branch closes, arriving
+    // by the one route the `-r` did not cover.
+
+    private func fakePub(version: String, snapshotID: String = "snap-x") -> Publication {
+        Publication(
+            publicationID: "pub-\(version)", version: version, label: nil,
+            format: .epub, outputPath: "Exports/\(version).epub",
+            snapshotID: snapshotID, checkpointID: "", republishedFrom: nil,
+            compiledAt: Date(), maughamVersion: "0.0.0-test",
+            tectonicVersion: "n/a", language: nil)
+    }
+
+    /// The mint re-draws while the composed version is taken, so it can never
+    /// hand back a version the catalog already holds. A scripted suffix source
+    /// makes the collision certain rather than a one-in-65,536 hope.
+    func test_theRepublishVersionMintSkipsVersionsTheCatalogAlreadyHolds() {
+        var draws = ["aaaa", "aaaa", "bbbb", "cccc"]
+        let minted = Republisher.uniqueRepublishVersion(
+            base: "0.1",
+            existing: [fakePub(version: "0.1"),
+                       fakePub(version: "0.1-raaaa"),
+                       fakePub(version: "0.1-rbbbb")],
+            mintSuffix: { draws.removeFirst() })
+        XCTAssertEqual(minted, "0.1-rcccc",
+            "the mint must re-draw past every taken version, not hand one back")
+    }
+
+    /// The free case is a single draw — no re-mint when nothing collides.
+    func test_theRepublishVersionMintKeepsItsFirstFreeDraw() {
+        var draws = ["aaaa", "bbbb"]
+        let minted = Republisher.uniqueRepublishVersion(
+            base: "0.1", existing: [fakePub(version: "0.1")],
+            mintSuffix: { draws.removeFirst() })
+        XCTAssertEqual(minted, "0.1-raaaa")
+        XCTAssertEqual(draws, ["bbbb"], "a free version must cost exactly one draw")
+    }
+
+    /// A snapshot with no prior catalog row still mints against the catalog:
+    /// the `republish-<suffix>` shape is drawn from the same small pool.
+    func test_theRepublishVersionMintSkipsTakenVersionsWithoutAPriorRow() {
+        var draws = ["aaaa", "bbbb"]
+        let minted = Republisher.uniqueRepublishVersion(
+            base: nil, existing: [fakePub(version: "republish-aaaa")],
+            mintSuffix: { draws.removeFirst() })
+        XCTAssertEqual(minted, "republish-bbbb")
+    }
+
+    /// And the second half: if something IS already at the destination path,
+    /// the republish fails loudly and leaves those bytes alone. The old code
+    /// deleted them. A pinned suffix makes the destination predictable, so the
+    /// test can occupy it.
+    func test_republishFailsLoudlyRatherThanDeletingWhatIsAlreadyAtItsDestination() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Occupied", author: "T")))
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: RepubSrc(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let initialPub, _) = initial else {
+            return XCTFail("initial compile failed: \(initial)")
+        }
+
+        // Pin the suffix so the republish's filename is knowable, then park a
+        // squatter file at exactly that path.
+        var r = Republisher(
+            projectURL: tmp, astSource: RepubSrc(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        r.mintSuffix = { "abcd" }
+
+        let snap = try snapStore.load(id: initialPub.snapshotID)
+        var pinned = snap.config
+        pinned.nextVersion = "\(initialPub.version)-rabcd"
+        let expectedName = OutputFilenameBuilder.make(
+            config: pinned, format: .epub, label: nil, language: nil)
+        let dest = tmp.appendingPathComponent("Exports").appendingPathComponent(expectedName)
+        let squatterBytes = Data("not the republish's to delete".utf8)
+        try squatterBytes.write(to: dest)
+
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+
+        guard case .failed(let errors, let log) = outcome else {
+            return XCTFail("expected a loud failure when the destination is occupied, got \(outcome)")
+        }
+        let message = errors.map(\.message).joined(separator: "\n")
+        XCTAssertTrue(message.contains(expectedName),
+            "the diagnostic must name the occupied path, got: \(message)")
+        XCTAssertTrue(log.contains("output_path_occupied"), log)
+
+        XCTAssertEqual(try Data(contentsOf: dest), squatterBytes,
+            "a republish must never delete what is already at its destination")
+        let pubs = try await pubStore.load()
+        XCTAssertEqual(pubs.count, 1,
+            "the refused republish must leave no catalog row behind: \(pubs.map(\.version))")
+    }
+
+    // MARK: - M4 (spec §3): the republish version is stamped INSIDE the artifact
+
+    /// Spec §3 asks that the `-r` version be asserted at the emission layer,
+    /// not just in the filename: a reader holding the file must be able to tell
+    /// which catalog row it is. The EPUB path is the honest cheap seam — its
+    /// OPF carries `maugham:version` from `config.nextVersion`, and an epub
+    /// compiles here without tectonic. (The PDF's `\MaughamVersion` is written
+    /// from the same `config.nextVersion`, one `\renewcommand` away, but
+    /// reading it back means a real tectonic run.)
+    func test_theRepublishedEPUBCarriesItsOwnVersionInsideTheArtifact() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Inside", author: "T")))
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: RepubSrc(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let initialPub, _) = initial else {
+            return XCTFail("initial compile failed: \(initial)")
+        }
+
+        let r = Republisher(
+            projectURL: tmp, astSource: RepubSrc(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .completed(let pub, _) = outcome else {
+            return XCTFail("republish failed: \(outcome)")
+        }
+        XCTAssertTrue(pub.version.contains("-r"), pub.version)
+
+        let opf = try opfXML(inEPUBAt: tmp.appendingPathComponent(pub.outputPath))
+        XCTAssertTrue(opf.contains("<meta property=\"maugham:version\">\(pub.version)</meta>"),
+            "the artifact must carry its OWN republish version, not the original's — OPF said: " +
+            (opf.split(separator: "\n").first { $0.contains("maugham:version") }.map(String.init) ?? "no version meta"))
+        XCTAssertFalse(
+            opf.contains("<meta property=\"maugham:version\">\(initialPub.version)</meta>"),
+            "the republished artifact must not stamp the ORIGINAL edition's version")
+    }
+
+    private func opfXML(inEPUBAt url: URL) throws -> String {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        proc.arguments = ["-p", url.path, "OEBPS/content.opf"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        try proc.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
     // MARK: - P3 (issue #25): republish re-validates the snapshot's config
 
     /// Sweep finding P3 was refuted by source (`PublishConfigValidator.swift:54-56`

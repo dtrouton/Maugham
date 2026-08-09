@@ -33,6 +33,12 @@ public struct Republisher {
     public let maughamVersion: String
     public let tectonicVersion: String
 
+    /// The random tail of a republish version (`<prior>-r<suffix>`). A stored
+    /// property rather than a literal so a test can make the minted version —
+    /// and therefore the output FILENAME — predictable; production never
+    /// replaces it. See `uniqueRepublishVersion(base:existing:mintSuffix:)`.
+    var mintSuffix: () -> String = Republisher.randomSuffix
+
     public init(
         projectURL: URL, astSource: ProjectASTBuilder.Source,
         publicationStore: PublicationStore,
@@ -83,17 +89,25 @@ public struct Republisher {
         // carry its edition `language` forward — the snapshot's config is
         // already language-effective (Task 7 Rule 1), but the compilers and
         // the new Publication record still need the tag explicitly to
-        // language-suffix the filename and tag the catalog entry.
+        // language-suffix the filename and tag the catalog entry. Through the
+        // store's own accessor, deliberately: `RepublishTool` resolves the
+        // prior the same way to drive translation substitution, and the two
+        // must not answer "which publication is prior" by different rules.
         let prior = try await publicationStore.publication(forSnapshotID: snapshotID)
         let priorVersion = prior?.version
+
+        // The whole catalog, for the mint below: the version it produces has to
+        // be free of every row, not just of the prior one. A second read of the
+        // same file, which is nothing beside the compile that follows.
+        let existing = try await publicationStore.load()
 
         // P1 (issue #25): the republish version is minted BEFORE compile and
         // stamped through the config — filename, artifact-internal stamp and
         // catalog row all agree, which is CompileOrchestrator's own stamp=row
         // invariant (its `effective.nextVersion = effectiveVersion`) arriving on
         // this path. Minted here, once: the append below must reuse this value.
-        let suffix = String(UUID().uuidString.prefix(4)).lowercased()
-        let newVersion = priorVersion.map { "\($0)-r\(suffix)" } ?? "republish-\(suffix)"
+        let newVersion = Self.uniqueRepublishVersion(
+            base: priorVersion, existing: existing, mintSuffix: mintSuffix)
         var effective = snap.config
         effective.nextVersion = newVersion
 
@@ -247,10 +261,25 @@ public struct Republisher {
             at: exports, withIntermediateDirectories: true)
         let dest = exports.appendingPathComponent(stageOutputURL.lastPathComponent)
         if FileManager.default.fileExists(atPath: dest.path) {
-            // Defensive only: with the republish version in the filename this can
-            // no longer collide with a SIBLING edition's file — it fires only when
-            // re-staging after a crashed prior move of this same republish.
-            try FileManager.default.removeItem(at: dest)
+            // The minted version is unique against the catalog, so nothing this
+            // republish knows about should be here — which is exactly why the
+            // answer is to stop rather than to delete. Whatever those bytes are
+            // (an orphan from a crash, a writer's own copy, a file the catalog
+            // has lost track of), they are not this job's to destroy: deleting
+            // them was the same silent loss the `-r` version exists to prevent,
+            // arriving through the one door it does not cover.
+            let rel = relativePath(dest.path, from: projectURL)
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: "A file already exists at \(rel); refusing to overwrite it.",
+                contextLines: [
+                    "The republished edition v\(newVersion) renders to that path, but something is already there and this republish did not put it there.",
+                    "Move or delete that file yourself if it is expendable, then republish again."
+                ])
+            await jobManager.fail(
+                jobID: jobID, errors: [diag],
+                logExcerpt: "output_path_occupied: \(rel)")
+            return .failed(errors: [diag], logExcerpt: "output_path_occupied: \(rel)")
         }
         try FileManager.default.moveItem(at: stageOutputURL, to: dest)
 
@@ -281,6 +310,45 @@ public struct Republisher {
         await jobManager.complete(jobID: jobID, outputPath: dest.path,
                                   warnings: allWarnings, errors: errors)
         return .completed(pub, warnings: allWarnings)
+    }
+
+    // MARK: - Minting the republish version
+
+    static func randomSuffix() -> String {
+        String(UUID().uuidString.prefix(4)).lowercased()
+    }
+
+    /// The version a republish of `base` mints, guaranteed absent from
+    /// `existing`.
+    ///
+    /// The suffix is four hex characters, and every republish of one edition
+    /// composes off the SAME `base` (the prior row is always the original), so
+    /// the draws all come from one 65,536-value pool — at which scale a
+    /// collision is luck running out, not an impossibility (tripwire 23's
+    /// lesson, one type over: mint unique, never mint random). A collision
+    /// would render the identical filename and put two catalog rows on one
+    /// file, which is the whole failure this branch exists to close.
+    static func uniqueRepublishVersion(
+        base: String?,
+        existing: [Publication],
+        mintSuffix: () -> String = Republisher.randomSuffix
+    ) -> String {
+        let taken = Set(existing.map(\.version))
+        func compose(_ suffix: String) -> String {
+            base.map { "\($0)-r\(suffix)" } ?? "republish-\(suffix)"
+        }
+        var candidate = compose(mintSuffix())
+        var redraws = 0
+        while taken.contains(candidate) {
+            redraws += 1
+            // Past a few unlucky draws it is the POOL that is the problem, not
+            // the luck: an edition republished thousands of times leaves the
+            // 4-char space too dense to draw a free value from reliably. Widen
+            // the tail rather than spin against a saturated pool.
+            candidate = compose(
+                redraws < 8 ? mintSuffix() : mintSuffix() + randomSuffix())
+        }
+        return candidate
     }
 
     private func relativePath(_ abs: String, from root: URL) -> String {

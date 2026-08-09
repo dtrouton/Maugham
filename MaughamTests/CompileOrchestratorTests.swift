@@ -902,4 +902,38 @@ final class CompileOrchestratorTests: XCTestCase {
             PublishMintGate.Key(version: "0.1", language: nil, format: .epub))
         XCTAssertTrue(free, "the gate must hold no reservation once the compile has returned")
     }
+
+    /// M1 (whole-branch review): a dry run answers "would this compile?" and
+    /// mutates nothing, so it must neither be refused by an in-flight compile
+    /// nor take the gate away from one. With the triple deliberately held, the
+    /// dry run must still ANSWER — and must leave the reservation exactly as
+    /// it found it, held by its real owner (a dry run that never reserved must
+    /// never release).
+    func testDryRun_answersWhileTheTripleIsInFlight_andTouchesNoReservation() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "DryHeld", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let gate = PublishMintGate()
+        let key = PublishMintGate.Key(version: "0.1", language: nil, format: .epub)
+        let reserved = await gate.reserve(key)
+        XCTAssertTrue(reserved, "fixture sanity: the triple must start held")
+
+        let result = try await makeOrch(configStore, pubStore, gate)
+            .compile(format: .epub, label: nil, dryRun: true)
+        guard case .dryRunPassed = result else {
+            return XCTFail("a dry run must answer rather than be refused by an in-flight compile, got \(result)")
+        }
+
+        // The real owner's reservation survives: the dry run neither took it
+        // nor handed back a reservation it never held.
+        let stillHeld = await gate._inFlightForTesting
+        XCTAssertEqual(stillHeld, [key],
+                       "the in-flight compile's reservation must survive the dry run, got: \(stillHeld)")
+
+        // And the dry run mutated nothing, as ever.
+        let pubs = try await pubStore.load()
+        XCTAssertTrue(pubs.isEmpty, "a dry run must mint nothing")
+        let cfg = try await configStore.load()
+        XCTAssertEqual(cfg?.nextVersion, "0.1", "a dry run must not bump next_version")
+    }
 }
