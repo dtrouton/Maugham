@@ -1,43 +1,67 @@
 [
   {
     "claim_id": "M8-IN-001",
-    "outcome": "VIOLATES",
+    "outcome": "COMPLIES",
     "ruling": "RULING-7",
     "clause_that_reaches_it": "Maugham never misrepresents a failure",
-    "why_in_scope": "a failed body write produces an empty research note reported as a successful promotion on both surfaces — the failure is not merely unmentioned, it is presented as its own opposite, and the capture's words survive only in a manifest history no surface shows",
+    "why_in_scope": "the body write is on the throwing path before the flip — a failed write is a failed promotion, never an empty note reported as success",
     "intent_expressed_when": "not at all",
     "call_path": "InboxPane Promote to Research / MCP promote_inbox_entry",
-    "violation_or_enhancement": "violation — the write joins the throwing path before the flip"
+    "violation_or_enhancement": "violation — the write joins the throwing path before the flip",
+    "fix": {
+      "commit": "6955c2d8",
+      "date": "2026-08-09",
+      "authorised_by": "RULING-7 (standing)",
+      "pinned_by": "InboxCharacterization.test_theResearchTextPromoteBodyWriteThrows"
+    }
   },
   {
     "claim_id": "M8-IN-002",
-    "outcome": "VIOLATES",
+    "outcome": "COMPLIES",
     "ruling": "RULING-7",
     "clause_that_reaches_it": "Maugham never misrepresents a failure",
-    "why_in_scope": "the one promote sibling whose terminal flip is non-throwing, AND the one that removes the original first — so its failure is reported as success while the retry it invites is permanently dead (assetMissing). The sibling asymmetry is RULING-8's shape too (same question, three orderings), but the conviction rides the misrepresentation: the palette ordering exists in the same file and its doc comment already argues why it is right",
+    "why_in_scope": "the asset arm adopts the palette ordering (copy, throwing flip, retire-after): a failed flip throws on both surfaces, the original stays, the retry succeeds",
     "intent_expressed_when": "not at all",
     "call_path": "InboxPane Promote to Research / MCP promote_inbox_entry",
-    "violation_or_enhancement": "violation — adopt the palette ordering (copy → throwing flip → retire)"
+    "violation_or_enhancement": "violation — adopt the palette ordering (copy → throwing flip → retire)",
+    "fix": {
+      "commit": "6955c2d8",
+      "date": "2026-08-09",
+      "authorised_by": "RULING-7 (standing)",
+      "pinned_by": "InboxCharacterization.test_aResearchAssetPromoteWhoseFlipFailsThrowsAndTheRetryLives; InboxPromoteTests.test_aFailedStatusFlipThrowsAndLeavesTheOriginalSoARetrySucceeds"
+    }
   },
   {
     "claim_id": "M8-IN-003",
-    "outcome": "VIOLATES",
+    "outcome": "COMPLIES",
     "ruling": "RULING-8",
     "clause_that_reaches_it": "a second code path may not answer the same question differently",
-    "why_in_scope": "'what does a retry after a failed flip do?' — the note arm converges (S8's dedup), the image arm duplicates. One operation, two arms, two answers; the S8 fix established convergence as the house answer and the image arm was left out",
+    "why_in_scope": "the image arm converges on retry via byte-equal dedup against the well's most recent image — the note arm's convergence, one kind over",
     "intent_expressed_when": "not at all",
     "call_path": "pane or MCP palette promote, retried",
-    "violation_or_enhancement": "violation — byte-equal dedup against the well's images"
+    "violation_or_enhancement": "violation — byte-equal dedup against the well's images",
+    "fix": {
+      "commit": "6955c2d8",
+      "date": "2026-08-09",
+      "authorised_by": "RULING-8 (standing)",
+      "pinned_by": "InboxCharacterization.test_aPaletteImageRetryConverges; InboxPromoteTests.test_aPaletteImageRetryDoesNotAppendASecondCopy"
+    }
   },
   {
     "claim_id": "M8-IN-004",
-    "outcome": "VIOLATES",
+    "outcome": "COMPLIES",
     "ruling": "RULING-8",
     "clause_that_reaches_it": "a second code path may not answer the same question differently",
-    "why_in_scope": "the same retry question on the third sibling: a second card lands. A promoted entry can never be re-sent (entryNotFound), so the ONLY reachable second send is the failed-flip retry — deriving the node id from the entry id makes it converge, the same shape as the canvas's own second-drop-reveals rule for research nodes",
+    "why_in_scope": "the capture node id is derived (cap-<entryId>) and both CanvasCapture arms skip a node already present — the failed-flip retry lands on the same card, the second-drop-reveals shape",
     "intent_expressed_when": "not at all",
     "call_path": "Send to Canvas, retried",
-    "violation_or_enhancement": "violation — derive the capture node id; a re-send lands on the same node"
+    "violation_or_enhancement": "violation — derive the capture node id; a re-send lands on the same node",
+    "fix": {
+      "commit": "6955c2d8",
+      "date": "2026-08-09",
+      "authorised_by": "RULING-8 (standing)",
+      "pinned_by": "InboxCharacterization.test_aCanvasRetryConvergesOnTheSameCard; InboxToCanvasTests.test_aRetryAfterAFailedFlipLandsOnTheSameCard"
+    }
   },
   {
     "claim_id": "M8-IN-005",
@@ -46,13 +70,19 @@
   },
   {
     "claim_id": "M8-IN-006",
-    "outcome": "VIOLATES",
+    "outcome": "COMPLIES",
     "ruling": "RULING-22",
     "clause_that_reaches_it": "controls are unambiguous and DO WHAT THEY SAY",
-    "why_in_scope": "the writer clicks Trash, the row stays, and nothing says why — the expectation was formed by the control's own label and the outcome differs from it with only an os_log line as witness. The append doc comment records the missing throwing channel as a compromise, which is intent about the CHANNEL, not about the silence",
+    "why_in_scope": "the pane's transitions ride throwing siblings (trashThrowing/restoreThrowing/updateTranscriptThrowing) and a failed append surfaces through the existing alert",
     "intent_expressed_when": "the channel: contemporaneous. The silence: not at all",
     "call_path": "any pane transition under a failing disk",
-    "violation_or_enhancement": "violation — the pane surfaces a failed transition through its existing alert"
+    "violation_or_enhancement": "violation — the pane surfaces a failed transition through its existing alert",
+    "fix": {
+      "commit": "6955c2d8",
+      "date": "2026-08-09",
+      "authorised_by": "RULING-22 (standing)",
+      "pinned_by": "InboxCharacterization.test_aTrashClickWhoseAppendFailsIsSilent (the store-level channel, which the worker keeps); the pane wiring in InboxPane"
+    }
   },
   {
     "claim_id": "M8-IN-007",
@@ -96,23 +126,38 @@
   },
   {
     "claim_id": "M8-IN-012",
-    "outcome": "VIOLATES",
+    "outcome": "COMPLIES",
     "ruling": "RULING-7",
     "clause_that_reaches_it": "Unreadable is never presented as empty",
-    "why_in_scope": "the clause verbatim: an unreadable device manifest reads as an empty list, and every capture from that device vanishes from the pane with nothing said — the same defect class the v0.8.0 integrity work surfaced for the op log's parse-skip, unhandled on the inbox path",
+    "why_in_scope": "refresh() reads via JSONLAppendStore.loadStrict, records unreadable files in unreadableManifests, and the pane shows a notice naming them",
     "intent_expressed_when": "not at all",
     "call_path": "a permissions break, an iCloud stub, or any unreadable inbox file",
-    "violation_or_enhancement": "violation — refresh() records unreadable files and the pane says so"
+    "violation_or_enhancement": "violation — refresh() records unreadable files and the pane says so",
+    "fix": {
+      "commit": "6955c2d8",
+      "date": "2026-08-09",
+      "authorised_by": "RULING-7 (standing)",
+      "pinned_by": "InboxCharacterization.test_anUnreadableDeviceManifestIsRecordedNotSilent; InboxStoreLastWinsTests.test_anUnreadableManifestIsRecordedNotSilentlyEmpty"
+    }
   },
   {
     "_summary": {
       "reached": 9,
-      "complies": 3,
-      "violates": 6,
+      "complies": 9,
+      "violates": 0,
       "no_ruling": 3,
       "total": 12,
       "coverage": "75%",
       "by_ruling": {
+        "RULING-15": [
+          "M8-IN-011"
+        ],
+        "RULING-22": [
+          "M8-IN-006"
+        ],
+        "RULING-4": [
+          "M8-IN-009"
+        ],
         "RULING-7": [
           "M8-IN-001",
           "M8-IN-002",
@@ -122,15 +167,6 @@
         "RULING-8": [
           "M8-IN-003",
           "M8-IN-004"
-        ],
-        "RULING-22": [
-          "M8-IN-006"
-        ],
-        "RULING-4": [
-          "M8-IN-009"
-        ],
-        "RULING-15": [
-          "M8-IN-011"
         ]
       }
     }

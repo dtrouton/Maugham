@@ -54,9 +54,9 @@ why. **Read `register/RULINGS.md` and nothing else.**
 | `OpLog/Document+Annotations` (+`AnnotationDeriver`, `AnnotationInverse`) | 57 | 35% | 20 / 0 | `28-annotations-reconciliation.md` |
 | `Canvas/Promotion*` (the falsification module) | 78 | 67% | 52 / 0 | `29-promotion-falsification.md` |
 | `Publish/Republisher` (+`CompileOrchestrator`) | 11 | 91% | 10 / 0 | — |
-| `Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings) | 12 | 75% | 3 / 6 | — |
+| `Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings) | 12 | 75% | 9 / 0 | — |
 
-The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 257 further claims in their own files. **426 claims in the experiment, 405 reconciled.** The app layer stands at **148 complies / 6 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
+The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 257 further claims in their own files. **426 claims in the experiment, 405 reconciled.** The app layer stands at **154 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
 App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`).
 

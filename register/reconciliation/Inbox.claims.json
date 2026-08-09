@@ -3,10 +3,10 @@
     "claim_id": "M8-IN-001",
     "scope": "InboxStore.promoteToResearch — text arm",
     "kind": "POSTCONDITION",
-    "statement": "the research note's body write is a swallowed try?: a failed write produces an EMPTY note with the entry flipped .promoted and both surfaces told success — the capture's words then survive only in the promoted-hidden manifest history (and the write is skipped entirely when created.path is nil)",
+    "statement": "the research note's body write is on the throwing path BEFORE the flip (RULING-7, fixed 6955c2d8) — a failed write is a failed promotion on both surfaces, never an empty note reported as success",
     "source": {
       "type": "CHARACTERIZATION",
-      "ref": "InboxCharacterization.test_theResearchTextPromoteBodyWriteIsSwallowed"
+      "ref": "InboxCharacterization.test_theResearchTextPromoteBodyWriteThrows"
     },
     "warrant": "HIGH",
     "intent": "UNKNOWN",
@@ -19,10 +19,10 @@
     "claim_id": "M8-IN-002",
     "scope": "InboxStore.promoteToResearch — asset arm ordering",
     "kind": "POSTCONDITION",
-    "statement": "the asset arm trashes the inbox original BEFORE a NON-throwing status flip: a flip whose append fails still returns the created item (success on both surfaces), the entry stays .new in the pane, and every retry hits assetMissing permanently — the palette and canvas siblings both order copy → throwing flip → remove, so this is the one sibling that does not",
+    "statement": "the asset arm orders copy → throwing flip → retire-after (the palette sibling's ordering, adopted under RULING-7, fixed 6955c2d8): a failed flip throws, the inbox original stays in place, and the retry succeeds",
     "source": {
       "type": "CHARACTERIZATION",
-      "ref": "InboxCharacterization.test_aResearchAssetPromoteWhoseFlipFailsReportsSuccessAndStrandsTheEntry"
+      "ref": "InboxCharacterization.test_aResearchAssetPromoteWhoseFlipFailsThrowsAndTheRetryLives; InboxPromoteTests.test_aFailedStatusFlipThrowsAndLeavesTheOriginalSoARetrySucceeds"
     },
     "warrant": "HIGH",
     "intent": "UNKNOWN — the sibling doc comments record the divergence without defending it",
@@ -35,10 +35,10 @@
     "claim_id": "M8-IN-003",
     "scope": "InboxStore.promoteToPaletteCard — image retry",
     "kind": "POSTCONDITION",
-    "statement": "the palette NOTE arm converges on retry (last-note dedup, S8) while the palette IMAGE arm does not: a retry after a failed status flip appends a SECOND copy of the picture to the card's well",
+    "statement": "the palette image arm converges on retry (RULING-8, fixed 6955c2d8): byte-equal dedup against the well's most recent image — the note arm's convergence, one kind over",
     "source": {
       "type": "CHARACTERIZATION",
-      "ref": "InboxCharacterization.test_aPaletteImageRetryAppendsASecondImage"
+      "ref": "InboxCharacterization.test_aPaletteImageRetryConverges; InboxPromoteTests.test_aPaletteImageRetryDoesNotAppendASecondCopy"
     },
     "warrant": "HIGH",
     "intent": "UNKNOWN",
@@ -51,10 +51,10 @@
     "claim_id": "M8-IN-004",
     "scope": "InboxStore.sendToCanvas — retry",
     "kind": "POSTCONDITION",
-    "statement": "a retry after a failed status flip lands a SECOND card carrying the same capture's words — the canvas sibling has no convergence, though the node could be derived from the entry id (a promoted entry can never be re-sent, so the only second send IS the retry)",
+    "statement": "the capture's canvas node id is DERIVED (cap-<entryId>) and both CanvasCapture arms skip a node already present (RULING-8, fixed 6955c2d8): the only reachable second send — the failed-flip retry — lands on the same card",
     "source": {
       "type": "CHARACTERIZATION",
-      "ref": "InboxCharacterization.test_aCanvasRetryLandsASecondNode"
+      "ref": "InboxCharacterization.test_aCanvasRetryConvergesOnTheSameCard; InboxToCanvasTests.test_aRetryAfterAFailedFlipLandsOnTheSameCard"
     },
     "warrant": "HIGH",
     "intent": "UNKNOWN",
@@ -83,10 +83,10 @@
     "claim_id": "M8-IN-006",
     "scope": "InboxStore.updateStatus / updateTranscript — the pane transitions",
     "kind": "POSTCONDITION",
-    "statement": "a pane transition (trash, restore, transcript edit) whose manifest append fails completes SILENTLY: the channel is non-throwing, the row springs back on refresh, and the only witness is an os_log line — nothing tells the writer why their click did not take",
+    "statement": "the pane's transitions (trash, restore, transcript edit) ride throwing siblings and surface a failed append through the pane's alert (RULING-22, fixed 6955c2d8); the store keeps the non-throwing channel for the worker's transcript write, whose retry is the next drain",
     "source": {
       "type": "CHARACTERIZATION",
-      "ref": "InboxCharacterization.test_aTrashClickWhoseAppendFailsIsSilent"
+      "ref": "InboxCharacterization.test_aTrashClickWhoseAppendFailsIsSilent (the store-level channel, which the worker keeps); the pane wiring in InboxPane"
     },
     "warrant": "HIGH",
     "intent": "INTENTIONAL-as-compromise — the append doc comment records the missing throwing channel",
@@ -179,10 +179,10 @@
     "claim_id": "M8-IN-012",
     "scope": "InboxStore.refresh — an unreadable device manifest",
     "kind": "POSTCONDITION",
-    "statement": "an unreadable per-device manifest is presented as EMPTY (try? … ?? [] per file): every capture from that device vanishes from the pane and the trash view with nothing said anywhere — the captures are intact on disk, and no API carries the failure",
+    "statement": "an unreadable device manifest is RECORDED (unreadableManifests, via JSONLAppendStore.loadStrict — unreadable-yet-present throws, absent is still empty) and the pane shows a notice naming it (RULING-7, fixed 6955c2d8); the lenient load() keeps its contract for the op log/checkpoints/publications/tasks consumers — a residual records that each should decide deliberately",
     "source": {
       "type": "CHARACTERIZATION",
-      "ref": "InboxCharacterization.test_anUnreadableDeviceManifestVanishesSilently"
+      "ref": "InboxCharacterization.test_anUnreadableDeviceManifestIsRecordedNotSilent; InboxStoreLastWinsTests.test_anUnreadableManifestIsRecordedNotSilentlyEmpty"
     },
     "warrant": "HIGH",
     "intent": "UNKNOWN",
