@@ -81,7 +81,8 @@ final class TrashStoreTests: XCTestCase {
             itemMetadata: metadata,
             originalParentId: nil,
             originalIndex: 0,
-            displayTitle: "Chapter 7")
+            displayTitle: "Chapter 7",
+            subject: .manuscriptItem)
 
         // Original is gone
         XCTAssertFalse(FileManager.default.fileExists(atPath: originalFile.path))
@@ -117,7 +118,8 @@ final class TrashStoreTests: XCTestCase {
             itemMetadata: Data("{\"id\":\"abc\"}".utf8),
             originalParentId: nil,
             originalIndex: 0,
-            displayTitle: "Chapter 9")
+            displayTitle: "Chapter 9",
+            subject: .manuscriptItem)
 
         let restored = try await store.restore(trashId: entry.id)
 
@@ -149,7 +151,8 @@ final class TrashStoreTests: XCTestCase {
             itemMetadata: Data("{\"id\":\"foo\"}".utf8),
             originalParentId: nil,
             originalIndex: 0,
-            displayTitle: "Foo")
+            displayTitle: "Foo",
+            subject: .manuscriptItem)
 
         try await store.permanentlyDelete(trashId: entry.id)
 

@@ -899,7 +899,7 @@ extension ProjectStore {
 
     /// Move the item's file or folder into the project's .trash/ folder and
     /// remove its manifest entry. The original file is recoverable via
-    /// restoreLastDeleted() or restoreTrashEntry(id:) within 30 days.
+    /// restoreLastDeletion() or restoreTrashEntry(id:) within 30 days.
     public func deleteStructureItem(id: String) async throws {
         guard let item = findItem(id: id, in: manifest.structure) else {
             throw ProjectStoreError.structureMissing
@@ -923,14 +923,16 @@ extension ProjectStore {
                 itemMetadata: metadata,
                 originalParentId: parentId,
                 originalIndex: index,
-                displayTitle: item.title)
+                displayTitle: item.title,
+                subject: .manuscriptItem)
         } else {
             entry = try await trashStore.moveToTrash( // internal-move: no DocumentStore (no registry to race)
                 fileRelativePath: path,
                 itemMetadata: metadata,
                 originalParentId: parentId,
                 originalIndex: index,
-                displayTitle: item.title)
+                displayTitle: item.title,
+                subject: .manuscriptItem)
         }
 
         removeFromStructure(id: id)
@@ -938,7 +940,7 @@ extension ProjectStore {
         try await saveManifest()
 
         trashEntries = (try? await trashStore.list()) ?? trashEntries
-        lastDeletedTrashId = entry.id
+        armDeletion(trashIds: [entry.id], label: item.title)
     }
 
     /// Wrap NSWorkspace.recycle's callback API in async/await.

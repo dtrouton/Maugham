@@ -57,7 +57,7 @@ final class TrashRestoreNestingTests: XCTestCase {
                        "Root should still have 2 items (Act One + Epilogue)")
 
         // Restore
-        try await store.restoreLastDeleted()
+        try await store.restoreLastDeletion()
 
         // ASSERT: Chapter 2 must be back under Act One (not appended to root)
         let actOneAfterRestore = store.manifest.structure

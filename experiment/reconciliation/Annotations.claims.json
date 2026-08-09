@@ -291,17 +291,18 @@
   "claim_id": "M5-AN-019",
   "scope": "Document.editReviewerAnnotation ⌘Z",
   "kind": "GUARD",
-  "statement": "the edit's undo is drift-guarded: the compensating edit is appended only while the annotation still shows the body this action wrote. On drift it declines silently — the menu item still reads 'Undo Edit Annotation', nothing happens and nothing is said",
+  "statement": "the edit's undo is drift-guarded: the compensating edit is appended only while the annotation still shows the body this action wrote. The guard is unchanged — it is what stops a concurrent edit being clobbered by capture-time state. On drift it now DECLINES OUT LOUD: the menu item read 'Undo Edit Annotation', so a project-scoped `.maughamDocumentNotice` says \"Couldn't undo the annotation edit — it changed on another device.\" and the window renders it in the toast RewindModifier owns",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "AnnotationsCharacterization.test_theEditUndoDeclinesSilentlyWhenTheAnnotationDrifted"
+   "ref": "AnnotationsCharacterization.test_theEditUndoDeclinesWhenTheAnnotationDrifted_andSaysSo (renamed from …DeclinesSilentlyWhenTheAnnotationDrifted — a pin whose NAME promised the defect) + production twin MaughamTests/OpLog/DocumentNoticeTests.test_theAnnotationEditUndoDeclineReachesTheWriter"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
   "reachability": "RACE — needs a change to the same annotation between registration and ⌘Z: a cross-device merge, or the phone editing the same row",
   "evidence": {
    "property_test": null
-  }
+  },
+  "fix_history": "Pinned the SILENCE (documentLog only, nothing writer-facing) until fixed PENDING on claude/spec-phase-2, 2026-08-09, under RULING-22"
  },
  {
   "claim_id": "M5-AN-020",
@@ -435,17 +436,18 @@
   "claim_id": "M5-AN-028",
   "scope": "Document.acceptAnnotation",
   "kind": "POSTCONDITION",
-  "statement": "accepting a WITHDRAWN suggestion still rewrites the manuscript. The creation op is in the mirror, so accept proceeds and splices; the annotation stays absent from the projection, so no row anywhere records that the paragraph was changed or offers to revert it",
+  "statement": "accepting a WITHDRAWN suggestion no longer rewrites the manuscript. The creation op is still in the mirror — which is why accept used to proceed and splice while the annotation stayed absent from the projection, leaving no row to notice it and no Revert to reach for — but `acceptAnnotation` now reads the withdraw/reopen pair latest-first (the deriver's own rule) and refuses BEFORE the append, so there is no accept op either. Reopening the annotation makes it acceptable again: the instruction has duration, not permanence",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "AnnotationsCharacterization.test_acceptingAWithdrawnSuggestionStillRewritesTheManuscript"
+   "ref": "AnnotationsCharacterization.test_acceptingAWithdrawnSuggestionDoesNotRewriteTheManuscript + production twin MaughamTests/OpLog/AnnotationConvergenceTests (test_acceptingAWithdrawnSuggestionDoesNotRewriteTheManuscript, test_reopeningAWithdrawnSuggestionMakesItAcceptableAgain)"
   },
   "warrant": "HIGH",
-  "intent": "UNKNOWN",
-  "reachability": "RACE — UNTRACED single-device; cross-device a second Mac's pane rendered before the withdraw merged still offers Accept on the row",
+  "intent": "INTENTIONAL — ruled (RULING-33, Denver 2026-08-08)",
+  "reachability": "NARROW on the Mac (verification 2026-08-09): isWithdrawn reads the mirror, so the guard can only fire once the withdraw has merged — the window is render→click, by which time the row is leaving. The WIDE exposure was the phone's stale detail view; closed by M5-AN-058's shared-rule guard.",
   "evidence": {
    "property_test": null
-  }
+  },
+  "fix_history": "Pinned the splice-a-deleted-annotation behaviour until fixed PENDING on claude/spec-phase-2, 2026-08-09, under RULING-33. The model's general race — a reject beating an already-spliced accept — is the same ruling's other half and is claimed separately at M5-AN-057"
  },
  {
   "claim_id": "M5-AN-029",
@@ -563,17 +565,18 @@
   "claim_id": "M5-AN-036",
   "scope": "Document.reopenAnnotation / AnnotationDeriver",
   "kind": "POSTCONDITION",
-  "statement": "annotationReopen is ONE op kind serving TWO inverses and the deriver reads it as both, so a reopen issued to undo a withdrawal also cancels an earlier archive or reject. ⌘Z on 'delete my annotation' therefore over-restores: an annotation the writer had archived comes back OPEN",
+  "statement": "annotationReopen is STILL one op kind serving two inverses and the deriver still reads it through both passes — a bare reopen after an archive-then-withdraw returns the annotation OPEN, and that is correct for the pane's Reopen and the phone's. What changed is the UNDO built on it: `withdrawReviewerAnnotation` captures the status the annotation held before the withdraw and re-applies it as a status-only lifecycle op after the reopen, so ⌘Z on 'delete my annotation' returns the note and nothing else — an archived one comes back archived, a rejected one back rejected with its reason",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "AnnotationsCharacterization.test_oneReopenCancelsBothAWithdrawalAndAnEarlierResolution"
+   "ref": "AnnotationsCharacterization.test_oneReopenCancelsBothInversesButTheWithdrawUndoNoLongerDoes + production twin MaughamTests/AnnotationLifecycleUndoTests (test_withdraw_undo_returnsAnArchivedNoteArchived, test_withdraw_undo_returnsARejectedNoteRejected_withItsReason, test_aDirectReopenOfAnArchivedNoteStillOpensIt)"
   },
   "warrant": "HIGH",
-  "intent": "UNKNOWN",
+  "intent": "INTENTIONAL — ruled (RULING-22, Denver 2026-08-08)",
   "reachability": "LIVE — archive your own note, delete it, press ⌘Z",
   "evidence": {
    "property_test": null
-  }
+  },
+  "fix_history": "Pinned the over-restore (one ⌘Z taking two of the writer's decisions) until fixed PENDING on claude/spec-phase-2, 2026-08-09, under RULING-22. Fixed at the withdraw's undo rather than in AnnotationInverse: the factory is cross-surface (tripwire 19) and the phone has no undo, so its reopen path is untouched"
  },
  {
   "claim_id": "M5-AN-037",
@@ -643,17 +646,18 @@
   "claim_id": "M5-AN-041",
   "scope": "Document.sweepOrphanedAnnotations",
   "kind": "POSTCONDITION",
-  "statement": "the sweep archives exactly the OPEN, non-craft-note annotations anchored to a paragraph in reason.removed, appending a claude_archive op each and returning Void. Nothing tells the writer: the note simply stops appearing in the pane's default view",
+  "statement": "the sweep archives exactly the OPEN, non-craft-note annotations anchored to a paragraph in reason.removed, appending a claude_archive op each — the ELIGIBILITY rule is unchanged and was never the defect. It no longer returns into silence: each successful archive increments `_sweptSinceLastReport`, and `flushBurstNow` spends that running total on one quiet summary at the burst boundary — 'While you edited: 3 notes archived.' Silent during the burst, batched across however many sweeps it contained, never a prompt",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "AnnotationsCharacterization.test_theSweepArchivesOpenAnchoredAnnotationsOnly"
+   "ref": "AnnotationsCharacterization.test_theSweepArchivesOpenAnchoredAnnotationsOnly + AnnotationsCharacterization.test_theSweepCountsWhatItArchivedForTheSummary + production twin MaughamTests/OpLog/DocumentNoticeTests (test_theSweepReportsWhatItArchived_atTheBurstBoundary, test_aBurstThatArchivesSeveralNotesIsOneSentence, test_theDeletionItselfSaysNothing, test_theCountIsSpentWhenItIsReported)"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
   "reachability": "LIVE — delete a paragraph that carries an open note; the sweep runs at the next burst flush",
   "evidence": {
    "property_test": null
-  }
+  },
+  "fix_history": "Pinned the unreported auto-archive until fixed PENDING on claude/spec-phase-2, 2026-08-09, under RULING-32. The asymmetry the filing named — rewind's half of the same sweep already reported via RewindRestoreResult.archivedAnnotationOpIds (RULING-28) — is now closed from both sides"
  },
  {
   "claim_id": "M5-AN-042",
@@ -723,13 +727,13 @@
   "claim_id": "M5-AN-046",
   "scope": "Document._opLogMirror",
   "kind": "POSTCONDITION",
-  "statement": "every annotation append pushes onto _opLogMirror without re-sorting. handleExternalLogChange REPLACES the mirror with a sorted merge, so the mirror is opId-ordered right up until the first local append after a merge that brought in a peer op with a higher ULID — after which it is not, and currentFoldBasis (documented as 'the last element is the newest') no longer holds",
+  "statement": "the live mirror stays opId-SORTED across merge-then-append: appendToMirror (the one mirror-append) re-sorts when a local op sorts before a merged-in peer op from an ahead clock; currentFoldBasis's 'last is newest' premise holds",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "AnnotationsCharacterization.test_theMirrorIsNotReSortedOnAppend"
+   "ref": "AnnotationsCharacterization.test_theMirrorStaysSortedAcrossMergeThenAppend"
   },
   "warrant": "HIGH",
-  "intent": "UNKNOWN",
+  "intent": "INTENTIONAL — ruled (RULING-36); fixed 2026-08-09",
   "reachability": "CROSS-DEVICE — needs a peer op whose ULID sorts after a subsequent local one, i.e. a second Mac whose clock is ahead",
   "evidence": {
    "property_test": null
@@ -739,13 +743,13 @@
   "claim_id": "M5-AN-047",
   "scope": "Deriver.derive(ops:upTo:) over _opLogMirror",
   "kind": "POSTCONDITION",
-  "statement": "over an unsorted mirror, derive(ops:upTo:) — which trusts caller order by design, being a timeline prefix — returns a state the document never held: a rewind to the writer's own newest moment renders the PEER's text. The annotation projection is unharmed, because it compares opIds rather than trusting order",
+  "statement": "a rewind's prefix is always the writer's real timeline: with the sorted mirror, derive(upTo:) at any moment renders what that moment held under the log's total order — never the peer's text at the writer's own moment",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "AnnotationsCharacterization.test_theMirrorIsNotReSortedOnAppend"
+   "ref": "AnnotationsCharacterization.test_theMirrorStaysSortedAcrossMergeThenAppend"
   },
   "warrant": "HIGH",
-  "intent": "UNKNOWN",
+  "intent": "INTENTIONAL — ruled (RULING-36); fixed 2026-08-09",
   "reachability": "CROSS-DEVICE — the verifier's not-chased thread, answered: yes, a merge path can leave a live mirror unsorted, and the opId-ordered premise breaks in rewind rather than in annotations",
   "evidence": {
    "property_test": null
@@ -876,6 +880,39 @@
   "warrant": "HIGH",
   "intent": "INTENTIONAL — ruled (RULING-34)",
   "reachability": "LIVE — the resolved view's Deleted section",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-057",
+  "scope": "Document.repairRejectedButSplicedAnnotations (handleExternalLogChange's post-merge pass)",
+  "kind": "INVARIANT",
+  "statement": "status and manuscript converge after a merge. Two independent derivations run over one log — status is the single latest LIFECYCLE op by opId, text is a fold of every op's changes in opId order — and nothing made them agree, so a reject beating an already-spliced accept settled `rejected` with the suggestion still in the manuscript, permanently (neither reject nor reopen could move text). The post-merge pass now appends a `claudeReject` carrying the INVERSE changes, stamped `synthesisSource = .rejectConvergence` and carrying the winning reject's userResponse: one op that is both the newest lifecycle op (status stays rejected) and the newest changes-carrying op (the text goes back). `Deriver.appliesToManuscript` admits `.claudeReject` for this and only this — every writer-issued reject still carries empty changes — and ProjectManifest.currentSchemaVersion went 4→5 because an older build folds none of it. Idempotent: once the repair is the newest payload the detection is false, so two devices repairing the same race cannot ping-pong. DECLINES loudly when the paragraph has drifted since the accept, leaving the disagreement visible rather than writing over the writer's own sentences",
+  "source": {
+   "type": "PROPERTY",
+   "ref": "formal/AnnotationRace.tla — NoRejectedButSpliced, VIOLATED at RejectCarriesInverse = FALSE (counterexample depth 9; TLC's states-to-violation count is worker/seed-dependent and not evidence) and HOLDING at TRUE over the full 7,709-state space; Swift twin MaughamTests/OpLog/AnnotationConvergenceTests"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-33, Denver 2026-08-08)",
+  "reachability": "RACE — accept on one Mac, reject on another that had not yet seen it, reject winning the opId order. ADR 0012 names the trigger ('reject on phone while accept on Mac') as ROUTINE overlap. Two devices, two ops, no clock skew required",
+  "evidence": {
+   "property_test": "formal/AnnotationRace_NoRejectedButSpliced.cfg (red, the shipped-before behaviour) / formal/AnnotationRace_Fixed_NoRejectedButSpliced.cfg (green) — one constant apart, same spec, BackupRetention's Fixed_ pattern"
+  },
+  "fix_history": "Filed by the formal-methods spike as FM-3 / GAP-A7 and left unfixed by design ('proving scope before code changes was the agreed mode; the fix is a real design decision rather than a patch'). Ruled RULING-33 on 2026-08-08 — the first ruling proved by a TLA+ model before it was made — and implemented PENDING on claude/spec-phase-2, 2026-08-09"
+ },
+ {
+  "claim_id": "M5-AN-058",
+  "scope": "AnnotationDeriver.isWithdrawn (shared) × AnnotationWriter.makeAccept(verifyingAgainst:) × AnnotationDetailView",
+  "kind": "INVARIANT",
+  "statement": "the withdrawn-or-not rule is ONE shared implementation (AnnotationDeriver.isWithdrawn) and the phone's accept verifies against a FRESH op read before splicing: a withdraw synced in while the detail view sat open refuses with the told-why, exactly as the Mac's guard does — the writer's question gets one answer on both surfaces",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MaughamPhoneTests/AnnotationWriterTests.test_accept_refusesAWithdrawnSuggestion_givenTheMergedOps"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — RULING-33 + RULING-8's sameness clause + tripwire 19",
+  "reachability": "LIVE — the phone's stale detail view was the WIDE half of the exposure",
   "evidence": {
    "property_test": null
   }

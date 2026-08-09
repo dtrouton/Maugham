@@ -88,12 +88,16 @@ final class ProjectManifestTests: XCTestCase {
         XCTAssertNoThrow(try makeISODecoder().decode(ProjectManifest.self, from: json))
     }
 
-    func test_schemaVersion4_isCurrent() {
+    func test_schemaVersion5_isCurrent() {
         // claudeAcceptRevert (2026-07-08) bumped the schema 1 -> 2; annotationReopen
         // (2026-07-09, ADR 0015 contract) bumped 2 -> 3; the `statements` section
         // (M1A, 2026-07-31) bumped 3 -> 4 — see ProjectManifest.statements for why
-        // an additive, absent-tolerant section still needs the bump.
-        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 4)
+        // an additive, absent-tolerant section still needs the bump. RULING-33
+        // (2026-08-09) bumped 4 -> 5: `claudeReject` became manuscript-affecting
+        // so the convergence repair can carry the inverse of the accept it beat,
+        // and an older build folding none of it would show the suggestion's text
+        // under a `rejected` status.
+        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 5)
     }
 
     func test_codable_roundTrips_withTypographyOverride() throws {

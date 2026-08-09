@@ -57,15 +57,27 @@ final class StatementTests: XCTestCase {
 
     // MARK: - The schema gate (the paired-release guarantee)
 
-    /// This build writes and supports schema 4. A schema-5 manifest — written by
-    /// a build that knows something we don't — must be refused up front rather
-    /// than decoded and re-saved with the newer section stripped.
-    func test_aSchemaFiveManifestIsRefusedByThisFourSupportingBuild() {
-        XCTAssertThrowsError(try ProjectManifest.decodeGuardingSchema(manifestJSON(schemaVersion: 5))) { error in
+    /// A manifest written by a build that knows something we don't must be
+    /// refused up front rather than decoded and re-saved with the newer section
+    /// stripped — and the error must name BOTH versions, which is what lets the
+    /// surfaces above it say "update Maugham" rather than "could not open".
+    ///
+    /// Version-relative on purpose. This was written as
+    /// `…IsRefusedByThisFourSupportingBuild` against the literals 4 and 5, and
+    /// the RULING-33 bump to 5 turned the assertion into a claim that a
+    /// CURRENT manifest is too new. A gate test that has to be edited at every
+    /// bump is a test that will one day be edited wrongly; the payload
+    /// assertion is what this adds over the control above.
+    func test_aManifestFromANewerBuildIsRefused_namingBothVersions() {
+        let newer = ProjectManifest.currentSchemaVersion + 1
+        XCTAssertThrowsError(
+            try ProjectManifest.decodeGuardingSchema(manifestJSON(schemaVersion: newer))
+        ) { error in
             guard let e = error as? ProjectManifest.SchemaTooNewError else {
                 return XCTFail("Expected SchemaTooNewError, got \(error)")
             }
-            XCTAssertEqual(e, ProjectManifest.SchemaTooNewError(found: 5, supported: 4))
+            XCTAssertEqual(e, ProjectManifest.SchemaTooNewError(
+                found: newer, supported: ProjectManifest.currentSchemaVersion))
         }
     }
 

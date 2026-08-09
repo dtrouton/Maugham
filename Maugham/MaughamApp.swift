@@ -272,7 +272,9 @@ struct MaughamApp: App {
                     MaughamEvent.post(.maughamFindInProject, to: .keyWindow)
                 }
                 .keyboardShortcut("f", modifiers: [.command, .option])
-                Button("Restore Last Deleted Item") {
+                // Scoped to the delete ACTION, not to one item (RULING-40), and
+                // the label says so.
+                Button("Restore Last Deletion") {
                     MaughamEvent.post(.maughamRestoreLastDeleted, to: .keyWindow)
                 }
                 .keyboardShortcut("z", modifiers: [.command, .option])

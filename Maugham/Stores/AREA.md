@@ -39,7 +39,7 @@ Everything derived lives under `.maugham/` in the project folder. Each subdirect
 | Path | Owner | Purpose |
 |---|---|---|
 | `.maugham/ops/` | `OpLogStore` (in OpLog area) | Per-doc JSONL op logs |
-| `.maugham/checkpoints/` | `CheckpointStore` (OpLog area) | Project-scope checkpoints from ⌘S |
+| `.maugham/checkpoints.<deviceSlug>.jsonl` | `CheckpointStore` (OpLog area) | Project-scope checkpoints from ⌘S, partitioned per device (FM-1). A FILE, never a directory — and never the unsuffixed `checkpoints.jsonl`, which stays a merge source and is never written |
 | `.maugham/conflicts/` | `DocumentStore` | Conflict backup copies |
 | `.maugham/sessions/` | `SessionLog` | Per-session activity records |
 | `.maugham/ui-state/` | `ProjectStore` (UI extension) | Window position, last-opened doc, cursor restore |
@@ -60,7 +60,7 @@ Moving or deleting a path the user might be editing (a manuscript `.md`/`.founta
 | `relocateUserContent(affectedPaths:perform:)` | A bespoke move that isn't a flat plan — the Collection piece's two-phase temp-suffix folder swap (`movePiece`/`renamePiece`), the research note + sibling `<slug>_assets/` rename (`renameResearchPath`). Run the FS surgery in `perform`, using `coordinatedMove`/`coordinatedWrite` for each step. |
 | `trash(relativePath:using:…)` | Soft-delete into `.trash/` (`deleteStructureItem`, `deleteResearchItem`, batch `deleteResearchItems`). |
 
-**`moveResearchItems(ids:to:atIndex:)`** (`ProjectStore+ResearchMove.swift`, 2026-07-16) is a **fourth routed caller** of `relocate(plan:)`, not a new entry point — it builds one `RenamePlan` covering every step in the batch (file moves, group-folder moves with descendant manifest-path rewrites, and each moved note's sibling `<slug>_assets/` folder) and executes it through the same `documentStore.relocate(plan:)` single call, so tripwire 14's close-before-FS-surgery + debounce-flush discipline applies for free. `ResearchMoveTarget` (`.sharedRoot` / `.group(id)` / `.piece(id)`) is the typed destination (ADR 0010 pattern); validation happens entirely before any FS call (unknown ids, cycles, role-guarded cross-scope moves all fail the whole batch, moving nothing). `.link` items are manifest-path-only (no file, no plan step). The file is in the `TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover` census alongside the other research/structure seams. `deleteResearchItems(ids:)` (`ProjectStore+Research.swift`) is the equivalent batch soft-delete: one up-front validation pass, one `trashResearchItemCore` per id, one manifest save — built on the existing `trash` entry point, not a new one. (Its `item.kind != .link` guard, present since before this milestone, is what keeps a pathless link item from being handed to the file-mover, which would throw "no such file" — the batch path inherits the same guard.)
+**`moveResearchItems(ids:to:atIndex:)`** (`ProjectStore+ResearchMove.swift`, 2026-07-16) is a **fourth routed caller** of `relocate(plan:)`, not a new entry point — it builds one `RenamePlan` covering every step in the batch (file moves, group-folder moves with descendant manifest-path rewrites, and each moved note's sibling `<slug>_assets/` folder) and executes it through the same `documentStore.relocate(plan:)` single call, so tripwire 14's close-before-FS-surgery + debounce-flush discipline applies for free. `ResearchMoveTarget` (`.sharedRoot` / `.group(id)` / `.piece(id)`) is the typed destination (ADR 0010 pattern); validation happens entirely before any FS call (unknown ids, cycles, role-guarded cross-scope moves all fail the whole batch, moving nothing). `.link` items are manifest-path-only (no file, no plan step). The file is in the `TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover` census alongside the other research/structure seams. `deleteResearchItems(ids:)` (`ProjectStore+Research.swift`) is the equivalent batch soft-delete: one up-front validation pass, one `trashResearchItemCore` per id, one manifest save — built on the existing `trash` entry point, not a new one. (Its `item.kind != .link` guard, present since before this milestone, is what keeps a pathless link item from being handed to the file-mover, which would throw "no such file" — the batch path inherits the same guard. **As of RULING-45, 2026-08-09, that guard is a BRANCH rather than a skip**: a link takes `TrashStore.recordManifestOnlyTrash`, which writes a `meta.json` and no file, so delete means the same thing for a link as for a note and restore puts the row back.)
 
 Each runs the **close-before-FS-surgery** discipline INTERNALLY before any FS call: `document(for:)?.close() + unregister()` for every open Document at an affected path, **plus** `flushPendingSave()` for the path-keyed research-note debounce. This is what makes tripwire 14 structural rather than remembered — a caller cannot forget either half, which dissolves findings 1.3 (executeRenamePlan didn't flush) and 1.6 (movers closed but didn't flush). **This replaces the prose tripwire-14 description that used to live in CLAUDE.md** (the "Close-before-FS-surgery" note in `Views/AREA.md` now points here).
 
@@ -209,11 +209,48 @@ The canvas half is `Maugham/Canvas/CanvasCapture.swift` — read `Maugham/Canvas
 
 5. **Don't bypass `DebounceScheduler` for autosave-like behavior.** The 750ms window is calibrated; ad-hoc debouncing leads to thrash. If you need a different cadence, add a configured instance, don't reinvent.
 
-6. **Don't write directly to `.maugham/` subdirs from outside this area.** Each subdir has one owner; route through it. (The OpLog area writes to `.maugham/ops/` and `.maugham/checkpoints/` — that's the one exception, by ownership.)
+6. **Don't write directly to `.maugham/` subdirs from outside this area.** Each subdir has one owner; route through it. (The OpLog area writes to `.maugham/ops/` and `.maugham/checkpoints.<deviceSlug>.jsonl` — that's the one exception, by ownership.)
 
 7. **NSFileCoordinator/Presenter is required for any cloud-synced file.** Don't read or write manuscript / project files without it; iCloud will race you and conflict-bomb the user.
 
 8. **Adding a new `extension ProjectStore`** for a new seam is the established pattern (Collection-Pieces does this). Don't introduce a new top-level store class for something that's logically project-scoped.
+
+## The trash after the rulings (2026-08-09)
+
+`TrashStore` + `ProjectStore+Trash` were reworked to seven of Denver's rulings; the full list with
+its reasoning is the amendment section of [ADR 0006](../../docs/adr/0006-trash-and-undo.md). The
+four things to know before editing in here:
+
+- **Every trash entry records a `TrashSubject`** in its `meta.json` — `manuscriptItem`,
+  `researchItem`, `captureAsset` or `internalArtifact` — and `moveToTrash` will not compile
+  without one. It is what decides which tree a restore rewires (sniffing the metadata's shape was
+  the bug: a `ResearchItem` decodes cleanly as a `StructureItem`), and what keeps Maugham's own
+  safety copies out of the writer's pane. Additive-optional on disk; an entry written before the
+  field falls back to the old sniff and is REFUSED if it matches neither tree.
+- **`list()` is the writer's view and `entriesIncludingInternal()` is the whole of it.** The
+  disposal verbs and `restoreTrashEntry` use the second; the pane uses the first. **Neither hides
+  an entry it cannot read** (RULING-7): a folder Maugham wrote whose `meta.json` is missing or
+  undecodable comes back as an `isUnreadable` entry titled `TrashEntry.unreadableTitle`, restore
+  refuses naming that as the cause, and disposal reaches it as normal. Two shapes still skip, each
+  for its own reason — a folder whose NAME Maugham did not write is not Maugham's entry (RULING-9),
+  and a folder holding *nothing* gets no row, because "contents preserved" over an empty folder is
+  the same misrepresentation pointing the other way.
+- **An entry folder name is claimed, not assumed.** `mintEntryFolder` creates with
+  `withIntermediateDirectories: false` so the create IS the claim; a taken name takes the next
+  number. **Keep the timestamp a PREFIX** — the sweep dates entries by parsing the folder name
+  (RULING-39), so an id scheme that buried or dropped the stamp (a ULID, a bare UUID) would take
+  that away with nothing failing.
+- **"Empty Trash" walks the DIRECTORY and reports what it could not destroy** (RULING-7).
+  `emptyTrash` uses `TrashStore.entryFolderIds()`, not the cached `trashEntries` — an entry written
+  straight through the store (MCP `set_piece_style`) is in no cache — and throws
+  `trashNotEmptied` after re-listing, so the pane and the message agree. Don't put a `try?` back in
+  that loop: `TrashView`'s catch was dead code for as long as one was there.
+- **The destination of a restore is the CALLER's decision**, passed as `restore(trashId:to:)`.
+  `TrashStore` knows nothing about manifests, and only `ProjectStore` knows where the row is
+  going to sit — which is the whole of RULING-41.
+- **⌘⌥Z is armed with a `TrashDeletion`, one per delete gesture** (`armDeletion`). A restore
+  consumes its entries (`forgetTrashId`); a permanent delete deliberately does NOT, so the next
+  ⌘⌥Z refuses with a reason instead of doing nothing.
 
 ## What to read before editing
 

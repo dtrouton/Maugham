@@ -96,13 +96,20 @@
  },
  {
   "claim_id": "M5-AN-019",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-22",
   "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "R22's stated scope is 'the writer forms an expectation from what Maugham showed, said or labelled, and the outcome differs from it', and its settled-in-scope list already contains a silent no-op of exactly this shape ('stale cursor silent no-op'). The Edit menu shows 'Undo Edit Annotation' — Maugham labelling an action — and pressing it appends nothing and says nothing. The guard itself is right (it stops a concurrent edit being clobbered by capture-time state); what violates is that it declines to the log rather than to the writer. RULING-19's corollary agrees from the other direction: this guard sits at an ENTRY POINT (⌘Z), and an entry-point guard must fail and TELL. R22 is the sub and is cited per the root-is-decoration discipline.",
+  "why_in_scope": "Unchanged in scope from the VIOLATES filing — the Edit menu shows 'Undo Edit Annotation', Maugham labelling an action, and R22's settled-in-scope list already contains a silent no-op of this shape ('stale cursor silent no-op'). WHY_IT_VIOLATED: the guard itself was right (it stops a concurrent edit being clobbered by capture-time state); what violated is that it declined to documentLog rather than to the writer, so the control did not do what it said and nothing said why. As of the fix the guard is untouched and the decline is spoken: a project-scoped .maughamDocumentNotice reaching RewindModifier's toast. RULING-19's corollary agreed from the other direction and still does — this is an ENTRY POINT guard (⌘Z), and an entry-point guard must fail and TELL.",
   "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z asking for that edit back",
   "call_path": "AnnotationsPane pencil → EditAnnotationSheet → Document.editReviewerAnnotation(undoManager:) → OpUndoRegistrar registers → a cross-device merge or a phone edit moves the annotation on → ⌘Z → the drift guard returns after documentLog.error. Reachability is a race window; PRINCIPLE-4 applies.",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "234eb143d0e9116c90d070b7dd2f692e1efe7e9e",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-22 — Denver 2026-08-08, 'Maugham should never surprise the writer'; the six settled-in-scope cases include this shape by name",
+   "pinned_by": "MaughamTests/OpLog/DocumentNoticeTests (production) + the renamed characterisation pin AnnotationsCharacterization.test_theEditUndoDeclinesWhenTheAnnotationDrifted_andSaysSo",
+   "note": "third defect through the claim→fix→re-verify loop; shares its channel (.maughamDocumentNotice) with M4-RW-026 and M5-AN-041"
+  }
  },
  {
   "claim_id": "M5-AN-020",
@@ -156,13 +163,25 @@
  },
  {
   "claim_id": "M5-AN-028",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "R22's scope is an expectation Maugham itself created being contradicted by an outcome. Deleting your own annotation is Maugham telling the writer it is gone — it vanishes from every surface, at every status. Accepting it afterwards nonetheless splices its replacement into the manuscript, and because the annotation is still absent from the projection there is no row to notice it happened and no Revert to reach for. Intent has duration (discipline 2): the withdrawal was not withdrawn. The scope test is easy to write honestly here; what is hard is the call path, which is a cross-device race rather than a single-device gesture, so PRINCIPLE-4's reachability-governs-priority clause applies and the priority is low.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-33",
+  "clause_that_reaches_it": "When concurrent lifecycle acts race, the STATUS WINNER ALSO DECIDES THE TEXT.",
+  "why_in_scope": "Re-filed from RULING-22 to RULING-33, which is the more specific ruling and did not exist when this was filed. R22 reached it as a surprise (the writer deleted the annotation and Maugham rewrote their paragraph for it anyway); R33 reaches the same case as what it actually is — a status and a manuscript disagreeing, with the status the writer set being ignored by the text path. WHY_IT_VIOLATED: the creation op stays in the mirror after a withdraw, so accept proceeded and spliced; the annotation stayed absent from the projection, so no row recorded that the paragraph had been changed and none offered a Revert. Intent has duration (discipline 2): the withdrawal was not withdrawn. Reachability is a cross-device race — a second Mac's pane rendered before the withdraw merged still offers Accept — so PRINCIPLE-4 applies and the priority was low; the fix is a four-line guard on the deriver's own withdraw/reopen rule, which is why low priority did not mean deferred. As of the fix accept refuses BEFORE the append: no splice and no accept op, and a reopen makes the suggestion acceptable again.",
   "intent_expressed_when": "earlier — the writer deleted the annotation, and that instruction persists",
   "call_path": "UNTRACED single-device. Cross-device: Mac B's pane rendered before Mac A's withdraw merged still shows the row; clicking Accept inside the sync window reaches Document.acceptAnnotation with a withdrawn id and the creation op still in Mac B's mirror.",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "234eb143d0e9116c90d070b7dd2f692e1efe7e9e",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-33 — Denver 2026-08-08, RATIFIED_FROM_OPTIONS ('1 but also 4'), with the revisit-at-collaboration clause attached",
+   "pinned_by": "MaughamTests/OpLog/AnnotationConvergenceTests (production) + the rewritten characterisation pin",
+   "note": "the single-device half of RULING-33; the merge race it shares the ruling with is claimed at M5-AN-057"
+  },
+  "independent_verification": {
+   "date": "2026-08-09",
+   "outcome": "CONFIRMED (blind, phase-2 round)",
+   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
+  }
  },
  {
   "claim_id": "M5-AN-029",
@@ -223,13 +242,20 @@
  },
  {
   "claim_id": "M5-AN-036",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-22",
   "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "The Edit menu reads 'Undo Withdraw Annotation'. What it does is undo the withdrawal AND cancel an archive the writer performed separately and never asked to undo, because `annotationReopen` is one op kind serving two inverses and `AnnotationDeriver` reads every reopen through both the withdraw-state pass and the lifecycle pass. One ⌘Z therefore takes two of the writer's decisions. This is the same defect shape CLAUDE.md's tripwire 32 records for the canvas ('a ⌘Z aimed at a sentence takes something else with it') arriving in the annotation layer, and the scope test is straightforward: the writer's expectation came from the menu item's own wording.",
+  "why_in_scope": "Unchanged in scope — the Edit menu reads 'Undo Withdraw Annotation' and the writer's expectation came from that wording. WHY_IT_VIOLATED: annotationReopen is one op kind serving two inverses and AnnotationDeriver reads every reopen through BOTH the withdraw-state pass and the lifecycle pass, so the reopen undoing a withdrawal also cancelled an archive or rejection the writer had made separately and never asked to undo — one ⌘Z taking two of their decisions, the shape CLAUDE.md's tripwire 32 records on the canvas arriving in the annotation layer. As of the fix the withdraw captures the status it was sitting on and re-applies it after the reopen, so the note comes back as the writer left it. The op kind still serves both inverses and the deriver still reads it as both: that is correct for the pane's own Reopen and the phone's, and RULING-8's sameness clause distinguishes them — the writer asking 'reopen this' and the writer asking 'undo my delete' are not the same question. Fixing it in AnnotationInverse would have answered both with one answer and broken the first.",
   "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z once, for one action",
   "call_path": "AnnotationsPane → own row → Archive → trash affordance ('Delete your annotation') → ⌘Z → Document.reopenAnnotation → AnnotationInverse.reopenOp(undoing: .annotationWithdraw) → one annotationReopen op that both passes of the deriver honour",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "234eb143d0e9116c90d070b7dd2f692e1efe7e9e",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-22 — Denver 2026-08-08; the ruling's own options list offers the prior-status capture as the first alternative",
+   "pinned_by": "MaughamTests/AnnotationLifecycleUndoTests (production, three cases incl. the direct-reopen control) + the rewritten characterisation pin",
+   "note": "AnnotationInverse deliberately untouched (tripwire 19, cross-surface); MaughamCore changed elsewhere in this branch, so the phone scheme was run and is green"
+  }
  },
  {
   "claim_id": "M5-AN-037",
@@ -270,13 +296,20 @@
  },
  {
   "claim_id": "M5-AN-041",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Maugham should never surprise the writer.",
-  "why_in_scope": "R22's settled-in-scope list names 'unmentioned auto-archive' directly, and the scope test holds independently of that bullet: the writer deleted a paragraph, and Maugham additionally closed every open note attached to it — an outcome beyond what the deletion said it would do, delivered with no notice of any kind. `sweepOrphanedAnnotations` returns Void; the only record is an op in the log and a row that stops appearing in the pane's default view. The eligibility rule itself is defensible (only open, only anchored, only on ids observed being removed); what violates is that the writer is never told. Note the asymmetry with rewind, where the same sweep's output IS carried back as `RewindRestoreResult.archivedAnnotationOpIds` — RULING-28 rules that half must be reported; the typing half has no equivalent.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-32",
+  "clause_that_reaches_it": "Maugham says so in a BATCHED, quiet summary at the writing pause (the burst boundary): 'While you edited: 3 notes archived.'",
+  "why_in_scope": "Re-filed from RULING-22 to RULING-32, the ruling made FOR this case (it 'gives M5-AN-041 its specified replacement behaviour'). R22 reached it — its settled-in-scope list names 'unmentioned auto-archive' — but R32 states the replacement rather than only the fault, and the root-is-decoration discipline prefers the ruling that decides. WHY_IT_VIOLATED: the writer deleted a paragraph and Maugham additionally closed every open note attached to it, an outcome beyond what the deletion said it would do, with no notice of any kind; sweepOrphanedAnnotations returned Void and the only record was an op in the log plus a row that stopped appearing in the pane's default view. The ELIGIBILITY rule was never the fault and is unchanged. As of the fix each successful archive increments a running count on the Document and flushBurstNow spends it on one sentence at the burst boundary — batched across the whole burst, silent during it, never a prompt, which is the option Denver chose over tell-at-the-time and over silent-but-recoverable. The asymmetry the old filing named — rewind's half of the same sweep already reported through RewindRestoreResult.archivedAnnotationOpIds under RULING-28 — is now closed from both sides.",
   "intent_expressed_when": "contemporaneous — the writer deleted a paragraph and expected a paragraph to be deleted",
   "call_path": "editor → delete a paragraph carrying an open note → setFullText populates SweepReason.userTyped → flushBurstNow → Document.sweepOrphanedAnnotations → appendLifecycleOp(.claudeArchive, synthesisSource: .paragraphDeleted) → nothing surfaced",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "234eb143d0e9116c90d070b7dd2f692e1efe7e9e",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-32 — Denver 2026-08-08, RATIFIED_FROM_OPTIONS, no recommendation offered; settles GAP-A4",
+   "pinned_by": "MaughamTests/OpLog/DocumentNoticeTests (production, four cases incl. the silent-during-the-burst and spent-count controls) + AnnotationsCharacterization.test_theSweepCountsWhatItArchivedForTheSummary",
+   "note": "shares its channel (.maughamDocumentNotice) with M4-RW-026 and M5-AN-019 — one Document→writer surface, three occasions"
+  }
  },
  {
   "claim_id": "M5-AN-042",
@@ -300,18 +333,42 @@
  },
  {
   "claim_id": "M5-AN-046",
-  "outcome": "NO_RULING_REACHES",
-  "reason": "The mechanism. An in-memory array's ordering discipline is not a product decision; the writer-facing consequence is M5-AN-047. Recorded separately so a fix has a mechanism claim to flip."
+  "outcome": "COMPLIES",
+  "reason": "The mechanism. An in-memory array's ordering discipline is not a product decision; the writer-facing consequence is M5-AN-047. Recorded separately so a fix has a mechanism claim to flip.",
+  "ruling": "RULING-36",
+  "clause_that_reaches_it": "the live op list stays sorted across merge-then-append",
+  "why_in_scope": "The invariant the ruling names, held at the single append choke point. Fixed at e7fb4ca019.",
+  "intent_expressed_when": "not at all — internal bookkeeping serving the timeline's honesty",
+  "call_path": "handleExternalLogChange merge → any later local append → appendToMirror",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "e7fb4ca019aa01b7fb98ba15667cae0ef1d431f6",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-36",
+   "pinned_by": "AnnotationsCharacterization.test_theMirrorStaysSortedAcrossMergeThenAppend"
+  }
  },
  {
   "claim_id": "M5-AN-047",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "R22's scope is an expectation Maugham created being contradicted by the outcome, and its settled list already contains a rewind case ('stale cursor silent no-op') on the same control. The rewind scrubber names a moment and promises the document as it was then; over an unsorted mirror it renders a state the document never held — the peer's later text shown at the writer's own earlier moment — with no signal. `Deriver.derive(ops:upTo:)`'s refusal to re-sort is correct and documented (a timeline prefix must respect its caller's order); the broken party is the premise it is handed, stated in `currentFoldBasis`'s own comment as an invariant that does not hold. Filing this on the annotations module rather than on rewind because the appends that break the ordering are this module's, and because it is the thread the Rewind verifier left unchased. Reachability needs a second Mac whose clock is ahead; PRINCIPLE-4 governs the priority, and AREA.md's existing acceptance of a clock-skew inversion is about which BOOTSTRAP wins, not about this premise.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-36",
+  "clause_that_reaches_it": "Time travel is required to be CORRECT under clock skew: the live op list stays sorted across merge-then-append, and a rewind's prefix is always the writer's real timeline — never the peer's text.",
+  "why_in_scope": "The ruling implemented at the one place every mirror append now flows through: appendToMirror keeps opId order across merge-then-append, so derive(upTo:)'s honour-the-caller-order contract composes with a mirror whose order IS the timeline. The claim's measured consequence (a rewind to the writer's own newest moment rendering the peer's text) is impossible with a sorted prefix.",
   "intent_expressed_when": "contemporaneous — the writer scrubbed to a moment and asked to see it",
   "call_path": "second Mac appends an op with a leading ULID → NSFilePresenter → handleExternalLogChange replaces the mirror (sorted) → any local append (a typing burst, an annotation, a lifecycle op) pushes a lower ULID onto the end → RewindWindow reads doc.opLog() → Deriver.derive(ops:upTo:)",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "e7fb4ca019aa01b7fb98ba15667cae0ef1d431f6",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-36 — Denver 2026-08-08, recommended option accepted",
+   "pinned_by": "AnnotationsCharacterization.test_theMirrorStaysSortedAcrossMergeThenAppend",
+   "note": "phase-2 loop one"
+  },
+  "independent_verification": {
+   "date": "2026-08-09",
+   "outcome": "CONFIRMED (blind, phase-2 round)",
+   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
+  }
  },
  {
   "claim_id": "M5-AN-048",
@@ -399,25 +456,54 @@
   }
  },
  {
+  "claim_id": "M5-AN-057",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-33",
+  "clause_that_reaches_it": "a reject that beats an accept carries the inverse, removing the applied change so the note's status and the manuscript agree",
+  "why_in_scope": "The ruling was written for this claim: RULING-33 settles GAP-A7 / FM-3 and says the models ARE the acceptance tests. The new claim exists because the fix created behaviour that had no claim — M5-AN-028 covers the single-device half (a withdrawn suggestion is not acceptable) and nothing covered the merge race the model found. Filed COMPLIES on arrival rather than VIOLATES-then-flipped: there was never a shipped build in which this claim was true and unruled. NOT an enhancement — the disagreement it ends was a defect with a TLA+ counterexample, filed before the code existed. The ruling's revisit-at-collaboration clause is honoured by what was deliberately NOT done: the surface-the-conflict option is unbuilt, and the sibling property NoOpenButSpliced (a reopen after a foreign accept) is still red in BOTH modes, on purpose — RULING-33 rules on a reject beating an accept and says nothing about a reopen doing so, so AnnotationRace_Fixed_NoOpenButSpliced staying red is the evidence the fix did not overreach.",
+  "intent_expressed_when": "contemporaneous on both devices — each writer acted on what their own screen showed, which is what makes every interleaving a real user story rather than a nonsensical sequence",
+  "call_path": "Mac A accepts a suggestion (text spliced) → Mac B, whose pane predates the accept, rejects it → B's op syncs with the higher opId → A's NSFilePresenter fires → handleExternalLogChange merges, sweeps, then repairs",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "234eb143d0e9116c90d070b7dd2f692e1efe7e9e",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-33 — Denver 2026-08-08, RATIFIED_FROM_OPTIONS ('1 but also 4 — 1 is the more correct version of what happens now but we may want to revisit'); the CONVERGENCE shape, and the first ruling proved by a model before it was made",
+   "pinned_by": "formal/AnnotationRace_Fixed_NoRejectedButSpliced.cfg (green) + its red partner AnnotationRace_NoRejectedButSpliced.cfg + MaughamTests/OpLog/AnnotationConvergenceTests (production, nine cases incl. the drift refusal, idempotence and the accept-beats-reject control)",
+   "note": "carries a schema bump (ProjectManifest 4→5) because `claudeReject` became manuscript-affecting; MaughamCore changed, so `swift test --parallel --package-path Packages/MaughamCore` (472/472) and the MaughamPhone scheme were both run green"
+  },
+  "independent_verification": {
+   "date": "2026-08-09",
+   "outcome": "CONFIRMED (blind, phase-2 round)",
+   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
+  }
+ },
+ {
+  "claim_id": "M5-AN-058",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-33",
+  "clause_that_reaches_it": "status and manuscript may not disagree",
+  "why_in_scope": "The verification round's load-bearing residual: the Mac guard existed, the phone's wider exposure did not — RULING-8's sameness clause (one writer question, one answer) plus tripwire 19 (one shared implementation, no restatement). Fixed same-day.",
+  "intent_expressed_when": "earlier — the withdraw is the writer's standing instruction",
+  "call_path": "phone AnnotationDetailView Accept → fresh OpLogStore.load → writer.accept(verifyingAgainst:) → shared isWithdrawn",
+  "violation_or_enhancement": "neither"
+ },
+ {
   "_summary": {
-   "reached": 17,
-   "complies": 12,
-   "violates": 5,
-   "no_ruling": 38,
-   "total": 55,
-   "coverage": "31%",
+   "reached": 20,
+   "complies": 20,
+   "violates": 0,
+   "no_ruling": 37,
+   "total": 57,
+   "coverage": "35%",
    "by_ruling": {
     "RULING-1": [
      "M5-AN-006"
     ],
     "RULING-22": [
      "M5-AN-019",
-     "M5-AN-028",
      "M5-AN-029",
      "M5-AN-031",
-     "M5-AN-036",
-     "M5-AN-041",
-     "M5-AN-047"
+     "M5-AN-036"
     ],
     "RULING-24": [
      "M5-AN-021"
@@ -431,11 +517,23 @@
     "RULING-31": [
      "M5-AN-055"
     ],
+    "RULING-32": [
+     "M5-AN-041"
+    ],
+    "RULING-33": [
+     "M5-AN-028",
+     "M5-AN-057",
+     "M5-AN-058"
+    ],
     "RULING-34": [
      "M5-AN-056"
     ],
     "RULING-35": [
      "M5-AN-030"
+    ],
+    "RULING-36": [
+     "M5-AN-046",
+     "M5-AN-047"
     ],
     "RULING-5": [
      "M5-AN-026",

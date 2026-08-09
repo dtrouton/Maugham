@@ -495,6 +495,57 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 
 *settles:* Trash GAP-8; re-files M3-TR-035's forward-facing half with a specified fix.
 
+## The enforcement gradient — how each ruling is held
+
+prose → test → tripwire → type → model. A prose-only ruling with LIVE reach is a
+promotion candidate. (Source: `_meta.enforcement`; metadata, outside the ruling hashes.)
+
+- **RULING-1** `test` — entry-point refusal pins (RULING-5 family); breadth prose
+- **RULING-2** `prose` — parse-path tolerance — no mechanism wanted
+- **RULING-3** `deferred` — multilingual scope undecided
+- **RULING-4** `test` — trash restore/validate pins; op-log append-only pins
+- **RULING-5** `type+test` — SuggestionSplice.Outcome makes the violation unrepresentable; pins on Mac/phone/core
+- **RULING-6** `prose` — surface conventions
+- **RULING-7** `test` — unreadable-note, emptyTrash honesty, decline-notice pins
+- **RULING-8** `prose` — meta-rule; enforced case-by-case through filings
+- **RULING-9** `prose` — ratified surface
+- **RULING-10** `test` — dedupe-the-filename pins
+- **RULING-11** `test` — MarkdownDisplayFilter round-trip property tests
+- **RULING-12** `deferred` — needs re-ruling on the corrected basis
+- **RULING-13** `test` — stale-mark pins (ShingleMatcher / annotations)
+- **RULING-14** `prose` — ingestion boundary
+- **RULING-15** `type+test` — typed mover + TrashSubject.captureAsset; M3-TR-059/060 pins
+- **RULING-16** `prose` — process discipline
+- **RULING-17** `prose` — ratified behaviour
+- **RULING-18** `prose` — attribution boundary
+- **RULING-19** `prose` — layering principle; applied in filings
+- **RULING-20** `prose` — root
+- **RULING-21** `prose` — scope clause on R7
+- **RULING-22** `test` — many pins across trash/rewind/annotations
+- **RULING-23** `test` — sweep/destroy pins
+- **RULING-24** `test` — append-only + derive-exact pins; tier boundaries prose
+- **RULING-25** `test` — RewindTravelReopenTests + characterisation
+- **RULING-26** `test` — accepted-status travel pins
+- **RULING-27** `test` — nearest-resolution pins
+- **RULING-28** `test` — RewindImpactTests (preview+toast from one mirror)
+- **RULING-29** `test` — caller census + undoable-reopen pins
+- **RULING-30** `prose` — RULED, NOT YET RE-FILED: the presentation duty (blank reads as deletion everywhere) is unverified against the pane — residual in PLAN
+- **RULING-31** `test` — reason-history pin
+- **RULING-32** `test` — DocumentNoticeTests sweep-summary pins
+- **RULING-33** `model+test` — AnnotationRace_Fixed config green + AnnotationConvergenceTests
+- **RULING-34** `test` — withdrawn-listed-and-restorable pin
+- **RULING-35** `test` — AnnotationRowPolicy pin
+- **RULING-36** `test` — sorted-mirror pin
+- **RULING-37** `test` — no-op-costs-nothing pins
+- **RULING-38** `test` — restore-beside pins
+- **RULING-39** `test` — directory-sweep pins
+- **RULING-40** `test` — gesture-scoped restore pins
+- **RULING-41** `test` — disk-matches-binder pin
+- **RULING-42** `test` — TrashRestoreReport pin
+- **RULING-43** `type+test` — TrashSubject.internalArtifact + refusal pins
+- **RULING-44** `prose` — ruled-quiet: no warning owed — nothing to enforce
+- **RULING-45** `type+test` — carriesFile:false entries + link round-trip pins
+
 ## Principles — how to judge, not what to decide
 
 ### PRINCIPLE-1

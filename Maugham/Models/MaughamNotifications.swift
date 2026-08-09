@@ -16,8 +16,8 @@ import Foundation
 ///   `maughamScriptDidUpdate`, `maughamOpenRewind`, `maughamMCPNoteAdded`,
 ///   `maughamCheckpointAdded`, `maughamSessionLogChanged`,
 ///   `maughamNavigateToDocument`, `maughamTranslationDidUpdate`,
-///   `maughamCanvasNodesAdded`): delivered to live windows on the matching
-///   project only.
+///   `maughamCanvasNodesAdded`, `maughamDocumentNotice`): delivered to live
+///   windows on the matching project only.
 /// - **`.allWindows`** (genuinely global fan-out, no liveness guard — see the
 ///   per-name zombie-harm audit note where present): `maughamNewProject`,
 ///   `maughamOpenProject`, `maughamAppWillTerminate`, `maughamShowHelp`.
@@ -144,6 +144,27 @@ extension Notification.Name {
     public static let maughamCanvasNodesAdded =
         Notification.Name("maugham.canvas.nodes.added")
     public static let maughamOpenRewind = Notification.Name("maugham.open.rewind")
+    /// The one channel a `Document` has for saying something to the writer.
+    ///
+    /// `Document` is model code with no view of its own, and three things it
+    /// does are only honest if the writer hears about them: a ⌘Z it declines
+    /// because the document drifted (RULING-7 / M4-RW-026), an annotation-edit
+    /// ⌘Z it declines for the same reason (RULING-22 / M5-AN-019), and the
+    /// batch of notes the typing sweep archived while the writer was deleting
+    /// paragraphs (RULING-32 / M5-AN-041). All three previously reached
+    /// `documentLog` and nobody else. Rather than mint a name per occasion,
+    /// the Document posts a finished sentence and the window renders it in the
+    /// toast `RewindModifier` already owns.
+    ///
+    /// `userInfo[MaughamEvent.noticeMessageKey]` (String) is that sentence —
+    /// written at the post site, because only the caller knows what happened.
+    /// Post via `MaughamEvent.postNotice`, never by hand.
+    ///
+    /// Scope: .project(id:) — a data event, like `maughamMCPNoteAdded`. Windows
+    /// on another project must not report a decline that was not theirs, and a
+    /// closed window must report nothing at all (the receive helper's liveness
+    /// guard, ADR 0021).
+    public static let maughamDocumentNotice = Notification.Name("maugham.document.notice")
     /// Posted when ⌘S is pressed — triggers a checkpoint capture with an auto-label.
     public static let maughamSaveCheckpoint = Notification.Name("maugham.save.checkpoint")
     /// Posted when Shift-⌘S is pressed — triggers the checkpoint label prompt sheet.

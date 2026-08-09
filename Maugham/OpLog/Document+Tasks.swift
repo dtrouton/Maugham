@@ -191,7 +191,7 @@ extension Document {
         // side no-ops (setParagraph/applyRestore are already isClosed-guarded) —
         // a torn op log. Matches the text-side guards so both sides no-op together.
         if rejectMutationIfClosed("appendTaskOpInternal") { return }
-        _opLogMirror.append(op)
+        appendToMirror(op)
         invalidateTasksCache()
         // Annotation cache only invalidates for annotation ops — task ops
         // don't change annotation derivation, so skip the bump.

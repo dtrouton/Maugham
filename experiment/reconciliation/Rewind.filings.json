@@ -248,13 +248,25 @@
  },
  {
   "claim_id": "M4-RW-026",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-7",
   "clause_that_reaches_it": "Maugham never misrepresents a failure... A refusal names its real cause.",
-  "why_in_scope": "⌘Z is as writer-facing as Maugham gets: the writer pressed a key, the menu named the act, and the refusal reaches them as silence. RULING-19's scope clause — 'a lower layer has no surface on which to misrepresent anything' — is what would excuse a silent decline, and it does not apply: this is the handler of a writer's keystroke, not storage. Per RULING-22's own `relation to RULING 7`, R7 governs FAILURES and R22 governs SUCCESSES; this is a failure, so R7 is the fit. The DECLINE ITSELF IS CORRECT and deliberate — RULING-20's default-safe, and the module says so ('History Rewind is the tool for that tangle'). The defect is that the writer is not told, while documentLog is.",
+  "why_in_scope": "Unchanged in scope — ⌘Z is as writer-facing as Maugham gets: the writer pressed a key, the menu named the act. RULING-19's scope clause ('a lower layer has no surface on which to misrepresent anything') is what would excuse a silent decline and does not apply here; this is the handler of a writer's keystroke, not storage. Per RULING-22's own relation-to-R7, R7 governs FAILURES and R22 SUCCESSES, so R7 remains the fit. WHY_IT_VIOLATED: the DECLINE ITSELF was correct and deliberate — RULING-20's default-safe, and the module says so ('History Rewind is the tool for that tangle') — but the refusal reached the writer as silence while documentLog got a line. As of the fix the fire-time guard posts a project-scoped .maughamDocumentNotice naming the real cause and pointing at History Rewind, rendered in the toast RewindModifier already owned; the decline, the non-throw and the leave-the-text-alone are all untouched.",
   "intent_expressed_when": "contemporaneous",
   "call_path": "rewind → a cross-device merge lands → ⌘Z → the fire-time guard `doc.paragraphs == postParagraphs` fails → documentLog.error → return",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "234eb143d0e9116c90d070b7dd2f692e1efe7e9e",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-7 — RATIFIED_BY_DEFAULT, with the scope clause added 2026-08-08 (a surface is WRITER-FACING if what it returns reaches the writer without an independent check)",
+   "pinned_by": "MaughamTests/OpLog/DocumentNoticeTests (production, with the succeeds-quietly control) + the renamed characterisation pin RewindCharacterization.test_undoOfARewind_declinesWhenTextDriftedSince_andSaysWhy",
+   "note": "the shipped RewindUndoTests.test_restore_undo_afterForeignOps_isLoudNoOp called this 'loud' meaning loud to the LOG; that test is unchanged and still passes — what was added is the other audience"
+  },
+  "independent_verification": {
+   "date": "2026-08-09",
+   "outcome": "CONFIRMED (blind, phase-2 round)",
+   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
+  }
  },
  {
   "claim_id": "M4-RW-029",
@@ -363,8 +375,8 @@
  {
   "_summary": {
    "reached": 21,
-   "complies": 20,
-   "violates": 1,
+   "complies": 21,
+   "violates": 0,
    "no_ruling": 14,
    "total": 35,
    "coverage": "60%",

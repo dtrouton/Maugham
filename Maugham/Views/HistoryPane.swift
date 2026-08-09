@@ -577,6 +577,14 @@ private struct HistoryRow: View {
                     } else if op.provenance?.synthesisSource == .rewind {
                         Text("Auto-archived: paragraph removed by rewind.")
                             .font(.caption2).foregroundStyle(.orange)
+                    } else if op.provenance?.synthesisSource == .rejectConvergence {
+                        // RULING-33. The paragraph moved and no gesture of the
+                        // writer's moved it, so the history has to say who did
+                        // and why — otherwise this reads as a second rejection
+                        // they do not remember making.
+                        Text("Removed a change accepted on another device, so the "
+                             + "rejection and the manuscript agree.")
+                            .font(.caption2).foregroundStyle(.orange)
                     }
                 }
             } else if let resp = op.provenance?.userResponse {
@@ -598,7 +606,14 @@ private struct HistoryRow: View {
             case .claudeSuggestion: return "Suggestion"
             case .claudeAccept: return "Accepted"
             case .claudeAcceptRevert: return "Accept reverted"
-            case .claudeReject: return "Rejected"
+            case .claudeReject:
+                // The convergence repair is a reject the WRITER did not issue
+                // (RULING-33) — same op kind, different actor. Labelling both
+                // "Rejected" would put an act of Maugham's in the writer's
+                // column, which is the same misattribution the `.rewind` /
+                // `.paragraphDeleted` arms above exist to avoid.
+                return op.provenance?.synthesisSource == .rejectConvergence
+                    ? "Rejection applied" : "Rejected"
             case .claudeArchive: return "Archived"
             case .claudeQuery: return "Query"
             case .claudeCraftNote: return "Craft"

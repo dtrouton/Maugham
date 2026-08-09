@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class MaughamSidecarPathTests: XCTestCase {
@@ -97,9 +98,15 @@ final class MaughamSidecarPathTests: XCTestCase {
             compiledAt: Date(), maughamVersion: "0",
             tectonicVersion: "0.15.0"))
 
-        let url = projectURL.appendingPathComponent(".maugham/publications.jsonl")
+        // Classify the file the store ACTUALLY wrote. FM-1 partitioned the
+        // stream, so that is `publications.<deviceSlug>.jsonl`; asserting the
+        // unsuffixed path here would have passed while the real file routed to
+        // `.unknownSidecar`.
+        let written = PublicationStore.fileURL(
+            deviceSlug: DeviceSlug.make(from: MacDeviceID.current), in: projectURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: written.path))
         XCTAssertEqual(
-            MaughamSidecarPath.classify(url: url, projectURL: projectURL),
+            MaughamSidecarPath.classify(url: written, projectURL: projectURL),
             .publicationsLog
         )
     }

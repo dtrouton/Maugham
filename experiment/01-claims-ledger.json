@@ -1866,6 +1866,189 @@
    "result": "61 tests, 0 failures — all 80 app-layer claims (Trash 51, Rewind 29) still hold.",
    "why_it_was_not_ceremony": "The five characterised files were untouched, but their collaborators moved: ProjectStore.swift (+59), ProjectManifest.swift (+54), Document+Load.swift (+21), Checkpoint.swift, OpLogStore.swift. A diff over the module files alone would have been a weaker check than it looked.",
    "note": "An unpinned claim is an assertion. Re-verify before trusting a ledger entry whose pin is old."
+  },
+  "enforcement": {
+   "_doc": "The enforcement gradient per ruling: prose → test → tripwire → type → model. Lives OUTSIDE _meta.rulings deliberately so metadata doesn't churn 45 ruling hashes. mechanism 'prose' with LIVE reach is a candidate for promotion.",
+   "RULING-1": {
+    "mechanism": "test",
+    "note": "entry-point refusal pins (RULING-5 family); breadth prose"
+   },
+   "RULING-2": {
+    "mechanism": "prose",
+    "note": "parse-path tolerance — no mechanism wanted"
+   },
+   "RULING-3": {
+    "mechanism": "deferred",
+    "note": "multilingual scope undecided"
+   },
+   "RULING-4": {
+    "mechanism": "test",
+    "note": "trash restore/validate pins; op-log append-only pins"
+   },
+   "RULING-5": {
+    "mechanism": "type+test",
+    "note": "SuggestionSplice.Outcome makes the violation unrepresentable; pins on Mac/phone/core"
+   },
+   "RULING-6": {
+    "mechanism": "prose",
+    "note": "surface conventions"
+   },
+   "RULING-7": {
+    "mechanism": "test",
+    "note": "unreadable-note, emptyTrash honesty, decline-notice pins"
+   },
+   "RULING-8": {
+    "mechanism": "prose",
+    "note": "meta-rule; enforced case-by-case through filings"
+   },
+   "RULING-9": {
+    "mechanism": "prose",
+    "note": "ratified surface"
+   },
+   "RULING-10": {
+    "mechanism": "test",
+    "note": "dedupe-the-filename pins"
+   },
+   "RULING-11": {
+    "mechanism": "test",
+    "note": "MarkdownDisplayFilter round-trip property tests"
+   },
+   "RULING-12": {
+    "mechanism": "deferred",
+    "note": "needs re-ruling on the corrected basis"
+   },
+   "RULING-13": {
+    "mechanism": "test",
+    "note": "stale-mark pins (ShingleMatcher / annotations)"
+   },
+   "RULING-14": {
+    "mechanism": "prose",
+    "note": "ingestion boundary"
+   },
+   "RULING-15": {
+    "mechanism": "type+test",
+    "note": "typed mover + TrashSubject.captureAsset; M3-TR-059/060 pins"
+   },
+   "RULING-16": {
+    "mechanism": "prose",
+    "note": "process discipline"
+   },
+   "RULING-17": {
+    "mechanism": "prose",
+    "note": "ratified behaviour"
+   },
+   "RULING-18": {
+    "mechanism": "prose",
+    "note": "attribution boundary"
+   },
+   "RULING-19": {
+    "mechanism": "prose",
+    "note": "layering principle; applied in filings"
+   },
+   "RULING-20": {
+    "mechanism": "prose",
+    "note": "root"
+   },
+   "RULING-21": {
+    "mechanism": "prose",
+    "note": "scope clause on R7"
+   },
+   "RULING-22": {
+    "mechanism": "test",
+    "note": "many pins across trash/rewind/annotations"
+   },
+   "RULING-23": {
+    "mechanism": "test",
+    "note": "sweep/destroy pins"
+   },
+   "RULING-24": {
+    "mechanism": "test",
+    "note": "append-only + derive-exact pins; tier boundaries prose"
+   },
+   "RULING-25": {
+    "mechanism": "test",
+    "note": "RewindTravelReopenTests + characterisation"
+   },
+   "RULING-26": {
+    "mechanism": "test",
+    "note": "accepted-status travel pins"
+   },
+   "RULING-27": {
+    "mechanism": "test",
+    "note": "nearest-resolution pins"
+   },
+   "RULING-28": {
+    "mechanism": "test",
+    "note": "RewindImpactTests (preview+toast from one mirror)"
+   },
+   "RULING-29": {
+    "mechanism": "test",
+    "note": "caller census + undoable-reopen pins"
+   },
+   "RULING-30": {
+    "mechanism": "prose",
+    "note": "RULED, NOT YET RE-FILED: the presentation duty (blank reads as deletion everywhere) is unverified against the pane — residual in PLAN"
+   },
+   "RULING-31": {
+    "mechanism": "test",
+    "note": "reason-history pin"
+   },
+   "RULING-32": {
+    "mechanism": "test",
+    "note": "DocumentNoticeTests sweep-summary pins"
+   },
+   "RULING-33": {
+    "mechanism": "model+test",
+    "note": "AnnotationRace_Fixed config green + AnnotationConvergenceTests"
+   },
+   "RULING-34": {
+    "mechanism": "test",
+    "note": "withdrawn-listed-and-restorable pin"
+   },
+   "RULING-35": {
+    "mechanism": "test",
+    "note": "AnnotationRowPolicy pin"
+   },
+   "RULING-36": {
+    "mechanism": "test",
+    "note": "sorted-mirror pin"
+   },
+   "RULING-37": {
+    "mechanism": "test",
+    "note": "no-op-costs-nothing pins"
+   },
+   "RULING-38": {
+    "mechanism": "test",
+    "note": "restore-beside pins"
+   },
+   "RULING-39": {
+    "mechanism": "test",
+    "note": "directory-sweep pins"
+   },
+   "RULING-40": {
+    "mechanism": "test",
+    "note": "gesture-scoped restore pins"
+   },
+   "RULING-41": {
+    "mechanism": "test",
+    "note": "disk-matches-binder pin"
+   },
+   "RULING-42": {
+    "mechanism": "test",
+    "note": "TrashRestoreReport pin"
+   },
+   "RULING-43": {
+    "mechanism": "type+test",
+    "note": "TrashSubject.internalArtifact + refusal pins"
+   },
+   "RULING-44": {
+    "mechanism": "prose",
+    "note": "ruled-quiet: no warning owed — nothing to enforce"
+   },
+   "RULING-45": {
+    "mechanism": "type+test",
+    "note": "carriesFile:false entries + link round-trip pins"
+   }
   }
  },
  "claims": [
@@ -6513,7 +6696,7 @@
     "method": "sweep-2 agent flagged it OUT OF MODULE and explicitly said it had not traced the save path; I traced it",
     "note": "The agent's own module was the MCP read surface. It noticed the identical swallow at a plainly writer-facing surface, said so, and said what it had not checked. That honesty is what made the find actionable — a confident claim would have been discounted."
    },
-   "_verdict_note": "Two rulings violated in sequence: RULING-7 (unreadable shown as empty) creates the condition, RULING-4 (authored words always recoverable) is broken by the consequence. Neither alone describes it — the compound is the defect.",
+   "_verdict_note": "Two rulings violated in sequence: RULING-7 (unreadable shown as empty) creates the condition, RULING-4 (authored words always recoverable) is broken by the consequence. Neither alone describes it — the compound is the defect. HALF-FIXED 9f68b65f5b (2026-08-09, RULING-7): an unreadable research note no longer opens blank — ResearchNoteLoad.read surfaces the cause and no editor mounts over a failed read (pinned: MaughamTests/Claims/ResearchNoteReadCharacterization). The second half — nothing to fall back to after a silent overwrite — remains the research-protection milestone's, ROI-parked under PRINCIPLE-4.",
    "verdict_filing": {
     "ruling": "RULING-7 + RULING-4",
     "clause_that_reaches_it": "R7: 'unreadable is never presented as empty'; R4: 'authored words are always recoverable' (against MAUGHAM'S OWN ACTIONS, per R23's scope clause)",
