@@ -11,6 +11,29 @@ extension ProjectStore {
         title: String,
         kind: ResearchItem.AssetKind?
     ) async throws -> ResearchItem {
+        // Refuse a group whose minted path would collide with the role-bearing
+        // Palette folder (`research/palette`) BEFORE creating anything on disk.
+        // Not a check on non-group items: only a group's own folder path can
+        // equal the bare `research/palette` (a note mints `<slug>.md`).
+        // `addResearchItemUnchecked` is called directly by `ensurePaletteGroup`,
+        // the one legitimate minter of that exact path — this guard never sees
+        // that call.
+        if kind == nil {
+            try Self.assertResearchGroupNameNotReserved(
+                parentPath: researchParentPath(parentId: parentId), title: title)
+        }
+        return try await addResearchItemUnchecked(parentId: parentId, title: title, kind: kind)
+    }
+
+    /// Core group/asset-kind-guard creator. Named apart from `addResearchItem`
+    /// so `ensurePaletteGroup` — the one legitimate minter of the reserved
+    /// `research/palette` path — can call it directly and skip the reserved-
+    /// name guard above without a bypass flag on the public API.
+    func addResearchItemUnchecked(
+        parentId: String?,
+        title: String,
+        kind: ResearchItem.AssetKind?
+    ) async throws -> ResearchItem {
         let now = Date()
         let item: ResearchItem
         if kind == nil {
@@ -196,6 +219,19 @@ extension ProjectStore {
     }
 
     // MARK: - Research helpers
+
+    /// Throws `.researchNameReserved` when a group titled `title` under
+    /// `parentPath` would mint the role-bearing Palette folder's own path
+    /// (`research/palette`). Comparison is on the MINTED SLUG/PATH, not the
+    /// display title, and case-insensitive — the filesystem is too (APFS
+    /// default). A nested group (`research/<parent>/palette`) never matches.
+    static func assertResearchGroupNameNotReserved(
+        parentPath: String, title: String
+    ) throws {
+        let candidatePath = "\(parentPath)/\(Slugifier.slug(from: title))"
+        guard candidatePath.lowercased() == PaletteConvention.folderPath.lowercased() else { return }
+        throw ProjectStoreError.researchNameReserved(name: PaletteConvention.groupTitle)
+    }
 
     func researchParentPath(parentId: String?) -> String {
         if let parentId,
@@ -609,6 +645,16 @@ extension ProjectStore {
         var newPathForRenamed: String?
         var childPathRewrites: [(String, String)] = []
         if let newTitle = title, newTitle != oldItem.title {
+            // The second door: a rename that re-slugs a group onto the
+            // reserved `research/palette` path is the same defect as
+            // creation. Skipped for the REAL palette group (role ==
+            // .paletteGroup) — renaming it back onto its own path is a no-op,
+            // not a collision — and for non-groups, which can't mint a bare
+            // folder path.
+            if oldItem.type == .group, oldItem.role != .paletteGroup, let oldPath = oldItem.path {
+                let parentPath = (oldPath as NSString).deletingLastPathComponent
+                try Self.assertResearchGroupNameNotReserved(parentPath: parentPath, title: newTitle)
+            }
             // Rename the backing file/folder through the typed user-content
             // mover. It closes+unregisters any open Document and flushes the
             // research-note debounce INTERNALLY before `renameResearchPath`
