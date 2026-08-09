@@ -220,7 +220,12 @@ struct StatementPane: View {
         guard StatementEssay.carriesRulings(kind),
               let statement = store.statement(kind: kind, scope: scope)
         else { return [] }
-        return RulingsStratum.rows(in: store.statementText(of: statement))
+        // RULING-54 made `statementText` throw on an unreadable file. The
+        // pane's EDITOR half surfaces that refusal through its own load path;
+        // this strata read is a fringe reader, so an unreadable file renders
+        // no ruling rows rather than a second copy of the same alert.
+        guard let text = try? store.statementText(of: statement) else { return [] }
+        return RulingsStratum.rows(in: text)
     }
 
     /// Claude's readings for the scope on screen.

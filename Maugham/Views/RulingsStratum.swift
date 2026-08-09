@@ -144,7 +144,13 @@ enum RulingsStratum {
     static func currentRows(forScope scope: Statement.Scope,
                             store: ProjectStore) -> [Ruling] {
         guard let statement = store.statement(kind: .intent, scope: scope) else { return [] }
-        return rows(in: store.statementText(of: statement))
+        // `statementText` throws since RULING-54's strict-read slice. An
+        // unreadable statement file here means the verb's premise is gone —
+        // "no rulings to act on" is the same honest answer a shrunk list gets
+        // one doc-comment down, so the fringe-reader pattern (try? with the
+        // reason recorded) is the right shape, not a surfaced error.
+        guard let text = try? store.statementText(of: statement) else { return [] }
+        return rows(in: text)
     }
 
     /// The id of the ruling at `index` **as of now**. Nil when the list has
