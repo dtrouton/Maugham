@@ -1,10 +1,10 @@
 # Research
 
-The binder's **Research** segment is for everything that isn't manuscript: character sheets, location photos, PDFs, web links, voice notes.
+The binder tree's **Research** section is for everything that isn't manuscript: character sheets, location photos, PDFs, web links, voice notes.
 
-**It's in the Plan persona** (⌘1) — making research is planning work. Author reads a document's research in the right column instead ([Research mode](right-pane.md#research-mode-r), ⌘⌥R), which is a preview: to edit a note, hop to Plan. The two halves are deliberately in different personas — Plan makes the notes on the left, Author consults them on the right — and Review and Publish carry research in neither column. (⌘⌥R still opens the preview in Plan if you want the tree and a document's linked research side by side; the picker there just doesn't lead you to it.)
+**It's in the tree, in every persona** — making research is a tree action wherever you're standing, not a trip to a particular persona. Author reads a document's research in the right column instead ([Research mode](right-pane.md#research-mode-r), ⌘⌥R), which is a preview: to edit a note, use the tree. The two are deliberately different surfaces — the tree makes the notes, the right column consults them while you draft — and that reading view is Author's alone; Review and Publish carry no Research mode in their right column.
 
-- **New Text Note** — right-click + **New Text Note** to create a markdown note. Rename inline; the file on disk renames with it.
+- **New Note** — right-click the Research section (or a group inside it) → **New Note** to create a markdown note. Rename inline; the file on disk renames with it.
 - **Drag in from Finder** — drop images, PDFs, audio, text files. They land in `research/`.
 - **Paste an image** — Cmd-V into the research pane. Saved as `pasted-…png` next to your notes.
 - **Add Link…** — paste a URL. Opens via WKWebView when clicked.
@@ -31,6 +31,6 @@ Promoting into a collection piece drops the item straight into that piece's own 
 
 ### Trash & undo
 
-Deleting an item moves it to `.maugham/.trash/` (project-local, syncs with iCloud). ⌘⌥Z restores the most-recent deletion in place. A 30-day automatic sweep clears old entries on launch. See [ADR 0006](../adr/0006-trash-and-undo.md) for the design.
+Deleting an item moves it to `.maugham/.trash/` (project-local, syncs with iCloud). ⌘⌥Z restores the most-recent deletion in place — the whole of it, whether that gesture deleted one row or fifty, or it tells you why it can't. A 30-day automatic sweep clears old entries on launch. See [ADR 0006](../adr/0006-trash-and-undo.md) for the design.
 
 ⌘Z is intentionally reserved for in-doc text undo; ⌘⌥Z is the binder-undo shortcut.

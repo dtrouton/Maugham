@@ -16,10 +16,9 @@ import MaughamCore
 /// `scriptRow`.
 ///
 /// **It carries the project row** (persona shell spec §3.3).
-/// `BinderSegment.documentHome(for: .screenplay)` is
-/// `.scenes` and no persona offers a screenplay the `.manuscript` segment, so
-/// `BinderView` — the row's other non-collection home — is never mounted for a
-/// screenplay at all: without a row here `BinderSubject.project` is
+/// `TreePane(for: .screenplay)` is
+/// `.sceneNavigator`, so `BinderView` — the row's other non-collection home —
+/// is never mounted for a screenplay at all: without a row here `BinderSubject.project` is
 /// **unconstructible in a screenplay**, and since slice 1 deleted
 /// `StatementPane`'s `[Chapter | Project]` switch that means project-scope Intent
 /// is unreachable. It can hide the writer's own prose, not just a blank pane:
@@ -49,6 +48,11 @@ struct SceneNavigatorPane: View {
     let documentID: String?
     /// Called with the line range location when the user clicks a scene.
     let onSelect: (Int) -> Void
+    /// Threaded to `BinderTreeSections`' Palette header — see its own doc
+    /// comment (stage 2b Task 5). Defaulted for the mounted-tree fixtures that
+    /// do not care about the wall's door.
+    var canOpenPaletteWall: Bool = true
+    var onOpenPaletteWall: () -> Void = {}
 
     /// The Research and Palette sections' own state (stage-2a Task 4). Owned
     /// here because their presentations hang off this pane, outside the `List`.
@@ -86,7 +90,9 @@ struct SceneNavigatorPane: View {
             // and the same palette as everyone else's; before this the Scenes
             // segment was the only tree with no way to either.
             BinderTreeSections(store: store, state: treeState,
-                               selectedSubject: $selectedSubject)
+                               selectedSubject: $selectedSubject,
+                               canOpenPaletteWall: canOpenPaletteWall,
+                               onOpenPaletteWall: onOpenPaletteWall)
         }
         .listStyle(.sidebar)
         .overlay {
@@ -131,7 +137,7 @@ struct SceneNavigatorPane: View {
     /// meant to end. And it is not a default the writer can move off:
     /// `ProjectStore.renameStructureItem` has one caller, `BinderView.rename`,
     /// and `BinderView` is never mounted for a screenplay
-    /// (`BinderSegment.documentHome(for: .screenplay)` is `.scenes`), so from
+    /// (`TreePane(for: .screenplay)` is `.sceneNavigator`), so from
     /// inside the app that title is permanent. So the row names the *kind* of
     /// thing, which a screenplay can do and no other project type can: there is
     /// exactly one script (the Phase 3d invariant). A fixed noun also guarantees
@@ -176,12 +182,37 @@ struct SceneNavigatorPane: View {
     /// means, through `subject(_:whenNavigatingTo:)`. Ordering between the two
     /// does not matter, which is the point — there is no flag and no guard here
     /// (tripwire 2), just a value that ignores writes it has no meaning for.
-    private var listSelection: Binding<BinderSubject?> {
+    ///
+    /// **It selects a SET as of stage-2b Task 3**, like the other two trees, and
+    /// the pane's own rules do the same job one element at a time. Each is used
+    /// as a MAP rather than a test: `listSelection(for:)` sends a subject to the
+    /// row this pane shows for it, and `subject(_:whenListWrites:documentID:)`
+    /// — asked from no subject at all — sends a written row to the signal it
+    /// carries. A foreign document is the one input either drops, which is
+    /// exactly the refusal that made this pane's list a projection in the first
+    /// place. There is no second predicate beside them to fall out of step.
+    private var listSelection: Binding<Set<BinderSubject>> {
         Binding(
-            get: { Self.listSelection(for: selectedSubject, documentID: documentID) },
+            get: {
+                Set(BinderTreeSelection
+                    .shown(treeState.selection, subject: selectedSubject)
+                    .compactMap { Self.listSelection(for: $0, documentID: documentID) })
+            },
             set: { written in
-                selectedSubject = Self.subject(
-                    selectedSubject, whenListWrites: written, documentID: documentID)
+                let mine = Set(written.compactMap {
+                    Self.subject(nil, whenListWrites: $0, documentID: documentID)
+                })
+                let next = BinderTreeSelection.resolved(
+                    written: mine, stored: treeState.selection,
+                    subject: selectedSubject,
+                    structure: store.manifest.structure,
+                    research: store.manifest.research,
+                    // One row written is still this pane's own rule, unchanged
+                    // — including the `nil` an untagged slugline writes.
+                    single: { Self.subject($0, whenListWrites: $1,
+                                           documentID: documentID) })
+                treeState.selection = next.selection
+                selectedSubject = next.subject
             })
     }
 

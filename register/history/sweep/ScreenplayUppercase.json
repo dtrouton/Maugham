@@ -1,0 +1,142 @@
+{
+  "module": "ScreenplayUppercase",
+  "loc": 49,
+  "claims": [
+    {
+      "id": "SCRUP-1",
+      "scope": "ScreenplayUppercase.shouldDisplayUppercase(_:)",
+      "kind": "POSTCONDITION",
+      "statement": "Returns true for .sceneHeading and for .transition.",
+      "evidenced_by": "source|test:ScreenplayUppercaseTests.test_sceneHeading_isUppercased|test:ScreenplayUppercaseTests.test_transition_isUppercased",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SCRUP-2",
+      "scope": "ScreenplayUppercase.shouldDisplayUppercase(_:)",
+      "kind": "POSTCONDITION",
+      "statement": "Returns false for each of the other twelve ScreenplayElement cases: .action, .character, .dialogue, .parenthetical, .centered, .lyric, .section, .synopsis, .note, .pageBreak, .boneyard, .titlePage. Notably .character — the industry-conventional uppercase element — returns false.",
+      "evidenced_by": "source|test:ScreenplayUppercaseTests (one test per case, twelve of them)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SCRUP-3",
+      "scope": "ScreenplayUppercase.shouldDisplayUppercase(_:)",
+      "kind": "INVARIANT",
+      "statement": "The switch is exhaustive over ScreenplayElement with no default arm, so adding a case to ScreenplayElement is a compile error until it is classified. There is no implicit as-typed default.",
+      "evidenced_by": "source (ScreenplayUppercase.swift:30-47; ScreenplayElement.swift lists exactly the 14 cases switched on)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SCRUP-4",
+      "scope": "ScreenplayUppercase.shouldDisplayUppercase(_:)",
+      "kind": "INVARIANT",
+      "statement": "The function takes only the element and returns a Bool. It reads no text, and neither it nor anything else in the file performs a case transformation. The decision therefore cannot depend on what the writer actually typed: FountainLine.sourceCase (which records .upper/.mixed/.lower/.neutral for every line) is not a parameter and is not consulted.",
+      "evidenced_by": "source (ScreenplayUppercase.swift signature; FountainLine.sourceCase exists and is passed nowhere near this call)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SCRUP-5",
+      "scope": "call-site census",
+      "kind": "INVARIANT",
+      "statement": "There is exactly one production call site in the repository: MaughamPhone/Read/FountainLineStyle.swift:45, inside FountainStyler.style(for:). The two other references are the module's own unit tests and MaughamPhoneTests/ScreenplayUppercaseContractTests. No file under Maugham/ (the Mac target) calls it.",
+      "evidenced_by": "source (grep for ScreenplayUppercase|shouldDisplayUppercase over *.swift)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SCRUP-6",
+      "scope": "FountainStyler.style(for:)",
+      "kind": "POSTCONDITION",
+      "statement": "For every ScreenplayElement, FountainLineStyle.uppercased equals ScreenplayUppercase.shouldDisplayUppercase(element) — the phone styler cannot diverge from the contract without failing a test.",
+      "evidenced_by": "test:MaughamPhoneTests/ScreenplayUppercaseContractTests.test_fountainStyler_honoursUppercaseContract",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SCRUP-7",
+      "scope": "FountainSemanticRenderer / FountainInlineEmphasisRenderer",
+      "kind": "POSTCONDITION",
+      "statement": "When style.uppercased is true the phone renders line.content.uppercased() — the locale-INDEPENDENT Foundation uppercase, not uppercased(with: Locale.current) — in both the fast path (styledText, line 283) and the inline-span path (attributedContent, line 71). The transform is applied to a copy destined for a SwiftUI Text/AttributedString; the FountainLine, the op log and the .fountain file are untouched. Uppercase here is display-only.",
+      "evidenced_by": "source (FountainSemanticRenderer.swift:71,283 — both sites read line.content and write only into a local String/AttributedString)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SCRUP-8",
+      "scope": "Maugham/ (Mac editor)",
+      "kind": "INVARIANT",
+      "statement": "The Mac editor performs no display-uppercase of screenplay text. The only uppercased() calls under Maugham/Editor are recognition-only (ScreenplayLineMutator's 'TO:' suffix test and its scene-heading stem match) plus an unrelated review-mark author label; there is no smallCaps, capitalized or localizedUppercase use. A slugline typed 'int. kitchen - day' stays lowercase on screen on the Mac.",
+      "evidenced_by": "source (grep over Maugham/Editor for uppercased|smallCaps|capitalized|localizedUppercase); Maugham/Editor/AREA.md records the 'option-A fallback' rejection and the 2026-06-10 deletion of ScreenplayLayoutManager",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SCRUP-9",
+      "scope": "Maugham/Resources/PublishStarter/",
+      "kind": "POSTCONDITION",
+      "statement": "The bundled publish starter templates uppercase a DIFFERENT set than this contract and without consulting it: screenplay.tex \\MakeUppercase's \\scene, \\character and \\transition (lines 46, 48, 51), and styles.css sets text-transform: uppercase on p.scene-heading, p.character and p.transition (lines 29, 34, 39). Both include the character cue, which shouldDisplayUppercase excludes. (These are starter files a project may subsequently edit; the claim is about what ships as the default.)",
+      "evidenced_by": "source (screenplay.tex:46,48,51; styles.css:29,34,39)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SCRUP-10",
+      "scope": "FountainInlineEmphasisRenderer.attributedContent(for:style:)",
+      "kind": "PRECONDITION",
+      "statement": "Inline-span NSRanges are computed against the ORIGINAL content and then applied to the uppercased string. The doc comment justifies this with 'marker characters are ASCII so uppercasing does not shift offsets', which is true of the markers but not of the content between them: Swift's .uppercased() is not length-preserving. Measured: 'int. straße - day' is 17 UTF-16 units and uppercases to 18; 'ﬁnal cut to:' is 12 and uppercases to 13. A span located after such a character in a scene heading or transition is therefore off by the accumulated shift. No test covers a length-changing uppercase.",
+      "evidenced_by": "source (FountainSemanticRenderer.swift:57-58 comment, :71,:82-88); measured with swiftc on this machine; absence of any such case in ScreenplayUppercaseTests / ScreenplayUppercaseContractTests",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "SCRUP-11",
+      "scope": "ScreenplayUppercase (doc comment)",
+      "kind": "INVARIANT",
+      "statement": "The file documents itself as 'the single, documented source for which elements get that treatment' and states the Mac 'MUST consume this rather than inventing its own set'. As of today that claim is not enforced anywhere: nothing prevents a second uppercase set, and two already exist (the LaTeX and CSS templates, SCRUP-9). There is no tripwire or grep test guarding it.",
+      "evidenced_by": "source (ScreenplayUppercase.swift:3-22); grep of MaughamTests/TripwireGrepTests for uppercase finds nothing about this contract",
+      "confidence": "HIGH"
+    }
+  ],
+  "product_decisions": [
+    {
+      "id": "SCRUP-D1",
+      "question": "Should the same screenplay show the same capitalisation everywhere Maugham draws it — the Mac editor, the phone reader, and the exported PDF/EPUB?",
+      "current_behaviour": "Three surfaces give three different answers to the same question. The Mac editor uppercases nothing (SCRUP-8). The phone reader uppercases scene headings and transitions but not character cues (SCRUP-1, SCRUP-2). The bundled PDF and EPUB templates uppercase scene headings, transitions AND character cues (SCRUP-9). Only the phone consults ScreenplayUppercase; the export templates uppercase in LaTeX and CSS without reference to it, and the module's doc comment claims to be the single source anyway (SCRUP-11).",
+      "writer_visible_consequence": "A writer types 'int. kitchen - day' and 'sarah'. On the Mac both stay lowercase. They pick up their phone and the slugline is now 'INT. KITCHEN - DAY' while 'sarah' is still lowercase. They export a PDF and both are capitals. Nothing in the app explains why; the writer cannot tell whether Maugham has changed their file or is only showing it differently, and — because Maugham has changed neither — may retype the slugline in capitals to make the Mac agree with the phone.",
+      "classification": "INCONSISTENT",
+      "reasoning": "The module answers 'does the writer's typed casing survive to the reader?' one way on the phone, a second way on the Mac, and a third way in export — the exact repeat-defect pattern the sweep asks to flag. It is not covered by RULING-1 (no content is accepted that cannot be read back — the .fountain file keeps exactly what was typed) nor by RULING-2 (nothing is dropped on parse). Aggravating: the shipped help at docs/guide/screenplay.md tells the writer a slug line is 'recognized as a scene heading, uppercased, styled distinctly', which the Mac editor does not do; and both Maugham/Editor/AREA.md ('The shared ScreenplayUppercase in MaughamCore uppercases the *source* instead') and ScreenplayEmphasis.swift's doc comment ('the Mac uppercases via its layout manager') assert Mac behaviour that does not exist, so a future implementer reading the docs would be told the disagreement is already resolved.",
+      "proposed_ruling": "A screenplay's capitalisation must read the same wherever Maugham shows it — while the writer is typing, on the phone, and in the exported script. One list of elements that Maugham renders in capitals, honoured by every surface; if a surface cannot honour it, no surface does it. Maugham's help describes only what the surface the writer is looking at actually does."
+    },
+    {
+      "id": "SCRUP-D2",
+      "question": "Which screenplay elements may Maugham show in capitals regardless of how the writer typed them — and should the character cue be one of them?",
+      "current_behaviour": "Scene headings and transitions, only. Character cues are explicitly excluded and rendered as-typed, on a surface that simultaneously renders sluglines in capitals. The export templates take the opposite view and capitalise cues.",
+      "writer_visible_consequence": "On the phone, a script typed entirely in lower case reads with capitalised sluglines and transitions but lower-case character cues — a half-formatted script that matches neither what the writer typed nor the industry convention they would recognise. The same script exported reads fully conventional.",
+      "classification": "NOVEL",
+      "reasoning": "Neither ruling reaches it: nothing is lost, refused, or dropped, and the file is unchanged either way. But a writer plainly notices, and two reasonable people disagree — 'show me the script the way it will be shot' argues for capitalising cues too, 'show me what I wrote' argues for capitalising nothing. The current set is a third position that the source documents as a per-case deliberate choice but nowhere justifies.",
+      "proposed_ruling": "Maugham may render an element in capitals only where capitals are the convention of the form itself — scene headings, character cues and transitions — and the same list applies everywhere. Partial conformance (some conventional elements capitalised, others not) is not an option: either the reader shows the writer their own typing, or it shows them the conventional script."
+    },
+    {
+      "id": "SCRUP-D3",
+      "question": "When Maugham decides an element belongs in capitals, may it change what is stored — rewriting the writer's typing — or only how it is drawn?",
+      "current_behaviour": "Display only. The phone renderer uppercases a copy on its way into a Text; the FountainLine, op log and .fountain file keep the writer's own casing (SCRUP-7). No entry point uppercases the source. Two in-repo documents nevertheless state that the source IS uppercased (SCRUP-D1's reasoning), and the Mac's as-typed rendering is recorded as a 'fallback' — i.e. as a thing still to be fixed.",
+      "writer_visible_consequence": "Today: type 'int. kitchen - day' and that is what is in the file, on every device, forever — ⌘Z has nothing to undo because nothing was changed. Under the alternative the writer's line would silently become 'INT. KITCHEN - DAY' as they typed, an edit they did not make appearing in their op log and in a collaborator's diff, and one that cannot be un-made by continuing to type lower case.",
+      "classification": "NOVEL",
+      "reasoning": "RULING-1 does not reach it: source-uppercasing does not create content Maugham cannot read back — the capitalised line reads back perfectly. What it does is silently transform what the writer typed at the point of entry, which is a distinct product question the rulings have not been asked. It is live rather than hypothetical precisely because the docs already claim the source is uppercased and describe the current honest behaviour as a fallback, so the next person to work here can implement it believing it was already decided.",
+      "proposed_ruling": "Formatting conventions change how Maugham DRAWS a screenplay, never what it stores. Whatever the writer typed is what is in their file and what a collaborator sees; capitalisation is a way of showing the script, not an edit made on the writer's behalf."
+    },
+    {
+      "id": "SCRUP-D4",
+      "question": "Should a writer be able to turn off automatic capitalisation, or say that this particular line is meant to be lower case?",
+      "current_behaviour": "No. The decision is a pure function of the element type; FountainLine.sourceCase — which already records that the line was typed all-lower, all-upper or mixed — is computed for every line and never consulted here (SCRUP-4), and there is no preference anywhere. A writer who deliberately types lower case is overridden on the phone with no way to say otherwise, and no way to tell from the reader that an override happened.",
+      "writer_visible_consequence": "A writer working in a deliberately lower-case style, or one who wants a slugline to read exactly as written for effect, sees it capitalised on the phone with no affordance to prevent it — and, because the Mac shows it correctly, may not discover the override until someone else reads the script on a phone.",
+      "classification": "NOVEL",
+      "reasoning": "Distinct from D2 (which elements) — this is whether the writer gets a vote at all. Not covered by either ruling: nothing is lost and the file is intact. Two reasonable people disagree: 'a screenplay has a house style and the app should apply it' against 'the writer's casing is a choice and the app should not have opinions about prose it did not write'. Worth noting that sourceCase is computed on every line and read by no production code, so the information needed to honour deliberate casing is already there and thrown away.",
+      "proposed_ruling": "Where Maugham capitalises a line the writer typed differently, the writer can turn that off — at minimum for the whole script. Maugham does not overrule a writer's casing on a surface where they cannot see that it has been overruled."
+    },
+    {
+      "id": "SCRUP-D5",
+      "question": "When putting a line into capitals would change the writer's letters rather than just their case, should Maugham still do it?",
+      "current_behaviour": "Yes, unconditionally and without locale. Foundation's .uppercased() turns the German ß into SS and the ﬁ ligature into FI, so 'int. straße - day' is drawn as 'INT. STRASSE - DAY' — a letter the writer typed is gone from the rendering, and the line is one character longer than the one the spans were measured against (SCRUP-10). Turkish dotless-i casing is likewise not applied, because no locale is passed.",
+      "writer_visible_consequence": "A German screenwriter's slugline loses its ß on the phone while keeping it on the Mac and in the file. Where such a character precedes inline emphasis or a note in a scene heading or transition, the phone's fading and italics land one character off — visibly on the wrong letters. A Turkish writer's sluglines capitalise to the wrong letterforms.",
+      "classification": "NOVEL",
+      "reasoning": "Not reached by either ruling: nothing is dropped from the file and nothing is refused at entry — this is a rendering that shows the writer letters they did not type. It is narrow but a writer in an affected language sees it every time. The span misalignment is a consequence of the same decision rather than a separate one: the renderer's own comment reasons only about ASCII markers and does not consider that the content between them can change length.",
+      "proposed_ruling": "Capitalising a line must never change which letters it contains. Where a language's capital form is a different letter or a different number of letters, Maugham shows the line as the writer typed it rather than transliterating it."
+    }
+  ],
+  "notes": "Premise check on the task framing: the app does NOT auto-uppercase as the writer types. Nothing in this module or its call sites transforms text at entry; the only capitalisation that happens at all is at draw time on the iOS reader, plus the LaTeX/CSS export templates. The Mac editor has no uppercase behaviour of any kind, and the layout-manager approach that would have given it one was deleted on 2026-06-10. That makes the reversibility question moot today — there is nothing to reverse — and turns D3 into a question about a change the docs already (wrongly) describe as made.\n\nThe module itself is 49 lines, exhaustively switched and exhaustively tested; its per-case claims are as strong as claims get. Essentially all of the decision surface is in the gap between what the module says it is (the single cross-surface source of truth) and what it actually governs (one call site on one surface, while two other renderers capitalise a different set independently).\n\nThree stale in-repo statements that would mislead the next implementer, all asserting Mac behaviour that does not exist: Maugham/Editor/AREA.md:20 ('The shared ScreenplayUppercase in MaughamCore uppercases the *source* instead'); ScreenplayEmphasis.swift:8 ('the Mac editor's ... layout-manager display-uppercase'); docs/guide/screenplay.md:5, which is shipped to writers in-app and over MCP get_help and promises sluglines are 'uppercased'. Also docs/superpowers/notes/2026-06-09-quality-maintainability-audit.md:127 recommends deleting this type outright — an unresolved recommendation, not a decision.\n\nOut of module but adjacent, and flagged only so it is not lost: FountainLine.sourceCase is computed for every line by the tokenizer and read by no production code (only tests) — the tokenizer's own character-cue recognition rules are a separate module's territory, but they are where 'does typing in lower case change what my line IS' would be decided, which is a sharper version of D4.\n\nSCRUP-10's span misalignment is stated at MEDIUM confidence: the length change is measured and certain, and the code path plainly applies original-content ranges to the transformed string, but I did not run the phone renderer to observe the resulting glyph offset."
+}

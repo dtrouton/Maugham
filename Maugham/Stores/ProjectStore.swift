@@ -34,10 +34,20 @@ public enum ProjectStoreError: Error, Equatable {
     case parentNotFound(String)
     case fileSystemError(String)
     case cycle
+    /// RULING-40: one delete gesture is restored whole or refused with its
+    /// reason. Thrown before anything is moved, so a refusal restores nothing.
+    case deletionNotRestorableWhole(label: String, reason: String)
+    /// RULING-43: a trash entry whose wiring cannot be put back is refused
+    /// rather than "restored" into a success message that means nothing.
+    case trashEntryNotRewirable(title: String, reason: String)
+    /// RULING-7: "Empty Trash" could not destroy everything it was asked to.
+    /// Reported rather than swallowed — a failed destruction must never read as
+    /// a completed one — and what survived is still in the pane.
+    case trashNotEmptied(undestroyed: Int, total: Int)
 }
 
 /// Human-readable messages so `error.localizedDescription` in the pane alerts
-/// (`ResearchView`/`CollectionResearchPane`) renders real text rather than the
+/// (the binder tree's Research section) renders real text rather than the
 /// Foundation fallback "(Maugham.ProjectStoreError error N)". `fileSystemError`
 /// carries an already-composed message, so it renders its payload verbatim.
 extension ProjectStoreError: LocalizedError {
@@ -63,6 +73,14 @@ extension ProjectStoreError: LocalizedError {
             return message
         case .cycle:
             return "An item can’t be moved into one of its own descendants."
+        case .deletionNotRestorableWhole(let label, let reason):
+            return "“\(label)” can’t be restored: \(reason)"
+        case .trashEntryNotRewirable(let title, let reason):
+            return "“\(title)” can’t be restored: \(reason)"
+        case .trashNotEmptied(let undestroyed, let total):
+            return "\(undestroyed) of \(total) item\(total == 1 ? "" : "s") could not be "
+                + "permanently deleted. \(undestroyed == 1 ? "It is" : "They are") "
+                + "still in the Trash."
         }
     }
 }
@@ -165,7 +183,12 @@ public final class ProjectStore {
 
     public let trashStore: TrashStore
     public internal(set) var trashEntries: [TrashEntry] = []
-    var lastDeletedTrashId: String?
+
+    /// The trash entries ONE delete gesture made — a batch of fifty or a single
+    /// row — in the order they were made. "Restore Last Deletion" (⌘⌥Z) is
+    /// scoped to this action: it returns the whole of it or refuses and says
+    /// why, never part of it silently (RULING-40).
+    public internal(set) var lastDeletion: TrashDeletion?
 
     // MARK: - Search state
 

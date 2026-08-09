@@ -8,11 +8,11 @@ import MaughamCore
 /// **The decision is a pure function and it is asked over the whole product of
 /// its inputs**, not over the one path this task's brief named. Both of this
 /// window's routing bugs were found that way and neither was found by a test
-/// written along the happy path — see `CanvasPersonaTests`, whose doc comment
+/// written along the happy path — see `CanvasRouteTests`, whose doc comment
 /// says so at length about `inspectorRoute`, the very predicate this reuses.
 final class CanvasCollapseTests: XCTestCase {
 
-    private let routes: [ProjectWindow.InspectorRoute] = [.canvas, .collectionPiece, .segment]
+    private let routes: [ProjectWindow.InspectorRoute] = [.canvas, .collectionPiece, .document]
     private let stashes: [Bool?] = [nil, true, false]
 
     // MARK: - The collapse
@@ -28,12 +28,10 @@ final class CanvasCollapseTests: XCTestCase {
                 ProjectWindow.canvasCollapse(route: .canvas,
                                              isNoChromeOn: true,
                                              showInspector: wasVisible,
-                                             stash: nil,
-                                             paletteStash: nil),
+                                             stash: nil),
                 .collapse(columnVisibility: .doubleColumn,
                           showInspector: false,
-                          stash: wasVisible,
-                          takesOverPaletteStash: false),
+                          stash: wasVisible),
                 "the sidebar goes and the detail column empties, leaving the "
                 + "middle column — which is where CanvasView lives — the window")
         }
@@ -43,9 +41,8 @@ final class CanvasCollapseTests: XCTestCase {
     /// obvious case fails against a test that says why it is wrong rather than
     /// against a tuple mismatch.
     func test_theCollapsedVisibilityIsNotDetailOnly() {
-        guard case .collapse(let visibility, _, _, _) = ProjectWindow.canvasCollapse(
-            route: .canvas, isNoChromeOn: true, showInspector: true,
-            stash: nil, paletteStash: nil)
+        guard case .collapse(let visibility, _, _) = ProjectWindow.canvasCollapse(
+            route: .canvas, isNoChromeOn: true, showInspector: true, stash: nil)
         else { return XCTFail("focus mode on the canvas must collapse") }
         XCTAssertEqual(visibility, .doubleColumn)
         XCTAssertNotEqual(
@@ -71,8 +68,7 @@ final class CanvasCollapseTests: XCTestCase {
                         ProjectWindow.canvasCollapse(route: route,
                                                      isNoChromeOn: isNoChromeOn,
                                                      showInspector: showInspector,
-                                                     stash: nil,
-                                                     paletteStash: nil),
+                                                     stash: nil),
                         .unchanged,
                         "⌘\\ in the editor moves no column — \(route), "
                         + "noChrome \(isNoChromeOn), inspector \(showInspector)")
@@ -91,8 +87,7 @@ final class CanvasCollapseTests: XCTestCase {
                 ProjectWindow.canvasCollapse(route: .canvas,
                                              isNoChromeOn: false,
                                              showInspector: showInspector,
-                                             stash: nil,
-                                             paletteStash: nil),
+                                             stash: nil),
                 .unchanged,
                 "entering Plan must not collapse anything by itself")
         }
@@ -106,8 +101,7 @@ final class CanvasCollapseTests: XCTestCase {
                 ProjectWindow.canvasCollapse(route: .canvas,
                                              isNoChromeOn: false,
                                              showInspector: false,
-                                             stash: prior,
-                                             paletteStash: nil),
+                                             stash: prior),
                 .release(columnVisibility: .all, showInspector: prior),
                 "the inspector comes back exactly as the writer left it")
         }
@@ -123,8 +117,7 @@ final class CanvasCollapseTests: XCTestCase {
                     ProjectWindow.canvasCollapse(route: route,
                                                  isNoChromeOn: true,
                                                  showInspector: false,
-                                                 stash: prior,
-                                                 paletteStash: nil),
+                                                 stash: prior),
                     .release(columnVisibility: .all, showInspector: prior),
                     "focus mode stays on, but the columns are not the canvas's "
                     + "to keep once the centre stops being the canvas — \(route)")
@@ -143,8 +136,7 @@ final class CanvasCollapseTests: XCTestCase {
                 ProjectWindow.canvasCollapse(route: .canvas,
                                              isNoChromeOn: true,
                                              showInspector: false,
-                                             stash: prior,
-                                             paletteStash: nil),
+                                             stash: prior),
                 .unchanged,
                 "the stash is the memory AND the already-collapsed flag")
         }
@@ -152,63 +144,56 @@ final class CanvasCollapseTests: XCTestCase {
 
     // MARK: - Exhaustively, over the product
 
-    /// Every combination of (route × focus mode × inspector × stash × palette
-    /// stash) is asked, and the answer is characterised rather than mirrored: a
-    /// table that restated the implementation would agree with it however wrong
-    /// it was.
+    /// Every combination of (route × focus mode × inspector × stash) is asked,
+    /// and the answer is characterised rather than mirrored: a table that
+    /// restated the implementation would agree with it however wrong it was.
     ///
     /// The properties are the whole contract — when a collapse may be answered,
     /// when a release may be, which memory a collapse remembers, and that
     /// neither ever names a visibility other than the two this window has a
     /// reason for.
+    ///
+    /// **A fifth dimension left in stage 2b Task 7**: the palette wall's own
+    /// stash, which a collapse used to TAKE OVER when both folds ran in one
+    /// update pass. The pass they shared was Plan's picker — palette → canvas
+    /// was one click — and the strip is gone, so the wall cannot be open in the
+    /// one persona a collapse can happen in.
     func test_everyCombinationIsAnsweredAndOnlyTheRightOnesMove() {
         var collapses = 0
         var releases = 0
         var unchanged = 0
-        var takeovers = 0
         for route in routes {
             for isNoChromeOn in [true, false] {
                 for showInspector in [true, false] {
                     for stash in stashes {
-                        for paletteStash in stashes {
-                            let where_ = "route \(route), noChrome \(isNoChromeOn), "
-                                + "inspector \(showInspector), stash \(String(describing: stash))"
-                                + ", palette \(String(describing: paletteStash))"
-                            let wantsTheWholeWindow = route == .canvas && isNoChromeOn
-                            switch ProjectWindow.canvasCollapse(
-                                route: route, isNoChromeOn: isNoChromeOn,
-                                showInspector: showInspector, stash: stash,
-                                paletteStash: paletteStash) {
-                            case .collapse(let visibility, let inspector,
-                                           let stashed, let takesOver):
-                                collapses += 1
-                                if takesOver { takeovers += 1 }
-                                XCTAssertTrue(wantsTheWholeWindow,
-                                              "only the canvas in focus mode collapses — \(where_)")
-                                XCTAssertNil(stash,
-                                             "a collapse is never answered over a live stash — \(where_)")
-                                XCTAssertEqual(visibility, .doubleColumn, where_)
-                                XCTAssertFalse(inspector, where_)
-                                XCTAssertEqual(
-                                    stashed, paletteStash ?? showInspector,
-                                    "a live palette memory is what gets remembered, and "
-                                    + "what is showing only when there is none — \(where_)")
-                                XCTAssertEqual(
-                                    takesOver, paletteStash != nil,
-                                    "and the takeover is declared exactly when it happened, "
-                                    + "or the palette's exit arm restores over it — \(where_)")
-                            case .release(let visibility, let inspector):
-                                releases += 1
-                                XCTAssertFalse(wantsTheWholeWindow,
-                                               "a collapsed canvas is not released — \(where_)")
-                                XCTAssertNotNil(stash,
-                                                "nothing is released that was never collapsed — \(where_)")
-                                XCTAssertEqual(visibility, .all, where_)
-                                XCTAssertEqual(inspector, stash,
-                                               "the inspector comes back as stashed — \(where_)")
-                            case .unchanged:
-                                unchanged += 1
-                            }
+                        let where_ = "route \(route), noChrome \(isNoChromeOn), "
+                            + "inspector \(showInspector), stash \(String(describing: stash))"
+                        let wantsTheWholeWindow = route == .canvas && isNoChromeOn
+                        switch ProjectWindow.canvasCollapse(
+                            route: route, isNoChromeOn: isNoChromeOn,
+                            showInspector: showInspector, stash: stash) {
+                        case .collapse(let visibility, let inspector, let stashed):
+                            collapses += 1
+                            XCTAssertTrue(wantsTheWholeWindow,
+                                          "only the canvas in focus mode collapses — \(where_)")
+                            XCTAssertNil(stash,
+                                         "a collapse is never answered over a live stash — \(where_)")
+                            XCTAssertEqual(visibility, .doubleColumn, where_)
+                            XCTAssertFalse(inspector, where_)
+                            XCTAssertEqual(
+                                stashed, showInspector,
+                                "what is showing is what is kept — \(where_)")
+                        case .release(let visibility, let inspector):
+                            releases += 1
+                            XCTAssertFalse(wantsTheWholeWindow,
+                                           "a collapsed canvas is not released — \(where_)")
+                            XCTAssertNotNil(stash,
+                                            "nothing is released that was never collapsed — \(where_)")
+                            XCTAssertEqual(visibility, .all, where_)
+                            XCTAssertEqual(inspector, stash,
+                                           "the inspector comes back as stashed — \(where_)")
+                        case .unchanged:
+                            unchanged += 1
                         }
                     }
                 }
@@ -217,12 +202,11 @@ final class CanvasCollapseTests: XCTestCase {
         // The control on the loop itself: an `if` that never fires, or a product
         // that silently shrank to one route, satisfies every assertion above.
         XCTAssertEqual(collapses + releases + unchanged,
-                       routes.count * 2 * 2 * stashes.count * stashes.count,
+                       routes.count * 2 * 2 * stashes.count,
                        "every combination was asked exactly once")
         XCTAssertGreaterThan(collapses, 0, "the product reaches the collapse arm")
         XCTAssertGreaterThan(releases, 0, "the product reaches the release arm")
         XCTAssertGreaterThan(unchanged, 0, "the product reaches the untouched arm")
-        XCTAssertGreaterThan(takeovers, 0, "and it reaches a collapse that takes the palette's memory")
     }
 
     // MARK: - The three-pass sequence that broke the palette
@@ -230,8 +214,8 @@ final class CanvasCollapseTests: XCTestCase {
     /// **Collapse on the canvas → switch persona → switch back**, driven through
     /// the SAME fold the window uses, in the pass order SwiftUI actually
     /// delivers: `PersonaModifier`'s handler runs synchronously on the command,
-    /// and `CanvasCollapseModifier`'s `.onChange(of: binderSegment)` runs in a
-    /// LATER pass.
+    /// and `CanvasCollapseModifier`'s `.onChange(of: persona)` runs in a LATER
+    /// pass.
     ///
     /// The writer here had already closed the inspector with `⌘⌥I` — the case
     /// that makes the hazard visible. With the release in the later pass alone,
@@ -248,8 +232,8 @@ final class CanvasCollapseTests: XCTestCase {
         XCTAssertEqual(window.canvasStash, false, "the closed inspector is what gets remembered")
 
         // Pass 2 — ⌘2. PersonaModifier's own handler, synchronously.
-        if PersonaModifier.releasesCanvasCollapse(from: .canvas,
-                                                  to: .manuscript,
+        if PersonaModifier.releasesCanvasCollapse(fromPersona: .plan,
+                                                  toPersona: .author,
                                                   stash: window.canvasStash) {
             window.canvasStash = nil
             window.columnVisibility = .all
@@ -257,7 +241,7 @@ final class CanvasCollapseTests: XCTestCase {
         window.showInspector = true               // the unconditional force-open
 
         // Pass 3 — CanvasCollapseModifier's .onChange, one pass later.
-        window.foldCollapse(route: .segment, isNoChromeOn: true)
+        window.foldCollapse(route: .document, isNoChromeOn: true)
         XCTAssertTrue(window.showInspector,
                       "the later pass must not restore the stash over the "
                       + "force-open — this is the assertion the predicate "
@@ -274,68 +258,40 @@ final class CanvasCollapseTests: XCTestCase {
         XCTAssertEqual(window.canvasStash, true, "and remembers what it found this time")
     }
 
-    // MARK: - The picker, and the pass the two surfaces share
+    // MARK: - The wall and the collapse
 
-    /// **Palette → Canvas is ONE CLICK and needs no persona switch.**
-    /// `Persona.plan.binderSegments(for:)` offers `.canvas`, `.research` and
-    /// `.palette` together, so a writer on the wall in focus mode reaches the
-    /// canvas from the picker — and that runs `PaletteSegmentModifier`'s exit
-    /// arm and `CanvasCollapseModifier`'s collapse **in the same update pass**,
-    /// in an order SwiftUI picks and nothing here may depend on.
+    // **The order test that stood here died with the state it was about**
+    // (stage 2b Task 7). Palette → Canvas used to be ONE CLICK in Plan's
+    // picker, so the wall's exit arm and this collapse ran in the SAME update
+    // pass in whichever order SwiftUI picked — and collapse-first remembered
+    // the wall's forced `false`, leaving the writer a collapsed canvas with the
+    // pane still in it and a memory that closed the pane for good on the way
+    // out. The fix was the takeover: a collapse took the wall's memory when one
+    // was live and said so, and `test_theWallAndCanvasFoldsEndTheSameWayInEither
+    // Order` pinned both orders against each other.
+    //
+    // The wall is `showsPaletteWall` since Task 5, its door is disabled in Plan
+    // and `PersonaModifier` force-closes it on the way in — and a collapse
+    // needs `route == .canvas`, which is Plan. Task 5 left the takeover dormant
+    // because the picker was still there; Task 7 removed the picker, and the
+    // branch, the parameter and these two tests went together. The sequence
+    // that IS reachable — the wall open in Author, ⌘1, then ⌘\ — is the test
+    // below.
+
+    /// **The wall in Author, then ⌘1, then ⌘\, then ⌘\ again** — the sequence
+    /// the two folds can still compose in, and the one that says the collapse
+    /// did not simply hide the pane everywhere: the writer gets back what they
+    /// had **before the wall**, which is the only value that was ever theirs.
     ///
-    /// So this is asserted **both ways round**, over the real folds, and the
-    /// two orders must end in the SAME state. Asserting one order would pass
-    /// today and be a coin-flip on the next SwiftUI release; asserting the
-    /// predicate alone would not see this transition at all.
-    func test_thePickerFromTheWallToTheCanvasEndsTheSameWayInEitherOrder() {
-        // Guard the premise, or this whole test is about a click that cannot
-        // happen. Every project type, because the picker's list is per type.
-        for type in ProjectType.allCases {
-            let plan = Persona.plan.binderSegments(for: type)
-            XCTAssertTrue(plan.contains(.palette) && plan.contains(.canvas),
-                          "Plan offers the wall and the canvas side by side in a \(type)")
-        }
-
-        for priorInspector in [true, false] {
-            // The writer is on the wall: the palette has stashed what they had
-            // and forced the pane shut. Then ⌘\ — nothing collapses, the centre
-            // is not the canvas — and then they click Canvas.
-            var paletteFirst = WindowState(showInspector: priorInspector)
-            paletteFirst.foldPalette(from: .canvas, to: .palette)
-            XCTAssertEqual(paletteFirst.paletteStash, priorInspector)
-            XCTAssertFalse(paletteFirst.showInspector, "the wall takes the width")
-            var collapseFirst = paletteFirst
-
-            paletteFirst.foldPalette(from: .palette, to: .canvas)
-            paletteFirst.foldCollapse(route: .canvas, isNoChromeOn: true)
-
-            collapseFirst.foldCollapse(route: .canvas, isNoChromeOn: true)
-            collapseFirst.foldPalette(from: .palette, to: .canvas)
-
-            XCTAssertEqual(
-                paletteFirst, collapseFirst,
-                "the two update orders must agree — prior inspector \(priorInspector)")
-            XCTAssertEqual(paletteFirst.columnVisibility, .doubleColumn,
-                           "and the canvas got the window")
-            XCTAssertFalse(paletteFirst.showInspector,
-                           "with the pane shut rather than reopened over the collapse")
-            XCTAssertEqual(paletteFirst.canvasStash, priorInspector,
-                           "and what it remembers is what the writer had BEFORE the "
-                           + "wall forced it shut, not the wall's own false")
-            XCTAssertNil(paletteFirst.paletteStash,
-                         "the wall's memory was taken over, so its exit arm has "
-                         + "nothing left to restore over the collapse")
-        }
-    }
-
-    /// The half that says the fix did not simply hide the pane everywhere: the
-    /// writer presses `⌘\` again and gets back what they had **before the
-    /// wall**, which is the only value that was ever theirs.
+    /// The wall's close here is what `ProjectWindow.closePaletteWallOnPersonaChange`
+    /// drives from `PaletteWallModifier`'s persona observer (the 2b fix wave
+    /// replaced the old per-writer `clearsPaletteWallStash` with that one rule,
+    /// so ANY persona write closes the wall — not only ⌘1's).
     func test_leavingTheCollapseAfterTheWallRestoresWhatTheWriterHad() {
         for priorInspector in [true, false] {
             var window = WindowState(showInspector: priorInspector)
-            window.foldPalette(from: .canvas, to: .palette)
-            window.foldPalette(from: .palette, to: .canvas)
+            window.foldPalette(from: false, to: true)
+            window.foldPalette(from: true, to: false)
             window.foldCollapse(route: .canvas, isNoChromeOn: true)
             window.foldCollapse(route: .canvas, isNoChromeOn: false)   // ⌘\ off
             XCTAssertEqual(window.showInspector, priorInspector)
@@ -344,37 +300,21 @@ final class CanvasCollapseTests: XCTestCase {
         }
     }
 
-    /// **The control for the takeover**, and without it a collapse that always
-    /// cleared the palette's memory would satisfy everything above. Arriving on
-    /// the canvas from anywhere that is not the wall leaves that memory alone,
-    /// because there is none — and the collapse says so.
-    func test_aCollapseThatMeetsNoWallTakesNothingOver() {
-        for showInspector in [true, false] {
-            guard case .collapse(_, _, let stashed, let takesOver) =
-                    ProjectWindow.canvasCollapse(route: .canvas, isNoChromeOn: true,
-                                                 showInspector: showInspector,
-                                                 stash: nil, paletteStash: nil)
-            else { return XCTFail("focus mode on the canvas must collapse") }
-            XCTAssertFalse(takesOver, "there is no wall memory to take")
-            XCTAssertEqual(stashed, showInspector, "so what is showing is what is kept")
-        }
-    }
-
-    /// And the wall's own rule is unchanged by the extraction: entering stashes
-    /// and hides, leaving restores and forgets the selected card.
+    /// And the wall's own rule is unchanged by the extraction: opening stashes
+    /// and hides, closing restores and forgets the selected card.
     func test_theWallsOwnRuleStillWorksWithNoCanvasInvolved() {
         var showInspector = true
         var stash: Bool?
         var card: String? = "card-1"
-        ProjectWindow.applyPaletteSegmentChange(
-            from: .research, to: .palette, showInspector: &showInspector,
+        ProjectWindow.applyPaletteWallChange(
+            from: false, to: true, showInspector: &showInspector,
             stash: &stash, selectedPaletteCardId: &card)
         XCTAssertFalse(showInspector)
         XCTAssertEqual(stash, true)
-        XCTAssertEqual(card, "card-1", "the card survives entering")
+        XCTAssertEqual(card, "card-1", "the card survives opening")
 
-        ProjectWindow.applyPaletteSegmentChange(
-            from: .palette, to: .research, showInspector: &showInspector,
+        ProjectWindow.applyPaletteWallChange(
+            from: true, to: false, showInspector: &showInspector,
             stash: &stash, selectedPaletteCardId: &card)
         XCTAssertTrue(showInspector)
         XCTAssertNil(stash)
@@ -383,113 +323,104 @@ final class CanvasCollapseTests: XCTestCase {
 
     // MARK: - The predicate
 
-    func test_thePredicateFiresOnlyWhenALiveCollapseLeavesTheCanvas() {
-        XCTAssertTrue(
-            PersonaModifier.releasesCanvasCollapse(from: .canvas, to: .manuscript, stash: true),
-            "leaving the canvas with a collapse in force releases it")
-        XCTAssertTrue(
-            PersonaModifier.releasesCanvasCollapse(from: .canvas, to: .research, stash: false),
-            "and a stashed `false` is a live collapse just as much as a `true` — "
-            + "the flag is optionality, not the value")
+    /// **Every persona pair, and the answer follows the two centre columns.**
+    /// Asked over the whole product rather than the one pair that motivated it:
+    /// the rule is "a live collapse over a centre that stops being the board",
+    /// and a hand-picked pair is the sampling that lets a fifth persona answer
+    /// wrong.
+    func test_thePredicateFiresExactlyWhenALiveCollapseLeavesTheBoard() {
+        for from in Persona.allCases {
+            for to in Persona.allCases {
+                let leaves = from.centresTheCanvas && !to.centresTheCanvas
+                XCTAssertEqual(
+                    PersonaModifier.releasesCanvasCollapse(
+                        fromPersona: from, toPersona: to, stash: true),
+                    leaves, "\(from) → \(to)")
+                XCTAssertEqual(
+                    PersonaModifier.releasesCanvasCollapse(
+                        fromPersona: from, toPersona: to, stash: false),
+                    leaves,
+                    "\(from) → \(to): a stashed `false` is a live collapse just "
+                    + "as much as a `true` — the flag is optionality, not the value")
+            }
+        }
     }
 
-    /// The controls, one per way the predicate could be made to fire everywhere.
+    /// The control on that loop: it really reaches both answers, so neither
+    /// equality above is satisfied by a predicate that returns a constant.
+    func test_thePredicateAnswersBothWaysAcrossThePersonaProduct() {
+        var fired = 0
+        var refused = 0
+        for from in Persona.allCases {
+            for to in Persona.allCases {
+                if PersonaModifier.releasesCanvasCollapse(
+                    fromPersona: from, toPersona: to, stash: true) {
+                    fired += 1
+                } else {
+                    refused += 1
+                }
+            }
+        }
+        XCTAssertGreaterThan(fired, 0, "no pair leaves the board")
+        XCTAssertGreaterThan(refused, 0, "every pair leaves the board")
+    }
+
     func test_thePredicateIsFalseWhenTheCanvasSurvivesTheSwitch() {
         XCTAssertFalse(
-            PersonaModifier.releasesCanvasCollapse(from: .canvas, to: .canvas, stash: true),
+            PersonaModifier.releasesCanvasCollapse(
+                fromPersona: .plan, toPersona: .plan, stash: true),
             "⌘1 while already in Plan keeps the collapse")
     }
 
     func test_thePredicateIsFalseWhenNothingWasCollapsed() {
         XCTAssertFalse(
-            PersonaModifier.releasesCanvasCollapse(from: .canvas, to: .manuscript, stash: nil),
+            PersonaModifier.releasesCanvasCollapse(
+                fromPersona: .plan, toPersona: .author, stash: nil),
             "a persona switch off an UNCOLLAPSED canvas reopens nothing — the "
             + "writer may have dragged the sidebar shut themselves")
     }
 
-    func test_thePredicateIsFalseWhenTheBinderWasNotOnTheCanvas() {
+    func test_thePredicateIsFalseWhenTheWriterWasNeverOnTheBoard() {
         XCTAssertFalse(
-            PersonaModifier.releasesCanvasCollapse(from: .manuscript, to: .research, stash: true),
+            PersonaModifier.releasesCanvasCollapse(
+                fromPersona: .author, toPersona: .review, stash: true),
             "a switch that never touched the canvas is not this rule's business")
     }
 
-    /// The palette's own predicate still answers exactly as it did, so the
-    /// shared `leaves` helper underneath the two did not quietly widen either.
+    /// **Re-derived again in the final review's I3 fix.** The rule was
+    /// `PersonaModifier.clearsPaletteWallStash`, asked of the ⌘1–⌘4 handler and
+    /// true only when the destination was Plan — so a wall opened in Author rode
+    /// a Claude arrival or a wiki-link jump (neither of which reaches that
+    /// handler) straight back over Author's centre. It is
+    /// `ProjectWindow.closePaletteWallOnPersonaChange` now, observed on the
+    /// persona itself, and the destination is not a term at all.
     ///
-    /// It matters more since slice 2 made `leaves` take a PREDICATE instead of a
-    /// segment: the palette's caller now passes `{ $0 == .palette }` and the
-    /// canvas's passes `\.centresTheCanvas`, so a mistake there widens or
-    /// narrows one of the two silently.
-    func test_thePaletteStashRuleIsUnchanged() {
-        XCTAssertTrue(PersonaModifier.clearsPaletteStash(from: .palette, to: .manuscript))
-        XCTAssertFalse(PersonaModifier.clearsPaletteStash(from: .palette, to: .palette))
-        XCTAssertFalse(PersonaModifier.clearsPaletteStash(from: .canvas, to: .manuscript),
-                       "and the canvas is not the palette")
-        XCTAssertFalse(PersonaModifier.clearsPaletteStash(from: .tree, to: .canvas),
-                       "nor is the tree")
+    /// **Kept HERE rather than moved wholesale** because this suite's subject is
+    /// the two stashes not fighting each other: the wall's drops on a persona
+    /// change while the canvas collapse's is handed back by
+    /// `releasesCanvasCollapse` above, and a reader comparing them wants both in
+    /// one place. The wall's own behaviour is `PaletteWallDoorTests`'.
+    func test_thePaletteWallStashIsDroppedByAPersonaChangeRatherThanRestored() {
+        var open = true
+        var stash: Bool? = false
+        ProjectWindow.closePaletteWallOnPersonaChange(showsPaletteWall: &open,
+                                                      stash: &stash)
+        XCTAssertFalse(open, "any persona change closes the wall now")
+        XCTAssertNil(stash,
+                     "dropped, not restored — a live `false` here would close "
+                     + "the inspector back over the switch's own force-open, "
+                     + "one update pass later")
     }
 
-    // MARK: - The tree centres the canvas, so it is not a way OFF it
-
-    /// **A `.canvas` ↔ `.tree` flip must move no column at all.**
-    ///
-    /// Both segments draw the canvas in the centre, so a writer in focus mode
-    /// flipping between them has not left the canvas. Spelled as `== .canvas`
-    /// this predicate would answer `true` and hand the sidebar back — and
-    /// `CanvasCollapseModifier`, which re-derives through `inspectorRoute` on
-    /// `.onChange(of: binderSegment)`, would then collapse it again on the next
-    /// pass: the sidebar moving under the writer twice while the canvas never
-    /// left the screen.
-    ///
-    /// Asked over the whole product of the two canvas-centring segments rather
-    /// than over the one flip that motivated it.
-    func test_aFlipBetweenTheTwoCanvasSegmentsReleasesNothing() {
-        for from in [BinderSegment.canvas, .tree] {
-            for to in [BinderSegment.canvas, .tree] {
-                XCTAssertFalse(
-                    PersonaModifier.releasesCanvasCollapse(from: from, to: to, stash: true),
-                    "\(from) → \(to): the canvas is the centre on both sides")
-            }
-        }
-    }
-
-    /// And the half that says the widening did not swallow the rule: leaving the
-    /// canvas centre ALTOGETHER still releases, from either segment.
-    func test_leavingTheCanvasCentreFromEitherSegmentStillReleases() {
-        for from in [BinderSegment.canvas, .tree] {
-            for to in [BinderSegment.manuscript, .scenes, .research, .palette] {
-                XCTAssertTrue(
-                    PersonaModifier.releasesCanvasCollapse(from: from, to: to, stash: true),
-                    "\(from) → \(to): the canvas is gone, so the sidebar comes back")
-            }
-        }
-    }
-
-    /// The modifier's own re-derivation, driven rather than described:
-    /// `CanvasCollapseModifier` asks `inspectorRoute`, so the tree must produce
-    /// the SAME collapse decision the canvas does. Without this the predicate
-    /// above could be right while the modifier that actually runs is not.
-    func test_theCollapseDecisionIsTheSameOnTheTreeAsOnTheCanvas() {
-        for type in ProjectType.allCases {
-            for isNoChromeOn in [true, false] {
-                for stash in stashes {
-                    let onCanvas = ProjectWindow.canvasCollapse(
-                        route: ProjectWindow.inspectorRoute(binderSegment: .canvas,
-                                                            projectType: type),
-                        isNoChromeOn: isNoChromeOn, showInspector: true,
-                        stash: stash, paletteStash: nil)
-                    let onTree = ProjectWindow.canvasCollapse(
-                        route: ProjectWindow.inspectorRoute(binderSegment: .tree,
-                                                            projectType: type),
-                        isNoChromeOn: isNoChromeOn, showInspector: true,
-                        stash: stash, paletteStash: nil)
-                    XCTAssertEqual(onCanvas, onTree,
-                                   "\(type)/noChrome=\(isNoChromeOn)/stash="
-                                   + "\(String(describing: stash))")
-                }
-            }
-        }
-    }
+    // **The `.canvas` ↔ `.tree` flip tests died with the segments** (stage 2b
+    // Task 7). Plan offered two left-hand tabs that both drew the board, so a
+    // flip between them was not a way off the canvas and a `== .canvas`
+    // spelling of the predicate would have handed the sidebar back and then
+    // collapsed it again on the next pass — the sidebar moving under the writer
+    // twice while the canvas never left the screen. Plan has one left column
+    // now, so there is no flip to make and no pair to ask about;
+    // `test_thePredicateIsFalseWhenTheCanvasSurvivesTheSwitch` is what the
+    // guarantee reduces to.
 
     // MARK: - The window's state, as a value
 
@@ -515,16 +446,14 @@ final class CanvasCollapseTests: XCTestCase {
                 ProjectWindow.canvasCollapse(route: route,
                                              isNoChromeOn: isNoChromeOn,
                                              showInspector: showInspector,
-                                             stash: canvasStash,
-                                             paletteStash: paletteStash),
+                                             stash: canvasStash),
                 columnVisibility: &columnVisibility,
                 showInspector: &showInspector,
-                stash: &canvasStash,
-                paletteStash: &paletteStash)
+                stash: &canvasStash)
         }
 
-        mutating func foldPalette(from old: BinderSegment, to new: BinderSegment) {
-            ProjectWindow.applyPaletteSegmentChange(
+        mutating func foldPalette(from old: Bool, to new: Bool) {
+            ProjectWindow.applyPaletteWallChange(
                 from: old, to: new,
                 showInspector: &showInspector,
                 stash: &paletteStash,

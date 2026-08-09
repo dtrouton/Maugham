@@ -190,20 +190,17 @@ final class CanvasClaudeBannerTests: XCTestCase {
 
     // MARK: - Show
 
-    /// **Where the writer is taken, as a value.** The canvas segment is offered by
-    /// the Plan persona and by no other (`Persona.binderSegments(for:)`), so
-    /// setting the segment without the persona would put the binder on a surface
-    /// the picker does not offer — and selecting the region without either would
-    /// change something the writer cannot see.
+    /// **Where the writer is taken, as a value.** The board is Plan's centre
+    /// column and nobody else's (`Persona.centresTheCanvas`), so selecting the
+    /// region without moving the persona would change something the writer
+    /// cannot see.
     ///
-    /// `handleShowLatestMCPNote` is the precedent for the shape: set the segment,
-    /// set the selection, dismiss.
+    /// `handleShowLatestMCPNote` is the precedent for the shape: point the
+    /// window at the thing, dismiss.
     func test_showTakesTheWriterToTheRegion() {
-        let to = CanvasClaudeArrivalModifier.destination(
-            forRegion: r1, from: .manuscript)
+        let to = CanvasClaudeArrivalModifier.destination(forRegion: r1)
         XCTAssertEqual(to.persona, .plan,
-                       "the canvas segment is Plan's and nobody else's")
-        XCTAssertEqual(to.binderSegment, .canvas)
+                       "the board is Plan's centre column and nobody else's")
         XCTAssertEqual(to.selection, .region(r1),
                        "the region, so the inspector's region arm names what "
                        + "arrived and ⌫/Promote… act on it")
@@ -215,33 +212,31 @@ final class CanvasClaudeBannerTests: XCTestCase {
     }
 
     /// **A writer already looking at the canvas is not moved off it** — the
-    /// slice-2 ruling, asserted rather than described.
+    /// slice-2 ruling, which since shell-finish stage 2b Task 7 holds by
+    /// construction rather than by a term.
     ///
-    /// `.tree` and `.canvas` both put the canvas in the CENTRE and differ only
-    /// in the left column (the manuscript tree against the research tree). Show's
-    /// promise from `.tree` is therefore already kept by the selection and the
-    /// camera move; forcing `.canvas` as well would swap the writer's left column
-    /// out from under them and cost them their place in the structure they were
-    /// arranging, which is what Plan's tree is for.
+    /// The rule had work to do while Plan's left column was a picker: two of its
+    /// four tabs drew the board and two did not, so "already there" had to be
+    /// asked of the (persona, segment) pair, and answering it wrong swapped the
+    /// writer's left column out from under them and cost them their place in the
+    /// structure they were arranging. With one left column per persona the
+    /// destination is Plan and nothing else, so a writer already in Plan is
+    /// written the value they already hold — and that is what this asserts,
+    /// because "the answer does not depend on where you were" is exactly the
+    /// property the old term existed to buy.
     ///
-    /// Asked over every segment rather than over the two that motivated it: the
-    /// rule is "wherever the canvas is already the centre", which is exactly
-    /// `centresTheCanvas`, and a hand-picked pair is the sampling that lets a
-    /// future segment answer wrong.
+    /// The premise is asserted rather than assumed: Plan is really the persona
+    /// that centres the board, so this is not vacuously true of a destination
+    /// nobody would have been moved off anyway.
     func test_showLeavesAWriterWhoIsAlreadyOnTheCanvasWhereTheyAre() {
-        for segment in BinderSegment.allCases {
-            let to = CanvasClaudeArrivalModifier.destination(forRegion: r1, from: segment)
-            XCTAssertEqual(to.persona, .plan,
-                           "\(segment): the canvas is Plan's, from everywhere")
-            if segment.centresTheCanvas {
-                XCTAssertEqual(to.binderSegment, segment,
-                               "\(segment) already draws the canvas — Show has "
-                               + "nothing to move and a left column to cost")
-            } else {
-                XCTAssertEqual(to.binderSegment, .canvas,
-                               "\(segment) does not draw the canvas, so the "
-                               + "writer has to be taken somewhere")
-            }
+        let destination = CanvasClaudeArrivalModifier.destination(forRegion: r1)
+        XCTAssertTrue(destination.persona.centresTheCanvas,
+                      "premise: Show lands somewhere the board is the centre "
+                      + "column, or there is nothing to reveal")
+        for persona in Persona.allCases where persona.centresTheCanvas {
+            XCTAssertEqual(destination.persona, persona,
+                           "\(persona) already draws the canvas — Show has "
+                           + "nothing to move and a left column to cost")
         }
     }
 
@@ -316,7 +311,7 @@ final class CanvasClaudeBannerTests: XCTestCase {
         XCTAssertEqual(combined.region, r2)
         XCTAssertEqual(combined.regionLabel, "Second reading")
         XCTAssertEqual(CanvasClaudeArrivalModifier
-            .destination(forRegion: combined.region, from: .manuscript)
+            .destination(forRegion: combined.region)
             .selection, .region(r2),
             "and Show goes where the banner says")
     }

@@ -5,12 +5,11 @@ import MaughamCore
 
 /// **Where a screenplay's parsed script comes from when no editor is mounted.**
 ///
-/// Slice 2 gave Plan's Structure tab a screenplay's `SceneNavigatorPane`, and
-/// Plan centres the canvas — so the one producer of `ProjectWindow`'s
-/// `lastParsedScript` (a mounted `EditorCoordinator`, reachable only through
-/// `EditorHost`, mounted only when the centre column is a document) does not
-/// exist there. The pane got `nil` and drew "No scenes yet" over a script full
-/// of them.
+/// Slice 2 gave Plan a screenplay's `SceneNavigatorPane`, and Plan centres the
+/// canvas — so the one producer of `ProjectWindow`'s `lastParsedScript` (a
+/// mounted `EditorCoordinator`, reachable only through `EditorHost`, mounted
+/// only when the centre column is a document) does not exist there. The pane got
+/// `nil` and drew "No scenes yet" over a script full of them.
 ///
 /// These are the rules of the second producer: what it reads (tripwire 20), when
 /// it runs (tripwires 4 and 6), and what it must never do.
@@ -40,59 +39,77 @@ final class ScreenplayScriptSourceTests: XCTestCase {
         let already = FountainTokenizer().parse(Self.twoScenes)
         XCTAssertFalse(
             ScreenplayScriptSource.needsDerivation(
-                binderSegment: .tree, projectType: .screenplay, existing: already),
+                persona: .plan, projectType: .screenplay, existing: already),
             "an editor's parse must never be overwritten by an op-log derive — "
             + "that is two producers of one value disagreeing, which is the "
             + "shape tripwire 6 exists for")
         XCTAssertTrue(
             ScreenplayScriptSource.needsDerivation(
-                binderSegment: .tree, projectType: .screenplay, existing: nil),
+                persona: .plan, projectType: .screenplay, existing: nil),
             "control: with nothing produced, Plan's tree must derive")
     }
 
-    /// **Exactly one (segment, project type) pair derives, and the census says
-    /// which** — asked over every pair rather than the one the fix was written
-    /// against, because that is how the original defect got in: `.tree` was a new
-    /// member of a set nobody re-enumerated.
+    /// **Exactly one (persona, project type) pair derives, and the census says
+    /// which** — asked over every one rather than the one the fix was written
+    /// against, because that is how the original defect got in: a new member of
+    /// a set nobody re-enumerated.
     ///
-    /// `.scenes` is the interesting NO. It shows the same navigator, but it
-    /// mounts `EditorHost` beside it, so the coordinator posts within a frame —
-    /// a derive there would be a duplicate op-log decode racing a fresher value.
+    /// Author is the interesting NO. It shows the same navigator, but it mounts
+    /// `EditorHost` beside it, so the coordinator posts within a frame — a
+    /// derive there would be a duplicate op-log decode racing a fresher value.
+    ///
+    /// **This census caught the Task 6 re-base widening twice, which is why the
+    /// list is a list and not a count.** That re-base had to replace
+    /// `showsSceneNavigator(for:) && centresTheCanvas` — an intersection of two
+    /// SEGMENT predicates — with something a persona could express, and a
+    /// persona could not tell Plan's structure tab from its canvas tab. Both
+    /// attempts showed up here as extra rows: `plan×canvas×screenplay` (that tab
+    /// mounted the old research pane, so there was no navigator to feed) and
+    /// `plan×manuscript×screenplay` (the manuscript segment mounted `BinderView`
+    /// unconditionally — a one-row novel binder, never sluglines). Each would
+    /// have been an op-log decode and a Fountain parse that no surface reads.
+    ///
+    /// **The segment dimension is gone as of Task 7 and the answer did not
+    /// move**, which is the whole claim of the kill: Plan's left column IS the
+    /// tree now, so the case the interim term used to name is the only case
+    /// there is.
     func test_onlySluglineSurfacesWithNoEditorBehindThemDerive() throws {
         var derives: [String] = []
-        for segment in BinderSegment.allCases {
+        for persona in Persona.allCases {
             for type in ProjectType.allCases {
                 guard ScreenplayScriptSource.needsDerivation(
-                    binderSegment: segment, projectType: type, existing: nil)
+                    persona: persona, projectType: type, existing: nil)
                 else { continue }
-                derives.append("\(segment.rawValue)×\(type.rawValue)")
+                derives.append("\(persona.rawValue)×\(type.rawValue)")
             }
         }
-        XCTAssertEqual(derives, ["tree×screenplay"],
-                       "Plan's tree on a screenplay is the one surface that "
-                       + "lists sluglines with no editor behind it. Anything "
-                       + "else here is either an op-log decode nobody reads or "
-                       + "a race with the editor's own parse")
+        XCTAssertEqual(derives, ["plan×screenplay"],
+                       "Plan on a screenplay is the one window state that lists "
+                       + "sluglines with no editor behind it. Anything else here "
+                       + "is either an op-log decode nobody reads or a race with "
+                       + "the editor's own parse")
     }
 
-    /// The registry predicate the rule above is built from, over every pair —
-    /// so a future project type whose tree is the scene navigator, or a future
-    /// segment that mounts it, is answered here rather than inheriting a `false`.
-    func test_theSceneNavigatorSegmentsAreTreeOnAScreenplayAndScenes() throws {
-        var shows: [String] = []
-        for segment in BinderSegment.allCases {
-            for type in ProjectType.allCases
-            where segment.showsSceneNavigator(for: type) {
-                shows.append("\(segment.rawValue)×\(type.rawValue)")
-            }
+    /// The project-type half of the rule above, over every type — so a future
+    /// project type whose tree is the scene navigator is answered here rather
+    /// than inheriting a `false`.
+    ///
+    /// **This replaces `BinderSegment.showsSceneNavigator(for:)`**, deleted in
+    /// stage 2b Task 6. That predicate asked the segment a question only the
+    /// project type could answer, and delegated its one interesting arm to the
+    /// tree derivation anyway — so what survives is the delegate, asked
+    /// directly. The segment's half of the old answer went with the enum in
+    /// Task 7; the pair census above is what is left of it.
+    func test_theSceneNavigatorIsTheTreeOfAScreenplayAndOfNoOtherType() throws {
+        var shows: [ProjectType] = []
+        for type in ProjectType.allCases
+        where TreePane(for: type) == .sceneNavigator {
+            shows.append(type)
         }
-        XCTAssertEqual(
-            shows.sorted(),
-            ProjectType.allCases.map { "scenes×\($0.rawValue)" }.sorted()
-                + ["tree×screenplay"],
-            "`.scenes` is a screenplay's document home and is never offered for "
-            + "another type, so it answers yes unconditionally; `.tree` defers "
-            + "to `treePane(for:)` rather than re-deriving `== .screenplay`")
+        XCTAssertEqual(shows, [.screenplay],
+                       "a screenplay's tree IS its slugline navigator (one "
+                       + "`.fountain`, the Phase 3d invariant); no other type "
+                       + "has sluglines to list")
     }
 
     // MARK: - What it reads

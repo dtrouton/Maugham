@@ -127,6 +127,21 @@ struct HistoryPane: View {
         return map
     }
 
+    /// Each op's immediate predecessor in the opId-ordered log, keyed by opId.
+    /// "Rewind to before this…" opens the rewind at the PREDECESSOR — the
+    /// state the row's op destroyed, not the state it produced. Posting the
+    /// row's own op landed the writer AFTER it, because `derive(upTo:)` is
+    /// inclusive by contract (RULING-22 disposition 2026-08-08, M4-RW-002).
+    /// The first op has no entry: there is no "before" to offer.
+    static func predecessorIndex(ops: [Op]) -> [String: Op] {
+        var map: [String: Op] = [:]
+        map.reserveCapacity(max(ops.count - 1, 0))
+        for i in 1..<max(ops.count, 1) {
+            map[ops[i].opId] = ops[i - 1]
+        }
+        return map
+    }
+
     private var emptyTitle: String {
         switch filter {
         case .all:         return "No history yet"
@@ -174,12 +189,22 @@ struct HistoryPane: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
+                    // Built ONCE per body pass and captured by every row —
+                    // never per row (tripwire 4: no per-row computation in
+                    // list rows without caching).
+                    let predecessors = Self.predecessorIndex(ops: ops)
                     LazyVStack(spacing: 0) {
                         ForEach(entries) { entry in
                             HistoryRow(
                                 entry: entry,
                                 expanded: expanded.contains(entry.id),
                                 lookupOp: { id in opsByOpId[id] },
+                                rewindTarget: {
+                                    if case .op(let op) = entry {
+                                        return predecessors[op.opId]
+                                    }
+                                    return nil
+                                }(),
                                 onToggle: {
                                     if expanded.contains(entry.id) {
                                         expanded.remove(entry.id)
@@ -295,6 +320,12 @@ private struct HistoryRow: View {
     let entry: HistoryEntry
     let expanded: Bool
     let lookupOp: (String) -> Op?
+    /// The op "Rewind to before this…" opens at — the row op's immediate
+    /// predecessor in the opId-ordered log, resolved by the parent pane.
+    /// `nil` for the first op (no "before" exists) and for checkpoint rows;
+    /// the deep-link button is not offered then, because offering a rewind
+    /// that cannot land before the op would be the M4-RW-002 lie again.
+    let rewindTarget: Op?
     let onToggle: () -> Void
     let onJump: () -> Void
     let onRevert: () -> Void
@@ -345,12 +376,13 @@ private struct HistoryRow: View {
                     .controlSize(.small)
                     .buttonStyle(.bordered)
                     .simultaneousGesture(TapGesture().onEnded { })
-            } else if case .op(let op) = entry, mutatesManuscript(op.kind) {
+            } else if case .op(let op) = entry, mutatesManuscript(op.kind),
+                      let before = rewindTarget {
                 Button {
                     MaughamEvent.post(
                         .maughamOpenRewind, to: .project(for: projectURL),
-                        payload: ["scrub_op_id": op.opId,
-                                  "scrub_op_at": op.at])
+                        payload: ["scrub_op_id": before.opId,
+                                  "scrub_op_at": before.at])
                 } label: {
                     Label("Rewind to before this…", systemImage: "arrow.uturn.backward")
                         .labelStyle(.iconOnly)
@@ -545,6 +577,14 @@ private struct HistoryRow: View {
                     } else if op.provenance?.synthesisSource == .rewind {
                         Text("Auto-archived: paragraph removed by rewind.")
                             .font(.caption2).foregroundStyle(.orange)
+                    } else if op.provenance?.synthesisSource == .rejectConvergence {
+                        // RULING-33. The paragraph moved and no gesture of the
+                        // writer's moved it, so the history has to say who did
+                        // and why — otherwise this reads as a second rejection
+                        // they do not remember making.
+                        Text("Removed a change accepted on another device, so the "
+                             + "rejection and the manuscript agree.")
+                            .font(.caption2).foregroundStyle(.orange)
                     }
                 }
             } else if let resp = op.provenance?.userResponse {
@@ -566,7 +606,14 @@ private struct HistoryRow: View {
             case .claudeSuggestion: return "Suggestion"
             case .claudeAccept: return "Accepted"
             case .claudeAcceptRevert: return "Accept reverted"
-            case .claudeReject: return "Rejected"
+            case .claudeReject:
+                // The convergence repair is a reject the WRITER did not issue
+                // (RULING-33) — same op kind, different actor. Labelling both
+                // "Rejected" would put an act of Maugham's in the writer's
+                // column, which is the same misattribution the `.rewind` /
+                // `.paragraphDeleted` arms above exist to avoid.
+                return op.provenance?.synthesisSource == .rejectConvergence
+                    ? "Rejection applied" : "Rejected"
             case .claudeArchive: return "Archived"
             case .claudeQuery: return "Query"
             case .claudeCraftNote: return "Craft"

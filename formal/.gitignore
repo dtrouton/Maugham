@@ -1,0 +1,5 @@
+# Third-party checker binary — ~10MB, fetched by check.sh on demand
+tools/
+# TLC scratch output
+states/
+*.old

@@ -12,7 +12,7 @@ The EPUB output produces a structurally clean file with one `<section>` per piec
 
 ### Where outputs land
 
-Compiled PDFs and EPUBs appear in the project's `Exports/` folder, which is shown as a segment in the binder. You can open the file from there or find it in Finder alongside your manuscript folder.
+Compiled PDFs and EPUBs appear in the project's `Exports/` folder, which is shown as a footer beneath the binder tree in Author, Review, and Publish (Plan's centre column is the planning canvas, so it doesn't carry this footer). You can open the file from there or find it in Finder alongside your manuscript folder.
 
 ### The publish configuration
 

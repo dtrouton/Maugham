@@ -1,5 +1,6 @@
 import SwiftUI
 import MaughamCore
+import UniformTypeIdentifiers
 
 struct BinderRow: View {
     let item: StructureItem
@@ -18,6 +19,16 @@ struct BinderRow: View {
     /// piece's) and accepting it would animate the drag home and discard it.
     /// Same fix, same reason, as `ResearchRow`'s.
     let onDrop: (_ draggedId: String, _ position: DropIntent.Position) -> Bool
+    /// Called when a Finder file or a browser image drag lands on this row
+    /// (stage-2b Task 4). A chapter is a real destination for one: in a novel
+    /// the file is imported to shared research and linked to this chapter, in a
+    /// Collection it goes into the piece's own folder, and a row that can take
+    /// neither refuses. Raw providers rather than URLs — a browser drag carries
+    /// a rendered bitmap and no file URL at all, and `.dropDestination(for:
+    /// URL.self)` drops it silently (`DropClassification`).
+    ///
+    /// Returns whether the drop was accepted — see `onDrop`.
+    let onExternalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position) -> Bool
 
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
@@ -76,6 +87,21 @@ struct BinderRow: View {
                 else { position = .middle }
                 // The caller's answer, never a literal — see `onDrop`.
                 return onDrop(droppedId, position)
+            }
+            // **After the string destination, always** — `.onDrop(of:)` claims
+            // the drag session on hover, before the payload is examined, so
+            // mounted first it would leave the reorder above it dead and
+            // silent. `ResearchRow` has always had this order; `TripwireGrepTests`
+            // censuses it.
+            .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, location in
+                guard !providers.isEmpty else { return false }
+                let rowHeight: CGFloat = 22
+                let position: DropIntent.Position
+                if location.y < rowHeight / 3 { position = .top }
+                else if location.y > (rowHeight * 2 / 3) { position = .bottom }
+                else { position = .middle }
+                // The caller's answer, never a literal — see `onDrop`.
+                return onExternalDrop(providers, position)
             }
         }
     }

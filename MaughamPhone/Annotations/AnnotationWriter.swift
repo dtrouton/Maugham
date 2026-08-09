@@ -68,6 +68,18 @@ struct AnnotationWriter {
         /// rule). Fail loud rather than fabricate a revert with no paragraph to
         /// restore.
         case malformedAcceptRevert(annotationId: String)
+        /// `makeAccept` found the suggestion's span no longer resolvable against
+        /// the current paragraph. RULING-5: it MUST NOT be applied — the caller
+        /// shows the refusal; the writer may ask for a fresh suggestion. Same
+        /// decision as the Mac's `AnnotationAcceptError.suggestionAnchorLost`,
+        /// made by the same shared `SuggestionSplice.attempt`.
+        case suggestionAnchorLost(annotationId: String)
+        /// `makeAccept` was given merged ops in which this annotation's latest
+        /// withdraw/reopen op is a WITHDRAW: the writer deleted it (possibly on
+        /// another device) and a stale view must not splice its text anyway
+        /// (RULING-33's status/manuscript agreement; the Mac's guard is the
+        /// same shared `AnnotationDeriver.isWithdrawn` — tripwire 19).
+        case annotationWithdrawn(annotationId: String)
     }
 
     // MARK: - Paths
@@ -113,8 +125,12 @@ struct AnnotationWriter {
     /// loss), so we `assertionFailure` (Debug) then `throw .malformedSuggestion`
     /// rather than fabricate or drop the change.
     func makeAccept(
-        for annotation: Annotation, currentParagraph: String? = nil
+        for annotation: Annotation, currentParagraph: String? = nil,
+        verifyingAgainst ops: [Op]? = nil
     ) throws -> Op {
+        if let ops, AnnotationDeriver.isWithdrawn(annotationId: annotation.id, in: ops) {
+            throw WriteError.annotationWithdrawn(annotationId: annotation.id)
+        }
         let changes: [Op.ParagraphChange]
         if annotation.kind == .suggestedChange {
             guard let pid = annotation.paragraphId, let bare = annotation.suggestedText else {
@@ -124,9 +140,15 @@ struct AnnotationWriter {
                 throw WriteError.malformedSuggestion(annotationId: annotation.id)
             }
             let current = currentParagraph ?? annotation.priorText ?? ""
-            let next = SuggestionSplice.apply(
-                suggestion: bare, span: annotation.span, to: current)
-            changes = [Op.ParagraphChange(paragraphId: pid, prior: current, next: next)]
+            switch SuggestionSplice.attempt(
+                suggestion: bare, span: annotation.span, to: current) {
+            case .applied(let next):
+                changes = [Op.ParagraphChange(paragraphId: pid, prior: current, next: next)]
+            case .anchorLost:
+                // RULING-5: a span whose quoted phrase is gone is refused, not
+                // guessed at — same decision, same shared splice, as the Mac.
+                throw WriteError.suggestionAnchorLost(annotationId: annotation.id)
+            }
         } else {
             // comment/query/craftNote: nothing to materialize.
             changes = []
@@ -245,8 +267,12 @@ struct AnnotationWriter {
     // MARK: - Build + coordinated append
 
     @discardableResult
-    func accept(_ annotation: Annotation, currentParagraph: String? = nil) async throws -> Op {
-        try await append(makeAccept(for: annotation, currentParagraph: currentParagraph))
+    func accept(
+        _ annotation: Annotation, currentParagraph: String? = nil,
+        verifyingAgainst ops: [Op]? = nil
+    ) async throws -> Op {
+        try await append(makeAccept(
+            for: annotation, currentParagraph: currentParagraph, verifyingAgainst: ops))
     }
 
     @discardableResult
@@ -291,5 +317,25 @@ struct AnnotationWriter {
         encoder.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
         encoder.outputFormatting = [.sortedKeys]
         return try encoder.encode(op)
+    }
+}
+
+
+extension AnnotationWriter.WriteError: LocalizedError {
+    /// A raw Foundation rendering of these ("…WriteError error 3.") reached a
+    /// writer once (branch review); every case names itself now.
+    var errorDescription: String? {
+        switch self {
+        case .malformedSuggestion:
+            return "This suggestion is malformed and can’t be applied."
+        case .notReopenable:
+            return "This annotation can’t be reopened — its status changed on another device."
+        case .malformedAcceptRevert:
+            return "This accept can’t be reverted — its record is incomplete."
+        case .suggestionAnchorLost:
+            return "The passage this suggestion would replace is no longer in the paragraph. The suggestion stays open — ask Claude for a fresh one."
+        case .annotationWithdrawn:
+            return "You deleted this suggestion on another device, so it can no longer be applied."
+        }
     }
 }

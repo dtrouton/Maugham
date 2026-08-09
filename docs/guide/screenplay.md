@@ -12,7 +12,7 @@ Open a Screenplay project. Maugham parses Fountain as you type:
 
 ### Scene navigator
 
-The binder's Scenes segment shows every slug line in the screenplay, with the page number each one starts on. Click to scroll.
+A screenplay's binder tree shows every slug line beneath the **Script** row, with the page number each one starts on. Click to scroll.
 
 ### Page count
 

@@ -34,6 +34,20 @@ public enum AnnotationDeriver {
             }
         }
 
+        // 1a2. The latest rejection per target, for RULING-31's reason
+        //      history: a reopened note keeps its most recent rejection reason
+        //      visible as part of its record.
+        var latestReject: [String: Op] = [:]
+        for op in ops {
+            guard op.kind == .claudeReject,
+                  let src = op.provenance?.sourceAnnotationId else { continue }
+            if let prior = latestReject[src] {
+                if op.opId > prior.opId { latestReject[src] = op }
+            } else {
+                latestReject[src] = op
+            }
+        }
+
         // 1b. Withdraw / reopen: latest-by-opId wins between the two per
         // target (a reopen newer than a withdraw cancels the withdrawal; a
         // later withdraw re-drops it). `annotationReopen` here is the
@@ -117,6 +131,17 @@ public enum AnnotationDeriver {
             let language: String? = (kind == .query)
                 ? decodeToolArgsLanguage(prov?.toolArgs) : nil
 
+            // RULING-31: a reopened note carries its most recent PRIOR
+            // rejection's reason as history (only while open — a live
+            // resolution's own userResponse takes the stage otherwise).
+            let previousRejectionReason: String? = {
+                guard status == .open,
+                      let lifecycle, lifecycle.kind == .annotationReopen,
+                      let reject = latestReject[op.opId],
+                      reject.opId < lifecycle.opId else { return nil }
+                return reject.provenance?.userResponse
+            }()
+
             result.append(Annotation(
                 id: op.opId,
                 kind: kind,
@@ -133,7 +158,8 @@ public enum AnnotationDeriver {
                 author: author,
                 span: span,
                 resolvedSpanRange: resolvedSpanRange,
-                language: language))
+                language: language,
+                previousRejectionReason: previousRejectionReason))
         }
         // Newest first by createdAt; tie-break by op_id (descending) for
         // stable ordering of same-instant ops.
@@ -142,6 +168,65 @@ public enum AnnotationDeriver {
             return a.id > b.id
         }
         return result
+    }
+
+    /// A withdrawn (writer-deleted) annotation, as the Deleted view lists it
+    /// (RULING-34: delete is normalised for annotations too — recoverable
+    /// later, not gone at one keystroke's mercy). Deliberately NOT a fifth
+    /// `AnnotationStatus` case: withdrawal is absence from the projection, and
+    /// widening the status enum would ripple through every filter, surface and
+    /// wire format for what is a listing concern.
+    public struct WithdrawnAnnotation: Equatable, Sendable {
+        public let id: String
+        public let kind: AnnotationKind
+        public let body: String
+        public let withdrawnAt: Date
+    }
+
+    /// The annotations whose latest withdraw/reopen op is a WITHDRAW — the
+    /// Deleted view's content, newest withdrawal first. Body honours the
+    /// latest self-service edit, same as the live projection.
+    public static func deriveWithdrawn(ops: [Op]) -> [WithdrawnAnnotation] {
+        var latestEdit: [String: Op] = [:]
+        var withdrawState: [String: Op] = [:]
+        for op in ops {
+            guard let src = op.provenance?.sourceAnnotationId else { continue }
+            switch op.kind {
+            case .annotationEdit:
+                if latestEdit[src].map({ op.opId > $0.opId }) ?? true { latestEdit[src] = op }
+            case .annotationWithdraw, .annotationReopen:
+                if withdrawState[src].map({ op.opId > $0.opId }) ?? true { withdrawState[src] = op }
+            default:
+                break
+            }
+        }
+        var result: [WithdrawnAnnotation] = []
+        for op in ops {
+            guard let kind = AnnotationKind.fromOpKind(op.kind),
+                  let latest = withdrawState[op.opId],
+                  latest.kind == .annotationWithdraw else { continue }
+            let body = latestEdit[op.opId]?.provenance?.annotationBody
+                ?? op.provenance?.annotationBody ?? ""
+            result.append(WithdrawnAnnotation(
+                id: op.opId, kind: kind, body: body, withdrawnAt: latest.at))
+        }
+        result.sort { $0.withdrawnAt > $1.withdrawnAt }
+        return result
+    }
+
+    /// The one withdrawn-or-not rule, shared by every surface (tripwire 19):
+    /// an annotation is withdrawn iff the LATEST of its withdraw/reopen ops by
+    /// opId is a withdraw — the same latest-first resolution `derive` applies.
+    /// The Mac's accept guard and the phone's writer both call this; neither
+    /// restates it.
+    public static func isWithdrawn(annotationId: String, in ops: [Op]) -> Bool {
+        var latest: Op?
+        for op in ops {
+            guard op.kind == .annotationWithdraw || op.kind == .annotationReopen,
+                  op.provenance?.sourceAnnotationId == annotationId else { continue }
+            if latest.map({ op.opId > $0.opId }) ?? true { latest = op }
+        }
+        return latest?.kind == .annotationWithdraw
     }
 
     // MARK: - Helpers

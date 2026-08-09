@@ -1,0 +1,285 @@
+[
+ {
+  "claim_id": "M1-T-018",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "words the writer AUTHORED are always recoverable",
+  "why_in_scope": "The body of a palette card is prose the writer types into the editor's Notes field. `![alt](./x.png)` typed there is authored markup, and the parser deliberately confines inline-image harvesting to the `## Images` section, so the body text is stored and read back verbatim rather than being converted into derived `imagePaths` data the writer can no longer edit or delete as prose. Authored words remain recoverable across the write/read cycle.",
+  "intent_expressed_when": "contemporaneous — the writer typed the image markup into the body field in this edit",
+  "call_path": "PaletteCardEditor bodySection TextEditor -> bodyBinding -> scheduleSave -> ProjectStore.updatePaletteCard -> PaletteCardRenderer.render -> disk; reopen -> ProjectStore.loadPaletteCards -> PaletteCardParser.parse",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-020",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "words the writer AUTHORED are always recoverable",
+  "why_in_scope": "Same authored-body scope as M1-T-018, with the remote URL as the payload. A remote `![alt](https://…)` in the body is text the writer typed; it is neither rewritten by the path resolver nor lifted into `imagePaths` (the `://` guard excludes remote refs from image data), so it survives render->parse as the prose it was typed as.",
+  "intent_expressed_when": "contemporaneous — the writer typed the remote image markup into the body field",
+  "call_path": "PaletteCardEditor bodySection TextEditor -> bodyBinding -> scheduleSave -> ProjectStore.updatePaletteCard -> PaletteCardRenderer.render -> disk; reopen -> PaletteCardParser.parse",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-022",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-6",
+  "clause_that_reaches_it": "stored text is never changed by a formatting convention",
+  "why_in_scope": "Leading indentation is significant markdown the writer typed (it is how a code block or a hanging indent is spelled). The parser takes a trimmed PROBE for structure detection only and appends the RAW line to the body, so no tidying convention rewrites what is stored. This is the clause's stated subject — stored bytes versus a presentational normalisation — applied to the card body.",
+  "intent_expressed_when": "contemporaneous — the indentation is part of what the writer typed in this edit",
+  "call_path": "PaletteCardEditor body TextEditor -> PaletteCardRenderer.render -> disk -> PaletteCardParser.parse (raw line appended, probe used only for `#`/`##`/`kind:`/`- ` detection)",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-023",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-6",
+  "clause_that_reaches_it": "stored text is never changed by a formatting convention",
+  "why_in_scope": "An interior run of blank lines is the writer's own paragraph spacing inside authored prose. Only the single structural pair the renderer pads around a non-empty body is peeled off; interior runs are never collapsed to a canonical single blank, which is precisely the kind of formatting-convention rewrite of stored text this clause forbids.",
+  "intent_expressed_when": "contemporaneous — the blank lines are part of the body as typed",
+  "call_path": "PaletteCardEditor body TextEditor -> render -> disk -> parse (only `bodyLines.first`/`.last` empties removed, never interior)",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-024",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-6",
+  "clause_that_reaches_it": "stored text is never changed by a formatting convention",
+  "why_in_scope": "Trailing spaces are markdown-significant (two of them are a hard line break) and are bytes the writer typed. The parser's trimming happens on the structure probe, never on the stored line, so no whitespace-tidying convention alters what was stored. Same clause, same subject as M1-T-022.",
+  "intent_expressed_when": "contemporaneous — trailing whitespace is part of the body as typed",
+  "call_path": "PaletteCardEditor body TextEditor -> render -> disk -> parse (raw, untrimmed line appended to bodyLines)",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-025",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-11",
+  "clause_that_reaches_it": "Maugham's own invisible bookkeeping (anchors, structural framing) must never alter the writer's intent — not what they see, not what is stored",
+  "why_in_scope": "The blank line the renderer pads after `kind:` is structural framing Maugham emits for itself — named explicitly in the clause's parenthetical — and it is invisible as a decision to the writer, who never typed it. The parser peels exactly that one line and no more, so a blank line the writer DID type at the top of the body survives into storage unchanged. The framing does not eat the writer's content.",
+  "intent_expressed_when": "contemporaneous — the writer opened their body with a blank line in this edit",
+  "call_path": "PaletteCardEditor body TextEditor -> render (`out += \"\\n\\(card.body)\\n\"`) -> disk -> parse (`if bodyLines.first == \"\" { removeFirst() }`, once)",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-026",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-11",
+  "clause_that_reaches_it": "Maugham's own invisible bookkeeping (anchors, structural framing) must never alter the writer's intent — not what they see, not what is stored",
+  "why_in_scope": "The trailing half of the same renderer-emitted framing pair before `## Swatches`. It is Maugham's own structural bookkeeping, not writer content; exactly one line is peeled on the way in, so a blank line the writer typed at the end of the body is stored and read back intact. Mirror of M1-T-025.",
+  "intent_expressed_when": "contemporaneous — the writer ended their body with a blank line in this edit",
+  "call_path": "PaletteCardEditor body TextEditor -> render -> disk -> parse (`if bodyLines.last == \"\" { removeLast() }`, once)",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-027",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A hex-string validator's success postcondition is value-format arithmetic, not a product decision; no ruling's scope covers colour parsing."
+ },
+ {
+  "claim_id": "M1-T-028",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Accepting the 3-digit shorthand and case-insensitive digits is input-format latitude in a value parser; no ruling reaches colour notation."
+ },
+ {
+  "claim_id": "M1-T-029",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Requiring the `#` sigil is a value-format precondition; the rejection is a lower-layer nil return, not a writer-facing refusal any ruling governs."
+ },
+ {
+  "claim_id": "M1-T-030",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-9",
+  "clause_that_reaches_it": "what a writer does outside Maugham is their risk; what Maugham does on their behalf is Maugham's",
+  "why_in_scope": "This is a ROOT-only match, flagged as the protocol requires. The claim is contradicted — `UInt32(_:radix:)` accepts a leading `+`, so `#+12345` passes the validator — but no swatch inside Maugham can carry that form: the editor mints swatches only from `ColorPicker`/`NSColorSampler` through `hexString(from:)`, which formats uppercase `#RRGGBB`, and the MCP palette tools are read-only. The only producer is a hand-edited card file, which the clause's first half assigns to the writer. The clause's second half (what Maugham does on their behalf) is satisfied too: the leniently-accepted value is stored, rendered and re-parsed identically, so Maugham neither loses it nor misreports it — the swatch chip draws the colour the string actually denotes.",
+  "intent_expressed_when": "not at all — no in-app control can express this input; it arrives only from an external edit",
+  "call_path": "external edit of research/palette/<card>.md -> ProjectStore.loadPaletteCards -> PaletteCardParser.parse -> `PaletteCard.color(fromHex:)` guard -> swatches",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-031",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Byte-to-unit-interval channel normalisation is numeric conversion; no ruling reaches it."
+ },
+ {
+  "claim_id": "M1-T-032",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "words the writer AUTHORED are always recoverable",
+  "why_in_scope": "The fully-populated card carries two kinds of authored words — the multi-paragraph body and the sensory notes' text — alongside derived data (resolved image paths, swatches). The claim is that the whole card survives the file round trip, so nothing the writer wrote is lost by being written to disk and read back. That is the clause's subject exactly, at the granularity of a whole card.",
+  "intent_expressed_when": "contemporaneous — every populated field is content the writer entered in the card editor",
+  "call_path": "PaletteCardEditor (title/kind/swatch/image/note/body controls) -> scheduleSave -> ProjectStore.updatePaletteCard -> render -> disk -> loadPaletteCards -> parse",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-033",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "An empty card carries no authored words and no derived material, so the round trip preserves nothing a ruling protects; it is a degenerate-shape stability fact."
+ },
+ {
+  "claim_id": "M1-T-034",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Path arithmetic on a derived image reference in a model-owned file; the writer neither typed nor sees the `./` form."
+ },
+ {
+  "claim_id": "M1-T-035",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A canonical-form invariant over derived path text; no writer-visible question turns on which relative form is emitted."
+ },
+ {
+  "claim_id": "M1-T-036",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A swatch is a visible field, not invisible bookkeeping, so RULING-11 does not reach it; and case-normalising a colour VALUE is not a formatting convention applied to authored text, so RULING-6 does not either — the digits' case carries no meaning and the only source of a lowercase model value is an external hand-edit."
+ },
+ {
+  "claim_id": "M1-T-037",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "words the writer AUTHORED are always recoverable",
+  "why_in_scope": "A writer who types `## Anything` into the card body has authored a heading and, usually, prose under it. The parser treats an unknown `##` before real structure as body text rather than truncating the body there, so the words after it are stored and read back rather than falling into a dropped section. The clause is about authored words surviving; this is the case where structure-detection could have eaten them and does not.",
+  "intent_expressed_when": "contemporaneous — the heading and the text under it were typed in this edit",
+  "call_path": "PaletteCardEditor body TextEditor -> render -> disk -> parse (`default:` arm falls through to body while `seenSectionHeading == false`)",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-038",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "words the writer AUTHORED are always recoverable",
+  "why_in_scope": "`kind:` is captured once, before any section; a later line that merely looks like it stays body prose. So a writer who happens to write a sentence beginning `kind: …` in their notes keeps that sentence — it is neither consumed as metadata nor dropped — and the card's kind is not silently overwritten by their prose. Authored words recoverable, which is the clause's subject.",
+  "intent_expressed_when": "contemporaneous — the `kind:`-looking sentence was typed into the body in this edit",
+  "call_path": "PaletteCardEditor body TextEditor -> render -> disk -> parse (`if !kindCaptured, !seenSectionHeading, …` guard)",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-040",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "words the writer AUTHORED are always recoverable",
+  "why_in_scope": "A bulleted line is ordinary prose to write in a notes field, and `- ` is also the item marker for every real section. Because body accumulation runs before any section is open, the line is stored as prose instead of being reinterpreted as a swatch/sense/image item (which would have discarded it as unparseable). The writer's words come back.",
+  "intent_expressed_when": "contemporaneous — the bulleted line was typed into the body in this edit",
+  "call_path": "PaletteCardEditor body TextEditor -> render -> disk -> parse (`if section == .none { bodyLines.append(raw); continue }` precedes the `- ` item guard)",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-043",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "words the writer AUTHORED are always recoverable",
+  "why_in_scope": "A sensory note's text is prose the writer typed. The renderer drops an untagged note whose text is empty — nothing authored is in it — and the claim is that the drop leaves every neighbouring note's words and order intact. The clause reaches the SURVIVORS: a lossy operation next to authored words must not take them with it, and it does not.",
+  "intent_expressed_when": "contemporaneous — the surviving notes are text the writer entered in the notes field",
+  "call_path": "PaletteCardEditor addNote/removeNote -> scheduleSave -> ProjectStore.updatePaletteCard -> PaletteCardRenderer.render (per-note loop skips the empty untagged one, emits the rest in order)",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-044",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Keeping a tagged note with no text preserves an empty structure, not authored words; no ruling governs whether a blank labelled row survives."
+ },
+ {
+  "claim_id": "M1-T-045",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Path arithmetic — the protocol's named example of behaviour no ruling should reach."
+ },
+ {
+  "claim_id": "M1-T-046",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Path arithmetic; the climb count is an implementation detail of a derived reference."
+ },
+ {
+  "claim_id": "M1-T-047",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "where the SAME writer question is answered in more than one place, it has ONE answer",
+  "why_in_scope": "\"Which senses can I tag a note with?\" is a writer question answered in at least five places — the card editor's sense picker, the palette pane's grouping, the phone's capture aim picker, the phone's palette reader, and the parser that accepts a `<sense>:` prefix. Every one derives from `PaletteCard.Sense.allCases` rather than restating a literal list, so the question has one answer and a sixth sense would propagate to all of them at once. That is the clause's stated subject, not a symptom of it.",
+  "intent_expressed_when": "not at all — this is a consistency property across surfaces, not a response to a writer instruction",
+  "call_path": "PaletteCardEditor sense picker / PalettePane grouping / PaletteAimPicker.senses / PaletteLoading — all `PaletteCard.Sense.allCases`",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-T-048",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "where the SAME writer question is answered in more than one place, it has ONE answer",
+  "why_in_scope": "The order senses appear in is part of the same answer as the vocabulary itself, and it is asked in the same several places (Mac picker, Mac grouping, phone picker, phone reader). All of them iterate `allCases`, so declaration order IS the single answer and the writer sees sight-sound-smell-touch-taste in the same order everywhere. The claim's own point — that the order is load-bearing downstream — is what puts it inside this clause rather than making it a private implementation detail.",
+  "intent_expressed_when": "not at all — a cross-surface consistency property",
+  "call_path": "PaletteCard.Sense declaration -> `allCases` iteration at PalettePane, PaletteCardEditor, PaletteAimPicker, PaletteLoading",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M1-C-001",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Length precondition on a colour literal; no ruling reaches hex notation."
+ },
+ {
+  "claim_id": "M1-C-002",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Whitespace intolerance in a value parser; no in-app control can produce it and no ruling's scope covers it."
+ },
+ {
+  "claim_id": "M1-C-004",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Sign rejection in a value parser; no ruling reaches it."
+ },
+ {
+  "claim_id": "M1-C-005",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Hex notation is ASCII by definition, so rejecting fullwidth/Arabic-Indic digits is not a script-support decision; RULING-3's deferral is scoped to FILENAME legibility, and RULING-16 therefore has no deferred decision here to shelter under."
+ },
+ {
+  "claim_id": "M1-C-006",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Empty-string rejection in a value parser; no ruling reaches it."
+ },
+ {
+  "claim_id": "M1-C-007",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Agreement between the shorthand and long colour forms is numeric equivalence, not a product decision."
+ },
+ {
+  "claim_id": "M1-C-040",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The exact byte layout of a derived render — blank lines between empty sections — is invisible to the writer and carries no content."
+ },
+ {
+  "claim_id": "M1-C-042",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A bare restatement of two enums' declaration order; the cross-surface consequence is filed under M1-T-047/M1-T-048 and citing a ruling twice for the same property would be duplication."
+ },
+ {
+  "claim_id": "M1-C-047",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "words the writer AUTHORED are always recoverable; DERIVED material may be dropped but the drop must be reported",
+  "why_in_scope": "The card body is authored prose (the editor labels the field \"Notes… Anything else about this subject\"). If the writer types a line that spells a known section name — `## Images`, `## Swatches`, `## Senses` — then on the next parse that line opens a section, and every non-`- ` line under it, up to the next heading, is discarded: the body comes back empty and the prose is gone from the file. The lost text is authored, not derived, so the clause's second half offers no licence; and nothing reports the loss to the writer either way. Scope is the model's own write-then-read of content Maugham itself stored, not an external hand-edit, so RULING-9 does not absolve it.",
+  "intent_expressed_when": "contemporaneous — the writer typed the heading-shaped line and the prose beneath it in that edit, and expressed no intent to delete either",
+  "call_path": "PaletteCardEditor body TextEditor -> bodyBinding -> scheduleSave -> ProjectStore.updatePaletteCard -> PaletteCardRenderer.render (emits the line verbatim into the body region) -> disk; reopen -> PaletteCardParser.parse (`case \"images\"/\"swatches\"/\"senses\"` sets `section` before the body branch; following prose fails the `- ` item guard and is dropped). The entry point above never refuses the input — RULING-19's note that a lower-layer loss means a guard above did not fire applies, and RULING-1's entry-point refusal is where that guard would live; the claim itself is about the model round trip, so RULING-4 is the ruling that reaches it.",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M1-C-048",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Path arithmetic; the climb-and-return form resolves to the same location, so nothing writer-facing turns on it."
+ },
+ {
+  "claim_id": "M1-C-049",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Degenerate path arithmetic on an input (an empty image path) no card can hold."
+ },
+ {
+  "claim_id": "M1-C-050",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Degenerate path arithmetic on an empty directory; no ruling reaches it."
+ },
+ {
+  "claim_id": "M1-C-051",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Path arithmetic — restates M1-T-046's mechanism."
+ },
+ {
+  "claim_id": "M1-C-052",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Component-wise rather than prefix-wise comparison is correct path arithmetic; no ruling reaches it."
+ },
+ {
+  "_summary": {"reached": 16, "complies": 15, "violates": 1, "no_ruling": 24}
+ }
+]

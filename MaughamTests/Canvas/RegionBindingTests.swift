@@ -991,72 +991,46 @@ final class RegionBindingTests: XCTestCase {
                        + "inspector must never outlive the canvas")
     }
 
-    /// The canvas and its inspector are two columns of ONE `binderSegment` arm,
-    /// so they cannot mount or unmount separately.
+    /// **The canvas is mounted ONCE in each column, and this census counts the
+    /// mounts.**
     ///
-    /// **That arm names TWO segments since slice 2** — `.canvas` and `.tree`
-    /// both put the canvas in the centre and differ only in the left column, and
-    /// joining them is what keeps a flip between them from rebuilding the view.
-    /// `BinderSegment.centresTheCanvas` is the one predicate both routes ask;
-    /// this census is about which arm BUILDS each column, which is a different
-    /// question and still worth asking here.
-    func test_theCanvasAndItsInspectorAreTwoColumnsOfOneSegment() throws {
+    /// It used to count the SWITCHES as well — two of them, over `binderSegment`,
+    /// one per column, each with a joined `.canvas, .tree` arm. Both switches and
+    /// the enum they dispatched on died in shell-finish stage 2b Task 7, and with
+    /// them the unreachable arms that existed only because the compiler demanded
+    /// an answer for every case. What is left is the question that was always the
+    /// real one: how many places build the board.
+    ///
+    /// **A second mount is a second view identity**, and what that costs the
+    /// writer is their camera, every scrap layout, the thumbnail cache and the
+    /// in-progress scrap edit — with nothing red anywhere, because both mounts
+    /// draw the same scene. Measured on macOS 26.5 (2026-08-02) across the
+    /// `.canvas` ↔ `.tree` flip that used to make the point: an arm apiece put a
+    /// camera at pan (−680, −420) / zoom 1.5 back at the origin at zoom 1, with a
+    /// different `CanvasEventNSView` and `load()` having run twice.
+    func test_theCanvasIsBuiltInExactlyOnePlacePerColumn() throws {
         let source = try projectWindowSource()
-        XCTAssertEqual(occurrences(of: "switch binderSegment {", in: source), 2,
-                       "two switches over the segment: the centre column and the "
-                       + "inspector. A third would need its own arm here.")
-
-        let arms = canvasArms(in: source)
-        XCTAssertEqual(arms.count, 2,
-                       "both switches must join `.canvas` and `.tree` into one "
-                       + "arm — a `case .canvas:` on its own is the split this "
-                       + "slice exists to prevent")
-        XCTAssertTrue(arms[0].contains("canvasCentre("),
-                      "the centre column's arm is the canvas itself. It is a call "
-                      + "rather than the view since slice 2: `editorPane` routes "
-                      + "the canvas ABOVE this switch (so ONE branch serves both "
-                      + "segments) and this arm is the unreachable half the "
-                      + "compiler still demands, pointed at the same helper so "
-                      + "the two cannot drift — the inspector's arm below has "
-                      + "been that shape since 2026-07-28")
-        XCTAssertTrue(arms[1].contains("canvasInspector("),
-                      "and the inspector's `.canvas` arm is the region inspector. "
-                      + "This pins WHICH arm builds it, not that the segment is "
-                      + "unreachable elsewhere — that guarantee lives in "
-                      + "`Persona.binderSegments(for:)`, which is where the "
-                      + "Collections fix put it")
 
         XCTAssertEqual(occurrences(of: "CanvasView(", in: source), 1,
                        "one mount for the canvas, in `canvasCentre`. A second is "
-                       + "a second view identity, and what that costs the writer "
-                       + "is measured in `CanvasTreeSegmentMountTests`")
-        XCTAssertEqual(occurrences(of: "canvasCentre(", in: source), 3,
-                       "the declaration and exactly TWO calls, mirroring "
-                       + "`canvasInspector(` below:\n"
-                       + " 1. `editorPane`'s `.canvas` route — the live one, "
-                       + "taken ABOVE the segment switch so that `.canvas` and "
-                       + "`.tree` share one branch and one view identity.\n"
-                       + " 2. `existingEditorSwitch`'s joined arm — UNREACHABLE, "
-                       + "kept only because that switch is exhaustive over "
-                       + "`BinderSegment`.\n"
-                       + "A THIRD call is a real second mount point.")
+                       + "a second view identity, and the writer pays for it in "
+                       + "camera, layouts and thumbnails")
+        XCTAssertEqual(occurrences(of: "canvasCentre(", in: source), 2,
+                       "the declaration and exactly ONE call — `editorPane`'s "
+                       + "`.canvas` route, taken above everything that could "
+                       + "give the board a second branch. A THIRD occurrence is "
+                       + "a real second mount point.")
+
         XCTAssertEqual(occurrences(of: "RegionInspectorPane(", in: source), 1,
                        "one mount point each; a second would not be gated on the "
-                       + "arm above")
-        XCTAssertEqual(occurrences(of: "canvasInspector(", in: source), 3,
-                       "the declaration and exactly TWO calls, both of which go to "
-                       + "the same destination so they cannot drift:\n"
-                       + " 1. `inspectorPane`'s `.canvas` route — the live one, "
-                       + "taken ABOVE the project-type split so a Collection "
-                       + "reaches it (smoke, 2026-07-28).\n"
-                       + " 2. `existingInspectorSwitch`'s `.canvas` arm — now "
-                       + "UNREACHABLE, kept only because that switch is exhaustive "
-                       + "over `BinderSegment` and the compiler requires the case.\n"
-                       + "A THIRD call is a real second mount. Which route the "
-                       + "canvas actually takes is pinned behaviourally and "
-                       + "exhaustively by `CanvasPersonaTests.test_theCanvasSegment"
-                       + "ReachesTheRegionInspectorOnEveryProjectType`, which is "
-                       + "the test this census could not be.")
+                       + "route above")
+        XCTAssertEqual(occurrences(of: "canvasInspector(", in: source), 2,
+                       "the declaration and exactly ONE call — `researchOrSubject`'s "
+                       + "`.canvas` route, taken ABOVE the project-type split so a "
+                       + "Collection reaches it (smoke, 2026-07-28). Which route "
+                       + "the canvas actually takes is pinned behaviourally and "
+                       + "exhaustively by `CanvasRouteTests`, which is the test "
+                       + "this census could not be.")
     }
 
     /// Tripwire 30's rule, one column over: `CanvasModel` is `@Observable` and
@@ -1399,23 +1373,6 @@ final class RegionBindingTests: XCTestCase {
 
     private func occurrences(of needle: String, in haystack: String) -> Int {
         haystack.components(separatedBy: needle).count - 1
-    }
-
-    /// The body of each `case .canvas:` arm, bounded by the next `case` at the
-    /// same indentation — unbounded, every arm would contain the whole rest of
-    /// the file and the assertions above could not fail.
-    /// **`case .canvas, .tree:`, since slice 2.** Both segments centre the
-    /// canvas, and both switches join them into ONE arm precisely so a flip does
-    /// not rebuild it (`CanvasTreeSegmentMountTests` measures what splitting them
-    /// costs). Splitting either arm back apart makes this slicer find zero arms
-    /// and the census below fail loudly rather than silently counting one.
-    private func canvasArms(in source: String) -> [String] {
-        source.components(separatedBy: "\n        case .canvas, .tree:").dropFirst().map { arm in
-            if let end = arm.range(of: "\n        case ") {
-                return String(arm[..<end.lowerBound])
-            }
-            return arm
-        }
     }
 
     /// A member declaration, from its opening line to the closing brace at

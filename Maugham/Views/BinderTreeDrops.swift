@@ -41,12 +41,19 @@ extension BinderTreeVerbs {
     func routePieceRowDrop(
         draggedId: String, documentId: String, structureReorder: () -> Void
     ) -> Bool {
-        let intent = classify(draggedId, on: .pieceRow(documentId))
+        let target = TreeDropIntent.Target.pieceRow(documentId)
+        let intent = classify(draggedId, on: target)
         if case .structureReorder = intent {
+            // The manuscript never batches: `actingIds` answers with the row
+            // alone for anything but a homogeneous research selection, and this
+            // arm is a structure id by construction.
             structureReorder()
             return true
         }
-        return apply(intent, payload: draggedId, on: "piece row \(documentId)")
+        return apply(intent,
+                     movingIds: batchIds(for: intent, draggedId: draggedId,
+                                         on: target),
+                     payload: draggedId, site: "piece row \(documentId)")
     }
 
     /// A drop on a research row: in the shared Research section
@@ -61,22 +68,156 @@ extension BinderTreeVerbs {
         } ?? .researchRow(target.id)
         let intent = classify(draggedId, on: treeTarget)
         if case .researchReorder = intent {
-            return reorder(draggedId: draggedId, position: position, target: target)
+            return reorder(
+                draggedId: draggedId,
+                movingIds: batchIds(for: intent, draggedId: draggedId,
+                                    on: treeTarget),
+                position: position, target: target)
         }
         // A cross-scope drop still lands WHERE it was aimed: the index is
         // computed against the destination the classifier chose, so an item
         // dragged in from another scope doesn't jump to the end of the list.
-        return apply(intent, payload: draggedId, on: "research row \(target.id)",
-                     atIndex: insertionIndex(draggedId: draggedId,
-                                             position: position, target: target))
+        let moving = batchIds(for: intent, draggedId: draggedId, on: treeTarget)
+        return apply(intent, movingIds: moving, payload: draggedId,
+                     site: "research row \(target.id)",
+                     atIndex: insertionIndex(movingIds: moving, position: position,
+                                             target: target))
     }
 
     /// A drop on the shared Research section — its header, or the placeholder
     /// row an empty section shows. (A `Section` itself has no live drop region;
     /// `CollectionResearchPane` measured that and this tree inherits it.)
     func routeSharedSectionDrop(draggedId: String) -> Bool {
-        apply(classify(draggedId, on: .sharedSection),
-              payload: draggedId, on: "the Research section")
+        let intent = classify(draggedId, on: .sharedSection)
+        return apply(intent,
+                     movingIds: batchIds(for: intent, draggedId: draggedId,
+                                         on: .sharedSection),
+                     payload: draggedId, site: "the Research section")
+    }
+
+    // MARK: - A drop from outside the app (stage-2b Task 4)
+
+    /// **A Finder file or a browser bitmap, dropped anywhere on the tree.**
+    ///
+    /// The stage-2a tree refused these outright, because a file has to land in
+    /// a SCOPE and the tree had no rule for which one. `TreeDropIntent`'s
+    /// external classifier is that rule, and this performs it: one entry point
+    /// for every target, so the four surfaces that mount an external drop
+    /// cannot come to disagree about what a piece row means.
+    ///
+    /// **`[NSItemProvider]` rather than `[URL]`, and that is not incidental.** A
+    /// browser image drag carries a rendered bitmap and no file URL at all, so
+    /// `.dropDestination(for: URL.self)` rejects it silently — nothing logged,
+    /// nothing red, the writer's picture simply gone (the canvas's 1C-d
+    /// lesson). `DropClassification` is the one classifier that takes both
+    /// kinds, and it is what turns a bitmap into an importable temp file.
+    ///
+    /// Returns whether the drop was ACCEPTED, which is a property of the
+    /// TARGET: whether the providers then yield anything importable is only
+    /// knowable asynchronously, and the panes this replaces answered the same
+    /// way. A refusal is loud in the log and bounces the drag.
+    func routeExternalDrop(
+        providers: [NSItemProvider], position: DropIntent.Position,
+        target: TreeDropIntent.Target
+    ) -> Bool {
+        let intent = TreeDropIntent.classifyExternal(
+            target: target, position: position,
+            structure: store.manifest.structure,
+            research: store.manifest.research,
+            projectType: store.manifest.type)
+        switch intent {
+        case .refuse(let reason):
+            return refuseDrop(site(of: target), payload: nil, reason: reason)
+        case .importFiles(let destination):
+            perform {
+                let urls = await DropClassification.fileURLs(from: providers)
+                guard !urls.isEmpty else { return }
+                try await importFiles(urls, to: destination)
+            }
+            return true
+        }
+    }
+
+    /// Imports `urls` where the classifier said, through the store verb that
+    /// destination names.
+    ///
+    /// Not `private`: this is where the files actually land, and a test can
+    /// hand it real URLs without a drag session — which is the only way to
+    /// assert the *link* half of `.sharedAndLink` separately from the import.
+    func importFiles(
+        _ urls: [URL], to destination: TreeDropIntent.ExternalDestination
+    ) async throws {
+        switch destination {
+        case .sharedGroup(let parentId):
+            _ = try await store.importResearchFiles(urls, toParentId: parentId)
+        case .piece(let pieceId):
+            _ = try await store.importPieceResearchFiles(
+                pieceId: pieceId, urls: urls)
+        case .sharedAndLink(let documentId):
+            // **One act.** A novel chapter's research is a link, so an import
+            // that stopped here would leave the file in the shared section the
+            // writer did not aim at, with the chapter's fold unchanged.
+            let imported = try await store.importResearchFiles(
+                urls, toParentId: nil)
+            for item in imported {
+                try await store.linkResearch(
+                    researchId: item.id, toDocumentId: documentId)
+            }
+        }
+    }
+
+    /// What the log calls a target, for a refusal that has no payload id to
+    /// name.
+    private func site(of target: TreeDropIntent.Target) -> String {
+        switch target {
+        case .pieceRow(let id): return "piece row \(id)"
+        case .sharedSection: return "the Research section"
+        case .researchRow(let id): return "research row \(id)"
+        case .foldRow(let rowId, let documentId):
+            return "row \(rowId) in \(documentId)'s fold"
+        }
+    }
+
+    // MARK: - What a drag carries
+
+    /// **The rows a drag carries** (stage-2b Task 3): the tree's whole selection
+    /// when the dragged row is inside one, filtered to those rows whose OWN
+    /// meaning on this target is the anchor's.
+    ///
+    /// The filter is the whole design. `actingIds` is standard Mac behaviour —
+    /// drag a row inside the selection and the selection comes with it — but a
+    /// batch is not homogeneous just because the writer selected it: dragging
+    /// three notes onto a chapter where one is already linked, or two notes into
+    /// a fold one of them already lives in, has a different answer per row.
+    /// Classifying each row on the same target and keeping the ones that agree
+    /// means the drop does to every row exactly what that row's own
+    /// classification says, and a row with nothing to do quietly does nothing —
+    /// rather than the whole batch bouncing, or a `.alreadyThere` row being
+    /// dragged along into a move it was never classified for.
+    ///
+    /// `.rescope` compares DESTINATIONS rather than ids, since each row
+    /// classifies with its own id in the payload; the destination is what the
+    /// batch mover takes, and it is validate-all-first.
+    private func batchIds(for intent: TreeDropIntent.Intent, draggedId: String,
+                          on target: TreeDropIntent.Target) -> [String] {
+        let acting = actingIds(forRow: draggedId)
+        guard acting.count > 1 else { return acting }
+        return acting.filter { id in
+            id == draggedId || agrees(classify(id, on: target), with: intent)
+        }
+    }
+
+    private func agrees(_ lhs: TreeDropIntent.Intent,
+                        with rhs: TreeDropIntent.Intent) -> Bool {
+        switch (lhs, rhs) {
+        case (.rescope(_, let a), .rescope(_, let b)): return a == b
+        case (.link(_, let a), .link(_, let b)): return a == b
+        case (.unlink(_, let a), .unlink(_, let b)): return a == b
+        case (.researchReorder, .researchReorder): return true
+        // Everything else disagrees — including a row whose own answer is a
+        // refusal or `.alreadyThere`, which is the case this filter exists for.
+        default: return false
+        }
     }
 
     // MARK: - Deciding, then doing
@@ -91,22 +232,39 @@ extension BinderTreeVerbs {
             projectType: store.manifest.type)
     }
 
+    /// Performs `intent` for every row the drag carries (stage-2b Task 3). The
+    /// batch is `batchIds`', and for a one-row drag it is the row itself, so
+    /// every arm below reads the same whether the writer dragged one note or
+    /// five. `.rescope` goes through the plural mover in ONE call — it validates
+    /// the whole batch before it moves anything, which a loop cannot; link and
+    /// unlink have no plural verb, so they are a sequential loop inside one
+    /// task, and a throw stops it and surfaces in the tree's alert.
     private func apply(
-        _ intent: TreeDropIntent.Intent, payload: String, on site: String,
-        atIndex: Int? = nil
+        _ intent: TreeDropIntent.Intent, movingIds batch: [String],
+        payload: String, site: String, atIndex: Int? = nil
     ) -> Bool {
         switch intent {
         case .rescope(let ids, let target):
             perform { try await store.moveResearchItems(
-                ids: ids, to: target, atIndex: atIndex) }
+                ids: batch.isEmpty ? ids : batch, to: target, atIndex: atIndex) }
             return true
         case .link(let researchId, let documentId):
-            perform { try await store.linkResearch(
-                researchId: researchId, toDocumentId: documentId) }
+            let batch = batch.isEmpty ? [researchId] : batch
+            perform {
+                for id in batch {
+                    try await store.linkResearch(
+                        researchId: id, toDocumentId: documentId)
+                }
+            }
             return true
         case .unlink(let researchId, let documentId):
-            perform { try await store.unlinkResearch(
-                researchId: researchId, fromDocumentId: documentId) }
+            let batch = batch.isEmpty ? [researchId] : batch
+            perform {
+                for id in batch {
+                    try await store.unlinkResearch(
+                        researchId: id, fromDocumentId: documentId)
+                }
+            }
             return true
         case .refuse(let reason):
             return refuseDrop(site, payload: payload, reason: reason)
@@ -125,9 +283,21 @@ extension BinderTreeVerbs {
     /// which reparents within a scope and never moves a file between scopes —
     /// the batch mover would, and a piece-root item whose parent id is `nil`
     /// would read as "shared root" to it.
+    ///
+    /// **A batch reorders through the plural mover, and its destination is
+    /// named rather than implied** (stage-2b Task 3). `moveResearchItem` takes a
+    /// parent id, where `nil` means the shared root — which is why the single
+    /// case above uses it and the batch cannot: a piece-root item's parent id is
+    /// also `nil`, and handing that to the batch mover as `.sharedRoot` would
+    /// turn a reorder inside a Collection piece into a move of the writer's
+    /// files out of it. `TreeDropIntent.container(ofRow:)` is the rule that
+    /// already answers *"what does beside this row mean"* — `.group`, `.piece`
+    /// or `.sharedRoot` — and it is called here rather than restated.
     private func reorder(
-        draggedId: String, position: DropIntent.Position, target: ResearchItem
+        draggedId: String, movingIds: [String],
+        position: DropIntent.Position, target: ResearchItem
     ) -> Bool {
+        let batched = movingIds.count > 1
         let toParentId: String?
         let destIndex: Int
         if position == .middle, target.type == .group {
@@ -138,28 +308,42 @@ extension BinderTreeVerbs {
         } else {
             toParentId = findParentId(of: target.id)
             guard let index = ResearchSelectionSync.postRemovalInsertionIndex(
-                targetId: target.id, position: position, movingIds: [draggedId],
+                targetId: target.id, position: position, movingIds: movingIds,
                 siblings: siblings(of: toParentId)) else {
-                // The target is the dragged row itself or is not among the
-                // siblings it should be — nothing to anchor to.
+                // The target is inside the batch (which includes the dragged row
+                // itself) or is not among the siblings it should be — nothing to
+                // anchor to.
                 return refuseDrop("research row \(target.id)",
                                   payload: draggedId, reason: .sameRow)
             }
             destIndex = index
         }
-        perform { try await store.moveResearchItem(
-            id: draggedId, toParentId: toParentId, atIndex: destIndex) }
+        guard batched else {
+            perform { try await store.moveResearchItem(
+                id: draggedId, toParentId: toParentId, atIndex: destIndex) }
+            return true
+        }
+        let destination: ResearchMoveTarget = position == .middle
+            && target.type == .group
+            ? .group(target.id)
+            : TreeDropIntent.container(ofRow: target.id,
+                                       structure: store.manifest.structure,
+                                       research: store.manifest.research)
+        perform { try await store.moveResearchItems(
+            ids: movingIds, to: destination, atIndex: destIndex) }
         return true
     }
 
     /// Where a cross-scope drop lands within its new container: beside the row
     /// it was aimed at. `nil` appends, which is what the batch mover does with
-    /// a `nil` index.
+    /// a `nil` index. The moving ids are the drag's whole batch, because the
+    /// mover removes them all before it inserts and an index taken against the
+    /// pre-removal list drifts by however many of them preceded the target.
     private func insertionIndex(
-        draggedId: String, position: DropIntent.Position, target: ResearchItem
+        movingIds: [String], position: DropIntent.Position, target: ResearchItem
     ) -> Int? {
         ResearchSelectionSync.postRemovalInsertionIndex(
-            targetId: target.id, position: position, movingIds: [draggedId],
+            targetId: target.id, position: position, movingIds: movingIds,
             siblings: siblings(of: findParentId(of: target.id)))
     }
 

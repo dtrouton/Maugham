@@ -418,9 +418,24 @@ struct AnnotationDetailView: View {
                 // Pass the live paragraph so a span suggestion splices into the
                 // current text (shared SuggestionSplice; matches the Mac).
                 let currentParagraph = current.paragraphId.flatMap { paragraphs[$0] }
-                try await writer.accept(current, currentParagraph: currentParagraph)
+                // Verify against a FRESH read (not the view's loaded snapshot):
+                // a withdraw that synced in while this view sat open must
+                // refuse the splice (RULING-33; same shared rule as the Mac).
+                let freshOps = (try? await OpLogStore(projectURL: projectURL)
+                    .load(docId: docId)) ?? loadedOps
+                try await writer.accept(
+                    current, currentParagraph: currentParagraph,
+                    verifyingAgainst: freshOps)
             } catch AnnotationWriter.WriteError.malformedSuggestion {
                 errorMessage = "This suggestion is malformed and can’t be applied."
+                throw CancelledWrite()
+            } catch AnnotationWriter.WriteError.annotationWithdrawn {
+                errorMessage = "You deleted this suggestion on another device, so it can no longer be applied."
+                throw CancelledWrite()
+            } catch AnnotationWriter.WriteError.suggestionAnchorLost {
+                // RULING-5's told-why half, phone surface: same refusal, same
+                // words as the Mac pane.
+                errorMessage = "The passage this suggestion would replace is no longer in the paragraph, so applying it could put the replacement in the wrong place. The suggestion stays open — ask Claude for a fresh one."
                 throw CancelledWrite()
             }
         }

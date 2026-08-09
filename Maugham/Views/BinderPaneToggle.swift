@@ -1,133 +1,118 @@
 import SwiftUI
 import MaughamCore
 
+/// **The left column, for every project type but a Collection.**
+///
+/// One tree, an Exports footer and the trash's foot — which is the whole of it
+/// since shell-finish stage 2b Task 7 took the segment strip. What used to be a
+/// picker over `BinderSegment` and a six-arm switch beneath it is now
+/// `TreePane(for:)`: Research and Palette are sections at the foot of the tree
+/// (`BinderTreeSections`), Trash is the disclosure below them, and Find is an
+/// overlay of the whole column.
 struct BinderPaneToggle: View {
     @Bindable var store: ProjectStore
-    @Binding var segment: BinderSegment
     @Binding var selectedSubject: BinderSubject?
-    @Binding var selectedResearchId: String?
-    @Binding var selectedPaletteCardId: String?
     let projectType: ProjectType
     let lastParsedScript: FountainScript?
-    @Binding var findActive: Bool
-    /// The window's working mode — decides which segments the picker offers.
-    /// Coercion onto this persona's list happens once, centrally, in
-    /// `PersonaModifier`; this view only renders.
+    /// **Find, as an overlay of this column** (shell-finish stage 2b Task 1).
+    /// `ProjectWindow.treeFindActive` — window state, not segment state, which
+    /// is why ⌘⌥F moves nothing else and why the overlay rides through a persona
+    /// switch untouched. While it is up, the search panel is the whole left
+    /// column; `ProjectSearchView.close()` is the only way down.
+    @Binding var treeFindActive: Bool
+    /// The window's working mode. It no longer decides which SURFACE this
+    /// column shows — every persona gets the project's own tree — only whether
+    /// the Exports footer and the palette wall's door belong here.
     let persona: Persona
+    /// Opens the palette wall in the centre column — `ProjectWindow`'s
+    /// `showsPaletteWall = true` (stage 2b Task 5). Defaulted so tests that
+    /// mount this toggle without caring about the wall's door keep compiling.
+    var onOpenPaletteWall: () -> Void = {}
+    /// What a restore in the foot disclosure has to say (RULING-40/42), on its
+    /// way to `ProjectWindow.restoreOutcome` — see `TrashView.onRestoreOutcome`
+    /// for why the message cannot be shown down here. Defaulted for
+    /// `onOpenPaletteWall`'s reason.
+    var onRestoreOutcome: (String) -> Void = { _ in }
+    /// The foot disclosure's own expand/collapse flag (shell-finish stage 2b
+    /// Task 2) — collapsed by default, private to this view. It is `@State`
+    /// rather than threaded in from `ProjectWindow` because nothing outside
+    /// this column needs to know or drive it; `TrashDisclosure`'s own
+    /// initializer still takes it as a `Binding` so a test can.
+    @State private var trashExpanded = false
 
     var body: some View {
+        if treeFindActive {
+            // **The overlay REPLACES the column** (spec: the results replace the
+            // tree; Escape restores it — the canvas-dim posture, deliberately
+            // entered and deliberately left).
+            ProjectSearchView(store: store)
+        } else {
+            tree
+        }
+    }
+
+    private var tree: some View {
         VStack(spacing: 0) {
-            // The divider beneath the strip is the picker's own, not this
-            // caller's — see `BinderSegmentPicker.body`'s fix-round-1 note.
-            // Placing one here too is exactly the ghost-divider defect that
-            // fix caught.
-            BinderSegmentPicker(
-                segment: $segment,
-                persona: persona,
-                projectType: projectType,
-                hasTrash: !store.trashEntries.isEmpty,
-                findActive: findActive)
             Group {
-                switch segment {
-                case .manuscript:
+                // Which tree fans out by project type through the ONE
+                // derivation — `type == .screenplay` inline here is the
+                // re-derivation that shipped the 2026-07-02 bug, and there are
+                // two toggles.
+                switch TreePane(for: projectType) {
+                case .binder, .collectionPieces:
+                    // `.collectionPieces` cannot arrive: a Collection window
+                    // mounts `CollectionBinderPaneToggle` instead. It shares
+                    // this arm rather than taking an `EmptyView` so that a
+                    // future mis-wiring shows the writer a tree rather than a
+                    // blank column.
                     binderTree
-                case .tree:
-                    // Plan's structure segment (spec §3.1): the project's own
-                    // manuscript tree, with the canvas still in the centre. Which
-                    // tree that is fans out by project type through the ONE
-                    // derivation — `type == .screenplay` inline here is the
-                    // re-derivation that shipped the 2026-07-02 bug.
-                    switch BinderSegment.treePane(for: projectType) {
-                    case .binder, .collectionPieces:
-                        // `.collectionPieces` cannot arrive: a Collection window
-                        // mounts `CollectionBinderPaneToggle` instead. It shares
-                        // this arm rather than taking an `EmptyView` so that a
-                        // future mis-wiring shows the writer a tree rather than a
-                        // blank column.
-                        binderTree
-                    case .sceneNavigator:
-                        sceneNavigator
-                    }
-                case .research, .canvas:
-                    // Spec §10: the canvas segment shows the RESEARCH TREE.
-                    // Umbrella §6.3 gives Plan a Left surface of "Research
-                    // tree", and §8A.1's drag-in route (1C-d) needs the tree
-                    // beside the canvas to drag from. The two segments share a
-                    // left pane on purpose; the centre column is what differs.
-                    ResearchView(store: store, selectedResearchId: $selectedResearchId)
-                case .palette:
-                    PaletteBinderList(store: store, selectedCardId: $selectedPaletteCardId)
-                case .scenes:
+                case .sceneNavigator:
                     sceneNavigator
-                case .trash:
-                    TrashView(store: store)
-                case .find:
-                    ProjectSearchView(store: store, isActive: $findActive)
                 }
             }
-            // The Exports footer belongs under the project's manuscript tree and
-            // nowhere else — it's a publishing-pipeline surface, not relevant to
-            // Research / Palette / Trash / Find.
+            // The Exports footer belongs under the project's manuscript tree in
+            // a persona that publishes, and nowhere else — it's a
+            // publishing-pipeline surface, not part of arranging structure.
             //
-            // **`documentHome(for:)`, not the `.manuscript || .scenes` union
-            // this used to spell.** The union is that helper's answer over two
-            // project types at once, so on a screenplay it accepted a segment
-            // the screenplay picker does not offer and on a novel it accepted
-            // `.scenes` — and a fifth project type would have needed this line
-            // edited to stay right. Asking the helper makes that automatic.
-            //
-            // **Deliberately NOT `BinderSegment.showsManuscriptStatusFooter`**,
-            // which reads the same set today. That one is about the CENTRE
-            // column and is a switch, because a future segment centring the
-            // editor must be asked whether the footer follows. This one is
-            // about the LEFT column, and "no Exports list" is the right answer
-            // for any segment that is not the manuscript tree — including
-            // `.tree`, which IS the manuscript tree but sits in Plan, where a
-            // compile-output list is not what the writer is doing.
-            if segment == .documentHome(for: projectType)
-                && PublishStarter.isInitialized(in: store.url) {
+            // **A persona NAME here, where nearly every other gate in this
+            // milestone refuses one.** The reason is that the question this gate
+            // asks has no derived answer left: the Exports list is about the
+            // LEFT column, and since Task 7 all four personas have the same left
+            // column, so nothing about the tree can tell them apart. What is
+            // left is what the writer is *doing* — a compile-output list is not
+            // part of planning — and that is what the persona names. Deriving it
+            // from `centresTheCanvas` would say the Exports list is a fact about
+            // the centre column, which it is not.
+            if persona != .plan && PublishStarter.isInitialized(in: store.url) {
                 Divider()
                 ExportsListView(projectURL: store.url)
             }
-        }
-        // **Leaving a transient segment returns the writer to THIS PERSONA's
-        // home, not to the manuscript's.**
-        //
-        // Both of these fire when a state the writer was passing through ends —
-        // the trash emptied under them, find closed — and neither names a
-        // document. `.documentHome(for:)` was the same value in Author, Review
-        // and Publish, whose binder home IS the document home, and in Plan it
-        // put a text editor in the centre column of the persona §2 says does not
-        // draft: `⌘⌥F`, escape, and the writer is writing the manuscript in
-        // Plan. That is Denver's 2026-08-02 ruling, arrived at from the other
-        // side — and the answer here is to stop forcing the manuscript rather
-        // than to follow it with a persona switch, because a writer who opened
-        // find and changed their mind navigated to nothing.
-        //
-        // `ProjectWindow`'s `.maughamCloseFind` handler carries the same rule:
-        // the ✕ button posts it AND clears the flag below, so the two routes out
-        // of find must agree.
-        .onChange(of: store.trashEntries.count) { _, newValue in
-            if newValue == 0 && segment == .trash {
-                segment = persona.binderHome(for: projectType)
-            }
-        }
-        .onChange(of: findActive) { _, newValue in
-            if !newValue && segment == .find {
-                segment = persona.binderHome(for: projectType)
+            // **The tree's foot** (shell-finish stage 2b Task 2): below the
+            // sections, below the Exports footer, below everything — present
+            // only while there is something in it. This is Trash's whole home
+            // now; nothing selects a Trash surface any more, so the
+            // transient-exit arm that used to live here (return to the persona's
+            // binder home when the last item left the trash) has nothing left to
+            // guard. Find's twin of that arm went the same way in stage 2b Task
+            // 1, for the same reason: there is no longer a segment to be ejected
+            // FROM.
+            if !store.trashEntries.isEmpty {
+                Divider()
+                TrashDisclosure(store: store, isExpanded: $trashExpanded,
+                                onRestoreOutcome: onRestoreOutcome)
             }
         }
     }
 
-    /// The manuscript tree, shared by `.manuscript` and `.tree`. Extracted
-    /// because two arms render it and a second literal is how the two would
-    /// come to differ.
+    /// The manuscript tree. Extracted because two arms render it and a second
+    /// literal is how the two would come to differ.
     private var binderTree: some View {
-        BinderView(store: store, selectedSubject: $selectedSubject)
+        BinderView(store: store, selectedSubject: $selectedSubject,
+                   canOpenPaletteWall: canOpenPaletteWall,
+                   onOpenPaletteWall: onOpenPaletteWall)
     }
 
-    /// A screenplay's tree, shared by `.scenes` and `.tree` for `binderTree`'s
-    /// reason.
+    /// A screenplay's tree.
     private var sceneNavigator: some View {
         SceneNavigatorPane(
             store: store,
@@ -146,6 +131,13 @@ struct BinderPaneToggle: View {
                 MaughamEvent.post(
                     .maughamNavigateToScene, to: .keyWindow,
                     payload: ["lineLocation": lineLocation])
-            })
+            },
+            canOpenPaletteWall: canOpenPaletteWall,
+            onOpenPaletteWall: onOpenPaletteWall)
     }
+
+    /// The wall's own door, guarded on the PERSONA being Plan (stage 2b Task
+    /// 5's contract): Plan's centre column is the canvas, and the wall taking it
+    /// over there is stage 3's call.
+    private var canOpenPaletteWall: Bool { persona != .plan }
 }

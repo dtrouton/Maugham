@@ -546,7 +546,9 @@ final class ResearchMoveTests: XCTestCase {
         XCTAssertNil(item(store, link.id))
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: url.appendingPathComponent("research/a.md").path))
-        XCTAssertNotNil(store.lastDeletedTrashId)
+        // One gesture, one armed deletion — including the link, which now
+        // leaves a manifest-only trash entry of its own (RULING-45).
+        XCTAssertEqual(store.lastDeletion?.trashIds.count, 3)
         await ds.close()
     }
 

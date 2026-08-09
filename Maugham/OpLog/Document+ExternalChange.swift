@@ -139,6 +139,18 @@ extension Document {
             _pendingSweep = nil
         }
 
+        // RULING-33 — status and manuscript may not disagree. A merge is the
+        // only thing that can produce a reject beating an already-spliced
+        // accept, so this is where the repair belongs; it runs BEFORE the
+        // display recompute below so its text change is published in the same
+        // pass as the merge's, and before `oldDisplayText` is compared, so a
+        // repair correctly disqualifies the pure-append undo-stack
+        // preservation (it moves text mid-document, which is exactly the case
+        // that preservation excludes).
+        if _hasAnyAnnotationOps {
+            await repairRejectedButSplicedAnnotations()
+        }
+
         // No conflict UI for log merge. Just publish the new state.
         //
         // E3(b) — preserve the writer's ⌘Z stack across a PURE-APPEND merge.

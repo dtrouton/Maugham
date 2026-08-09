@@ -6,13 +6,12 @@ import MaughamCore
 ///
 /// `ProjectWindow.lastParsedScript` had exactly one producer: a mounted
 /// `EditorCoordinator`, which exists only inside `EditorHost`, which
-/// `existingEditorSwitch` mounts only when the centre column is a document. Plan
-/// centres the canvas on both of its canvas segments, so on Plan's Structure tab
-/// a screenplay's `SceneNavigatorPane` got `script: nil` and drew *"No scenes
-/// yet — Open the script, then type INT. or EXT."* over a script with ninety
-/// scenes. One visit to Author populated the value for the rest of the window's
-/// life, which made a deterministic defect look intermittent (slice 2 review,
-/// F1).
+/// `ProjectWindow.editorPane` mounts only when the centre column is a document.
+/// Plan centres the canvas, so a screenplay's `SceneNavigatorPane` in Plan got
+/// `script: nil` and drew *"No scenes yet — Open the script, then type INT. or
+/// EXT."* over a script with ninety scenes. One visit to Author populated the
+/// value for the rest of the window's life, which made a deterministic defect
+/// look intermittent (slice 2 review, F1).
 ///
 /// **This is a second PRODUCER, not a second value.** `lastParsedScript` stays
 /// the window's one piece of state and the one thing `BinderPaneToggle` reads;
@@ -40,24 +39,42 @@ enum ScreenplayScriptSource {
 
     /// Whether the window must derive the script itself.
     ///
-    /// Three conditions, and each one is load-bearing:
+    /// Three conditions, and each one is load-bearing. The census over the whole
+    /// `(persona, project type)` product —
+    /// `ScreenplayScriptSourceTests.test_onlySluglineSurfacesWithNoEditorBehindThemDerive`
+    /// — is what holds them to exactly one derive, and it has now caught a
+    /// widening twice.
     ///
     /// - `existing == nil` — the precedence rule. A mounted editor's parse is
     ///   fresher by construction, so the derivation is a fallback and never an
     ///   overwrite.
-    /// - the segment shows sluglines (`showsSceneNavigator(for:)`) — a novel's
-    ///   tree and the research pane have no use for a Fountain parse, and
-    ///   deriving one would be an op-log decode nobody reads.
-    /// - the segment centres the canvas — which is what says *there is no editor
-    ///   here to produce it*. `.scenes` shows the same navigator but mounts
+    /// - the project's tree IS the slugline navigator
+    ///   (`TreePane(for:) == .sceneNavigator`) — a novel's tree and a
+    ///   Collection's pieces list have no use for a Fountain parse, and deriving
+    ///   one would be an op-log decode nobody reads. **This is where
+    ///   `BinderSegment.showsSceneNavigator(for:)` went** (stage 2b Task 6): it
+    ///   asked the segment a question only the project type could answer.
+    /// - the persona centres the canvas — which is what says *there is no editor
+    ///   here to produce it*. Author shows the same navigator but mounts
     ///   `EditorHost` beside it, so the coordinator posts within a frame and a
     ///   derivation there would be duplicate work racing a fresher value.
-    static func needsDerivation(binderSegment: BinderSegment,
+    ///
+    /// **A fourth condition died with the strip in Task 7**, and it is worth
+    /// recording why it was ever there. Plan's left column was four panes, and
+    /// only one of them drew `TreePane`'s answer — the Canvas tab put the old
+    /// research pane there instead — so the term was `interimSegment == .tree`,
+    /// spelled as the case rather than through a predicate because the obvious
+    /// predicate ("is the left pane a tree") was wrong and the census caught it:
+    /// the manuscript segment mounted `BinderView` unconditionally, so on a
+    /// screenplay it showed a one-row novel binder and never sluglines. With one
+    /// left column per persona, a Plan screenplay's left column IS the navigator
+    /// and the term has nothing left to exclude.
+    static func needsDerivation(persona: Persona,
                                 projectType: ProjectType,
                                 existing: FountainScript?) -> Bool {
         existing == nil
-            && binderSegment.showsSceneNavigator(for: projectType)
-            && binderSegment.centresTheCanvas
+            && TreePane(for: projectType) == .sceneNavigator
+            && persona.centresTheCanvas
     }
 
     /// The project's one script, parsed — or `nil` when the project has no

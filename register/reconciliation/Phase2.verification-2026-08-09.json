@@ -1,0 +1,6 @@
+{
+ "date": "2026-08-09",
+ "round": "phase-2 consolidated (blind, 8-row sample)",
+ "verdict": "8/8 CONFIRMED; three residuals \u2014 phone-withdrawn gap (fixed in the same commit), M5-AN-028 reachability sentence (corrected), M5-AN-057 state-count evidence (reworded)",
+ "note": "Full text in the session record; the load-bearing residual became M5-AN-058."
+}

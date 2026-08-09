@@ -269,6 +269,237 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         XCTAssertFalse(sections.sharedSectionDrop(["canvas-node-1"]))
     }
 
+    // MARK: - A file from Finder, all the way to the folder (stage-2b Task 4)
+
+    /// **The capability the dying panes carried, on the tree's own targets.**
+    ///
+    /// These go through `NSItemProvider`s built from real files, so the whole
+    /// path is exercised — `DropClassification`'s classification, the store
+    /// verb the destination names, and the file that has to end up somewhere a
+    /// writer can find. A drop that imports to the wrong scope does not lose a
+    /// row: it files the writer's photograph where they never pointed.
+
+    func test_aFileDroppedOnTheResearchSectionLandsInSharedResearch() async throws {
+        let store = try await novel(notes: [])
+        let file = try makeFile(named: "harbour.md", contents: "# Harbour")
+
+        let accepted = verbs(store).routeExternalDrop(
+            providers: [provider(for: file)], position: .middle,
+            target: .sharedSection)
+
+        XCTAssertTrue(accepted)
+        await settle(store) { self.research(named: "harbour", in: store) != nil }
+        let imported = try XCTUnwrap(research(named: "harbour", in: store))
+        XCTAssertEqual(imported.path, "research/harbour.md",
+                       "the section IS the shared root. Got \(imported.path ?? "nil")")
+    }
+
+    func test_aFileDroppedOnANovelChapterIsImportedAndLinkedInOneAct() async throws {
+        let store = try await novel(notes: [])
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let file = try makeFile(named: "tides.md", contents: "# Tides")
+
+        XCTAssertTrue(verbs(store).routeExternalDrop(
+            providers: [provider(for: file)], position: .middle,
+            target: .pieceRow(chapter.id)))
+
+        await settle(store) {
+            !store.linkedResearchIds(forDocumentId: chapter.id).isEmpty
+        }
+        let imported = try XCTUnwrap(research(named: "tides", in: store))
+        XCTAssertEqual(imported.path, "research/tides.md",
+                       "a novel chapter has no research folder of its own, so "
+                       + "the file lands in shared research")
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: chapter.id),
+                       [imported.id],
+                       "…and the link is the other half of the same act. "
+                       + "Importing without linking leaves the writer's file in "
+                       + "the section they did not aim at")
+    }
+
+    func test_aFileDroppedOnACollectionPieceLandsInThatPiecesFolder() async throws {
+        let store = try await collection(pieces: ["One"], notes: [])
+        let piece = try XCTUnwrap(store.manifest.structure.first)
+        let file = try makeFile(named: "map.md", contents: "# Map")
+
+        XCTAssertTrue(verbs(store).routeExternalDrop(
+            providers: [provider(for: file)], position: .middle,
+            target: .pieceRow(piece.id)))
+
+        await settle(store) { self.research(named: "map", in: store) != nil }
+        let imported = try XCTUnwrap(research(named: "map", in: store))
+        XCTAssertEqual(imported.path?.hasPrefix("pieces/"), true,
+                       "a Collection piece's research is containment — this is "
+                       + "`importPieceResearchFiles`, whose only caller before "
+                       + "this task was the pane the milestone deletes. Got "
+                       + "\(imported.path ?? "nil")")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: store.url.appendingPathComponent(imported.path ?? "").path),
+            "and the file is where the manifest says it is")
+    }
+
+    /// **The fold's external drop carries the fold's own document**, which is
+    /// the same re-route its internal drop needed and fails the same silent
+    /// way: without it the row reads as an ordinary shared research row and the
+    /// writer's file lands in shared research, unlinked, with nothing on screen
+    /// to say the chapter never got it.
+    func test_aFileDroppedInsideAChaptersFoldReachesThatChapter() async throws {
+        let store = try await novel(notes: ["Ships"])
+        let ships = try XCTUnwrap(research(named: "Ships", in: store))
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        try await store.linkResearch(researchId: ships.id, toDocumentId: chapter.id)
+        let fold = TreeSectionDerivation.pieceFold(
+            forDocumentId: chapter.id, structure: store.manifest.structure,
+            research: store.manifest.research, projectType: store.manifest.type)
+        let file = try makeFile(named: "charts.md", contents: "# Charts")
+
+        let actions = BinderPieceFold(
+            store: store, state: state(for: store),
+            selectedSubject: .constant(nil),
+            documentId: chapter.id, fold: fold).actions
+        XCTAssertTrue(actions.externalDrop([provider(for: file)], .bottom, ships))
+
+        await settle(store) {
+            store.linkedResearchIds(forDocumentId: chapter.id).count == 2
+        }
+        let imported = try XCTUnwrap(research(named: "charts", in: store))
+        XCTAssertTrue(
+            store.linkedResearchIds(forDocumentId: chapter.id).contains(imported.id),
+            "a file dropped in chapter one's fold is chapter one's")
+    }
+
+    /// The control for the fold: the SAME drop on a row of the shared section,
+    /// where there is no document, imports and links nothing.
+    func test_control_theSameFileDroppedOnASharedRowLinksNothing() async throws {
+        let store = try await novel(notes: ["Ships"])
+        let ships = try XCTUnwrap(research(named: "Ships", in: store))
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let sections = BinderTreeSections(
+            store: store, state: state(for: store), selectedSubject: .constant(nil))
+        let file = try makeFile(named: "charts.md", contents: "# Charts")
+
+        XCTAssertTrue(sections.actions.externalDrop(
+            [provider(for: file)], .bottom, ships))
+
+        await settle(store) { self.research(named: "charts", in: store) != nil }
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: chapter.id), [],
+                       "control: the section's rows carry no document, so the "
+                       + "same gesture is a plain import — which is what makes "
+                       + "the fold assertion above about the re-route")
+    }
+
+    func test_aFileDroppedIntoAGroupRowLandsInsideThatGroup() async throws {
+        let store = try await novel(notes: [])
+        let group = try await store.addResearchItem(
+            parentId: nil, title: "World", kind: nil)
+        let sections = BinderTreeSections(
+            store: store, state: state(for: store), selectedSubject: .constant(nil))
+        let file = try makeFile(named: "maps.md", contents: "# Maps")
+
+        XCTAssertTrue(sections.actions.externalDrop(
+            [provider(for: file)], .middle, group))
+
+        await settle(store) { self.research(named: "maps", in: store) != nil }
+        let imported = try XCTUnwrap(research(named: "maps", in: store))
+        XCTAssertEqual(imported.path, "research/world/maps.md",
+                       "dropped ON a group is INTO it — the same gesture that "
+                       + "moves a note into one. Got \(imported.path ?? "nil")")
+    }
+
+    func test_aScreenplaysScriptRowBouncesAFileAndImportsNothing() async throws {
+        let store = try await screenplay(notes: [])
+        let script = try XCTUnwrap(TreeWalk.first(
+            in: store.manifest.structure, where: { $0.type == .document }))
+        let file = try makeFile(named: "notes.md", contents: "# Notes")
+        let before = store.manifest.research
+
+        XCTAssertFalse(
+            verbs(store).routeExternalDrop(
+                providers: [provider(for: file)], position: .middle,
+                target: .pieceRow(script.id)),
+            "everything in a screenplay's research is already the script's, so "
+            + "there is no scope the drop is asking for — and a refusal the "
+            + "writer can see beats a file quietly appearing elsewhere")
+        await settle(store)
+        XCTAssertEqual(store.manifest.research, before, "and nothing imported")
+    }
+
+    // MARK: - ⌘V (stage-2b Task 4)
+
+    /// The paste table `ResearchView` owned, on its new host. A pasted URL is a
+    /// research link; a pasted image or file is an asset; pasted text is a
+    /// note. All in shared research, which is what the pane did.
+    func test_aPastedURLBecomesALinkInSharedResearch() async throws {
+        let store = try await novel(notes: [])
+        let importer = ResearchPasteImporter(store: store, reportError: { _ in })
+
+        await importer.paste([NSItemProvider(
+            object: URL(string: "https://example.com/tides")! as NSURL)])
+
+        // The provider answers `loadItem` with the URL's BYTES rather than a
+        // `URL` — measured, and the reason the moved table needed its one
+        // change: `ResearchView` cast to `URL` alone, so this paste fell
+        // through every arm and did nothing, silently. See
+        // `ResearchPasteImporter.url(from:)`.
+        let link = try XCTUnwrap(
+            store.manifest.research.first { $0.kind == .link },
+            "a pasted URL is a link, titled by its host")
+        XCTAssertEqual(link.url, "https://example.com/tides")
+        XCTAssertEqual(link.title, "example.com")
+    }
+
+    func test_pastedTextBecomesANoteInSharedResearch() async throws {
+        let store = try await novel(notes: [])
+        let importer = ResearchPasteImporter(store: store, reportError: { _ in })
+        let provider = NSItemProvider()
+        provider.registerDataRepresentation(
+            forTypeIdentifier: "public.text", visibility: .all) { completion in
+                completion(Data("The tide was out.".utf8), nil)
+                return nil
+            }
+
+        await importer.paste([provider])
+
+        let note = try XCTUnwrap(
+            store.manifest.research.first { $0.role == nil && $0.kind == .document },
+            "pasted text lands as a research document")
+        let path = try XCTUnwrap(note.path)
+        XCTAssertEqual(
+            try String(contentsOf: store.url.appendingPathComponent(path),
+                       encoding: .utf8),
+            "The tide was out.",
+            "…carrying the words that were pasted")
+    }
+
+    /// **Which window states a paste belongs to research at all.** The tree is
+    /// one `List` holding manuscript rows as well as research ones, so a ⌘V
+    /// with a chapter selected is not research's to take.
+    func test_aPasteBelongsToResearchOnlyWhenTheWindowIsAboutResearchOrTheProject() {
+        XCTAssertTrue(TreePasteRouting.acceptsPaste(subject: .research("res-1")))
+        XCTAssertTrue(TreePasteRouting.acceptsPaste(subject: .project))
+        XCTAssertFalse(TreePasteRouting.acceptsPaste(subject: .item("ch1")),
+                       "a chapter is selected: the writer's ⌘V is about the "
+                       + "manuscript, and a research note appearing instead is "
+                       + "a surprise the old pane could never have produced")
+        XCTAssertFalse(TreePasteRouting.acceptsPaste(subject: nil))
+    }
+
+    // MARK: - Add File… (stage-2b Task 4)
+
+    /// **The panel takes folders again.** `ResearchView`'s always has —
+    /// `importResearchFiles` imports a folder as a group with its contents
+    /// under it — and stage 2a's tree narrowed it to files without saying so.
+    /// The pane is about to be deleted, so the narrowing would have shipped as
+    /// a lost capability.
+    func test_theTreesAddFilePanelTakesFoldersAsWellAsFiles() {
+        let panel = BinderTreeVerbs.makeAddFilePanel()
+        XCTAssertTrue(panel.canChooseDirectories,
+                      "a folder imports as a group of its contents — the tree "
+                      + "is the only surface left that can ask for one")
+        XCTAssertTrue(panel.canChooseFiles)
+        XCTAssertTrue(panel.allowsMultipleSelection)
+    }
+
     // MARK: - The subject survives its own rescope
 
     /// **The window keeps pointing at the note the writer just moved**
@@ -394,6 +625,26 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         let other = try await ProjectFactory.createShortStoryProject(
             named: "Elsewhere-\(UUID().uuidString.prefix(6))", in: temp.url)
         return try await store.addProjectReference(targetURL: other)
+    }
+
+    /// A real file on disk for an external drop to carry. Written under the
+    /// test's own temp directory, so nothing here touches the writer's Finder.
+    private func makeFile(named name: String, contents: String) throws -> URL {
+        let dir = temp.url.appendingPathComponent("dropped-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent(name)
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    /// A Finder drag's payload. `NSURL` registers `public.file-url`, which is
+    /// the identifier `DropClassification` classifies on — so these tests go
+    /// through the real classification rather than around it. (A browser drag
+    /// carries a rendered bitmap instead and falls to the same classifier's
+    /// `.image` arm; the file arm is the one the tree's routing turns on.)
+    private func provider(for url: URL) -> NSItemProvider {
+        NSItemProvider(object: url as NSURL)
     }
 
     private func research(named title: String, in store: ProjectStore) -> ResearchItem? {

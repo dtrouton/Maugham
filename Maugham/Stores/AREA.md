@@ -8,7 +8,7 @@ The persistence and coordination layer: project structure, documents, recents, s
 - Document load/save/conflict-resolution coordination with NSFileCoordinator/Presenter (`DocumentStore`).
 - The `.maugham/` filesystem layout for everything derived.
 - Small focused stores: recents, sessions, trash, debounce scheduling.
-- Search across the binder (`BinderSegment.find`).
+- Search across the binder (`ProjectSearchView`, mounted as an overlay of the left column).
 
 ## Layout
 
@@ -29,7 +29,7 @@ The persistence and coordination layer: project structure, documents, recents, s
 - `DocumentStore.swift` — project-folder coordinator + Document registry. Owns the NSFilePresenter, manifest IO, session tracking, UI state, rename/copy/move orchestration, **and the typed user-content mover** (see below). Per-doc op-log, autosave, conflict-detection, and echo guard now live on `Document` (post-`milestone-document-first-class`); this file routes external presenter callbacks to the matching Document via the registry.
 - `MaughamSidecarPath.swift` — typed classification of project-relative file URLs into manifest / opLog / checkpoints / sessions / uiState / conflictBackup / scratch / pending / trash / unknownSidecar / otherProjectFile / outsideProject. `presenterDidChangeSubitem` dispatches via a switch on this enum — adding a new sidecar owner is a compile-error workflow. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `DebounceScheduler.swift`, `RecentsStore.swift`, `SessionLog.swift`, `TrashStore.swift` — small focused stores, well-bounded. **Use these as the model** for new stores; don't model new things after `ProjectStore`'s size.
-- `BinderSegment` files — search across documents (`⌘⌥F`) plus the regular binder slicing.
+- Cross-document search (`⌘⌥F`) — see `ProjectSearchView` and `ProjectWindow.applyCloseFind`.
 - ID-prefix helpers / generators — see ADR 0008.
 
 ## The `.maugham/` filesystem layout (canonical)
@@ -39,7 +39,7 @@ Everything derived lives under `.maugham/` in the project folder. Each subdirect
 | Path | Owner | Purpose |
 |---|---|---|
 | `.maugham/ops/` | `OpLogStore` (in OpLog area) | Per-doc JSONL op logs |
-| `.maugham/checkpoints/` | `CheckpointStore` (OpLog area) | Project-scope checkpoints from ⌘S |
+| `.maugham/checkpoints.<deviceSlug>.jsonl` | `CheckpointStore` (OpLog area) | Project-scope checkpoints from ⌘S, partitioned per device (FM-1). A FILE, never a directory — and never the unsuffixed `checkpoints.jsonl`, which stays a merge source and is never written |
 | `.maugham/conflicts/` | `DocumentStore` | Conflict backup copies |
 | `.maugham/sessions/` | `SessionLog` | Per-session activity records |
 | `.maugham/ui-state/` | `ProjectStore` (UI extension) | Window position, last-opened doc, cursor restore |
@@ -60,7 +60,7 @@ Moving or deleting a path the user might be editing (a manuscript `.md`/`.founta
 | `relocateUserContent(affectedPaths:perform:)` | A bespoke move that isn't a flat plan — the Collection piece's two-phase temp-suffix folder swap (`movePiece`/`renamePiece`), the research note + sibling `<slug>_assets/` rename (`renameResearchPath`). Run the FS surgery in `perform`, using `coordinatedMove`/`coordinatedWrite` for each step. |
 | `trash(relativePath:using:…)` | Soft-delete into `.trash/` (`deleteStructureItem`, `deleteResearchItem`, batch `deleteResearchItems`). |
 
-**`moveResearchItems(ids:to:atIndex:)`** (`ProjectStore+ResearchMove.swift`, 2026-07-16) is a **fourth routed caller** of `relocate(plan:)`, not a new entry point — it builds one `RenamePlan` covering every step in the batch (file moves, group-folder moves with descendant manifest-path rewrites, and each moved note's sibling `<slug>_assets/` folder) and executes it through the same `documentStore.relocate(plan:)` single call, so tripwire 14's close-before-FS-surgery + debounce-flush discipline applies for free. `ResearchMoveTarget` (`.sharedRoot` / `.group(id)` / `.piece(id)`) is the typed destination (ADR 0010 pattern); validation happens entirely before any FS call (unknown ids, cycles, role-guarded cross-scope moves all fail the whole batch, moving nothing). `.link` items are manifest-path-only (no file, no plan step). The file is in the `TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover` census alongside the other research/structure seams. `deleteResearchItems(ids:)` (`ProjectStore+Research.swift`) is the equivalent batch soft-delete: one up-front validation pass, one `trashResearchItemCore` per id, one manifest save — built on the existing `trash` entry point, not a new one. (Its `item.kind != .link` guard, present since before this milestone, is what keeps a pathless link item from being handed to the file-mover, which would throw "no such file" — the batch path inherits the same guard.)
+**`moveResearchItems(ids:to:atIndex:)`** (`ProjectStore+ResearchMove.swift`, 2026-07-16) is a **fourth routed caller** of `relocate(plan:)`, not a new entry point — it builds one `RenamePlan` covering every step in the batch (file moves, group-folder moves with descendant manifest-path rewrites, and each moved note's sibling `<slug>_assets/` folder) and executes it through the same `documentStore.relocate(plan:)` single call, so tripwire 14's close-before-FS-surgery + debounce-flush discipline applies for free. `ResearchMoveTarget` (`.sharedRoot` / `.group(id)` / `.piece(id)`) is the typed destination (ADR 0010 pattern); validation happens entirely before any FS call (unknown ids, cycles, role-guarded cross-scope moves all fail the whole batch, moving nothing). `.link` items are manifest-path-only (no file, no plan step). The file is in the `TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover` census alongside the other research/structure seams. `deleteResearchItems(ids:)` (`ProjectStore+Research.swift`) is the equivalent batch soft-delete: one up-front validation pass, one `trashResearchItemCore` per id, one manifest save — built on the existing `trash` entry point, not a new one. (Its `item.kind != .link` guard, present since before this milestone, is what keeps a pathless link item from being handed to the file-mover, which would throw "no such file" — the batch path inherits the same guard. **As of RULING-45, 2026-08-09, that guard is a BRANCH rather than a skip**: a link takes `TrashStore.recordManifestOnlyTrash`, which writes a `meta.json` and no file, so delete means the same thing for a link as for a note and restore puts the row back.)
 
 Each runs the **close-before-FS-surgery** discipline INTERNALLY before any FS call: `document(for:)?.close() + unregister()` for every open Document at an affected path, **plus** `flushPendingSave()` for the path-keyed research-note debounce. This is what makes tripwire 14 structural rather than remembered — a caller cannot forget either half, which dissolves findings 1.3 (executeRenamePlan didn't flush) and 1.6 (movers closed but didn't flush). **This replaces the prose tripwire-14 description that used to live in CLAUDE.md** (the "Close-before-FS-surgery" note in `Views/AREA.md` now points here).
 
@@ -99,11 +99,13 @@ Two new research-adjacent conventions, both plain-edited (no op log, no `¶id` a
 - **Find-or-create, because the well cannot be known before the file exists.** `vacantStatementPath` steers around an occupied `visual-language.md`, so the path is `createStatement`'s answer rather than a constant. `createStatement` is idempotent, so a pane minting on the same turn gets the same statement.
 - **The file-URL twin validates BEFORE it mints.** A refused `.txt` must not be what declares the writer's visual language to exist — so the guard is asked here as well as inside the saver, and a refusal leaves nothing behind at all.
 - **It returns a `StatementPicture` — the statement AND the ref — and never touches the statement's text.** The pair travels together because an async ingest can finish on a different scope than it started on (the writer drops a picture on Visual Language and presses `⌘⌥N` while the file is copied); a caller holding only the ref would have to ask "which document is this for?" of whatever the pane shows *now*. Putting it in is the caller's next act, through the op log — writing the `.md` would be discarded on the next re-materialize.
-- **It opens no `Document` and takes no `lockStatementOpen` of its own** — that gate is over the *opening*, and this only writes a file beside one. `mutateStatementText` is where the gate is taken.
+- **It opens no `Document` and takes no `lockStatementOpen` of its own** — that gate is over the *opening*, and this only writes a file beside one. `withStatementDocument` is where the gate is taken (the seam below; `mutateStatementText` is one of its callers).
 
 ## The statement seam — `ProjectStore+Statements.swift` (M1A, 2026-07-31)
 
-**`mutateStatementText(of:session:transform:)` is where anything OUTSIDE the pane puts words into a statement** *(M1A Task 12 review; it was `PromotionPerformer.append(_:to:)`, then `appendToStatement`, and is shared now that visual language's picture ingest and the declared world's rulings reach it too — read the call sites for who does)*. **`appendToStatement(_:to:session:)` still exists and is one call of it**, keeping the paragraph verb — a blank line, then the arriving words — as its own name for the three callers that want that shape. **Its "end" is the end of the ESSAY, not of the file** *(declared-world Task 6)*: once an intent statement has a `## Rulings` section, appending to the whole text puts the arriving paragraph below the list, where `RulingsSection.parse` does not read it and the Intent pane's essay editor cannot show it — safe on disk and invisible in the surface that owns it. `StatementEssay` is the split; the behaviour is byte-identical for a statement with no section, and for visual language always; a ruling, by contrast, is a line inside a section, which no append verb can express, so it passes its own whole-text transform (`RulingPerformer`). Its destination is named by **statement**, never by "whatever the pane is showing": its callers suspend — a promotion awaits its snapshot, an ingest awaits a manifest write and a file copy — and the writer can change panes in that window with a keystroke. The live `Document` first through `openStatementDocument(id:)`, then the open gate, then a transient `Document.load`/write/`close`; the lookup-plus-write does not suspend, so a pane cannot close its `Document` between them. `session` is the caller's, so the ops carry who wrote them. **This is the seam that takes `lockStatementOpen`** — the ingest, the promotion and the ruling performer are all callers of it rather than takers of the gate themselves. The transform may THROW, and a throw writes nothing: it is handed the text the write is about to be made from, so a caller whose act depends on what is currently there (revoking a ruling that must still be present) decides and edits over one string, with no window between the check and the write. `TripwireGrepTests.statementOpenGateTakers` is the census of who actually takes the gate; read it rather than this paragraph.
+**Finding the `Document` to write into is `withStatementDocument(_:session:_:)`'s, and it is the ONE statement open-and-mutate dance** *(origin's S2 extraction + the second draft's discipline, merged 2026-08-09)*: the live `Document` first through `openStatementDocument(id:)`, then the open gate, a re-ask of the registry inside it, then a transient `Document.load`/mutate/awaited-`close`; the lookup-plus-mutate does not suspend, so a pane cannot close its `Document` between them. Its closure may THROW, and **a throw writes nothing** — on the transient arm the just-loaded `Document` is closed on the refusing path too. **It is the seam that takes `lockStatementOpen`**; who takes the gate is a census — `TripwireGrepTests.statementOpenGateTakers` — not a sentence here.
+
+**`mutateStatementText(of:session:transform:)` is its whole-text wrapper**, handed the text the write is about to be made from, so a caller whose act depends on what is currently there (revoking a ruling that must still be present) decides and edits over one string, with no window between the check and the write (`RulingPerformer` passes its own transform through it). **`appendToStatement(_:to:session:)` keeps the paragraph verb** — a blank line, then the arriving words — for the promotion and picture-ingest callers, and **its "end" is the end of the ESSAY, not of the file** *(declared-world Task 6)*: once an intent statement has a `## Rulings` section, a whole-file append lands below the list, where `RulingsSection.parse` does not read it and the Intent pane cannot show it — safe on disk, invisible in the surface that owns it. `StatementEssay` is the split; byte-identical for a statement with no section, and for visual language always. `withStatementDocument`'s other caller is `propagateWikiLinkRename`'s statements loop — why the dance was extracted at all: a rename that opened its own `Document` on a statement the pane has open would be written back out by the writer's next burst. Every destination is named by **statement**, never by "whatever the pane is showing": callers suspend, and the writer can change panes in that window with a keystroke.
 
 A **statement** — the writer's intent, or the book's visual language — is a `Statement` entry in `ProjectManifest.statements` whose content is an ordinary `Document` living **in the open at the project root** (`intent.md`, `intent/<slug>.md`, `visual-language.md`; spec §2.2). It is the artifact that replaces craft intent. **Canvas promotion moved onto it in Task 7 and the last readers moved in Task 8**, which deleted `ProjectStore+CraftIntent.swift`: `read_craft_intent` answers off `statement(kind:scope:)`, and both inspectors' "Open Craft Intent" / "Add craft intent…" pair became one `IntentAffordanceRow` that posts `.maughamSetDetailSegment` and creates nothing.
 
@@ -123,6 +125,17 @@ A **statement** — the writer's intent, or the book's visual language — is a 
 - **The inspector's affordance is a PANE SWAP and mints nothing** *(Task 8)*. `IntentAffordanceRow` (`Maugham/Views/`) is one view shared by `InspectorView` and `PieceInspector`, because the old pair was two copies kept in step by hand. There is deliberately no "Add" button: the pane's own rule is that absence is valid and an empty scope shows an empty editor that mints on the first keystroke (§4.3), so an inspector-side create would be the nag the pane does not have — and it would also mint into a scope the pane may not be showing. The row resolves its caption through **`StatementPane.effectiveScope`**, not a second resolution: the pane's scope follows the binder selection, so with a chapter selected the button lands on the *chapter's* intent, and a caption derived any other way would describe a statement the writer is not about to see. It goes through `MaughamEvent.postDetailSegment(_:)` — the one spelling of that post, shared with the View menu (tripwire 21).
 
 - **A promoted Collection piece takes its intent with it** *(Task 8)*. Before M1A a loose piece's intent was a research note under `pieces/<n>-<slug>/research/`, which `writePromotedManifest`'s prefix rewrite carried for free; a statement lives at `intent/<slug>.md` at the Collection's ROOT, which no research prefix matches, and the new manifest takes `statements: []` by default — so the writer's intent would have silently stayed behind in a project whose piece is now a reference. `stagePromotedIntent` moves the file into the staging tree at the same project-relative path (`// internal-move: staging`, the main document's own class), `writePromotedManifest` re-points its scope at the new document's id and mints it a fresh `stmt-` id, and `convertPromotedPieceToReference` prunes the Collection's entry beside the research prune. **Its op log stays behind and its words do not** — the new project has no `.maugham/` at all and re-bootstraps from the rendered `.md`, exactly as the piece's own manuscript does; a derive-only read of a freshly promoted project therefore answers "" for every document in it until something opens one. The Intent pane can be showing that statement while the promotion runs, and a statement is in no `DocumentStore` registry, so the entry point withdraws its registration and closes that `Document` explicitly — which is also what renders the `.md` being staged.
+
+## Rename propagation — `propagateWikiLinkRename` (`ProjectStore+Structure.swift`, S2 complete 2026-08-09)
+
+Renaming a document moves every `[[…]]` that named it. **Three loops, one pairs list, and the pairs are the part that is easy to get wrong.**
+
+- **A rename moves more than one title.** The document's own, and the **composed title** of every statement scoped to it — `ArtifactIndex.statementTitle` names a statement after its document (M1A), so `[[Craft Intent · Alpha]]` stops resolving the instant `Alpha` becomes `Omega`. The manifest is already renamed when this runs, so the "before" title is composed with a closure answering the OLD name rather than read back out of `structure`.
+- **The renamed document is excluded from the DOCUMENT-title pair only, and that asymmetry is deliberate.** Its own `[[Alpha]]` self-references are left to the resolver's case-insensitive title match on the next render — an argument about the document's own name, which says nothing about the name of a statement about it. A `[[Craft Intent · Alpha]]` written in the very chapter that intent is for resolves to nothing at all after the rename, so the composed pairs apply to it too. With no statements scoped to it the document is skipped outright rather than loaded to be told there is nothing to do.
+- **Three destinations, two write disciplines.** Manuscript documents and statements are `Document`s, so the rewrite arrives as **ops** (tripwire 20) — the statements loop is a caller of `withStatementDocument`, never a second open dance. A **research note is not op-logged**, so its rewrite is a plain coordinated whole-file write behind one `flushPendingSave()`, or a raw write in a no-`DocumentStore` context (`PromotionPerformer.write`'s shape). The flush is load-bearing: a `ResearchNoteEditor` save queued on the 750 ms debounce would otherwise land *after* this write and put the stale body back. Research notes are in scope because canvas promotion writes `[[…]]` into a note and never into a manuscript (1C-c2), so a rename orphaned exactly the links the writer had just made.
+- **An empty derive is not "nothing to do".** The manuscript loop has always fallen through to `Document.load` on an empty pre-check because an un-bootstrapped doc materialises to `""`; the statements loop does the same, gated on the statement's file having **non-zero size** — a `stat`, never a read, because reading the file to decide would be the manuscript-as-truth read ADR 0018 forbids, and the content still arrives through `Document.load`'s bootstrap inside the dance. The state is real: a freshly promoted project's intent has its prose in the `.md` and no `.maugham/` at all (`stagePromotedIntent`, above).
+- **Not covered, on the record:** an open `ResearchNoteEditor` has no registry equivalent to `openStatementDocument(id:)`, so a note being edited at the moment of a rename can write its in-memory body back over the rewrite. Statements and manuscripts are both covered against this; research notes are not.
+- **Not covered, on the record (2026-08-09):** the **renamed document itself** is visited by the composed-title pairs (the bullet above's asymmetry), and its editor's own rename-reload — `EditorHost`'s path-keyed reload, tripwire 22 — can be mid-flight when the transient rewrite lands, in which case the composed-title rewrite in that one body is lost. That is the pre-branch behaviour, not a regression; reaching it needs the renamed document open *and* self-referencing its own intent's composed title.
 
 ## Adoption — `ProjectStore+StatementAdoption.swift` (M1A, 2026-07-31, spec §5)
 
@@ -196,14 +209,56 @@ The canvas half is `Maugham/Canvas/CanvasCapture.swift` — read `Maugham/Canvas
 
 5. **Don't bypass `DebounceScheduler` for autosave-like behavior.** The 750ms window is calibrated; ad-hoc debouncing leads to thrash. If you need a different cadence, add a configured instance, don't reinvent.
 
-6. **Don't write directly to `.maugham/` subdirs from outside this area.** Each subdir has one owner; route through it. (The OpLog area writes to `.maugham/ops/` and `.maugham/checkpoints/` — that's the one exception, by ownership.)
+6. **Don't write directly to `.maugham/` subdirs from outside this area.** Each subdir has one owner; route through it. (The OpLog area writes to `.maugham/ops/` and `.maugham/checkpoints.<deviceSlug>.jsonl` — that's the one exception, by ownership.)
 
 7. **NSFileCoordinator/Presenter is required for any cloud-synced file.** Don't read or write manuscript / project files without it; iCloud will race you and conflict-bomb the user.
 
 8. **Adding a new `extension ProjectStore`** for a new seam is the established pattern (Collection-Pieces does this). Don't introduce a new top-level store class for something that's logically project-scoped.
 
+## The trash after the rulings (2026-08-09)
+
+`TrashStore` + `ProjectStore+Trash` were reworked to seven of Denver's rulings; the full list with
+its reasoning is the amendment section of [ADR 0006](../../docs/adr/0006-trash-and-undo.md). The
+four things to know before editing in here:
+
+- **Every trash entry records a `TrashSubject`** in its `meta.json` — `manuscriptItem`,
+  `researchItem`, `captureAsset` or `internalArtifact` — and `moveToTrash` will not compile
+  without one. It is what decides which tree a restore rewires (sniffing the metadata's shape was
+  the bug: a `ResearchItem` decodes cleanly as a `StructureItem`), and what keeps Maugham's own
+  safety copies out of the writer's pane. Additive-optional on disk; an entry written before the
+  field falls back to the old sniff and is REFUSED if it matches neither tree.
+- **`list()` is the writer's view and `entriesIncludingInternal()` is the whole of it.** The
+  disposal verbs and `restoreTrashEntry` use the second; the pane uses the first. **Neither hides
+  an entry it cannot read** (RULING-7): a folder Maugham wrote whose `meta.json` is missing or
+  undecodable comes back as an `isUnreadable` entry titled `TrashEntry.unreadableTitle`, restore
+  refuses naming that as the cause, and disposal reaches it as normal. Two shapes still skip, each
+  for its own reason — a folder whose NAME Maugham did not write is not Maugham's entry (RULING-9),
+  and a folder holding *nothing* gets no row, because "contents preserved" over an empty folder is
+  the same misrepresentation pointing the other way.
+- **An entry folder name is claimed, not assumed.** `mintEntryFolder` creates with
+  `withIntermediateDirectories: false` so the create IS the claim; a taken name takes the next
+  number. **Keep the timestamp a PREFIX** — the sweep dates entries by parsing the folder name
+  (RULING-39), so an id scheme that buried or dropped the stamp (a ULID, a bare UUID) would take
+  that away with nothing failing.
+- **"Empty Trash" walks the DIRECTORY and reports what it could not destroy** (RULING-7).
+  `emptyTrash` uses `TrashStore.entryFolderIds()`, not the cached `trashEntries` — an entry written
+  straight through the store (MCP `set_piece_style`) is in no cache — and throws
+  `trashNotEmptied` after re-listing, so the pane and the message agree. Don't put a `try?` back in
+  that loop: `TrashView`'s catch was dead code for as long as one was there.
+- **The destination of a restore is the CALLER's decision**, passed as `restore(trashId:to:)`.
+  `TrashStore` knows nothing about manifests, and only `ProjectStore` knows where the row is
+  going to sit — which is the whole of RULING-41.
+- **⌘⌥Z is armed with a `TrashDeletion`, one per delete gesture** (`armDeletion`). A restore
+  consumes its entries (`forgetTrashId`); a permanent delete deliberately does NOT, so the next
+  ⌘⌥Z refuses with a reason instead of doing nothing.
+
 ## What to read before editing
 
+- **Trash is claim-covered**: `TrashStore` + `ProjectStore+Trash` have 51 test-pinned behavioural
+  claims and verdicts in `register/reconciliation/Trash.{claims,filings}.json`. Read the filings
+  before changing delete/restore behaviour — a `VIOLATES` row is a known defect with a ruling
+  behind it, a `COMPLIES` row is ruled-correct behaviour, and changing pinned behaviour means
+  updating the claim + filing in the same commit (CLAUDE.md, "Behavioural claims + rulings").
 - For project structure / binder mutations: start with `ProjectStore.swift` and find the relevant extension.
 - For document lifecycle / autosave / conflict: `DocumentStore.swift` + ADR 0001 (autosave) and ADR 0007 if it exists for conflict (check `docs/adr/`).
 - For new small store: read `RecentsStore.swift` or `TrashStore.swift` as the model.

@@ -1,0 +1,151 @@
+{
+  "module": "MarkdownDisplayFilter",
+  "loc": 99,
+  "claims": [
+    {
+      "id": "MDF-1",
+      "scope": "MarkdownDisplayFilter.stripAnchors",
+      "kind": "POSTCONDITION",
+      "statement": "A line is dropped from the output if and only if `ParagraphID.parseComment` accepts it. That gate trims the line's leading/trailing whitespace and then requires the WHOLE line to match `^<!--\\s*¶([0-9abcdefghjkmnpqrstvwxyz]{4})\\s*-->$`.",
+      "evidenced_by": "source (MarkdownDisplayFilter.swift:51, ParagraphID.swift:45-54); test:MarkdownDisplayFilterTests.test_stripsRealFormatAnchors_keepsProseAndParagraphBreaks; test:RenderFilterTests.test_stripComments_removesIdMarkers_keepsParagraphs",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "MDF-2",
+      "scope": "MarkdownDisplayFilter.stripAnchors",
+      "kind": "POSTCONDITION",
+      "statement": "When an anchor line is dropped, at most ONE immediately-following blank line is dropped with it (a line is 'blank' if it is empty after trimming spaces/tabs). A second consecutive blank survives.",
+      "evidenced_by": "source (skipNextBlank, lines 47-63); test:MarkdownDisplayFilterTests.test_stripsRealFormatAnchors_keepsProseAndParagraphBreaks asserts `prose.\\n\\nSecond` survives",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "MDF-3",
+      "scope": "MarkdownDisplayFilter.stripAnchors",
+      "kind": "POSTCONDITION",
+      "statement": "Specific non-anchor HTML comments survive verbatim: `<!-- TODO -->`, `<!-- A real author note -->`, and `<!-- ¶abcde -->` (5-char id). Per source this generalises to: any `¶` comment whose id is not exactly 4 characters, or contains a character outside `[0123456789abcdefghjkmnpqrstvwxyz]` (note: no `i`, `l`, `o`, `u`, and no uppercase), is NOT treated as an anchor.",
+      "evidenced_by": "test:MarkdownDisplayFilterTests.test_unrelatedHTMLComment_isLeftIntact; test:MarkdownDisplayFilterTests.test_commentWithWrongIdLength_isLeftIntact; test:RenderFilterTests.test_stripComments_keepsArbitraryHtmlCommentsThatAreNotIds; source for the generalisation",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "MDF-4",
+      "scope": "MarkdownDisplayFilter.stripTaskAnchorsInline",
+      "kind": "POSTCONDITION",
+      "statement": "Every occurrence of `<!--t-XXXXXX-->` (exactly 6 chars from the same 32-char alphabet) is removed from ANY position in the string — line start, mid-line or line end — together with ONE optional immediately-preceding whitespace character. `\\s` includes a newline, so the consumed character may be a line break rather than a space.",
+      "evidenced_by": "source (taskAnchorRegex, line 26); test:RenderFilterTaskAnchorTests.test_stripComments_removesTaskAnchor / _removesMultipleTaskAnchorsAcrossLines / _removesInlineFountainAnchor; test:MarkdownDisplayFilterTests.test_stripsInlineTaskAnchors (asserts the leading space is consumed). The newline-consumption half is source-only, untested.",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "MDF-5",
+      "scope": "MarkdownDisplayFilter.stripAnchors",
+      "kind": "POSTCONDITION",
+      "statement": "The paragraph-anchor pass runs FIRST over the whole document, its result is trimmed of leading and trailing whitespace-and-newlines, and only then does the task-anchor pass run. So the returned display form never begins or ends with whitespace — including no trailing newline.",
+      "evidenced_by": "source (lines 66-68); test:MarkdownDisplayFilterTests.test_noAnchorProse_contentPreserved (input has no outer whitespace, so it only pins the no-op case); test:RenderFilterTests.test_stripComments_removesIdMarkers_keepsParagraphs (input ends `Second.\\n`, output `Second.`)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "MDF-6",
+      "scope": "MarkdownDisplayFilter.stripAnchors",
+      "kind": "INVARIANT",
+      "statement": "The transform is idempotent: neither pass can synthesise a new anchor-shaped line or inline anchor, so `stripAnchors(stripAnchors(x)) == stripAnchors(x)`.",
+      "evidenced_by": "source (reasoning over both passes); no test asserts it",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "MDF-7",
+      "scope": "MarkdownDisplayFilter.stripAnchors",
+      "kind": "INVARIANT",
+      "statement": "The two anchor kinds are gated differently on POSITION: a paragraph anchor is recognised only when it is the entire line (after trimming), so a `<!-- ¶ab2c -->` sitting mid-line survives; an inline task anchor is recognised anywhere. Because the paragraph gate trims first, an INDENTED anchor line (e.g. four-space-indented, or inside a fenced code block) still counts as an anchor and is stripped.",
+      "evidenced_by": "source (line 51 + ParagraphID.parseComment's trim); the mid-line-¶ and indented-¶ cases have no test",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "MDF-8",
+      "scope": "MarkdownDisplayFilter.firstTaskAnchor",
+      "kind": "POSTCONDITION",
+      "statement": "Returns the FIRST task anchor's full match range — which INCLUDES the optional single leading whitespace character, i.e. the same span `stripTaskAnchorsInline` removes — plus the bare 6-char id; nil when the line contains no task anchor.",
+      "evidenced_by": "source (lines 86-98); exercised indirectly via test:RenderFilterTaskAnchorTests round-trip tests through RenderFilter.extractAnchor",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "MDF-9",
+      "scope": "MarkdownDisplayFilter (call sites)",
+      "kind": "INVARIANT",
+      "statement": "This is the only implementation of the strip on either platform: the Mac editor (`RenderFilter.stripComments`), the iOS reader (`DocumentReaderView` markdown AND fountain paths), the autosaved `.md` on disk (`Document.performAutosave`), publish (`ProjectASTBuilder`), project search (`ProjectSearchEngine`), MCP `read_document` (`DocumentTools`), and `DerivedManuscriptCache` all forward here rather than re-implementing.",
+      "evidenced_by": "source (call-site grep across Maugham/, MaughamPhone/, Packages/MaughamCore/)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "MDF-10",
+      "scope": "Document.performAutosave / Document.recomputeDisplayText",
+      "kind": "INVARIANT",
+      "statement": "The two anchor kinds are stripped at DIFFERENT layers: the `.md` written to disk is `stripAnchors(materialize())`, so it carries neither kind; but the in-memory `displayText` is built from `paragraphs` with only `stripTaskAnchorsInline` applied — paragraph anchors never enter it because they are structure, not paragraph text.",
+      "evidenced_by": "source (Document.swift:377, Document.swift:330-343)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "MDF-11",
+      "scope": "Document.load (divergence snapshot)",
+      "kind": "PRECONDITION",
+      "statement": "Load decides whether an outside `.md` edit diverges from op-log truth by comparing `stripAnchors(diskBytes)` against `stripAnchors(materialize(derived))` — a filtered comparison, not a byte comparison.",
+      "evidenced_by": "source (Document+Load.swift:234-253)",
+      "confidence": "HIGH"
+    }
+  ],
+  "product_decisions": [
+    {
+      "id": "MDF-D1",
+      "question": "If a writer types a line that is exactly the shape of a paragraph anchor — `<!-- ¶ab2c -->` — into their manuscript, should Maugham accept it?",
+      "current_behaviour": "Accepted silently, with no warning. The line survives in the op log and in `paragraphs`, so it is still visible in the editor for the rest of the session. But every derived surface eats it: the autosaved `.md` on disk (`stripAnchors(materialize())`), the published PDF/EPUB (`ProjectASTBuilder`), project search (`ProjectSearchEngine`), MCP `read_document`, the iPhone reader, and — on the next reload — the editor itself, since `recomputeDisplayText` rebuilds from paragraph text.",
+      "writer_visible_consequence": "A sentence the writer typed and watched appear is present in the app today, absent from the file on disk, absent from the exported book, unfindable by ⌘F, invisible to Claude, and gone from the editor after the next open. Nothing at any point says so.",
+      "classification": "COVERED_BY_RULING_1",
+      "reasoning": "The editor is one of Maugham's own entry points. RULING-1 says it must not accept content it cannot read back faithfully, and must refuse visibly at the point of entry. It does neither: it accepts, and the loss is discovered later — the exact failure shape RULING-1 names. Current behaviour therefore VIOLATES the existing ruling rather than merely being unruled.",
+      "proposed_ruling": null
+    },
+    {
+      "id": "MDF-D2",
+      "question": "Same question for the inline form: a writer types `<!--t-abcdef-->` (six characters from Maugham's id alphabet) into a sentence.",
+      "current_behaviour": "Accepted silently. Worse than D1 because the inline strip is position-free and runs on the display path: `recomputeDisplayText` removes it from the editor's own text, along with one preceding space. On disk and in every export it is likewise gone. It may also collide with a real task id, in which case downstream task derivation reads the writer's prose as an anchor for a task it did not write.",
+      "writer_visible_consequence": "Words vanish out of the writer's own editor, plus the space before them, with no undo entry and no message. If the six characters happen to match a live task's id, a paragraph acquires a task badge it never had.",
+      "classification": "COVERED_BY_RULING_1",
+      "reasoning": "Same entry point, same ruling. The id-collision half is an aggravating consequence, not a separate question — RULING-1's remedy (refuse visibly at entry) resolves both.",
+      "proposed_ruling": null
+    },
+    {
+      "id": "MDF-D3",
+      "question": "Inside a fenced code block or an indented block — text the writer has explicitly marked as verbatim — should Maugham's invisible anchors still be treated as anchors?",
+      "current_behaviour": "Yes. The filter is line-based and completely unaware of markdown fences, and `ParagraphID.parseComment` trims the line before matching, so both an indented `    <!-- ¶ab2c -->` and a fenced one are stripped exactly as a real anchor is. There is no escape hatch and no way to write the literal string.",
+      "writer_visible_consequence": "A writer whose manuscript quotes a file format, documents Maugham itself, or includes any code sample containing that comment shape loses the line from the render, the export and the search index. A technical-writing manuscript hits this on ordinary content.",
+      "classification": "NOVEL",
+      "reasoning": "Neither ruling reaches it. RULING-1 governs where content ARRIVES and RULING-2 governs a file arriving from outside; both are about provenance. This is a question about markdown CONTEXT — whether a writer's explicit 'show this verbatim' marking outranks Maugham's anchor grammar — and it applies identically to typed and to imported content. Note it partially overlaps D1: fixing D1 by refusing at entry would BLOCK legitimate code samples rather than render them, so the two want different remedies and should be ruled on separately.",
+      "proposed_ruling": "Text a writer has marked as verbatim — a fenced or indented code block — is shown and exported exactly as written, including anything that looks like one of Maugham's internal markers. Maugham's markers are only markers in ordinary prose."
+    },
+    {
+      "id": "MDF-D4",
+      "question": "Does anchor-shaped text in a writer's prose get eaten? The module answers this once for each anchor kind, and the two answers disagree.",
+      "current_behaviour": "A `<!-- ¶ab2c -->` appearing mid-line survives into the display form untouched (the gate is whole-line). A `<!--t-abcdef-->` appearing mid-line is removed, along with a preceding space. So the same authored string is eaten or preserved depending on which of Maugham's two private id grammars it happens to resemble.",
+      "writer_visible_consequence": "The writer cannot form a rule from experience. Pasting one comment shape into a sentence is harmless; pasting the other silently deletes it. Both are invisible, unlogged and undoable only by retyping.",
+      "classification": "INCONSISTENT",
+      "reasoning": "The divergence is defensible in engineering terms — `¶` anchors are only ever emitted on their own line, `t-` anchors only ever mid-line, so each gate is as tight as its own emitter allows — but it is a divergence in the answer a WRITER gets to a single question, and the module states no rule that predicts which answer applies. This codebase has already shipped two defects from the same-question-two-answers pattern.",
+      "proposed_ruling": "One rule covers both marker kinds: text a writer authored is preserved, whatever it resembles. If Maugham cannot preserve a particular shape, it says so at the moment the writer creates it — and it says so for every marker shape, not just the ones that happen to be easy to detect."
+    },
+    {
+      "id": "MDF-D5",
+      "question": "When Maugham discards an outside edit to a manuscript `.md`, must it always keep a copy of exactly what it discarded?",
+      "current_behaviour": "No, not always. `Document.load` decides whether the disk file diverges from op-log truth by comparing the two after BOTH have been through `stripAnchors`. A hand-edit or sync result whose only difference from op-log truth is anchor-shaped text compares EQUAL, so no `.maugham/conflicts/` snapshot is written — and the first autosave then overwrites the file. The whole point of that snapshot is that op-log-wins discards outside edits (a deliberate, documented behaviour); the snapshot is the net under it.",
+      "writer_visible_consequence": "A writer who edits the `.md` outside Maugham expects the edit to be discarded — that is the contract — but expects a recoverable copy in `.maugham/conflicts/`. For this class of edit there is none: the bytes are gone with no trace anywhere.",
+      "classification": "NOVEL",
+      "reasoning": "RULING-2 permits the READER to drop content from a file arriving from outside, and that stays fine. It says nothing about the forensic net: dropping content from the render is one act, dropping it from the safety copy that exists precisely because outside edits get overwritten is another. Reasonable people can disagree — one holds the net should catch every byte difference, another holds a difference invisible in the display form is not a real change and does not deserve a snapshot.",
+      "proposed_ruling": "Whenever Maugham overwrites a manuscript file that changed outside the app, it first keeps an exact copy of what was there. Whether the file 'really' changed is judged on the bytes on disk, not on a cleaned-up view of them."
+    },
+    {
+      "id": "MDF-D6",
+      "question": "Does the invisible-anchor grammar apply to research notes, or only to manuscripts?",
+      "current_behaviour": "Both, inconsistently. `ProjectSearchEngine` runs research-note bodies through `stripAnchors` — its source comment reasons that research notes 'carry no ¶ anchors, so stripAnchors is a no-op' and routes them through it 'for uniformity'. But the research preview (`TextPreview` → `ResearchNotePreviewPane`) and the research editor show the file RAW. A research note containing anchor-shaped text is therefore searched against a shorter string than the one displayed, and every coordinate the engine emits for that note (charRangeInDocument, lineNumber, matchRangeInLine) is shifted.",
+      "writer_visible_consequence": "Search hits in an affected research note highlight the wrong words, or jump to the wrong place. Research notes are a surface Claude writes into (`add_note`) and canvas promotion writes into, so the anchor-shaped content need not have been typed by hand.",
+      "classification": "INCONSISTENT",
+      "reasoning": "The same question — does anchor-shaped text in a research note exist? — is answered 'no' by search and 'yes' by every display surface. The search comment's justification is an assumption about content, not an enforced property, and nothing prevents an anchor-shaped line from reaching a research note. This is the second instance in this module of the pattern flagged in the task brief.",
+      "proposed_ruling": "Research notes are not manuscripts and have no invisible markers. What a research note contains is what it shows, and what it shows is what search searches."
+    }
+  ],
+  "notes": "Deliberately NOT raised as product decisions: (1) `stripAnchors` trims the whole document's outer whitespace, so the `.md` Maugham writes has no trailing newline and a writer's deliberate leading blank lines are removed on every save. ParagraphParser normalises paragraph-edge whitespace upstream anyway, so this is a formatting nit rather than a decision surface. (2) The `\\s?` in the task-anchor regex matches a NEWLINE, so a hand-edited file with a task anchor alone on its own line has the newline before it consumed: `foo\\n\\n<!--t-X-->\\n\\nbar` yields `foo\\n\\n\\nbar` — one extra blank line. Maugham's own emitter never places a task anchor at line start (TaskAnchorAlignment re-injects at line end), so this only fires on files arriving from outside, where RULING-2 already grants tolerance. Worth knowing if the emitter ever changes. (3) `firstTaskAnchor` re-runs a second regex over the already-matched substring purely to recover the id, which is redundant work but has no behavioural consequence.\n\nOn evidence quality: the paragraph-anchor pass is well covered (both platforms, both directions). The mid-line-¶ case (MDF-7), the indented/fenced-anchor case (D3), and the writer-typed-anchor cases (D1/D2) have NO test on either platform — they are source readings. The task-anchor round-trip is covered by property tests (`RenderFilterTaskAnchorTests.test_property_strip_then_restore_yieldsOriginal_acrossManyInputs`), but every input in that corpus is an anchor Maugham itself emitted; none is a writer typing anchor-shaped prose, which is precisely where the fidelity questions live.\n\nD1's severity is easy to under-read: because `displayText` is rebuilt from `paragraphs` (which retain the text) rather than from the `.md`, the loss is INVISIBLE for the whole session in which it happens and only appears after a close/reopen. That is the discovered-later shape RULING-1 was written against."
+}

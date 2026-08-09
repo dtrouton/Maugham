@@ -1,0 +1,160 @@
+{
+  "module": "Canvas promotion (Promotion.swift + PromotionPerformer.swift)",
+  "loc": 2230,
+  "product_decisions": [
+    {
+      "id": "PROMO-D1",
+      "question": "When a second promotion REWRITES the artifact the first one made, what happens to the words the writer typed into that artifact afterwards, in the research pane?",
+      "current_behaviour": "`PromotionPerformer.performResearchNote`'s `.update` arm calls `writeBody(plan.body, toItem:)`, which is `DocumentStore.performFileSave` — an atomic whole-file replace of the research note with the canvas card's text. The palette arm is gentler but the same in kind: `performPaletteCard` deliberately carries `current.swatches`, `current.notes` and `current.imagePaths` across and replaces the BODY. Nothing keeps the prior body. Research notes are not `Document` actors (`ResearchNoteEditor`: \"no op-log, no paragraph IDs\"), so the op log does not cover them; `CheckpointCapture.run` walks `allDocIds` through `OpLogStore` and stores `docPointers` per manuscript doc, so ⌘S checkpoints do not cover them either; `performFileSave` writes `.atomic` with no backup; and the performer's own doc comment states the limit — \"What ⌘Z takes back is the MARK, not the artifact.\"",
+      "writer_visible_consequence": "A writer promotes a card to \"Act II fog\", then spends an afternoon developing that note in the research pane. Weeks later they revise the card, promote it again and pick \"Rewrite “Act II fog”\". The afternoon's prose is gone with no undo, no trash copy and no version. The sheet's preview shows what will be WRITTEN (the card's text) and never what will be LOST, and does not say how much is in the note today.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "⌘1 Plan persona → select a previously-promoted card on the canvas → File ▸ Promote… (⌘⇧↩) → `CanvasPromotionModifier.begin()` → `PromotionSheetModel.select(.researchNote)` → `Promotion.existingArtifact` returns `.update` → the \"When it exists\" Picker → Promote → `CanvasPromotionModifier.commit` → `PromotionPerformer.perform` → `performResearchNote` `.update` → `writeBody`."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-4",
+      "clause_that_does_the_work": "\"words the writer AUTHORED are always recoverable\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "Any recovery path for a research-note body I did not find — a trash copy taken before an overwrite, a checkpoint that snapshots `research/`, or macOS document versions on that file. If one exists this is correct behaviour, not a violation. It would also be weakened (not removed) by a ruling that RULING-4's 'authored' means manuscript prose only; the counter is that the same writer typed both and only one is covered. Note the writer DID choose 'Rewrite' — but consent to an act is not a recovery path, and the sheet never states the size of what is being replaced."
+    },
+    {
+      "id": "PROMO-D2",
+      "question": "If the writer renames a promoted artifact in the research pane, does a later Rewrite from the same card keep their name or put the card's own first line back?",
+      "current_behaviour": "It puts the card's first line back, silently. `Promotion.plan`'s scrap arm always builds `title: title(from: body)` (the card's first line) and its region arm always builds `regionTitle(region)` — neither arm reads the existing artifact's title, in `.update` mode or any other. `PromotionSheetModel.select(_:)` seeds `editedTitle = preview?.title ?? \"\"` ONCE, and `mode`'s `didSet` re-derives `preview` but never re-seeds `editedTitle`. On Commit, `resolvedPlan` sets `plan.title = editedTitle` and `performResearchNote` calls `store.updateResearchItem(id:title:)`, which renames the backing file on disk through the typed mover. So the sheet simultaneously displays three strings: the Picker reads \"Rewrite “Fog, act II”\" (the artifact's live title from `ArtifactIndex`), \"Goes to\" reads \"the existing “Fog, act II”\", and the Name field — the one that actually wins — reads \"Act II fog\".",
+      "writer_visible_consequence": "The writer's rename of their own research note is reverted, and its file renamed, by an act whose two most prominent labels named the note by the title they chose. Nothing warns; the confirmation banner then reports the reverted name (\"Promoted to the note “Act II fog”\").",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Promote a card → research note. Rename that note in the research pane (`updateResearchItem`). Back on the canvas: select the card → ⌘⇧↩ → Research note → Picker shows \"Rewrite “<new title>”\" (`Promotion.existingArtifact` resolves by id, so a rename does not break the mark) → Promote → `performResearchNote` `.update` → `updateResearchItem(id:title: plan.title)`."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-14",
+      "clause_that_does_the_work": "\"once inside, the result is an ordinary artifact moved/renamed/deleted by ordinary rules\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "A reading of RULING-14 in which 'ordinary rules' constrains only the research tree's own verbs and says nothing about a promotion reaching back in — i.e. the boundary is one-way about REVERSE-promotion only, and re-promotion is a fresh ingestion entitled to name its output. On that reading this is NOT_SETTLED and wants a ruling of the form: 'a name the writer gave an artifact after promotion is theirs; a rewrite replaces the contents and never the name unless the writer retypes it.' Falsified outright if `select(_:)` is later found to re-seed `editedTitle` on a mode change — it does not today (`mode.didSet` touches `preview` only)."
+    },
+    {
+      "id": "PROMO-D3",
+      "question": "The writer promotes the same thing a second time. Is the earlier result rewritten, refused as a duplicate, or quietly duplicated?",
+      "current_behaviour": "All three, depending on the row, and the writer is given no way to predict which. Research note / palette card: `Promotion.updatableTargets` puts a \"When it exists\" picker in front of them (Rewrite or New — an explicit choice). Wiki-link: `performWikiLink` re-reads the destination and REFUSES — \"That link is already in the note.\" Craft intent: `performCraftIntent` appends again with no notice; `.intentStatement` is excluded from `updatableTargets` so no picker appears, and the only hint is a destination line reading \"at the end of what is already there\". Research picture: `performResearchAsset` creates a second copy in `research/` every time. Picture on a palette card: `performPaletteCardImage` calls `addImage`, which copies the file into `<slug>_assets/` and appends unconditionally — so the same photograph lands on the same card twice. The last two are the sharpest because the code already KNOWS: the first promotion wrote `promotedItemID` (research picture) or `contributedToItemID` naming that exact card (palette image), and neither is consulted before the second copy.",
+      "writer_visible_consequence": "A writer who repeats an act to be sure it worked gets a refusal on one row, a dialogue on another, and silent duplication on three — two photographs of the same thing side by side in a palette card's image well, two identical copies in `research/`, or the same paragraph twice in the craft intent. The two closest rows are the starkest pair: appending a link into an existing artifact refuses a duplicate; appending an image into an existing artifact does not.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Canvas → select an owned picture node → ⌘⇧↩ → \"Picture on a palette card\" → the Card picker (seeded by `select(_:)`) → Promote → `performPaletteCardImage` → `store.addImage(toPaletteCard:fileURL:)`. Repeat the identical five steps; nothing on either pass reads `node.contributedToItemID`."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-8",
+      "clause_that_does_the_work": "\"where the SAME writer question is answered in more than one place, it has ONE answer\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "RULING-8's own escape clause — 'Two situations that merely look alike may legitimately differ' — applied per artifact shape: a wiki-link is an identity (a second one is meaningless), a body is replaceable, an image well is a list to which a second picture is a legitimate addition. That defence holds for the craft intent (a writer may genuinely want the same note twice) and is weakest for `.paletteCardImage`, where the record naming that exact card already exists and is not read. If the intended rule is 'appending is always allowed to repeat', this is correct behaviour and the wiki-link row is the outlier that should be re-examined instead."
+    },
+    {
+      "id": "PROMO-D4",
+      "question": "Does a region's promotion tell the writer what it is throwing away?",
+      "current_behaviour": "Yes, before Commit and specifically. `Promotion.plan`'s region arm builds `discards: [.lines, .layout]`, adding `.pictures` when the region holds pictures the chosen row cannot take; `PromotionSheetModel.discardNotice` renders them as \"Not carried across: the lines between these cards, their layout and the pictures in it. The canvas keeps them.\" `pictureNotice` states the positive half (\"Also copies the 3 pictures in this region onto the card\") on the row that does carry them, and on a rewrite the notice adds \"The card keeps the images it already has.\" `regionBodies` also silently drops empty members from the joined body — that one is not in the discard list, but an empty card has nothing to lose.",
+      "writer_visible_consequence": "The writer's spatial arrangement, the lines they drew and (on the prose rows) the photographs in the region do not travel — and they are told which, in the sheet, before committing rather than discovering it in `research/`. The canvas keeps the originals, so nothing is destroyed.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Canvas → select a region → ⌘⇧↩ → Research note → the Preview section renders `model.discardNotice`."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-4",
+      "clause_that_does_the_work": "\"DERIVED material may be dropped but the drop must be reported\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "A reading in which lines and layout are AUTHORED rather than derived — the writer did draw them — which would demand they be recoverable rather than merely reported. The code's own answer is that they are recoverable: promotion copies, so the canvas keeps them. Included as a calibration case: this is the sub-ruling doing real work on a decision a root could only have gestured at."
+    },
+    {
+      "id": "PROMO-D5",
+      "question": "When a promotion partly succeeds — the artifact is created and marked, then a member's link write fails — is the writer told it succeeded or that it failed?",
+      "current_behaviour": "That it failed, in those words, with nothing said about what did happen. `performResearchNote` creates the artifact, writes its body, sets the mark via `mutateFromInspector`, and only THEN calls `writeOfferedLinks`, which loops over `plan.offeredLinks` writing into each member's own note. `readBody` inside that loop throws `PromotionFailure.unreadableFile` for a member note that exists and will not decode, and `write` can throw too — so the loop can write links into notes 1 and 2, throw on note 3, and propagate out of `perform`. `CanvasPromotionModifier.commit` catches everything into one `.alert(\"Promotion failed\")`. The file's own contract at the top of `PromotionPerformer` says \"Validate first, write second. A refused promotion leaves nothing behind\" — true of the validation phase and not of this loop.",
+      "writer_visible_consequence": "An alert headed \"Promotion failed\" over a promotion that created a real note, wrote its body, marked the card and modified two other notes. A writer who believes the alert and retries will be offered \"Rewrite\" against an artifact they were told did not exist — or, if they instead assume nothing happened, will leave two notes carrying a link to a note they think was never made.",
+      "reachability": {
+        "rating": "LATENT",
+        "call_path": "Canvas → select a region with ≥2 promoted members → ⌘⇧↩ → Research note → tick \"Also link N promoted cards to it\" → Promote → `performResearchNote` → `writeOfferedLinks` → `readBody(atPath:)` throws `.unreadableFile` on the 3rd member (manifest/disk drift, a non-UTF8 file, an uncoordinated read racing an iCloud materialise — the three cases `readBody`'s own doc comment names) → propagates to `commit`'s catch. Requires a member note that exists and will not read; I cannot produce that state from ordinary UI actions alone, so the rating is LATENT rather than LIVE."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-7",
+      "clause_that_does_the_work": "\"never misrepresent a failure — unreadable is never shown as empty; a refusal names its real cause. Scope: WRITER-FACING surfaces\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "An argument that RULING-7's scope is the CAUSE of a failure rather than its EXTENT — the alert does name the real cause (`unreadableFile` carries the path and its sentence is specific), and RULING-7 says nothing about reporting partial success. On that reading this is NOT_SETTLED and wants: 'when an act partly succeeded, the writer is told what was done as well as what failed.' Note the failure is reported honestly at the `readBody` level; what is misrepresented is the headline `Promotion failed` at the surface the writer reads."
+    },
+    {
+      "id": "PROMO-D6",
+      "question": "A card was promoted to a palette card; the writer now promotes it to a research note. Does the canvas still record the palette card it made?",
+      "current_behaviour": "No. `CanvasNode.promotedItemID` is single-valued and `mark(_:for:named:contributors:)` overwrites it with each promotion (`setPromotedItem(itemID, for: node)`). The card's inspector, via `PromotedArtifactSection`, then names only the most recent artifact. The earlier one stays in `research/` — nothing deletes it — but the canvas has forgotten it produced it, so `Promotion.existingArtifact` will never offer to rewrite it again (`artifacts.kind(of: markedID) == target.producedArtifactKind` now fails against the new mark), and a re-promotion to the earlier target mints a THIRD artifact. `contributedToItemID` has exactly the same single-valuedness, and there it is documented at length as a considered decision ('the most recent contribution wins … it is the honest cost of one field'); `promotedItemID`'s overwrite is not argued anywhere, only observed by a test comment (\"the mark names the most recent\").",
+      "writer_visible_consequence": "The canvas card silently stops claiming an artifact it really did produce; the artifact becomes an orphan in `research/` with no route back to the card that made it, and the writer's next promotion to that target quietly makes a second one beside it.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Canvas → card → ⌘⇧↩ → Palette card → Promote (`mark` sets the card's id). Same card → ⌘⇧↩ → Research note → Promote (`mark` overwrites with the note's id). `PromotedArtifactSection` now renders only the note."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "A canvas card records everything it has produced, not only the most recent thing. If only one can be shown, the ones dropped are still reachable — a writer must never be unable to find the note a card made.",
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "If the product view is that the mark is provenance-of-the-latest-act rather than a producer index — the reading `contributedToItemID`'s comment already argues for its own field — then this is correct and my proposal is a wish, which PRINCIPLE-2 says must not enter the register. The counter is that the two fields are not symmetric in consequence: a lost contribution record costs a sentence in a pane, and a lost mark costs the Rewrite route to a real file. Falsified also if some other surface (research pane, MCP `find_references`) already links the orphaned artifact back to its card; I did not find one."
+    },
+    {
+      "id": "PROMO-D7",
+      "question": "What counts as 'this link is already there' when a line is promoted to a wiki-link?",
+      "current_behaviour": "Raw substring containment, in both the preview and the performer: `request.destinationBody?.contains(write.linkText)` in `Promotion.plan`, and `body.contains(link.linkText)` in `performWikiLink`. `Promotion.linkText(to:label:)` produces `[[Title]]` for an unlabelled line and `[[Title]] — label` for a labelled one. So the test is asymmetric in both directions. A note already holding `[[The falls]] — at night` CONTAINS `[[The falls]]`, so an unlabelled second line between the same two cards is refused. A note already holding a bare `[[The falls]]` does NOT contain `[[The falls]] — at night`, so a labelled second line writes a second link to the same note. `writeOfferedLinks` uses the same containment test with an always-unlabelled link, so its skip has the first half of the asymmetry too.",
+      "writer_visible_consequence": "Two lines between the same pair of cards, one labelled and one not, behave oppositely depending on which the writer promotes first: promote-the-labelled-then-the-plain is refused with \"That link is already in the note.\"; promote-the-plain-then-the-labelled writes two links to the same note. The refusal's sentence is defensible in substance and misleading in detail — the exact text it refuses to write is not in the note.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Canvas → draw two lines between two already-promoted cards → name one in `LineInspector` → select the labelled line → ⌘⇧↩ → Wiki-link → Promote → `performWikiLink` writes `[[B]] — <label>`. Select the unlabelled line → ⌘⇧↩ → `Promotion.plan` sets `linkAlreadyPresent` → `PromotionSheetModel.refusal` disables Commit."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "Two links count as the same link when they point at the same artifact, whatever either is labelled — so a second line between the same two cards is refused as a duplicate, and the writer is told the existing link's label rather than being told nothing.",
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "If a labelled link is product-meaningfully a different thing from a bare one — two named relationships between the same pair of notes being a legitimate thing to want — then the correct rule is the opposite of my proposal (compare the whole text, and the current over-refusal is the bug rather than the under-refusal). Either ruling is better than the present state, which is neither. RULING-7 nearly reaches the over-refusal half ('a refusal names its real cause') but is a poor fit: the stated cause is arguably true of the note, just not of the text."
+    },
+    {
+      "id": "PROMO-D8",
+      "question": "The artifact a card produced has since become a different kind of thing — the note was converted to a palette card, or stamped as the craft intent. What is the writer told when they promote that card again?",
+      "current_behaviour": "Nothing at all; they get a new artifact. `Promotion.existingArtifact` requires `artifacts.kind(of: markedID) == target.producedArtifactKind` and returns nil when it does not match, so `Promotion.modes` returns `[.new]` and the sheet renders no picker (`availableModes.count > 1` is false). The code's own comment states the reasoning — 'A kind that no longer matches declines the update rather than refusing the promotion' — and it is the right outcome, since the alternative rewrote a palette card with raw scrap text. But the honest sentence for this exact state EXISTS and is unreachable from here: `PromotionFailure.artifactIsADifferentKind` reads \"What this produced is a palette card now, not a research note, so Maugham did not write over it\", and `refuseIfNotAResearchNote` can only throw it for a plan that already carried a `.update` mode — which the sheet will now never produce.",
+      "writer_visible_consequence": "A writer who expects to update the thing this card made instead gets a silent duplicate, with no clue why the Rewrite option they used last time has gone. Nothing is destroyed, which is the point — but nothing is explained either, on a surface whose stated promise is that you can see what a command will do.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Promote a card → research note. In the research pane move that note under the palette group (or stamp `role == .craftIntent`), so `ArtifactIndex.kind(of:)` reclassifies it. Canvas → the same card → ⌘⇧↩ → Research note → `Promotion.existingArtifact` returns nil → `modes` returns `[.new]` → no picker."
+      },
+      "classification": "SETTLED_BY_ROOT_ONLY",
+      "ruling": "RULING-20",
+      "clause_that_does_the_work": "\"where intent is unclear default SAFE\" — making a new artifact rather than writing over one that has changed under the mark is exactly that, and it is what the code does",
+      "what_a_sub_ruling_would_need_to_say": "A sub-ruling would have to cover the TELLING rather than the choosing: something like 'when Maugham declines to reuse an artifact it made earlier, it says so at the moment of the promotion, not only if the writer forces the attempt.' No existing sub-ruling reaches it — RULING-7's scope is failures and refusals, and this is neither (the promotion succeeds); RULING-14 governs what the artifact is subject to, not what the writer is told about it.",
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "PRINCIPLE-2: the behaviour violates no ruling and a better experience is merely imaginable, which makes this an enhancement rather than a defect. I record it because the sentence already exists in the codebase and is stranded — that is a weak signal about intent, not proof of it. Falsified if some other surface already explains the reclassification at that moment (I checked `PromotedArtifactSection`, which renders `promoted`/`artifactMissing`/`notPromoted` and has no arm for 'changed kind')."
+    },
+    {
+      "id": "PROMO-D9",
+      "question": "If the research note being rewritten is open in an editor pane at the moment of the promotion, does the promotion stick?",
+      "current_behaviour": "Uncertain, and the guard that exists covers only half the window. Every write path flushes first — `try? await store.documentStore?.flushPendingSave()` appears in `writeBody`, `performPaletteCard`, `performCraftIntent`, `performWikiLink`, `performPaletteCardImage` and `writeOfferedLinks`, each with a comment about a queued 750 ms `scheduleFileSave` firing afterwards and restoring stale content. That drains a save already QUEUED. It does nothing about the pane's in-memory buffer: `ResearchNoteEditor` holds `@State documentText`, reloads only on `.task(id: path)` — i.e. only when the selected path changes — and autosaves through the same debounce. So a pane that stays mounted across a promotion still holds the pre-promotion text, and the writer's next keystroke there schedules a save of it over the promoted body. (Separately: `flushPendingSave` is declared `async throws` and its body cannot throw today, so the `try?` swallows nothing — this is not that bug.)",
+      "writer_visible_consequence": "If the state is reachable, the writer sees the confirmation banner \"Promoted to the note “X”.\", types one character in the note, and the promotion is silently undone — with the banner as their only evidence it ever happened. Constitution-must-#1-shaped, but only on the reachability question below.",
+      "reachability": {
+        "rating": "UNTRACED",
+        "call_path": "I could not trace a UI configuration in which `ResearchNoteEditor` stays mounted while `CanvasPromotionModifier.commit` runs. The canvas is the Plan persona's CONTENT column and the note editor mounts in the same column for a research selection, so within one window they appear mutually exclusive, and a persona switch would unmount the editor (flushing its save) and remount with a fresh `.task(id: path)` load. Two windows on one project would do it; I did not verify that two `ProjectWindow`s can open on the same project. The team's own comments assume proximity — 'the writer was editing it in the research pane a moment ago' — which is why I am recording it rather than dismissing it."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "A surface showing a file Maugham has just written to shows the new contents. Maugham never lets a stale on-screen copy of its own artifact overwrite a change it made itself.",
+      "confidence": "LOW",
+      "what_would_falsify_it": "Proof that no two surfaces can hold the same research note while a promotion commits — that would make this NEGLIGIBLE and the proposal a wish. Conversely it is confirmed by opening the same project in two windows, promoting with Rewrite from one while the note is open in the other, and typing a character. I did not run that test, and I am not claiming the outcome."
+    }
+  ],
+  "notes": "TWO INCONSISTENCIES I LOOKED FOR AND REJECTED, per discipline 2.\n\n(1) Inbox promotion MOVES (the entry flips `.promoted` and `InboxStore.promoteToResearch`/`promoteToPaletteCard` delete the inbox original) while canvas promotion COPIES (the node stays on the canvas, the file stays in `canvas_assets/`, and `performResearchAsset`'s doc comment argues the point at length). That is not one question answered twice: an inbox entry is a queue item whose whole purpose is to be consumed, and a canvas node is durable workspace the writer arranged. RULING-14 reaches both and is satisfied by both — 'once inside, the result is an ordinary artifact' is about the RESULT, and both produce ordinary artifacts. Relatedly, `promoteToPaletteCard`'s idempotent append is a RETRY guard (its comment says so: 'a caught-and-retried promote converges to one note'), not a deduplication policy, so it is not evidence against PROMO-D3 — that is the exact pair RULING-8's discipline note warns about, and I have kept PROMO-D3 inside the canvas.\n\n(2) `Promotion.targets(forOwned:)` REFUSES to promote a referenced item node on the stated grounds that it 'would put a second editable copy of something the project already has beside it' — while `Promotion.regionPictures` copies referenced pictures out of a region into a palette card's `<slug>_assets/`, which is a second copy of a file the project already holds. The code anticipates the objection ('This is emphatically not a promotion OF the referenced node — the artifact is the region's card; the picture is content going into it') and I think the argument holds: the writer's act is promoting a REGION, and the picture rides in as content, exactly as a referenced card's text would. Recording it because the next reader will notice the surface similarity too.\n\nWHAT THE ROOTS ALONE REACHED. One of nine (PROMO-D8) needed a root, and it is the case where the code's CHOICE is right and only its silence is at issue — which is roughly where I would expect a root to be the last line. The sub-rulings did the real work elsewhere, and two did work no root could have: RULING-4's derived-may-be-dropped-if-reported clause is what makes PROMO-D4 a pass rather than an open question, and RULING-14's 'moved/renamed/deleted by ordinary rules' is the only thing in the set that names the rename in PROMO-D2 — 'honour the writer's intent' would have argued both sides of it.\n\nWHAT THE SET HAS NO VOCABULARY FOR. Three of my findings (D6, D7, D9) and the weaker half of D3 are about DUPLICATION and PROVENANCE — how many copies of a thing the writer ends up with, and whether the object that made a thing still says so. Nothing in the ruling set is about either. RULING-4 is about loss, RULING-15 about deletion, RULING-14 about the boundary; there is no clause about accumulation. That is the gap I would flag as most likely to matter as more things gain promote buttons (PRINCIPLE-1: this was cheap when one row promoted and there are six now).\n\nONE THING I CHECKED AND FOUND FINE. A dangling mark (the writer deleted the note a card produced) is handled well on both rows: the line arm gets a bespoke sentence naming the right act ('Promote that card again first'), `existingArtifact` declines the update so no promotion writes into a hole, and `PromotedArtifactSection` has an `.artifactMissing` arm so the inspector says so. The scrap arm mints a new artifact silently in that state, which I nearly filed as a RULING-8 twin of the line's refusal — but the line MUST refuse (it has no target) and the scrap can legitimately proceed, so the writer is not asking the same question."
+}

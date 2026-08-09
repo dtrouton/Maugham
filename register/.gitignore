@@ -1,0 +1,3 @@
+# SwiftPM build products for the standalone experiment test package.
+ExperimentTests/.build/
+ExperimentTests/.swiftpm/

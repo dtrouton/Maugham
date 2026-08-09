@@ -4,7 +4,8 @@ import MaughamCore
 
 /// Sensory-palette store seam. Palette cards are ordinary research `.document`
 /// assets under the `research/palette/` group, so rename/move/trash ride the
-/// existing typed-mover machinery (tripwire 14) and ResearchView affordances.
+/// existing typed-mover machinery (tripwire 14) and the binder tree's research
+/// affordances.
 extension ProjectStore {
 
     public static let paletteFolderPath = PaletteConvention.folderPath

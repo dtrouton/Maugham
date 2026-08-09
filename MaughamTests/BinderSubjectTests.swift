@@ -159,7 +159,6 @@ final class BinderSubjectTests: XCTestCase {
             schemaVersion: UIState.currentSchemaVersion,
             selectedSubject: .item("doc-1"),
             isNoChromeOn: true,
-            binderSegment: .research,
             researchPreviewVisible: true,
             detailSegment: .history,
             outlineLayout: .cards,
@@ -170,9 +169,7 @@ final class BinderSubjectTests: XCTestCase {
             // initialiser would correct is not a test of the encoder.
             assistantColumnWidth: UIState.defaultAssistantColumnWidth + 40,
             detailColumnWidth: UIState.defaultDetailColumnWidth + 40)
-        original.personaMemory.record(persona: .review,
-                                      binderSegment: .palette,
-                                      detailSegment: .annotations)
+        original.personaMemory.record(persona: .review, detailSegment: .annotations)
 
         let decoded = try JSONDecoder().decode(
             UIState.self, from: try JSONEncoder().encode(original))

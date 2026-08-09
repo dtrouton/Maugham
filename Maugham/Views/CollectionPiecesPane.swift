@@ -7,6 +7,11 @@ struct CollectionPiecesPane: View {
     @Bindable var store: ProjectStore
     @Binding var selectedSubject: BinderSubject?
     @Binding var renamingItemId: String?
+    /// Threaded to `BinderTreeSections`' Palette header — see its own doc
+    /// comment (stage 2b Task 5). Defaulted for the mounted-tree fixtures that
+    /// do not care about the wall's door.
+    var canOpenPaletteWall: Bool = true
+    var onOpenPaletteWall: () -> Void = {}
     /// The Research and Palette sections' own state (stage-2a Task 4). Owned
     /// here because their presentations hang off this pane, outside the `List`.
     @State private var treeState = BinderTreeSectionsState()
@@ -66,8 +71,13 @@ struct CollectionPiecesPane: View {
     /// when they are empty, and an untagged row writes `nil` through the
     /// binding — the same measurement this pane's empty state is shaped by.
     /// `BinderTreeSelection` refuses that `nil`; every tagged row is unaffected.
+    ///
+    /// **And it selects a SET** (stage-2b Task 3): the tree carries the batch
+    /// verbs the research panes 2b deletes used to hold. The window's one
+    /// subject is derived from that set — see `BinderTreeSelection`.
     private var pieceList: some View {
-        List(selection: BinderTreeSelection.binding($selectedSubject)) {
+        List(selection: BinderTreeSelection.binding(
+                subject: $selectedSubject, state: treeState, store: store)) {
             projectRow
             ForEach(store.manifest.structure) { piece in
                 pieceEntry(for: piece)
@@ -75,7 +85,9 @@ struct CollectionPiecesPane: View {
             // Below the pieces — furniture at the foot of the column, with the
             // project row still row zero.
             BinderTreeSections(store: store, state: treeState,
-                               selectedSubject: $selectedSubject)
+                               selectedSubject: $selectedSubject,
+                               canOpenPaletteWall: canOpenPaletteWall,
+                               onOpenPaletteWall: onOpenPaletteWall)
         }
         .listStyle(.sidebar)
         .overlay {
@@ -137,6 +149,15 @@ struct CollectionPiecesPane: View {
                             targetId: piece.id,
                             position: position)
                     })
+            },
+            // **And a third kind, from outside the app** (stage-2b Task 4): a
+            // file dropped on a loose piece is imported into that piece's own
+            // `research/`, which is the store verb whose only caller until now
+            // was the pane this milestone deletes. A referenced piece bounces.
+            onExternalDrop: { providers, position in
+                treeVerbs.routeExternalDrop(
+                    providers: providers, position: position,
+                    target: .pieceRow(piece.id))
             })
             // Inset under the project row above. Part of the row rather than a
             // wrapper around it, so the List tags a row that is already inset.

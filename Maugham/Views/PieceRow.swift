@@ -1,5 +1,6 @@
 import SwiftUI
 import MaughamCore
+import UniformTypeIdentifiers
 
 /// One row in the Collection's Pieces segment: kind icon, title, status dot.
 /// Supports inline rename when `renamingItemId == piece.id`.
@@ -14,6 +15,13 @@ struct PieceRow: View {
     /// receive a note as well as another piece, and a drop it cannot route must
     /// bounce rather than animate home and vanish. See `BinderRow.onDrop`.
     let onDrop: (_ draggedId: String, _ position: DropIntent.Position) -> Bool
+    /// A Finder file or a browser image drag landing on this piece (stage-2b
+    /// Task 4): in a Collection that is an import into `pieces/<slug>/research/`,
+    /// and a referenced piece — whose research lives in its own project —
+    /// refuses. Raw providers, because a browser drag carries a rendered bitmap
+    /// and no file URL (`DropClassification`). Returns whether it was accepted,
+    /// like `onDrop`.
+    let onExternalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position) -> Bool
 
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
@@ -78,6 +86,17 @@ struct PieceRow: View {
                     location.y < rowHeight / 2 ? .top : .bottom
                 // The caller's answer, never a literal — see `onDrop`.
                 return onDrop(droppedId, position)
+            }
+            // After the string destination, always: `.onDrop(of:)` claims the
+            // drag session on hover and would leave the reorder above it dead
+            // and silent (`TripwireGrepTests` censuses the ordering).
+            .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, location in
+                guard !providers.isEmpty else { return false }
+                let rowHeight: CGFloat = 22
+                let position: DropIntent.Position =
+                    location.y < rowHeight / 2 ? .top : .bottom
+                // The caller's answer, never a literal — see `onDrop`.
+                return onExternalDrop(providers, position)
             }
         }
     }

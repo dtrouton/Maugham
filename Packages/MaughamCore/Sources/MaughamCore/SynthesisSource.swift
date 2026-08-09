@@ -17,6 +17,15 @@ public enum SynthesisSource: String, Codable, Equatable, Hashable, Sendable {
     /// tell "the writer rewound" from "the writer undid a rewind".
     case undoRewind = "undo_rewind"
 
+    /// RULING-33: a reject that beat an accept across a merge, carrying the
+    /// inverse so the manuscript agrees with the status the log settled on.
+    /// Written only by `Document.repairRejectedButSplicedAnnotations` after an
+    /// op-log merge — nothing a writer does directly produces one, which is
+    /// why it is stamped: the paragraph moved and no gesture of theirs moved
+    /// it. Distinct from `.useCloudResolution` (the `.md` conflict path, which
+    /// is about bytes on disk rather than a lifecycle race).
+    case rejectConvergence = "reject_convergence"
+
     /// Cross-version forward-tolerance (ADR 0015): a synthesis source written
     /// by a newer build decodes to `.unknown` rather than throwing — which
     /// would quarantine the whole `Op` and silently drop the edits it carries.

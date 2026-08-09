@@ -1,0 +1,300 @@
+{
+  "module": "InboxEntry",
+  "loc": 223,
+  "claims": [
+    {
+      "id": "INBOX-1",
+      "scope": "InboxEntry.Kind.init(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "Decoding a `kind` string that is not \"text\"/\"image\"/\"audio\" yields `.text` instead of throwing. Evidenced for the literal \"sketch\"; the source is a single `Kind(rawValue:) ?? .text`, so it holds for any unrecognised string.",
+      "evidenced_by": "source + test:SchemaEvolutionToleranceTests.testUnknownInboxKindDegradesToText",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-2",
+      "scope": "InboxEntry.TranscriptionState.init(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "Decoding an unrecognised `transcription_state` yields `.failed` (evidenced for \"cloud_streaming\"), which is outside the transcription worker's eligible set, so such an entry is never re-transcribed.",
+      "evidenced_by": "source + test:SchemaEvolutionToleranceTests.testUnknownTranscriptionStateDegradesToFailedNotWorkerEligible",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-3",
+      "scope": "InboxEntry.Status.init(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "Decoding an unrecognised `status` yields `.new` (evidenced for \"snoozed\"), so the row surfaces in the triage pane rather than being filtered out.",
+      "evidenced_by": "source + test:SchemaEvolutionToleranceTests.testUnknownInboxStatusDegradesToNewStaysVisible",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-4",
+      "scope": "InboxEntry.init(from:)",
+      "kind": "PRECONDITION",
+      "statement": "There is no struct-level tolerant decoder: the six non-optional properties (`id`, `created_at`, `device_id`, `kind`, `transcription_state`, `status`) must all be present as keys or decoding throws. The ADR-0015 tolerance on this type is value-tolerance only (unknown enum STRINGS survive), not key-tolerance — unlike `TypographySettings`, whose missing keys fall back to defaults.",
+      "evidenced_by": "source (synthesised Decodable over non-optional stored properties); every test fixture supplies all six keys, so no test exercises the absence",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "INBOX-5",
+      "scope": "InboxEntry.init(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "Absent optional keys decode as nil rather than throwing. Directly evidenced for `transcription_error`, `palette_subject` and `sense`; the same mechanism covers `written_at`, `source_filename`, `inline_text`, `transcript`, `title` and `resolved_at`.",
+      "evidenced_by": "test:InboxEntryTranscriptionErrorTests.test_decodesMissingTranscriptionError_asNil + test:SchemaEvolutionToleranceTests.testLegacyInboxEntryLineWithoutPaletteFieldsDecodesToNils",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-6",
+      "scope": "InboxEntry (cross-surface wire format)",
+      "kind": "INVARIANT",
+      "statement": "A row written by the iOS `InboxCaptureWriter` decodes through the Mac's own reader (`JSONLAppendStore<InboxEntry>`) with `id`, `kind`, `inline_text`/`source_filename`, `title`, `status`, `device_id`, `palette_subject` and `sense` all intact — snake_case keys and ISO8601-with-fractional-seconds dates on both sides.",
+      "evidenced_by": "test:InboxCaptureWriterTests.test_writeText_roundTripsThroughMacReader, test_writeImage_writesAssetAndManifest, test_writeAudio_movesM4aAndSetsDraft, test_writeText_withPaletteAim_roundTripsThroughMacReader",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-7",
+      "scope": "InboxConvention.assetSubdir / assetURL",
+      "kind": "POSTCONDITION",
+      "statement": "`.image` maps to \"images\", `.audio` to \"audio\", and `.text` to nil (no asset directory, no asset URL). A phone-writer-shaped path build and a Mac-reader-shaped resolution of the same (kind, filename) produce the identical URL.",
+      "evidenced_by": "test:InboxConventionTests (all five cases)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-8",
+      "scope": "InboxManifest.inboxManifestURL",
+      "kind": "POSTCONDITION",
+      "statement": "Produces `<projectURL>/.maugham/inbox/inbox.<slug>.jsonl`; different device slugs produce different filenames in the same directory. The slug is typed (`DeviceSlug`), so a raw String cannot be passed.",
+      "evidenced_by": "test:InboxManifestTests (four cases)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-9",
+      "scope": "JSONLAppendStore.parse / InboxStore.refresh",
+      "kind": "POSTCONDITION",
+      "statement": "A manifest line that fails to decode is skipped and the remaining lines are returned. `InboxStore.refresh` calls `load()`, which discards the `ParseDiagnostics` that `loadDiagnosed()` would return, so a skipped inbox row is reported nowhere — not to the pane, not to the log.",
+      "evidenced_by": "source (JSONLAppendStore.parse's `guard let element = try? ... else { skipped.append(...); continue }`; InboxStore.refresh calls `store.load()`)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-10",
+      "scope": "InboxStore.refresh",
+      "kind": "POSTCONDITION",
+      "statement": "All rows from every `inbox*.jsonl` in `.maugham/inbox/` are collapsed per `id` keeping the row with the greatest `writtenAt` (falling back to `createdAt` when absent). The winner replaces the prior row WHOLE — there is no per-field merge.",
+      "evidenced_by": "source + test:InboxStoreLastWinsTests.test_inFileTransition_keepsNewestRow_notFirst, test_sameCreatedAt_acrossFiles_newerWrittenAtWins, test_statusTransition_acrossFiles_promotedWins_andIsHidden",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-11",
+      "scope": "InboxStore.entries / trashedEntries",
+      "kind": "POSTCONDITION",
+      "statement": "After collapse, only `.new` entries appear in `entries` (sorted by `createdAt`, newest first) and only `.trashed` in `trashedEntries`. A `.promoted` entry appears in neither, and `currentEntry(id:)` searches only those two lists — so no store API can transition an entry out of `.promoted`.",
+      "evidenced_by": "source + test:InboxStoreLastWinsTests.test_trashed_isHidden, test_trash_thenRestore_returnsToInbox, test_statusTransition_acrossFiles_promotedWins_andIsHidden",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-12",
+      "scope": "InboxStore.appendThrowing",
+      "kind": "INVARIANT",
+      "statement": "Every appended transition row is stamped `writtenAt = max(now, basisWrittenAt + 1ms)`, so it strictly out-ranks the row it supersedes even when that row carries a future-dated `writtenAt` from a device with clock skew. Holds across a chain of transitions.",
+      "evidenced_by": "source + test:InboxMonotonicWrittenAtTests (all three cases)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-13",
+      "scope": "InboxTranscriptionWorker.processEligible",
+      "kind": "PRECONDITION",
+      "statement": "Only entries with `kind == .audio` and `transcriptionState` in {`.none`, `.onDeviceDraft`} are transcribed; `.whisperFinal` and `.userEdited` are never passed to the transcriber. Because unknown states decode to `.failed` (INBOX-2), a future state is also ineligible. A nil transcriber makes the worker entirely inert.",
+      "evidenced_by": "source + test:InboxTranscriptionWorkerTests.test_skipsIneligible_whisperFinalAndUserEdited, test_nilTranscriber_isInert",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-14",
+      "scope": "InboxTranscriptionWorker.processEligible",
+      "kind": "POSTCONDITION",
+      "statement": "On a thrown transcription error OR a result that is empty after whitespace-trimming, the entry becomes `.failed`, the prior transcript (the phone's on-device draft) is written back unchanged, and a human-readable `transcriptionError` is recorded. A successful transcription clears any pre-existing error.",
+      "evidenced_by": "source + test:InboxTranscriptionWorkerTests.test_failure_marksFailed_keepsDraft, test_emptyResult_marksFailed_keepsDraft_setsError, test_thrownFailure_setsError, test_success_clearsPriorError",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-15",
+      "scope": "InboxTranscriptionWorker.processEligible",
+      "kind": "INVARIANT",
+      "statement": "After the transcribe await the worker re-refreshes and re-checks the entry's state, skipping the write unless it is still `.none`/`.onDeviceDraft` — so an edit landing mid-transcription (state `.userEdited`) is not clobbered, on both the success and the failure path. The source documents a remaining sub-millisecond window at the `updateTranscript` suspension point as accepted for v1.",
+      "evidenced_by": "source + test:InboxTranscriptionWorkerTests.test_userEditDuringTranscription_isNotClobbered, test_userEditDuringFailingTranscription_isNotClobbered",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-16",
+      "scope": "InboxStore.requestRetranscription",
+      "kind": "POSTCONDITION",
+      "statement": "Resets the entry to `.onDeviceDraft`, keeps the current transcript as the new draft, and clears `transcriptionError`; an unknown id is a silent no-op. The store applies NO state filter — a `.userEdited` entry passed here becomes worker-eligible and its hand-typed transcript will be overwritten by the next Whisper result. The only thing preventing that today is `InboxPane.swift:306`, which hides the affordance when `transcriptionState == .userEdited`.",
+      "evidenced_by": "source (InboxStore.swift:155-159, InboxPane.swift:306) + test:InboxRetranscribeTests.test_requestRetranscription_resetsToDraft_keepsTranscript_clearsError, test_requestRetranscription_unknownId_isNoOp",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-17",
+      "scope": "InboxStore.promoteToResearch",
+      "kind": "POSTCONDITION",
+      "statement": "A `.text` capture creates a research note and writes `inlineText` to it with `try?` — a failed body write is swallowed, and the entry is flipped `.promoted` regardless. There is no empty-content guard on this path: an empty/whitespace-only capture produces an empty note and a terminal `.promoted` row.",
+      "evidenced_by": "source (InboxStore.swift:233-239, 252); test:InboxPromoteTests.test_promoteText_createsResearchNote_andHidesEntry covers only the non-empty, write-succeeds case",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "INBOX-18",
+      "scope": "InboxStore.promoteToResearch",
+      "kind": "POSTCONDITION",
+      "statement": "An `.image`/`.audio` capture throws `assetMissing` (leaving the entry `.new`) when the asset file is absent or its `sourceFilename` escapes the kind's asset subdir; otherwise the asset is copied into `research/` and the inbox ORIGINAL IS REMOVED BEFORE the (non-throwing) `.promoted` flip. An audio entry's `transcript` is not read on this path and does not reach the created research item.",
+      "evidenced_by": "source (InboxStore.swift:240-252) + test:InboxPromoteTests.test_promoteAudio_copiesAssetIntoResearch_removesInboxOriginal_hidesEntry, test_promoteAudio_missingAsset_throws + test:SafeRelativePathSecurityTests.test_inboxPromote_escapingSourceFilename_failsLoudly_assetMissing",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-19",
+      "scope": "InboxStore.promoteToPaletteCard",
+      "kind": "PRECONDITION",
+      "statement": "A capture whose text is empty after flattening is refused with `nothingToPromote`; the card gains no note and the entry stays `.new`. Evidenced for a whitespace-only `.text` inline body and a whitespace-only `.audio` transcript.",
+      "evidenced_by": "source + test:InboxPalettePromoteRoundTripTests.test_emptyTextEntry_promoteToCard_throws_andDoesNotAppend + test:InboxPromoteTests.test_promoteAudio_toPaletteCard_emptyTranscript_throws_andEntryStaysNew",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-20",
+      "scope": "InboxStore.flattenToNote",
+      "kind": "POSTCONDITION",
+      "statement": "Capture text promoted into a palette card is collapsed to one line: each line trimmed, blank lines dropped, the rest joined with a single space. Paragraph structure does not survive the promote.",
+      "evidenced_by": "source (InboxStore.swift:448-453); no test uses a multi-line body, so only the single-line and whitespace-only cases are test-covered",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "INBOX-21",
+      "scope": "InboxStore.sendToCanvas",
+      "kind": "POSTCONDITION",
+      "statement": "Capture text sent to the canvas is trimmed at the ends only and NOT flattened; an empty result is refused with `nothingToPromote` and the entry stays `.new`. An image is copied into `canvas_assets/`, the `.promoted` flip is throwing, and the inbox original is removed only after that flip commits — so a failed flip leaves the original in place.",
+      "evidenced_by": "source + test:InboxToCanvasTests.test_anEmptyTextCaptureIsRefusedAndStaysInTheInbox, test_aVoiceCaptureWithNoTranscriptIsRefusedAndStaysInTheInbox, test_aFailedStatusFlipLeavesTheInboxOriginalInPlace",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-22",
+      "scope": "InboxStore.appendSensoryNote",
+      "kind": "INVARIANT",
+      "statement": "A palette promote skips the append when the card's LAST note is already identical (same sense + text), so a retry after a failed status flip converges on one note; an identical note appended after any other note still lands.",
+      "evidenced_by": "source + test:InboxPalettePromoteRoundTripTests.test_retryPromote_doesNotDoubleAppendIdenticalNote",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "INBOX-23",
+      "scope": "InboxStore.manifestURLs",
+      "kind": "POSTCONDITION",
+      "statement": "Every file in `.maugham/inbox/` named `inbox.jsonl` or matching prefix \"inbox.\" + suffix \".jsonl\" is read and merged. This is a looser filter than the op log's: an iCloud conflict twin (`inbox.mac 2.jsonl`) matches and is merged in rather than being ignored.",
+      "evidenced_by": "source (InboxStore.swift:84-92); tests seed arbitrary names such as `inbox.seed.jsonl` and are read, which exercises the looseness incidentally",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "INBOX-24",
+      "scope": "InboxEntry.id (ULID) / InboxStore.refresh",
+      "kind": "INVARIANT",
+      "statement": "Duplication is deduplicated by `id` only: the same row delivered twice (re-sync, a duplicated file) collapses to one entry, while two separate captures always get distinct ULIDs and both survive — there is no content-level duplicate detection.",
+      "evidenced_by": "source + test:InboxCaptureWriterTests.test_multipleCaptures_appendToSamePerDeviceFile (distinct ids) + test:InboxStoreLastWinsTests.test_inFileTransition_keepsNewestRow_notFirst (same id collapses)",
+      "confidence": "HIGH"
+    }
+  ],
+  "product_decisions": [
+    {
+      "id": "INBOX-D1",
+      "question": "When a synced capture row cannot be decoded, should the writer be told, or should it just not appear?",
+      "current_behaviour": "`JSONLAppendStore.parse` records the skipped line in `ParseDiagnostics`, but `InboxStore.refresh` calls `load()`, which throws the diagnostics away. The capture is absent from the pane and from the trash; its audio or photograph is still sitting in `.maugham/inbox/audio/` or `images/`, unreferenced.",
+      "writer_visible_consequence": "A thought spoken into the phone never turns up on the Mac. Nothing is red, no count is off — the writer has no reason to suspect anything existed. If they later clear the inbox folder, the recording goes too.",
+      "classification": "NOVEL",
+      "reasoning": "This sits exactly on the seam between the two rulings and neither settles it. RULING-2 says a file arriving from outside may have content dropped on read — and the manifest does arrive from outside, via sync. But the content did not originate outside: it was created through Maugham's own iPhone entry point, by a person, moments earlier. The pair's shape is 'strict where a person acts, tolerant where a file arrives', and this is a person acting whose act reaches the Mac as a file. Worth noting that the tolerant path is not tolerance by design here: the diagnostics exist and are used elsewhere (the op log), so the inbox is discarding a report it is already being handed. Note also INBOX-4: the ADR-0015 forward-tolerance on this type covers unknown enum VALUES but not absent KEYS, so a newer build that adds a required field produces exactly this silent drop.",
+      "proposed_ruling": "A capture made on one of Maugham's own devices must never disappear without a trace. If the Mac cannot read a capture that reached it, it must say so — a visible row saying 'a capture from <device> could not be read' — rather than showing nothing, so the writer knows there is something to recover."
+    },
+    {
+      "id": "INBOX-D2",
+      "question": "May a promote leave a capture marked resolved when the thing it promoted was empty?",
+      "current_behaviour": "The three promote destinations answer differently. Palette card and canvas both refuse an empty or whitespace-only capture with `nothingToPromote`, leave the entry `.new`, and change nothing at the destination. Promote-to-research has no such guard: it creates the research note, writes `inlineText ?? \"\"` (an empty file), and flips the entry `.promoted`.",
+      "writer_visible_consequence": "Same capture, same gesture, two outcomes depending on where they aimed it. Aimed at research, the writer gets a blank note and the capture leaves the inbox permanently (INBOX-11: nothing can bring a `.promoted` entry back). Aimed at a card, they get a clear refusal and can try again.",
+      "classification": "INCONSISTENT",
+      "reasoning": "One question — 'what happens when you promote a capture with nothing in it?' — answered two ways inside one type. The palette guard exists because of a specific defect (S5: a `\"- \"` note that the next reparse drops); the reasoning behind it applies just as well to a research note, but was never carried across. This also compounds INBOX-D3: a capture that decoded as an empty `.text` because its kind came from a newer build lands here.",
+      "proposed_ruling": "Promoting a capture that has nothing in it must be refused wherever it is aimed, and the capture must stay in the inbox. Marking a thought resolved by turning it into a blank artifact is worse than saying no."
+    },
+    {
+      "id": "INBOX-D3",
+      "question": "If a capture arrives in a form this build does not understand, should it be shown as something else, or shown as unreadable?",
+      "current_behaviour": "An unrecognised `kind` decodes to `.text` (INBOX-1). Such an entry then has `inlineText == nil` but a `sourceFilename` pointing at a real asset. The pane shows it as an empty text capture; promoting it to research writes an empty note and marks it `.promoted`, leaving the asset orphaned in `.maugham/inbox/`.",
+      "writer_visible_consequence": "A capture made on a newer phone build shows up on an older Mac as a blank text note. Promoting it produces an empty research note and takes the capture off the list for good, while the actual file stays behind where nothing points at it.",
+      "classification": "NOVEL",
+      "reasoning": "The choice of `.text` as the degrade target is documented as 'the benign default — inline-only, no asset lookup', and it is benign for DISPLAY. It is not benign for PROMOTE, because the promote path reads `inlineText` and finds nothing while the asset it should have carried is never consulted. The sibling degrades were each chosen against a specific consequence (`.failed` to avoid a re-transcription loop, `.new` to stay visible); this one was chosen against display and the promote consequence was not considered. Not reachable today — it needs a future build to add a kind — but the decision is already made in code.",
+      "proposed_ruling": "A capture this build does not know how to handle must be shown as exactly that — unreadable by this version, open it on a newer one — and must not be promotable. Presenting it as an empty note of a kind it is not lets the writer resolve away something they never saw."
+    },
+    {
+      "id": "INBOX-D4",
+      "question": "If a promote gets halfway and fails, is the capture still recoverable?",
+      "current_behaviour": "Two orderings coexist. Promote-to-research removes the inbox original BEFORE a NON-throwing status flip: if that write fails it is only logged, so the entry stays `.new` with its asset already gone, and every retry throws `assetMissing` forever. Promote-to-palette and send-to-canvas copy, then flip with a THROWING call, then remove the original — a failed flip leaves the original in place and a retry re-copies.",
+      "writer_visible_consequence": "A voice memo promoted to research during a bad write becomes a row that shows an error every time it is touched and can never be promoted again — the recording is gone and the entry cannot be resolved. The same failure on the palette or canvas route costs at most a duplicate file.",
+      "classification": "INCONSISTENT",
+      "reasoning": "`sendToCanvas`'s own doc comment names this divergence explicitly and says it deliberately chose the palette sibling's ordering because the research one strands the entry. So the module knows two orderings exist, knows which is unsafe, and left the unsafe one in place on the oldest of the three paths. The `updateStatus` vs `updateStatusThrowing` split (the S8 lesson) was applied to the two newer siblings and not back-fitted to the first.",
+      "proposed_ruling": "A promote that does not complete must leave the capture exactly as it found it, still in the inbox and still promotable. A half-finished promote may cost a duplicate file; it may never cost the only copy of a recording."
+    },
+    {
+      "id": "INBOX-D5",
+      "question": "What should happen when the same capture is promoted a second time?",
+      "current_behaviour": "Three answers. Promote-to-research has no idempotency guard and creates a second research item. Promote-to-palette skips the append when the card's last note is identical, converging on one note. Send-to-canvas has no guard and lands a second card, but surfaces the failed flip so the writer knows a retry happened. Reachable by: a failed status flip followed by a retry; two devices promoting the same capture before their manifests sync.",
+      "writer_visible_consequence": "A capture promoted twice gives them either two research notes, one palette note, or two cards on the canvas — with no way to tell from the inbox which happened, because the entry has left it either way.",
+      "classification": "INCONSISTENT",
+      "reasoning": "The palette dedup was written for exactly this case (its comment cites the retry signature) and neither sibling adopted it. The guard that IS there is also narrowly scoped — only against the immediately-preceding note — so it survives a retry but not a two-device race that interleaves another promote.",
+      "proposed_ruling": "Promoting the same capture twice must produce one artifact, not two, wherever it is aimed. A writer who retries after an error, or who reaches for the same capture from a second device, should end up with what they meant to make once."
+    },
+    {
+      "id": "INBOX-D6",
+      "question": "When a voice capture is promoted to research, do the words go with it, or only the recording?",
+      "current_behaviour": "Only the recording. The `.audio` branch copies the `.m4a` into `research/` and never reads `transcript`. The transcript — including one the writer typed by hand and which the app has flagged `.userEdited` precisely because they own it — stays only in the JSONL manifest, on a row now marked `.promoted` and therefore shown by no view in the app (INBOX-11).",
+      "writer_visible_consequence": "The writer dictates a thought, corrects Whisper's version of it by hand, promotes it to research, and gets a `.m4a` file. Their corrections are on disk in `.maugham/inbox/inbox.<slug>.jsonl` and nowhere they can see.",
+      "classification": "NOVEL",
+      "reasoning": "This is text the writer typed inside Maugham, in a field the app explicitly models as writer-owned, becoming unreachable from every surface as a side effect of a promote. Neither ruling addresses it: RULING-1 is about refusing content at entry, and nothing here was refused or transformed — it was simply not carried. Note the asymmetry with the two other destinations, both of which promote the TRANSCRIPT and deliberately keep the recording where it is.",
+      "proposed_ruling": "Promoting a voice capture must carry its transcript, not just its audio. Words the writer typed or corrected must end up somewhere they can find them, or the promote must say what it is leaving behind."
+    },
+    {
+      "id": "INBOX-D7",
+      "question": "May a promote silently reshape the writer's captured text?",
+      "current_behaviour": "Promoting into a palette card flattens the capture to a single line — lines trimmed, blank lines dropped, the rest joined with spaces. No warning, no preview, no refusal. Sending the same capture to the canvas trims the ends and preserves paragraphs; promoting it to research writes the body verbatim.",
+      "writer_visible_consequence": "A three-paragraph note dictated on the way home becomes one long run-on line on the card. The shape of the thought is gone and there is no undo back to the capture, which has left the inbox.",
+      "classification": "COVERED_BY_RULING_1",
+      "reasoning": "RULING-1's scope names inbox promote explicitly. The promote accepts content it then cannot render back as given, and the loss is neither refused at the point of entry nor shown. The comment in `flattenToNote` treats this as a format truth ('a SensoryNote is one line of prose'), which is a fair description of the destination but is precisely the case RULING-1 covers: the answer it points at is a visible refusal or a visible warning, not a silent collapse. The divergence from the canvas sibling is not itself the defect — different destinations may legitimately hold different shapes — but it does show the module already knows how to preserve paragraphs when it wants to.",
+      "proposed_ruling": null
+    },
+    {
+      "id": "INBOX-D8",
+      "question": "When two devices change the same capture at once, what happens to the change that loses?",
+      "current_behaviour": "Last-wins by `writtenAt` replaces the losing row WHOLE (INBOX-10) — there is no per-field merge and no conflict record. A field changed only on the losing row (a title typed on the phone, say) is discarded when a row stamped later arrives from the Mac. Unlike the op log, which keeps conflict backups, nothing is written down.",
+      "writer_visible_consequence": "The writer titles a capture on their phone; the Mac transcribes it a moment later; the title is gone and nothing says so.",
+      "classification": "NOVEL",
+      "reasoning": "Real but narrow: the Mac builds each transition row from the winning row it has already read, so loss needs a row that was stamped earlier and synced later. The `max(now, basis + 1ms)` stamping makes the Mac's transitions unbeatable by anything it has seen, which is exactly what stops the re-transcription loop — and is also what makes a late-arriving phone edit unrecoverable. Not test-covered; the tests exercise wins, not what the loser costs.",
+      "proposed_ruling": "When two devices change the same capture and one change has to lose, the losing change must be recoverable — kept somewhere, the way a conflicting manuscript edit is — rather than dropped on the floor."
+    },
+    {
+      "id": "INBOX-D9",
+      "question": "Is promoting a capture reversible?",
+      "current_behaviour": "No. Trash is reversible — `restore` flips `.trashed` back to `.new` and clears `resolvedAt`, and the asset never left `inbox/`. Promote is terminal: a `.promoted` entry is in neither `entries` nor `trashedEntries`, so `currentEntry(id:)` cannot find it and no store API can transition it. On the research and palette image paths the inbox original has also been deleted.",
+      "writer_visible_consequence": "A capture promoted to the wrong destination — the wrong palette card, shared research when they meant a piece folder — cannot be sent back to the inbox and re-aimed. They must delete the artifact by hand and the capture is off the list for good.",
+      "classification": "NOVEL",
+      "reasoning": "Two terminal statuses, one of them undoable and the other not, and the undoable one is the destructive-sounding one. The pane offers promote destinations that are easy to pick wrongly (a card list, a scope), which makes a mis-aim likely rather than exotic. Not covered by either ruling: nothing is refused and nothing is eaten — the content is in the artifact — but the writer's ability to reconsider is gone.",
+      "proposed_ruling": "A promote must be undoable for as long as the capture is recognisably the artifact it became: sending it back to the inbox, un-aimed, so the writer can pick again. Trash is reversible and promote is the easier mistake to make."
+    },
+    {
+      "id": "INBOX-D10",
+      "question": "When a transcription fails, should Maugham try again by itself?",
+      "current_behaviour": "No. `.failed` is outside the worker's eligible set, so nothing retries — deliberately, to avoid hammering a corrupt file. The entry sits in the pane with an orange state and the recorded error, and the writer must notice it and press 'Transcribe Again'. The recording and the phone's on-device draft are both preserved (INBOX-14).",
+      "writer_visible_consequence": "A voice capture that failed on a transient condition — a model not downloaded, a busy machine — stays untranscribed indefinitely, showing the phone's rough draft, until the writer spots the orange row and asks again.",
+      "classification": "NOVEL",
+      "reasoning": "The words are safe here, so this is not a loss question — it is a question about whether the writer has to babysit the queue. Two reasonable positions: never auto-retry (the current one, protecting against a loop on a genuinely bad file) or retry once on the next launch or next model change, which distinguishes a transient failure from a permanent one. The code's own reason for the current answer covers only the permanent case.",
+      "proposed_ruling": "A capture that failed to transcribe for a passing reason should be tried once more on its own — at the next launch, or when the transcription model changes — while one that keeps failing must stop and wait for the writer. The writer should not have to notice a failure to get the obvious retry."
+    },
+    {
+      "id": "INBOX-D11",
+      "question": "Should 'Transcribe Again' be available once the writer has corrected the transcript by hand?",
+      "current_behaviour": "The store's `requestRetranscription` applies no state filter: given a `.userEdited` entry it resets to `.onDeviceDraft`, making it worker-eligible, and the next Whisper result replaces the writer's typed text. The only thing preventing this is the pane, which hides the affordance when the state is `.userEdited` (`InboxPane.swift:306`).",
+      "writer_visible_consequence": "Nothing today, because the button is not shown. But the protection is a view condition rather than a rule — a second caller of the store API (the MCP surface, a keyboard command, a future pane) would overwrite text the writer typed, with no confirmation and no way back.",
+      "classification": "NOVEL",
+      "reasoning": "The worker itself is careful here — INBOX-15 shows it re-checks state after the await specifically so a `.userEdited` row is never clobbered — and then the re-arm path routes around that care by resetting the state first. Two reasonable answers: refuse it at the store (an edited transcript is the writer's and Whisper does not get another go) or offer it with a confirmation that says what will be replaced. What is not reasonable is that the answer lives in a view.",
+      "proposed_ruling": "Once the writer has edited a transcript, that text is theirs: re-transcribing over it must either be refused or require them to confirm it, and the rule must hold no matter which part of the app asks."
+    }
+  ],
+  "notes": "LOC 223 counts the four module files (InboxEntry 151, InboxConvention 36, InboxManifest 24, InboxFileKind 12). Claims and decisions that concern the entry's lifecycle are sourced from its consumers — InboxStore (486), InboxTranscriptionWorker (109), InboxCaptureWriter (phone) and MCP InboxTools — since the type itself is a Codable record and every behavioural consequence of its design lands there.\n\nDeliberately NOT raised as product decisions: `entries` sorts by `createdAt` while `trashedEntries` sorts by `writtenAt` (an ordering wrinkle, not a decision); the manifest-URL glob's looseness (INBOX-23) reads iCloud conflict twins where the op log refuses them, which for an append-only last-wins stream is harmless and arguably right; the `.unknown` re-encode lossiness pinned in SchemaEvolutionToleranceTests does not apply to this type (its three enums have no `.unknown` case — they degrade to a real case and re-encode as that case, which means a round-trip through an older Mac REWRITES a newer build's kind/status as \"text\"/\"new\" on that Mac's own manifest rows; the collapse is per-row so the original row survives elsewhere, but it is the same class of loss and has no test).\n\nOne cross-cutting observation: the module's newer paths (canvas, palette) are consistently more careful than its oldest one (research) on all four of empty-content refusal, failure ordering, idempotency and transcript carry-over — D2, D4, D5 and D6 are the same lesson learned three times and back-fitted zero times.\n\nThe MCP `promote_inbox_entry` tool resolves its entry from `inbox.entries`, which is `.new`-only, so a straightforward double-call via MCP fails with a not-found error rather than double-promoting. D5's reachability is via a failed status flip plus retry, or two devices, not via repeated MCP calls."
+}

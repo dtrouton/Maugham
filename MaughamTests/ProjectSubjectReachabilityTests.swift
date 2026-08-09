@@ -25,8 +25,8 @@ import MaughamCore
 ///   mounts. It is the single rule `binderColumn` itself switches on, so a third
 ///   shell is a new case and this file stops compiling until it is enumerated
 ///   here too.
-/// - `BinderSegment.documentHome(for:)` — where that shell's manuscript content
-///   lives. For a screenplay that is `.scenes`, which is the whole reason the
+/// - `TreePane(for:)` — which of the three trees that shell puts up. For a
+///   screenplay that is the slugline navigator, which is the whole reason the
 ///   defect existed.
 ///
 /// **Mounted, not reasoned about**, for the reason `BinderProjectRowTests`
@@ -71,8 +71,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
             let (window, probe) = try await host(store: store, script: nil)
             let table = try XCTUnwrap(
                 firstTableView(in: window),
-                "\(type.rawValue): the binder surface at its document home "
-                + "(\(BinderSegment.documentHome(for: type).rawValue)) never put a "
+                "\(type.rawValue): its tree "
+                + "(\(TreePane(for: type).rawValue)) never put a "
                 + "List in the hierarchy — there is no row to select, so the "
                 + "project is unreachable")
 
@@ -80,8 +80,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 
             XCTAssertEqual(
                 probe.subject, .project,
-                "\(type.rawValue): selecting the head row of the surface at "
-                + "\(BinderSegment.documentHome(for: type).rawValue) must produce "
+                "\(type.rawValue): selecting the head row of its "
+                + "\(TreePane(for: type).rawValue) tree must produce "
                 + "BinderSubject.project — nothing else constructs it, and "
                 + "without it project-scope Intent is unreachable in this "
                 + "project type")
@@ -108,21 +108,22 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 
     // MARK: - Plan's tree (slice 2)
 
-    /// **The same census, one segment over.** Plan's `.tree` shows the project's
-    /// own manuscript tree with the canvas still in the centre (spec §3.1), and
-    /// "the tree" is three views — so the question this file was written to ask
-    /// has to be asked of the new segment too, or `.tree` is exactly where the
-    /// slice-1 Critical returns.
+    /// **The same census, in the persona whose centre column is the board.**
+    /// Plan shows the project's own manuscript tree with the canvas still in
+    /// the middle (spec §3.1), and "the tree" is three views — so the question
+    /// this file was written to ask has to be asked in Plan too, or Plan is
+    /// exactly where the slice-1 Critical returns. It was asked of a `.tree`
+    /// SEGMENT until shell-finish stage 2b Task 7; the persona is what carries
+    /// the difference now, and the tree it mounts is the same one Author gets.
     func test_everyProjectTypeCanNameItsOwnProjectFromPlansTree() async throws {
         for type in ProjectType.allCases {
             let store = try await project(of: type)
             let (window, probe) = try await host(store: store, script: nil,
-                                                 segment: .tree, persona: .plan)
+                                                 persona: .plan)
             let table = try XCTUnwrap(
                 firstTableView(in: window),
-                "\(type.rawValue): Plan's tree segment put no List in the "
-                + "hierarchy — the writer opens Plan, clicks Structure, and gets "
-                + "a blank column")
+                "\(type.rawValue): Plan's left column put no List in the "
+                + "hierarchy — the writer opens Plan and gets a blank column")
 
             await select(row: 0, in: table, until: { probe.subject == .project })
 
@@ -135,7 +136,7 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 
     /// **The discriminator, and the reason the test above is not enough on its
     /// own.** Every one of the three trees carries a project row at row 0, so a
-    /// `.tree` arm that mounted `BinderView` for a screenplay would pass it —
+    /// left column that mounted `BinderView` for a screenplay would pass it —
     /// which is the 2026-07-02 bug's exact shape (the writer lands in a one-row
     /// `BinderView` instead of the navigator).
     ///
@@ -155,14 +156,14 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         XCTAssertEqual(script?.sceneSummaries().count, 2, "fixture precondition")
 
         let (window, probe) = try await host(store: store, script: script,
-                                             segment: .tree, persona: .plan)
+                                             persona: .plan)
         let table = try XCTUnwrap(firstTableView(in: window))
 
         XCTAssertEqual(table.numberOfRows, 4 + emptySectionRows,
                        "project + script + two sluglines, then the sections' "
                        + "furniture. A `BinderView` here "
                        + "would show two rows and no scenes at all — the "
-                       + "2026-07-02 one-row-binder defect, on the new segment")
+                       + "2026-07-02 one-row-binder defect, in Plan")
 
         await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project)
@@ -185,7 +186,7 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         XCTAssertEqual(script?.sceneSummaries().count, 2, "fixture precondition")
 
         let (window, _) = try await host(store: store, script: nil,
-                                         segment: .tree, persona: .plan)
+                                         persona: .plan)
         let table = try XCTUnwrap(firstTableView(in: window))
 
         XCTAssertEqual(table.numberOfRows, 2 + emptySectionRows,
@@ -201,9 +202,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     /// `ProjectWindow` and a test cannot ask a window for it.
     ///
     /// The chain was: `lastParsedScript` ← `.maughamScriptDidUpdate` ←
-    /// `EditorCoordinator` ← `EditorHost` ← `existingEditorSwitch`, and slice 2's
-    /// canvas hoist short-circuits above that switch on every segment that
-    /// centres the canvas — which now includes `.tree`. So in Plan the window
+    /// `EditorCoordinator` ← `EditorHost`, and the canvas takes the centre
+    /// column in Plan before the editor is ever built. So in Plan the window
     /// could never produce a parse at all, and the fixture above was green only
     /// because it injected one.
     ///
@@ -219,9 +219,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 
         XCTAssertTrue(
             ScreenplayScriptSource.needsDerivation(
-                binderSegment: .tree, projectType: .screenplay, existing: nil),
-            "Plan's tree with no parse yet is exactly the state that has to "
-            + "derive one")
+                persona: .plan, projectType: .screenplay, existing: nil),
+            "Plan with no parse yet is exactly the state that has to derive one")
         let derived = try XCTUnwrap(
             ScreenplayScriptSource.derive(store: store),
             "the window has no way to show a screenplay's scenes in Plan")
@@ -231,16 +230,16 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
             "Plan's Structure tab must list the script's real sluglines")
     }
 
-    /// A Collection's tree at `.tree` is its Pieces pane — asserted by the pane
-    /// that is mounted rather than by the routing table, because
-    /// `CollectionBinderPaneToggle` is a second toggle with a `.tree` arm of its
-    /// own and two toggles answering one question their own way is how the
+    /// A Collection's tree is its Pieces pane — asserted by the pane that is
+    /// mounted rather than by the routing table, because
+    /// `CollectionBinderPaneToggle` is a second toggle deriving the same answer
+    /// and two toggles answering one question their own way is how the
     /// 2026-07-02 bug shipped.
     func test_aCollectionsTreeIsItsPiecesPane() async throws {
         let store = try await project(of: .collection)
         _ = try await store.addLoosePiece(title: "Piece One", mode: .prose)
         let (window, probe) = try await host(store: store, script: nil,
-                                             segment: .tree, persona: .plan)
+                                             persona: .plan)
         let table = try XCTUnwrap(firstTableView(in: window))
         XCTAssertEqual(table.numberOfRows, 2 + emptySectionRows,
                        "the project row, the one piece, and the sections' furniture")
@@ -251,67 +250,117 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 
     // MARK: - The way out of a research subject (stage-2a final review, C)
 
-    /// **Every segment that lets a research subject stand must also be able to
-    /// clear it.**
+    /// **Every window state that lets a research subject stand must also be able
+    /// to clear it.**
     ///
-    /// The missing class of test, and the one the Critical fell through. Task 5
-    /// asked *which column does a research subject take* and answered it
-    /// exhaustively; nobody asked *and how does the writer get back*. `.canvas`
-    /// and `.trash` took a column apiece from a subject their left panes cannot
-    /// write — `ResearchView` writes `selectedResearchId`, `TrashView` writes
-    /// nothing — so in Plan's Canvas segment the region, scrap, line and item
-    /// inspectors were replaced with no control anywhere in the window to give
-    /// them back, and the subject persists through `UIState` into the next
-    /// launch.
+    /// The missing class of test, and the one the Critical fell through. Stage
+    /// 2a's Task 5 asked *which column does a research subject take* and
+    /// answered it exhaustively; nobody asked *and how does the writer get
+    /// back*. Two of Plan's four left-hand tabs took a column apiece from a
+    /// subject their panes could not write — the old research pane wrote its own
+    /// private selection, `TrashView` wrote nothing — so the region, scrap, line
+    /// and item inspectors were replaced with no control anywhere in the window
+    /// to give them back, and the subject persists through `UIState` into the
+    /// next launch.
     ///
-    /// **Driven through the real binder shell**, at each segment, with the
-    /// subject seeded the way a persona or segment switch delivers it: if
-    /// selecting the head row of the left column cannot move the subject off the
-    /// research item, the segment is a trap. Row 0 is the project row in every
-    /// tree that has one, which is exactly the population this loop is about.
-    func test_everySegmentThatLetsAResearchSubjectStandCanAlsoClearIt() async throws {
+    /// **Driven through the real binder shell**, in each persona, with the
+    /// subject seeded the way a persona switch delivers it: if selecting the
+    /// head row of the left column cannot move the subject off the research
+    /// item, the state is a trap. Row 0 is the project row in every tree, which
+    /// is exactly the population this loop is about.
+    ///
+    /// **The segment dimension left the loop in stage 2b Task 7**, and the
+    /// answer moved with it rather than shrinking: the two panes that could not
+    /// write the subject are gone, every persona's left column is the tree, and
+    /// the placement no longer refuses anybody. The two helpers that paired a
+    /// segment with the persona and project type it was a real state in
+    /// (`persona(hosting:)`, `projectType(hosting:)`) went with the enum — they
+    /// existed so a mount could not model a state no writer could reach, and
+    /// there is no unreachable pairing left to guard against.
+    func test_everyWindowStateThatLetsAResearchSubjectStandCanAlsoClearIt() async throws {
         let stuck = BinderSubject.research("r1")
-        for segment in BinderSegment.allCases {
+        var held = 0
+        for persona in Persona.allCases {
             let placement = ProjectWindow.researchSubjectPlacement(
-                binderSegment: segment, subject: stuck)
-            guard placement != .segmentStands else { continue }
+                persona: persona, subject: stuck)
+            guard placement != .nothingMoves else { continue }
+            held += 1
 
-            let type = Self.projectType(hosting: segment)
-            let store = try await project(of: type)
+            let store = try await project(of: .novel)
             let (window, probe) = try await host(
-                store: store, script: nil, segment: segment,
-                persona: segment.centresTheCanvas ? .plan : .author,
-                subject: stuck)
+                store: store, script: nil, persona: persona, subject: stuck)
             let table = try XCTUnwrap(
                 firstTableView(in: window),
-                "\(segment) lets a research subject take a column "
+                "\(persona) lets a research subject take a column "
                 + "(\(placement)) and its left pane puts no List in the "
                 + "hierarchy at all — there is no row to select, so nothing can "
-                + "clear the subject and the segment's own columns never come "
+                + "clear the subject and the window's own columns never come "
                 + "back")
 
             await select(row: 0, in: table, until: { probe.subject != stuck })
 
             XCTAssertNotEqual(
                 probe.subject, stuck,
-                "\(segment): a research subject takes a column here "
+                "\(persona): a research subject takes a column here "
                 + "(\(placement)), so some control in a visible column has to be "
                 + "able to write the subject away again. The head row of the "
                 + "left column wrote nothing — this is the trap: it survives a "
-                + "relaunch, and in Plan `binderHome` is `.canvas`, so the "
-                + "writer reopens into it")
+                + "relaunch, because the subject is persisted in `UIState`")
         }
+        XCTAssertEqual(held, Persona.allCases.count,
+                       "the control: every persona holds a research subject in "
+                       + "one column or the other since Task 7, so a `continue` "
+                       + "here would mean the placement started refusing "
+                       + "somebody again and this loop went quiet about it")
     }
 
-    /// The project type each segment is a real state in — a screenplay for
-    /// `.scenes` (no other type's picker offers it) and a novel for the rest.
-    /// Named rather than defaulted so a segment that is only real in a
-    /// Collection has somewhere to say so.
-    private static func projectType(hosting segment: BinderSegment) -> ProjectType {
-        switch segment {
-        case .scenes: return .screenplay
-        case .manuscript, .tree, .research, .palette, .canvas, .trash, .find:
-            return .novel
+    /// **And the surviving form of the same question.**
+    ///
+    /// Since Task 7 the tree is the whole left column in every persona, so
+    /// "can the writer point the window somewhere else again" is answered yes by
+    /// construction — with ONE exception, and it is the reason the question
+    /// survives at all: the find overlay REPLACES the column
+    /// (`BinderPaneToggle.body`), so while it is up there is no row to click.
+    ///
+    /// **That is not a trap, and this is what says so rather than assuming it.**
+    /// The 2a Critical was a trap because nothing in the window could clear the
+    /// subject AND the state persisted — the binder segment was written to
+    /// `UIState` on every change and Plan landed on one whose pane could not
+    /// write the subject, so a relaunch reopened into it. The overlay has
+    /// neither property: `treeFindActive` is window `@State` that no `UIState`
+    /// carries, and `close()` puts the tree back. So the research subject may
+    /// stand while find is open, the way out is Escape rather than a row, and
+    /// the tree that comes back can clear it.
+    func test_theFindOverlayIsNotATrapBecauseTheTreeComesBack() async throws {
+        let stuck = BinderSubject.research("r1")
+        for persona in Persona.allCases {
+            let placement = ProjectWindow.researchSubjectPlacement(
+                persona: persona, subject: stuck)
+            let store = try await project(of: .novel)
+
+            // With the overlay up there is no tree at all — which is the
+            // premise, not the finding.
+            let (covered, _) = try await host(
+                store: store, script: nil, persona: persona,
+                subject: stuck, findActive: true)
+            XCTAssertNil(firstTableView(in: covered),
+                         "\(persona): premise — the overlay replaces the "
+                         + "column, so no tree row is available to clear a "
+                         + "subject with")
+
+            // And the way out restores it. `applyCloseFind` is the production
+            // path both exits take (the ✕ and `.onExitCommand`).
+            let (window, probe) = try await host(
+                store: store, script: nil, persona: persona,
+                subject: stuck)
+            guard placement != .nothingMoves else { continue }
+            let table = try XCTUnwrap(
+                firstTableView(in: window),
+                "\(persona): with find closed the tree is back, and it is the "
+                + "control that can write the subject away")
+            await select(row: 0, in: table, until: { probe.subject != stuck })
+            XCTAssertNotEqual(probe.subject, stuck,
+                              "\(persona): the restored tree cleared it")
         }
     }
 
@@ -336,7 +385,7 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         let store = try await project(of: .screenplay)
         let script = try await productionScript(for: store, text: Self.twoScenes)
         let (window, _) = try await host(store: store, script: script,
-                                         segment: .tree, persona: .plan)
+                                         persona: .plan)
         let table = try XCTUnwrap(firstTableView(in: window))
         XCTAssertEqual(table.numberOfRows, 4 + emptySectionRows,
                        "precondition: project + script + 2, then the furniture")
@@ -369,18 +418,20 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 
     /// **Where that click takes the window**, as a value. Plan does not show
     /// manuscript documents, so the ruling applies and the writer moves to
-    /// Author — landing on `.scenes`, a screenplay's document home, never on
-    /// `.manuscript`, which no persona offers a screenplay at all.
-    func test_thatNavigationTakesAScreenplayWriterFromPlanToAuthorsScenes() {
+    /// Author — where the same slugline navigator is on the left and the script
+    /// is in the centre.
+    ///
+    /// **It used to assert the landing segment too** (`.scenes`, a screenplay's
+    /// document home, never `.manuscript`, which was the 2026-07-02 defect). A
+    /// destination carries no binder position since stage 2b Task 7, and which
+    /// tree a screenplay puts up is `TreePaneTests`'.
+    func test_thatNavigationTakesAScreenplayWriterFromPlanToAuthor() {
         let destination = ManuscriptNavigation.destination(
-            from: .plan, currentBinderSegment: .tree,
-            currentDetailSegment: .inspector, projectType: .screenplay,
-            memory: .empty)
+            from: .plan, currentDetailSegment: .inspector, memory: .empty)
         XCTAssertEqual(destination.persona, .author)
-        XCTAssertEqual(destination.binderSegment, .scenes)
         XCTAssertTrue(destination.movesPersona,
                       "the departing Plan position has to be recorded, or ⌘1 "
-                      + "does not come back to the Structure tab")
+                      + "does not come back to the pane the writer was on")
     }
 
     // MARK: - Fixtures
@@ -441,19 +492,19 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 
     // MARK: - Hosting and driving
 
-    /// Mounts the binder shell production mounts for this store's type, at the
-    /// segment production lands it on. The two `switch`es below are the whole
-    /// point of the file: they are exhaustive, so a new shell or a new project
-    /// type cannot be added without answering this question for it.
+    /// Mounts the binder shell production mounts for this store's type. The
+    /// `switch` in the probe below is the whole point of the file: it is
+    /// exhaustive, so a new shell cannot be added without answering this
+    /// question for it.
     /// - Parameter subject: the window's subject before the first render, for
-    ///   the census that asks whether a segment can CLEAR one. Seeded rather
-    ///   than clicked, because the whole question is about a subject no click in
-    ///   that segment could have produced.
+    ///   the census that asks whether a window state can CLEAR one. Seeded
+    ///   rather than clicked, because the whole question is about a subject no
+    ///   click in that state could have produced.
     private func host(store: ProjectStore,
                       script: FountainScript?,
-                      segment: BinderSegment? = nil,
                       persona: Persona = .author,
-                      subject: BinderSubject? = nil)
+                      subject: BinderSubject? = nil,
+                      findActive: Bool = false)
     async throws -> (NSWindow, BinderSubjectProbe) {
         let probe = BinderSubjectProbe()
         probe.subject = subject
@@ -461,7 +512,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         let hosting = NSHostingView(
             rootView: AnyView(
                 BinderShellProbeView(store: store, probe: probe, script: script,
-                                     segment: segment, persona: persona)))
+                                     persona: persona,
+                                     findActive: findActive)))
         hosting.frame = frame
         let window = NSWindow(contentRect: frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -529,33 +581,28 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 }
 
 /// The left column as `ProjectWindow.binderColumn` builds it — the same shell
-/// rule, the same document-home rule, with a handle on the subject it writes.
+/// rule, the same tree rule, with a handle on the subject it writes.
 @MainActor
 private struct BinderShellProbeView: View {
     let store: ProjectStore
     let probe: BinderSubjectProbe
     let script: FountainScript?
     let persona: Persona
-    /// Seeded in `init`, not in `.onAppear`: a screenplay mounted on
-    /// `.manuscript` for one frame puts `BinderView`'s table in the hierarchy,
-    /// and a test that waits for "a table" would latch onto the wrong surface
-    /// and pass while the Scenes navigator had no row at all.
-    @State private var segment: BinderSegment
-    @State private var researchId: String?
-    @State private var paletteCardId: String?
-    @State private var findActive = false
+    @State private var treeFindActive: Bool
     @State private var renamingItemId: String?
 
-    /// - Parameter segment: which binder segment to mount. Defaults to the
-    ///   type's document home, which is where Author lands; slice 2's `.tree`
-    ///   tests pass `.tree` and `persona: .plan`.
+    /// - Parameter findActive: mount with the find overlay already up. Seeded
+    ///   in `init` rather than in `.onAppear`: a frame with the tree in the
+    ///   hierarchy before the overlay covers it is a frame a table query would
+    ///   latch onto, and a test asserting the tree's ABSENCE would pass against
+    ///   the surface it was asserting the absence of.
     init(store: ProjectStore, probe: BinderSubjectProbe, script: FountainScript?,
-         segment: BinderSegment? = nil, persona: Persona = .author) {
+         persona: Persona = .author, findActive: Bool = false) {
         self.store = store
         self.probe = probe
         self.script = script
         self.persona = persona
-        _segment = State(initialValue: segment ?? .documentHome(for: store.manifest.type))
+        _treeFindActive = State(initialValue: findActive)
     }
 
     private var subject: Binding<BinderSubject?> {
@@ -568,26 +615,17 @@ private struct BinderShellProbeView: View {
             case .standard:
                 BinderPaneToggle(
                     store: store,
-                    segment: $segment,
                     selectedSubject: subject,
-                    selectedResearchId: $researchId,
-                    selectedPaletteCardId: $paletteCardId,
                     projectType: store.manifest.type,
                     lastParsedScript: script,
-                    findActive: $findActive,
+                    treeFindActive: $treeFindActive,
                     persona: persona)
             case .collection:
                 CollectionBinderPaneToggle(
                     store: store,
-                    segment: $segment,
                     selectedSubject: subject,
-                    selectedResearchId: $researchId,
-                    selectedPaletteCardId: $paletteCardId,
-                    findActive: $findActive,
+                    treeFindActive: $treeFindActive,
                     renamingItemId: $renamingItemId,
-                    activePiece: nil,
-                    onAddSharedNote: {},
-                    onAddPieceNote: {},
                     persona: persona)
             }
         }

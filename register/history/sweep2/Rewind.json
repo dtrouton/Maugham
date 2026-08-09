@@ -1,0 +1,194 @@
+{
+  "module": "Rewind / time travel",
+  "loc": 667,
+  "product_decisions": [
+    {
+      "id": "REW-D1",
+      "question": "When a rewind auto-archives open annotations because their paragraphs disappear, must the writer be told — before confirming, or after?",
+      "current_behaviour": "`restoreToOp` flags a `SweepReason.rewind(removed:)` sweep and `sweepOrphanedAnnotations` appends a `.claudeArchive` op per open annotation on a removed paragraph. It reports them in `RewindRestoreResult.archivedAnnotationOpIds`, and the type's own doc comment says the modal can render \"Restored. 3 annotations auto-archived.\" No caller does. `ProjectWindow.swift:1726` is `_ = try? await documentStore.document(forDocId: docId)?.restoreToOpUndoable(...)` — the result is discarded. The pre-confirm `impactSummary` (RewindWindow.swift:399) reports words removed, paragraphs removed and accepted suggestions reopened, but says nothing about annotations that will be archived, nor about pane tasks that will be excluded.",
+      "writer_visible_consequence": "The writer confirms \"Restoring would undo 240 words / 3 paragraphs\", presses Restore, and silently loses four open comments from the annotations pane. No toast, no count, no entry they would think to look for. The one collateral effect that IS named (reopened suggestions) makes the omission read as \"nothing else changed\".",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "HistoryPane header \"Rewind…\" button (HistoryPane.swift:244) posts `.maughamOpenRewind` → `RewindModifier` presents `RewindWindow` → writer scrubs, presses \"Restore here…\" → confirm sheet → `onComplete(.restoreHere(opId:))` → ProjectWindow.swift:1724-1728 → `Document.restoreToOpUndoable` → `restoreToOp` → `flagSweep(.rewind)` → `flushBurstNow` → `sweepOrphanedAnnotations`"
+      },
+      "classification": "SETTLED_BY_ROOT_ONLY",
+      "ruling": "RULING-20",
+      "clause_that_does_the_work": "honour the writer's intent; where intent is unclear default SAFE",
+      "what_a_sub_ruling_would_need_to_say": "RULING-13 does not reach: its scope is 'when a paragraph's identity is not recovered', and in a rewind the identity is not lost — the paragraph genuinely did not exist at the target moment. RULING-4's report clause is scoped to DERIVED material, and an annotation body is authored, not derived. A sub-ruling would have to say: 'a writer-initiated operation that changes anything besides the manuscript text — annotation status, task visibility, suggestion status — must state the full set of those changes before the writer commits, and confirm what it did after; naming one class of collateral change and omitting another is worse than naming none.'",
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "Finding a toast, banner or pane badge anywhere in the restore path that surfaces `archivedAnnotationOpIds`. I searched every caller of `restoreToOpUndoable`/`restoreToOp` outside tests; the only production caller discards the result with `_ =`."
+    },
+    {
+      "id": "REW-D2",
+      "question": "When the writer rewinds forward again — past the point where a paragraph was created — does the material the earlier rewind took away come back?",
+      "current_behaviour": "Two different answers for two kinds of material. TASKS: `TaskDeriver` (TaskDeriver.swift:92-115) keys a derivation window on the LAST `.rewind`-stamped `.checkpointRestore`, so a second, later-targeted rewind moves the window and the previously-excluded task ops fold back in — tasks return. ANNOTATIONS: the sweep appended a real `.claudeArchive` op, and `restoreToOp` only ever archives on removal (`removedIds = priorIds.subtracting(newIds)`), never reopens on re-appearance. A forward rewind computes an empty `removedIds`, flags no sweep, and touches nothing — the comments stay archived. Only `restoreToOpUndoable`'s ⌘Z closure reopens them, and only for the rewind it personally wrapped.",
+      "writer_visible_consequence": "Writer rewinds too far, notices, rewinds forward to where they meant to land. The paragraphs are back, the to-do items are back, the comments on those paragraphs are not — and there is no message saying so. They read the restored chapter believing Claude never commented on it.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Two consecutive Restores from the rewind modal (same path as REW-D1), the second targeting a later op. `RewindFlowTests.test_rewindThenScrubBeforePriorRewind_walksFullHistory` exercises exactly this sequence for text and asserts only the sequence count."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-8",
+      "clause_that_does_the_work": "where the SAME writer question is answered in more than one place, it has ONE answer",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "The discipline-2 objection: if the product owner rules that a task window is pure DERIVATION (nothing was recorded, so nothing needs undoing) while an archive is an author-visible RECORDED DECISION that only an author may reverse, then these are two different questions that merely look alike, RULING-8 does not reach, and the asymmetry is correct. That ruling would have to be stated, because nothing in the current set makes the distinction — and it would still leave REW-D1 (the writer is not told either way)."
+    },
+    {
+      "id": "REW-D3",
+      "question": "After the moment of the rewind has passed, can the writer get a rewind-archived annotation back?",
+      "current_behaviour": "`Document.reopenAnnotation(id:)` exists and handles `.archived` (Document+Annotations.swift:620-656), but it has no writer-facing surface. Grepping every view and every MCP tool: the only production callers are undo closures (`Document+RewindUndo.swift:173`, `Document+Tasks.swift:723`, and the three annotation-lifecycle undos). AnnotationsPane can SHOW archived annotations (the \"show all statuses\" toggle, AnnotationsPane.swift:72) but offers no Reopen action on them, and the MCP catalogue has no annotation-lifecycle write tool. So the only route back is ⌘Z on the rewind itself — and `restoreToOpUndoable` calls `um.removeAllActions()` before registering, so that single action is the whole stack.",
+      "writer_visible_consequence": "The writer can see the archived comment sitting there, greyed, and has no way to act on it. If they typed one character after the rewind, or closed the window, the ⌘Z is gone and the annotation is permanently archived — visible but dead.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Same restore path as REW-D1, then any keystroke in the editor (which registers a native typing undo above the rewind action) or ⌘W. The archived annotation is then reachable only for reading, via AnnotationsPane's show-all-statuses toggle."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "Anything Maugham closes on the writer's behalf — an annotation it archived because a paragraph vanished, a suggestion it reopened, a note it retired — the writer can reopen at any later time from the surface that shows it. A single undo immediately afterwards is not a recovery route; it expires.",
+      "confidence": "HIGH",
+      "what_would_falsify_it": "A Reopen affordance I missed — a context menu, a swipe action, or a keyboard command on archived annotation rows. I grepped `reopenAnnotation`, `annotationReopen` and the string \"Reopen\" across Maugham/Views and Maugham/MCP; the only hits in views are HistoryPane's read-only op-kind labels. It would also be falsified if the product owner rules that an archived annotation is correctly terminal and the writer is meant to ask Claude for a fresh one."
+    },
+    {
+      "id": "REW-D4",
+      "question": "If a restore fails, or cannot run at all, does the writer find out?",
+      "current_behaviour": "`ProjectWindow.swift:1726`: `_ = try? await documentStore.document(forDocId: docId)?.restoreToOpUndoable(opId: opId, undoManager: um)`. Two silent exits in one line. (a) `try?` swallows every throw — `flushBurstNow` failing, `opStore.append` failing on a full or read-only volume. `restoreToOp` appends BEFORE it mutates in-memory state, so a failed append leaves the document exactly as it was: correct and non-destructive, and completely silent. (b) `document(forDocId:)` is `openDocuments.values.first(where:)` (DocumentStore.swift:742) — closed documents return nil and the optional-chain evaluates to nothing at all. Meanwhile `RewindWindow.load()` falls back to `OpLogStore(projectURL:).load(docId:)` when no live document is found, so the modal will happily preview and offer Restore for a document the dispatcher cannot act on. The modal has already dismissed itself (`showingRewindModal = false` runs before the switch) in both cases.",
+      "writer_visible_consequence": "The writer scrubs back three hours, confirms \"Restore\", the sheet closes, and the manuscript is unchanged. Nothing says why. They will reasonably conclude the restore worked and that this is what three hours ago looked like — which is the one wrong conclusion available.",
+      "reachability": {
+        "rating": "LATENT",
+        "call_path": "(a) Restore path as REW-D1 with a failing `opStore.append` — full disk, revoked sandbox scope, iCloud eviction of `.maugham/ops/`. (b) requires `selectedItemId` to name a document not in `openDocuments`; the binder normally opens the selected document, so I could not close this trace — the (b) half is UNTRACED on its own."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-7",
+      "clause_that_does_the_work": "never misrepresent a failure — unreadable is never shown as empty; a refusal names its real cause. Scope: WRITER-FACING surfaces",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "An error presenter wrapping the sheet dismissal that I did not find, or a ruling that a restore is defined as best-effort. Note the sibling comparison inside this very module: `restoreToOpUndoable`'s undo closure declines LOUDLY into `documentLog` on the same class of failure — the code already treats these as worth recording; it just records them where the writer cannot see."
+    },
+    {
+      "id": "REW-D5",
+      "question": "When ⌘Z of a rewind declines, or only half-completes, does the writer find out?",
+      "current_behaviour": "`restoreToOpUndoable`'s undo closure has four independent bail-outs, all of which log to `documentLog.error` and return, and none of which reach the writer: the fire-time guard (`doc.paragraphs != postParagraphs`, i.e. a cross-device merge landed since the restore); the compensating restore throwing; the compensating restore appending nothing despite an expected text delta; and — after the point of no return — per-item failures of `appendTaskRewindCloser`, each status-only re-accept, and each `reopenAnnotation`. The first three decline before touching anything (good, and deliberately so: 'History Rewind is the tool for that tangle'). The last three leave a HALF-undone rewind: text back at the pre-rewind tip, but a suggestion still `.open` that should read `.accepted`, or a comment still archived, or the pane's tasks still hidden.",
+      "writer_visible_consequence": "Case 1: the writer presses ⌘Z and nothing happens. Not greyed out, not an alert — the menu said \"Undo Restore from History\" and the document did not move. Case 2 is worse: the text comes back and the annotations do not, so the writer sees a chapter that looks restored with its comments in the wrong state, and has no signal that the operation was partial.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Restore path as REW-D1, then ⌘Z. The decline branch is directly exercised by `RewindUndoTests.test_restore_undo_afterForeignOps_isLoudNoOp` — 'loud' in that test's name means loud to the log, and the test asserts only that the diverged text is not clobbered."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-7",
+      "clause_that_does_the_work": "a refusal names its real cause. Scope: WRITER-FACING surfaces",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "A ruling that os_log is an acceptable destination for a refusal — but RULING-7 explicitly scopes itself to writer-facing surfaces, and ⌘Z is as writer-facing as Maugham gets. The partial-compound half would additionally be falsified if the product owner ruled that a half-undone rewind is acceptable so long as the words are right, which RULING-4 would arguably permit but which the annotation half of REW-D1/D2 would not."
+    },
+    {
+      "id": "REW-D6",
+      "question": "\"Rewind to before this…\" — does it land before the op, or after it?",
+      "current_behaviour": "After it. `HistoryRow`'s per-op button (HistoryPane.swift:349-360) is labelled \"Rewind to before this…\" with the same help text, and posts `scrub_op_id: op.opId`. `RewindModifier` turns that into `.atOp(opId:)`, `Deriver.derive(ops:upTo:)` takes `ops.prefix(through: idx)` — INCLUSIVE — and `restoreToOp`'s own doc comment states the contract plainly: 'the state it had immediately after the op with id `targetOpId` was applied.' The preview and the restore agree with each other and disagree with the button.",
+      "writer_visible_consequence": "The writer finds the typing burst that introduced the paragraph they regret, clicks \"Rewind to before this…\", confirms, and the paragraph is still there. If that burst is the tip of the log, the confirm sheet reads \"Restoring would undo 0 words / 0 paragraphs\" and the restore is a no-op — but by REW-D7 it has still cleared their typing-undo stack.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "HistoryPane row → \"Rewind to before this…\" (HistoryPane.swift:350) → `.maughamOpenRewind` with `scrub_op_id` → RewindModifier sets `.atOp` → RewindWindow opens at that cursor → \"Restore here…\" → `restoreToOp(opId:)`"
+      },
+      "classification": "SETTLED_BY_ROOT_ONLY",
+      "ruling": "RULING-20",
+      "clause_that_does_the_work": "honour the writer's intent",
+      "what_a_sub_ruling_would_need_to_say": "No sub-ruling covers the agreement between what a control is CALLED and what it does. RULING-7 is close but its scope is failures and refusals, and nothing here fails. A sub-ruling would need to say: 'a control that names a moment in the writer's history lands on that moment; where a boundary is inclusive or exclusive, the label states which and the preview shows the same state the action will produce.'",
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "If the intended reading of 'before this' is 'before this point in the timeline', where 'this point' means the state the entry describes, then the label is defensible and only the ambiguity remains. The preview would still show the writer the truth before they commit, which is why I did not classify this as a violation."
+    },
+    {
+      "id": "REW-D7",
+      "question": "May a rewind discard the writer's per-keystroke undo history — including when the rewind changes nothing?",
+      "current_behaviour": "`restoreToOpUndoable` calls `um.removeAllActions()` unconditionally before the restore (Document+RewindUndo.swift:60-62), then registers one grouped 'Restore from History' action. The module's own comment names the case and accepts it: 'if the restore turns out to be a genuine no-op (restoreOp == nil below), this clear already discarded typing history for zero benefit.' The reasoning given is real — deferring the clear past the `await` would break the contiguous clear→mutate→register ordering. Separately, `RewindWindow`'s footer deliberately ENABLES Restore on `.atOp(latestOpId)` (RewindCursor.swift documents this as intentional), which is precisely the no-op that pays the cost for nothing.",
+      "writer_visible_consequence": "The writer opens Rewind out of curiosity, scrubs, thinks better of it, and presses Restore on a point that turns out to be where they already were. Nothing changes — and the last two hours of ⌘Z granularity are gone. The words are all still recoverable through the op log, but the sentence-by-sentence undo they were relying on is not.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Restore path as REW-D1 with the cursor on the latest op — which is one click away, since the footer's Restore button is enabled there by design"
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "An action that changes nothing costs the writer nothing. Where an operation must discard undo history to stay coherent, it discards it only once it is certain it will change something — and the control that starts it is not offered when there is nothing to do.",
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "PRINCIPLE-2 may retire this outright: if no ruling reaches it, a coarser undo stack after a rewind is an imaginable-better-experience, not a defect. It becomes a real finding only if the product owner rules that typing-undo granularity is something the writer is owed. It would also be falsified by making the no-op case unreachable (disable Restore when target == tip), which costs nothing and removes the sharp half without touching the ordering invariant."
+    },
+    {
+      "id": "REW-D8",
+      "question": "Is the rewind preview, and the impact count the writer confirms against, a live view or a snapshot?",
+      "current_behaviour": "A snapshot. `RewindWindow.load()` reads the op log once at open time and the class comment states it: 'Snapshot of the op log captured at modal-open time. Stable for the life of the modal session — MCP writes during the session don't appear.' Both the preview and `impactSummary` (words removed, paragraphs removed, suggestions reopened) are computed from that snapshot. The restore itself runs on the live `_opLogMirror`, which the external-change presenter keeps folding merged peer ops into while the sheet is open.",
+      "writer_visible_consequence": "The writer confirms 'Restoring would undo 240 words / 3 paragraphs', and loses 900 words — the ones the other Mac wrote while the sheet was open. The words remain recoverable (the log is append-only and the pre-restore tip is still a scrub target), but the consent the writer gave was for a different act than the one performed.",
+      "reachability": {
+        "rating": "LATENT",
+        "call_path": "Modal open (RewindWindow.load) → a peer op-log file change arrives → `DocumentStore.presenterDidChangeSubitem` → `Document.handleExternalLogChange` folds it into `_opLogMirror` → writer confirms → `restoreToOp` derives `priorCount`/`removedIds` from the now-longer mirror. Requires a second device syncing mid-session; a sheet blocks typing in this window, so the single-Mac case cannot reach it."
+      },
+      "classification": "SETTLED_BY_ROOT_ONLY",
+      "ruling": "RULING-20",
+      "clause_that_does_the_work": "honour the writer's intent; where intent is unclear default SAFE",
+      "what_a_sub_ruling_would_need_to_say": "RULING-7 does not reach — nothing failed and nothing was misrepresented as empty. A sub-ruling would need to say: 'a confirmation states the impact of the act as it will be performed, not as it was previewed; if the ground moved between the preview and the confirmation, the writer re-confirms against the new number.'",
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "If `handleExternalLogChange` does not fold peer ops into `_opLogMirror` while a sheet is presented, the two sources cannot diverge and this is unreachable. I traced the presenter → `handleExternalLogChange` → mirror replacement path but did not verify that the SwiftUI sheet does not suspend the presenter. Also: because the log is append-only, the over-restored words survive in it, so RULING-4 is not violated — this is a consent finding, not a data-loss one."
+    },
+    {
+      "id": "REW-D9",
+      "question": "Should a craft note survive the disappearance of the paragraph it is anchored to?",
+      "current_behaviour": "Yes, deliberately. `sweepOrphanedAnnotations` filters `ann.status == .open && ann.kind != .craftNote && removed.contains(paragraphId)` (Document+Annotations.swift:733-737). Every other annotation kind on a rewind-removed paragraph is archived; a craft note stays `.open`, still carrying a `paragraphId` that is no longer in `sequence`.",
+      "writer_visible_consequence": "After a rewind, the annotations pane shows an open craft note whose paragraph chip points at text that is not in the document. Clicking through to it goes nowhere. The defensible reading is that a craft note is about the writing rather than the sentence and should outlive it — but then it should stop claiming a paragraph anchor.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "MCP `add_craft_note` against a paragraph → restore path as REW-D1 targeting a moment before that paragraph existed → the sweep skips it by kind"
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "A note that outlives the passage it was attached to stops pointing at it. Surviving the loss of an anchor and continuing to display that anchor are different things, and only the first is a kindness.",
+      "confidence": "LOW",
+      "what_would_falsify_it": "If craft notes are in practice doc-scoped (created with a nil `paragraphId`), the carve-out never fires with a live anchor and there is nothing to see. I did not check whether `add_craft_note` requires a paragraph id. RULING-13 does not reach here for the same scope reason as REW-D1: the paragraph's identity was not lost, the paragraph was."
+    },
+    {
+      "id": "REW-D10",
+      "question": "When a rewind reverts the text an accepted suggestion applied, what happens to the suggestion?",
+      "current_behaviour": "Handled carefully and correctly, in two branches (Document+Rewind.swift:177-235). The accept op survives the rewind (append-only) while its applied text does not, so the annotation would otherwise keep deriving `.accepted` and hide in the resolved filter. If the paragraph SURVIVES the rewind, the restore appends a changes-free `.claudeAcceptRevert` and the suggestion is `.open` and actionable again — against exactly the text it was authored against. If the paragraph was REMOVED, it appends a `.claudeArchive` instead, because an open suggestion on a nonexistent paragraph is not actionable. Strandedness is judged against the latest CHANGES-CARRYING accept, so an undo's status-only re-accept does not mask it — which is what makes a redo, and a manually repeated rewind, agree with a fresh rewind.",
+      "writer_visible_consequence": "The writer rewinds past a suggestion they accepted. The sentence goes back to what it was, and the suggestion is offered again rather than sitting in the resolved list claiming to have been applied. The pre-confirm summary even names the count ('2 accepted suggestions reopened') — the one collateral effect that IS surfaced.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "MCP `add_suggestion` → writer accepts in AnnotationsPane → restore path as REW-D1 targeting a moment before the accept. Covered end to end by `RewindReopensAcceptsTests`."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-5",
+      "clause_that_does_the_work": "an AI suggestion whose quoted phrase can no longer be found MUST NOT be applied — refused, never guessed",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "RULING-5's scope is the moment of APPLICATION, and this code runs at rewind time rather than accept time — a strict scope reading would say RULING-5 governs only what `acceptAnnotation` does when the quote has drifted, and that this is a status-bookkeeping question RULING-5 does not reach. I include it because the removed-paragraph branch exists precisely to prevent a later un-applicable apply, which is RULING-5's harm arriving one step earlier. Worth recording as the module's one clear case of a sub-ruling doing real work."
+    },
+    {
+      "id": "REW-D11",
+      "question": "If the moment the writer scrubbed to is no longer in the log, does Restore refuse, or land somewhere else?",
+      "current_behaviour": "It lands on 'now', silently. `Deriver.derive(ops:upTo:)` (Deriver+Rewind.swift:34-36) returns the FULL derivation when the cursor's op id is not found, documented as 'defensive against stale UI cursors that survived a cross-Mac merge that compacted the source op away.' Fed through `restoreToOp`, that makes `targetState == currentState`, so `applyRestore` returns nil, `hasTaskOpsAfterTarget` is false (its `targetIdx` lookup also missed), and the method returns a `restoreOp: nil` result indistinguishable from a legitimate no-op. There is no guard at the entry point — `RewindWindow` never checks that its cursor is still in the live log before enabling Restore.",
+      "writer_visible_consequence": "'Restore this chapter to this point?' → Restore → nothing changes, and the writer is told nothing. Structurally identical to REW-D4's silent no-op and arrived at from the opposite direction.",
+      "reachability": {
+        "rating": "UNTRACED",
+        "call_path": "I could not close this. `RewindWindow.load` reads `doc.opLog()`, which prefers `_opLogMirror` (Document.swift:518-520) — the same array `restoreToOp` derives from — so the modal's cursor is normally in the live log by construction. I found no compaction or truncation path that removes an op from the mirror (sealing under ADR 0016 keeps sealed segments loadable, and `handleExternalLogChange` replaces the mirror with a merged union). The fallback may be defending against a case that no longer exists."
+      },
+      "classification": "SETTLED_BY_ROOT_ONLY",
+      "ruling": "RULING-19",
+      "clause_that_does_the_work": "entry-point guards must FAIL AND TELL THE WRITER; lower layers protect the system and data silently (but a lower-layer repair means a guard above did not fire — that is a bug)",
+      "what_a_sub_ruling_would_need_to_say": "RULING-19 reaches this by scope exactly: the deriver is a lower layer, its 'return the full state instead' is a silent repair, and the entry point above it (the Restore button) has no guard that would refuse a vanished cursor and say why. A sub-ruling would need to name time-travel targets specifically: 'a moment the writer selected in their history either exists and is restorable, or the offer to restore it is withdrawn with its reason named — a missing moment is never quietly replaced by the present one.'",
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "Tracing a real path by which an op reaches the modal's snapshot and not `_opLogMirror` would raise this from UNTRACED to LATENT. Conversely, if no such path exists, the honest fix is to delete the fallback and let a missing target be a precondition failure, which is what RULING-19 asks for anyway. Note that the fallback's chosen direction is the WORST available: of the three options (refuse, restore to the nearest surviving op, restore to now) it picked the one that silently discards the writer's stated intent while looking like success."
+    }
+  ],
+  "notes": "Where the ruling set did and did not do work in this module. Only ONE finding (REW-D10, accepted suggestions) is settled by a sub-ruling, and even there the scope fit is arguable because RULING-5 is written about the moment of application. Four findings land on roots only (RULING-20 three times, RULING-19 once) and three on nothing at all. The pattern is sharp and worth reporting on its own terms: the sub-rulings cover MANUSCRIPT WORDS well and cover EVERYTHING ATTACHED TO THEM — annotations, tasks, suggestion status — almost not at all, except through RULING-13, whose scope ('when a paragraph's identity is not recovered') excludes time travel by construction. A rewind does not fail to recover an identity; it goes to a time before the identity existed. Three separate findings (D1, D2, D9) bounced off RULING-13 for that one reason, which suggests either RULING-13 wants a companion for the time-travel case or its scope clause wants widening to 'when a paragraph is no longer present, for any reason'.\n\nRULING-4 holds throughout, and holds well: the log is append-only, `Restore.buildRestoreOp` emits no change entry for a removed paragraph (so its text stays in the derived `paragraphs` map and is dropped only from `sequence`), the pre-rewind tip stays scrubable, and no rewind path truncates. Every finding above is about what the writer is TOLD and what they can REACH, not about words being destroyed. That is the module's real shape and it is a credit to it.\n\nTwo things I looked at and chose not to file. (1) `restoreToOp` judges 'is this accept past the target' by ULID string comparison (`textAccept.opId > targetOpId`) while it judges 'are there task ops past the target' by array position (`currentOps.firstIndex`). These are the same question answered two ways, but the mirror is opId-sorted and locally-minted ULIDs are monotonic, so the two orders coincide; per discipline 2 this is an implementation inconsistency, not a writer-visible one. (2) `archivedAnnotationOpIds` is computed by diffing `_opLogMirror` across an `await flushBurstNow()` and filtering on `synthesisSource == .rewind`. A peer device's OWN rewind archives, merged in during that await, would match the filter and be reopened by this writer's ⌘Z. Real but exotic (two Macs, both rewinding, inside one flush window), and the effect is to reopen an annotation rather than lose one — non-destructive, so it fails PRINCIPLE-4's bar for a ruling violation and reads as an ROI-never-fix.\n\nOne scope note on the module boundary: `RewindScope` ships `.thisDoc` only, and the confirm sheet names the document ('Restore Chapter 1 to this point?'), so I did not file the project-scope question. But `RewindWindow.snapshotHere` writes a checkpoint whose `docPointers` are the SCRUBBED op for the active doc and the LATEST op for every other doc — a checkpoint recording a project state that never existed at any single moment. Whether that matters depends on what checkpoint restore does with those pointers, which is outside the five files I was given."
+}

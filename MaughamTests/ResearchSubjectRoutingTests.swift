@@ -16,11 +16,11 @@ import MaughamCore
 /// - Where the centre is **not** the canvas, the research subject takes the
 ///   centre — the note, the card or the preview — and the right column inspects
 ///   it. That is spec §4's Author cell.
-/// - Where the centre **is** the canvas (Plan's `.canvas` and `.tree`), the
-///   canvas stays exactly where it is and the right column previews the item
-///   instead. `CanvasTreeSegmentMountTests` measured what a second centre-column
-///   branch costs — the writer's camera, layouts and thumbnails, on every
-///   selection — so a research click in Plan must not swap the centre.
+/// - Where the centre **is** the canvas (Plan), the canvas stays exactly where
+///   it is and the right column previews the item instead. An arm apiece was
+///   measured at the time (macOS 26.5, 2026-08-02) and costs the writer's
+///   camera, layouts and thumbnails on every selection — so a research click in
+///   Plan must not swap the centre.
 ///
 /// **The mounted half drives the REAL tree**, one per host: a row is selected
 /// through `List(selection:)` and the assertion is about the surface that
@@ -62,110 +62,79 @@ final class ResearchSubjectRoutingTests: XCTestCase {
 
     // MARK: - Where the research subject lands
 
-    /// Every segment whose centre is a document AND whose left pane can point
-    /// the window somewhere else again — Author's, Review's and Publish's whole
-    /// left column today — hands the centre over.
+    /// Every persona whose centre is a document hands it over.
     ///
-    /// **`.find` and `.trash` are NOT here, and that is the final review's
-    /// Critical.** They were, and both left panes write no subject at all: a
-    /// research item took the centre in the trash with no control anywhere in
-    /// the window to give it back.
-    func test_aResearchSubjectTakesTheCentreWhereTheSegmentHasNoResearchOfItsOwn() {
-        for segment in [BinderSegment.manuscript, .scenes] {
+    /// **It used to be asked of a (persona, segment) product**, and two of those
+    /// segments were the stage-2a final review's Critical: `.find` and `.trash`
+    /// both let a research item take the centre while their left panes wrote no
+    /// subject at all, so the item could never be dismissed. Both are window
+    /// state now rather than surfaces, and shell-finish stage 2b Task 7 took the
+    /// enum with them — so the persona is the whole question.
+    func test_aResearchSubjectTakesTheCentreInEveryPersonaThatCentresADocument() {
+        for persona in Persona.allCases where persona != .plan {
             XCTAssertEqual(
                 ProjectWindow.researchSubjectPlacement(
-                    binderSegment: segment, subject: .research("r1")),
+                    persona: persona, subject: .research("r1")),
                 .takesTheCentre("r1"),
-                "\(segment) has no research surface of its own, so the window's "
-                + "subject is what its centre column is about")
+                "\(persona) has no research surface of its own in the centre, "
+                + "so the window's subject is what that column is about")
         }
     }
 
-    /// **Plan's tree previews beside the board; Plan's canvas segment does not
-    /// take a column at all.**
+    /// **Plan previews beside the board and never gives the centre away.**
     ///
-    /// The two used to be one loop over `centresTheCanvas`, which is what pinned
-    /// the Critical in place. They differ in the LEFT column and that is the
-    /// whole of it: `.tree` mounts a real tree whose rows write the subject, so
-    /// the writer selects a chapter or the project row and the preview goes
-    /// away. `.canvas` mounts `ResearchView`, which writes
-    /// `selectedResearchId` and never the subject — so a research subject
-    /// reaching the right column there replaces the region, scrap, line and item
-    /// inspectors (with their Promote buttons) and nothing in the segment can
-    /// clear it. It persists through `UIState`, and Plan's `binderHome` IS
-    /// `.canvas`, so a relaunch reopens into it.
-    func test_plansTreePreviewsBesideTheCanvasAndNeverGivesTheBoardAway() {
+    /// This was two tests, because Plan was two states: its Structure tab
+    /// mounted a real tree whose rows write the subject and previewed beside the
+    /// board, while its Canvas tab mounted the old research pane — which wrote
+    /// its own private selection and never the subject — so a research subject
+    /// reaching the right column THERE replaced the region, scrap, line and item
+    /// inspectors with nothing in the window able to clear it. It persisted
+    /// through `UIState` and Plan landed on that tab, so a relaunch reopened
+    /// into it. That is the 2a Critical, and Task 7 removed the state rather
+    /// than the guard: Plan has one left column, it is the tree, and the tree
+    /// gives the column back
+    /// (`ProjectSubjectReachabilityTests.test_everyWindowStateThatLetsAResearchSubjectStandCanAlsoClearIt`).
+    func test_planPreviewsBesideTheCanvasAndNeverGivesTheBoardAway() {
         XCTAssertEqual(
             ProjectWindow.researchSubjectPlacement(
-                binderSegment: .tree, subject: .research("r1")),
+                persona: .plan, subject: .research("r1")),
             .besideTheCanvas("r1"),
-            ".tree draws the canvas in the centre — a research click must not "
-            + "swap it out and take the writer's camera with it — and its own "
-            + "rows are what give the column back")
+            "Plan draws the canvas in the centre — a research click must not "
+            + "swap it out and take the writer's camera with it — and the "
+            + "tree's own rows are what give the right column back")
     }
 
-    func test_theCanvasSegmentLeavesBothOfItsColumnsAlone() {
-        XCTAssertEqual(
-            ProjectWindow.researchSubjectPlacement(
-                binderSegment: .canvas, subject: .research("r1")),
-            .segmentStands,
-            ".canvas's left pane is the old research tree and writes no "
-            + "subject, so a research subject taking its inspector would be a "
-            + "room with no door — the canvas inspector unreachable for the "
-            + "rest of the session and across relaunches")
-    }
-
-    /// The segments the subject does not reach over, and **why each one is on
-    /// the list** — two transitional panes with a research selection of their
-    /// own, and three whose left pane writes no subject at all.
-    func test_theSegmentsWithNoWayBackAreLeftAlone() {
-        let expected: [(BinderSegment, String)] = [
-            (.research, "its centre answers to the old pane's selection"),
-            (.palette, "its centre answers to the old pane's selection"),
-            (.canvas, "ResearchView writes selectedResearchId, not the subject"),
-            (.trash, "TrashView writes no subject — a research item taking the "
-                     + "centre here could never be dismissed"),
-            (.find, "ProjectSearchView writes a subject only for a manuscript "
-                    + "match; a research match writes selectedResearchId")
-        ]
-        for (segment, why) in expected {
-            XCTAssertEqual(
-                ProjectWindow.researchSubjectPlacement(
-                    binderSegment: segment, subject: .research("r1")),
-                .segmentStands,
-                "\(segment): \(why)")
-        }
-    }
-
-    /// **The containment between the two guards, asserted rather than noticed.**
+    /// **The containment claim that outlived two deleted guards.**
     ///
-    /// `keepsItsOwnResearchSelection` and `leftPaneWritesTheSubject` ask
-    /// different questions — is this centre already about research, versus can
-    /// the writer get back out — and agree on every case today. If a future
-    /// segment ever keeps its own research selection *and* writes the subject
-    /// from its left pane, the placement's first guard stops being the narrower
-    /// one and this file has to be read again.
-    func test_everySegmentKeepingItsOwnResearchSelectionAlsoFailsToWriteTheSubject() {
-        for segment in BinderSegment.allCases where segment.keepsItsOwnResearchSelection {
-            XCTAssertFalse(
-                segment.leftPaneWritesTheSubject,
-                "\(segment) keeps a research selection of its own, so the "
-                + "placement's first guard already refuses it — if it also wrote "
-                + "the subject the two guards would no longer be nested and the "
-                + "order of them would start to matter")
-        }
+    /// `keepsItsOwnResearchSelection` (deleted in stage 2b Task 6) asked whether
+    /// a centre was already about a research item; the trap guard beside it —
+    /// can the writer get back out — was strictly wider, which is the whole
+    /// warrant for deleting the narrow one, because a narrower guard nested
+    /// inside a wider one never decides a case on its own. The wide one went in
+    /// Task 7 with the enum it was asked of. What both were protecting survives:
+    /// **Plan's centre is never handed over.**
+    func test_planNeverHandsItsCentreToAResearchSubject() {
+        XCTAssertNil(
+            ProjectWindow.researchSubjectPlacement(
+                persona: .plan, subject: .research("r1")).centreItemID,
+            "the board is Plan's centre column; a research item may sit beside "
+            + "it and never in it")
+        XCTAssertNotNil(
+            ProjectWindow.researchSubjectPlacement(
+                persona: .author, subject: .research("r1")).centreItemID,
+            "the control: somebody does hand the centre over, or the assertion "
+            + "above is true of a function that never takes a centre at all")
     }
 
-    /// The control, and it is what stops the three above from being vacuous: a
-    /// subject that is not research changes nothing, in any segment.
-    func test_aSubjectThatIsNotResearchLeavesEverySegmentAlone() {
-        for segment in BinderSegment.allCases {
-            for subject: BinderSubject? in [nil, .project, .item("doc1")] {
+    /// A subject that is not research leaves every persona's columns alone.
+    func test_aSubjectThatIsNotResearchLeavesEveryPersonaAlone() {
+        for persona in Persona.allCases {
+            for subject: BinderSubject? in [nil, .project, .item("ch-1")] {
                 XCTAssertEqual(
                     ProjectWindow.researchSubjectPlacement(
-                        binderSegment: segment, subject: subject),
-                    .segmentStands,
-                    "\(String(describing: subject)) in \(segment)")
+                        persona: persona, subject: subject),
+                    .nothingMoves,
+                    "\(persona) with \(String(describing: subject))")
             }
         }
     }
@@ -175,7 +144,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
     /// every case rather than trusted at each call site.
     func test_thePreviewIsShownExactlyWhereTheCentreIsNotShowingTheItem() {
         let placements: [ProjectWindow.ResearchSubjectPlacement] =
-            [.takesTheCentre("r1"), .besideTheCanvas("r1"), .segmentStands]
+            [.takesTheCentre("r1"), .besideTheCanvas("r1"), .nothingMoves]
         for placement in placements {
             XCTAssertEqual(
                 placement.previewsInTheRightColumn,
@@ -321,29 +290,86 @@ final class ResearchSubjectRoutingTests: XCTestCase {
     /// **And the manuscript status footer goes with them.** The footer's four
     /// readings are all about a manuscript document; over a research note the
     /// goal capsule is about something else and the `¶id`/element readouts are
-    /// blank. The segment alone used to be a complete answer — `.manuscript`
-    /// could hold nothing but a document — and this task is what made it
-    /// incomplete.
+    /// blank. The binder segment alone used to be a complete answer — the
+    /// manuscript segment could hold nothing but a document — and stage-2a's
+    /// Task 5 is what made it incomplete.
     func test_theManuscriptStatusFooterIsSilentWhenAResearchItemTookTheCentre() {
-        for segment in [BinderSegment.manuscript, .scenes] {
+        for persona in Self.centresThatHoldADocument {
             XCTAssertTrue(
-                ProjectWindow.showsStatusFooter(binderSegment: segment,
-                                                subject: .item("doc1")),
-                "control: \(segment) over a manuscript document still reports")
+                ProjectWindow.showsStatusFooter(persona: persona,
+                                                subject: .item("doc1"),
+                                                showsPaletteWall: false),
+                "control: \(persona) over a manuscript document still reports")
             XCTAssertFalse(
-                ProjectWindow.showsStatusFooter(binderSegment: segment,
-                                                subject: .research("r1")),
-                "\(segment) with a research item in the centre has no document "
+                ProjectWindow.showsStatusFooter(persona: persona,
+                                                subject: .research("r1"),
+                                                showsPaletteWall: false),
+                "\(persona) with a research item in the centre has no document "
                 + "for the footer to be about")
         }
-        for segment in BinderSegment.allCases where !segment.showsManuscriptStatusFooter {
+        // **The centre still decides FIRST**, and the subject only narrows it —
+        // this is never a second answer to what the centre column holds. Since
+        // Task 6 the first decision is the persona's, so the loop walks the
+        // personas whose centre is not a document at all.
+        for persona in Self.centresThatHoldNoDocument {
             XCTAssertFalse(
-                ProjectWindow.showsStatusFooter(binderSegment: segment,
-                                                subject: .item("doc1")),
-                "\(segment): the segment still decides FIRST — this is a "
-                + "narrowing of `showsManuscriptStatusFooter` and never a "
-                + "second answer to it")
+                ProjectWindow.showsStatusFooter(persona: persona,
+                                                subject: .item("doc1"),
+                                                showsPaletteWall: false),
+                "\(persona): a document subject cannot conjure a footer over a "
+                + "centre column that is not a document")
         }
+    }
+
+    /// **The wall term, since Task 8.** Tasks 6 and 7 each recorded the same
+    /// gap and left it: since stage 2b Task 5 the palette wall can take the
+    /// centre column in Author, Review and Publish
+    /// (`showsPaletteWallCentre`), and the footer's gate did not know about
+    /// it — so the goal capsule, the live session words and a stale
+    /// `¶id`/element readout sat under the wall.
+    ///
+    /// **The wall never reaches Plan's centre** (`showsPaletteWallCentre`'s own
+    /// `persona != .plan` term — Plan's centre is the board), so Plan gets its
+    /// own assertion below: the wall flag must be able to flip `true` with no
+    /// effect there, or the fact that Author/Review/Publish go silent under it
+    /// would be a coincidence about those three rather than about the wall.
+    func test_theManuscriptStatusFooterIsSilentUnderThePaletteWall() {
+        for persona in [Persona.author, .review, .publish] {
+            XCTAssertFalse(
+                ProjectWindow.showsStatusFooter(persona: persona,
+                                                subject: .item("doc1"),
+                                                showsPaletteWall: true),
+                "\(persona): the wall is centred over the document — the "
+                + "footer's four readings have nothing under them to report on")
+            XCTAssertTrue(
+                ProjectWindow.showsStatusFooter(persona: persona,
+                                                subject: .item("doc1"),
+                                                showsPaletteWall: false),
+                "control: \(persona) with the wall closed still reports")
+        }
+        XCTAssertFalse(
+            ProjectWindow.showsStatusFooter(persona: .plan, subject: .item("doc1"),
+                                            showsPaletteWall: true),
+            "Plan never shows the footer regardless — its centre is the board, "
+            + "not a document, wall or no wall")
+    }
+
+    /// The personas whose centre column IS a manuscript document, and the ones
+    /// whose is not — each derived from the rule rather than named, so a fifth
+    /// persona joins the loop it belongs to without an edit here.
+    static let centresThatHoldADocument: [Persona] =
+        Persona.allCases.filter(\.showsManuscriptDocuments)
+    static let centresThatHoldNoDocument: [Persona] =
+        Persona.allCases.filter { !$0.showsManuscriptDocuments }
+
+    /// The anti-vacuity control both loops above need: neither set is empty, so
+    /// neither loop is asserting nothing.
+    func test_theFooterExclusionIsNeitherEmptyNorEverything() {
+        XCTAssertFalse(Self.centresThatHoldNoDocument.isEmpty,
+                       "every persona holds a document — the second loop is "
+                       + "vacuous")
+        XCTAssertFalse(Self.centresThatHoldADocument.isEmpty,
+                       "no persona holds a document — the first loop is vacuous")
     }
 
     // MARK: - Mounted: the note reaches the centre, through each tree
@@ -353,7 +379,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
         try seedNoteText(Self.noteText, at: note, in: store)
 
-        let mount = try await host(store: store, tree: .binder, segment: .manuscript)
+        let mount = try await host(store: store, tree: .binder, persona: .author)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         await select(row: 1 + store.manifest.structure.count + 1, in: table,
                      until: { mount.probe.subject == .research(note.id) })
@@ -366,7 +392,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
         try seedNoteText(Self.noteText, at: note, in: store)
 
-        let mount = try await host(store: store, tree: .collection, segment: .manuscript)
+        let mount = try await host(store: store, tree: .collection, persona: .author)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         await select(row: 1 + store.manifest.structure.count + 1, in: table,
                      until: { mount.probe.subject == .research(note.id) })
@@ -379,7 +405,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
         try seedNoteText(Self.noteText, at: note, in: store)
 
-        let mount = try await host(store: store, tree: .navigator, segment: .scenes)
+        let mount = try await host(store: store, tree: .navigator, persona: .author)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         // project, script, two sluglines, the Research header, then the note.
         await select(row: 5, in: table,
@@ -397,7 +423,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let store = try await novel(notes: ["Ships"], cards: ["Harbour"])
         let card = try XCTUnwrap(store.paletteCardItems().first)
 
-        let mount = try await host(store: store, tree: .binder, segment: .manuscript)
+        let mount = try await host(store: store, tree: .binder, persona: .author)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         // the project row, the chapters, Research (header + note), then the
         // Palette header and the card.
@@ -427,7 +453,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let store = try await novel(notes: [], cards: [])
         let pdf = try await importPDF(named: "Tide tables", into: store)
 
-        let mount = try await host(store: store, tree: .binder, segment: .tree)
+        let mount = try await host(store: store, tree: .binder, persona: .plan)
         await pumpUntil(deadline: 5) { mount.canvasLoads.count >= 1 }
         let loadsBefore = mount.canvasLoads.count
         XCTAssertGreaterThan(loadsBefore, 0,
@@ -459,28 +485,36 @@ final class ResearchSubjectRoutingTests: XCTestCase {
             + "load at all")
     }
 
-    /// **The Critical, on the delivery path: the canvas inspector is still there
-    /// with a research subject in force.**
+    /// **The canvas inspector is reachable in Plan, and a research subject is
+    /// what deliberately replaces it.**
     ///
-    /// The trap needs no click of its own to reach — Plan's `.tree` writes a
-    /// research subject, the writer flips to the Canvas segment, and the subject
-    /// comes with them. `.canvas`'s left pane is the old research tree, which
-    /// writes `selectedResearchId` and never the subject, so before this fix
-    /// nothing in the window could give the column back: the region, scrap, line
-    /// and item inspectors and every Promote button with them, gone for the
-    /// session and again after a relaunch (Plan's `binderHome` is `.canvas`).
+    /// This was the 2a Critical's mounted half, and its premise was the state
+    /// stage 2b Task 7 removed. Plan's Canvas tab mounted the old research pane,
+    /// which wrote its own private selection and never the window's subject —
+    /// so a research subject arriving with the writer (from Plan's Structure
+    /// tab, or restored from `UIState` into the tab Plan landed on) replaced the
+    /// region, scrap, line and item inspectors and every Promote button with
+    /// them, for the session and again after a relaunch. The refusal that fixed
+    /// it was `.segmentStands` for that one tab.
+    ///
+    /// Plan has one left column now and it is the tree, so the subject can
+    /// always be cleared and the refusal has nothing left to protect. What is
+    /// asserted instead is the pair that matters: **the region inspector is
+    /// there with no research subject in force, and the preview is what takes
+    /// the column when one arrives** — which is `besideTheCanvas`'s whole
+    /// contract, and the reason it is not a regression is
+    /// `ProjectSubjectReachabilityTests`, which drives the tree row that gives
+    /// the column back.
     ///
     /// Mounted rather than reasoned about, because the claim is about a column
     /// that mounts — a replaced arm and an unrequested one are the same value.
-    func test_theCanvasInspectorSurvivesAResearchSubjectArrivingWithTheWriter() async throws {
+    func test_theCanvasInspectorIsReachableInPlanAndAResearchSubjectReplacesIt() async throws {
         let store = try await novel(notes: ["Ships"], cards: [])
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
 
         let model = CanvasModel()
-        let mount = try await host(store: store, tree: .binder, segment: .canvas,
-                                   subject: .research(note.id), canvasModel: model)
-        XCTAssertEqual(mount.probe.subject, .research(note.id),
-                       "precondition: the writer arrives carrying the subject")
+        let mount = try await host(store: store, tree: .binder, persona: .plan,
+                                   subject: .project, canvasModel: model)
 
         // Seeded AFTER the mount: `CanvasView`'s `.onAppear` load replaces the
         // scene, so a region put in before it would be gone by the time the
@@ -501,14 +535,20 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         }
         XCTAssertTrue(
             textFields(in: mount.window).contains { $0.stringValue == Self.regionLabel },
-            "the selected region's own name field must still be in the right "
-            + "column — with the research subject taking it, the region, scrap, "
-            + "line and item inspectors are unreachable and there is no control "
-            + "left in the segment that could clear the subject")
+            "the selected region's own name field must be in Plan's right "
+            + "column — without it the region, scrap, line and item inspectors "
+            + "are unreachable from the one persona that draws the board")
+
+        mount.probe.subject = .research(note.id)
+        await pumpUntil(deadline: 5) {
+            !self.textFields(in: mount.window).contains {
+                $0.stringValue == Self.regionLabel
+            }
+        }
         XCTAssertFalse(
-            textFields(in: mount.window).contains { $0.stringValue == note.title },
-            "…and the research item is not inspected here at all: this segment "
-            + "leaves both of its columns alone")
+            textFields(in: mount.window).contains { $0.stringValue == Self.regionLabel },
+            "and a research subject takes the right column — that is what "
+            + "`besideTheCanvas` means, and a tree row is what gives it back")
     }
 
     /// **A palette card previewed beside the canvas is a CARD** (finding I3).
@@ -522,7 +562,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let store = try await novel(notes: [], cards: ["Harbour"])
         let card = try XCTUnwrap(store.paletteCardItems().first)
 
-        let mount = try await host(store: store, tree: .binder, segment: .tree,
+        let mount = try await host(store: store, tree: .binder, persona: .plan,
                                    subject: .research(card.id))
         XCTAssertEqual(mount.probe.subject, .research(card.id), "precondition")
 
@@ -656,7 +696,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
     ///   - canvasModel: the board the centre and the region inspector share.
     ///     Given by a caller that has selected something on it.
     private func host(store: ProjectStore, tree: Tree,
-                      segment: BinderSegment,
+                      persona: Persona,
                       subject: BinderSubject? = nil,
                       canvasModel: CanvasModel = CanvasModel()) async throws -> Mount {
         let probe = BinderSubjectProbe()
@@ -671,7 +711,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
             store: store,
             documentStore: documentStore,
             tree: tree,
-            segment: segment,
+            persona: persona,
             script: tree == .navigator ? Self.twoScenes : nil,
             documentID: TreeWalk.first(in: store.manifest.structure,
                                        where: { $0.type == .document })?.id,
@@ -786,7 +826,7 @@ private struct ResearchRoutingProbeView: View {
     let store: ProjectStore
     let documentStore: DocumentStore
     let tree: ResearchSubjectRoutingProbeTree
-    let segment: BinderSegment
+    let persona: Persona
     let script: FountainScript?
     let documentID: String?
     let probe: BinderSubjectProbe
@@ -800,7 +840,7 @@ private struct ResearchRoutingProbeView: View {
     }
 
     private var placement: ProjectWindow.ResearchSubjectPlacement {
-        ProjectWindow.researchSubjectPlacement(binderSegment: segment,
+        ProjectWindow.researchSubjectPlacement(persona: persona,
                                                subject: probe.subject)
     }
 
@@ -834,7 +874,7 @@ private struct ResearchRoutingProbeView: View {
         if let id = placement.centreItemID {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: false)
-        } else if segment.centresTheCanvas {
+        } else if persona.centresTheCanvas {
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { canvasLoads.record(); return [] })
         } else {
@@ -854,7 +894,7 @@ private struct ResearchRoutingProbeView: View {
         if let id = placement.inspectedItemID {
             ResearchSubjectInspector(store: store, itemID: id,
                                      showsPreview: placement.previewsInTheRightColumn)
-        } else if segment.centresTheCanvas {
+        } else if persona.centresTheCanvas {
             RegionInspectorPane(model: canvasModel, pieces: [],
                                 artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
                                 onOpenResearchItem: { _ in })

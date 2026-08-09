@@ -22,7 +22,8 @@ internal enum MaughamSidecarPath: Equatable {
     /// not here, so it can't be matched by the op-log glob.
     case opLog(docId: String)
 
-    /// `.maugham/checkpoints.jsonl` — project-scope checkpoint log.
+    /// `.maugham/checkpoints.jsonl` (legacy) or `.maugham/checkpoints.<slug>.jsonl`
+    /// — the project-scope checkpoint log, partitioned per device (FM-1).
     case checkpoints
 
     /// `.maugham/sessions/*` — owned by `SessionLog`. No presenter routing
@@ -70,7 +71,8 @@ internal enum MaughamSidecarPath: Equatable {
     /// Routing intent: ignore (write-only by the compile pipeline).
     case publishBuild(relativePath: String)
 
-    /// `.maugham/publications.jsonl` — append-only publication log.
+    /// `.maugham/publications.jsonl` (legacy) or `.maugham/publications.<slug>.jsonl`
+    /// — the append-only publication log, partitioned per device (FM-1).
     case publicationsLog
 
     /// `.maugham/publications/<id>.json` — per-publication snapshot blob.
@@ -142,7 +144,12 @@ internal enum MaughamSidecarPath: Equatable {
             return .opLog(docId: String(docId))
         }
 
-        if relativePath == ".maugham/checkpoints.jsonl" {
+        // Legacy `.maugham/checkpoints.jsonl` or per-device
+        // `.maugham/checkpoints.<deviceSlug>.jsonl` (FM-1). The template is
+        // `PartitionedJSONLFile`'s; restating it here is the reach-around the
+        // op-log filename tripwire exists to prevent.
+        if PartitionedJSONLFile.matches(
+            relativePath: relativePath, stemPath: CheckpointStore.stemPath) {
             return .checkpoints
         }
 
@@ -188,7 +195,12 @@ internal enum MaughamSidecarPath: Equatable {
             return .publishAsset(relativePath: relativePath)
         }
 
-        if relativePath == ".maugham/publications.jsonl" {
+        // Legacy `.maugham/publications.jsonl` or per-device
+        // `.maugham/publications.<deviceSlug>.jsonl` (FM-1). Checked before the
+        // `.maugham/publications/` snapshot prefix below; the two cannot
+        // collide, since a partitioned name has `.maugham` as its directory.
+        if PartitionedJSONLFile.matches(
+            relativePath: relativePath, stemPath: PublicationStore.stemPath) {
             return .publicationsLog
         }
 

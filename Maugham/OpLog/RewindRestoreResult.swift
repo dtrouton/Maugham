@@ -6,6 +6,17 @@ import MaughamCore
 /// (*"Restored. 3 annotations auto-archived."*) and assert the effect in
 /// tests without rummaging through the op log post-hoc.
 public struct RewindRestoreResult: Equatable, Sendable {
+    /// How the requested target op resolved against the log (RULING-27):
+    /// `.exact` when it was present; `.nearest` when it had vanished and the
+    /// restore landed on the closest surviving moment at-or-before it instead.
+    /// A missing moment is never quietly replaced by the present — this field
+    /// is the channel the notice (and its Revert) renders from, and it is what
+    /// makes a vanished-target result distinguishable from an honest no-op
+    /// (the old `==` collapse was M4-RW-008).
+    public enum TargetResolution: Equatable, Sendable {
+        case exact
+        case nearest(requested: String, restoredTo: String)
+    }
     /// The appended `.checkpointRestore` op recording the rewind, or
     /// `nil` when the rewind was a no-op (target state equals current —
     /// e.g. rewinding to the latest op in the log). A nil here means
@@ -38,6 +49,24 @@ public struct RewindRestoreResult: Equatable, Sendable {
     /// marker keyed on THIS restore's op id) or the pane's task state stays
     /// rewound after ⌘Z brings text + annotations back.
     public let rewoundTaskOps: Bool
+    /// Creation ids of annotations the return journey reopened (RULING-25):
+    /// each had been archived by an earlier rewind's sweep (a rewind-stamped
+    /// `.claudeArchive`, latest in its lifecycle, from an open status) and its
+    /// anchor paragraph is present in this restore's target state, so the
+    /// restore appended a `.rewind`-stamped `.annotationReopen`. The writer's
+    /// own archives never appear here. Empty on `.undoRewind` restores — the
+    /// undo choreography owns its own lifecycle compensations.
+    public let travelReopenedAnnotationIds: [String]
+    /// Creation ids of accepted suggestions the return journey restored to
+    /// `.accepted` (RULING-26): each had been archived by the stranded-accept
+    /// resolution when its paragraph was rewound away, and this restore's
+    /// target lies at-or-after the accept, so a status-only `.claudeAccept`
+    /// (`.rewind`-stamped) returns the status the annotation had at the
+    /// travelled-to moment. A target before the accept lands in
+    /// `travelReopenedAnnotationIds` instead — the change was unapplied then.
+    public let travelReacceptedAnnotationIds: [String]
+    /// See `TargetResolution`.
+    public let targetResolution: TargetResolution
 
     public init(
         restoreOp: Op?,
@@ -46,7 +75,10 @@ public struct RewindRestoreResult: Equatable, Sendable {
         priorSequenceCount: Int,
         newSequenceCount: Int,
         reopenedAnnotationOpIds: [String],
-        rewoundTaskOps: Bool = false
+        rewoundTaskOps: Bool = false,
+        travelReopenedAnnotationIds: [String] = [],
+        travelReacceptedAnnotationIds: [String] = [],
+        targetResolution: TargetResolution = .exact
     ) {
         self.restoreOp = restoreOp
         self.archivedAnnotationOpIds = archivedAnnotationOpIds
@@ -55,5 +87,8 @@ public struct RewindRestoreResult: Equatable, Sendable {
         self.newSequenceCount = newSequenceCount
         self.reopenedAnnotationOpIds = reopenedAnnotationOpIds
         self.rewoundTaskOps = rewoundTaskOps
+        self.travelReopenedAnnotationIds = travelReopenedAnnotationIds
+        self.travelReacceptedAnnotationIds = travelReacceptedAnnotationIds
+        self.targetResolution = targetResolution
     }
 }

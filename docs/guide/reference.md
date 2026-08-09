@@ -22,7 +22,7 @@ The ones you'll use most:
 | `⌘G` / `⌘⇧G` | Find next / previous |
 | `⌘⌥F` | Find in project |
 | `⌘⌥A` | Show Annotations pane |
-| `⌘⌥Z` | Restore last deleted item |
+| `⌘⌥Z` | Restore last deletion |
 | `⌘\\` | Toggle focus mode (on the canvas, also collapses both side columns) |
 | `⌘⇧F` | Toggle full-screen focus (turns focus mode on, so the canvas collapses too) |
 | `⌘1` | Plan persona |

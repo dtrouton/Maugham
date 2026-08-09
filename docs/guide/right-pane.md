@@ -15,7 +15,7 @@ Each of the four personas (⌘1 Plan, ⌘2 Author, ⌘3 Review, ⌘4 Publish —
 
 Each persona's default — the mode it opens on — is just the first one it offers: Inbox in Plan, Diagnostics in Author, Annotations in Review, Visual Language in Publish.
 
-**What a persona leads you to is not what it can reach.** The right column shows what you *consult* while making something else, so a persona doesn't lead you to a mode for the thing it's there to make: Plan writes research notes, palette cards, intent and visual language in its **left** column, and Author reads them in its right. Two of those four don't have their left-hand home yet — **Intent and Visual Language are still right-hand panes, and in Plan you reach them with ⌘⌥N and ⌘⌥V** rather than from the picker. They open, they work, and they stay selected while you use them; switch persona and come back and Plan is on its own modes again.
+**What a persona leads you to is not what it can reach.** The right column shows what you *consult* while making something else, so a persona doesn't lead you to a mode for the thing it's there to make: you write research notes and palette cards in the binder tree — the same tree in every persona — and Author reads them back in its right column instead. Intent and Visual Language have no tree home at all — **they're right-hand panes everywhere, reached with ⌘⌥N and ⌘⌥V** rather than from any picker. They open, they work, and they stay selected while you use them; switch persona and come back and Plan is on its own modes again.
 
 **Outline is in no persona's picker at all.** Same story — ⌘⌥O opens it from any persona — it just isn't one of the modes a persona leads you to. The binder is where structure lives.
 
@@ -25,7 +25,7 @@ Switching persona while sitting on a pane the destination doesn't offer falls ba
 
 Last in every persona's picker, so it's always in the same place. Shows metadata for whatever's selected in the binder.
 
-**On the planning canvas** — Plan's **Canvas** and **Structure** tabs both, since the canvas stays in the middle on either — it shows whatever is selected on the canvas, in one of three forms:
+**On the planning canvas** — Plan's centre column, always — it shows whatever is selected on the canvas, in one of three forms:
 
 - **A region** — its name, whether it's collapsed, the **Piece** it's associated with, which cards live in it and which only appear in it (with **Cite a Card** to add an appearance), **Promote…**, and a Delete Region button.
 - **A line** — its name, which is drawn on the line itself; clear the field and the name comes off. **Promote…**, and a Delete Line button. Both cards stay.
@@ -33,7 +33,7 @@ Last in every persona's picker, so it's always in the same place. Shows metadata
 
 Select nothing and it says so.
 
-**So in Plan the Inspector is the canvas's, even on the Structure tab** — the Inspector describes the middle column, and in Plan the middle column is the canvas whichever tab you're on. Clicking a chapter in Plan's Structure tree doesn't put that chapter's metadata here; it's the panes that are *about* a chapter that follow it — **Intent** (⌘⌥N) above all. Switch to Author (⌘2) for a chapter's own metadata.
+**So in Plan the Inspector is the canvas's** — the Inspector describes the middle column, and in Plan the middle column is always the canvas. Clicking a chapter in Plan's tree doesn't put that chapter's metadata here; it's the panes that are *about* a chapter that follow it — **Intent** (⌘⌥N) above all. Switch to Author (⌘2) for a chapter's own metadata.
 
 Both Piece pickers offer only pieces that can actually hold research, so nothing on either list can fail when you promote. A card left on **None** follows the region it lives in, and the line under its picker says so — *Chapter Three (from its region)* — rather than leaving you to work out where the note went. See [Getting Started → The planning canvas](getting-started.md#the-planning-canvas) and [→ Promoting](getting-started.md#promoting).
 
@@ -46,9 +46,9 @@ Shows research for the current manuscript document in up to two sections:
 
 Click an item in either section → the pane swaps to a read-only Markdown preview, side-by-side with your editor. Back chevron returns to the list.
 
-This mode is **Author's** (⌘⌥R) — it's for reading what the open chapter points at while you draft. Writing the notes themselves is Plan's, in the binder's Research segment ([Research](research.md)).
+This mode is **Author's** (⌘⌥R) — it's for reading what the open chapter points at while you draft. Writing the notes themselves is the tree's own job, in every persona ([Research](research.md)).
 
-The **+** button offers **Link Research…**, a picker sheet offering everything not already shown above, plus **New Note…**, **Add File…**, **Add Link…** to create research scoped to the open document. Dragging an item from the binder's Research segment onto this pane links it the same way — that segment is in **Plan** (⌘1), so summon this pane there with **⌘⌥R** to have both on screen at once.
+The **+** button offers **Link Research…**, a picker sheet offering everything not already shown above, plus **New Note…**, **Add File…**, **Add Link…** to create research scoped to the open document. Dragging an item from the binder tree's Research section onto this pane links it the same way — summon this pane with **⌘⌥R** in any persona to have both the tree and this preview on screen at once.
 
 Unlink: × on a row in **Linked**. Items in the automatic section have no × — untangle those by editing the piece/project structure itself, not the link.
 

@@ -950,7 +950,7 @@ enum Promotion {
             guard !body.isEmpty else { return nil }
             return PromotionPlan(
                 source: request.source, producedKind: request.target,
-                title: title(from: body), body: body,
+                title: plannedTitle(request, otherwise: title(from: body)), body: body,
                 destinationDescription: destination(request),
                 discards: [], offeredLinks: [], wikiLinkWrite: nil,
                 mode: request.mode, paletteKind: request.paletteKind,
@@ -985,7 +985,7 @@ enum Promotion {
             let contributed = Set(bodies.map(\.0)).union(carried.map(\.node))
             return PromotionPlan(
                 source: request.source, producedKind: request.target,
-                title: regionTitle(region),
+                title: plannedTitle(request, otherwise: regionTitle(region)),
                 body: bodies.map(\.1).joined(separator: "\n\n"),
                 destinationDescription: destination(request),
                 // The spatial work is not carried across, and the writer is told
@@ -1017,10 +1017,19 @@ enum Promotion {
                   let toTitle = request.artifacts.title(of: toItem) else { return nil }
             let write = WikiLinkWrite(intoNode: line.from, intoItemID: fromItem,
                                       linkText: linkText(to: toTitle, label: line.label))
+            // **The noun is kind-aware, since F10's routed fix.** The from-end
+            // can be a craft-intent statement as easily as a research note —
+            // `performWikiLink`'s statement arm has written into one since Task
+            // 3 — and "the note" is simply false about a statement. Read off
+            // `request.artifacts`, the same index `performWikiLink` resolves
+            // the write against, so the sheet's promise and the write agree
+            // about what the destination is called.
+            let destinationNoun = request.artifacts.kind(of: fromItem) == .craftIntent
+                ? "the craft intent" : "the note"
             return PromotionPlan(
                 source: request.source, producedKind: request.target,
                 title: fromTitle, body: write.linkText,
-                destinationDescription: "the note “\(fromTitle)”",
+                destinationDescription: "\(destinationNoun) “\(fromTitle)”",
                 discards: [], offeredLinks: [], wikiLinkWrite: write,
                 mode: .new, paletteKind: request.paletteKind,
                 // Nobody: a line's artifact is text inside somebody else's note,
@@ -1283,6 +1292,32 @@ enum Promotion {
     /// forbids. So a sentence naming a piece or promising a link cannot reach an
     /// update, structurally, rather than by a second guard somebody has to
     /// remember.
+    /// The name the plan CARRIES — the artifact's own on a rewrite, the source's
+    /// own on a new promotion.
+    ///
+    /// **It answers off the same value `destination` does, under the same guard,
+    /// and that identity is the fix** (M6-PR-039, RULING-22, fixed 2026-08-09).
+    /// The two used to be resolved separately: the destination named the
+    /// artifact's live title — *Goes to: the existing “Fog, act II”* — while
+    /// `title` was the card's first line, and `title` is the value that wins at
+    /// Commit. So the sheet showed two names for one artifact, the quieter one
+    /// won, and `performResearchNote` renamed the writer's note (and its file)
+    /// back to a card's first line. A control whose two labels name one artifact
+    /// and whose third, hidden value renames it is not unambiguous.
+    ///
+    /// The mode's carried title rather than a fresh index read, so the two
+    /// strings are one value and cannot drift; `existingArtifact` resolves it off
+    /// the live manifest when the mode list is built, and the performer re-reads
+    /// the manifest at Commit as it always did.
+    private static func plannedTitle(_ request: PromotionRequest,
+                                     otherwise: @autoclosure () -> String) -> String {
+        if case .update(_, let title) = request.mode,
+           updatableTargets.contains(request.target) {
+            return title
+        }
+        return otherwise()
+    }
+
     private static func destination(_ request: PromotionRequest) -> String {
         if case .update(_, let title) = request.mode,
            updatableTargets.contains(request.target) {

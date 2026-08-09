@@ -202,11 +202,25 @@ enum TreeDropIntent {
             let to = owningPieceId(of: targetId, structure: structure,
                                    research: research)
             guard from != to else { return .researchReorder }
-            // Cross-scope. The row's CONTAINER is where the item lands — its
-            // parent group if it has one, else the root of its scope. Dropping
-            // beside a row must not put the item somewhere the writer cannot
-            // see it, which is what appending to the scope root would do to a
-            // drop aimed inside a group.
+            // **A GROUP row is a destination, not a neighbour** (stage 2b final
+            // review's I4). The old research pane read middle-on-group as
+            // *into that group*, and `classifyExternal` still does one function
+            // down — so a Finder file dropped on "World" entered it while a note
+            // dragged from a piece landed beside it, in the group's parent, from
+            // the same gesture at the same pixel. Two answers to one question.
+            //
+            // The internal classifier is given no drop POSITION (a row's string
+            // destination reports none), so a group target means the group: the
+            // one reading that can never file the writer's note somewhere they
+            // did not aim.
+            if TreeWalk.find(id: targetId, in: research)?.type == .group {
+                return .rescope(ids: [dragged.id], to: .group(targetId))
+            }
+            // Cross-scope, onto a leaf. The row's CONTAINER is where the item
+            // lands — its parent group if it has one, else the root of its
+            // scope. Dropping beside a row must not put the item somewhere the
+            // writer cannot see it, which is what appending to the scope root
+            // would do to a drop aimed inside a group.
             return .rescope(ids: [dragged.id],
                             to: container(ofRow: targetId, structure: structure,
                                           research: research))
@@ -320,7 +334,13 @@ enum TreeDropIntent {
 
     /// The move destination that means "beside this row": its parent group, or
     /// the root of the scope the row is in.
-    private static func container(
+    ///
+    /// Not `private` since stage-2b Task 3: a BATCH reorder has to name its
+    /// destination to the plural mover, and *"beside this row"* is this rule and
+    /// must not be spelled a second time in the performer — the piece-root case,
+    /// where a `nil` parent id reads as the shared root, is exactly the one a
+    /// re-derivation gets wrong (`BinderTreeVerbs.reorder`).
+    static func container(
         ofRow id: String, structure: [StructureItem], research: [ResearchItem]
     ) -> ResearchMoveTarget {
         if let parent = TreeWalk.first(in: research, where: {
@@ -333,5 +353,135 @@ enum TreeDropIntent {
             return .piece(piece)
         }
         return .sharedRoot
+    }
+
+    // MARK: - A drop from outside the app (stage-2b Task 4)
+
+    /// Where an external drop's files are imported, as the store verb that
+    /// takes them.
+    ///
+    /// **Three destinations because there are three store verbs**, and the
+    /// difference between them is what a project type MEANS by a document's
+    /// research — the same distinction `ProjectStore.researchRouting` already
+    /// draws for the internal side, asked rather than restated.
+    enum ExternalDestination: Equatable {
+        /// `ProjectStore.importResearchFiles(_:toParentId:)`. `nil` is the
+        /// shared root; an id is a group, **wherever that group lives** — a
+        /// group inside a Collection piece's folder is still a group, and
+        /// importing into it lands in the piece.
+        case sharedGroup(String?)
+        /// `ProjectStore.importPieceResearchFiles(pieceId:urls:)` — the file
+        /// itself goes into `pieces/<slug>/research/`.
+        case piece(String)
+        /// Import into shared research, then link every imported item to this
+        /// document. **One act**: a novel chapter's research is a link, so
+        /// there is no folder of the chapter's own to import into, and an
+        /// import that stopped at shared research would leave the writer's
+        /// file in the section they did not aim at.
+        case sharedAndLink(String)
+    }
+
+    /// What an external drop means. `.refuse` carries the same `Reason` the
+    /// internal side does — a bounce that says why.
+    enum ExternalIntent: Equatable {
+        case importFiles(ExternalDestination)
+        case refuse(Reason)
+    }
+
+    /// **What a Finder file or a browser bitmap dropped on the tree means.**
+    ///
+    /// **It takes no payload id, and that is the whole difference from
+    /// `classify`.** An internal drag carries something the project can look
+    /// up; an external one carries a file the project has never seen. So the
+    /// TARGET is the entire question, and getting it wrong does not misplace a
+    /// row — it files the writer's photograph in a scope they did not aim at,
+    /// where the only way back is to find it and move it.
+    ///
+    /// The `position` matters for exactly one case: `.middle` on a group row
+    /// means *into that group*, which is the same gesture that moves a note
+    /// into one. Every other position beside a row means that row's CONTAINER,
+    /// which is `container(ofRow:)` — the rule the internal side already uses
+    /// for "beside this row", called here rather than spelled a second time.
+    static func classifyExternal(
+        target: Target,
+        position: DropIntent.Position,
+        structure: [StructureItem],
+        research: [ResearchItem],
+        projectType: ProjectType
+    ) -> ExternalIntent {
+        switch target {
+        case .sharedSection:
+            return .importFiles(.sharedGroup(nil))
+
+        case .pieceRow(let documentId):
+            return intoDocument(documentId, structure: structure,
+                                projectType: projectType)
+
+        case .researchRow(let rowId):
+            guard let row = TreeWalk.find(id: rowId, in: research) else {
+                // A stale row is NOT the shared root. Falling back to it would
+                // accept the drop and import the writer's file somewhere they
+                // never pointed at, which is the silent-no-op finding wearing
+                // a worse outcome.
+                return .refuse(.unknownId)
+            }
+            if position == .middle, row.type == .group {
+                return .importFiles(.sharedGroup(rowId))
+            }
+            return importing(besideRow: rowId, structure: structure,
+                             research: research)
+
+        case .foldRow(let rowId, let documentId):
+            // A group inside a fold is a real destination — a Collection
+            // piece's own group lives in that piece's folder, so importing
+            // into it lands where the writer aimed. Everything else in a fold
+            // means what the piece row above it means, which is why the fold's
+            // rows carry their document at all.
+            if position == .middle,
+               TreeWalk.find(id: rowId, in: research)?.type == .group {
+                return .importFiles(.sharedGroup(rowId))
+            }
+            return intoDocument(documentId, structure: structure,
+                                projectType: projectType)
+        }
+    }
+
+    /// Files dropped **onto** a document — its piece row, or a row in its fold.
+    /// What that means is the document's own research routing.
+    private static func intoDocument(
+        _ documentId: String, structure: [StructureItem], projectType: ProjectType
+    ) -> ExternalIntent {
+        guard let document = TreeWalk.find(id: documentId, in: structure) else {
+            return .refuse(.unknownId)
+        }
+        guard let routing = try? ProjectStore.researchRouting(
+            for: document, projectType: projectType) else {
+            return .refuse(.notAResearchTarget)
+        }
+        switch routing {
+        case .sharedOnly:
+            return .refuse(.sharedOnly)
+        case .sharedPlusLink(let docId):
+            return .importFiles(.sharedAndLink(docId))
+        case .pieceFolder(let pieceId):
+            return .importFiles(.piece(pieceId))
+        }
+    }
+
+    /// The destination that means "beside this row" — `container(ofRow:)`'s
+    /// answer, in the store verb that takes files rather than the one that
+    /// moves items.
+    ///
+    /// Deliberately **not** named `importFiles`: that is the `ExternalIntent`
+    /// case, and a static function of the same name shadows it at every
+    /// leading-dot call site inside this type. The compiler said so.
+    private static func importing(
+        besideRow id: String, structure: [StructureItem], research: [ResearchItem]
+    ) -> ExternalIntent {
+        switch container(ofRow: id, structure: structure, research: research) {
+        case .group(let groupId): return .importFiles(.sharedGroup(groupId))
+        case .piece(let pieceId): return .importFiles(.piece(pieceId))
+        case .sharedRoot: return .importFiles(.sharedGroup(nil))
+        }
     }
 }

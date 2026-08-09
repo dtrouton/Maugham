@@ -1,0 +1,331 @@
+[
+ {
+  "claim_id": "M1-T-001",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "the itemId argument is copied verbatim to the returned card's researchItemId; the parser never derives an id from the markdown"
+ },
+ {
+  "claim_id": "M1-T-002",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "title is taken from the first `# ` heading, trimmed of surrounding whitespace"
+ },
+ {
+  "claim_id": "M1-T-003",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "a `kind:` line whose value matches a Kind rawValue yields that Kind"
+ },
+ {
+  "claim_id": "M1-T-004",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "in the Swatches section only `- ` items that pass color(fromHex:) are retained, in document order; malformed items are silently dropped"
+ },
+ {
+  "claim_id": "M1-T-005",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "a Senses item of form `<sense>: text` yields a tagged note; the sense token is matched case-insensitively (`SOUND:` -> .sound)"
+ },
+ {
+  "claim_id": "M1-T-006",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "a Senses item with no recognised sense prefix yields an untagged note carrying the whole item text"
+ },
+ {
+  "claim_id": "M1-T-007",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "an Images `- path` item is resolved against cardDirectory into a project-relative path, with `..` climbing out of that directory"
+ },
+ {
+  "claim_id": "M1-T-008",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "an inline ![alt](path) written as loose prose inside the Images section is harvested and appended AFTER the dash items"
+ },
+ {
+  "claim_id": "M1-T-009",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "with no `# ` heading present, title falls back to the fallbackTitle argument"
+ },
+ {
+  "claim_id": "M1-T-010",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "with no `kind:` line present, kind defaults to .other"
+ },
+ {
+  "claim_id": "M1-T-011",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "markdown containing no section headings yields empty swatches, notes and imagePaths (never nil, never a partial parse)"
+ },
+ {
+  "claim_id": "M1-T-012",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "a `kind:` value that matches no Kind rawValue degrades to .other rather than failing"
+ },
+ {
+  "claim_id": "M1-T-013",
+  "scope": "PaletteCardParser.template",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "parse(template(title:kind:)) recovers exactly that title and kind"
+ },
+ {
+  "claim_id": "M1-T-014",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "text between the `kind:` line and the first recognised `##` section becomes body, with interior blank-line runs preserved"
+ },
+ {
+  "claim_id": "M1-T-015",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "body capture stops at the first recognised section heading and does not swallow that section's items"
+ },
+ {
+  "claim_id": "M1-T-016",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "a card with no prose between `kind:` and the first section yields body == \"\" (empty string, not a blank line)"
+ },
+ {
+  "claim_id": "M1-T-017",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "an inline ![alt](path) appearing in BODY prose is NOT harvested into imagePaths \u2014 body images stay editable prose"
+ },
+ {
+  "claim_id": "M1-T-019",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "an inline image with a `://` scheme in body prose is not harvested; remote URLs never enter imagePaths"
+ },
+ {
+  "claim_id": "M1-T-021",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "an inline image inside the Images section IS harvested and resolved relative to cardDirectory, even when written as loose prose rather than a dash item"
+ },
+ {
+  "claim_id": "M1-T-039",
+  "scope": "PaletteCardParser.parse",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "a `kind:`-looking line inside body must NOT overwrite the card's kind \u2014 kind is captured at most once, before any section"
+ },
+ {
+  "claim_id": "M1-C-008",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "an empty document yields a fully defaulted card: fallback title, .other, empty everything"
+ },
+ {
+  "claim_id": "M1-C-009",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "a whitespace-only document becomes BODY, because the structural-framing test is raw.isEmpty rather than a blankness test"
+ },
+ {
+  "claim_id": "M1-C-010",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "a '# ' line with no title text is not a title (the trimmed probe collapses it to '#') and is kept as body"
+ },
+ {
+  "claim_id": "M1-C-011",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "a SECOND '# ' heading is kept as body text rather than discarded"
+ },
+ {
+  "claim_id": "M1-C-012",
+  "scope": "PaletteCardParser.parse",
+  "kind": "PRECONDITION",
+  "warrant": "LOW",
+  "statement": "a '#' with no following space is not a title"
+ },
+ {
+  "claim_id": "M1-C-013",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "an H3 ('### ') heading is neither a title nor a section and falls into body"
+ },
+ {
+  "claim_id": "M1-C-014",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "section heading matching is case-insensitive"
+ },
+ {
+  "claim_id": "M1-C-015",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "extra spaces inside and after a section heading are tolerated"
+ },
+ {
+  "claim_id": "M1-C-016",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "an INDENTED section heading still opens that section, because structure detection runs on the trimmed probe"
+ },
+ {
+  "claim_id": "M1-C-017",
+  "scope": "PaletteCardParser.parse",
+  "kind": "PRECONDITION",
+  "warrant": "LOW",
+  "statement": "a heading with no space after the hashes is not a section"
+ },
+ {
+  "claim_id": "M1-C-018",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "a repeated section heading appends to the same collection rather than resetting it"
+ },
+ {
+  "claim_id": "M1-C-019",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "sections may appear in any order"
+ },
+ {
+  "claim_id": "M1-C-020",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "the kind key tolerates a missing space after the colon and any casing of the key itself"
+ },
+ {
+  "claim_id": "M1-C-022",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "a kind: line appearing after a section heading is discarded entirely \u2014 neither captured as kind nor kept as body"
+ },
+ {
+  "claim_id": "M1-C-025",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "swatches are neither deduplicated nor case-normalised by the parser"
+ },
+ {
+  "claim_id": "M1-C-026",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "a 3-digit swatch survives parsing unexpanded; expansion happens only inside color(fromHex:)"
+ },
+ {
+  "claim_id": "M1-C-027",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "an unrecognised sense prefix keeps the WHOLE item text, colon included"
+ },
+ {
+  "claim_id": "M1-C-028",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "an item beginning with a colon is untagged and keeps the colon"
+ },
+ {
+  "claim_id": "M1-C-029",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "whitespace around the sense token is tolerated"
+ },
+ {
+  "claim_id": "M1-C-030",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "a bare '-' or '- ' item is dropped from every section"
+ },
+ {
+  "claim_id": "M1-C-031",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "dash-item images are NOT deduplicated against each other"
+ },
+ {
+  "claim_id": "M1-C-032",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "an inline image IS deduplicated against an already-collected dash item, giving the two intake routes different dedup rules"
+ },
+ {
+  "claim_id": "M1-C-033",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "an absolute path passes through resolution unchanged"
+ },
+ {
+  "claim_id": "M1-C-034",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "a remote-URL dash item is skipped entirely"
+ },
+ {
+  "claim_id": "M1-C-035",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "climbing above the project root is clamped rather than rejected: '../../../../x.png' resolves to 'x.png'"
+ },
+ {
+  "claim_id": "M1-C-036",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "'.' and '..' segments are collapsed in place during resolution"
+ },
+ {
+  "claim_id": "M1-C-037",
+  "scope": "PaletteCardParser.parse",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "an empty cardDirectory leaves relative paths bare"
+ }
+]

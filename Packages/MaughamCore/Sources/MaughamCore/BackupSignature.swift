@@ -40,8 +40,14 @@ public enum BackupSignature {
     /// (2026-07-25) put `persona` and `personaMemory` in it, so every ⌘1–⌘4
     /// press started minting a generation. Keep the directory forms so a future
     /// move to a subdirectory does not silently reopen this.
+    ///
+    /// **`checkpoints` is matched as a partitioned STREAM, not as one path**
+    /// (see `excludedStems`). Once FM-1 gave the checkpoint log a device slug,
+    /// an exact-path exclusion stopped matching the file that is actually
+    /// written — which is the same failure the `sessions/` entry above records,
+    /// one milestone later: every ⌘S would have hashed a fresh
+    /// `checkpoints.<slug>.jsonl` and minted a whole backup generation.
     private static let excludedPrefixes = [
-        ".maugham/checkpoints.jsonl",
         ".maugham/sessions.json",
         ".maugham/sessions/",
         ".maugham/ui-state.json",
@@ -54,6 +60,12 @@ public enum BackupSignature {
         signatureName,               // ...and its signature marker
     ]
 
+    /// Per-device-partitioned JSONL streams excluded whole: every
+    /// `<stem>.<deviceSlug>.jsonl` as well as the legacy `<stem>.jsonl`.
+    private static let excludedStems = [
+        CheckpointStore.stemPath,
+    ]
+
     public static func compute(projectURL: URL) -> String {
         let rels = ((try? BackupWriter.relativeFilePaths(under: projectURL)) ?? []).sorted()
         let dec = JSONDecoder()
@@ -63,6 +75,9 @@ public enum BackupSignature {
         for rel in rels {
             if excludedNames.contains((rel as NSString).lastPathComponent) { continue }
             if excludedPrefixes.contains(where: { rel == $0 || rel.hasPrefix($0) }) { continue }
+            if excludedStems.contains(where: {
+                PartitionedJSONLFile.matches(relativePath: rel, stemPath: $0)
+            }) { continue }
             let fileURL = projectURL.appendingPathComponent(rel)
 
             if rel.hasPrefix(".maugham/ops/") {

@@ -1,7 +1,9 @@
 import SwiftUI
 import MaughamCore
 
-/// The palette wall — center-pane surface for BinderSegment.palette.
+/// The palette wall — the centre-column surface the Palette tree section's
+/// "Open Wall" door opens (`ProjectWindow.showsPaletteWall`). It was a binder
+/// segment's centre until shell-finish stage 2b Tasks 5 and 7.
 /// Cards + thumbnails load once per manifest change (tripwire 4); tiles do
 /// no I/O in body. Thumbnail file reads are UI image loads, not manuscript
 /// text reads, so they don't cross the ADR-0018 boundary.
@@ -74,5 +76,64 @@ struct PaletteWallView: View {
         image.draw(in: NSRect(origin: .zero, size: target))
         out.unlockFocus()
         return out
+    }
+}
+
+/// **The palette wall's own centre content** — the wall itself, or (once a
+/// card is selected on it) that card's editor with a bar back to the wall
+/// (stage 2b Task 5). **One door since Task 7** — `ProjectWindow.editorPane`'s
+/// `showsPaletteWall`. It was written to serve that door and the `.palette`
+/// segment arm alike so the two could not draw the wall differently; the
+/// segment and its arm died with the strip, and the sentence naming them
+/// outlived them by a task.
+///
+/// **A view of its own, not a `@ViewBuilder` method on `ProjectWindow`**,
+/// because it needs `@FocusState` to make Escape reliable. `ProjectSearchView`
+/// rides `.onExitCommand` off a query field that autofocuses on appear and
+/// stays focused for essentially the overlay's whole life — its own doc
+/// comment measures why `.onExitCommand` needs a real first responder to climb
+/// from. Nothing here is a text responder, so without a claim of its own
+/// `.onExitCommand` would have nothing to ride up from. The claim is deferred
+/// the tripwire-16 way — a same-tick `.onAppear` focus write loses the race
+/// with this view's own mount, the same race `BinderRow.claimFocus()` runs
+/// into one directory over.
+struct PaletteWallCentre: View {
+    let store: ProjectStore
+    @Binding var selectedPaletteCardId: String?
+    let onClose: () -> Void
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        Group {
+            if let cardId = selectedPaletteCardId,
+               store.paletteCardItems().contains(where: { $0.id == cardId }) {
+                VStack(spacing: 0) {
+                    HStack {
+                        Button { selectedPaletteCardId = nil } label: {
+                            Label("Wall", systemImage: "chevron.left")
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    Divider()
+                    PaletteCardEditor(store: store, cardId: cardId)
+                }
+            } else {
+                PaletteWallView(store: store, selectedCardId: $selectedPaletteCardId)
+            }
+        }
+        .focusable()
+        .focused($isFocused)
+        .onExitCommand(perform: onClose)
+        .onAppear { claimFocus() }
+    }
+
+    private func claimFocus() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(30))
+            isFocused = true
+        }
     }
 }

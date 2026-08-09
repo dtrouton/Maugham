@@ -36,6 +36,14 @@ struct PromotionResult: Equatable {
     /// craft intent* — sending the writer to look in the project's `research/`
     /// for a document sitting in `pieces/story-a/research/`. One value, read
     /// where it was resolved.
+    ///
+    /// **The `.wikiLink` arm reads the same field, since F10's routed fix.**
+    /// It used to hardcode "the note", which said the wrong thing about a line
+    /// drawn from a craft-intent card the moment `performWikiLink` learned to
+    /// write into one (Task 3): the write landed in the statement and the
+    /// banner still called it a note. `plan.destinationDescription` is the one
+    /// place `Promotion.plan`'s line arm names its own destination now, so this
+    /// reads it rather than choosing the noun a second time.
     func confirmation(for plan: PromotionPlan) -> String {
         let count = writtenLinks.count
         let links = count == 0 ? ""
@@ -44,7 +52,7 @@ struct PromotionResult: Equatable {
         case .researchNote: return "Promoted to the note “\(title)”." + links
         case .paletteCard: return "Promoted to the palette card “\(title)”." + links
         case .intentStatement: return "Added to \(plan.destinationDescription)."
-        case .wikiLink: return "Wrote the link into the note “\(title)”."
+        case .wikiLink: return "Wrote the link into \(plan.destinationDescription)."
         // **Both say "a copy", because that is the fact a writer will test.**
         // The picture stays on the canvas and the original file stays in
         // `canvas_assets/` (§6.1's ruling 1) — a sentence reading "Moved" or
@@ -64,7 +72,15 @@ enum PromotionFailure: LocalizedError, Equatable {
     /// note".
     case emptyBody(source: PromotionSource)
     case missingWikiLinkWrite
-    case linkAlreadyPresent
+    /// The link is already where it would be written. **It carries the
+    /// DESTINATION rather than choosing a noun**, and it is the third surface to
+    /// need that: this said "already in the note", which is false about a
+    /// statement the moment `performWikiLink` learned to write into one (Task 3).
+    /// `PromotionResult.confirmation` and `PromotionSheet.refusal` both read
+    /// `PromotionPlan.destinationDescription`, resolved once by the plan's line
+    /// arm off the same index the write resolves against — so this reads it too
+    /// rather than being a fourth place the noun is decided.
+    case linkAlreadyPresent(destination: String)
     case artifactMissing(String)
     /// The mark names a real artifact of the WRONG kind — a palette card or a
     /// craft-intent doc where a research note was to be rewritten.
@@ -128,7 +144,8 @@ enum PromotionFailure: LocalizedError, Equatable {
         case .emptyBody(let source):
             return "There is nothing in this \(source.noun) to promote."
         case .missingWikiLinkWrite: return "This line has nothing to link."
-        case .linkAlreadyPresent: return "That link is already in the note."
+        case .linkAlreadyPresent(let destination):
+            return "That link is already in \(destination)."
         case .artifactMissing(let id):
             return "The artifact this card produced is no longer in the project (\(id))."
         case .artifactIsADifferentKind(_, let found):
@@ -282,6 +299,7 @@ struct PromotionPerformer {
 
     func perform(_ plan: PromotionPlan) async throws -> PromotionResult {
         try validate(plan)
+        try await precheckOfferedLinks(plan)
         switch plan.producedKind {
         case .researchNote: return try await performResearchNote(plan)
         case .paletteCard: return try await performPaletteCard(plan)
@@ -335,7 +353,11 @@ struct PromotionPerformer {
             else { throw PromotionFailure.emptyBody(source: plan.source) }
         case .wikiLink:
             guard plan.wikiLinkWrite != nil else { throw PromotionFailure.missingWikiLinkWrite }
-            guard !plan.linkAlreadyPresent else { throw PromotionFailure.linkAlreadyPresent }
+            guard !plan.linkAlreadyPresent
+            else {
+                throw PromotionFailure.linkAlreadyPresent(
+                    destination: plan.destinationDescription)
+            }
         case .researchAsset, .paletteCardImage:
             // **A FILE rather than a body, and that is why these are their own
             // arms.** A picture has no prose: routed through the arm above, every
@@ -378,6 +400,40 @@ struct PromotionPerformer {
             piece: PromotionPiece.resolve(for: plan.source, in: model.scene, store: store),
             canCarryItsOwnPiece: Promotion.canCarryItsOwnPiece(plan.source, in: model.scene)) {
             throw failure
+        }
+    }
+
+    /// Read every member note the link pass will read, BEFORE anything is
+    /// created, marked or stamped (M6-PR-075, RULING-22, fixed 2026-08-09).
+    ///
+    /// **This file's contract is "validate first, write second — a refused
+    /// promotion leaves nothing behind", and the link pass was outside it.**
+    /// `writeOfferedLinks` runs last, after the artifact exists, its body is
+    /// written, the source is marked and every contribution record is stamped;
+    /// its `readBody` throws `unreadableFile` on a member's note that exists and
+    /// will not read as UTF-8. So the writer read *"Maugham could not read what
+    /// is already in research/… , so it did not write over it"* — true about the
+    /// member's note, and false about the sentence they take from it, which is
+    /// that nothing happened. The promotion had happened in full.
+    ///
+    /// The reads are the only fallible part of that pass that can be asked
+    /// early: a destination that is GONE is skipped rather than refused (the
+    /// honest skip `writeOfferedLinks` documents), and a statement is appended
+    /// to through its op log with nothing to read back first. So this walks the
+    /// same offers, resolves the same destinations, and reads the file arm —
+    /// which is exactly what a refusal here has to be able to promise.
+    ///
+    /// **The flush comes first**, for `writeOfferedLinks`' own reason: a queued
+    /// 750 ms save for a member's note would otherwise land between this check
+    /// and the write, and the file this read a verdict from would not be the
+    /// file that gets appended to.
+    private func precheckOfferedLinks(_ plan: PromotionPlan) async throws {
+        guard plan.linksAccepted, !plan.offeredLinks.isEmpty else { return }
+        try? await store.documentStore?.flushPendingSave()
+        for offer in plan.offeredLinks {
+            if case .researchFile(_, let path) = writableDestination(of: offer.itemID) {
+                _ = try readBody(atPath: path)
+            }
         }
     }
 
@@ -442,13 +498,37 @@ struct PromotionPerformer {
             // and writes raw scrap text over its body — cheap insurance against
             // doing that to a palette card.
             try refuseIfNotAResearchNote(existing)
-            // Renames the backing file through the typed mover when the title
-            // moved (tripwire 14 is satisfied by using this API rather than a
-            // raw move of our own).
-            try await store.updateResearchItem(id: existing, title: plan.title)
+            // **A rewrite does not rename** (M6-PR-038, RULING-22, fixed
+            // 2026-08-09). This called `store.updateResearchItem(id:title:)`
+            // with the plan's title, which was the CARD's first line — so a
+            // writer who had renamed the note in the research pane got it
+            // renamed back, and the file on disk moved with it
+            // (`research/fog-act-ii.md` → `research/the-falls-at-night.md`).
+            // Nothing on the sheet said the name would move; the mode picker and
+            // the destination line both named the note by the writer's own title.
+            // The artifact is already named, and an update is about the body —
+            // `Promotion.plannedTitle` now carries the artifact's own name, and
+            // this arm reads no name at all.
+            //
+            // Keep what is there before writing over it: research is recoverable
+            // but not versioned (RULING-24), and this is the only route back to
+            // the afternoon the writer spent in that note.
+            try await preservePriorVersion(ofItem: existing)
             itemID = existing
         }
         try await writeBody(plan.body, toItem: itemID)
+        if case .update = plan.mode {
+            // **The project was modified, and only this arm has to say so**
+            // (whole-branch review, 2026-08-09). `createResearchNote` stamps and
+            // saves the manifest on the `.new` arm; the rewrite arm used to
+            // reach `updateResearchItem`, which did the same, and when M6-PR-038
+            // took the rename away it took the stamp with it. A rewrite replaces
+            // a note's whole body — the largest edit this file makes — and left
+            // the project reading as untouched since the afternoon before, which
+            // is what the Recents list orders on and what a sync layer compares.
+            store.manifest.modified = Date()
+            try await store.saveManifest()
+        }
         let title = TreeWalk.find(id: itemID, in: store.manifest.research)?.title ?? plan.title
         // The mark BEFORE the offer: a link-write failure must not leave an
         // artifact the canvas has forgotten it produced, because the writer's
@@ -492,8 +572,37 @@ struct PromotionPerformer {
         // lose them to an update that was always about the prose.
         guard let current = store.loadPaletteCards().first(where: { $0.researchItemId == itemID })
         else { throw PromotionFailure.artifactMissing(itemID) }
+        if case .update = plan.mode, !current.body.trimmingCharacters(
+            in: .whitespacesAndNewlines).isEmpty {
+            // **The note arm's promise, on the card arm** (whole-branch review,
+            // 2026-08-09). M6-PR-037 gave a rewritten research note the
+            // recoverability RULING-24 owes it and stopped there; a palette card
+            // rewritten from the canvas replaced the writer's prose with no
+            // route back at all — the same loss, on the artifact a writer is
+            // most likely to have developed by hand, since a card is edited in
+            // the pane rather than generated.
+            //
+            // The TEXT rather than the file: a card's prose lives inside its
+            // card file beside the swatches, sensory notes and image references,
+            // and everything but the prose is deliberately kept by the write
+            // below. Moving the file would preserve a copy of the whole card and
+            // take the live one away from the writer.
+            //
+            // An empty body is not preserved: there is nothing to come back to,
+            // and an empty row in the Trash pane is a false claim that something
+            // was kept. Same reasoning as the note arm's "not on disk yet".
+            try await store.trashPriorVersionText(
+                text: current.body, displayTitle: current.title, id: itemID)
+        }
         try await store.updatePaletteCard(PaletteCard(
-            researchItemId: itemID, title: plan.title, kind: plan.paletteKind,
+            // **The card's own name when the plan carries none.** `canCommit`
+            // stopped requiring a title on a rewrite (the field is withheld, so
+            // requiring one is a dead button) — and a rewrite has never been
+            // about the name: M6-PR-038 is the note arm's version of exactly
+            // this. An empty `plan.title` here would rename the card to nothing.
+            researchItemId: itemID,
+            title: plan.title.isEmpty ? current.title : plan.title,
+            kind: plan.paletteKind,
             swatches: current.swatches, notes: current.notes,
             imagePaths: current.imagePaths, body: plan.body))
         // **The pictures in the region, AFTER that write and never before**
@@ -554,21 +663,77 @@ struct PromotionPerformer {
     /// open. Stable for the launch, like every other session stamp.
     private static let promotionSession = "promotion-\(UUID().uuidString)"
 
+    /// The two places a mark's artifact can be WRITTEN — `manifest.research`
+    /// first (every pre-M1A case, unchanged), else `manifest.statements`.
+    ///
+    /// **One spelling, because the preview and the commit must agree about what
+    /// "writable" means.** `Promotion.targets`/`plan`/`blockedReason` resolve a
+    /// mark through `ArtifactIndex`, which has read both registries since M1A —
+    /// so a line drawn from an intent card previews as a real promotion and then
+    /// met `artifactMissing` at Commit, told that the writer's intent is "no
+    /// longer in the project" while it is open in the pane beside them. This is
+    /// the write side of that index, and it is a separate resolver rather than
+    /// `ArtifactIndex` itself because the two questions differ: the index knows
+    /// what an artifact is CALLED, and this knows where its words go.
+    ///
+    /// A research item with no `path` stays unwritable, as it always was.
+    private enum WritableDestination {
+        case researchFile(item: ResearchItem, path: String)
+        case statement(Statement)
+    }
+
+    private func writableDestination(of itemID: String) -> WritableDestination? {
+        if let item = TreeWalk.find(id: itemID, in: store.manifest.research),
+           let path = item.path {
+            return .researchFile(item: item, path: path)
+        }
+        if let statement = store.manifest.statements.first(where: { $0.id == itemID }) {
+            return .statement(statement)
+        }
+        return nil
+    }
+
     private func performWikiLink(_ plan: PromotionPlan) async throws -> PromotionResult {
         guard let link = plan.wikiLinkWrite else { throw PromotionFailure.missingWikiLinkWrite }
-        guard let item = TreeWalk.find(id: link.intoItemID, in: store.manifest.research),
-              let path = item.path else {
+        // No mark on either arm: a line's artifact is text inside somebody
+        // else's note, and a flag on the line could disagree with what is there.
+        switch writableDestination(of: link.intoItemID) {
+        case nil:
             throw PromotionFailure.artifactMissing(link.intoItemID)
+        case .researchFile(let item, let path):
+            try? await store.documentStore?.flushPendingSave()
+            let body = try readBody(atPath: path)
+            // The plan's own check was against a SNAPSHOT taken when the sheet
+            // opened. This one is against the file.
+            guard !body.contains(link.linkText) else {
+                throw PromotionFailure.linkAlreadyPresent(
+                    destination: plan.destinationDescription)
+            }
+            try await write(body + link.appendedText, toPath: path)
+            return PromotionResult(createdItemID: item.id, title: item.title, writtenLinks: [])
+        case .statement(let statement):
+            // **The freshest text, and not the file.** `statementText`'s live arm
+            // reads the pane's own `Document`, which leads the op log by a burst
+            // window — the file arm's read-the-destination dedupe, asked of the
+            // representation that is true for a statement (tripwire 20).
+            //
+            // **No flush dance, and its absence is the point**: an op-log append
+            // cannot be raced by the debounced 750 ms save the way a
+            // read-append-write over a whole file can (`appendToStatement`'s own
+            // rule). `link.linkText` rather than `link.appendedText` for the same
+            // reason — `statementAppending` owns the blank line between what is
+            // there and what is arriving, so pre-padded text would double it.
+            guard !store.statementText(of: statement).contains(link.linkText) else {
+                throw PromotionFailure.linkAlreadyPresent(
+                    destination: plan.destinationDescription)
+            }
+            try await store.appendToStatement(link.linkText, to: statement,
+                                              session: Self.promotionSession)
+            return PromotionResult(
+                createdItemID: statement.id,
+                title: ArtifactIndex.statementTitle(statement, documentTitle: documentTitle),
+                writtenLinks: [])
         }
-        try? await store.documentStore?.flushPendingSave()
-        let body = try readBody(atPath: path)
-        // The plan's own check was against a SNAPSHOT taken when the sheet
-        // opened. This one is against the file.
-        guard !body.contains(link.linkText) else { throw PromotionFailure.linkAlreadyPresent }
-        try await write(body + link.appendedText, toPath: path)
-        // No mark: a line's artifact is text inside somebody else's note, and a
-        // flag on the line could disagree with the file.
-        return PromotionResult(createdItemID: link.intoItemID, title: item.title, writtenLinks: [])
     }
 
     // MARK: - The picture (spec §6's 2026-07-30 amendment)
@@ -679,14 +844,23 @@ struct PromotionPerformer {
 
     // MARK: - The offer (§6.1: may suggest, must never impose)
 
-    /// Append `[[artifact]]` to each offered member's OWN note — the member
+    /// Append `[[artifact]]` to each offered member's OWN artifact — the member
     /// pointing at what the region produced. Runs only when the writer accepted.
     ///
     /// **Returns what it actually WROTE, not what was offered.** Two members are
-    /// skipped rather than written: one whose note already holds the link, and
-    /// one whose item or path has since gone. "Linked 2 notes" when it linked
-    /// none is a lie on a surface whose whole promise is that you can see what a
-    /// command will do.
+    /// skipped rather than written: one whose artifact already holds the link,
+    /// and one that is genuinely gone since the sheet opened. "Linked 2 notes"
+    /// when it linked none is a lie on a surface whose whole promise is that you
+    /// can see what a command will do.
+    ///
+    /// **F10 (2026-08-09 audit): the offer counted an intent-marked member and
+    /// this loop silently skipped it**, because it only ever looked the member
+    /// up in `store.manifest.research` — a statement lives in
+    /// `store.manifest.statements` and has no `path`. "Also link 2 cards"
+    /// linked 1, the same lie the doc comment above already forbids, just
+    /// reached through the offer rather than the confirmation. `writableDestination`
+    /// (Task 3) resolves either registry, so the statement member now gets the
+    /// same link a research note does.
     ///
     /// **The count reaches the writer through `PromotionResult.confirmation(for:)`**,
     /// and this sentence used to be false: `CanvasPromotionModifier.commit`
@@ -701,12 +875,20 @@ struct PromotionPerformer {
         try? await store.documentStore?.flushPendingSave()
         var written: [CanvasNodeID] = []
         for offer in plan.offeredLinks {
-            guard let item = TreeWalk.find(id: offer.itemID, in: store.manifest.research),
-                  let path = item.path else { continue }
-            let body = try readBody(atPath: path)
-            guard !body.contains(link) else { continue }
-            try await write(body + "\n\n" + link + "\n", toPath: path)
-            written.append(offer.node)
+            switch writableDestination(of: offer.itemID) {
+            case nil:
+                continue   // genuinely gone since the sheet opened — the honest skip
+            case .researchFile(_, let path):
+                let body = try readBody(atPath: path)
+                guard !body.contains(link) else { continue }
+                try await write(body + "\n\n" + link + "\n", toPath: path)
+                written.append(offer.node)
+            case .statement(let statement):
+                guard !store.statementText(of: statement).contains(link) else { continue }
+                try await store.appendToStatement(link, to: statement,
+                                                  session: Self.promotionSession)
+                written.append(offer.node)
+            }
         }
         return written
     }
@@ -723,6 +905,42 @@ struct PromotionPerformer {
               let path = item.path else { throw PromotionFailure.itemHasNoFile(id) }
         try? await store.documentStore?.flushPendingSave()
         try await write(text, toPath: path)
+    }
+
+    /// Send the artifact's CURRENT file to the project trash before a rewrite
+    /// writes over it (M6-PR-037, RULING-24, fixed 2026-08-09).
+    ///
+    /// **The minimal bridge inside the machinery that already exists, and NOT
+    /// the versioning milestone.** RULING-24 owes research recoverability, not
+    /// versions — and a rewrite owed it nothing at all: `performFileSave` is an
+    /// atomic whole-file write, a research note has no op log,
+    /// `CheckpointCapture` walks `manifest.structure` and never
+    /// `manifest.research`, and ⌘Z takes back the mark and not the artifact. So
+    /// an afternoon the writer spent developing that note in the research pane
+    /// had no route back inside Maugham, while the same note *deleted* would
+    /// have sat in the Trash pane for the retention window. Their consent to the
+    /// rewrite is real — they chose the mode — but consent to an act is not a
+    /// recovery route. This gives a rewrite the standard a delete already has,
+    /// and no more: the copy lives for the retention window and is then swept,
+    /// exactly as RULING-23 says a deletion is.
+    ///
+    /// **Expected to be superseded.** GAP-P1 / research protection is where
+    /// versioning research is actually decided; when it lands, this is the thing
+    /// it replaces rather than a rule it has to work around.
+    ///
+    /// A note whose file is not on disk yet — a row created and never written —
+    /// has nothing to preserve and is not an error: the rewrite below simply
+    /// creates it.
+    private func preservePriorVersion(ofItem id: String) async throws {
+        guard let item = TreeWalk.find(id: id, in: store.manifest.research),
+              let path = item.path,
+              FileManager.default.fileExists(
+                atPath: store.url.appendingPathComponent(path).path) else { return }
+        // `ProjectStore.trashPriorVersion` routes through the typed mover, which
+        // flushes the research-note debounce before the move — a queued save
+        // landing after it would re-create the pre-rewrite text at the path the
+        // rewrite is about to write (tripwire 14).
+        try await store.trashPriorVersion(at: path, displayTitle: item.title, id: item.id)
     }
 
     /// Through the same `NSFileCoordinator` path research-note saves use, so a

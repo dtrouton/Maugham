@@ -10,11 +10,11 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 
 ## Layout
 
-- `OpLogStore.swift` and `CheckpointStore.swift` — thin wrappers (~30 lines each) over `JSONLAppendStore<T>`. The wrappers keep hot-path (op log, every typing burst) and cold-path (checkpoints, ⌘S) concurrency profiles explicit; `JSONLAppendStore` is the shared persistence primitive.
+- `OpLogStore.swift` and `CheckpointStore.swift` — wrappers over `JSONLAppendStore<T>` that keep hot-path (op log, every typing burst) and cold-path (checkpoints, ⌘S) concurrency profiles explicit; `JSONLAppendStore` is the shared persistence primitive. **Both partition per device** — a writer appends only to its own `<stem>.<deviceSlug>.jsonl` and readers glob-merge every sibling, the legacy unsuffixed file included (ADR 0012; `PartitionedJSONLFile` in MaughamCore holds the checkpoint/publication template, `OpLogStore` its own). Checkpoints were left out of ADR 0012's scope and were fixed by FM-1; `formal/OpLogSync.tla`'s `_cpshared`/`_cppartitioned` pair is the proof that partitioning is the fix rather than a tidy-up.
 - `JSONLAppendStore.swift` — generic append + read + tail for any JSONL-typed store. Extend here if you need new shared persistence semantics.
 - `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`.
 - `EchoState.swift` — typed snapshot of "bytes we just wrote to disk." The `init` is `private`; the only construction paths are the three named factories (`initialLoad`, `afterWrite`, `afterIngest`), which is a compile-checked invariant. The echo guard in `Document.handleExternalDiskChange` reads `lastDiskEcho.bytes` to suppress presenter callbacks that arrive in response to our own writes. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
-- `SweepReason.swift` — typed pending orphan-annotation sweep carrying the *observed* removed-paragraph-id set. Replaces an earlier bool flag. Sweep archives only annotations on `reason.removed` — never "anything missing from sequence." See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
+- `SweepReason.swift` — typed pending orphan-annotation sweep carrying the *observed* removed-paragraph-id set. Replaces an earlier bool flag. Sweep archives only annotations on `reason.removed` — never "anything missing from sequence." See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md). **The sweep also REPORTS (RULING-32):** each successful archive bumps `Document._sweptSinceLastReport`, and `flushBurstNow` spends that running total on one quiet sentence at the burst boundary — the writing pause. Batched across every sweep the burst contained, silent during it, never a prompt.
 - `ParagraphID.swift` — paragraph IDs are 4 chars from a restricted alphabet (`0123456789abcdefghjkmnpqrstvwxyz`, no `iloux` to dodge ambiguity). `mint()` produces them; `parseComment()` only accepts strings matching `[alphabet]{4}`. The 4-char rule is enforced **at the .md round-trip boundary** — `recordChange(paragraphId:)` and other in-memory APIs accept any string, so OpLog unit tests legitimately use short IDs like `"a"`/`"b"`. If your test crosses the .md ↔ op log boundary (Bootstrap, RenderFilter against parsed comments), use 4-char alphabet-restricted IDs or `ParagraphID.mint()`.
 - `TaskAnchorID.swift` — task anchors are 6 chars from the same restricted alphabet. `mint()` and `parseComment()` mirror `ParagraphID`, but the comment format is `<!--t-XXXXXX-->` (vs the paragraph-anchor `<!-- ¶XXXX -->`). Use `TaskAnchorID.mint()` (not literal strings) in tests that cross the .md boundary. See [ADR 0011](../../docs/adr/0011-tasks-first-class-with-inline-anchors.md) for why anchors are 6 chars (birthday-collision safety to ~30K tasks per doc).
 - `RenderFilter.swift` — derives the rendered .md from the op log. **Lives at `Maugham/Editor/RenderFilter.swift`** (it's consumed by the editor's display path; conceptually owned by this area). Three matching tiers for the "which historical paragraph does this orphan line belong to" question.
@@ -26,7 +26,8 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 - `OpKind.swift` — the closed set of operation types. Adding a new one touches every store and the renderer.
 - `RewindCursor.swift` — typed scrub state (`.now` vs `.atOp(opId, at)`) consumed by `Deriver.derive(ops:upTo:)` and `RewindWindow`.
 - `RewindRestoreResult.swift` — return value of `Document.restoreToOp`.
-- `SynthesisSource.swift` — typed cause of synthesized ops (`paragraph_deleted`, `disk_at_ingest`, `use_cloud_resolution`, `rewind`).
+- `SynthesisSource.swift` — typed cause of synthesized ops. **Read the enum, not a list here** — this line spelled four cases out and was stale by two (`undo_rewind`, then `reject_convergence`) before anyone noticed, because no test guards a prose list. Adding a case is a schema decision: see the type's own SCHEMA CONTRACT note and bump `ProjectManifest.currentSchemaVersion` with it.
+- **The Document's one writer-facing channel.** `Document.notifyWriter(_:)` posts a project-scoped `.maughamDocumentNotice` carrying a finished sentence, which `RewindModifier` renders in the toast it already owns. Three occasions, all of which previously reached `documentLog` and nobody else: the rewind undo's drift decline (RULING-7), the annotation-edit undo's drift decline (RULING-22), and the sweep's batched summary (RULING-32). The declines themselves are correct and unchanged — what the channel adds is the other audience. Post through `MaughamEvent.postNotice`, never by hand (ADR 0021, tripwire 21).
 
 ## Task anchors — first-class inline identity
 
@@ -204,6 +205,15 @@ Failure modes:
 5. **Don't bypass `PendingBuffer`** to write directly to the op log on every keystroke. The debounce is load-bearing for I/O cost; bypassing it will hit disk hundreds of times per second.
 - **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
 
+## Behavioural claims
+
+`Document+Rewind` (+`Document+RewindUndo`, `Deriver+Rewind`) is claim-covered:
+`register/reconciliation/Rewind.{claims,filings}.json` — test-pinned facts and their verdicts
+against the ruling set (count the `_summary`, not this sentence). **Read the filings before changing rewind behaviour**: a `VIOLATES` row is a
+known defect with a ruling behind it, a `COMPLIES` row is behaviour a ruling protects, and changing
+pinned behaviour means updating the claim + filing in the same commit (CLAUDE.md, "Behavioural
+claims + rulings").
+
 ## Tests worth knowing about
 
 - `MaughamTests/OpLog/` — unit tests for each store + the matchers.
@@ -212,6 +222,8 @@ Failure modes:
 - `MaughamTests/OpLog/DeriverUpToTests.swift` — `derive(ops:upTo:)` semantics.
 - `MaughamTests/Integration/RewindFlowTests.swift` — end-to-end `Document.restoreToOp`.
 - `MaughamTests/Integration/SynthesisSourceMigrationTests.swift` — string raw value on disk decodes into the enum.
+- `MaughamTests/OpLog/AnnotationConvergenceTests.swift` — RULING-33's Swift half. Status derives from the latest LIFECYCLE op; text from a fold of every op's `changes`; nothing made them agree, so a reject beating an already-spliced accept settled `rejected` with the suggestion still in the manuscript, permanently. The post-merge repair appends a `claudeReject` carrying the INVERSE — one op that is both the newest lifecycle op and the newest payload — which is why `Deriver.appliesToManuscript` admits `.claudeReject` (writer-issued rejects still carry nothing) and why the manifest schema went 4→5. **The formal half is `formal/AnnotationRace.tla`'s `Fixed_NoRejectedButSpliced` config**, green over 7,709 states with its red partner one constant away.
+- `MaughamTests/OpLog/DocumentNoticeTests.swift` — the writer-facing channel above, all three occasions plus the controls that keep a *successful* undo quiet.
 
 Known thin coverage (file an issue before relying on these areas for novel behavior):
 

@@ -20,20 +20,33 @@ extension ProjectWindow {
     ///   inspects it. Author, Review and Publish, whose left column is the
     ///   manuscript home and nothing else.
     /// - `besideTheCanvas` — Plan. The canvas STAYS MOUNTED
-    ///   (`BinderSegment.centresTheCanvas`) and the right column previews the
+    ///   (`Persona.centresTheCanvas`) and the right column previews the
     ///   item instead. `CanvasTreeSegmentMountTests` measured what a second
     ///   centre-column branch costs: the camera back to origin at zoom 1, every
     ///   scrap layout re-measured, the thumbnail cache emptied — on every
     ///   research click.
-    /// - `segmentStands` — nothing changes. The subject is not research, or the
-    ///   segment keeps a research selection of its own, or — the case the final
-    ///   review found — its left pane cannot write the subject, so a research
-    ///   item taking one of its columns would be a room with no door
-    ///   (`BinderSegment.leftPaneWritesTheSubject`).
+    /// - `nothingMoves` — the subject is not research, so neither column has
+    ///   anything to do about it.
+    ///
+    /// A third case, `.segmentStands`, guarded against a left column that was
+    /// not the tree: a research item taking a column while nothing on screen
+    /// could point the window anywhere else is a room with no door, which is the
+    /// Critical stage 2a's final review found. Shell-finish stage 2b Task 7
+    /// made the tree the whole left column in every persona, so the trap is not
+    /// expressible and the guard went with the enum it was asked of. Its
+    /// successor question is about the find OVERLAY — with the panel over the
+    /// column there is no row to click — and the answer is asserted rather than
+    /// assumed: `treeFindActive` is window `@State` no relaunch restores and
+    /// Escape puts the tree back
+    /// (`ProjectSubjectReachabilityTests.test_theFindOverlayIsNotATrapBecauseTheTreeComesBack`),
+    /// which are exactly the two properties that Critical lacked. So the overlay
+    /// is deliberately NOT a term here.
     enum ResearchSubjectPlacement: Equatable {
         case takesTheCentre(String)
         case besideTheCanvas(String)
-        case segmentStands
+        /// The subject names no research item. It was `.segmentStands` while
+        /// there were segments for one to stand.
+        case nothingMoves
 
         /// The item the CENTRE column shows, or `nil` when the centre is not
         /// the research subject's to take.
@@ -46,7 +59,7 @@ extension ProjectWindow {
         var inspectedItemID: String? {
             switch self {
             case .takesTheCentre(let id), .besideTheCanvas(let id): return id
-            case .segmentStands: return nil
+            case .nothingMoves: return nil
             }
         }
 
@@ -60,26 +73,65 @@ extension ProjectWindow {
         }
     }
 
-    /// Pure, named and exhaustive over the segment, for `inspectorRoute`'s
+    /// Pure, named and exhaustive over its inputs, for `inspectorRoute`'s
     /// reason: the two routing bugs that shape says out loud were both a rule
     /// spelled inside a `@ViewBuilder` where no test could be exhaustive over
     /// it.
+    ///
+    /// **Two guards stood in front of this and both are gone**, each in the task
+    /// that made it unable to decide anything.
+    ///
+    /// `keepsItsOwnResearchSelection` went in stage 2b Task 6 — it asked whether
+    /// the centre was already about a research item, and the trap guard beside
+    /// it was strictly wider, so it never decided a case the other did not
+    /// decide the same way.
+    ///
+    /// The trap guard itself went in Task 7 with the enum it was asked of: it
+    /// refused every left column that was not the tree, and every left column is
+    /// the tree now. See `ResearchSubjectPlacement` for the successor question —
+    /// the find overlay — and why the answer is asserted rather than made a term
+    /// here.
     static func researchSubjectPlacement(
-        binderSegment: BinderSegment, subject: BinderSubject?
+        persona: Persona, subject: BinderSubject?
     ) -> ResearchSubjectPlacement {
-        guard let id = subject?.researchID else { return .segmentStands }
-        // **Two guards, and they ask different questions.** The first is about
-        // the segment's own centre column (a transitional pane with a research
-        // selection of its own); the second is about whether the writer can get
-        // back out — a segment whose left pane cannot write the subject offers
-        // no control that clears it, so a research item taking one of its
-        // columns is a trap that survives a relaunch (`.canvas`, `.trash`; the
-        // final review's Critical). They agree on every case today and are held
-        // together by an asserted containment rather than by luck.
-        guard !binderSegment.keepsItsOwnResearchSelection else { return .segmentStands }
-        guard binderSegment.leftPaneWritesTheSubject else { return .segmentStands }
-        return binderSegment.centresTheCanvas
-            ? .besideTheCanvas(id) : .takesTheCentre(id)
+        guard let id = subject?.researchID else { return .nothingMoves }
+        // **The persona decides which column.** Plan keeps the board in the
+        // centre and previews beside it; everyone else hands the centre over.
+        return persona.centresTheCanvas ? .besideTheCanvas(id) : .takesTheCentre(id)
+    }
+
+    /// **Showing the column the placement chose** (stage 2b final review's
+    /// Critical).
+    ///
+    /// `besideTheCanvas` says the right column previews the item. It does not
+    /// make that column VISIBLE, and in Plan it is not: `Persona.panes` opens
+    /// Plan on `.inbox`, and `ResearchSubjectInspector` is mounted by
+    /// `DetailPaneToggle`'s `.inspector` arm alone. So every correct piece of
+    /// the routing — the tree writes the subject, the placement sends it beside
+    /// the board, the right column knows what to draw — composed into a research
+    /// row that put nothing anywhere: the board does not dim, the pane does not
+    /// change, and the writer's click is silently nothing. Three tasks' choices,
+    /// each right on its own.
+    ///
+    /// **What it does NOT do is decide anything about the columns.** Where the
+    /// centre takes the item (Author, Review, Publish) this writes nothing at
+    /// all, so a writer's pane choice in those personas is never moved by a
+    /// research click — the guard is the placement's own answer, asked rather
+    /// than a second `centresTheCanvas` test.
+    ///
+    /// `inout` and static so the whole rule is drivable without a window, and so
+    /// the three sites that reveal — the subject observer
+    /// (`ResearchRevealModifier`) and the two forced entries (`openResearchItem`,
+    /// `handleShowLatestMCPNote`) — cannot come to disagree about what revealing
+    /// means.
+    static func revealResearchColumn(persona: Persona,
+                                     subject: BinderSubject?,
+                                     showInspector: inout Bool,
+                                     detailSegment: inout DetailSegment) {
+        guard researchSubjectPlacement(persona: persona, subject: subject)
+            .previewsInTheRightColumn else { return }
+        showInspector = true
+        detailSegment = .inspector
     }
 
     /// Whether the window's subject resolves to a manuscript document — the only
@@ -103,10 +155,12 @@ extension ProjectWindow {
 
     /// **Which editor a research item opens in.**
     ///
-    /// Extracted from `existingEditorSwitch`'s `.research` arm, where it lived
-    /// as three nested `if`s, so the segment arm (still alive until stage 2b
-    /// deletes `ResearchView`) and the subject arm cannot answer differently.
-    /// Both mount `ResearchSubjectCentre`, which is this function's one caller.
+    /// Extracted from the old research segment's centre-column arm, where it
+    /// lived as three nested `if`s, so that arm and the subject arm could not
+    /// answer differently. The arm is gone (stage 2b Task 7) and the rule is
+    /// what was worth keeping: `ResearchSubjectCentre` and
+    /// `ResearchSubjectInspector` are its two callers, and having one of them
+    /// not call it is the drift it was built against.
     enum ResearchCentreRoute: Equatable {
         /// A palette card, by id — `PaletteCardEditor`. **Never
         /// `ResearchNoteEditor`**, whose stale open text clobbers the card model
@@ -119,10 +173,9 @@ extension ProjectWindow {
         /// link, a group — via `ResearchPreview`.
         case preview(ResearchItem)
         /// The id names nothing. The subject sweep lands a dangling id on
-        /// `.project` before it reaches here (Task 2), so this is the
+        /// `.project` before it reaches here (stage-2a Task 2), so this is the
         /// render-race window in which the subject and the manifest have
-        /// arrived in different passes — and the `.research` segment's own arm,
-        /// which passes `nil` when the old pane has no selection.
+        /// arrived in different passes.
         case missing
     }
 
@@ -157,8 +210,8 @@ extension ProjectWindow {
 struct ResearchSubjectCentre: View {
     let store: ProjectStore
     let documentStore: DocumentStore
-    /// Optional because the segment arm's `selectedResearchId` is — nothing
-    /// selected is `.missing`, which is the empty state.
+    /// Optional because the render-race window above is real: nothing selected
+    /// is `.missing`, which is the empty state.
     let itemID: String?
     let previewVisible: Bool
 
@@ -205,8 +258,8 @@ struct ResearchSubjectCentre: View {
 /// having one of them not call it is the drift it was built against.
 struct ResearchSubjectInspector: View {
     let store: ProjectStore
-    /// Optional for `ResearchSubjectCentre.itemID`'s reason — the segment arm's
-    /// `selectedResearchId` is, and nothing selected is the empty state.
+    /// Optional for `ResearchSubjectCentre.itemID`'s reason — nothing selected
+    /// is the empty state.
     let itemID: String?
     let showsPreview: Bool
 

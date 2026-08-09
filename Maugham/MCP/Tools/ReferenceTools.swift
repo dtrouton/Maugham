@@ -279,6 +279,18 @@ public enum FindReferencesTool: MCPTool {
         }) {
             return r.id
         }
+        // Statements: by id, then by case-insensitive composed title — after
+        // research/docs (the writer-named artifact wins a collision, as in
+        // list_all_links), before path matches.
+        let statementPairs = store.statementTitlePairs()
+        if statementPairs.contains(where: { $0.id == target }) {
+            return target
+        }
+        if let s = statementPairs.first(where: {
+            $0.title.compare(target, options: .caseInsensitive) == .orderedSame
+        }) {
+            return s.id
+        }
         // Exact path match (manuscript)?
         if let m = docs
             .first(where: { $0.path == target }) {
@@ -303,6 +315,9 @@ public enum FindReferencesTool: MCPTool {
             }
             for item in store.resolveResearchLinks([id]) {
                 titles.append(item.title)
+            }
+            for pair in store.statementTitlePairs() where pair.id == id {
+                titles.append(pair.title)
             }
         } else {
             // Unresolved id — still scan for [[target]] literally; user may have

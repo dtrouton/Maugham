@@ -140,6 +140,73 @@ final class AnnotationWriterTests: XCTestCase {
         XCTAssertEqual(resolved.status, .accepted)
     }
 
+    /// A suggestion the writer WITHDREW on another device must not be
+    /// spliceable from a stale phone view (RULING-33's status/manuscript
+    /// agreement + tripwire 19: the same rule as the Mac's guard, decided by
+    /// the same shared AnnotationDeriver.isWithdrawn).
+    func test_accept_refusesAWithdrawnSuggestion_givenTheMergedOps() throws {
+        let para = "She was very angry."
+        let creation = Op(
+            opId: "01AWITHDRAWNSUG", docId: docId,
+            at: Date(timeIntervalSince1970: 1_699_000_000),
+            device: "mac", session: "s", kind: .claudeSuggestion,
+            changes: [Op.ParagraphChange(
+                paragraphId: "k7m3", prior: para, next: "furious")],
+            provenance: Op.Provenance(sessionId: "s", annotationBody: "b"))
+        let withdraw = Op(
+            opId: "01BWITHDRAWOP00", docId: docId,
+            at: Date(timeIntervalSince1970: 1_699_000_100),
+            device: "mac", session: "s", kind: .annotationWithdraw,
+            changes: [], provenance: Op.Provenance(
+                sessionId: "s", sourceAnnotationId: "01AWITHDRAWNSUG"))
+        let ann = AnnotationDeriver.derive(
+            ops: [creation], paragraphs: ["k7m3": para]).first!
+
+        let writer = makeWriter()
+        XCTAssertThrowsError(try writer.makeAccept(
+            for: ann, currentParagraph: para,
+            verifyingAgainst: [creation, withdraw])) { error in
+            guard case AnnotationWriter.WriteError
+                .annotationWithdrawn(annotationId: ann.id) = error else {
+                return XCTFail("expected annotationWithdrawn, got \(error)")
+            }
+        }
+        // Without the withdraw in the verification set, the accept builds.
+        XCTAssertNoThrow(try writer.makeAccept(
+            for: ann, currentParagraph: para, verifyingAgainst: [creation]))
+    }
+
+    /// A span whose quoted phrase is no longer in the current paragraph is
+    /// REFUSED (RULING-5, 2026-08-09): `makeAccept` throws rather than build an
+    /// accept that would replace the whole paragraph with the bare span-sized
+    /// replacement. Same decision as the Mac, made by the shared
+    /// `SuggestionSplice.attempt` (tripwire 19).
+    func test_makeAccept_lostSpanAnchor_isRefused() throws {
+        let para = "She was very angry."
+        let span = SpanAnchorResolver.capture(in: para, range: 8..<18)
+        let creation = Op(
+            opId: "01LOSTANCHORSUG", docId: docId,
+            at: Date(timeIntervalSince1970: 1_699_000_000),
+            device: "mac", session: "s", kind: .claudeSuggestion,
+            changes: [Op.ParagraphChange(
+                paragraphId: "k7m3", prior: para, next: "furious")],
+            provenance: Op.Provenance(
+                sessionId: "s", annotationBody: "tighten",
+                spanQuote: span.quote, spanPrefix: span.prefix,
+                spanSuffix: span.suffix, spanPosHint: span.posHint))
+        let ann = AnnotationDeriver.derive(
+            ops: [creation], paragraphs: ["k7m3": para]).first!
+
+        let writer = makeWriter()
+        XCTAssertThrowsError(try writer.makeAccept(
+            for: ann, currentParagraph: "She was livid about it all.")) { error in
+            guard case AnnotationWriter.WriteError
+                .suggestionAnchorLost(annotationId: ann.id) = error else {
+                return XCTFail("expected suggestionAnchorLost, got \(error)")
+            }
+        }
+    }
+
     /// Span-anchored (sub-paragraph) suggestion: the phone accept must SPLICE the
     /// bare replacement into the current paragraph (shared `SuggestionSplice`),
     /// not replace the whole paragraph with the bare word. Mirrors the Mac.

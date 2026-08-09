@@ -251,3 +251,120 @@ manifest, no cross-writes).
   look different, and both should look right.
 - The subject surviving its own rescope — drag the selected note into a
   fold and selection should hold rather than jump.
+
+## 2b built — stage 3 owed — addendum, 2026-08-09
+
+**Stage 2b of the shell finish** (plan
+`docs/superpowers/plans/2026-08-09-shell-finish-stage2b-strip-death.md`) is
+built on `feat/shell-finish-stage2b`, HEAD `b1d56e59`, tasks 1–9 merged and
+review-clean, **not merged to main, not pushed**. The strip is gone: find is
+an overlay of the whole tree (`ProjectWindow.treeFindActive`), trash is a
+foot disclosure below the Research/Palette sections, the tree is multiselect
+(`Set<BinderSubject>`, the window's one subject *derived* from it), a drag
+onto the tree is scope (Finder files, browser bitmaps, paste, and Add File's
+folder import all reach the same creation verbs `TreeDropIntent` already
+routed internal drags through), and the Palette section's header keeps a door
+onto a palette wall — a full-window card grid — in Author/Review/Publish,
+disabled in Plan. `BinderSegment`, its picker, `Persona.binderSegments`/
+`binderHome`, and `PersonaMemory`'s binder half are deleted, not deprecated;
+two closed-set `TripwireGrepTests` censuses (named in `Maugham/Views/AREA.md`)
+guard against either coming back. Docs caught up in this task (T9): the guide
+sweep, CLAUDE.md's Views row, `Maugham/Views/AREA.md`'s binder-tree section,
+and this addendum.
+
+**Stage 3 carries forward verbatim** (spec `2026-08-08-shell-finish-design.md`
+§9's third stage; none of this is stage 2b's to touch):
+- **Keyspace re-points** — ⌘⌥R/⌘⌥P/⌘⌥O per spec §5, once the right-pane
+  registry thins.
+- **Right-pane registry thinning** — spec §5's second half; not started.
+- **Project altitude / corkboard-to-centre** — the centre rule spec §9 names
+  as stage 3's core: project altitude moves the corkboard into the centre
+  column, still unbuilt.
+- **The Plan double-click hop** — spec-named, still unbuilt.
+- **The wall-in-Plan question** — the palette wall is disabled (not hidden)
+  in Plan because Plan's centre column is already the canvas; whether the
+  wall should ever be reachable there, and how, is stage 3's call.
+- **The palette-name collision is STILL Denver's call** — a research group
+  titled "Palette" takes the path `research/palette` and collides with the
+  palette folder itself. Surfaced at 2a's close, re-confirmed live through
+  2b; nothing in 2b resolves it.
+- **The T7-noted select-only re-point, if a reveal is ever wanted** —
+  `openResearchItem` (a wiki-link, the Inspector's Links row, the stats
+  window navigating to a research item) selects the item without expanding
+  its section in the tree to show it. Recorded as a deliberate scope cut in
+  T7's report rather than an oversight: reaching into a host's disclosure
+  state from the window would be a fourth writer of state three tree hosts
+  already share, for a row the writer may not even be looking at — the
+  subject is what both columns read regardless, so the item opens either
+  way. Revisit if a writer reports losing track of where the selection
+  landed.
+- **T3's named risks, still live**: (1) the tree's `.link`/`.unlink` batch
+  is a sequential loop over single-item store calls, not a plural verb — a
+  mid-loop throw leaves earlier links applied and surfaces only via the
+  shared alert; a plural store verb would close this. (2) a stale id can sit
+  in `BinderTreeSections`' selection state until the next click — inert
+  today by construction, but the rule for any NEW reader is to route through
+  `shown`/`resolved`/`actingResearchIds`, never read the raw stored set,
+  because those three derive from the live manifest and a raw read would
+  not.
+- **T4's minor deferred, still live**: the `.sharedAndLink` import loop
+  (Finder files dropped on a novel chapter, which both imports to shared
+  research AND links) is not fully atomic — a partial import-without-link is
+  possible on a mid-loop throw, surfacing via the shared alert; `BinderRow`/
+  `PieceRow` carry an asymmetric guard on empty drop providers.
+- **T3's deviation, ruled sound but worth re-checking if multiselect grows
+  new call sites**: no set-pruning sweep for the tree's `Set<BinderSubject>`
+  selection — argued and reviewed as stale-proof because `ordered` and
+  `actingResearchIds` both walk the live manifest on every read, so a
+  deleted id simply can't come out of either, sweep or no sweep.
+
+**Denver's 2b smoke list** (consolidated from the ledger's accumulated
+flags — nothing here has been hands-on verified):
+- **Find overlay** — ⌘⌥F opens it in every persona (not just the ones that
+  used to carry a `.find` segment); Escape closes it in one press from
+  anywhere inside the search field; a match click follows its source in
+  both id spaces — a manuscript hit opens the document, a research hit
+  routes the subject the way any other research selection does
+  (`researchSubjectPlacement`: beside the canvas in Plan, the centre
+  elsewhere).
+- **Trash disclosure** — browse entries, Restore a row, Empty Trash, all
+  from the foot disclosure's own chrome; a restore that returns less than
+  was deleted shows the shortfall message at that moment (RULING-42
+  surfacing) rather than silently dropping rows.
+- **Multiselect** — ⌘-click two research notes → "Delete 2 Items"; a batch
+  drag of a multi-selection into a fold moves the whole selection, not just
+  the row that was dragged.
+- **External drops** — a Finder file dropped on a chapter row links it (and
+  imports to shared research); the same file dropped on a Collection piece
+  rescopes it into that piece's own research folder; a browser-rendered
+  image drops as an image; paste (⌘V, including a plain URL paste — newly
+  alive as of T4, was silently dead before) lands the same way; a folder
+  imports through **Add File…**, not through drag (a dropped folder still
+  silently no-ops — a pre-existing store gap, not new in 2b).
+- **The wall's door** — "Open Wall" in the Palette section header takes over
+  the centre column in Author (and Review, and Publish); Escape closes it;
+  it's disabled with an explanatory tooltip in Plan; the manuscript status
+  footer is hidden underneath it rather than showing a stale goal capsule
+  through it (Task 8's fix).
+- **The `.find`/`.trash` centre reversal** — in 2a, `.find` and `.trash`
+  segments deliberately refused to let a research subject take their
+  centre (the fix for the 2a Critical). In 2b neither is a segment with a
+  centre of its own any more — find is a column-wide overlay, trash a foot
+  disclosure — so the question that reversal answered no longer has
+  anywhere to be asked. Worth confirming in the flesh that no stale research
+  subject shows through the find overlay or over the trash list.
+- **The paste gate accepts `.project` as a stand-in for "no research focus
+  selected"** — pasting with the project row selected still lands
+  somewhere sane rather than refusing; not obviously the right long-term
+  behaviour, flagged rather than fixed.
+- **No whole-column catch-all drop** — dropping a file on blank tree space
+  (not on any row) does nothing; the tree's blank space belongs to the
+  manuscript, not to research import. Confirm this reads as "nothing
+  happened" rather than as a bug.
+- **Plan's research-subject preview replacing the region inspector** — T7's
+  one deliberate behaviour change: selecting a research item in Plan now
+  replaces the canvas's region/scrap/line inspector with the research
+  preview, in every case (previously this only worked by dragging the
+  writer onto an old pane). Confirm the preview reads well beside the
+  canvas and that returning to a region/scrap afterward brings its
+  inspector back correctly.

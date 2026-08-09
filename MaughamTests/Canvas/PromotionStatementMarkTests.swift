@@ -165,4 +165,18 @@ final class PromotionStatementMarkTests: XCTestCase {
         XCTAssertNil(ProjectWindow.statementPane(forMark: note.id, in: store))
         XCTAssertNil(ProjectWindow.statementPane(forMark: "res-nope", in: store))
     }
+
+    // MARK: - The enumeration
+
+    /// `statementTitlePairs()` returns the (id, composed title) pair for every
+    /// statement — the resolution-side spelling of "what a statement is called".
+    func test_statementTitlePairs_composeTheOneTitlePerStatement() async throws {
+        let store = try await makeProject()   // chapter id "ch-1", title "Chapter 1"
+        let projectIntent = try await store.createStatement(kind: .intent, scope: .project)
+        let chapterIntent = try await store.createStatement(kind: .intent, scope: .document("ch-1"))
+        let pairs = store.statementTitlePairs()
+        XCTAssertEqual(Set(pairs.map(\.id)), [projectIntent.id, chapterIntent.id])
+        XCTAssertEqual(pairs.first { $0.id == projectIntent.id }?.title, "Craft Intent")
+        XCTAssertEqual(pairs.first { $0.id == chapterIntent.id }?.title, "Craft Intent · Chapter 1")
+    }
 }

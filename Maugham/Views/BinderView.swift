@@ -4,6 +4,11 @@ import MaughamCore
 struct BinderView: View {
     @Bindable var store: ProjectStore
     @Binding var selectedSubject: BinderSubject?
+    /// Threaded to `BinderTreeSections`' Palette header — see its own doc
+    /// comment (stage 2b Task 5). Defaulted for the mounted-tree fixtures that
+    /// do not care about the wall's door.
+    var canOpenPaletteWall: Bool = true
+    var onOpenPaletteWall: () -> Void = {}
     @State private var renamingItemId: String?
     @State private var pendingError: String?
     @State private var pendingTidyParentId: String?
@@ -39,13 +44,21 @@ struct BinderView: View {
         // are empty, and the measurement above is exactly why one of those may
         // not reach the binding. `BinderTreeSelection` refuses the `nil`; every
         // tagged row still writes straight through.
-        List(selection: BinderTreeSelection.binding($selectedSubject)) {
+        //
+        // **And it is a SET** (stage-2b Task 3), because 2b deletes the panes
+        // that hold the app's only batch verbs and the tree has to carry them.
+        // The window still has exactly one subject: it is derived from the set,
+        // and a write of one row goes through the very rule 2a shipped.
+        List(selection: BinderTreeSelection.binding(
+                subject: $selectedSubject, state: treeState, store: store)) {
             projectRow
             outline(items: store.manifest.structure)
             // Below everything the tree already had — the sections are furniture
             // at the foot of the column, and the project row stays row zero.
             BinderTreeSections(store: store, state: treeState,
-                               selectedSubject: $selectedSubject)
+                               selectedSubject: $selectedSubject,
+                               canOpenPaletteWall: canOpenPaletteWall,
+                               onOpenPaletteWall: onOpenPaletteWall)
         }
         .listStyle(.sidebar)
         .overlay {
@@ -205,6 +218,15 @@ struct BinderView: View {
                                                 position: position,
                                                 target: item) }
                     })
+            },
+            // **And a third kind, from outside the app** (stage-2b Task 4): a
+            // file dropped on a chapter is that chapter's research, which in a
+            // novel means shared-plus-a-link and in a group or a screenplay's
+            // script means a bounce. `TreeDropIntent` says which.
+            onExternalDrop: { providers, position in
+                treeVerbs.routeExternalDrop(
+                    providers: providers, position: position,
+                    target: .pieceRow(item.id))
             }
         )
         .contextMenu {

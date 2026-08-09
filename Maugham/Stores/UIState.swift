@@ -23,7 +23,6 @@ public struct UIState: Codable, Equatable, Sendable {
     /// all rather than misreading a research id as a structure item id.
     public var selectedSubject: BinderSubject?
     public var isNoChromeOn: Bool
-    public var binderSegment: BinderSegment
     public var researchPreviewVisible: Bool
     public var detailSegment: DetailSegment
     public var outlineLayout: OutlineLayout
@@ -138,7 +137,6 @@ public struct UIState: Codable, Equatable, Sendable {
         schemaVersion: Int = UIState.currentSchemaVersion,
         selectedSubject: BinderSubject? = nil,
         isNoChromeOn: Bool = false,
-        binderSegment: BinderSegment = .manuscript,
         researchPreviewVisible: Bool = false,
         detailSegment: DetailSegment = .inspector,
         outlineLayout: OutlineLayout = .table,
@@ -152,7 +150,6 @@ public struct UIState: Codable, Equatable, Sendable {
         self.schemaVersion = schemaVersion
         self.selectedSubject = selectedSubject
         self.isNoChromeOn = isNoChromeOn
-        self.binderSegment = binderSegment
         self.researchPreviewVisible = researchPreviewVisible
         self.detailSegment = detailSegment
         self.outlineLayout = outlineLayout
@@ -171,7 +168,7 @@ public struct UIState: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, selectedItemId, selectedSubjectIsProject,
              selectedResearchItemId,
-             isNoChromeOn, binderSegment,
+             isNoChromeOn,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
              persona, personaMemory, compilerModel, assistantColumnWidth,
              detailColumnWidth
@@ -194,7 +191,6 @@ public struct UIState: Codable, Equatable, Sendable {
             break
         }
         try c.encode(isNoChromeOn, forKey: .isNoChromeOn)
-        try c.encode(binderSegment, forKey: .binderSegment)
         try c.encode(researchPreviewVisible, forKey: .researchPreviewVisible)
         try c.encode(detailSegment, forKey: .detailSegment)
         try c.encode(outlineLayout, forKey: .outlineLayout)
@@ -224,7 +220,6 @@ public struct UIState: Codable, Equatable, Sendable {
         }
         self.isNoChromeOn = (try? c.decode(Bool.self, forKey: .isNoChromeOn)) ?? false
         self.isReviewModeOn = (try? c.decode(Bool.self, forKey: .isReviewModeOn)) ?? false
-        self.binderSegment = (try? c.decode(BinderSegment.self, forKey: .binderSegment)) ?? .manuscript
         self.researchPreviewVisible = (try? c.decode(Bool.self, forKey: .researchPreviewVisible)) ?? false
         self.detailSegment = (try? c.decode(DetailSegment.self, forKey: .detailSegment)) ?? .inspector
         self.outlineLayout = (try? c.decode(OutlineLayout.self, forKey: .outlineLayout)) ?? .table
@@ -244,10 +239,15 @@ public struct UIState: Codable, Equatable, Sendable {
             (try? c.decode(Double.self, forKey: .detailColumnWidth))
                 ?? UIState.defaultDetailColumnWidth)
         // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
-        // v0.3.1 (dead-code sweep). JSONDecoder ignores unknown keys, so old
-        // ui-state.json files load cleanly. Cursor restore actually flows
-        // through `Document.cursorLocation` (per-doc) — UIState never owned
-        // scroll position in any production code path.
+        // v0.3.1 (dead-code sweep), and `binderSegment` in shell-finish stage
+        // 2b Task 7, when the binder strip died with `BinderSegment`. A keyed
+        // container never asks for a key it has no case for, so every one of
+        // those old values decodes away and is dropped on the next write —
+        // which is what "no migration" (tripwire 11) means here. There is
+        // nothing to restore a left-column choice to: every persona's left
+        // column is the project's own tree. Cursor restore flows through
+        // `Document.cursorLocation` (per-doc); UIState never owned scroll
+        // position in any production code path.
     }
 
     /// Load from disk; return `.empty` if file is missing, malformed, or has

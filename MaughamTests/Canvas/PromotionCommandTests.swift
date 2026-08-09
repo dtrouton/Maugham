@@ -17,18 +17,19 @@ final class PromotionCommandTests: XCTestCase {
 
     func test_theCommandIsOfferedOnlyOnTheCanvasWithSomethingSelected() {
         let model = CanvasModel()
-        XCTAssertFalse(CanvasPromotionModifier.isPromotable(binderSegment: .canvas,
-                                                            selection: model.selection,
-                                                            nodeKind: nil))
-        XCTAssertTrue(CanvasPromotionModifier.isPromotable(binderSegment: .canvas,
-                                                           selection: .node(a),
-                                                           nodeKind: .scrap))
-        XCTAssertFalse(CanvasPromotionModifier.isPromotable(binderSegment: .manuscript,
-                                                            selection: .node(a),
-                                                            nodeKind: .scrap),
-                       "the manuscript editor has no canvas selection to promote")
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            binderSegment: .research, selection: .region(CanvasRegionID("r")), nodeKind: nil))
+            persona: .plan,
+            selection: model.selection, nodeKind: nil))
+        XCTAssertTrue(CanvasPromotionModifier.isPromotable(
+            persona: .plan,
+            selection: .node(a), nodeKind: .scrap))
+        XCTAssertFalse(CanvasPromotionModifier.isPromotable(
+            persona: .author,
+            selection: .node(a), nodeKind: .scrap),
+            "the manuscript editor has no canvas selection to promote")
+        XCTAssertFalse(CanvasPromotionModifier.isPromotable(
+            persona: .author,
+            selection: .region(CanvasRegionID("r")), nodeKind: nil))
     }
 
     /// A REFERENCED item node already exists as itself, so `Promotion.targets`
@@ -41,12 +42,12 @@ final class PromotionCommandTests: XCTestCase {
     /// selection case.
     func test_aReferencedItemNodeIsNotPromotableBecauseItAlreadyExistsAsItself() {
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            binderSegment: .canvas, selection: .node(a), nodeKind: .scrap))
+            persona: .plan, selection: .node(a), nodeKind: .scrap))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            binderSegment: .canvas, selection: .node(a),
+            persona: .plan, selection: .node(a),
             nodeKind: .item(.project(id: "r-9"))))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            binderSegment: .canvas, selection: .node(a), nodeKind: nil),
+            persona: .plan, selection: .node(a), nodeKind: nil),
             "a selection naming a node the scene no longer holds resolves to no "
             + "kind, and an enabled command with nothing behind it is the "
             + "condition the flag exists to prevent")
@@ -59,22 +60,25 @@ final class PromotionCommandTests: XCTestCase {
     /// the same argument the refusal above does.
     func test_anOwnedItemNodeIsPromotable() {
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            binderSegment: .canvas, selection: .node(a),
+            persona: .plan, selection: .node(a),
             nodeKind: .item(.owned(path: "canvas_assets/image-20260730-121314.png"))))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            binderSegment: .research, selection: .node(a),
+            persona: .author, selection: .node(a),
             nodeKind: .item(.owned(path: "canvas_assets/image-20260730-121314.png"))),
-            "the control: the segment guard still runs first — this is not an "
-            + "escape hatch past it")
+            "the control: the centre-column guard still runs first — this is "
+            + "not an escape hatch past it. Author's centre is the editor, and "
+            + "a canvas selection there names something not on screen")
     }
 
     /// A region and a line carry no node kind, so the kind term must not reach
     /// them — passing nil for a region is the ordinary case, not a defect.
     func test_theNodeKindTermDoesNotReachARegionOrALine() {
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            binderSegment: .canvas, selection: .region(CanvasRegionID("r")), nodeKind: nil))
+            persona: .plan,
+            selection: .region(CanvasRegionID("r")), nodeKind: nil))
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            binderSegment: .canvas, selection: .line(CanvasLineID("l")), nodeKind: nil))
+            persona: .plan,
+            selection: .line(CanvasLineID("l")), nodeKind: nil))
     }
 
     func test_everySelectionKindIsPromotable() {
@@ -90,10 +94,10 @@ final class PromotionCommandTests: XCTestCase {
         // deleted by the next author who checks the reason.
         for selection: CanvasSelection in [.node(a), .region(CanvasRegionID("r")),
                                            .line(CanvasLineID("l"))] {
-            XCTAssertTrue(CanvasPromotionModifier.isPromotable(binderSegment: .canvas,
-                                                               selection: selection,
-                                                               nodeKind: .scrap),
-                          "\(selection)")
+            XCTAssertTrue(CanvasPromotionModifier.isPromotable(
+                persona: .plan,
+                selection: selection, nodeKind: .scrap),
+                "\(selection)")
         }
     }
 
@@ -357,8 +361,8 @@ final class PromotionCommandTests: XCTestCase {
               ".modifier(CanvasCollapseModifier(",
               "NavigationSplitView(columnVisibility: $columnVisibility)",
               "Self.releasesCanvasCollapse(",
-              "Self.clearsPaletteStash(",
-              "ProjectWindow.applyPaletteSegmentChange("],
+              "ProjectWindow.closePaletteWallOnPersonaChange(",
+              "ProjectWindow.applyPaletteWallChange("],
              // **Numbered by what each token IS, never by its position in the
              // array above** (1C-d Task 12a, review Important 1). This read
              // "The FIFTH is…", "The SIXTH is…" and so on; Task 12a inserted a
@@ -481,22 +485,27 @@ final class PromotionCommandTests: XCTestCase {
              + "`CanvasCollapseTests` assertion stays green while a writer who "
              + "closed the inspector before collapsing lands in the next "
              + "persona with it closed, which is the exact defect the predicate "
-             + "exists to prevent. **`Self.clearsPaletteStash(` is its "
-             + "NEIGHBOUR three lines up, and it had the identical gap "
+             + "exists to prevent. **`ProjectWindow.closePaletteWallOnPersonaChange(` "
+             + "is the same hazard on the WALL, and it had the identical gap "
              + "until the 1C-d whole-branch review (M3)** — Task 13 measured "
-             + "the hazard on its own predicate and censused that one, and "
-             + "the sibling it was copied from was left uncovered. Delete "
-             + "those three lines and every test stays green while a writer "
-             + "switching persona out of the Palette lands with the inspector "
-             + "CLOSED: `PaletteSegmentModifier`'s exit arm restores the "
-             + "stashed visibility over the persona switch's unconditional "
-             + "`showInspector = true`, which is the exact ordering hazard the "
-             + "canvas takeover was built to remove, on the surface it was "
-             + "built from. "
-             + "`ProjectWindow.applyPaletteSegmentChange(` is the wall's own "
+             + "the hazard on the collapse's predicate and censused that one, "
+             + "and left the sibling it was copied from uncovered. It was "
+             + "`Self.clearsPaletteWallStash(`, inside `PersonaModifier`'s "
+             + "handler, until stage 2b's final review (I3): that call could "
+             + "only ever run for the ⌘1–⌘4 path, while two other writers move "
+             + "the persona without touching that handler, so the rule became "
+             + "an `.onChange(of: persona)` observer in `PaletteWallModifier` "
+             + "and this token names the observer's call. Delete it and every "
+             + "test over the fold stays green while a writer who switches "
+             + "persona with the wall open lands with the inspector CLOSED — "
+             + "`PaletteWallModifier`'s exit arm restores the stashed "
+             + "visibility over the switch's unconditional `showInspector = "
+             + "true` — and, one surface further, carries the wall itself into "
+             + "the persona they never opened it in. "
+             + "`ProjectWindow.applyPaletteWallChange(` is the wall's own "
              + "fold, and it is that shape one surface over: the fold is a "
              + "static with its own tests, so deleting the single line that "
-             + "calls it from `PaletteSegmentModifier` compiles, warns nothing, "
+             + "calls it from `PaletteWallModifier` compiles, warns nothing, "
              + "keeps every assertion over the fold green — and the palette "
              + "wall silently stops taking the width it was given, while the "
              + "canvas collapse's takeover starts reading a stash nobody sets"),
@@ -720,22 +729,22 @@ final class PromotionCommandTests: XCTestCase {
             ["Self.releasesNotARealCollapse("],
             "the census reports the ABSENT persona-call-site token and not the "
             + "present one")
-        // And its NEIGHBOUR three lines up, which had the identical gap until the
-        // 1C-d whole-branch review: Task 13 measured the hazard on its own
-        // predicate and censused that one, and left uncovered the sibling it was
-        // copied from.
+        // And the wall's half of the same hazard, which had the identical gap
+        // until the 1C-d whole-branch review. It left `PersonaModifier` in stage
+        // 2b's final review (I3) — one observer of the persona covers every
+        // writer of it — so the token names the observer's call.
         XCTAssertEqual(
             try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
-                              required: ["Self.clearsPaletteStash(",
-                                         "Self.clearsNotARealStash("]),
-            ["Self.clearsNotARealStash("],
+                              required: ["ProjectWindow.closePaletteWallOnPersonaChange(",
+                                         "ProjectWindow.closesNothingReal("]),
+            ["ProjectWindow.closesNothingReal("],
             "the census reports the ABSENT palette-stash-call-site token and not "
             + "the present one")
         // And the wall's fold, the same shape one surface over: a static with
         // its own tests, called from exactly one line.
         XCTAssertEqual(
             try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
-                              required: ["ProjectWindow.applyPaletteSegmentChange(",
+                              required: ["ProjectWindow.applyPaletteWallChange(",
                                          "ProjectWindow.applyNotARealSegmentChange("]),
             ["ProjectWindow.applyNotARealSegmentChange("],
             "the census reports the ABSENT palette-fold token and not the present one")

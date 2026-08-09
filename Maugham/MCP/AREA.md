@@ -22,7 +22,7 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 **Document read**
 - `read_document` — full manuscript text (or image with crop-on-demand for images)
 - `search_text` — cross-document full-text search within a project
-- `find_references` — wiki-link back-references to a document or research item; scans manuscript documents, research note bodies (canvas promotion writes `[[…]]` into research notes) and statements (M1A moved craft intent into one)
+- `find_references` — wiki-link back-references to a document or research item; scans manuscript documents, research note bodies (canvas promotion writes `[[…]]` into research notes) and statements (M1A moved craft intent into one). Also resolves a statement's composed title (`"Craft Intent · <doc>"`) as a `[[…]]` target, lowest precedence (2026-08-09, issue #24) — a widening of an existing read, tool count unchanged
 - `list_documents_by_tag` — filter binder documents by tag
 
 **Research / links**
@@ -30,7 +30,7 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `list_research` — enumerate research items in a project
 - `link_research` — create a research ↔ manuscript link
 - `unlink_research` — remove a research ↔ manuscript link
-- `list_all_links` — all research–manuscript links for a project, incl. `piece_research` edges (a collection piece's own research, no explicit link needed); wiki-link scanning covers manuscript documents, research note bodies and statements
+- `list_all_links` — all research–manuscript links for a project, incl. `piece_research` edges (a collection piece's own research, no explicit link needed); wiki-link scanning covers manuscript documents, research note bodies and statements. Also resolves a statement's composed title as a `[[…]]` target, lowest precedence (2026-08-09, issue #24) — a widening of an existing read, tool count unchanged
 - `move_research_item` — batch-move research items (including whole groups) between shared research, a research group, and a collection piece's research folder; exactly one of `target: "shared"` / `target_group_id` / `target_document_id`. Cross-scope moves leave explicit links (`linkedResearchIds`) untouched — association is containment-based (2026-07-17): a manual link goes dormant while the item lives in a piece's research and resurfaces on move-out; a containment-only association severs on move-out with no auto-link minted. Wraps `ProjectStore.moveResearchItems` (`Maugham/Stores/ProjectStore+ResearchMove.swift`) — read that file's header before touching this tool's validation shape.
 
 **Palette / the spine (intent + visual language)**
@@ -108,7 +108,11 @@ Safety model — mutation is fenced to a throwaway workspace, never the owner's 
 - **Runtime guard:** every mutating tool resolves its target project URL through
   `TestWorkspace.require(url:)` (MaughamCore), which throws unless the path is under
   `~/Library/Application Support/Maugham Dev/TestWorkspace/`. Read-only inspect tools are not
-  workspace-restricted.
+  workspace-restricted. (Under XCTest the workspace root gains a per-worker
+  `xctest-worker-<pid>` leaf — `reset()` deletes the whole tree and seven parallel
+  workers share the machine, so a shared root meant one worker's reset ate another's
+  live fixture mid-test; see `TestWorkspace.swift` and `TestWorkspaceIsolationTests`.
+  The live app keeps the bare root described above.)
 
 Driving semantics: `test_apply_edit` routes through the **same** `Document` op-recording entry
 point the editor uses (`setFullText` + `recordEditorTextWrite`, mirroring `EditorHost`) — not a

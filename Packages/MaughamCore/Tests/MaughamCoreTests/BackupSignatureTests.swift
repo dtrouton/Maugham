@@ -56,6 +56,29 @@ final class BackupSignatureTests: XCTestCase {
         XCTAssertEqual(before, after, "checkpoints.jsonl is volatile bookkeeping, excluded from the signature")
     }
 
+    /// FM-1 gave the checkpoint log a device slug, so the exclusion had to stop
+    /// being an exact path and start being the whole partitioned STREAM. This is
+    /// the `sessions/`-vs-`sessions.json` failure above, one milestone later: an
+    /// exclusion that no longer matches the file that is actually written reads
+    /// exactly like no exclusion at all, and every ⌘S would mint a generation.
+    @MainActor
+    func test_signature_unchangedWhenAPerDeviceCheckpointFileChanges() throws {
+        let proj = makeProject()
+        defer { try? FileManager.default.removeItem(at: proj) }
+        try writeOps(proj, [contentOp("01A")])
+        let before = BackupSignature.compute(projectURL: proj)
+
+        let slug = DeviceSlug.make(from: "Denvers-Mac.local")
+        try "{\"checkpoint_id\":\"x\"}\n".write(
+            to: CheckpointStore.fileURL(deviceSlug: slug, in: proj),
+            atomically: true, encoding: .utf8)
+        let after = BackupSignature.compute(projectURL: proj)
+
+        XCTAssertEqual(before, after,
+                       "checkpoints.<slug>.jsonl is the same volatile bookkeeping the "
+                       + "unsuffixed file was, and must be excluded the same way")
+    }
+
     @MainActor
     func test_signature_changesWhenManuscriptContentChanges() throws {
         let proj = makeProject()
