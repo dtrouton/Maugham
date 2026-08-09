@@ -283,8 +283,10 @@ final class CanvasCollapseTests: XCTestCase {
     /// did not simply hide the pane everywhere: the writer gets back what they
     /// had **before the wall**, which is the only value that was ever theirs.
     ///
-    /// The wall's close here is what `PersonaModifier.clearsPaletteWallStash`
-    /// drives on the way into Plan, a whole pass before any collapse.
+    /// The wall's close here is what `ProjectWindow.closePaletteWallOnPersonaChange`
+    /// drives from `PaletteWallModifier`'s persona observer (the 2b fix wave
+    /// replaced the old per-writer `clearsPaletteWallStash` with that one rule,
+    /// so ANY persona write closes the wall — not only ⌘1's).
     func test_leavingTheCollapseAfterTheWallRestoresWhatTheWriterHad() {
         for priorInspector in [true, false] {
             var window = WindowState(showInspector: priorInspector)
