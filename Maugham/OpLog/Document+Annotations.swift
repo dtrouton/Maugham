@@ -140,7 +140,7 @@ extension Document {
                 spanSuffix: span?.suffix,
                 spanPosHint: span?.posHint))
         try await opStore.append(op)
-        _opLogMirror.append(op)
+        appendToMirror(op)
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
         invalidateTasksCache()
@@ -373,7 +373,7 @@ extension Document {
                 sourceAnnotationId: id,
                 userResponse: userResponse))
         try await opStore.append(acceptOp)
-        _opLogMirror.append(acceptOp)
+        appendToMirror(acceptOp)
         _hasAnyAnnotationOps = true
 
         // ⌘Z contract: the buffer replace that follows this accept invalidates
@@ -539,7 +539,7 @@ extension Document {
                 sessionId: session,
                 sourceAnnotationId: id))
         try await opStore.append(op)
-        _opLogMirror.append(op)
+        appendToMirror(op)
         _hasAnyAnnotationOps = true
 
         // Direct pane-revert: same ⌘Z contract as accept — the buffer replace
@@ -716,7 +716,7 @@ extension Document {
     /// text — the manuscript-mutating accept path keeps its own bespoke tail.
     internal func appendAnnotationOpInternal(_ op: Op) async throws {
         try await opStore.append(op)
-        _opLogMirror.append(op)
+        appendToMirror(op)
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
         invalidateTasksCache()
@@ -747,7 +747,7 @@ extension Document {
                 sourceAnnotationId: sourceAnnotationId,
                 userResponse: userResponse))
         try await opStore.append(op)
-        _opLogMirror.append(op)
+        appendToMirror(op)
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
         invalidateTasksCache()

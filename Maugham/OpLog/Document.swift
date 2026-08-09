@@ -92,6 +92,23 @@ public final class Document {
     /// in sync by every mutation path that calls opStore.append.
     internal var _opLogMirror: [Op] = []
 
+    /// The ONE mirror-append (RULING-36: the timeline is the writer's own,
+    /// under any clock). `handleExternalLogChange` replaces the mirror with a
+    /// sorted merge; a LOCAL op minted after that sorts before a merged-in
+    /// peer op from an ahead clock, and a raw append would leave the mirror
+    /// unsorted — `currentFoldBasis`'s "last is newest" premise false, and a
+    /// rewind prefix rendering the peer's text (M5-AN-046/047). Normal appends
+    /// (monotonic local ULIDs) stay O(1); the re-sort runs only in the skew
+    /// case the invariant exists to survive.
+    internal func appendToMirror(_ op: Op) {
+        if let last = _opLogMirror.last, op.opId < last.opId {
+            _opLogMirror.append(op)
+            _opLogMirror.sort { $0.opId < $1.opId }
+        } else {
+            _opLogMirror.append(op)
+        }
+    }
+
     /// Diagnostic accessor: size of the in-memory op log mirror.
     public var opLogMirrorCount: Int { _opLogMirror.count }
 
@@ -112,7 +129,7 @@ public final class Document {
     /// written by `CheckpointCapture.run`.
     public func appendMirrored(_ op: Op) async throws {
         try await opStore.append(op)
-        _opLogMirror.append(op)
+        appendToMirror(op)
     }
 
     /// Sticky flag: true once the doc has ever had an annotation op
@@ -878,7 +895,7 @@ public final class Document {
                 sequence: emitSequence ? sequence : nil,
                 provenance: nil)
             try await opStore.append(op)
-            _opLogMirror.append(op)
+            appendToMirror(op)
             // Clear the ordering signal ONLY after the append succeeded — a
             // throw above leaves `_orderingDirty` set so the close()-path
             // durable re-flush still carries it (spec §4.2 / T7).

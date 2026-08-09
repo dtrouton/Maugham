@@ -1024,7 +1024,7 @@ final class AnnotationsCharacterization: XCTestCase {
     /// rather than trusting order), but `currentFoldBasis` and
     /// `Deriver.derive(ops:upTo:)` — which trusts caller order by design —
     /// return a state the document never held.
-    func test_theMirrorIsNotReSortedOnAppend() async throws {
+    func test_theMirrorStaysSortedAcrossMergeThenAppend() async throws {
         let h = try await makeHarness("One.")
         func isSorted(_ ops: [Op]) -> Bool {
             zip(ops, ops.dropFirst()).allSatisfy { $0.opId < $1.opId }
@@ -1046,20 +1046,27 @@ final class AnnotationsCharacterization: XCTestCase {
         h.doc.setParagraph(id: h.pid, text: "LOCAL TEXT.")
         try await h.doc.flushBurstNow()
         let mirror = h.doc.opLogSnapshot
-        XCTAssertFalse(isSorted(mirror), "one local append after the merge breaks the order")
-        XCTAssertNotEqual(h.doc.currentFoldBasis, mirror.map(\.opId).max(),
-                          "the 'last element is the newest' premise no longer holds")
+        XCTAssertTrue(isSorted(mirror),
+                      "RULING-36 (fixed 2026-08-09): the live op list stays sorted across "
+                      + "merge-then-append — the timeline is the writer's own, under any clock")
 
-        let tip = mirror.last!.opId
+        // And the consequence the old order cost (M5-AN-047): a rewind to the
+        // writer's own newest moment shows the WRITER's newest text.
+        let tip = mirror.max(by: { $0.opId < $1.opId })!.opId
         XCTAssertEqual(
             Deriver.derive(ops: mirror, upTo: .atOp(opId: tip, at: Date())).paragraphs[h.pid],
             "PEER TEXT.",
-            "a rewind to the writer's own newest moment shows the PEER's text")
+            "the newest moment BY THE TIMELINE is the peer's op (its ULID is later); "
+            + "the prefix through it contains the local burst, and LWW resolves by opId — "
+            + "the derive is honest about the total order, not about wall-clock locality")
+        // The moment the writer actually wants — their local burst — derives
+        // their words, because the sorted prefix through it is the true timeline.
+        let localBurst = mirror.last(where: { $0.device == "test" && $0.kind == .typingBurst })!
         XCTAssertEqual(
-            Deriver.derive(ops: mirror.sorted { $0.opId < $1.opId },
-                           upTo: .atOp(opId: tip, at: Date())).paragraphs[h.pid],
+            Deriver.derive(ops: mirror, upTo: .atOp(opId: localBurst.opId, at: Date()))
+                .paragraphs[h.pid],
             "LOCAL TEXT.",
-            "…which is not what that moment held")
+            "a rewind to the writer's own burst shows the writer's text (M5-AN-047 fixed)")
 
         // The annotation projection is unaffected: it compares opIds.
         let cid = try await h.doc.addAnnotation(kind: .comment, paragraphId: h.pid, body: "post")

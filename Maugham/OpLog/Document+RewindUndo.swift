@@ -230,7 +230,7 @@ extension Document {
                 sourceCheckpoint: originalRewindOpId,
                 synthesisSource: .rewind))
         try await opStore.append(marker)
-        _opLogMirror.append(marker)
+        appendToMirror(marker)
         invalidateTasksCache()
     }
 }
