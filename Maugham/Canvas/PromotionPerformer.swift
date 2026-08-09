@@ -534,7 +534,7 @@ struct PromotionPerformer {
         // artifact the canvas has forgotten it produced, because the writer's
         // retry would then mint a second one.
         mark(itemID, for: plan.source,
-             named: isRegion(plan.source) ? "Promote Region" : "Promote Scrap",
+             named: "Promotion Mark",
              contributors: plan.contributors)
         let written = try await writeOfferedLinks(plan, artifactTitle: title)
         return PromotionResult(createdItemID: itemID, title: title, writtenLinks: written)
@@ -627,7 +627,7 @@ struct PromotionPerformer {
 
         let title = TreeWalk.find(id: itemID, in: store.manifest.research)?.title ?? plan.title
         mark(itemID, for: plan.source,
-             named: isRegion(plan.source) ? "Promote Region" : "Promote Scrap",
+             named: "Promotion Mark",
              contributors: plan.contributors)
         let written = try await writeOfferedLinks(plan, artifactTitle: title)
         return PromotionResult(createdItemID: itemID, title: title, writtenLinks: written)
@@ -651,7 +651,7 @@ struct PromotionPerformer {
         // is always empty — but writing `[]` here would be a second rule about
         // who records, and if a region ever gains this target the second rule is
         // the one that would silently be wrong.
-        mark(statement.id, for: plan.source, named: "Promote Scrap",
+        mark(statement.id, for: plan.source, named: "Promotion Mark",
              contributors: plan.contributors)
         return PromotionResult(createdItemID: statement.id,
                                title: ArtifactIndex.statementTitle(
@@ -704,8 +704,10 @@ struct PromotionPerformer {
             try? await store.documentStore?.flushPendingSave()
             let body = try readBody(atPath: path)
             // The plan's own check was against a SNAPSHOT taken when the sheet
-            // opened. This one is against the file.
-            guard !body.contains(link.linkText) else {
+            // opened. This one is against the file — and it compares link
+            // TARGETS, not spellings (RULING-50): a plain link already there
+            // refuses a labelled twin the raw text check would have missed.
+            guard !Promotion.alreadyLinks(to: link.targetTitle, in: body) else {
                 throw PromotionFailure.linkAlreadyPresent(
                     destination: plan.destinationDescription)
             }
@@ -723,7 +725,8 @@ struct PromotionPerformer {
             // rule). `link.linkText` rather than `link.appendedText` for the same
             // reason — `statementAppending` owns the blank line between what is
             // there and what is arriving, so pre-padded text would double it.
-            guard !store.statementText(of: statement).contains(link.linkText) else {
+            guard !Promotion.alreadyLinks(to: link.targetTitle,
+                                          in: store.statementText(of: statement)) else {
                 throw PromotionFailure.linkAlreadyPresent(
                     destination: plan.destinationDescription)
             }
@@ -837,7 +840,7 @@ struct PromotionPerformer {
     /// focused scrap holds "Edit Scrap" open).
     private func recordPicture(in cardID: String, on node: CanvasNodeID) {
         model.mutateFromInspector(Self.pictureStep) {
-            $0.setContributedItem(cardID, for: node)
+            $0.addContribution(cardID, to: node)
         }
         model.bumpSceneRevision()
     }
@@ -880,11 +883,18 @@ struct PromotionPerformer {
                 continue   // genuinely gone since the sheet opened — the honest skip
             case .researchFile(_, let path):
                 let body = try readBody(atPath: path)
-                guard !body.contains(link) else { continue }
+                // Target-based, one spelling with `performWikiLink`'s guards
+                // (RULING-50). For the plain link this pass writes the raw
+                // containment test was already equivalent — the brackets close
+                // the token — but two spellings of one identity is how the
+                // asymmetry shipped in the first place.
+                guard !Promotion.alreadyLinks(to: artifactTitle, in: body) else { continue }
                 try await write(body + "\n\n" + link + "\n", toPath: path)
                 written.append(offer.node)
             case .statement(let statement):
-                guard !store.statementText(of: statement).contains(link) else { continue }
+                guard !Promotion.alreadyLinks(to: artifactTitle,
+                                              in: store.statementText(of: statement))
+                else { continue }
                 try await store.appendToStatement(link, to: statement,
                                                   session: Self.promotionSession)
                 written.append(offer.node)
@@ -1151,10 +1161,14 @@ struct PromotionPerformer {
     /// is a picture this promotion just copied, and it must record that.
     private static func record(_ itemID: String, contributors: [CanvasNodeID],
                                in scene: inout CanvasScene) {
+        // Per-artifact on BOTH sides (RULING-51): the removal takes back only
+        // THIS artifact's fact from cards that no longer feed it, and the stamp
+        // appends rather than overwrites — a record naming another artifact is
+        // a fact this promotion has no standing to discard.
         for node in scene.unorderedNodes
-        where node.contributedToItemID == itemID && node.kind.isScrap {
-            scene.setContributedItem(nil, for: node.id)
+        where node.contributedToItemIDs.contains(itemID) && node.kind.isScrap {
+            scene.removeContribution(itemID, from: node.id)
         }
-        for node in contributors { scene.setContributedItem(itemID, for: node) }
+        for node in contributors { scene.addContribution(itemID, to: node) }
     }
 }

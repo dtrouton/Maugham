@@ -42,6 +42,30 @@ final class PublishConfigValidatorTests: XCTestCase {
         XCTAssertTrue(errs.contains(where: { $0.field == "schema_version" }))
     }
 
+    // Sweep finding P3 (docs/superpowers/notes/2026-07-26-sweep.md) claimed the
+    // validator "does not validate" that `filename_template` includes
+    // `{version}` — false when filed: the rule has existed since this file's
+    // sibling `PublishConfigValidator.swift` was created (`28b6fed9`,
+    // lines ~54-56). This file existed too, but never pinned that specific
+    // clause. These two close the gap; the dynamic replay half (a doctored
+    // snapshot's config re-validated at republish time) is pinned in
+    // `RepublisherTests.test_republishRefusesASnapshotWhoseTemplateLacksVersion`,
+    // which needs the compile/snapshot harness already built there.
+    func test_templateMissingVersionTokenIsRefused() {
+        let cfg = PublishConfig(outputs: .init(filenameTemplate: "{title}.{ext}"))
+        let errs = PublishConfigValidator.validate(cfg)
+        XCTAssertTrue(
+            errs.contains(where: { $0.field == "outputs.filename_template" }),
+            "expected a filename_template error for a template missing {version}, got \(errs)")
+    }
+
+    func test_defaultTemplatePasses() {
+        let errs = PublishConfigValidator.validate(PublishConfig())
+        XCTAssertFalse(
+            errs.contains(where: { $0.field == "outputs.filename_template" }),
+            "the default config's filename_template must pass validation, got \(errs)")
+    }
+
     func testBumpVersion_minor_succeeds() {
         XCTAssertEqual(PublishConfigValidator.bumpedNextVersion(from: "0.3"), "0.4")
         XCTAssertEqual(PublishConfigValidator.bumpedNextVersion(from: "1.9"), "1.10")

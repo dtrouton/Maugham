@@ -122,7 +122,7 @@ final class PromotionContributionTests: XCTestCase {
     /// that offers Rewrite — must say so for every updatable target.
     func test_aCardCarryingOnlyAContributionRecordOffersNoUpdate() {
         var s = scene()
-        s.setContributedItem("res-fog", for: a)
+        s.addContribution("res-fog", to: a)
         XCTAssertNil(try XCTUnwrap(s.node(a)).promotedItemID,
                      "the control: only the contribution is set")
         let idx = index(["res-fog": "Act II fog"])
@@ -139,7 +139,7 @@ final class PromotionContributionTests: XCTestCase {
     func test_aCardWithBothItsOwnMarkAndAContributionRecordUpdatesOnlyItsOwn() {
         var s = scene()
         s.setPromotedItem("res-a", for: a)
-        s.setContributedItem("res-fog", for: a)
+        s.addContribution("res-fog", to: a)
         let idx = index(["res-a": "The falls at night.", "res-fog": "Act II fog"])
         XCTAssertEqual(Promotion.existingArtifact(for: .scrap(a), target: .researchNote,
                                                   in: s, artifacts: idx),
@@ -150,10 +150,10 @@ final class PromotionContributionTests: XCTestCase {
 
     func test_aContributionRecordRoundTripsThroughDisk() throws {
         var s = scene()
-        s.setContributedItem("res-fog", for: a)
+        s.addContribution("res-fog", to: a)
         let data = try JSONEncoder().encode(CanvasSceneDTO(scene: s))
         let loaded = try JSONDecoder().decode(CanvasSceneDTO.self, from: data).scene
-        XCTAssertEqual(loaded.node(a)?.contributedToItemID, "res-fog")
+        XCTAssertEqual(loaded.node(a)?.contributedToItemIDs, ["res-fog"])
     }
 
     /// A schema-5 sidecar literal — every canvas 1C-c2a wrote — has no
@@ -173,7 +173,22 @@ final class PromotionContributionTests: XCTestCase {
         XCTAssertEqual(node?.z, 1)
         XCTAssertEqual(node?.promotedItemID, "res-1")
         XCTAssertEqual(node?.boundPieceID, "piece-1")
-        XCTAssertNil(try XCTUnwrap(node).contributedToItemID)
+        XCTAssertEqual(try XCTUnwrap(node).contributedToItemIDs, [])
+    }
+
+    /// A schema-8 sidecar — every canvas written before RULING-51 — carries the
+    /// contribution record as the SINGULAR `contributedToItemID`. The one fact
+    /// it holds folds into the array on the way in; the encoder never writes
+    /// the singular key again (the round-trip above proves the plural shape).
+    func test_aSchemaEightSidecarsSingularRecordFoldsIntoTheArray() throws {
+        let json = """
+        {"schemaVersion":8,"nodes":[{"id":"a","kind":"scrap","x":5,"y":6,\
+        "width":240,"cachedHeight":80,"z":1,"contributedToItemID":"res-old"}]}
+        """
+        let scene = try JSONDecoder().decode(CanvasSceneDTO.self, from: Data(json.utf8)).scene
+        XCTAssertEqual(scene.node(a)?.contributedToItemIDs, ["res-old"],
+                       "the pre-ruling fact is a fact too — it must not be lost "
+                       + "to the cardinality change")
     }
 
     /// Measured, not reasoned from Codable's synthesis: an unrecorded canvas's
@@ -190,8 +205,8 @@ final class PromotionContributionTests: XCTestCase {
     func test_theSchemaIsSixBecauseThisTaskAddedAField() {
         // The literal moved to 7 in 1C-c3, which added `author`, and to 8 in
         // 1C-d, which added `ownedPath` — see
-        // `CanvasLineCodecTests.test_theSchemaVersionIsEight` for the other
+        // `CanvasLineCodecTests.test_theSchemaVersionIsNine` for the other
         // assertion of the same literal.
-        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 8)
+        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 9)
     }
 }

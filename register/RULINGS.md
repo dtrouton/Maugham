@@ -3,7 +3,7 @@
 **GENERATED from `register/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
 Regenerate with `python3 register/scripts/23-generate-rulings.py` after any ruling change.
 
-45 rulings, 4 principles.
+52 rulings, 4 principles.
 
 Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:
 applying a ruling to a new case means re-checking the basis, not pattern-matching the
@@ -494,6 +494,64 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 *basis:* Denver, no recommendation offered — and the chosen option only entered the option set after Denver asked for the concrete example (note vs link side by side): the example reframed the question from labelling the inequality to dissolving it. Recorded as a method finding.
 
 *settles:* Trash GAP-8; re-files M3-TR-035's forward-facing half with a specified fix.
+
+### RULING-46 — U — canvas undo is scene-scoped, and says so  `RATIFIED`
+
+> A canvas ⌘Z never reaches into the project's files — promotion's artifact stays when its mark is undone, by design (a canvas undo that deletes research files is its own scary surprise, and the Trash is the artifact's honest disposal route). The LABEL tells the truth about that scope: the undo action is named for the mark it takes back, never for the promotion it does not.
+
+*basis:* Denver, 2026-08-09, discussion of M6-PR-077: 'On 77 I agree with you' — the presented read being fix-the-label-keep-scene-scoped-undo, with the full undo living in the Trash. The inverse of the rewind-label case: there the behaviour was wrong and the label right; here the behaviour is right and the label lied.
+
+*settles:* M6-PR-077: the behaviour RATIFIED, the label convicted and fixed.
+
+### RULING-47 — V — the promotion mark is a bookmark  `RATIFIED`
+
+> A region or card's promotion mark is a BOOKMARK, not a promise: promoting again as New moves it, latest wins, because re-promoting IS the writer deciding what the material now relates to. No warning is owed.
+
+*basis:* Denver verbatim, 2026-08-09: 'latest wins is fine - it's a decision the writer makes. I no longer see this as having that relationship it's now this relationship. Bookmark is a good way of capturing it. If we ever support more complex mapping we could review but for now this would be my call.'
+
+*settles:* M6-PR-040: RATIFIED as ruled — the filing's argue-down path taken by ruling, not by default. GAP-P7's warning sentence dissolves (no warning owed on a ruled writer-decision); GAP-P4 (multi-artifact mapping) carries the revisit.
+
+*revisit when:* multi-artifact contribution mapping is ever supported (GAP-P4)
+
+### RULING-48 — P — research protection tiers (RULING-24's family)  `RATIFIED_FROM_OPTIONS`
+
+> The rewrite-keeps-a-version bridge HOLDS THE LINE: a Rewrite sends the note's (or palette card's) current text to the visible Trash before writing, restorable for the same 30-day window a deletion gets. But it is a bridge, not the standard: real research versioning — at least for text notes, RULING-24's own 'in future we might' clause — is SCHEDULED as the research-protection milestone rather than staying parked in the register's history.
+
+*basis:* Denver, 2026-08-09, structured question GAP-P1: chose 'Bridge now, milestone scheduled' over the recommended 'Bridge is the standard' and over permanent rewrite copies — the bridge is ratified as the line-holder AND the milestone leaves the register for docs/roadmap.md, which the milestone file itself said was Denver's call.
+
+*settles:* GAP-P1. The trash-window bridge (preservePriorVersion / trashPriorVersionText, TrashSubject.priorVersion) is ratified behaviour; register/history/MILESTONE-research-protection.md's content moves to docs/roadmap.md as a scheduled milestone. PRINCIPLE-4 ROI-parking of versioning work lifts when that milestone is scoped.
+
+### RULING-49 — M — never surprise the writer (RULING-22's family)  `RATIFIED_FROM_OPTIONS`
+
+> A rewrite is about the CONTENTS. The promotion sheet withholds the Name field entirely on Rewrite — renaming lives where names live, the research pane. One gesture, one meaning: a rewrite never renames and never reverts a rename.
+
+*basis:* Denver, 2026-08-09, structured question GAP-P2: chose 'Withholding is right' over 'An explicit typed name renames'. Ratifies the shipped behaviour (the sheet's namesTheArtifact gating and the .update arm's never-rename).
+
+*settles:* GAP-P2's live half. The rename-with-rewrite gesture is deliberately absent; a writer who wants both renames in the research pane, then rewrites.
+
+### RULING-50 — W — link identity  `RATIFIED_FROM_OPTIONS`
+
+> Two wiki-links are THE SAME LINK when they point at the same artifact, whatever the label: promotion never adds a link to an artifact the note already points at, under any spelling. Symmetric — a plain [[Target]] blocks a labelled [[Target|label]] and vice versa; a link to a different artifact never blocks.
+
+*basis:* Denver, 2026-08-09, structured question GAP-P3 in two rounds. Round 1 Denver asked back: 'What would happen if it blocked the promotion? What's the user experience?' Presented with the facts — today's reachable direction gives the right outcome by accident, the harmful direction (two links to one artifact) unreachable until something other than the writer's own hand writes labelled links — chose the recommended 'State the rule now': make today's good outcome deliberate, symmetric, and future-proof.
+
+*settles:* GAP-P3 / M6-PR-024 (and the survey's PROMO-D7): the raw asymmetric substring test is now a defect against this identity. The fix is target-based comparison in the duplicate-link check.
+
+### RULING-51 — V — the promotion mark is a bookmark (RULING-47's family)  `RATIFIED_FROM_OPTIONS`
+
+> A contribution record is a FACT, and Maugham holds every one: a card whose words fed two artifacts records both, and spec §6.3's rewrite-guard protects EVERY artifact the card contributed to, not just the latest. The MARK stays a single bookmark — latest wins, RULING-47 — because the mark is the writer's stated relationship; the record is what actually happened, and facts are not overwritten by later facts.
+
+*basis:* Denver, 2026-08-09, structured question GAP-P4 in two rounds. Round 1 Denver asked back: 'I'd need to understand how this happens because that's what tells me the user's intent.' Presented with the mechanics — both contributions are the writer's deliberate placements (the card sits in both regions), and latest-wins disarms the §6.3 guard for every earlier artifact, so the one-card-rewrites-a-six-card-note misoffer returns for note A the moment the card contributes to note B — chose the recommended 'A record is a fact — hold every one'.
+
+*settles:* GAP-P4 (RULING-47's carried revisit, resolved without waiting for multi-artifact mapping): M6-PR-073's single-valued record is a defect; M6-PR-072's clear-first re-record is a defect where the clear discards another artifact's fact; M6-PR-074's surviving picture record COMPLIES. The fix: contributedToItemID becomes multi-valued; a rewrite removes and re-records ITS OWN artifact's fact only.
+
+### RULING-52 — M — the collateral report has two halves (RULING-28's family)  `RATIFIED_FROM_OPTIONS`
+
+> An operation that has already changed the project and then fails says what it did as well as what failed. This completes RULING-28's family: BEFORE states the full set, AFTER confirms it, and a PARTIAL failure names both halves — what landed and what did not. Future operations inherit the duty without a new sitting.
+
+*basis:* Denver, 2026-08-09, structured question GAP-P6: chose the recommended 'Rule it generally' over case-by-case. Promotion's own case was already closed by the validate-first fix (a refused promotion leaves nothing behind), so this ruling is the standing sentence for every future operation.
+
+*settles:* GAP-P6. Filings gain a clause to cite when an operation can fail after its first write: either it validates first so a refusal leaves nothing behind (promotion's route), or its failure report names what it already did (this ruling's route). Silence about a partial change is a defect on sight.
 
 ## The enforcement gradient — how each ruling is held
 

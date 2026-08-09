@@ -421,18 +421,19 @@ final class ItemInspectorTests: XCTestCase {
     func test_aReferenceThatContributedGetsASectionAndOneWithoutGetsNone() {
         let contributed = PromotedArtifactSection.Provenance(
             artifact: .notPromoted,
-            contribution: .contributed(itemID: "res-card", title: "Colour: October"))
-        XCTAssertEqual(ItemInspector.referencedContribution(contributed),
-                       .contributed(itemID: "res-card", title: "Colour: October"))
+            contributions: [.contributed(itemID: "res-card", title: "Colour: October")])
+        XCTAssertEqual(ItemInspector.referencedContributions(contributed),
+                       [.contributed(itemID: "res-card", title: "Colour: October")])
         XCTAssertEqual(
-            ItemInspector.referencedContribution(
-                .init(artifact: .notPromoted, contribution: .artifactMissing(itemID: "res-x"))),
-            .artifactMissing(itemID: "res-x"),
+            ItemInspector.referencedContributions(
+                .init(artifact: .notPromoted,
+                      contributions: [.artifactMissing(itemID: "res-x")])),
+            [.artifactMissing(itemID: "res-x")],
             "a dangling record still has something to say — the writer deleted "
             + "the card, and silence would be the same lie one state over")
         XCTAssertNil(
-            ItemInspector.referencedContribution(
-                .init(artifact: .notPromoted, contribution: .none)),
+            ItemInspector.referencedContributions(
+                .init(artifact: .notPromoted, contributions: [])),
             "and a reference with no record mounts NO section, rather than one "
             + "reading \"Not promoted yet.\" about a card that can never be promoted")
     }
@@ -441,14 +442,14 @@ final class ItemInspectorTests: XCTestCase {
     /// A mark on a reference says nothing true — a hand-edited sidecar can put
     /// the field there, which is why the renderer and `CanvasAccessibility`
     /// refuse to draw or speak one — so the arm hands `.notPromoted`, and
-    /// `saysNotPromotedYet` is false because the contribution is not `.none`.
+    /// `saysNotPromotedYet` is false because a contribution record exists.
     func test_aContributingReferenceIsNeverToldItWasNotPromotedYet() {
         let state = PromotedArtifactSection.Provenance(
             artifact: .notPromoted,
-            contribution: .contributed(itemID: "res-card", title: "Colour: October"))
+            contributions: [.contributed(itemID: "res-card", title: "Colour: October")])
         XCTAssertFalse(state.saysNotPromotedYet)
         XCTAssertTrue(
-            PromotedArtifactSection.Provenance(artifact: .notPromoted, contribution: .none)
+            PromotedArtifactSection.Provenance(artifact: .notPromoted, contributions: [])
                 .saysNotPromotedYet,
             "the control: that sentence is reachable, so the assertion above is "
             + "about the contribution suppressing it")

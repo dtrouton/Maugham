@@ -24,14 +24,27 @@ public struct Republisher {
     public let publicationStore: PublicationStore
     public let snapshotStore: PublicationSnapshotStore
     public let jobManager: CompileJobManager
+    /// P2 (issue #25): the same per-project gate `CompileOrchestrator` uses —
+    /// a republish mints a triple too, and two of them (or a republish and a
+    /// compile that resolved to the same triple) must not be in flight at
+    /// once. Defaulted for the test call sites; production passes
+    /// `PublishingStores.mintGate`.
+    public let mintGate: PublishMintGate
     public let maughamVersion: String
     public let tectonicVersion: String
+
+    /// The random tail of a republish version (`<prior>-r<suffix>`). A stored
+    /// property rather than a literal so a test can make the minted version —
+    /// and therefore the output FILENAME — predictable; production never
+    /// replaces it. See `uniqueRepublishVersion(base:existing:mintSuffix:)`.
+    var mintSuffix: () -> String = Republisher.randomSuffix
 
     public init(
         projectURL: URL, astSource: ProjectASTBuilder.Source,
         publicationStore: PublicationStore,
         snapshotStore: PublicationSnapshotStore,
         jobManager: CompileJobManager,
+        mintGate: PublishMintGate = PublishMintGate(),
         maughamVersion: String, tectonicVersion: String
     ) {
         self.projectURL = projectURL
@@ -39,6 +52,7 @@ public struct Republisher {
         self.publicationStore = publicationStore
         self.snapshotStore = snapshotStore
         self.jobManager = jobManager
+        self.mintGate = mintGate
         self.maughamVersion = maughamVersion
         self.tectonicVersion = tectonicVersion
     }
@@ -75,9 +89,28 @@ public struct Republisher {
         // carry its edition `language` forward — the snapshot's config is
         // already language-effective (Task 7 Rule 1), but the compilers and
         // the new Publication record still need the tag explicitly to
-        // language-suffix the filename and tag the catalog entry.
+        // language-suffix the filename and tag the catalog entry. Through the
+        // store's own accessor, deliberately: `RepublishTool` resolves the
+        // prior the same way to drive translation substitution, and the two
+        // must not answer "which publication is prior" by different rules.
         let prior = try await publicationStore.publication(forSnapshotID: snapshotID)
         let priorVersion = prior?.version
+
+        // The whole catalog, for the mint below: the version it produces has to
+        // be free of every row, not just of the prior one. A second read of the
+        // same file, which is nothing beside the compile that follows.
+        let existing = try await publicationStore.load()
+
+        // P1 (issue #25): the republish version is minted BEFORE compile and
+        // stamped through the config — filename, artifact-internal stamp and
+        // catalog row all agree, which is CompileOrchestrator's own stamp=row
+        // invariant (its `effective.nextVersion = effectiveVersion`) arriving on
+        // this path. Minted here, once: the append below must reuse this value.
+        let newVersion = Self.uniqueRepublishVersion(
+            base: priorVersion, existing: existing, mintSuffix: mintSuffix)
+        var effective = snap.config
+        effective.nextVersion = newVersion
+
         let language = prior?.language
         // Round 3: `republish` has no `allow_stale` parameter of its own — it
         // replays whichever gate mode the ORIGINAL compile used. `false` for
@@ -95,6 +128,69 @@ public struct Republisher {
 
         let jobID = await jobManager.register(phase: .renderingBody)
 
+        // P2 (issue #25): reserve the triple this republish mints at. The
+        // `-r<suffix>` makes a collision with a SIBLING edition impossible, so
+        // what this closes is the same republish arriving twice — a re-sent
+        // MCP call, or a republish racing a compile that resolved to the same
+        // triple. Reserved after `register` (nothing between it and the mint
+        // above mutates anything) so the refusal terminates a job the way
+        // every other republish failure does.
+        let mintKey = PublishMintGate.Key(
+            version: newVersion, language: language, format: format)
+        guard await mintGate.reserve(mintKey) else {
+            let langLabel = language ?? "source"
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: "Publication v\(newVersion) (\(langLabel), \(format.rawValue)) is already compiling; wait for it to finish.",
+                contextLines: [
+                    "Another compile of the (version, language, format) triple '\(newVersion)/\(langLabel)/\(format.rawValue)' is in flight in this app.",
+                    "Poll it with compile_status, or republish once it finishes."
+                ])
+            await jobManager.fail(
+                jobID: jobID, errors: [diag],
+                logExcerpt: "mint_in_flight: \(newVersion)/\(langLabel)/\(format.rawValue)")
+            return .failed(
+                errors: [diag],
+                logExcerpt: "mint_in_flight: \(newVersion)/\(langLabel)/\(format.rawValue)")
+        }
+
+        // As in `CompileOrchestrator.compile`: the reserved work lives in its
+        // own method so the release has exactly two sites and covers the
+        // throwing calls (the compilers, the stage→Exports move, the snapshot
+        // re-save, the catalog append) as well as the returns.
+        do {
+            let outcome = try await republishReserved(
+                snap: snap, format: format, label: label, jobID: jobID,
+                effective: effective, newVersion: newVersion,
+                priorVersion: priorVersion, language: language,
+                allowStale: allowStale, emitSource: emitSource,
+                excludedSectionIDs: excludedSectionIDs, stage: stage)
+            await mintGate.release(mintKey)
+            return outcome
+        } catch {
+            await mintGate.release(mintKey)
+            throw error
+        }
+    }
+
+    /// The compiling half of `republish`, run while its minted triple is
+    /// reserved on the mint gate. Split out for the release discipline only —
+    /// see the call site. `stage` is still owned (and cleaned up) by
+    /// `republish`.
+    private func republishReserved(
+        snap: PublicationSnapshot,
+        format: PublishConfig.Format,
+        label: String?,
+        jobID: String,
+        effective: PublishConfig,
+        newVersion: String,
+        priorVersion: String?,
+        language: String?,
+        allowStale: Bool,
+        emitSource: ProjectASTBuilder.Source,
+        excludedSectionIDs: Set<String>,
+        stage: URL
+    ) async throws -> Outcome {
         // Task 9 F1: the snapshot freezes config/templates only — `astSource`
         // still reads the LIVE ProjectStore for manuscript/translation content
         // (see `pieceRef(for:)` in ProjectStoreASTSource), so a translated
@@ -130,7 +226,7 @@ public struct Republisher {
         case .pdf:
             let pdf = try PDFCompiler(
                 projectURL: stage, astSource: emitSource,
-                config: snap.config, jobManager: jobManager,
+                config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion, jobID: jobID,
                 language: language)
             let r = try await pdf.compile(label: label)
@@ -141,7 +237,7 @@ public struct Republisher {
         case .epub:
             let e = EPUBCompiler(
                 projectURL: stage, astSource: emitSource,
-                config: snap.config, jobManager: jobManager,
+                config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion,
                 tectonicVersion: tectonicVersion, jobID: jobID,
                 language: language)
@@ -165,7 +261,25 @@ public struct Republisher {
             at: exports, withIntermediateDirectories: true)
         let dest = exports.appendingPathComponent(stageOutputURL.lastPathComponent)
         if FileManager.default.fileExists(atPath: dest.path) {
-            try FileManager.default.removeItem(at: dest)
+            // The minted version is unique against the catalog, so nothing this
+            // republish knows about should be here — which is exactly why the
+            // answer is to stop rather than to delete. Whatever those bytes are
+            // (an orphan from a crash, a writer's own copy, a file the catalog
+            // has lost track of), they are not this job's to destroy: deleting
+            // them was the same silent loss the `-r` version exists to prevent,
+            // arriving through the one door it does not cover.
+            let rel = relativePath(dest.path, from: projectURL)
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: "A file already exists at \(rel); refusing to overwrite it.",
+                contextLines: [
+                    "The republished edition v\(newVersion) renders to that path, but something is already there and this republish did not put it there.",
+                    "Move or delete that file yourself if it is expendable, then republish again."
+                ])
+            await jobManager.fail(
+                jobID: jobID, errors: [diag],
+                logExcerpt: "output_path_occupied: \(rel)")
+            return .failed(errors: [diag], logExcerpt: "output_path_occupied: \(rel)")
         }
         try FileManager.default.moveItem(at: stageOutputURL, to: dest)
 
@@ -173,9 +287,6 @@ public struct Republisher {
         try snapshotStore.save(snap)
 
         // Append a Publication referencing the source snapshot.
-        let suffix = String(UUID().uuidString.prefix(4)).lowercased()
-        let newVersion = priorVersion.map { "\($0)-r\(suffix)" }
-            ?? "republish-\(suffix)"
         let pub = Publication(
             publicationID: "pub-" + String(UUID().uuidString.lowercased().prefix(12)),
             version: newVersion,
@@ -199,6 +310,45 @@ public struct Republisher {
         await jobManager.complete(jobID: jobID, outputPath: dest.path,
                                   warnings: allWarnings, errors: errors)
         return .completed(pub, warnings: allWarnings)
+    }
+
+    // MARK: - Minting the republish version
+
+    static func randomSuffix() -> String {
+        String(UUID().uuidString.prefix(4)).lowercased()
+    }
+
+    /// The version a republish of `base` mints, guaranteed absent from
+    /// `existing`.
+    ///
+    /// The suffix is four hex characters, and every republish of one edition
+    /// composes off the SAME `base` (the prior row is always the original), so
+    /// the draws all come from one 65,536-value pool — at which scale a
+    /// collision is luck running out, not an impossibility (tripwire 23's
+    /// lesson, one type over: mint unique, never mint random). A collision
+    /// would render the identical filename and put two catalog rows on one
+    /// file, which is the whole failure this branch exists to close.
+    static func uniqueRepublishVersion(
+        base: String?,
+        existing: [Publication],
+        mintSuffix: () -> String = Republisher.randomSuffix
+    ) -> String {
+        let taken = Set(existing.map(\.version))
+        func compose(_ suffix: String) -> String {
+            base.map { "\($0)-r\(suffix)" } ?? "republish-\(suffix)"
+        }
+        var candidate = compose(mintSuffix())
+        var redraws = 0
+        while taken.contains(candidate) {
+            redraws += 1
+            // Past a few unlucky draws it is the POOL that is the problem, not
+            // the luck: an edition republished thousands of times leaves the
+            // 4-char space too dense to draw a free value from reliably. Widen
+            // the tail rather than spin against a saturated pool.
+            candidate = compose(
+                redraws < 8 ? mintSuffix() : mintSuffix() + randomSuffix())
+        }
+        return candidate
     }
 
     private func relativePath(_ abs: String, from root: URL) -> String {

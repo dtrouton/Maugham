@@ -313,13 +313,18 @@
  },
  {
   "claim_id": "M6-PR-040",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "R22's own settles-IN-SCOPE list names 'promotion duplicate' — this case, by name. The writer chose New and a new note is what they get, so the duplicate itself is honoured intent; what is not stated anywhere is that the card's mark MOVES to the new note, so the artifact they promoted last week silently stops being claimed by anything on the canvas and its stripe, its Rewrite offer and its inspector line now describe a different file. This is the most arguable filing in the set: if the mark is judged an internal bookkeeping field rather than something the writer reads, it retires to an enhancement under PRINCIPLE-2.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-47",
+  "clause_that_reaches_it": "promoting again as New moves it, latest wins, because re-promoting IS the writer deciding what the material now relates to. No warning is owed.",
+  "why_in_scope": "Ruled, not argued down by default: Denver took the bookmark reading verbatim ('I no longer see this as having that relationship, it's now this relationship'), with the revisit hook on multi-artifact mapping. The original conviction's reasoning is preserved in why_it_violated; the behaviour is unchanged and now correct BY RULING. Ratified 55da097048.",
   "intent_expressed_when": "contemporaneous for the duplicate; not at all for the detachment",
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.new) → mark",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "neither",
+  "ratified": {
+   "ruling": "RULING-47",
+   "date": "2026-08-09",
+   "commit": "55da0970482d7245dff9af3c06fcb47be78d40c4"
+  }
  },
  {
   "claim_id": "M6-PR-075",
@@ -339,13 +344,20 @@
  },
  {
   "claim_id": "M6-PR-077",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "the Edit menu reads 'Undo Promote Scrap' and what one ⌘Z takes back is the mark alone; the note it produced stays. A menu item that names the act and reverses a part of it is a control that does not do what it says. Flagged as the second most arguable filing: the scene-scoped boundary is ruled architecture (ADR 0026 §5) and the guide documents it — but a guide is not the surface, and RECONCILE's precedence says ADRs govern how it is built while rulings govern what the writer gets. A ruling could equally RATIFY this with a label that says what it will take back.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-46",
+  "clause_that_reaches_it": "The LABEL tells the truth about that scope: the undo action is named for the mark it takes back, never for the promotion it does not undo.",
+  "why_in_scope": "The behaviour was RATIFIED (scene-scoped canvas undo protects the project's files; the Trash is the artifact's disposal route) and the label convicted — the inverse of the rewind-label ruling. One honest name, every arm.",
   "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z",
   "call_path": "the canvas, after any promotion → Edit ▸ Undo",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "55da0970482d7245dff9af3c06fcb47be78d40c4",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-46 — Denver 2026-08-09, discussion",
+   "pinned_by": "PromotionCharacterization.test_undoTakesBackTheMarkAndNotTheArtifact + PromotionPerformerTests label pins",
+   "note": "ruled in discussion; behaviour kept, label fixed"
+  }
  },
  {
   "claim_id": "M6-PR-029",
@@ -583,8 +595,20 @@
  },
  {
   "claim_id": "M6-PR-024",
-  "outcome": "NO_RULING_REACHES",
-  "reason": "GAP — no ruling says what makes two wiki-links to one artifact the same link. The survey's PROMO-D7 also came back NOT_SETTLED. Stretching RULING-7 to it would be symptom-matching: the refusal's stated cause is true as far as it goes"
+  "outcome": "COMPLIES",
+  "reason": "Ruled 2026-08-09: RULING-50 settles the gap this filing recorded. The former NO_RULING_REACHES reason (no ruling said what makes two wiki-links the same link; PROMO-D7 NOT_SETTLED) is retired by the ruling's existence.",
+  "ruling": "RULING-50",
+  "clause_that_reaches_it": "promotion never adds a link to an artifact the note already points at, under any spelling — symmetric",
+  "why_in_scope": "the duplicate-link check now compares link TARGETS through Promotion.alreadyLinks(to:in:) at all four containment sites; the plain-blocks-labelled direction the substring test missed is pinned red-then-green",
+  "intent_expressed_when": "2026-08-09, GAP-P3's two-round sitting; ruling contemporaneous with conviction",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "violation — behaviour change owed (target-based comparison)",
+  "fix": {
+   "commit": "125b3fa6",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-50 (Denver, 2026-08-09, GAP-P3 two-round sitting, recommended option)",
+   "pinned_by": "PromotionCharacterization.test_theDuplicateLinkCheckComparesTargetsNotSpellings; PromotionTests.test_aPlainLinkAlreadyThereRefusesTheLabelledOne_RULING50; PromotionPerformerTests.test_labellingTheLineDoesNotSlipASecondLinkPastTheLiveFileCheck"
+  }
  },
  {
   "claim_id": "M6-PR-031",
@@ -648,25 +672,55 @@
  },
  {
   "claim_id": "M6-PR-072",
-  "outcome": "NO_RULING_REACHES",
-  "reason": "GAP — the same family: the re-record keeps the inspector's sentence true, and nothing in the ruling set says that sentence is owed"
+  "outcome": "COMPLIES",
+  "reason": "Ruled 2026-08-09: RULING-51 reaches the family this filing said no ruling reached. The departed-card half of the claim survives per-artifact (a card that left the region stops claiming THAT note); the total clear does not.",
+  "ruling": "RULING-51",
+  "clause_that_reaches_it": "a rewrite removes and re-records ITS OWN artifact's fact only",
+  "why_in_scope": "PromotionPerformer.record now removes this artifact's fact from departed scrap cards and APPENDS to current contributors — per-artifact on both sides. CORRECTION to the VIOLATES filing's mechanics: the old clear was already artifact-scoped; the fact-discarding site was the STAMP, which overwrote the single-valued field",
+  "intent_expressed_when": "2026-08-09, GAP-P4's two-round sitting",
+  "call_path": "⌘1 Plan → select region → File ▸ Promote… → Rewrite → Commit",
+  "violation_or_enhancement": "violation — behaviour change owed (per-artifact remove-then-record)",
+  "fix": {
+   "commit": "16ecdcbc",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-51 (Denver, 2026-08-09, GAP-P4 two-round sitting, recommended option)",
+   "pinned_by": "PromotionCharacterization.test_theContributionRecordFollowsTheRegionsCurrentMembers; PromotionContributionPerformerTests.test_anUpdateClearsADepartedMemberAndStampsANewlyJoinedOne"
+  }
  },
  {
   "claim_id": "M6-PR-073",
-  "outcome": "NO_RULING_REACHES",
-  "reason": "GAP — a card whose words are in two artifacts names only the later. Under RULING-22's own out-of-scope note this is an ABSENCE of information rather than a mismatch between expectation and outcome, so R22 does not reach it"
+  "outcome": "COMPLIES",
+  "reason": "Ruled 2026-08-09: RULING-51. The former reading (RULING-22 out-of-scope, absence of information) stands as to R22; the new ruling reaches it directly.",
+  "ruling": "RULING-51",
+  "clause_that_reaches_it": "a card whose words fed two artifacts records both; the §6.3 rewrite-guard protects EVERY artifact the card contributed to",
+  "why_in_scope": "contributedToItemIDs is an ordered de-duplicated array; the stamp appends; canvas.json at schema 9 with the schema-8 singular record folding into the array on decode; the inspector renders every record and list_canvas reports the full array",
+  "intent_expressed_when": "2026-08-09, GAP-P4's two-round sitting",
+  "call_path": "⌘1 Plan → card in two regions → promote each region → the record holds only the later",
+  "violation_or_enhancement": "violation — schema + behaviour change owed (multi-valued record)",
+  "fix": {
+   "commit": "16ecdcbc",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-51 (Denver, 2026-08-09, GAP-P4 two-round sitting, recommended option)",
+   "pinned_by": "PromotionCharacterization.test_theContributionRecordFollowsTheRegionsCurrentMembers; PromotionPerformerTests.test_aCardInTwoRegionsRecordsEveryArtifactItsFedWords; PromotionContributionPerformerTests.test_aSecondRegionsPromotionAddsToTheRecordRatherThanOverwritingIt"
+  }
  },
  {
   "claim_id": "M6-PR-074",
-  "outcome": "NO_RULING_REACHES",
-  "reason": "the same family — and here the record that survives is the true one"
+  "outcome": "COMPLIES",
+  "reason": "Ruled 2026-08-09: RULING-51 reaches it and the behaviour complies — 'the record that survives is the true one', now with a ruling that says it must.",
+  "ruling": "RULING-51",
+  "clause_that_reaches_it": "a contribution record is a FACT, and Maugham holds every one",
+  "why_in_scope": "the clear reaching scrap nodes only is what keeps a picture's record standing through a region rewrite — the record that survives is a true fact held, which is the ruling's own demand on the one node kind whose contribution the rewrite does not re-make",
+  "intent_expressed_when": "2026-08-09, GAP-P4's two-round sitting",
+  "call_path": "⌘1 Plan → region with a picture → promote → rewrite the region",
+  "violation_or_enhancement": "neither"
  },
  {
   "_summary": {
-   "reached": 48,
-   "complies": 46,
-   "violates": 2,
-   "no_ruling": 30,
+   "reached": 52,
+   "complies": 52,
+   "violates": 0,
+   "no_ruling": 26,
    "specificity_sub_over_reached_pct": 81,
    "distinct_defects": 5,
    "pinned_against": "HEAD 5aa873af, branch claude/spec-phase-3",
@@ -682,7 +736,7 @@
     "verdict": "The sampling correction HOLDS in direction on the module chosen to falsify it (75 -> 84 against the ruling set that produced the 75). Its MAGNITUDE collapses: +9 points here against +47 for rewind and +79 for trash, which is what the sampling account predicts — a survey that already scored high has little residue-vs-measure gap left to recover. The new rulings move it the OTHER way for the first time (84 -> 81), because R24 is a ROOT and absorbs six cases RULING-4 would have caught as a sub."
    },
    "total": 78,
-   "coverage": "62%",
+   "coverage": "67%",
    "by_ruling": {
     "RULING-1": [
      "M6-PR-035"
@@ -702,7 +756,6 @@
      "M6-PR-036",
      "M6-PR-038",
      "M6-PR-039",
-     "M6-PR-040",
      "M6-PR-044",
      "M6-PR-045",
      "M6-PR-046",
@@ -710,8 +763,7 @@
      "M6-PR-069",
      "M6-PR-070",
      "M6-PR-075",
-     "M6-PR-076",
-     "M6-PR-077"
+     "M6-PR-076"
     ],
     "RULING-24": [
      "M6-PR-029",
@@ -726,6 +778,20 @@
      "M6-PR-018",
      "M6-PR-058",
      "M6-PR-059"
+    ],
+    "RULING-46": [
+     "M6-PR-077"
+    ],
+    "RULING-47": [
+     "M6-PR-040"
+    ],
+    "RULING-50": [
+     "M6-PR-024"
+    ],
+    "RULING-51": [
+     "M6-PR-072",
+     "M6-PR-073",
+     "M6-PR-074"
     ],
     "RULING-7": [
      "M6-PR-002",

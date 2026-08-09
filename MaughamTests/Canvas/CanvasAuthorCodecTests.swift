@@ -8,7 +8,7 @@ import MaughamCore
 /// the pattern every canvas bump has kept: an older sidecar decodes unchanged,
 /// and a newer one costs an older build the arrangement and never the words
 /// (`CanvasStore.load`). The version literal itself is asserted once, in
-/// `CanvasLineCodecTests.test_theSchemaVersionIsEight` — a fifth copy of the
+/// `CanvasLineCodecTests.test_theSchemaVersionIsNine` — a fifth copy of the
 /// number here would be a fifth site to rebump.
 ///
 /// **nil means the writer.** There is no `.human`-by-default anywhere: a canvas

@@ -194,7 +194,7 @@ final class PreviewCompilerTests: XCTestCase {
         PreviewCompiler(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: fx.store, language: "es", allowStale: allowStale),
+                projectStore: fx.store, language: "es"),
             configStore: fx.stores.configStore, jobManager: fx.stores.jobManager,
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a",
             language: "es", allowStale: allowStale)
@@ -310,7 +310,7 @@ final class PreviewCompilerTests: XCTestCase {
             try await PreviewCompiler(
                 projectURL: fx.projectURL,
                 astSource: ProjectStoreASTSource(
-                    projectStore: fx.store, language: "es", allowStale: false),
+                    projectStore: fx.store, language: "es"),
                 configStore: fx.stores.configStore, jobManager: fx.stores.jobManager,
                 maughamVersion: "0.0.0-test", tectonicVersion: "n/a",
                 language: "es", allowStale: false

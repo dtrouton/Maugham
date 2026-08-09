@@ -119,11 +119,11 @@ final class ScrapInspectorTests: XCTestCase {
     /// §6.3 exists to prevent.
     func test_aContributingCardStopsSayingNotPromotedYet() {
         let p = PromotedArtifactSection.provenance(promotedItemID: nil,
-                                                   contributedToItemID: "res-fog",
+                                                   contributedToItemIDs: ["res-fog"],
                                                    title: artifacts)
         XCTAssertEqual(p.artifact, .notPromoted, "it produced nothing itself")
-        XCTAssertEqual(p.contribution, .contributed(itemID: "res-fog",
-                                                    title: "Act II fog"))
+        XCTAssertEqual(p.contributions, [.contributed(itemID: "res-fog",
+                                                      title: "Act II fog")])
         XCTAssertFalse(p.saysNotPromotedYet,
                        "the writer's report: \"some think they weren't [promoted]\" "
                        + "— the words are in a note and the pane must not deny it")
@@ -132,21 +132,21 @@ final class ScrapInspectorTests: XCTestCase {
     /// The control: no records at all, and the sentence is still the honest one.
     func test_aCardWithNeitherRecordStillSaysNotPromotedYet() {
         let p = PromotedArtifactSection.provenance(promotedItemID: nil,
-                                                   contributedToItemID: nil,
+                                                   contributedToItemIDs: [],
                                                    title: artifacts)
         XCTAssertEqual(p.artifact, .notPromoted)
-        XCTAssertEqual(p.contribution, PromotedArtifactSection.ContributionState.none)
+        XCTAssertEqual(p.contributions, [])
         XCTAssertTrue(p.saysNotPromotedYet)
     }
 
     /// Own mark only — the state the pane has shown correctly since 1C-c2.
     func test_anOwnMarkAloneCarriesNoContribution() {
         let p = PromotedArtifactSection.provenance(promotedItemID: "res-a",
-                                                   contributedToItemID: nil,
+                                                   contributedToItemIDs: [],
                                                    title: artifacts)
         XCTAssertEqual(p.artifact, .promoted(itemID: "res-a",
                                              title: "The falls at night"))
-        XCTAssertEqual(p.contribution, PromotedArtifactSection.ContributionState.none)
+        XCTAssertEqual(p.contributions, [])
         XCTAssertFalse(p.saysNotPromotedYet)
     }
 
@@ -155,12 +155,12 @@ final class ScrapInspectorTests: XCTestCase {
     /// choosing — so this value carries both rather than collapsing to one.
     func test_aCardMayCarryBothAndNeitherHidesTheOther() {
         let p = PromotedArtifactSection.provenance(promotedItemID: "res-a",
-                                                   contributedToItemID: "res-fog",
+                                                   contributedToItemIDs: ["res-fog"],
                                                    title: artifacts)
         XCTAssertEqual(p.artifact, .promoted(itemID: "res-a",
                                              title: "The falls at night"))
-        XCTAssertEqual(p.contribution, .contributed(itemID: "res-fog",
-                                                    title: "Act II fog"))
+        XCTAssertEqual(p.contributions, [.contributed(itemID: "res-fog",
+                                                      title: "Act II fog")])
         XCTAssertFalse(p.saysNotPromotedYet)
     }
 
@@ -170,9 +170,9 @@ final class ScrapInspectorTests: XCTestCase {
     /// `promotedItemID` already gets: say so, rather than showing a raw id.
     func test_aContributionWhoseArtifactIsGoneSaysSoRatherThanShowingAnId() {
         let p = PromotedArtifactSection.provenance(promotedItemID: nil,
-                                                   contributedToItemID: "res-gone",
+                                                   contributedToItemIDs: ["res-gone"],
                                                    title: artifacts)
-        XCTAssertEqual(p.contribution, .artifactMissing(itemID: "res-gone"))
+        XCTAssertEqual(p.contributions, [.artifactMissing(itemID: "res-gone")])
         XCTAssertFalse(p.saysNotPromotedYet,
                        "something did go somewhere; \"not promoted yet\" is the "
                        + "one sentence that is false here")
@@ -222,7 +222,7 @@ final class ScrapInspectorTests: XCTestCase {
         let region = try String(
             contentsOf: root.appendingPathComponent("Maugham/Canvas/RegionInspector.swift"),
             encoding: .utf8)
-        XCTAssertTrue(region.contains("contribution: .none"),
+        XCTAssertTrue(region.contains("contributions: [])"),
                       "the region arm names the absence rather than taking a "
                       + "default — a default is how the card arm would lose its "
                       + "half with nothing red")
@@ -791,11 +791,11 @@ final class ScrapInspectorTests: XCTestCase {
         let m = claudeModel(source: "res-fog")
         m.withScene { s in
             s.setPromotedItem("res-a", for: self.a)
-            s.setContributedItem("res-fog", for: self.a)
+            s.addContribution("res-fog", to: self.a)
         }
         let provenance = PromotedArtifactSection.provenance(
             promotedItemID: m.scene.node(a)?.promotedItemID,
-            contributedToItemID: m.scene.node(a)?.contributedToItemID,
+            contributedToItemIDs: m.scene.node(a)?.contributedToItemIDs ?? [],
             title: artifacts)
         let origin = CanvasAuthorLine.forCard(a, in: m.scene, title: artifacts)
 
@@ -810,8 +810,8 @@ final class ScrapInspectorTests: XCTestCase {
         XCTAssertEqual(Set(sentences).count, 3, "found: \(sentences)")
         XCTAssertEqual(provenance.artifact,
                        .promoted(itemID: "res-a", title: "The falls at night"))
-        XCTAssertEqual(provenance.contribution,
-                       .contributed(itemID: "res-fog", title: "Act II fog"))
+        XCTAssertEqual(provenance.contributions,
+                       [.contributed(itemID: "res-fog", title: "Act II fog")])
 
         // And the provenance line does not borrow either record's words. Both are
         // checked, because "Became" and "words are in" are the two phrasings a

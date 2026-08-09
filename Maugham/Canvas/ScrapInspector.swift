@@ -63,9 +63,10 @@ struct ScrapInspector: View {
     /// `(sceneRevision, id)` cache — every writer of both fields bumps that
     /// counter, so the key would be correct.
     private var provenance: PromotedArtifactSection.Provenance {
-        PromotedArtifactSection.provenance(promotedItemID: node?.promotedItemID,
-                                           contributedToItemID: node?.contributedToItemID,
-                                           title: artifactTitle)
+        PromotedArtifactSection.provenance(
+            promotedItemID: node?.promotedItemID,
+            contributedToItemIDs: node?.contributedToItemIDs ?? [],
+            title: artifactTitle)
     }
 
     var body: some View {

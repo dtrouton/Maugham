@@ -203,13 +203,21 @@ struct PromotedArtifactSection: View {
     /// pictures in it on the palette row, of either provenance (spec §6.3's
     /// 2026-07-31 amendment). A picture appended to a card on its own row
     /// carries one too (`PromotionPerformer.recordPicture`).
-    enum ContributionState: Equatable {
-        case none
+    /// One contribution record, resolved. A card carries ZERO OR MORE of these
+    /// since RULING-51 (a record is a fact, and every one is held) — the empty
+    /// list is what `.none` used to say.
+    enum ContributionState: Equatable, Identifiable {
         case contributed(itemID: String, title: String)
         /// A record whose artifact is no longer in the project. Reachable:
         /// records persist through the codec and are never rebuilt on load, so
         /// a card can name a note the writer has since deleted.
         case artifactMissing(itemID: String)
+
+        var id: String {
+            switch self {
+            case .contributed(let itemID, _), .artifactMissing(let itemID): itemID
+            }
+        }
     }
 
     /// **Both records at once, because they are not two independent lines.**
@@ -227,11 +235,11 @@ struct PromotedArtifactSection: View {
     /// and says why.
     struct Provenance: Equatable {
         let artifact: ArtifactState
-        let contribution: ContributionState
+        let contributions: [ContributionState]
 
-        init(artifact: ArtifactState, contribution: ContributionState) {
+        init(artifact: ArtifactState, contributions: [ContributionState]) {
             self.artifact = artifact
-            self.contribution = contribution
+            self.contributions = contributions
         }
 
         /// **The one sentence that is a decision rather than a rendering.**
@@ -241,7 +249,7 @@ struct PromotedArtifactSection: View {
         /// cards they had not promoted individually reported that nothing had
         /// happened to them.
         var saysNotPromotedYet: Bool {
-            artifact == .notPromoted && contribution == .none
+            artifact == .notPromoted && contributions.isEmpty
         }
     }
 
@@ -255,26 +263,25 @@ struct PromotedArtifactSection: View {
         return .promoted(itemID: itemID, title: title)
     }
 
-    static func contributionState(contributedToItemID: String?,
+    static func contributionState(contributedToItemID itemID: String,
                                   title: String?) -> ContributionState {
-        guard let itemID = contributedToItemID else { return .none }
         guard let title else { return .artifactMissing(itemID: itemID) }
         return .contributed(itemID: itemID, title: title)
     }
 
-    /// Resolve **both** records through the pane's artifact index, in one place.
+    /// Resolve **all** records through the pane's artifact index, in one place.
     ///
     /// `title` is the deferred manifest lookup the inspector already holds, and
     /// it is asked once per record that exists — never for a card carrying
-    /// neither, which is most of them.
+    /// none, which is most of them.
     static func provenance(promotedItemID: String?,
-                           contributedToItemID: String?,
+                           contributedToItemIDs: [String],
                            title: (String) -> String?) -> Provenance {
         Provenance(artifact: artifactState(promotedItemID: promotedItemID,
                                            title: promotedItemID.flatMap(title)),
-                   contribution: contributionState(
-                    contributedToItemID: contributedToItemID,
-                    title: contributedToItemID.flatMap(title)))
+                   contributions: contributedToItemIDs.map {
+                       contributionState(contributedToItemID: $0, title: title($0))
+                   })
     }
 
     // MARK: - The contribution's own words
@@ -309,15 +316,23 @@ struct PromotedArtifactSection: View {
                      + "longer in the project.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            switch state.contribution {
-            case .none:
-                EmptyView()
-            case .contributed(let itemID, let title):
-                openableLine(subject.wordsAreIn(title), itemID: itemID)
+            // Every record, one row each (RULING-51): a card that fed two
+            // notes says so twice, because both sentences are true. The caption
+            // rides the last row rather than each — it explains the record
+            // KIND, not any one artifact.
+            ForEach(state.contributions) { contribution in
+                switch contribution {
+                case .contributed(let itemID, let title):
+                    openableLine(subject.wordsAreIn(title), itemID: itemID)
+                case .artifactMissing:
+                    Text(subject.contributionArtifactMissing)
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if state.contributions.contains(where: {
+                if case .contributed = $0 { true } else { false }
+            }) {
                 Text(subject.contributionCaption)
-                    .font(.caption).foregroundStyle(.secondary)
-            case .artifactMissing:
-                Text(subject.contributionArtifactMissing)
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

@@ -239,8 +239,8 @@ final class PromotionRegionPictureTests: XCTestCase {
     /// and not one row's.
     func test_aContributingPictureOffersNoUpdateOnAnyRow() throws {
         var s = scene()
-        s.setContributedItem("res-card", for: owned)
-        s.setContributedItem("res-card", for: referenced)
+        s.addContribution("res-card", to: owned)
+        s.addContribution("res-card", to: referenced)
         XCTAssertNil(try XCTUnwrap(s.node(owned)).promotedItemID,
                      "the control: only the contribution is set")
         let idx = artifacts(["res-card": .init(title: "Act II fog", kind: .paletteCard)])

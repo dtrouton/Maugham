@@ -121,8 +121,7 @@ public enum CompileTool: MCPTool {
             projectID: params.projectID, projectURL: projectURL)
         let astSource = ProjectStoreASTSource(
             projectStore: store,
-            language: params.language,
-            allowStale: params.allowStale ?? false)
+            language: params.language)
         let orch = CompileOrchestrator(
             projectURL: projectURL,
             astSource: astSource,
@@ -130,6 +129,7 @@ public enum CompileTool: MCPTool {
             publicationStore: stores.publicationStore,
             snapshotStore: stores.snapshotStore,
             jobManager: stores.jobManager,
+            mintGate: stores.mintGate,
             maughamVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0",
             tectonicVersion: "0.15.0")
 
@@ -218,8 +218,7 @@ public enum PreviewCompileTool: MCPTool {
             projectURL: projectURL,
             astSource: ProjectStoreASTSource(
                 projectStore: store,
-                language: params.language,
-                allowStale: params.allowStale ?? false),
+                language: params.language),
             configStore: stores.configStore,
             jobManager: stores.jobManager,
             maughamVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0",

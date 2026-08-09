@@ -31,12 +31,13 @@ final class CanvasPromotionCodecTests: XCTestCase {
         // 1C-c2's own field (`promotedItemID`) is schema 4; the literal moved
         // to 5 in 1C-c2a, which added `boundPieceID`, to 6 in 1C-c2b, which
         // added `contributedToItemID`, to 7 in 1C-c3, which added `author`, and
-        // to 8 in 1C-d, which added `ownedPath` — see
-        // `CanvasLineCodecTests.test_theSchemaVersionIsEight` for the other
+        // to 8 in 1C-d, which added `ownedPath`, and to 9 under RULING-51,
+        // which made the contribution record multi-valued — see
+        // `CanvasLineCodecTests.test_theSchemaVersionIsNine` for the other
         // assertion of the same literal. The NAME keeps this slice's own number
         // on purpose: what it guards is that 1C-c2's field went in at 4 and that
         // the marks below still round-trip, not what the current literal is.
-        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 8)
+        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 9)
     }
 
     func test_aPromotedScrapKeepsItsArtifactAcrossASaveAndLoad() throws {

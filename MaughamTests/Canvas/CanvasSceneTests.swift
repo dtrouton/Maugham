@@ -151,10 +151,10 @@ final class CanvasSceneTests: XCTestCase {
         var promoted = scrap("promoted", x: 0, y: 0)
         promoted.promotedItemID = "res-legacy"
         var contributor = scrap("contributor", x: 300, y: 0)
-        contributor.contributedToItemID = "res-legacy"
+        contributor.contributedToItemIDs = ["res-legacy"]
         var both = scrap("both", x: 600, y: 0)
         both.promotedItemID = "res-legacy"
-        both.contributedToItemID = "res-legacy"
+        both.contributedToItemIDs = ["res-legacy"]
         var elsewhere = scrap("elsewhere", x: 900, y: 0)
         elsewhere.promotedItemID = "res-other"
         for node in [promoted, contributor, both, elsewhere] { scene.insert(node) }
@@ -179,11 +179,11 @@ final class CanvasSceneTests: XCTestCase {
 
         XCTAssertEqual(moved, 5, "the count is what the caller decides to write on")
         XCTAssertEqual(scene.node(CanvasNodeID("promoted"))?.promotedItemID, "stmt-1")
-        XCTAssertEqual(scene.node(CanvasNodeID("contributor"))?.contributedToItemID, "stmt-1",
+        XCTAssertEqual(scene.node(CanvasNodeID("contributor"))?.contributedToItemIDs, ["stmt-1"],
                        "a contribution record names an artifact too, and its "
                        + "reader goes just as wrong when it dangles")
         XCTAssertEqual(scene.node(CanvasNodeID("both"))?.promotedItemID, "stmt-1")
-        XCTAssertEqual(scene.node(CanvasNodeID("both"))?.contributedToItemID, "stmt-1")
+        XCTAssertEqual(scene.node(CanvasNodeID("both"))?.contributedToItemIDs, ["stmt-1"])
         XCTAssertEqual(scene.region(CanvasRegionID("r1"))?.promotedItemID, "stmt-1")
     }
 

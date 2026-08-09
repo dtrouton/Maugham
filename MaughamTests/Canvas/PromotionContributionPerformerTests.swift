@@ -106,8 +106,8 @@ final class PromotionContributionPerformerTests: XCTestCase {
             in: model.scene)!
     }
 
-    private func contribution(_ id: CanvasNodeID, in model: CanvasModel) -> String? {
-        model.scene.node(id)?.contributedToItemID
+    private func contribution(_ id: CanvasNodeID, in model: CanvasModel) -> [String] {
+        model.scene.node(id)?.contributedToItemIDs ?? []
     }
 
     // MARK: - A region → research note records its contributors
@@ -122,8 +122,8 @@ final class PromotionContributionPerformerTests: XCTestCase {
             .perform(plan(.region(r1), .researchNote, store: store, model: model))
         let itemID = try XCTUnwrap(result.createdItemID)
 
-        XCTAssertEqual(contribution(a, in: model), itemID)
-        XCTAssertEqual(contribution(b, in: model), itemID,
+        XCTAssertEqual(contribution(a, in: model), [itemID])
+        XCTAssertEqual(contribution(b, in: model), [itemID],
                        "every card whose words are in the note says so, not only the "
                        + "ones promoted individually earlier")
         XCTAssertEqual(model.scene.region(r1)?.promotedItemID, itemID,
@@ -137,9 +137,9 @@ final class PromotionContributionPerformerTests: XCTestCase {
         let model = makeModel(at: root)
         let result = try await PromotionPerformer(store: store, model: model)
             .perform(plan(.region(r1), .researchNote, store: store, model: model))
-        XCTAssertNil(contribution(d, in: model),
-                     "an empty member's words never reached the note")
-        XCTAssertEqual(contribution(a, in: model), result.createdItemID,
+        XCTAssertEqual(contribution(d, in: model), [],
+                       "an empty member's words never reached the note")
+        XCTAssertEqual(contribution(a, in: model), [try XCTUnwrap(result.createdItemID)],
                        "the control: this promotion did record somebody, so the "
                        + "assertion above is not passing on a field nothing writes")
     }
@@ -151,8 +151,8 @@ final class PromotionContributionPerformerTests: XCTestCase {
         let model = makeModel(at: root)
         let result = try await PromotionPerformer(store: store, model: model)
             .perform(plan(.region(r1), .researchNote, store: store, model: model))
-        XCTAssertNil(contribution(c, in: model))
-        XCTAssertEqual(contribution(a, in: model), result.createdItemID,
+        XCTAssertEqual(contribution(c, in: model), [])
+        XCTAssertEqual(contribution(a, in: model), [try XCTUnwrap(result.createdItemID)],
                        "the control, as above")
         let note = try XCTUnwrap(TreeWalk.first(in: store.manifest.research,
                                                 where: { $0.title == "Act II fog" }))
@@ -183,17 +183,17 @@ final class PromotionContributionPerformerTests: XCTestCase {
 
         let result = try await PromotionPerformer(store: store, model: model)
             .perform(plan(.region(r1), .researchNote, store: store, model: model))
-        XCTAssertEqual(contribution(a, in: model), result.createdItemID,
+        XCTAssertEqual(contribution(a, in: model), [try XCTUnwrap(result.createdItemID)],
                        "the control: there are records to take back at all, or the "
                        + "nil assertions below hold on a field nothing writes")
-        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Region"),
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promotion Mark"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
 
         model.undo.undo()
         XCTAssertNil(try XCTUnwrap(model.scene.region(r1)).promotedItemID)
-        XCTAssertNil(contribution(a, in: model),
-                     "one ⌘Z takes the whole promotion's canvas-side effect back")
-        XCTAssertNil(contribution(b, in: model))
+        XCTAssertEqual(contribution(a, in: model), [],
+                       "one ⌘Z takes the whole promotion's canvas-side effect back")
+        XCTAssertEqual(contribution(b, in: model), [])
         XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Rename Region"),
                       "exactly ONE step was consumed — a second bracket for the "
                       + "stamping would leave a second \"Promote Region\" on top. "
@@ -211,15 +211,15 @@ final class PromotionContributionPerformerTests: XCTestCase {
         let result = try await PromotionPerformer(store: store, model: model)
             .perform(plan(.region(r1), .researchNote, store: store, model: model))
 
-        XCTAssertEqual(contribution(a, in: model), result.createdItemID,
+        XCTAssertEqual(contribution(a, in: model), [try XCTUnwrap(result.createdItemID)],
                        "the control: the records were written at all, so the undo "
                        + "assertions below are not passing vacuously")
-        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Region"),
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promotion Mark"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
         model.endGesture()
         model.undo.undo()
-        XCTAssertNil(contribution(a, in: model))
-        XCTAssertNil(contribution(b, in: model))
+        XCTAssertEqual(contribution(a, in: model), [])
+        XCTAssertEqual(contribution(b, in: model), [])
     }
 
     // MARK: - An update re-records (§6.3)
@@ -234,7 +234,7 @@ final class PromotionContributionPerformerTests: XCTestCase {
         let first = try await performer.perform(
             plan(.region(r1), .researchNote, store: store, model: model))
         let itemID = try XCTUnwrap(first.createdItemID)
-        XCTAssertEqual(contribution(b, in: model), itemID, "b was in the first note")
+        XCTAssertEqual(contribution(b, in: model), [itemID], "b was in the first note")
 
         // `b` leaves; `d` gains words and is already home.
         model.mutate("Move Card") { $0.updateRegion(r1) { $0.forget(self.b) } }
@@ -247,12 +247,12 @@ final class PromotionContributionPerformerTests: XCTestCase {
             plan(.region(r1), .researchNote, store: store, model: model, mode: existing))
         XCTAssertEqual(second.createdItemID, itemID, "the same note, rewritten")
 
-        XCTAssertEqual(contribution(a, in: model), itemID)
-        XCTAssertEqual(contribution(d, in: model), itemID,
+        XCTAssertEqual(contribution(a, in: model), [itemID])
+        XCTAssertEqual(contribution(d, in: model), [itemID],
                        "a card that joined the region's text must start claiming it")
-        XCTAssertNil(contribution(b, in: model),
-                     "a card whose words are no longer in the note must stop "
-                     + "claiming it — the note was rewritten without them")
+        XCTAssertEqual(contribution(b, in: model), [],
+                       "a card whose words are no longer in the note must stop "
+                       + "claiming it — the note was rewritten without them")
     }
 
     /// The rebuild clears records naming THIS artifact and nothing else. A card
@@ -265,7 +265,7 @@ final class PromotionContributionPerformerTests: XCTestCase {
             plan(.region(r1), .researchNote, store: store, model: model))
         let itemID = try XCTUnwrap(first.createdItemID)
         // `c` is not a contributor here; give it a record from somewhere else.
-        model.mutateFromInspector("Other") { $0.setContributedItem("res-elsewhere", for: self.c) }
+        model.mutateFromInspector("Other") { $0.addContribution("res-elsewhere", to: self.c) }
 
         let existing = try XCTUnwrap(
             Promotion.existingArtifact(for: .region(r1), target: .researchNote,
@@ -273,9 +273,9 @@ final class PromotionContributionPerformerTests: XCTestCase {
         _ = try await performer.perform(
             plan(.region(r1), .researchNote, store: store, model: model, mode: existing))
 
-        XCTAssertEqual(contribution(c, in: model), "res-elsewhere",
+        XCTAssertEqual(contribution(c, in: model), ["res-elsewhere"],
                        "the rebuild is scoped to the artifact being rewritten")
-        XCTAssertEqual(contribution(a, in: model), itemID)
+        XCTAssertEqual(contribution(a, in: model), [itemID])
     }
 
     // MARK: - The palette card records the same way
@@ -288,37 +288,33 @@ final class PromotionContributionPerformerTests: XCTestCase {
                           kind: .location))
         let itemID = try XCTUnwrap(result.createdItemID)
 
-        XCTAssertEqual(contribution(a, in: model), itemID)
-        XCTAssertEqual(contribution(b, in: model), itemID,
+        XCTAssertEqual(contribution(a, in: model), [itemID])
+        XCTAssertEqual(contribution(b, in: model), [itemID],
                        "a palette card made of six cards' words is the same shape of "
                        + "artifact; §6.3 does not distinguish them")
-        XCTAssertNil(contribution(d, in: model))
+        XCTAssertEqual(contribution(d, in: model), [])
     }
 
-    // MARK: - The record is single-valued, and that is intended
+    // MARK: - The record holds every fact (RULING-51)
 
-    /// **A card's words can genuinely be in two notes, and the record names only
-    /// the later one.** Reachable and deliberate, pinned here so the next author
-    /// meets a decision rather than what looks like a lost record: card `a`
-    /// lives in `r1`, `r1` is promoted so `a` records that note; `a` is dragged
-    /// into `r2` (`join` moves the home — there is only ever one), `r2` is
-    /// promoted, and the stamp OVERWRITES `a`'s record. The first note was never
-    /// rewritten, so `a`'s words really are in both.
-    ///
-    /// The scoped clear is what protects `b` — a promotion cannot wipe a record
-    /// naming somebody else's note. It does not, and is not meant to, stop a
-    /// card's own record moving on. Recording a *set* instead would put a
-    /// growing, never-collected list of danglable ids on every node to describe
-    /// a snapshot the writer took once.
-    func test_aSecondRegionsPromotionOverwritesTheRecordRatherThanAddingToIt() async throws {
+    /// **A card's words can genuinely be in two notes, and the record names
+    /// BOTH.** RULING-51 (2026-08-09): a contribution record is a fact, and
+    /// Maugham holds every one. This pin used to record the opposite — the
+    /// stamp OVERWROTE, latest wins, argued here as avoiding "a growing,
+    /// never-collected list of danglable ids" — and Denver ruled the other
+    /// way with the mechanics in front of them: both placements are the
+    /// writer's own deliberate acts, and latest-wins disarmed §6.3's
+    /// rewrite-guard for every earlier artifact the card fed.
+    func test_aSecondRegionsPromotionAddsToTheRecordRatherThanOverwritingIt() async throws {
         let (root, store) = try await makeProject()
         let model = makeModel(at: root)
         let performer = PromotionPerformer(store: store, model: model)
 
         let first = try await performer
             .perform(plan(.region(r1), .researchNote, store: store, model: model))
-        XCTAssertEqual(contribution(a, in: model), first.createdItemID)
-        XCTAssertEqual(contribution(b, in: model), first.createdItemID)
+        let firstID = try XCTUnwrap(first.createdItemID)
+        XCTAssertEqual(contribution(a, in: model), [firstID])
+        XCTAssertEqual(contribution(b, in: model), [firstID])
 
         // The drag: `a` moves house. `b` stays in `r1`.
         let r2 = CanvasRegionID("r2")
@@ -330,16 +326,15 @@ final class PromotionContributionPerformerTests: XCTestCase {
 
         let second = try await performer
             .perform(plan(.region(r2), .researchNote, store: store, model: model))
-        XCTAssertNotEqual(second.createdItemID, first.createdItemID, "a second note")
-        XCTAssertEqual(contribution(a, in: model), second.createdItemID,
-                       "single-valued: the most recent contribution wins")
-        XCTAssertEqual(contribution(b, in: model), first.createdItemID,
-                       "the clear is scoped to the artifact, so this promotion "
+        let secondID = try XCTUnwrap(second.createdItemID)
+        XCTAssertNotEqual(secondID, firstID, "a second note")
+        XCTAssertEqual(contribution(a, in: model), [firstID, secondID],
+                       "both facts, in the order they happened — the first note "
+                       + "was never rewritten, so a's words really are in both")
+        XCTAssertEqual(contribution(b, in: model), [firstID],
+                       "the removal is scoped to the artifact, so this promotion "
                        + "could not touch a record naming another note")
-        // And the words really are in both — the first note was never rewritten,
-        // which is what makes the overwrite a cost rather than a correction.
-        XCTAssertNotNil(TreeWalk.find(id: first.createdItemID!,
-                                      in: store.manifest.research),
+        XCTAssertNotNil(TreeWalk.find(id: firstID, in: store.manifest.research),
                         "the first note is still in the project")
     }
 
@@ -356,9 +351,9 @@ final class PromotionContributionPerformerTests: XCTestCase {
             .perform(plan(.scrap(a), .researchNote, store: store, model: model))
 
         XCTAssertEqual(model.scene.node(a)?.promotedItemID, result.createdItemID)
-        XCTAssertNil(contribution(a, in: model),
-                     "a card that produced its own note is the artifact, not a "
-                     + "contributor to somebody else's")
-        for id in [b, c, d] { XCTAssertNil(contribution(id, in: model)) }
+        XCTAssertEqual(contribution(a, in: model), [],
+                       "a card that produced its own note is the artifact, not a "
+                       + "contributor to somebody else's")
+        for id in [b, c, d] { XCTAssertEqual(contribution(id, in: model), []) }
     }
 }
