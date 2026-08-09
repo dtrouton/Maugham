@@ -1,11 +1,12 @@
 # Milestone (proposed) — research protection
 
-**Status:** recorded 2026-08-02, not scheduled. Ruled into existence by Denver during the
-reconciliation interview: *"yes this is a real issue IMO, and I think this is pushing me to a
-research protection milestone in future."*
-
-**Where this belongs:** `docs/roadmap.md`. It is recorded here because this experiment has changed
-zero production files across 49 phases; moving it is Denver's call.
+**Status:** SCHEDULED 2026-08-09 by RULING-48 ("Bridge now, milestone scheduled" — Denver,
+structured question GAP-P1). The roadmap entry lives in `docs/roadmap.md` Group 4 (Foundations &
+safety); this file remains the full finding it points back at. Originally recorded 2026-08-02,
+ruled into existence by Denver during the reconciliation interview: *"yes this is a real issue
+IMO, and I think this is pushing me to a research protection milestone in future."* The
+rewrite-keeps-a-version bridge shipped 2026-08-09 (`TrashSubject.priorVersion`) and holds the
+line until this milestone is scoped.
 
 ---
 

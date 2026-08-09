@@ -112,12 +112,27 @@ public struct CanvasScene: Equatable, Sendable {
         byID[id]?.boundPieceID = pieceID
     }
 
-    /// Record (or clear) the artifact a region's promotion folded this card's
-    /// text into (spec §6.3) — **not** the promotion mark. See
-    /// `CanvasNode.contributedToItemID`'s doc comment for why the two must
+    /// Record that a promotion folded this card's content into `itemID`
+    /// (spec §6.3) — **not** the promotion mark. See
+    /// `CanvasNode.contributedToItemIDs`' doc comment for why the two must
     /// never be conflated: this field must never be readable as an Update.
-    public mutating func setContributedItem(_ itemID: String?, for id: CanvasNodeID) {
-        byID[id]?.contributedToItemID = itemID
+    ///
+    /// **Append, never overwrite (RULING-51).** A record the card already
+    /// carries is left where it is; another artifact's record is not this
+    /// write's to discard — that is exactly how the single-valued field lost
+    /// note A's fact when note B was promoted.
+    public mutating func addContribution(_ itemID: String, to id: CanvasNodeID) {
+        guard let node = byID[id], !node.contributedToItemIDs.contains(itemID)
+        else { return }
+        byID[id]?.contributedToItemIDs.append(itemID)
+    }
+
+    /// Take back ONE artifact's contribution record — the rewrite path's verb,
+    /// scoped to the artifact being rewritten. There is deliberately no
+    /// clear-all sibling: every caller knows which artifact it is un-recording,
+    /// and a whole-record wipe is the overwrite bug with a different spelling.
+    public mutating func removeContribution(_ itemID: String, from id: CanvasNodeID) {
+        byID[id]?.contributedToItemIDs.removeAll { $0 == itemID }
     }
 
     /// Point every mark naming `oldID` at `newID` instead, and say how many
@@ -152,8 +167,15 @@ public struct CanvasScene: Equatable, Sendable {
                 byID[id]?.promotedItemID = newID
                 moved += 1
             }
-            if node.contributedToItemID == oldID {
-                byID[id]?.contributedToItemID = newID
+            if let index = node.contributedToItemIDs.firstIndex(of: oldID) {
+                if node.contributedToItemIDs.contains(newID) {
+                    // Both ids on one card can only mean the artifact fed by
+                    // both spellings is one artifact; keep the surviving id
+                    // once rather than twice.
+                    byID[id]?.contributedToItemIDs.remove(at: index)
+                } else {
+                    byID[id]?.contributedToItemIDs[index] = newID
+                }
                 moved += 1
             }
         }

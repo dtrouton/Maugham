@@ -292,7 +292,7 @@ final class PromotionPictureTests: XCTestCase {
         // The state after both promotions: a mark naming the research asset it
         // produced, and a record naming the card it was added to.
         s.setPromotedItem("res-asset", for: owned)
-        s.setContributedItem("res-card", for: owned)
+        s.addContribution("res-card", to: owned)
         let artifacts = ArtifactIndex(entriesByID: [
             "res-card": .init(title: "Colour: October", kind: .paletteCard),
             "res-asset": .init(title: "image-20260730-121314", kind: .researchAsset),

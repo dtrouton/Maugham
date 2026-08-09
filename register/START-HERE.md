@@ -52,9 +52,10 @@ why. **Read `register/RULINGS.md` and nothing else.**
 | `Stores/TrashStore` + `ProjectStore+Trash` | 64 | 66% | 42 / 0 | `22-trash-reconciliation.md` |
 | `OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`) | 35 | 60% | 21 / 0 | `24-rewind-reconciliation.md` |
 | `OpLog/Document+Annotations` (+`AnnotationDeriver`, `AnnotationInverse`) | 57 | 35% | 20 / 0 | `28-annotations-reconciliation.md` |
-| `Canvas/Promotion*` (the falsification module) | 78 | 62% | 48 / 0 | `29-promotion-falsification.md` |
+| `Canvas/Promotion*` (the falsification module) | 78 | 67% | 52 / 0 | `29-promotion-falsification.md` |
+| `Publish/Republisher` (+`CompileOrchestrator`) | 1 | 100% | 1 / 0 | — |
 
-The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 234 further claims in their own files. **403 claims in the experiment, 382 reconciled.** The app layer stands at **131 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
+The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 235 further claims in their own files. **404 claims in the experiment, 383 reconciled.** The app layer stands at **136 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
 App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`).
 
@@ -165,18 +166,21 @@ test.** Treat every entry as a lead. Of the ones checked so far:
    verifier's not-chased thread (can a merge append into a live mirror unsorted?) is its probe
    target. `Maugham/Canvas/Promotion*.swift` (75% survey specificity) remains the harder
    falsification of the sampling correction.
-3. **The gap queue is EMPTY as of 2026-08-08's four ruling rounds** — all 16 open gaps ruled in
-   one sitting (RULING-30..45): annotations' six, rewind's GAP-R3, the model-proved race
-   (GAP-A7 → RULING-33, with a collaboration-era revisit clause), and trash's eight. The ruling
-   set stands at 45 + 4 principles. New gaps arrive only from new module characterisations and
-   from fix loops' residuals. Method notes from the sitting: recommended options are 13/13 where
-   offered (the tracked warning number); the no-recommendation questions produced two independent
-   choices, one composed hybrid, and one answer (RULING-45) whose winning option only existed
-   because Denver asked for the concrete example first — **present the live example wherever one
-   exists**. Rewind's GAP-R2/R4/R5 and the accepted residual were
-   ruled 2026-08-08 round 2; the independent verification that confirmed the residual blind is at
-   `reconciliation/Rewind.verification-2026-08-08.json` (all five flipped filings confirmed 5/5 by
-   a fresh-context verifier).
+3. **The gap queue is EMPTY again as of 2026-08-09's P-gap sitting** — Promotion's five
+   substantive gaps ruled (RULING-48..52): P1 research-protection (bridge ratified, milestone
+   scheduled into `docs/roadmap.md`), P2 Name-withholding on Rewrite, P3 link identity
+   (same target = same link → M6-PR-024 convicted), P4 contribution records are facts
+   (multi-valued → M6-PR-072/073 convicted, 074 complies), P6 the general partial-failure
+   sentence completing RULING-28's family. The ruling set stands at 52 + 4 principles. Method
+   notes: the 2026-08-08 sitting ran recommended options 13/13; this sitting broke the streak —
+   **P1 is the first decline** (Denver took the adjacent stronger-scheduling option over the
+   recommended ratify-as-standard), and BOTH P3 and P4 were answered round 1 with a question
+   back ("what's the user experience?" / "how does this happen — that's what tells me the
+   user's intent") before the round-2 recommendations were accepted. The example-before-options
+   finding is now three-for-three: **present the live example and the mechanics wherever they
+   exist, before asking**. Earlier sittings: RULING-30..45 (2026-08-08, all 16 then-open gaps);
+   rewind's GAP-R2/R4/R5 round 2, blind-verified 5/5 at
+   `reconciliation/Rewind.verification-2026-08-08.json`.
 4. **`premise_verified` as a seventh template field** — recommended, but **only on a proposed
    ruling**, not on every filing. A filing is already pinned by a test, which is a premise check with
    teeth; a proposed ruling has no test and propagates to every future case. REW-D9 is the case for

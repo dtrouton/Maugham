@@ -212,8 +212,8 @@ struct RegionInspector: View {
     /// `PromotedArtifactSection.Subject`, whose region arm said "the palette
     /// card" for a slice after the row had already gained `.researchNote`.
     ///
-    /// **`contribution: .none`, named rather than defaulted.** A region has no
-    /// contribution record and cannot get one: spec §6.3 puts a record on the
+    /// **`contributions: []`, named rather than defaulted.** A region has no
+    /// contribution records and cannot get one: spec §6.3 puts a record on the
     /// CARDS whose text a promotion folded in, and this is the thing that folds
     /// them. Naming the absence here is what keeps the card arm's half from
     /// going missing behind a default with nothing red — the reason
@@ -223,7 +223,7 @@ struct RegionInspector: View {
         return PromotedArtifactSection.Provenance(
             artifact: PromotedArtifactSection.artifactState(
                 promotedItemID: mark, title: mark.flatMap(artifactTitle)),
-            contribution: .none)
+            contributions: [])
     }
 
     var body: some View {

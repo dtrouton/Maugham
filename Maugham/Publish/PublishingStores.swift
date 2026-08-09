@@ -15,6 +15,10 @@ public final class PublishingStores {
     public let publicationStore: PublicationStore
     public let snapshotStore: PublicationSnapshotStore
     public let jobManager: CompileJobManager
+    /// P2 (issue #25): the per-project mint gate. Shared for the same reason
+    /// `jobManager` is — every compile of this project must contend on ONE
+    /// gate, or two in-flight compiles of an edition never see each other.
+    public let mintGate: PublishMintGate
 
     public init(projectURL: URL) {
         self.projectURL = projectURL
@@ -22,6 +26,7 @@ public final class PublishingStores {
         self.publicationStore = PublicationStore(projectURL: projectURL)
         self.snapshotStore = PublicationSnapshotStore(projectURL: projectURL)
         self.jobManager = CompileJobManager()
+        self.mintGate = PublishMintGate()
     }
 
     private static var byProjectID: [String: PublishingStores] = [:]

@@ -268,6 +268,11 @@ struct PromotionLinkOffer: Equatable, Hashable, Identifiable {
 struct WikiLinkWrite: Equatable {
     let intoNode: CanvasNodeID
     let intoItemID: String
+    /// The to-end artifact's title — the link's TARGET, carried separately from
+    /// `linkText` because the duplicate check compares targets, never spellings
+    /// (RULING-50): the performer's live-file guard needs the title after the
+    /// label has been folded into the text.
+    let targetTitle: String
     /// `[[Artifact title]] — the line's name`. The link names the ARTIFACT and
     /// never the card's first line: `[[X]]` resolves against the manifest, and a
     /// scrap is not in it.
@@ -656,7 +661,7 @@ struct PromotionPlan: Equatable {
     /// promotion has more than one card behind a single artifact.
     ///
     /// **This is NOT the promotion mark, and must never be conflated with
-    /// one.** See `CanvasNode.contributedToItemID`'s doc comment — a
+    /// one.** See `CanvasNode.contributedToItemIDs`'s doc comment — a
     /// contributor's words are IN the artifact alongside others', and reading
     /// this list where `promotedItemID` is read would let one member's
     /// re-promotion offer to rewrite the whole joint note with its own single
@@ -894,7 +899,7 @@ enum Promotion {
         guard updatableTargets.contains(target) else { return nil }
         let markedID: String?
         switch source {
-        // **`promotedItemID` ONLY, and never `contributedToItemID`** (spec §6.3).
+        // **`promotedItemID` ONLY, and never `contributedToItemIDs`** (spec §6.3).
         // This function is what offers **Rewrite**, and a contributor is not the
         // artifact's producer: falling back to the contribution record here
         // would let the writer promote one member of a six-card region note and
@@ -1016,6 +1021,7 @@ enum Promotion {
                   let fromTitle = request.artifacts.title(of: fromItem),
                   let toTitle = request.artifacts.title(of: toItem) else { return nil }
             let write = WikiLinkWrite(intoNode: line.from, intoItemID: fromItem,
+                                      targetTitle: toTitle,
                                       linkText: linkText(to: toTitle, label: line.label))
             // **The noun is kind-aware, since F10's routed fix.** The from-end
             // can be a craft-intent statement as easily as a research note —
@@ -1036,7 +1042,8 @@ enum Promotion {
                 // so no card's words are folded into anything new. Named rather
                 // than inherited (see `PromotionPlan.contributors`).
                 contributors: [],
-                linkAlreadyPresent: request.destinationBody?.contains(write.linkText) ?? false,
+                linkAlreadyPresent: request.destinationBody
+                    .map { alreadyLinks(to: toTitle, in: $0) } ?? false,
                 // A line's product is text inside somebody else's note.
                 pictures: [])
         }
@@ -1185,6 +1192,32 @@ enum Promotion {
         let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let trimmed, !trimmed.isEmpty else { return "[[\(title)]]" }
         return "[[\(title)]] — \(trimmed)"
+    }
+
+    /// RULING-50: two wiki-links are THE SAME LINK when they point at the same
+    /// artifact, whatever the label — so "already there" is a question about
+    /// link TARGETS, never about spellings. The label lives OUTSIDE the
+    /// brackets (`[[Title]] — label`), so every link's target is exactly its
+    /// bracketed token; the raw-substring test this replaced was asymmetric
+    /// (a labelled link blocked the plain one by accident of containment,
+    /// while a plain link let a labelled twin through — two links to one
+    /// artifact, M6-PR-024).
+    static func alreadyLinks(to title: String, in body: String) -> Bool {
+        let target = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let regex = try? NSRegularExpression(pattern: #"\[\[([^\]]+)\]\]"#)
+        else { return body.contains("[[\(target)]]") }
+        let ns = body as NSString
+        var found = false
+        regex.enumerateMatches(in: body,
+                               range: NSRange(location: 0, length: ns.length)) { match, _, stop in
+            guard let match, match.numberOfRanges >= 2 else { return }
+            if ns.substring(with: match.range(at: 1))
+                .trimmingCharacters(in: .whitespacesAndNewlines) == target {
+                found = true
+                stop.pointee = true
+            }
+        }
+        return found
     }
 
     private static func isScrap(_ id: CanvasNodeID, in scene: CanvasScene) -> Bool {

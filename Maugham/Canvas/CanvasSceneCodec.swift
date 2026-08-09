@@ -8,7 +8,7 @@ import MaughamCore
 /// `CanvasScene` so the in-memory model is free to change shape without
 /// rewriting every writer's sidecar.
 struct CanvasSceneDTO: Codable {
-    static let currentSchemaVersion = 8   // was 7 (author, 1C-c3)
+    static let currentSchemaVersion = 9   // was 8 (ownedPath, 1C-d)
 
     var schemaVersion: Int
     var nodes: [NodeDTO]
@@ -30,7 +30,11 @@ struct CanvasSceneDTO: Codable {
     /// about provenance, they are optional so every older file still decodes, and
     /// no build outside this branch has ever written a 7. **1C-d added
     /// `ownedPath` to `NodeDTO`, same shape a fifth time** — which of the two
-    /// provenances an item node has belongs to the node.
+    /// provenances an item node has belongs to the node. **Schema 9 is the
+    /// first bump that CHANGED a field rather than adding one**: RULING-51 made
+    /// the contribution record multi-valued, so `contributedToItemIDs` replaces
+    /// `contributedToItemID` on the wire and the old key survives decode-only
+    /// (see its comment on `NodeDTO`).
     var lines: [LineDTO]?
 
     struct NodeDTO: Codable {
@@ -56,7 +60,16 @@ struct CanvasSceneDTO: Codable {
         var z: Int
         var promotedItemID: String?
         var boundPieceID: String?
+        /// Schema ≤8's single-valued contribution record, kept as a DECODE-ONLY
+        /// key: a sidecar written before RULING-51 carries one fact here, and
+        /// it folds into `contributedToItemIDs` on the way in. The encoder
+        /// never writes it — schema 9 is the bump that changed a field's
+        /// CARDINALITY, which is why this one could not ride inside 8 the way
+        /// `author` rode inside 7.
         var contributedToItemID: String?
+        /// Every artifact this card's content was folded into (RULING-51),
+        /// in contribution order. Absent when empty.
+        var contributedToItemIDs: [String]?
         /// `AnnotationAuthor.SourceKind.rawValue`, absent for the writer's own
         /// cards. Stored as a `String?` rather than the enum so an unrecognised
         /// value is a decision this file makes (see `authorKind`) instead of a
@@ -122,7 +135,9 @@ struct CanvasSceneDTO: Codable {
                                cachedHeight: n.cachedHeight, z: n.z,
                                promotedItemID: n.promotedItemID,
                                boundPieceID: n.boundPieceID,
-                               contributedToItemID: n.contributedToItemID,
+                               contributedToItemID: nil,
+                               contributedToItemIDs: n.contributedToItemIDs.isEmpty
+                                   ? nil : n.contributedToItemIDs,
                                author: n.author?.rawValue)
             case .item(.project(let id)):
                 return NodeDTO(id: n.id.raw, kind: "item",
@@ -131,7 +146,9 @@ struct CanvasSceneDTO: Codable {
                                cachedHeight: n.cachedHeight, z: n.z,
                                promotedItemID: n.promotedItemID,
                                boundPieceID: n.boundPieceID,
-                               contributedToItemID: n.contributedToItemID,
+                               contributedToItemID: nil,
+                               contributedToItemIDs: n.contributedToItemIDs.isEmpty
+                                   ? nil : n.contributedToItemIDs,
                                author: n.author?.rawValue)
             case .item(.owned(let path)):
                 // The two arms write DISJOINT fields, which is what makes the
@@ -143,7 +160,9 @@ struct CanvasSceneDTO: Codable {
                                cachedHeight: n.cachedHeight, z: n.z,
                                promotedItemID: n.promotedItemID,
                                boundPieceID: n.boundPieceID,
-                               contributedToItemID: n.contributedToItemID,
+                               contributedToItemID: nil,
+                               contributedToItemIDs: n.contributedToItemIDs.isEmpty
+                                   ? nil : n.contributedToItemIDs,
                                author: n.author?.rawValue)
             }
         }
@@ -211,7 +230,8 @@ struct CanvasSceneDTO: Codable {
                                 width: dto.width, cachedHeight: dto.cachedHeight, z: dto.z,
                                 promotedItemID: dto.promotedItemID,
                                 boundPieceID: dto.boundPieceID,
-                                contributedToItemID: dto.contributedToItemID,
+                                contributedToItemIDs: dto.contributedToItemIDs
+                                    ?? dto.contributedToItemID.map { [$0] } ?? [],
                                 author: Self.authorKind(dto.author)))
         }
 

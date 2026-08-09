@@ -261,7 +261,7 @@ final class PromotionRegionPicturePerformerTests: XCTestCase {
         let cardID = try XCTUnwrap(result.createdItemID)
 
         for node in [owned, reference, topCard] {
-            XCTAssertEqual(model.scene.node(node)?.contributedToItemID, cardID,
+            XCTAssertEqual(model.scene.node(node)?.contributedToItemIDs, [cardID],
                            "\(node) put its content in that card and says so")
             XCTAssertNil(try XCTUnwrap(model.scene.node(node)).promotedItemID,
                          "and none of them IS the card — \(node)")
@@ -298,13 +298,14 @@ final class PromotionRegionPicturePerformerTests: XCTestCase {
 
         let result = try await PromotionPerformer(store: store, model: model)
             .perform(try plan(store, model))
-        XCTAssertEqual(model.scene.node(owned)?.contributedToItemID, result.createdItemID,
+        XCTAssertEqual(model.scene.node(owned)?.contributedToItemIDs,
+                       [try XCTUnwrap(result.createdItemID)],
                        "the control: there is a picture record to take back at all")
         XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promotion Mark"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
 
         model.undo.undo()
-        XCTAssertNil(try XCTUnwrap(model.scene.node(owned)).contributedToItemID)
+        XCTAssertEqual(try XCTUnwrap(model.scene.node(owned)).contributedToItemIDs, [])
         XCTAssertNil(try XCTUnwrap(model.scene.region(r1)).promotedItemID)
         XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Move Card"),
                       "exactly ONE step was consumed — a second bracket for the "
@@ -353,9 +354,9 @@ final class PromotionRegionPicturePerformerTests: XCTestCase {
         XCTAssertTrue(store.loadPaletteCards().isEmpty, "and made no card")
         XCTAssertNil(try XCTUnwrap(model.scene.region(r1)).promotedItemID,
                      "and marked nothing")
-        XCTAssertNil(try XCTUnwrap(model.scene.node(topCard)).contributedToItemID,
-                     "and recorded nothing on the members whose words would "
-                     + "otherwise have gone in")
+        XCTAssertEqual(try XCTUnwrap(model.scene.node(topCard)).contributedToItemIDs, [],
+                       "and recorded nothing on the members whose words would "
+                       + "otherwise have gone in")
     }
 
     /// **The refusal names something the writer is looking at** (review Minor 1).
@@ -404,7 +405,7 @@ final class PromotionRegionPicturePerformerTests: XCTestCase {
         XCTAssertTrue(made.imagePaths.isEmpty)
         XCTAssertEqual(made.body, "The falls at night.")
         XCTAssertEqual(made.title, "Act II fog")
-        XCTAssertEqual(model.scene.node(topCard)?.contributedToItemID,
-                       result.createdItemID)
+        XCTAssertEqual(model.scene.node(topCard)?.contributedToItemIDs,
+                       [try XCTUnwrap(result.createdItemID)])
     }
 }

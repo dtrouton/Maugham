@@ -383,10 +383,12 @@ final class PromotionCharacterization: XCTestCase {
                        "M6-PR-023: the noun follows the artifact's kind")
     }
 
-    /// M6-PR-024 — the duplicate check is a raw substring test, and it is
-    /// asymmetric: a labelled link in the destination blocks the unlabelled
-    /// promotion, and an unlabelled one does not block a labelled promotion.
-    func test_theDuplicateLinkCheckIsARawSubstringTest() async throws {
+    /// M6-PR-024 — the duplicate check compares link TARGETS: promotion never
+    /// adds a link to an artifact the destination already points at, under any
+    /// label, in either direction (RULING-50, fixed 2026-08-09 — the asymmetric
+    /// raw substring test this pin used to record let a plain link's labelled
+    /// twin through).
+    func test_theDuplicateLinkCheckComparesTargetsNotSpellings() async throws {
         let (root, store) = try await makeProject()
         let model = makeModel(at: root)
         let n1 = try await store.createResearchNote(scope: .shared, title: "From note")
@@ -403,9 +405,11 @@ final class PromotionCharacterization: XCTestCase {
         XCTAssertFalse(try plan(.line(l1), .wikiLink, store: store, model: model,
                                 destinationBody: "prose\n\n[[To notebook]]\n").linkAlreadyPresent)
         model.withScene { $0.updateLine(l1) { $0.label = "why" } }
-        XCTAssertFalse(try plan(.line(l1), .wikiLink, store: store, model: model,
-                                destinationBody: "prose\n\n[[To note]]\n").linkAlreadyPresent,
-                       "and the plain link does not suppress the labelled one")
+        XCTAssertTrue(try plan(.line(l1), .wikiLink, store: store, model: model,
+                               destinationBody: "prose\n\n[[To note]]\n").linkAlreadyPresent,
+                      "and the plain link suppresses the labelled one too — the check "
+                      + "compares TARGETS, not spellings (RULING-50, fixed from the "
+                      + "asymmetric substring test this pin used to record)")
     }
 
     /// M6-PR-025, M6-PR-026, M6-PR-027, M6-PR-028 — §6.2's rows, in the sheet's words.
@@ -475,7 +479,7 @@ final class PromotionCharacterization: XCTestCase {
                      "M6-PR-031: a dangling mark offers no rewrite")
         model.withScene {
             $0.setPromotedItem(nil, for: a)
-            $0.setContributedItem(note.id, for: a)
+            $0.addContribution(note.id, to: a)
         }
         XCTAssertNil(Promotion.existingArtifact(for: .scrap(a), target: .researchNote,
                                                 in: model.scene, artifacts: index(store)),
@@ -499,8 +503,8 @@ final class PromotionCharacterization: XCTestCase {
                        "The falls at night\n\nSodium light on the spray.", "M6-PR-035")
         XCTAssertEqual(res.title, "The falls at night")
         XCTAssertEqual(model.scene.node(a)?.promotedItemID, id, "M6-PR-035: the card is marked")
-        XCTAssertNil(model.scene.node(a)?.contributedToItemID,
-                     "M6-PR-035: one card behind one artifact records no contribution")
+        XCTAssertEqual(model.scene.node(a)?.contributedToItemIDs, [],
+                       "M6-PR-035: one card behind one artifact records no contribution")
         XCTAssertEqual(res.confirmation(for: pl),
                        "Promoted to the note “The falls at night”.", "M6-PR-036")
     }
@@ -865,7 +869,7 @@ final class PromotionCharacterization: XCTestCase {
         let res = try await performer.perform(pl)
         XCTAssertNil(model.scene.node(own)?.promotedItemID,
                      "M6-PR-052: a picture stamped with the card's id would be offered a Rewrite")
-        XCTAssertEqual(model.scene.node(own)?.contributedToItemID, card.id, "M6-PR-052")
+        XCTAssertEqual(model.scene.node(own)?.contributedToItemIDs, [card.id], "M6-PR-052")
         let after = try XCTUnwrap(store.loadPaletteCards().first { $0.researchItemId == card.id })
         XCTAssertEqual(after.imagePaths.count, 1)
         XCTAssertEqual(after.body, "Card prose", "M6-PR-052: the card's prose survives")
@@ -875,9 +879,9 @@ final class PromotionCharacterization: XCTestCase {
         _ = try await performer.perform(
             try plan(.scrap(own2), .paletteCardImage, store: store, model: model,
                      paletteCardID: card.id))
-        XCTAssertEqual(model.scene.node(own)?.contributedToItemID, card.id,
+        XCTAssertEqual(model.scene.node(own)?.contributedToItemIDs, [card.id],
                        "M6-PR-052: the well is appended to, so the first record stands")
-        XCTAssertEqual(model.scene.node(own2)?.contributedToItemID, card.id)
+        XCTAssertEqual(model.scene.node(own2)?.contributedToItemIDs, [card.id])
         XCTAssertEqual(try XCTUnwrap(store.loadPaletteCards()
             .first { $0.researchItemId == card.id }).imagePaths.count, 2)
     }
@@ -979,7 +983,7 @@ final class PromotionCharacterization: XCTestCase {
         let id = try XCTUnwrap(res.createdItemID)
         XCTAssertEqual(try XCTUnwrap(store.loadPaletteCards().first { $0.researchItemId == id })
             .imagePaths.count, 1, "M6-PR-057")
-        XCTAssertEqual(model.scene.node(own)?.contributedToItemID, id, "M6-PR-057")
+        XCTAssertEqual(model.scene.node(own)?.contributedToItemIDs, [id], "M6-PR-057")
         XCTAssertNil(model.scene.node(own)?.promotedItemID)
 
         let existing = try XCTUnwrap(Promotion.existingArtifact(
@@ -992,7 +996,7 @@ final class PromotionCharacterization: XCTestCase {
         _ = try await performer(store, model).perform(updPlan)
         XCTAssertEqual(try XCTUnwrap(store.loadPaletteCards().first { $0.researchItemId == id })
             .imagePaths.count, 1)
-        XCTAssertEqual(model.scene.node(own)?.contributedToItemID, id,
+        XCTAssertEqual(model.scene.node(own)?.contributedToItemIDs, [id],
                        "M6-PR-058: and the picture's record survives the rewrite")
     }
 
@@ -1160,8 +1164,8 @@ final class PromotionCharacterization: XCTestCase {
         let first = try await performer.perform(
             try plan(.region(r1), .researchNote, store: store, model: model))
         let noteA = try XCTUnwrap(first.createdItemID)
-        XCTAssertEqual(model.scene.node(a)?.contributedToItemID, noteA, "M6-PR-071")
-        XCTAssertEqual(model.scene.node(b)?.contributedToItemID, noteA, "M6-PR-071")
+        XCTAssertEqual(model.scene.node(a)?.contributedToItemIDs, [noteA], "M6-PR-071")
+        XCTAssertEqual(model.scene.node(b)?.contributedToItemIDs, [noteA], "M6-PR-071")
         XCTAssertEqual(model.scene.region(r1)?.promotedItemID, noteA,
                        "M6-PR-071: the region carries the mark, the members the record")
 
@@ -1176,10 +1180,12 @@ final class PromotionCharacterization: XCTestCase {
             for: .region(r1), target: .researchNote, in: model.scene, artifacts: index(store)))
         _ = try await performer.perform(
             try plan(.region(r1), .researchNote, store: store, model: model, mode: existing))
-        XCTAssertNil(model.scene.node(b)?.contributedToItemID,
-                     "M6-PR-072: a card that has left stops claiming the note")
-        XCTAssertEqual(model.scene.node(c)?.contributedToItemID, noteA, "M6-PR-072")
-        XCTAssertEqual(model.scene.node(a)?.contributedToItemID, noteA)
+        XCTAssertEqual(model.scene.node(b)?.contributedToItemIDs, [],
+                       "M6-PR-072: a card that has left stops claiming the note — the "
+                       + "removal scoped to THIS artifact (RULING-51, fixed 2026-08-09; "
+                       + "the stamp used to overwrite the whole record)")
+        XCTAssertEqual(model.scene.node(c)?.contributedToItemIDs, [noteA], "M6-PR-072")
+        XCTAssertEqual(model.scene.node(a)?.contributedToItemIDs, [noteA])
 
         model.withScene {
             $0.insertRegion(CanvasRegion(id: r2, label: "Other",
@@ -1189,11 +1195,14 @@ final class PromotionCharacterization: XCTestCase {
         }
         let second = try await performer.perform(
             try plan(.region(r2), .researchNote, store: store, model: model))
-        XCTAssertEqual(model.scene.node(a)?.contributedToItemID, second.createdItemID,
-                       "M6-PR-073: the record is single-valued and the most recent wins, "
-                       + "though the card's words are in both notes")
+        let noteB = try XCTUnwrap(second.createdItemID)
+        XCTAssertEqual(model.scene.node(a)?.contributedToItemIDs, [noteA, noteB],
+                       "M6-PR-073: the record holds EVERY artifact the card's words "
+                       + "fed, in contribution order (RULING-51, fixed 2026-08-09 "
+                       + "from single-valued latest-wins)")
         XCTAssertTrue(try bodyOf(noteA, store: store, root: root).contains("The falls at night"),
-                      "M6-PR-073: the earlier note still holds them")
+                      "M6-PR-073: the earlier note still holds them — which is why "
+                      + "the record must too")
     }
 
     /// M6-PR-074 — the clear reaches scrap nodes only.
@@ -1210,12 +1219,12 @@ final class PromotionCharacterization: XCTestCase {
         let res = try await performer.perform(
             try plan(.region(r1), .paletteCard, store: store, model: model))
         let id = try XCTUnwrap(res.createdItemID)
-        XCTAssertEqual(model.scene.node(own)?.contributedToItemID, id)
+        XCTAssertEqual(model.scene.node(own)?.contributedToItemIDs, [id])
         let existing = try XCTUnwrap(Promotion.existingArtifact(
             for: .region(r1), target: .paletteCard, in: model.scene, artifacts: index(store)))
         _ = try await performer.perform(
             try plan(.region(r1), .paletteCard, store: store, model: model, mode: existing))
-        XCTAssertEqual(model.scene.node(own)?.contributedToItemID, id,
+        XCTAssertEqual(model.scene.node(own)?.contributedToItemIDs, [id],
                        "M6-PR-074: the image well is append-only, so the picture is still in it")
     }
 
@@ -1247,8 +1256,8 @@ final class PromotionCharacterization: XCTestCase {
         XCTAssertEqual(TreeWalk.collect(in: store.manifest.research,
                                         where: { $0.title.hasPrefix("Act II fog") }).count, 0,
                        "M6-PR-075: no artifact was created")
-        XCTAssertNil(model.scene.node(a)?.contributedToItemID,
-                     "M6-PR-075: and no contribution record was stamped")
+        XCTAssertEqual(model.scene.node(a)?.contributedToItemIDs, [],
+                       "M6-PR-075: and no contribution record was stamped")
     }
 
     /// M6-PR-076 — the count reported is what was written, not what was offered.

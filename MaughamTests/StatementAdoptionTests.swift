@@ -650,7 +650,7 @@ final class StatementAdoptionTests: XCTestCase {
         promoted.promotedItemID = legacyNoteId
         var contributor = CanvasNode(id: CanvasNodeID("n2"), kind: .scrap,
                                      origin: CGPoint(x: 300, y: 0), width: 240)
-        contributor.contributedToItemID = legacyNoteId
+        contributor.contributedToItemIDs = [legacyNoteId]
         var unrelated = CanvasNode(id: CanvasNodeID("n3"), kind: .scrap,
                                    origin: CGPoint(x: 600, y: 0), width: 240)
         unrelated.promotedItemID = "res-something-else"
@@ -671,7 +671,7 @@ final class StatementAdoptionTests: XCTestCase {
         XCTAssertEqual(reloaded.node(CanvasNodeID("n1"))?.promotedItemID, statement.id,
                        "the promoted card still names the trashed research note, "
                        + "so the inspector reports the writer's intent as deleted")
-        XCTAssertEqual(reloaded.node(CanvasNodeID("n2"))?.contributedToItemID, statement.id)
+        XCTAssertEqual(reloaded.node(CanvasNodeID("n2"))?.contributedToItemIDs, [statement.id])
         XCTAssertEqual(reloaded.region(CanvasRegionID("r1"))?.promotedItemID, statement.id)
         XCTAssertEqual(reloaded.node(CanvasNodeID("n3"))?.promotedItemID,
                        "res-something-else",

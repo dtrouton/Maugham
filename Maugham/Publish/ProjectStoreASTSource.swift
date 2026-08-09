@@ -41,15 +41,9 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
     /// nil, the source-language materialize path is byte-untouched.
     public let language: String?
 
-    /// Reserved for Task 9's coverage gate (compile refuses an un-`allow_stale`
-    /// edition whose translation lags the source). Stored here so the gate can
-    /// read the same value the substitution used.
-    public let allowStale: Bool
-
-    public init(projectStore: ProjectStore, language: String? = nil, allowStale: Bool = false) {
+    public init(projectStore: ProjectStore, language: String? = nil) {
         self.projectStore = projectStore
         self.language = language
-        self.allowStale = allowStale
     }
 
     public func orderedPieces() -> [ProjectASTBuilder.PieceRef] {

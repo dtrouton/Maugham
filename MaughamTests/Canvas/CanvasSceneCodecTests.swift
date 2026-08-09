@@ -9,7 +9,7 @@ import MaughamCore
 /// it** — `CanvasRegionCodecTests`, `CanvasLineCodecTests`,
 /// `CanvasPromotionCodecTests` and `CanvasAuthorCodecTests` each hold the slice
 /// that added their fact. This file holds `CanvasItemReference`. The schema
-/// literal itself is asserted in `CanvasLineCodecTests.test_theSchemaVersionIsEight`
+/// literal itself is asserted in `CanvasLineCodecTests.test_theSchemaVersionIsNine`
 /// and is deliberately not repeated here — three sites rebump already.
 ///
 /// Schema 8 is additive-optional in BOTH directions, which is the pattern every

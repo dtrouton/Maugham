@@ -13,6 +13,7 @@ final class PromotionPerformerTests: XCTestCase {
     private let a = CanvasNodeID("a")
     private let b = CanvasNodeID("b")
     private let r1 = CanvasRegionID("r1")
+    private let r2 = CanvasRegionID("r2")
     private let l1 = CanvasLineID("l1")
 
     /// `ProjectStore.documentStore` is a WEAK var, so the test has to hold the
@@ -560,7 +561,7 @@ final class PromotionPerformerTests: XCTestCase {
                                  + "draws the stripe and what VoiceOver speaks")
         let artifacts = index(store)
         let provenance = PromotedArtifactSection.provenance(
-            promotedItemID: mark, contributedToItemID: nil,
+            promotedItemID: mark, contributedToItemIDs: [],
             title: { artifacts.title(of: $0) })
         switch provenance.artifact {
         case .promoted: break
@@ -851,6 +852,96 @@ final class PromotionPerformerTests: XCTestCase {
         } catch PromotionFailure.linkAlreadyPresent {
             let text = try body(of: item("The falls at night", in: store), in: root)
             XCTAssertEqual(text.components(separatedBy: "[[October's doctor]]").count - 1, 1)
+        }
+    }
+
+    // MARK: - Contribution records are facts (RULING-51)
+
+    /// RULING-51: a contribution record is a fact, and Maugham holds every one.
+    /// A card sitting in two regions fed both their notes — deliberately, both
+    /// placements the writer's own — and before the ruling the single-valued
+    /// record forgot note A the moment note B was promoted.
+    func test_aCardInTwoRegionsRecordsEveryArtifactItsFedWords() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        let first = try await performer.perform(
+            plan(.region(r1), .researchNote, store: store, model: model))
+        let noteA = try XCTUnwrap(first.createdItemID)
+
+        model.withScene {
+            $0.insertRegion(CanvasRegion(id: r2, label: "Other",
+                                         frame: CGRect(x: 0, y: 800, width: 300, height: 300),
+                                         homeMembers: []))
+            CanvasMembership.join(a, home: r2, in: &$0)
+        }
+        let second = try await performer.perform(
+            plan(.region(r2), .researchNote, store: store, model: model))
+        let noteB = try XCTUnwrap(second.createdItemID)
+
+        XCTAssertEqual(model.scene.node(a)?.contributedToItemIDs, [noteA, noteB],
+                       "both facts held, in the order they happened")
+        _ = root
+    }
+
+    /// RULING-51's rewrite half: a rewrite of note A removes and re-records
+    /// note A's fact ONLY — another artifact's record on the same card is not
+    /// this promotion's to discard. Card `a` moved house to r2 (a node has ONE
+    /// home), so rewriting r1's note writes it without a's words: noteA's fact
+    /// honestly leaves card a, and noteB's fact must survive that removal.
+    func test_aRewriteTouchesOnlyItsOwnArtifactsFact() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        let first = try await performer.perform(
+            plan(.region(r1), .researchNote, store: store, model: model))
+        let noteA = try XCTUnwrap(first.createdItemID)
+        model.withScene {
+            $0.insertRegion(CanvasRegion(id: r2, label: "Other",
+                                         frame: CGRect(x: 0, y: 800, width: 300, height: 300),
+                                         homeMembers: []))
+            CanvasMembership.join(a, home: r2, in: &$0)
+        }
+        let second = try await performer.perform(
+            plan(.region(r2), .researchNote, store: store, model: model))
+        let noteB = try XCTUnwrap(second.createdItemID)
+        XCTAssertEqual(model.scene.node(a)?.contributedToItemIDs, [noteA, noteB],
+                       "precondition: both facts held before the rewrite")
+
+        let existing = try XCTUnwrap(Promotion.existingArtifact(
+            for: .region(r1), target: .researchNote, in: model.scene, artifacts: index(store)))
+        _ = try await performer.perform(
+            plan(.region(r1), .researchNote, store: store, model: model, mode: existing))
+
+        XCTAssertEqual(model.scene.node(a)?.contributedToItemIDs, [noteB],
+                       "noteA was rewritten without a's words, so that fact leaves "
+                       + "— and ONLY that fact; the single-valued stamp would have "
+                       + "taken noteB's record with it")
+        XCTAssertEqual(model.scene.node(b)?.contributedToItemIDs, [noteA],
+                       "b stayed home; its fact is re-recorded, not lost")
+        _ = root
+    }
+
+    /// RULING-50's live-file half: the runtime guard compares link TARGETS, not
+    /// raw text. A plain [[October's doctor]] is already in the note; labelling
+    /// the line changes its linkText, and before the ruling that was enough to
+    /// slip a second link to the same artifact past the substring check.
+    func test_labellingTheLineDoesNotSlipASecondLinkPastTheLiveFileCheck() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        try await promoteBothScraps(store, model)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(plan(.line(l1), .wikiLink, store: store, model: model))
+        model.mutate("Label Line") {
+            $0.updateLine(l1) { $0.label = "because of the ponchos" }
+        }
+        do {
+            _ = try await performer.perform(plan(.line(l1), .wikiLink, store: store, model: model))
+            XCTFail("expected a refusal — same target, same link (RULING-50)")
+        } catch PromotionFailure.linkAlreadyPresent {
+            let text = try body(of: item("The falls at night", in: store), in: root)
+            XCTAssertEqual(text.components(separatedBy: "[[October's doctor]]").count - 1, 1,
+                           "one artifact, one link, whatever the label")
         }
     }
 
@@ -1411,7 +1502,8 @@ final class PromotionPerformerTests: XCTestCase {
         let already = PromotionPlan(
             source: .line(l1), producedKind: .wikiLink, title: "T", body: "[[X]]",
             destinationDescription: "the note “T”", discards: [], offeredLinks: [],
-            wikiLinkWrite: WikiLinkWrite(intoNode: a, intoItemID: "res-x", linkText: "[[X]]"),
+            wikiLinkWrite: WikiLinkWrite(intoNode: a, intoItemID: "res-x",
+                                         targetTitle: "X", linkText: "[[X]]"),
             mode: .new, paletteKind: .other, contributors: [], linkAlreadyPresent: true, pictures: [])
         do {
             _ = try await PromotionPerformer(store: store, model: model).perform(already)

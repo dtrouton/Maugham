@@ -240,10 +240,11 @@ public enum RepublishTool: MCPTool {
         let republisher = Republisher(
             projectURL: projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: store, language: prior?.language, allowStale: false),
+                projectStore: store, language: prior?.language),
             publicationStore: stores.publicationStore,
             snapshotStore: stores.snapshotStore,
             jobManager: stores.jobManager,
+            mintGate: stores.mintGate,
             maughamVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0",
             tectonicVersion: "0.15.0")
         let outcome = try await republisher.republish(

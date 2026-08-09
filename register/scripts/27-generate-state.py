@@ -26,6 +26,7 @@ APP_MODULES = [
     ("Rewind", "`OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`)", "`24-rewind-reconciliation.md`"),
     ("Annotations", "`OpLog/Document+Annotations` (+`AnnotationDeriver`, `AnnotationInverse`)", "`28-annotations-reconciliation.md`"),
     ("Promotion", "`Canvas/Promotion*` (the falsification module)", "`29-promotion-falsification.md`"),
+    ("Publications", "`Publish/Republisher` (+`CompileOrchestrator`)", "—"),
 ]
 CORE_RECONCILED, CORE_TOTAL = 148, 169
 

@@ -254,7 +254,7 @@ extension ProjectStore {
         // otherwise will reason wrongly about this window.
         // **The canvas's marks follow the prose** (whole-branch review, I4).
         // Trashing the notes above removed their manifest entries, so any
-        // `CanvasNode.promotedItemID` / `contributedToItemID` — or region mark —
+        // `CanvasNode.promotedItemID` / `contributedToItemIDs` — or region mark —
         // naming one is now unresolvable by `ArtifactIndex.over`, and every
         // reader of a dangling mark says something false: the inspector reports
         // the writer's intent as deleted, over prose sitting in the new pane,

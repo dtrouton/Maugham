@@ -1,1250 +1,1250 @@
 [
- {
-  "claim_id": "M6-PR-001",
-  "scope": "Promotion.targets(for:in:artifacts:)",
-  "kind": "POSTCONDITION",
-  "statement": "a text card is offered exactly [.researchNote, .paletteCard, .intentStatement], in that order",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theTargetsEachSourceIsOffered"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
+  {
+    "claim_id": "M6-PR-001",
+    "scope": "Promotion.targets(for:in:artifacts:)",
+    "kind": "POSTCONDITION",
+    "statement": "a text card is offered exactly [.researchNote, .paletteCard, .intentStatement], in that order",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theTargetsEachSourceIsOffered"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-002",
+    "scope": "Promotion.targets/plan/blockedReason",
+    "kind": "POSTCONDITION",
+    "statement": "an EMPTY card is offered all three targets anyway — emptiness is not a targets question — and the plan comes back nil while blockedReason carries the performer's own sentence, 'There is nothing in this card to promote.'",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_anEmptyCardIsOfferedEveryTargetAndPlansNone"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-003",
+    "scope": "Promotion.targets/blockedReason",
+    "kind": "POSTCONDITION",
+    "statement": "a REFERENCED item node is offered no target at all and is refused with Promotion.itemNodeReason — a reference card already exists as itself",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aReferencedItemRefusesAndAnOwnedOneIsOfferedTwoRows"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-004",
+    "scope": "Promotion.targets(forOwned:artifacts:)",
+    "kind": "POSTCONDITION",
+    "statement": "an OWNED item node is offered .researchAsset always, and .paletteCardImage only while the project holds at least one palette card",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aReferencedItemRefusesAndAnOwnedOneIsOfferedTwoRows"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-005",
+    "scope": "Promotion.blockedReason",
+    "kind": "POSTCONDITION",
+    "statement": "an owned item node is blocked by nothing — the arm answers nil explicitly rather than falling through to the empty-text check, which would call a photograph a card with nothing in it",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aReferencedItemRefusesAndAnOwnedOneIsOfferedTwoRows"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-006",
+    "scope": "Promotion.targets(for:in:artifacts:)",
+    "kind": "POSTCONDITION",
+    "statement": "a region is offered [.researchNote, .paletteCard] and never the craft intent",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theTargetsEachSourceIsOffered"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-007",
+    "scope": "Promotion.targets/plan/blockedReason",
+    "kind": "POSTCONDITION",
+    "statement": "an empty region (no residents, or residents that are all empty) is offered both targets, plans nil, and is refused in its OWN noun: 'There is nothing in this region to promote.'",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_anEmptyRegionIsOfferedEveryTargetAndPlansNone"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-008",
+    "scope": "Promotion.blockedReason",
+    "kind": "POSTCONDITION",
+    "statement": "a line between two unpromoted cards offers nothing and says why in the precedence's own terms — 'Promote both cards first. A wiki-link has to point at something that exists outside the canvas — a canvas line is scratch.'",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aLineIsOfferedTheWikiLinkOnlyWhenBothEndsResolve"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-009",
+    "scope": "Promotion.blockedReason",
+    "kind": "POSTCONDITION",
+    "statement": "a line whose end carries a mark naming an artifact the project no longer holds gets a DIFFERENT sentence — 'Promote that card again first' — because that writer already did the thing the other sentence asks for",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aLineIsOfferedTheWikiLinkOnlyWhenBothEndsResolve"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-010",
+    "scope": "Promotion.blockedReason",
+    "kind": "POSTCONDITION",
+    "statement": "a line touching an item node is refused with 'A line becomes a wiki-link only between two cards of text.'",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aLineIsOfferedTheWikiLinkOnlyWhenBothEndsResolve"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-011",
+    "scope": "Promotion.targets/blockedReason",
+    "kind": "POSTCONDITION",
+    "statement": "a line between two cards whose marks both resolve is offered [.wikiLink] and blocked by nothing",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aLineIsOfferedTheWikiLinkOnlyWhenBothEndsResolve"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-012",
+    "scope": "Promotion.targets/blockedReason",
+    "kind": "POSTCONDITION",
+    "statement": "a source the scene does not hold is offered no target AND given no reason — the one combination the sheet has nothing to render",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aSourceTheSceneDoesNotHoldIsSilent"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "UNTRACED — every production path builds the source from a live selection; I could not construct a writer route to a source the scene has forgotten",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-013",
+    "scope": "Promotion.plan(_:in:)",
+    "kind": "INVARIANT",
+    "statement": "building a plan mutates neither the scene nor the scrap texts — the preview is honest because producing it changes nothing",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_planningMutatesNeitherTheSceneNorTheWords"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-014",
+    "scope": "Promotion.plan / Promotion.title(from:)",
+    "kind": "POSTCONDITION",
+    "statement": "a card's plan is titled with its first non-empty line, trimmed, and carries its whole trimmed text as the body; an empty body yields an empty title rather than a placeholder",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aCardsPlanIsItsFirstLineAndItsWholeText"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-015",
+    "scope": "Promotion.plan (scrap arm)",
+    "kind": "POSTCONDITION",
+    "statement": "a card's plan discards nothing, records no contributors, carries no picture, offers no links, and arrives with linksAccepted false — the link offer is never pre-accepted",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aCardsPlanIsItsFirstLineAndItsWholeText"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-016",
+    "scope": "Promotion.regionBodies/readingOrder",
+    "kind": "POSTCONDITION",
+    "statement": "a region's body joins its home members in READING order — top to bottom, then left to right, then by id — separated by a blank line, and the contributors list is that same order",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aRegionsPlanReadsTopToBottomAndDropsWhatIsEmpty"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-017",
+    "scope": "Promotion.regionBodies",
+    "kind": "POSTCONDITION",
+    "statement": "a member whose text is empty or whitespace is dropped from the body AND is not recorded as a contributor",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aRegionsPlanReadsTopToBottomAndDropsWhatIsEmpty"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-018",
+    "scope": "Promotion.plan (region arm)",
+    "kind": "POSTCONDITION",
+    "statement": "a region's promotion always declares that it is throwing the lines and the layout away, on every target",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aRegionsPlanReadsTopToBottomAndDropsWhatIsEmpty"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-019",
+    "scope": "Promotion.regionTitle",
+    "kind": "POSTCONDITION",
+    "statement": "a region whose label is empty or whitespace is titled 'Untitled region' rather than promoted nameless",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aRegionsPlanReadsTopToBottomAndDropsWhatIsEmpty"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-020",
+    "scope": "Promotion.plan (region arm)",
+    "kind": "POSTCONDITION",
+    "statement": "a region offers a link only for members whose own mark still resolves to an artifact; a dangling mark offers nothing",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aRegionOffersLinksOnlyForMembersWhoseMarkResolves"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-021",
+    "scope": "Promotion.plan (line arm) / WikiLinkWrite",
+    "kind": "POSTCONDITION",
+    "statement": "a line's promotion writes into the FROM end's artifact, the text is [[to-title]] naming the ARTIFACT rather than the card, and it is appended with a leading blank line and a trailing newline",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aLinePlanWritesIntoTheFromEnd"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-022",
+    "scope": "Promotion.linkText(to:label:)",
+    "kind": "POSTCONDITION",
+    "statement": "a line's label is appended after an em dash; a blank or whitespace label produces the bare link",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aLinePlanWritesIntoTheFromEnd"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-023",
+    "scope": "Promotion.plan (line arm)",
+    "kind": "POSTCONDITION",
+    "statement": "the destination noun follows the artifact's KIND — 'the craft intent “…”' when the from-end is an intent statement, 'the note “…”' otherwise — and that one string is what the refusal and the confirmation both read",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aLinePlanWritesIntoTheFromEnd"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-024",
+    "scope": "PromotionPlan.linkAlreadyPresent",
+    "kind": "POSTCONDITION",
+    "statement": "the duplicate-link check compares link TARGETS (Promotion.alreadyLinks(to:in:)): promotion never adds a link to an artifact the destination already points at, under any label, in either direction — a plain [[Title]] blocks a labelled [[Title]] — label and vice versa; a different target never blocks (RULING-50, fixed 125b3fa6 from the asymmetric raw substring test)",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theDuplicateLinkCheckComparesTargetsNotSpellings"
+    },
+    "warrant": "HIGH",
+    "intent": "UNKNOWN",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-025",
+    "scope": "Promotion.researchNoteDestination",
+    "kind": "POSTCONDITION",
+    "statement": "the research-note destination names §6.2's row it will take: 'research/', '“X”’s own research/', 'research/, linked to “X”', or 'research/, which is already “X”’s'",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theDestinationSentenceNamesTheRouteItWillTake"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-026",
+    "scope": "Promotion.paletteCardDestination",
+    "kind": "POSTCONDITION",
+    "statement": "a palette card is never routed by a piece; the association is named only on the row that actually writes a link (.sharedPlusLink), and reads 'the palette wall' otherwise",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theDestinationSentenceNamesTheRouteItWillTake"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-027",
+    "scope": "Promotion.craftIntentDestination",
+    "kind": "POSTCONDITION",
+    "statement": "the craft-intent destination names the piece on every routed row and says plainly that it appends — 'at the end of what is already there'",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theDestinationSentenceNamesTheRouteItWillTake"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-028",
+    "scope": "Promotion.researchNoteDestination",
+    "kind": "POSTCONDITION",
+    "statement": "an unroutable association previews 'nowhere, until the association is fixed' rather than promising research/ and redirecting silently",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theDestinationSentenceNamesTheRouteItWillTake"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-029",
+    "scope": "Promotion.existingArtifact/updatableTargets",
+    "kind": "POSTCONDITION",
+    "statement": "a Rewrite is offered only for .researchNote and .paletteCard; the craft intent is never rewritten because it ACCUMULATES — one document per scope",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_whenARewriteIsOffered"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-030",
+    "scope": "Promotion.existingArtifact",
+    "kind": "POSTCONDITION",
+    "statement": "a mark whose artifact is a different KIND from what the target produces offers no Rewrite — the writer gets a new artifact and keeps the old one",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_whenARewriteIsOffered"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-031",
+    "scope": "Promotion.existingArtifact",
+    "kind": "POSTCONDITION",
+    "statement": "a mark naming an artifact the project no longer holds offers no Rewrite",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_whenARewriteIsOffered"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-032",
+    "scope": "Promotion.existingArtifact",
+    "kind": "POSTCONDITION",
+    "statement": "a contribution record NEVER offers a Rewrite — only promotedItemID does — so one member of a six-card region note cannot replace the whole note with its own text",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_whenARewriteIsOffered"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-033",
+    "scope": "Promotion.modes(for:existing:)",
+    "kind": "POSTCONDITION",
+    "statement": "the mode list puts .new first, always, so a sheet rendering them in order cannot leave 'rewrite the writer's note' under the cursor",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_whenARewriteIsOffered"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-034",
+    "scope": "Promotion.existingArtifact",
+    "kind": "POSTCONDITION",
+    "statement": "a line never offers an update — its product is text inside somebody else's note",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_whenARewriteIsOffered"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-035",
+    "scope": "PromotionPerformer.performResearchNote (.new)",
+    "kind": "POSTCONDITION",
+    "statement": "a card's promotion writes its words into the new note VERBATIM and marks the card with the artifact's id; no contribution record is written, because one card behind one artifact is recorded by its own mark",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aCardBecomesANoteWithItsWordsVerbatim"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-036",
+    "scope": "PromotionResult.confirmation(for:)",
+    "kind": "POSTCONDITION",
+    "statement": "each target confirms in its own sentence, naming the artifact produced, and the craft-intent and wiki-link arms read the plan's own destination string rather than restating it",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aCardBecomesANoteWithItsWordsVerbatim"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-037",
+    "scope": "PromotionPerformer.performResearchNote (.update) and performPaletteCard (.update)",
+    "kind": "POSTCONDITION",
+    "statement": "a Rewrite replaces the artifact's whole body — but what was there is kept first, as a TrashSubject.priorVersion entry visible in the Trash pane, so the writer's earlier text is recoverable for the retention window: the standard a DELETED note already had. Three parts. (1) The keep is a move-then-copy-back, not a move: ProjectStore.trashPriorVersion moves the file through the typed mover (for the flush discipline, tripwire 14) and then copies the entry's file straight back to the original path, so the LIVE file exists continuously and a rewrite whose body-write fails leaves the note exactly as it was rather than stranded in the trash. (2) A restore is VISIBLE: the .priorVersion arm mints a research row titled '<title> (previous version)' pointing at wherever TrashStore.restore landed the file (beside the live note), where routing it to .fileOnly put the writer's prose in research/ with no surface showing it. (3) The PALETTE-CARD rewrite arm is covered too, by trashPriorVersionText — a card's prose lives inside its card file beside swatches, notes and images, so the TEXT is written into the entry rather than the file moved. Still not versioned, and ⌘Z still takes back only the mark",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName, .test_keepingThePriorVersionLeavesTheNoteWhereItIs, .test_aPaletteRewriteKeepsThePriorProseWhereTheWriterCanReachIt"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-038",
+    "scope": "PromotionPerformer.performResearchNote (.update)",
+    "kind": "POSTCONDITION",
+    "statement": "a Rewrite does NOT rename: the artifact keeps the title the writer gave it and its backing file is not moved. The `.update` arm reads no name at all",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-039",
+    "scope": "Promotion.plan (update) / destination",
+    "kind": "POSTCONDITION",
+    "statement": "on a Rewrite the plan's title and its destination are ONE value — the artifact's own name, resolved by `Promotion.plannedTitle` under the same guard `destination` uses — and the sheet re-seeds the Name field on a mode change and withholds it entirely on a rewrite, so one artifact has one name on screen",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-040",
+    "scope": "PromotionPerformer.performResearchNote (.new, twice)",
+    "kind": "POSTCONDITION",
+    "statement": "a second .new promotion of a card that already produced a note creates a SECOND note with a deduped title, and moves the card's mark to it — the first artifact stays in research, now claimed by no card, and nothing says so",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aSecondNewPromotionDuplicatesAndMovesTheMark"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL — RATIFIED as ruled (RULING-47, Denver 2026-08-09: the mark is a bookmark; latest wins)",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-041",
+    "scope": "PromotionPerformer.validate",
+    "kind": "REFUSAL",
+    "statement": "a Rewrite whose artifact is no longer in the project is refused by id, before anything is written",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theRefusalsThatKeepARewriteOffTheWrongArtifact"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-042",
+    "scope": "PromotionPerformer.refuseIfNotAResearchNote",
+    "kind": "REFUSAL",
+    "statement": "a Rewrite whose artifact has become a palette card, a craft intent or a picture is refused with what it IS ('What this produced is a palette card now, not a research note, so Maugham did not write over it'), and that artifact is untouched",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theRefusalsThatKeepARewriteOffTheWrongArtifact"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-043",
+    "scope": "PromotionPerformer.validate",
+    "kind": "REFUSAL",
+    "statement": "a research note or palette card with a blank name is refused with 'This needs a name before it can be promoted.'",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theRefusalsThatKeepARewriteOffTheWrongArtifact"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-044",
+    "scope": "PromotionPerformer.validate (.intentStatement)",
+    "kind": "POSTCONDITION",
+    "statement": "the craft-intent row has no title guard, because nothing on that path reads a title — a Name field there would have been an editable box that changes nothing",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theCraftIntentIsAppendedToOneStatementPerScope"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-045",
+    "scope": "PromotionPerformer.performCraftIntent",
+    "kind": "POSTCONDITION",
+    "statement": "the craft intent is find-or-create per (kind, scope) and the card's words are APPENDED: two cards promoted to one scope stack in one statement, and the second promotion returns the first statement's id",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theCraftIntentIsAppendedToOneStatementPerScope"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-046",
+    "scope": "PromotionPerformer.intentScope",
+    "kind": "POSTCONDITION",
+    "statement": "the intent's scope is the source's piece when the store accepts it as a research-scope target, and the PROJECT otherwise — a stale association falls back silently, and the preview says 'the project's craft intent', which is where it goes",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theCraftIntentIsAppendedToOneStatementPerScope"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-047",
+    "scope": "PromotionPerformer.performCraftIntent",
+    "kind": "POSTCONDITION",
+    "statement": "the mark written on the card is the STATEMENT's id, which ArtifactIndex resolves because it reads both registries",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theCraftIntentIsAppendedToOneStatementPerScope"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-048",
+    "scope": "PromotionPerformer.performPaletteCard (.update)",
+    "kind": "POSTCONDITION",
+    "statement": "a palette Rewrite replaces the title, kind and body and carries the card's swatches, sensory notes and image paths across untouched",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aPaletteRewriteKeepsEverythingThatIsNotTheProse"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-049",
+    "scope": "PromotionPerformer.performWikiLink",
+    "kind": "POSTCONDITION",
+    "statement": "a line's promotion appends the link to the from-end's note and writes nothing onto the line itself — there is no mark on either arm",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aLineAppendsALinkAndRefusesTheSecondAgainstTheLiveFile"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-050",
+    "scope": "PromotionPerformer.performWikiLink",
+    "kind": "REFUSAL",
+    "statement": "the second identical promotion is refused against the LIVE file rather than the plan's snapshot, and the destination is left byte-identical",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aLineAppendsALinkAndRefusesTheSecondAgainstTheLiveFile"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-051",
+    "scope": "PromotionPerformer.performResearchAsset",
+    "kind": "POSTCONDITION",
+    "statement": "an owned picture is COPIED into research: the original stays in canvas_assets/, the node stays owned, the card is MARKED with the new item, and the undo step is named 'Promote Picture'",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_anOwnedPictureIsCopiedIntoResearchAndMarked"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-052",
+    "scope": "PromotionPerformer.performPaletteCardImage/recordPicture",
+    "kind": "POSTCONDITION",
+    "statement": "a picture appended to a palette card records a CONTRIBUTION and never the mark — so it can never be offered a Rewrite of that card — the card's prose and earlier images survive, and a second picture's record does not erase the first's",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aPictureOnAPaletteCardIsRecordedAsAContribution"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-053",
+    "scope": "Promotion.picturePlan",
+    "kind": "POSTCONDITION",
+    "statement": "a .paletteCardImage request with no chosen card, or with a card that is not a palette card, produces NO plan — the picture never lands on whichever card sorted first",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aPaletteImagePromotionWithNoCardProducesNoPlan"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-054",
+    "scope": "PromotionPerformer.requirePicture",
+    "kind": "REFUSAL",
+    "statement": "a picture row whose plan carries no picture refuses with 'There is no picture on this card to promote.' rather than reaching into the scene for a substitute file",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_thePictureRefusalsNameTheFileBeforeTheCard"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-055",
+    "scope": "PromotionPerformer.validate",
+    "kind": "REFUSAL",
+    "statement": "every file a plan would copy is checked before the target switch, so a promotion whose picture AND whose card are both gone names the PICTURE first — the refusal that no other choice can fix",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_thePictureRefusalsNameTheFileBeforeTheCard"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-056",
+    "scope": "PromotionFailure.pictureIsGone",
+    "kind": "POSTCONDITION",
+    "statement": "the missing-picture refusal changes its SUBJECT with the source — 'The picture this card shows' for a card, 'A picture in this region' for a region, which selected no card",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_thePictureRefusalsNameTheFileBeforeTheCard"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-057",
+    "scope": "Promotion.regionPictures / performPaletteCard",
+    "kind": "POSTCONDITION",
+    "statement": "a region promoted to a NEW palette card carries the pictures its home members hold, appends them to the card after the body write, and records each as a contributor beside the cards whose words went in",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aRegionsPaletteCardCarriesThePicturesInIt"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-058",
+    "scope": "Promotion.plan (region, .update)",
+    "kind": "POSTCONDITION",
+    "statement": "a palette REWRITE carries no pictures, declares the pictures discard instead, and leaves an owned contributor's record standing — the image well is append-only, so what it contributed is still on the card",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aRegionsPaletteCardCarriesThePicturesInIt"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-059",
+    "scope": "Promotion.plan (region, .researchNote)",
+    "kind": "POSTCONDITION",
+    "statement": "a region holding a picture that is promoted to a research NOTE declares .pictures among its discards and records no picture as a contributor",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aRegionsPaletteCardCarriesThePicturesInIt"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-060",
+    "scope": "Promotion.regionPictures",
+    "kind": "POSTCONDITION",
+    "statement": "a REFERENCED picture in the region travels too, resolved through CanvasItemFacts — but only when the caller passed a CanvasItemIndex: with items: .empty the same region carries nothing and records nothing, silently",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aReferencedPictureTravelsOnlyWhenTheItemIndexWasPassed"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE for the carried half (the sheet passes the window's index). UNTRACED for the .empty half — the one production call site names the argument and PromotionCommandTests censuses it",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-061",
+    "scope": "Promotion.piece(for:in:)",
+    "kind": "POSTCONDITION",
+    "statement": "a card's piece is its own if it has one, else its HOME region's, else none — precedence, never overwriting",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_thePiecePrecedence"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-062",
+    "scope": "Promotion.piece(for:in:)",
+    "kind": "POSTCONDITION",
+    "statement": "a card merely CITED in a region inherits nothing from it — a citation is not luggage",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_thePiecePrecedence"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-063",
+    "scope": "Promotion.piece(for:in:)",
+    "kind": "POSTCONDITION",
+    "statement": "a region answers with its own association and nothing else; a line answers nil",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_thePiecePrecedence"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-064",
+    "scope": "Promotion.piece / canCarryItsOwnPiece",
+    "kind": "POSTCONDITION",
+    "statement": "an owned item node INHERITS a piece and can never carry one of its own — its inspector has no Piece picker",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_thePiecePrecedence"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-065",
+    "scope": "Promotion.pieceIsInherited",
+    "kind": "POSTCONDITION",
+    "statement": "'inherited' is true only for a card with no association of its own that took its home region's; it is false for a region and false when there is no piece at all",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_thePiecePrecedence"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-066",
+    "scope": "Promotion.pieceFailure/scopedTargets",
+    "kind": "REFUSAL",
+    "statement": "a stale association refuses exactly the two rows that hand a scope to a creation call — the research note and the research asset — and never the palette card, the appended image, the craft intent or an update",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aStaleAssociationRefusesOnlyTheRowsThatRoute"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-067",
+    "scope": "PromotionFailure.pieceIsNotAResearchTarget",
+    "kind": "POSTCONDITION",
+    "statement": "the refusal's second half names only a control the writer can actually reach: 'change it there, or give this card a piece of its own' for a card, 'change it there' alone for a picture, 'pick another piece in the inspector' when the association is the source's own",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aStaleAssociationRefusesOnlyTheRowsThatRoute"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-068",
+    "scope": "PromotionPerformer.validate",
+    "kind": "INVARIANT",
+    "statement": "the stale-association refusal is thrown in validate, so nothing is created and no mark is written; the palette row, which is never routed, still promotes with the same stale association",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aStaleAssociationWritesNothingAndDoesNotBlockThePaletteRow"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-069",
+    "scope": "PromotionPerformer.scope / ResearchScope.route",
+    "kind": "POSTCONDITION",
+    "statement": "a novel chapter's promotion is filed in SHARED research/ and the chapter gains a linkedResearchIds record — which is what the preview promised",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aChapterBoundPromotionIsFiledSharedAndLinkedToTheChapter"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-070",
+    "scope": "PromotionPerformer.performPaletteCard/linkTargetForCard",
+    "kind": "POSTCONDITION",
+    "statement": "a chapter-bound region promoted to a palette card is filed under research/palette/ regardless of the piece, and takes the link the association buys it",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aChapterBoundPromotionIsFiledSharedAndLinkedToTheChapter"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-071",
+    "scope": "PromotionPerformer.mark/record",
+    "kind": "POSTCONDITION",
+    "statement": "a region's promotion marks the REGION and stamps a contribution record on every member whose content went in, in one undo bracket",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theContributionRecordFollowsTheRegionsCurrentMembers"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-072",
+    "scope": "PromotionPerformer.record",
+    "kind": "POSTCONDITION",
+    "statement": "a Rewrite re-records per artifact on BOTH sides (RULING-51, fixed 16ecdcbc): the removal takes back only THIS artifact's fact from cards that no longer feed it, and the stamp appends — a card that has left the region stops claiming the note, a card that joined starts, and no other artifact's record moves",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theContributionRecordFollowsTheRegionsCurrentMembers"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-073",
+    "scope": "CanvasNode.contributedToItemIDs",
+    "kind": "POSTCONDITION",
+    "statement": "the record is MULTI-VALUED (RULING-51, fixed 16ecdcbc): a card whose words are in two regions' notes records both, in contribution order — contributedToItemIDs, ordered and de-duplicated; canvas.json schema 9, with a schema-8 singular record folding into the array on decode",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_theContributionRecordFollowsTheRegionsCurrentMembers"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-074",
+    "scope": "PromotionPerformer.record",
+    "kind": "POSTCONDITION",
+    "statement": "the removal reaches scrap nodes only, so a picture's contribution record survives a region's rewrite — the image well is append-only and its picture is still on the card (restated to the remove-verb under RULING-51; behaviour unchanged)",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aRewriteDoesNotClearAPicturesRecord"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-075",
+    "scope": "PromotionPerformer.perform / writeOfferedLinks",
+    "kind": "POSTCONDITION",
+    "statement": "a link-write failure is refused BEFORE any mutation: `precheckOfferedLinks` reads every offered member's note first, so a refusal leaves no artifact, no body, no mark and no contribution record — the performer's own 'validate first, write second' contract now holds for the link pass too",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aLinkWriteFailureThrowsAfterTheArtifactExists"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-076",
+    "scope": "PromotionPerformer.writeOfferedLinks / confirmation",
+    "kind": "POSTCONDITION",
+    "statement": "an offered member whose artifact has vanished since the sheet opened is skipped silently, and the confirmation reports what was WRITTEN rather than what was offered — no link sentence at all when none was written",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_anOfferedMemberWhoseArtifactVanishedIsSkipped"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-077",
+    "scope": "PromotionPerformer.mark / CanvasUndo",
+    "kind": "POSTCONDITION",
+    "statement": "one ⌘Z after a promotion takes back the MARK and nothing else: the Edit menu reads 'Undo Promote Scrap', and the note it produced stays in the manifest and on disk",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_undoTakesBackTheMarkAndNotTheArtifact"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M6-PR-078",
+    "scope": "PromotionPerformer.writeBody",
+    "kind": "INVARIANT",
+    "statement": "a promotion flushes the document store's pending save before writing, so a queued 750ms research-pane save for the destination cannot fire afterwards and restore the pre-promotion prose",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "PromotionCharacterization.test_aQueuedSaveForTheDestinationDoesNotSurviveThePromotion"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
+    "evidence": {
+      "property_test": null
+    }
   }
- },
- {
-  "claim_id": "M6-PR-002",
-  "scope": "Promotion.targets/plan/blockedReason",
-  "kind": "POSTCONDITION",
-  "statement": "an EMPTY card is offered all three targets anyway — emptiness is not a targets question — and the plan comes back nil while blockedReason carries the performer's own sentence, 'There is nothing in this card to promote.'",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_anEmptyCardIsOfferedEveryTargetAndPlansNone"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-003",
-  "scope": "Promotion.targets/blockedReason",
-  "kind": "POSTCONDITION",
-  "statement": "a REFERENCED item node is offered no target at all and is refused with Promotion.itemNodeReason — a reference card already exists as itself",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aReferencedItemRefusesAndAnOwnedOneIsOfferedTwoRows"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-004",
-  "scope": "Promotion.targets(forOwned:artifacts:)",
-  "kind": "POSTCONDITION",
-  "statement": "an OWNED item node is offered .researchAsset always, and .paletteCardImage only while the project holds at least one palette card",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aReferencedItemRefusesAndAnOwnedOneIsOfferedTwoRows"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-005",
-  "scope": "Promotion.blockedReason",
-  "kind": "POSTCONDITION",
-  "statement": "an owned item node is blocked by nothing — the arm answers nil explicitly rather than falling through to the empty-text check, which would call a photograph a card with nothing in it",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aReferencedItemRefusesAndAnOwnedOneIsOfferedTwoRows"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-006",
-  "scope": "Promotion.targets(for:in:artifacts:)",
-  "kind": "POSTCONDITION",
-  "statement": "a region is offered [.researchNote, .paletteCard] and never the craft intent",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theTargetsEachSourceIsOffered"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-007",
-  "scope": "Promotion.targets/plan/blockedReason",
-  "kind": "POSTCONDITION",
-  "statement": "an empty region (no residents, or residents that are all empty) is offered both targets, plans nil, and is refused in its OWN noun: 'There is nothing in this region to promote.'",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_anEmptyRegionIsOfferedEveryTargetAndPlansNone"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-008",
-  "scope": "Promotion.blockedReason",
-  "kind": "POSTCONDITION",
-  "statement": "a line between two unpromoted cards offers nothing and says why in the precedence's own terms — 'Promote both cards first. A wiki-link has to point at something that exists outside the canvas — a canvas line is scratch.'",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aLineIsOfferedTheWikiLinkOnlyWhenBothEndsResolve"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-009",
-  "scope": "Promotion.blockedReason",
-  "kind": "POSTCONDITION",
-  "statement": "a line whose end carries a mark naming an artifact the project no longer holds gets a DIFFERENT sentence — 'Promote that card again first' — because that writer already did the thing the other sentence asks for",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aLineIsOfferedTheWikiLinkOnlyWhenBothEndsResolve"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-010",
-  "scope": "Promotion.blockedReason",
-  "kind": "POSTCONDITION",
-  "statement": "a line touching an item node is refused with 'A line becomes a wiki-link only between two cards of text.'",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aLineIsOfferedTheWikiLinkOnlyWhenBothEndsResolve"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-011",
-  "scope": "Promotion.targets/blockedReason",
-  "kind": "POSTCONDITION",
-  "statement": "a line between two cards whose marks both resolve is offered [.wikiLink] and blocked by nothing",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aLineIsOfferedTheWikiLinkOnlyWhenBothEndsResolve"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-012",
-  "scope": "Promotion.targets/blockedReason",
-  "kind": "POSTCONDITION",
-  "statement": "a source the scene does not hold is offered no target AND given no reason — the one combination the sheet has nothing to render",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aSourceTheSceneDoesNotHoldIsSilent"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "UNTRACED — every production path builds the source from a live selection; I could not construct a writer route to a source the scene has forgotten",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-013",
-  "scope": "Promotion.plan(_:in:)",
-  "kind": "INVARIANT",
-  "statement": "building a plan mutates neither the scene nor the scrap texts — the preview is honest because producing it changes nothing",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_planningMutatesNeitherTheSceneNorTheWords"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-014",
-  "scope": "Promotion.plan / Promotion.title(from:)",
-  "kind": "POSTCONDITION",
-  "statement": "a card's plan is titled with its first non-empty line, trimmed, and carries its whole trimmed text as the body; an empty body yields an empty title rather than a placeholder",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aCardsPlanIsItsFirstLineAndItsWholeText"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-015",
-  "scope": "Promotion.plan (scrap arm)",
-  "kind": "POSTCONDITION",
-  "statement": "a card's plan discards nothing, records no contributors, carries no picture, offers no links, and arrives with linksAccepted false — the link offer is never pre-accepted",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aCardsPlanIsItsFirstLineAndItsWholeText"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-016",
-  "scope": "Promotion.regionBodies/readingOrder",
-  "kind": "POSTCONDITION",
-  "statement": "a region's body joins its home members in READING order — top to bottom, then left to right, then by id — separated by a blank line, and the contributors list is that same order",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aRegionsPlanReadsTopToBottomAndDropsWhatIsEmpty"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-017",
-  "scope": "Promotion.regionBodies",
-  "kind": "POSTCONDITION",
-  "statement": "a member whose text is empty or whitespace is dropped from the body AND is not recorded as a contributor",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aRegionsPlanReadsTopToBottomAndDropsWhatIsEmpty"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-018",
-  "scope": "Promotion.plan (region arm)",
-  "kind": "POSTCONDITION",
-  "statement": "a region's promotion always declares that it is throwing the lines and the layout away, on every target",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aRegionsPlanReadsTopToBottomAndDropsWhatIsEmpty"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-019",
-  "scope": "Promotion.regionTitle",
-  "kind": "POSTCONDITION",
-  "statement": "a region whose label is empty or whitespace is titled 'Untitled region' rather than promoted nameless",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aRegionsPlanReadsTopToBottomAndDropsWhatIsEmpty"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-020",
-  "scope": "Promotion.plan (region arm)",
-  "kind": "POSTCONDITION",
-  "statement": "a region offers a link only for members whose own mark still resolves to an artifact; a dangling mark offers nothing",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aRegionOffersLinksOnlyForMembersWhoseMarkResolves"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-021",
-  "scope": "Promotion.plan (line arm) / WikiLinkWrite",
-  "kind": "POSTCONDITION",
-  "statement": "a line's promotion writes into the FROM end's artifact, the text is [[to-title]] naming the ARTIFACT rather than the card, and it is appended with a leading blank line and a trailing newline",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aLinePlanWritesIntoTheFromEnd"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-022",
-  "scope": "Promotion.linkText(to:label:)",
-  "kind": "POSTCONDITION",
-  "statement": "a line's label is appended after an em dash; a blank or whitespace label produces the bare link",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aLinePlanWritesIntoTheFromEnd"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-023",
-  "scope": "Promotion.plan (line arm)",
-  "kind": "POSTCONDITION",
-  "statement": "the destination noun follows the artifact's KIND — 'the craft intent “…”' when the from-end is an intent statement, 'the note “…”' otherwise — and that one string is what the refusal and the confirmation both read",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aLinePlanWritesIntoTheFromEnd"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-024",
-  "scope": "PromotionPlan.linkAlreadyPresent",
-  "kind": "POSTCONDITION",
-  "statement": "the duplicate-link check is a raw substring test and is ASYMMETRIC: a LABELLED link already in the destination suppresses the plain promotion, while a plain link already there does not suppress a labelled one — so the writer can end up with two links to one artifact, or be refused one that is not there",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theDuplicateLinkCheckIsARawSubstringTest"
-  },
-  "warrant": "HIGH",
-  "intent": "UNKNOWN",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-025",
-  "scope": "Promotion.researchNoteDestination",
-  "kind": "POSTCONDITION",
-  "statement": "the research-note destination names §6.2's row it will take: 'research/', '“X”’s own research/', 'research/, linked to “X”', or 'research/, which is already “X”’s'",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theDestinationSentenceNamesTheRouteItWillTake"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-026",
-  "scope": "Promotion.paletteCardDestination",
-  "kind": "POSTCONDITION",
-  "statement": "a palette card is never routed by a piece; the association is named only on the row that actually writes a link (.sharedPlusLink), and reads 'the palette wall' otherwise",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theDestinationSentenceNamesTheRouteItWillTake"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-027",
-  "scope": "Promotion.craftIntentDestination",
-  "kind": "POSTCONDITION",
-  "statement": "the craft-intent destination names the piece on every routed row and says plainly that it appends — 'at the end of what is already there'",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theDestinationSentenceNamesTheRouteItWillTake"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-028",
-  "scope": "Promotion.researchNoteDestination",
-  "kind": "POSTCONDITION",
-  "statement": "an unroutable association previews 'nowhere, until the association is fixed' rather than promising research/ and redirecting silently",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theDestinationSentenceNamesTheRouteItWillTake"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-029",
-  "scope": "Promotion.existingArtifact/updatableTargets",
-  "kind": "POSTCONDITION",
-  "statement": "a Rewrite is offered only for .researchNote and .paletteCard; the craft intent is never rewritten because it ACCUMULATES — one document per scope",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_whenARewriteIsOffered"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-030",
-  "scope": "Promotion.existingArtifact",
-  "kind": "POSTCONDITION",
-  "statement": "a mark whose artifact is a different KIND from what the target produces offers no Rewrite — the writer gets a new artifact and keeps the old one",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_whenARewriteIsOffered"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-031",
-  "scope": "Promotion.existingArtifact",
-  "kind": "POSTCONDITION",
-  "statement": "a mark naming an artifact the project no longer holds offers no Rewrite",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_whenARewriteIsOffered"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-032",
-  "scope": "Promotion.existingArtifact",
-  "kind": "POSTCONDITION",
-  "statement": "a contribution record NEVER offers a Rewrite — only promotedItemID does — so one member of a six-card region note cannot replace the whole note with its own text",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_whenARewriteIsOffered"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-033",
-  "scope": "Promotion.modes(for:existing:)",
-  "kind": "POSTCONDITION",
-  "statement": "the mode list puts .new first, always, so a sheet rendering them in order cannot leave 'rewrite the writer's note' under the cursor",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_whenARewriteIsOffered"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-034",
-  "scope": "Promotion.existingArtifact",
-  "kind": "POSTCONDITION",
-  "statement": "a line never offers an update — its product is text inside somebody else's note",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_whenARewriteIsOffered"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-035",
-  "scope": "PromotionPerformer.performResearchNote (.new)",
-  "kind": "POSTCONDITION",
-  "statement": "a card's promotion writes its words into the new note VERBATIM and marks the card with the artifact's id; no contribution record is written, because one card behind one artifact is recorded by its own mark",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aCardBecomesANoteWithItsWordsVerbatim"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-036",
-  "scope": "PromotionResult.confirmation(for:)",
-  "kind": "POSTCONDITION",
-  "statement": "each target confirms in its own sentence, naming the artifact produced, and the craft-intent and wiki-link arms read the plan's own destination string rather than restating it",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aCardBecomesANoteWithItsWordsVerbatim"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-037",
-  "scope": "PromotionPerformer.performResearchNote (.update) and performPaletteCard (.update)",
-  "kind": "POSTCONDITION",
-  "statement": "a Rewrite replaces the artifact's whole body — but what was there is kept first, as a TrashSubject.priorVersion entry visible in the Trash pane, so the writer's earlier text is recoverable for the retention window: the standard a DELETED note already had. Three parts. (1) The keep is a move-then-copy-back, not a move: ProjectStore.trashPriorVersion moves the file through the typed mover (for the flush discipline, tripwire 14) and then copies the entry's file straight back to the original path, so the LIVE file exists continuously and a rewrite whose body-write fails leaves the note exactly as it was rather than stranded in the trash. (2) A restore is VISIBLE: the .priorVersion arm mints a research row titled '<title> (previous version)' pointing at wherever TrashStore.restore landed the file (beside the live note), where routing it to .fileOnly put the writer's prose in research/ with no surface showing it. (3) The PALETTE-CARD rewrite arm is covered too, by trashPriorVersionText — a card's prose lives inside its card file beside swatches, notes and images, so the TEXT is written into the entry rather than the file moved. Still not versioned, and ⌘Z still takes back only the mark",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName, .test_keepingThePriorVersionLeavesTheNoteWhereItIs, .test_aPaletteRewriteKeepsThePriorProseWhereTheWriterCanReachIt"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-038",
-  "scope": "PromotionPerformer.performResearchNote (.update)",
-  "kind": "POSTCONDITION",
-  "statement": "a Rewrite does NOT rename: the artifact keeps the title the writer gave it and its backing file is not moved. The `.update` arm reads no name at all",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-039",
-  "scope": "Promotion.plan (update) / destination",
-  "kind": "POSTCONDITION",
-  "statement": "on a Rewrite the plan's title and its destination are ONE value — the artifact's own name, resolved by `Promotion.plannedTitle` under the same guard `destination` uses — and the sheet re-seeds the Name field on a mode change and withholds it entirely on a rewrite, so one artifact has one name on screen",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-040",
-  "scope": "PromotionPerformer.performResearchNote (.new, twice)",
-  "kind": "POSTCONDITION",
-  "statement": "a second .new promotion of a card that already produced a note creates a SECOND note with a deduped title, and moves the card's mark to it — the first artifact stays in research, now claimed by no card, and nothing says so",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aSecondNewPromotionDuplicatesAndMovesTheMark"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL — RATIFIED as ruled (RULING-47, Denver 2026-08-09: the mark is a bookmark; latest wins)",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-041",
-  "scope": "PromotionPerformer.validate",
-  "kind": "REFUSAL",
-  "statement": "a Rewrite whose artifact is no longer in the project is refused by id, before anything is written",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theRefusalsThatKeepARewriteOffTheWrongArtifact"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-042",
-  "scope": "PromotionPerformer.refuseIfNotAResearchNote",
-  "kind": "REFUSAL",
-  "statement": "a Rewrite whose artifact has become a palette card, a craft intent or a picture is refused with what it IS ('What this produced is a palette card now, not a research note, so Maugham did not write over it'), and that artifact is untouched",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theRefusalsThatKeepARewriteOffTheWrongArtifact"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-043",
-  "scope": "PromotionPerformer.validate",
-  "kind": "REFUSAL",
-  "statement": "a research note or palette card with a blank name is refused with 'This needs a name before it can be promoted.'",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theRefusalsThatKeepARewriteOffTheWrongArtifact"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-044",
-  "scope": "PromotionPerformer.validate (.intentStatement)",
-  "kind": "POSTCONDITION",
-  "statement": "the craft-intent row has no title guard, because nothing on that path reads a title — a Name field there would have been an editable box that changes nothing",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theCraftIntentIsAppendedToOneStatementPerScope"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-045",
-  "scope": "PromotionPerformer.performCraftIntent",
-  "kind": "POSTCONDITION",
-  "statement": "the craft intent is find-or-create per (kind, scope) and the card's words are APPENDED: two cards promoted to one scope stack in one statement, and the second promotion returns the first statement's id",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theCraftIntentIsAppendedToOneStatementPerScope"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-046",
-  "scope": "PromotionPerformer.intentScope",
-  "kind": "POSTCONDITION",
-  "statement": "the intent's scope is the source's piece when the store accepts it as a research-scope target, and the PROJECT otherwise — a stale association falls back silently, and the preview says 'the project's craft intent', which is where it goes",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theCraftIntentIsAppendedToOneStatementPerScope"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-047",
-  "scope": "PromotionPerformer.performCraftIntent",
-  "kind": "POSTCONDITION",
-  "statement": "the mark written on the card is the STATEMENT's id, which ArtifactIndex resolves because it reads both registries",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theCraftIntentIsAppendedToOneStatementPerScope"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-048",
-  "scope": "PromotionPerformer.performPaletteCard (.update)",
-  "kind": "POSTCONDITION",
-  "statement": "a palette Rewrite replaces the title, kind and body and carries the card's swatches, sensory notes and image paths across untouched",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aPaletteRewriteKeepsEverythingThatIsNotTheProse"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-049",
-  "scope": "PromotionPerformer.performWikiLink",
-  "kind": "POSTCONDITION",
-  "statement": "a line's promotion appends the link to the from-end's note and writes nothing onto the line itself — there is no mark on either arm",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aLineAppendsALinkAndRefusesTheSecondAgainstTheLiveFile"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-050",
-  "scope": "PromotionPerformer.performWikiLink",
-  "kind": "REFUSAL",
-  "statement": "the second identical promotion is refused against the LIVE file rather than the plan's snapshot, and the destination is left byte-identical",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aLineAppendsALinkAndRefusesTheSecondAgainstTheLiveFile"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-051",
-  "scope": "PromotionPerformer.performResearchAsset",
-  "kind": "POSTCONDITION",
-  "statement": "an owned picture is COPIED into research: the original stays in canvas_assets/, the node stays owned, the card is MARKED with the new item, and the undo step is named 'Promote Picture'",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_anOwnedPictureIsCopiedIntoResearchAndMarked"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-052",
-  "scope": "PromotionPerformer.performPaletteCardImage/recordPicture",
-  "kind": "POSTCONDITION",
-  "statement": "a picture appended to a palette card records a CONTRIBUTION and never the mark — so it can never be offered a Rewrite of that card — the card's prose and earlier images survive, and a second picture's record does not erase the first's",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aPictureOnAPaletteCardIsRecordedAsAContribution"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-053",
-  "scope": "Promotion.picturePlan",
-  "kind": "POSTCONDITION",
-  "statement": "a .paletteCardImage request with no chosen card, or with a card that is not a palette card, produces NO plan — the picture never lands on whichever card sorted first",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aPaletteImagePromotionWithNoCardProducesNoPlan"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-054",
-  "scope": "PromotionPerformer.requirePicture",
-  "kind": "REFUSAL",
-  "statement": "a picture row whose plan carries no picture refuses with 'There is no picture on this card to promote.' rather than reaching into the scene for a substitute file",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_thePictureRefusalsNameTheFileBeforeTheCard"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-055",
-  "scope": "PromotionPerformer.validate",
-  "kind": "REFUSAL",
-  "statement": "every file a plan would copy is checked before the target switch, so a promotion whose picture AND whose card are both gone names the PICTURE first — the refusal that no other choice can fix",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_thePictureRefusalsNameTheFileBeforeTheCard"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-056",
-  "scope": "PromotionFailure.pictureIsGone",
-  "kind": "POSTCONDITION",
-  "statement": "the missing-picture refusal changes its SUBJECT with the source — 'The picture this card shows' for a card, 'A picture in this region' for a region, which selected no card",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_thePictureRefusalsNameTheFileBeforeTheCard"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-057",
-  "scope": "Promotion.regionPictures / performPaletteCard",
-  "kind": "POSTCONDITION",
-  "statement": "a region promoted to a NEW palette card carries the pictures its home members hold, appends them to the card after the body write, and records each as a contributor beside the cards whose words went in",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aRegionsPaletteCardCarriesThePicturesInIt"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-058",
-  "scope": "Promotion.plan (region, .update)",
-  "kind": "POSTCONDITION",
-  "statement": "a palette REWRITE carries no pictures, declares the pictures discard instead, and leaves an owned contributor's record standing — the image well is append-only, so what it contributed is still on the card",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aRegionsPaletteCardCarriesThePicturesInIt"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-059",
-  "scope": "Promotion.plan (region, .researchNote)",
-  "kind": "POSTCONDITION",
-  "statement": "a region holding a picture that is promoted to a research NOTE declares .pictures among its discards and records no picture as a contributor",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aRegionsPaletteCardCarriesThePicturesInIt"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-060",
-  "scope": "Promotion.regionPictures",
-  "kind": "POSTCONDITION",
-  "statement": "a REFERENCED picture in the region travels too, resolved through CanvasItemFacts — but only when the caller passed a CanvasItemIndex: with items: .empty the same region carries nothing and records nothing, silently",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aReferencedPictureTravelsOnlyWhenTheItemIndexWasPassed"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE for the carried half (the sheet passes the window's index). UNTRACED for the .empty half — the one production call site names the argument and PromotionCommandTests censuses it",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-061",
-  "scope": "Promotion.piece(for:in:)",
-  "kind": "POSTCONDITION",
-  "statement": "a card's piece is its own if it has one, else its HOME region's, else none — precedence, never overwriting",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_thePiecePrecedence"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-062",
-  "scope": "Promotion.piece(for:in:)",
-  "kind": "POSTCONDITION",
-  "statement": "a card merely CITED in a region inherits nothing from it — a citation is not luggage",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_thePiecePrecedence"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-063",
-  "scope": "Promotion.piece(for:in:)",
-  "kind": "POSTCONDITION",
-  "statement": "a region answers with its own association and nothing else; a line answers nil",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_thePiecePrecedence"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-064",
-  "scope": "Promotion.piece / canCarryItsOwnPiece",
-  "kind": "POSTCONDITION",
-  "statement": "an owned item node INHERITS a piece and can never carry one of its own — its inspector has no Piece picker",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_thePiecePrecedence"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-065",
-  "scope": "Promotion.pieceIsInherited",
-  "kind": "POSTCONDITION",
-  "statement": "'inherited' is true only for a card with no association of its own that took its home region's; it is false for a region and false when there is no piece at all",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_thePiecePrecedence"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-066",
-  "scope": "Promotion.pieceFailure/scopedTargets",
-  "kind": "REFUSAL",
-  "statement": "a stale association refuses exactly the two rows that hand a scope to a creation call — the research note and the research asset — and never the palette card, the appended image, the craft intent or an update",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aStaleAssociationRefusesOnlyTheRowsThatRoute"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-067",
-  "scope": "PromotionFailure.pieceIsNotAResearchTarget",
-  "kind": "POSTCONDITION",
-  "statement": "the refusal's second half names only a control the writer can actually reach: 'change it there, or give this card a piece of its own' for a card, 'change it there' alone for a picture, 'pick another piece in the inspector' when the association is the source's own",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aStaleAssociationRefusesOnlyTheRowsThatRoute"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — ⌘1 Plan persona → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-068",
-  "scope": "PromotionPerformer.validate",
-  "kind": "INVARIANT",
-  "statement": "the stale-association refusal is thrown in validate, so nothing is created and no mark is written; the palette row, which is never routed, still promotes with the same stale association",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aStaleAssociationWritesNothingAndDoesNotBlockThePaletteRow"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-069",
-  "scope": "PromotionPerformer.scope / ResearchScope.route",
-  "kind": "POSTCONDITION",
-  "statement": "a novel chapter's promotion is filed in SHARED research/ and the chapter gains a linkedResearchIds record — which is what the preview promised",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aChapterBoundPromotionIsFiledSharedAndLinkedToTheChapter"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-070",
-  "scope": "PromotionPerformer.performPaletteCard/linkTargetForCard",
-  "kind": "POSTCONDITION",
-  "statement": "a chapter-bound region promoted to a palette card is filed under research/palette/ regardless of the piece, and takes the link the association buys it",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aChapterBoundPromotionIsFiledSharedAndLinkedToTheChapter"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-071",
-  "scope": "PromotionPerformer.mark/record",
-  "kind": "POSTCONDITION",
-  "statement": "a region's promotion marks the REGION and stamps a contribution record on every member whose content went in, in one undo bracket",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theContributionRecordFollowsTheRegionsCurrentMembers"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-072",
-  "scope": "PromotionPerformer.record",
-  "kind": "POSTCONDITION",
-  "statement": "a Rewrite re-records: the clear runs first, so a card that has left the region stops claiming the note and a card that joined starts",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theContributionRecordFollowsTheRegionsCurrentMembers"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-073",
-  "scope": "CanvasNode.contributedToItemID",
-  "kind": "POSTCONDITION",
-  "statement": "the record is SINGLE-VALUED and the most recent contribution wins: a card whose words are in two regions' notes records only the later one, while the earlier note still holds its words",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_theContributionRecordFollowsTheRegionsCurrentMembers"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-074",
-  "scope": "PromotionPerformer.record",
-  "kind": "POSTCONDITION",
-  "statement": "the clear reaches scrap nodes only, so a picture's contribution record survives a region's rewrite — the image well is append-only and its picture is still on the card",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aRewriteDoesNotClearAPicturesRecord"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-075",
-  "scope": "PromotionPerformer.perform / writeOfferedLinks",
-  "kind": "POSTCONDITION",
-  "statement": "a link-write failure is refused BEFORE any mutation: `precheckOfferedLinks` reads every offered member's note first, so a refusal leaves no artifact, no body, no mark and no contribution record — the performer's own 'validate first, write second' contract now holds for the link pass too",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aLinkWriteFailureThrowsAfterTheArtifactExists"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-076",
-  "scope": "PromotionPerformer.writeOfferedLinks / confirmation",
-  "kind": "POSTCONDITION",
-  "statement": "an offered member whose artifact has vanished since the sheet opened is skipped silently, and the confirmation reports what was WRITTEN rather than what was offered — no link sentence at all when none was written",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_anOfferedMemberWhoseArtifactVanishedIsSkipped"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-077",
-  "scope": "PromotionPerformer.mark / CanvasUndo",
-  "kind": "POSTCONDITION",
-  "statement": "one ⌘Z after a promotion takes back the MARK and nothing else: the Edit menu reads 'Undo Promote Scrap', and the note it produced stays in the manifest and on disk",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_undoTakesBackTheMarkAndNotTheArtifact"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- },
- {
-  "claim_id": "M6-PR-078",
-  "scope": "PromotionPerformer.writeBody",
-  "kind": "INVARIANT",
-  "statement": "a promotion flushes the document store's pending save before writing, so a queued 750ms research-pane save for the destination cannot fire afterwards and restore the pre-promotion prose",
-  "source": {
-   "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aQueuedSaveForTheDestinationDoesNotSurviveThePromotion"
-  },
-  "warrant": "HIGH",
-  "intent": "INTENTIONAL",
-  "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
-  "evidence": {
-   "property_test": null
-  }
- }
 ]

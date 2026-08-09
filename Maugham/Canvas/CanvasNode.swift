@@ -145,9 +145,14 @@ public struct CanvasNode: Equatable, Sendable {
     /// inherits nothing from either field.
     public var boundPieceID: String?
 
-    /// The artifact a promotion of this card's HOME REGION folded this card's
-    /// text into (spec §6.3) — written alongside the region's own
-    /// `promotedItemID` mark, in the same undo bracket.
+    /// Every artifact a promotion folded this card's content into (spec §6.3) —
+    /// each written alongside the promoting region's own `promotedItemID` mark,
+    /// in the same undo bracket. **Multi-valued since RULING-51 (2026-08-09): a
+    /// contribution record is a FACT, and Maugham holds every one.** A card
+    /// sitting in two regions fed both their notes; the single-valued field this
+    /// replaces forgot the earlier note the moment the later region was
+    /// promoted. Ordered by when each contribution happened; no duplicates —
+    /// re-recording an id a card already carries moves nothing.
     ///
     /// **This is NOT `promotedItemID`, and the distinction is load-bearing
     /// rather than tidy.** `promotedItemID` means *"I am this artifact"* and
@@ -158,10 +163,12 @@ public struct CanvasNode: Equatable, Sendable {
     /// *kind*) returning as a mark that does not record its *cardinality*. So
     /// a contribution record must never be read where `promotedItemID` is
     /// read, and re-promoting a contributing card offers only a new artifact.
+    /// (RULING-47 is the same split ruled: the MARK is a single bookmark,
+    /// latest wins; the records are facts and every one is held.)
     ///
     /// A card may carry both, and they say different things: it produced its
     /// own note, *and* its words are in a region's.
-    public var contributedToItemID: String?
+    public var contributedToItemIDs: [String]
 
     /// Who made this card. **nil means the writer**, which is why there is no
     /// `.human` default: every card on every canvas written before 1C-c3 is the
@@ -170,7 +177,7 @@ public struct CanvasNode: Equatable, Sendable {
     ///
     /// **Written once, at creation, and never afterwards** — which is why
     /// `CanvasScene` has no `setAuthor` beside `setPromotedItem`,
-    /// `setBoundPiece` and `setContributedItem`. Those three record something
+    /// `setBoundPiece` and `addContribution`. Those record something
     /// that *happened to* a card and can be undone; this records where the card
     /// came from, and that does not change because the writer edited it. A
     /// setter would make provenance something the canvas can quietly rewrite.
@@ -188,7 +195,7 @@ public struct CanvasNode: Equatable, Sendable {
                 z: Int = 0,
                 promotedItemID: String? = nil,
                 boundPieceID: String? = nil,
-                contributedToItemID: String? = nil,
+                contributedToItemIDs: [String] = [],
                 author: AnnotationAuthor.SourceKind? = nil) {
         self.id = id
         self.kind = kind
@@ -198,7 +205,7 @@ public struct CanvasNode: Equatable, Sendable {
         self.z = z
         self.promotedItemID = promotedItemID
         self.boundPieceID = boundPieceID
-        self.contributedToItemID = contributedToItemID
+        self.contributedToItemIDs = contributedToItemIDs
         self.author = author
     }
 
