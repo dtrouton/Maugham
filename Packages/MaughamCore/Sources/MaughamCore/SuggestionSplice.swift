@@ -42,7 +42,7 @@ public enum SuggestionSplice {
     public static func attempt(
         suggestion bare: String, span: SpanAnchor?, to paragraph: String
     ) -> Outcome {
-        guard let span else { return .applied(bare) }
+        guard let span, !span.quote.isEmpty else { return .applied(bare) }
         guard let range = SpanAnchorResolver.resolve(anchor: span, in: paragraph)
         else { return .anchorLost }
         let chars = Array(paragraph)

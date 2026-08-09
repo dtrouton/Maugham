@@ -87,9 +87,15 @@ enum RewindImpact {
                     p.annotationsToReopen += 1
                 } else if before?.kind == .claudeAccept,
                           let textAccept = lifecycle.last(where: {
-                              $0.kind == .claudeAccept && !$0.changes.isEmpty }),
-                          cursorOpId >= textAccept.opId {
-                    p.acceptsToRestore += 1
+                              $0.kind == .claudeAccept && !$0.changes.isEmpty }) {
+                    if cursorOpId >= textAccept.opId {
+                        p.acceptsToRestore += 1
+                    } else {
+                        // Step 9's else-arm: a target before the accept
+                        // reopens to .open — the class the branch review
+                        // caught this preview omitting.
+                        p.annotationsToReopen += 1
+                    }
                 }
             case .accepted:
                 if let textAccept = (lifecycleBySource[ann.id] ?? []).filter({

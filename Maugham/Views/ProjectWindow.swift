@@ -2143,7 +2143,7 @@ private struct RewindModifier: ViewModifier {
                     .background(.regularMaterial, in: Capsule())
                     .padding(.bottom, 24)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .task {
+                    .task(id: toast) {
                         // A notice with an action lingers; a plain report
                         // dismisses itself.
                         try? await Task.sleep(nanoseconds: restoreToastOffersRevert
@@ -2214,7 +2214,13 @@ private struct RewindModifier: ViewModifier {
                                 .restoreToOpUndoable(opId: opId, undoManager: um)
                             else { return }
                             restoreToast = RewindImpact.toast(for: result)
-                            if case .nearest = result.targetResolution {
+                            // Revert is the surfaced undo — offered only when
+                            // the restore actually registered one. A .nearest
+                            // resolution that changed nothing has no undo, and
+                            // a Revert that pops the writer's own typing stack
+                            // would be silent prose loss (branch review).
+                            if case .nearest = result.targetResolution,
+                               result.restoreOp != nil {
                                 restoreToastOffersRevert = true
                             } else {
                                 restoreToastOffersRevert = false

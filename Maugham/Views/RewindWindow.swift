@@ -29,6 +29,10 @@ struct RewindWindow: View {
     @State private var cursor: RewindCursor = .now
     @State private var previewMode: PreviewMode = .doc
     @State private var derivedState: Deriver.DerivedState = .init(paragraphs: [:], sequence: [])
+    /// Cached per cursor change (branch review: a computed property here ran
+    /// several whole-log derives per body pass, stuttering the scrubber on
+    /// novel-scale histories).
+    @State private var impactPreview: RewindImpact.Preview = RewindImpact.preview(ops: [], cursorOpId: nil)
     @State private var nowState: Deriver.DerivedState = .init(paragraphs: [:], sequence: [])
     @State private var showingSnapshotPrompt: Bool = false
     @State private var showingRestoreConfirm: Bool = false
@@ -312,6 +316,13 @@ struct RewindWindow: View {
     /// cycle as the cursor change, so the preview never lags a frame.
     private func updateDerivedStateNow() {
         derivedState = Deriver.derive(ops: ops, upTo: cursor)
+        // RULING-28's full collateral preview, recomputed exactly when the
+        // derived state is — once per cursor change.
+        if case .atOp(let targetOpId, _) = cursor {
+            impactPreview = RewindImpact.preview(ops: ops, cursorOpId: targetOpId)
+        } else {
+            impactPreview = RewindImpact.preview(ops: ops, cursorOpId: nil)
+        }
     }
 
     private func scrub(toX x: CGFloat, width: CGFloat) {
@@ -396,16 +407,6 @@ struct RewindWindow: View {
             let opsAgo = ops.count - 1 - idx
             return "\(Self.headerDateFmt.string(from: at)) · \(opsAgo) ops ago"
         }
-    }
-
-    /// The cursor's full collateral preview (RULING-28: the confirmation
-    /// states the complete set — archives, reopens, re-accepts, words — via
-    /// `RewindImpact`, the same mirror the after-toast renders from).
-    private var impactPreview: RewindImpact.Preview {
-        guard case .atOp(let targetOpId, _) = cursor else {
-            return RewindImpact.preview(ops: ops, cursorOpId: nil)
-        }
-        return RewindImpact.preview(ops: ops, cursorOpId: targetOpId)
     }
 
     private var impactSummary: String {

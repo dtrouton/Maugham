@@ -122,7 +122,8 @@ struct AnnotationsPane: View {
         VStack(spacing: 0) {
             toolbar
             Divider()
-            if visibleAnnotations.isEmpty {
+            let deletedNotes = showResolved ? document.withdrawnAnnotations() : []
+            if visibleAnnotations.isEmpty && deletedNotes.isEmpty {
                 ContentUnavailableView(
                     "No annotations",
                     systemImage: "bubble.left.and.bubble.right",
@@ -156,7 +157,7 @@ struct AnnotationsPane: View {
                         // The writer's withdrawn notes are findable here and
                         // restorable — not gone at one expired ⌘Z's mercy.
                         if showResolved {
-                            let deleted = document.withdrawnAnnotations()
+                            let deleted = deletedNotes
                             if !deleted.isEmpty {
                                 Text("Deleted")
                                     .font(.caption).foregroundStyle(.secondary)

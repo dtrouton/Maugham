@@ -305,3 +305,21 @@ struct AnnotationWriter {
         return try encoder.encode(op)
     }
 }
+
+
+extension AnnotationWriter.WriteError: LocalizedError {
+    /// A raw Foundation rendering of these ("…WriteError error 3.") reached a
+    /// writer once (branch review); every case names itself now.
+    var errorDescription: String? {
+        switch self {
+        case .malformedSuggestion:
+            return "This suggestion is malformed and can’t be applied."
+        case .notReopenable:
+            return "This annotation can’t be reopened — its status changed on another device."
+        case .malformedAcceptRevert:
+            return "This accept can’t be reverted — its record is incomplete."
+        case .suggestionAnchorLost:
+            return "The passage this suggestion would replace is no longer in the paragraph. The suggestion stays open — ask Claude for a fresh one."
+        }
+    }
+}
