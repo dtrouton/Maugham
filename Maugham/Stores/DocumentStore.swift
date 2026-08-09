@@ -603,7 +603,8 @@ public final class DocumentStore {
         itemMetadata: Data,
         originalParentId: String?,
         originalIndex: Int,
-        displayTitle: String
+        displayTitle: String,
+        subject: TrashSubject
     ) async throws -> TrashEntry {
         await closeFlushAndUnregister(affectedPaths: [relativePath])
         return try await trashStore.moveToTrash(
@@ -611,7 +612,8 @@ public final class DocumentStore {
             itemMetadata: itemMetadata,
             originalParentId: originalParentId,
             originalIndex: originalIndex,
-            displayTitle: displayTitle)
+            displayTitle: displayTitle,
+            subject: subject)
     }
 
     /// The shared close-before-FS-surgery primitive. For each affected

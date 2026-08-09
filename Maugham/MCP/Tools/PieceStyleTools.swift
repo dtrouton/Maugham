@@ -82,7 +82,10 @@ public enum SetPieceStyleTool: MCPTool {
                 itemMetadata: metadata,
                 originalParentId: nil,
                 originalIndex: 0,
-                displayTitle: name)
+                displayTitle: name,
+                // Maugham's own safety copy of a file the writer never deleted:
+                // it stays out of the Trash pane (RULING-43).
+                subject: .internalArtifact)
         }
 
         // Create pieces/ and write the new content.
@@ -173,7 +176,10 @@ public enum ClearPieceStyleTool: MCPTool {
                     itemMetadata: metadata,
                     originalParentId: nil,
                     originalIndex: 0,
-                    displayTitle: name)
+                    displayTitle: name,
+                    // Same safety copy, same reason it stays out of the pane
+                    // (RULING-43).
+                    subject: .internalArtifact)
                 deletedFile = true
             }
         }

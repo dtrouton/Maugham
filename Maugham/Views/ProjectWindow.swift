@@ -91,6 +91,10 @@ struct ProjectWindow: View {
     /// diagnostics (the `.help()` tooltip), so the resolver stays the single
     /// read path.
     @State private var shareSnapshot: ShareMetadata?
+    /// What ⌘⌥Z has to say: the reason it refused a deletion it could not
+    /// return whole (RULING-40), or what a restore could not give back
+    /// (RULING-42). A refusal the writer never sees is the same as a silence.
+    @State private var restoreOutcome: String?
     /// Injected reader for the share metadata (real OS-backed Mac reader in
     /// production; substitutable in tests/previews).
     private let shareReader: ShareMetadataReading = ICloudShareMetadataReader()
@@ -287,6 +291,7 @@ struct ProjectWindow: View {
             showInspector: $showInspector,
             detailSegment: $detailSegment,
             persona: $persona,
+            restoreOutcome: $restoreOutcome,
             mcpBanner: mcpBanner))
         .modifier(CheckpointModifier(
             documentStore: documentStore,
@@ -535,6 +540,9 @@ struct ProjectWindow: View {
         /// (Denver, 2026-08-02). Read by `.maughamCloseFind`, which returns the
         /// binder to THIS persona's home rather than to the document's.
         @Binding var persona: Persona
+        /// What ⌘⌥Z has to say when it cannot restore a deletion whole, or
+        /// when a restore gave back less than was deleted (RULING-40/42).
+        @Binding var restoreOutcome: String?
         let mcpBanner: MCPBannerModel
 
         func body(content: Content) -> some View {
@@ -611,7 +619,16 @@ struct ProjectWindow: View {
                 }
                 .onKeyWindowCommand(.maughamRestoreLastDeleted, window: window) { _ in
                     Task {
-                        try? await store?.restoreLastDeleted()
+                        do {
+                            // Nil report = nothing was armed: a silent no-op,
+                            // as it has always been.
+                            if let report = try await store?.restoreLastDeletion(),
+                               let message = report.message {
+                                restoreOutcome = message
+                            }
+                        } catch {
+                            restoreOutcome = error.localizedDescription
+                        }
                     }
                 }
                 .onKeyWindowCommand(.maughamToggleResearchPreview, window: window) { _ in
@@ -713,6 +730,13 @@ struct ProjectWindow: View {
                     Button("Cancel", role: .cancel) { }
                 } message: {
                     Text("Filenames in every group will be renumbered to fix gaps. This change is visible to other apps that read this folder.")
+                }
+                .alert("Restore",
+                       isPresented: Binding(get: { restoreOutcome != nil },
+                                            set: { if !$0 { restoreOutcome = nil } })) {
+                    Button("OK", role: .cancel) { restoreOutcome = nil }
+                } message: {
+                    Text(restoreOutcome ?? "")
                 }
         }
 

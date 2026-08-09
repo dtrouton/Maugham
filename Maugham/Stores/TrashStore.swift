@@ -1,6 +1,30 @@
 import Foundation
 import MaughamCore
 
+/// What a trash entry is a deletion OF. Recorded in `meta.json` at write time
+/// so neither the pane nor a restore has to guess from the shape of the
+/// metadata blob (a `ResearchItem` decodes cleanly as a `StructureItem`, which
+/// is how every restored research note used to land in the manuscript binder).
+///
+/// Additive-optional on disk (ADR 0015): an entry written before this field
+/// existed decodes as `nil`, and the readers fall back to their old behaviour.
+public enum TrashSubject: String, Codable, Sendable {
+    /// A binder row. Restore rewires `manifest.structure`.
+    case manuscriptItem
+    /// A research-tree row. Restore rewires `manifest.research`. Carries no
+    /// file when the row is manifest-only (a `.link`, RULING-45).
+    case researchItem
+    /// A capture's asset file, moved out of the inbox by a promotion
+    /// (RULING-15). There is no manifest row to rewire: putting the file back
+    /// where it was IS the whole restore, and re-ingesting it is the writer's
+    /// next act (RULING-14).
+    case captureAsset
+    /// Maugham's own safety copy of a file the writer never deleted — today,
+    /// the prior version of a per-piece style file. Never shown in the Trash
+    /// pane: it is not the writer's deletion (RULING-43).
+    case internalArtifact
+}
+
 /// Per-project trash directory operations. Lives at <projectURL>/.trash/
 /// with each trashed item in its own timestamped subfolder containing the
 /// original file/folder plus a meta.json describing the restoration target.
@@ -16,8 +40,19 @@ public struct TrashStore {
         projectURL.appendingPathComponent(".trash")
     }
 
-    /// List all current trash entries, newest first.
+    /// List the WRITER's deletions, newest first. Maugham's own safety copies
+    /// (`.internalArtifact`) are not the writer's deletions and do not appear
+    /// (RULING-43); `entriesIncludingInternal` is the unfiltered read for the
+    /// verbs that must still reach them.
     public func list() async throws -> [TrashEntry] {
+        try await entriesIncludingInternal().filter { $0.subject != .internalArtifact }
+    }
+
+    /// Every readable entry, the writer's and Maugham's alike. Used by the
+    /// disposal verbs (a hidden entry must still be swept and still be
+    /// permanently deletable) and by `restore`, which refuses the internal ones
+    /// by name rather than by not finding them.
+    public func entriesIncludingInternal() async throws -> [TrashEntry] {
         let fm = FileManager.default
         guard fm.fileExists(atPath: trashRoot.path) else { return [] }
         let folders = (try? fm.contentsOfDirectory(
@@ -40,19 +75,49 @@ public struct TrashStore {
                 displayTitle: meta.displayTitle,
                 itemMetadata: meta.itemMetadata,
                 originalParentId: meta.originalParentId,
-                originalIndex: meta.originalIndex))
+                originalIndex: meta.originalIndex,
+                subject: meta.subject,
+                carriesFile: meta.carriesFile ?? true))
         }
         return entries.sorted { $0.trashedAt > $1.trashedAt }
     }
 
     /// Remove entries older than 30 days. Called from ProjectStore.load.
+    ///
+    /// **Walks the trash directory, not `list()`** (RULING-39). An entry whose
+    /// `meta.json` never landed — an interrupted `moveToTrash`, whose file is
+    /// already inside the entry folder — is invisible to `list()`, and a sweep
+    /// built on `list()` therefore left it in the project for ever, travelling
+    /// into every backup. Age comes from the folder name's timestamp where it
+    /// parses and from the folder's own filesystem dates where it does not, so
+    /// an entry with no readable metadata of any kind still expires.
     public func sweep() async throws {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: trashRoot.path) else { return }
         let cutoff = Date().addingTimeInterval(-30 * 86_400)
-        let entries = try await list()
-        for entry in entries where entry.trashedAt < cutoff {
-            let folder = trashRoot.appendingPathComponent(entry.id)
-            try? FileManager.default.removeItem(at: folder)
+        let folders = (try? fm.contentsOfDirectory(
+            at: trashRoot,
+            includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey],
+            options: [])) ?? []
+        for folder in folders where folder.hasDirectoryPath {
+            guard let trashedAt = Self.ageOfEntry(at: folder) else { continue }
+            if trashedAt < cutoff {
+                try? fm.removeItem(at: folder)
+            }
         }
+    }
+
+    /// When an entry folder was trashed: its name's timestamp, else the
+    /// filesystem's own dates for the folder (oldest of creation/modification,
+    /// so a folder touched since it was trashed is not given a fresh lease).
+    /// `nil` only when the folder has neither — nothing can date it, so the
+    /// sweep leaves it rather than destroying something of unknown age.
+    static func ageOfEntry(at folder: URL) -> Date? {
+        if let stamped = parseTimestamp(from: folder.lastPathComponent) { return stamped }
+        let values = try? folder.resourceValues(
+            forKeys: [.creationDateKey, .contentModificationDateKey])
+        let dates = [values?.creationDate, values?.contentModificationDate].compactMap { $0 }
+        return dates.min()
     }
 
     /// Permanently delete a trashed entry.
@@ -61,17 +126,52 @@ public struct TrashStore {
         try FileManager.default.removeItem(at: entryFolder)
     }
 
-    /// Restore a trashed entry: move its file back to original path,
-    /// delete the trash folder, return the original metadata.
+    /// Restore a trashed entry: move its file back, delete the trash folder,
+    /// return the original metadata plus WHERE the file actually landed.
+    ///
+    /// `to` overrides the recorded destination. The caller is the only one that
+    /// knows where the binder says the row is going to sit, and the file has to
+    /// follow it there (RULING-41) — `TrashStore` knows nothing about manifests.
+    ///
+    /// **An occupied destination is restored BESIDE the occupant** under a
+    /// deduped filename rather than refused (RULING-38): the writer asked for
+    /// their item back, nothing is overwritten, and both are visible. The
+    /// numeric-suffix pattern is `addResearchTextNote`'s.
     @discardableResult
-    public func restore(trashId: String) async throws -> TrashEntry {
+    public func restore(trashId: String, to preferredRelativePath: String? = nil) async throws -> TrashEntry {
         let entryFolder = trashRoot.appendingPathComponent(trashId)
         let metaURL = entryFolder.appendingPathComponent("meta.json")
         let metaData = try Data(contentsOf: metaURL)  // adr-0018-ok: trash metadata read, not manuscript
         let meta = try JSONDecoder().decode(TrashMeta.self, from: metaData)
+        let fm = FileManager.default
+
+        guard let trashedAt = Self.parseTimestamp(from: trashId) else {
+            throw TrashError.malformedEntryId(trashId)
+        }
+
+        func result(restoredAt: String?) -> TrashEntry {
+            TrashEntry(
+                id: trashId,
+                trashedAt: trashedAt,
+                originalRelativePath: meta.originalRelativePath,
+                displayTitle: meta.displayTitle,
+                itemMetadata: meta.itemMetadata,
+                originalParentId: meta.originalParentId,
+                originalIndex: meta.originalIndex,
+                subject: meta.subject,
+                carriesFile: meta.carriesFile ?? true,
+                restoredRelativePath: restoredAt)
+        }
+
+        // A manifest-only entry (a research link, RULING-45) has no file to
+        // move: the meta.json IS the record, and handing it back to the caller
+        // is the whole restore.
+        if meta.carriesFile == false {
+            try fm.removeItem(at: entryFolder)
+            return result(restoredAt: nil)
+        }
 
         // Identify the file inside the entry folder (the non-meta.json file)
-        let fm = FileManager.default
         let contents = try fm.contentsOfDirectory(
             at: entryFolder,
             includingPropertiesForKeys: nil,
@@ -84,35 +184,57 @@ public struct TrashStore {
                 folderContents: contents.map(\.lastPathComponent))
         }
 
-        // Restore to original path; ensure parent dirs exist. meta.json is
+        // Restore to the requested path; ensure parent dirs exist. meta.json is
         // sidecar-supplied (read off disk, not validated at write time by
         // every caller) — a corrupted or hostile originalRelativePath must
-        // not be able to move the file outside the project root (A5).
-        let dest: URL
+        // not be able to move the file outside the project root (A5). The
+        // caller's override goes through the same guard: it is manifest-derived
+        // and no more trusted than the sidecar.
+        let requested = preferredRelativePath ?? meta.originalRelativePath
+        let target: URL
         do {
-            dest = try SafeRelativePath.resolve(meta.originalRelativePath, under: projectURL)
+            target = try SafeRelativePath.resolve(requested, under: projectURL)
         } catch {
-            throw TrashError.unsafeRelativePath(meta.originalRelativePath, underlying: error)
+            throw TrashError.unsafeRelativePath(requested, underlying: error)
         }
         try fm.createDirectory(
-            at: dest.deletingLastPathComponent(),
+            at: target.deletingLastPathComponent(),
             withIntermediateDirectories: true)
+        let dest = Self.destinationBesideAnyOccupant(target)
         try fm.moveItem(at: fileURL, to: dest)
 
         // Delete entry folder (now contains only meta.json)
         try fm.removeItem(at: entryFolder)
 
-        guard let trashedAt = Self.parseTimestamp(from: trashId) else {
-            throw TrashError.malformedEntryId(trashId)
+        return result(restoredAt: Self.relativePath(of: dest, under: projectURL) ?? requested)
+    }
+
+    /// `dest` itself when nothing is there, else the same name with a numeric
+    /// suffix — `chapter-2.md`, `chapter-3.md`, … — matching the on-disk dedupe
+    /// `addResearchTextNote` already uses. Falls back to a UUID name after 999
+    /// collisions, exactly as `ProjectStore.researchDedupedFilename` does.
+    static func destinationBesideAnyOccupant(_ dest: URL) -> URL {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: dest.path) else { return dest }
+        let directory = dest.deletingLastPathComponent()
+        let ext = dest.pathExtension
+        let stem = dest.deletingPathExtension().lastPathComponent
+        for n in 2...999 {
+            let name = ext.isEmpty ? "\(stem)-\(n)" : "\(stem)-\(n).\(ext)"
+            let candidate = directory.appendingPathComponent(name)
+            if !fm.fileExists(atPath: candidate.path) { return candidate }
         }
-        return TrashEntry(
-            id: trashId,
-            trashedAt: trashedAt,
-            originalRelativePath: meta.originalRelativePath,
-            displayTitle: meta.displayTitle,
-            itemMetadata: meta.itemMetadata,
-            originalParentId: meta.originalParentId,
-            originalIndex: meta.originalIndex)
+        return directory.appendingPathComponent(UUID().uuidString)
+    }
+
+    /// Project-relative spelling of an absolute URL under `root`, or nil when
+    /// it is not under it. Both sides are standardized first so the /private
+    /// symlink on macOS temp paths doesn't make a child look foreign.
+    static func relativePath(of url: URL, under root: URL) -> String? {
+        let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        guard path.hasPrefix(rootPath + "/") else { return nil }
+        return String(path.dropFirst(rootPath.count + 1))
     }
 
     /// Move a file or folder from its original project-relative path into
@@ -123,19 +245,12 @@ public struct TrashStore {
         itemMetadata: Data,
         originalParentId: String?,
         originalIndex: Int,
-        displayTitle: String
+        displayTitle: String,
+        subject: TrashSubject
     ) async throws -> TrashEntry {
         let fm = FileManager.default
         let now = Date()
-        let timestamp = Self.timestampPrefix(for: now)
-
-        // Extract id from item metadata for folder naming (best-effort).
-        struct IdProbe: Decodable { let id: String? }
-        let originalId = ((try? JSONDecoder().decode(IdProbe.self, from: itemMetadata))?.id) ?? "x"
-        let entryId = "\(timestamp)-\(originalId)"
-
-        let entryFolder = trashRoot.appendingPathComponent(entryId)
-        try fm.createDirectory(at: entryFolder, withIntermediateDirectories: true)
+        let (entryId, entryFolder) = try mintEntryFolder(itemMetadata: itemMetadata, now: now)
 
         // Move original file/folder into the entry folder, keeping its filename.
         // fileRelativePath ultimately traces back to a manifest-derived path
@@ -150,33 +265,131 @@ public struct TrashStore {
         let dest = entryFolder.appendingPathComponent(source.lastPathComponent)
         try fm.moveItem(at: source, to: dest)
 
-        // Write meta.json
-        let meta = TrashMeta(
-            originalRelativePath: fileRelativePath,
-            displayTitle: displayTitle,
-            itemMetadata: itemMetadata,
-            originalParentId: originalParentId,
-            originalIndex: originalIndex)
-        let metaURL = entryFolder.appendingPathComponent("meta.json")
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(meta).write(to: metaURL, options: .atomic)
+        try writeMeta(
+            TrashMeta(
+                originalRelativePath: fileRelativePath,
+                displayTitle: displayTitle,
+                itemMetadata: itemMetadata,
+                originalParentId: originalParentId,
+                originalIndex: originalIndex,
+                subject: subject,
+                carriesFile: true),
+            to: entryFolder)
 
         return TrashEntry(
             id: entryId,
             trashedAt: now,
             originalRelativePath: fileRelativePath,
             displayTitle: displayTitle,
-            itemMetadata: itemMetadata)
+            itemMetadata: itemMetadata,
+            subject: subject,
+            carriesFile: true)
+    }
+
+    /// Record a trash entry for an item that has no file at all — a research
+    /// link, whose URL and title live only in the manifest (RULING-45). The
+    /// entry folder holds a `meta.json` and nothing else, and `carriesFile:
+    /// false` is what tells `restore` that is the complete entry rather than an
+    /// interrupted move (which still throws `entryFileMissing`).
+    ///
+    /// `originalRelativePath` is recorded as the item's manifest path so the
+    /// row round-trips unchanged; nothing on the filesystem is touched, in
+    /// either direction.
+    public func recordManifestOnlyTrash(
+        originalRelativePath: String,
+        itemMetadata: Data,
+        originalParentId: String?,
+        originalIndex: Int,
+        displayTitle: String,
+        subject: TrashSubject
+    ) async throws -> TrashEntry {
+        let now = Date()
+        let (entryId, entryFolder) = try mintEntryFolder(itemMetadata: itemMetadata, now: now)
+        try writeMeta(
+            TrashMeta(
+                originalRelativePath: originalRelativePath,
+                displayTitle: displayTitle,
+                itemMetadata: itemMetadata,
+                originalParentId: originalParentId,
+                originalIndex: originalIndex,
+                subject: subject,
+                carriesFile: false),
+            to: entryFolder)
+        return TrashEntry(
+            id: entryId,
+            trashedAt: now,
+            originalRelativePath: originalRelativePath,
+            displayTitle: displayTitle,
+            itemMetadata: itemMetadata,
+            subject: subject,
+            carriesFile: false)
+    }
+
+    /// `.trash/<yyyyMMdd-HHmmss>-<the metadata's id>/`, created.
+    private func mintEntryFolder(
+        itemMetadata: Data, now: Date
+    ) throws -> (id: String, folder: URL) {
+        // Extract id from item metadata for folder naming (best-effort).
+        struct IdProbe: Decodable { let id: String? }
+        let originalId = ((try? JSONDecoder().decode(IdProbe.self, from: itemMetadata))?.id) ?? "x"
+        let entryId = "\(Self.timestampPrefix(for: now))-\(originalId)"
+        let folder = trashRoot.appendingPathComponent(entryId)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return (entryId, folder)
+    }
+
+    private func writeMeta(_ meta: TrashMeta, to entryFolder: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(meta).write(
+            to: entryFolder.appendingPathComponent("meta.json"), options: .atomic)
     }
 
     /// Internal metadata persisted in each trash folder's meta.json.
+    /// `subject` and `carriesFile` are additive-optional (ADR 0015): an entry
+    /// written before they existed decodes with both nil.
     struct TrashMeta: Codable {
         let originalRelativePath: String
         let displayTitle: String
         let itemMetadata: Data
         let originalParentId: String?
         let originalIndex: Int
+        var subject: TrashSubject?
+        var carriesFile: Bool?
+
+        init(
+            originalRelativePath: String,
+            displayTitle: String,
+            itemMetadata: Data,
+            originalParentId: String?,
+            originalIndex: Int,
+            subject: TrashSubject? = nil,
+            carriesFile: Bool? = nil
+        ) {
+            self.originalRelativePath = originalRelativePath
+            self.displayTitle = displayTitle
+            self.itemMetadata = itemMetadata
+            self.originalParentId = originalParentId
+            self.originalIndex = originalIndex
+            self.subject = subject
+            self.carriesFile = carriesFile
+        }
+
+        /// A `subject` this build does not know decodes as nil rather than
+        /// failing the whole entry (ADR 0015 forward-tolerance). Failing it
+        /// would make the entry unreadable, and an unreadable entry is one the
+        /// pane cannot show — the exact shape of the bug RULING-39 convicts.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            originalRelativePath = try c.decode(String.self, forKey: .originalRelativePath)
+            displayTitle = try c.decode(String.self, forKey: .displayTitle)
+            itemMetadata = try c.decode(Data.self, forKey: .itemMetadata)
+            originalParentId = try c.decodeIfPresent(String.self, forKey: .originalParentId)
+            originalIndex = try c.decode(Int.self, forKey: .originalIndex)
+            subject = try c.decodeIfPresent(String.self, forKey: .subject)
+                .flatMap { TrashSubject(rawValue: $0) }
+            carriesFile = try c.decodeIfPresent(Bool.self, forKey: .carriesFile)
+        }
     }
 
     static let timestampFormatter: DateFormatter = {

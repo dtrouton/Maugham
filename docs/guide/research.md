@@ -31,6 +31,6 @@ Promoting into a collection piece drops the item straight into that piece's own 
 
 ### Trash & undo
 
-Deleting an item moves it to `.maugham/.trash/` (project-local, syncs with iCloud). ⌘⌥Z restores the most-recent deletion in place. A 30-day automatic sweep clears old entries on launch. See [ADR 0006](../adr/0006-trash-and-undo.md) for the design.
+Deleting an item moves it to `.maugham/.trash/` (project-local, syncs with iCloud). ⌘⌥Z restores the most-recent deletion in place — the whole of it, whether that gesture deleted one row or fifty, or it tells you why it can't. A 30-day automatic sweep clears old entries on launch. See [ADR 0006](../adr/0006-trash-and-undo.md) for the design.
 
 ⌘Z is intentionally reserved for in-doc text undo; ⌘⌥Z is the binder-undo shortcut.

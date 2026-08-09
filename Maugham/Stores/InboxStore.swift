@@ -242,12 +242,13 @@ final class InboxStore {
                   FileManager.default.fileExists(atPath: asset.path) else {
                 throw InboxError.assetMissing(entry.sourceFilename ?? entry.id)
             }
-            // createResearchAsset copies; remove the inbox original to finish
-            // the move. The asset lives under .maugham/inbox/ and is never an
-            // open Document, so no close-before-FS guard (tripwire 14) needed.
+            // createResearchAsset copies; send the inbox original to the trash
+            // to finish the move. RULING-15: Maugham does not delete a file —
+            // it moves it to trash, from which the writer can restore it and
+            // then re-ingest it (RULING-14 makes that sufficient).
             created = try await projectStore.createResearchAsset(
                 scope: scope, fromURL: asset)
-            try? FileManager.default.removeItem(at: asset)
+            await trashPromotedAsset(asset, entry: entry, projectStore: projectStore)
         }
         await updateStatus(id: entry.id, to: .promoted)
         return created
@@ -311,8 +312,11 @@ final class InboxStore {
         // idempotent, so a caught-and-retried promote converges to one note.
         try await updateStatusThrowing(id: entry.id, to: .promoted)
         // Only now that the entry is durably `.promoted` do we drop the inbox
-        // original. A failed removal still leaves a recoverable duplicate.
-        if let originalToRemove { try? FileManager.default.removeItem(at: originalToRemove) }
+        // original — into the trash rather than off the disk (RULING-15). A
+        // failed move still leaves a recoverable duplicate.
+        if let originalToRemove {
+            await trashPromotedAsset(originalToRemove, entry: entry, projectStore: projectStore)
+        }
         return result
     }
 
@@ -393,8 +397,34 @@ final class InboxStore {
         // canvas, so a swallowed status-write failure would leave the entry `.new`
         // and a retry would land a second card.
         try await updateStatusThrowing(id: entry.id, to: .promoted)
-        if let originalToRemove { try? FileManager.default.removeItem(at: originalToRemove) }
+        if let originalToRemove {
+            await trashPromotedAsset(originalToRemove, entry: entry, projectStore: projectStore)
+        }
         return node
+    }
+
+    /// Retire a promoted capture's original: to the project trash, never off
+    /// the disk (RULING-15 — its three named defects were the three
+    /// `FileManager.removeItem` calls this replaces). Best-effort in the same
+    /// sense the removals were: the content is already durably at its
+    /// destination, and a failure here leaves a duplicate rather than a loss,
+    /// so it is logged rather than thrown over a promotion that succeeded.
+    private func trashPromotedAsset(
+        _ asset: URL, entry: InboxEntry, projectStore: ProjectStore
+    ) async {
+        guard let relative = TrashStore.relativePath(of: asset, under: projectURL) else {
+            inboxStoreLog.error(
+                "inbox asset for entry \(entry.id, privacy: .public) is not inside the project; left in place")
+            return
+        }
+        do {
+            _ = try await projectStore.trashCaptureAsset(
+                at: relative,
+                displayTitle: entry.sourceFilename ?? entry.title ?? entry.id)
+        } catch {
+            inboxStoreLog.error(
+                "trashing the promoted inbox asset for entry \(entry.id, privacy: .public) failed; the original is left in place: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Id-taking twin, for the caller that has only an id: the canvas drop, whose
