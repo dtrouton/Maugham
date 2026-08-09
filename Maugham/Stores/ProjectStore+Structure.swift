@@ -396,13 +396,39 @@ extension ProjectStore {
     func propagateWikiLinkRename(
         excludeId: String, oldTitle: String, newTitle: String
     ) async {
-        // One rename is one pair; the rewriter takes a set of them because a
-        // single rename can move more than one title (a document's own, and the
-        // composed titles of the statements about it — Task 8).
-        let pairs = [(old: oldTitle, new: newTitle)]
+        // One rename moves more than one title. The document's own is the
+        // obvious one; the other is the COMPOSED title of every statement
+        // scoped to it — `ArtifactIndex.statementTitle` names a statement after
+        // the document it is about (M1A), so `[[Craft Intent · Alpha]]` stops
+        // resolving the moment `Alpha` becomes `Omega`.
+        //
+        // The manifest has ALREADY been renamed by the time this runs, so the
+        // "before" title is composed with a closure answering the OLD name
+        // rather than by reading the structure back.
+        let composedPairs: [(old: String, new: String)] = manifest.statements
+            .compactMap { statement in
+                guard case .document(let docId) = statement.scope,
+                      docId == excludeId else { return nil }
+                return (old: ArtifactIndex.statementTitle(
+                            statement, documentTitle: { _ in oldTitle }),
+                        new: ArtifactIndex.statementTitle(
+                            statement, documentTitle: { _ in newTitle }))
+            }
+        let pairs = [(old: oldTitle, new: newTitle)] + composedPairs
 
-        for doc in Self.collectDocuments(in: manifest.structure)
-        where doc.id != excludeId {
+        for doc in Self.collectDocuments(in: manifest.structure) {
+            // **The renamed document is excluded from the DOCUMENT-title pair
+            // only.** Its own `[[Alpha]]` self-references are left to the
+            // resolver's case-insensitive title match on the next render — an
+            // argument about the document's own name, which says nothing about
+            // the name of a statement about it. `[[Craft Intent · Alpha]]`
+            // written in the chapter it is the intent for resolves to nothing
+            // at all once the rename lands, so the composed pairs apply here
+            // too. With no statements scoped to it there is nothing to rewrite
+            // and the document is skipped outright rather than loaded to be
+            // told so.
+            let docPairs = doc.id == excludeId ? composedPairs : pairs
+            if docPairs.isEmpty { continue }
             guard let path = doc.path else { continue }
 
             // Obtain the Document — the live registry instance if this doc is
@@ -427,7 +453,7 @@ extension ProjectStore {
                     forDocId: doc.id, in: url)
                 if !preCheckBody.isEmpty,
                    WikiLinkRewriter.rewriteAll(
-                       body: preCheckBody, pairs: pairs) == nil {
+                       body: preCheckBody, pairs: docPairs) == nil {
                     continue
                 }
                 do {
@@ -446,7 +472,7 @@ extension ProjectStore {
             // Rewrite on display form. nil → no occurrence; nothing to do.
             // Close a transiently-loaded doc on this early-out path too.
             guard let rewritten = WikiLinkRewriter.rewriteAll(
-                body: resolved.displayText, pairs: pairs) else {
+                body: resolved.displayText, pairs: docPairs) else {
                 if isTransient { await resolved.close() }
                 continue
             }
@@ -479,16 +505,27 @@ extension ProjectStore {
         // The pre-check mirrors the manuscript loop's, with the live text
         // preferred where there is any: the pane's `Document` is fresher by up
         // to one debounce window, so deciding off the derived text alone would
-        // skip a link the writer typed a moment ago. An empty statement is
-        // safely skipped — unlike a manuscript there is no bootstrap owed,
-        // since a statement with no ops has no prose to rewrite.
+        // skip a link the writer typed a moment ago.
+        //
+        // **Empty is not the same as nothing to do, and the manuscript loop
+        // above has always known it.** A statement whose op log has not been
+        // written yet derives to "" while its file holds prose — which is
+        // exactly the state a freshly promoted project's intent arrives in
+        // (`stagePromotedIntent` moves the `.md` and leaves `.maugham/` behind;
+        // see this area's guide). So an empty preview falls through to the
+        // dance anyway when the file has bytes, and `Document.load` bootstraps
+        // them into ops on the way — a `stat` of the file's SIZE, never a read
+        // of its content, which would be the manuscript-as-truth read tripwire
+        // 20 forbids.
         for statement in manifest.statements {
             let derived = derivedCache.displayText(forDocId: statement.id, in: url)
             let liveText = openStatementDocument(id: statement.id)?.displayText
             let preview = liveText ?? derived
-            guard !preview.isEmpty,
-                  WikiLinkRewriter.rewriteAll(body: preview, pairs: pairs) != nil
-            else { continue }
+            if preview.isEmpty {
+                guard statementFileHasBytes(statement) else { continue }
+            } else if WikiLinkRewriter.rewriteAll(body: preview, pairs: pairs) == nil {
+                continue
+            }
             do {
                 try await withStatementDocument(
                     statement,
@@ -507,6 +544,71 @@ extension ProjectStore {
                     "Wiki-rename: statement \(statement.id, privacy: .public) skipped: \(error.localizedDescription, privacy: .public)")
             }
         }
+
+        // **Research notes hold `[[…]]` too, and since 1C-c2 they are where
+        // promotion PUTS them** — a promoted card writes its link into a
+        // research note and never into a manuscript, so a rename left exactly
+        // the links the writer had just made pointing nowhere. `list_all_links`
+        // and `find_references` have scanned note bodies since the same slice,
+        // which is what makes the omission the S2 shape: a graph the tools
+        // describe and the file contradicts.
+        //
+        // A note is NOT op-logged (no `¶id` anchors, no second representation),
+        // so the rewrite is an ordinary coordinated whole-file write rather
+        // than an op. The flush first is what keeps it: a `ResearchNoteEditor`
+        // save queued on the 750 ms debounce would otherwise land after this
+        // write and put the stale body back.
+        try? await documentStore?.flushPendingSave()
+        for item in TreeWalk.collect(in: manifest.research,
+                                     where: { $0.kind == .document }) {
+            guard let path = item.path else { continue }
+            let noteURL = url.appendingPathComponent(path)
+            // Absent and unreadable are not the same answer, and a bare `try?`
+            // cannot tell them apart (`PromotionPerformer.readBody` makes the
+            // same distinction, and for the same reason). No file is a note
+            // with no body — nothing to rewrite, nothing to say. A file that
+            // exists and will not read is manifest/disk drift or an iCloud
+            // materialise we lost a race with, and the writer's link is left on
+            // the old title: skipped like any other per-item failure here, and
+            // logged like one rather than swallowed.
+            guard FileManager.default.fileExists(atPath: noteURL.path) else { continue }
+            let body: String
+            do {
+                body = try String(contentsOf: noteURL, encoding: .utf8)  // adr-0018-ok: a research note is not manuscript — no op log, no second representation to drift from
+            } catch {
+                projectStoreLog.error(
+                    "Wiki-rename: research note \(path, privacy: .public) unreadable, skipped: \(error.localizedDescription, privacy: .public)")
+                continue
+            }
+            guard let rewritten = WikiLinkRewriter.rewriteAll(
+                body: body, pairs: pairs) else { continue }
+            do {
+                if let ds = documentStore {
+                    try await ds.performFileSave(path: path, text: rewritten)
+                } else {
+                    // No DocumentStore (a load-only context such as a unit
+                    // test): no presenter to coordinate with and no debounced
+                    // save to race. Mirrors `PromotionPerformer.write`.
+                    try rewritten.write(
+                        to: noteURL, atomically: true, encoding: .utf8)
+                }
+            } catch {
+                projectStoreLog.error(
+                    "Wiki-rename: research note \(path, privacy: .public) skipped: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// Whether a statement's file holds any bytes at all — a `stat`, never a
+    /// read. The pre-check above uses it to tell "this statement has no prose"
+    /// apart from "this statement's prose has not reached its op log yet";
+    /// reading the file to answer that would be the manuscript-as-truth read
+    /// ADR 0018 forbids, and the content still arrives the sanctioned way,
+    /// through `Document.load`'s bootstrap inside the dance.
+    private func statementFileHasBytes(_ statement: Statement) -> Bool {
+        let path = url.appendingPathComponent(statement.path).path
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return ((attributes?[.size] as? Int) ?? 0) > 0
     }
 
     /// Static slug-deduper used by rename (since we already know NN).
