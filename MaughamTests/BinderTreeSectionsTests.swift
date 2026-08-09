@@ -298,23 +298,24 @@ final class BinderTreeSectionsTests: XCTestCase {
                      + "deliberately avoid")
     }
 
-    // MARK: - The drop stubs refuse (fix round 1)
+    // MARK: - A drop the tree cannot route refuses (fix round 1, kept by Task 7)
 
-    /// **A drop the tree cannot route yet must BOUNCE, not vanish.**
+    /// **A drop the tree cannot route must BOUNCE, not vanish.**
     ///
     /// `ResearchRow`'s `.dropDestination` used to `return true` unconditionally,
-    /// so "accepted" was a property of the row rather than of the handler: with
-    /// the tree's routing stubbed until Task 7, a note dragged onto a populated
-    /// research row animated home as accepted and was then silently discarded —
-    /// the writer's drag, gone, with the animation that says it worked. The drop
-    /// closures return `Bool` all the way down now, and the tree's answer is
-    /// `false`.
+    /// so "accepted" was a property of the row rather than of the handler: a
+    /// note dragged onto a populated research row animated home as accepted and
+    /// was then silently discarded — the writer's drag, gone, with the
+    /// animation that says it worked. The drop closures return `Bool` all the
+    /// way down now.
     ///
-    /// **Asked of the bundle rather than of a mounted drag**, because a real
-    /// drag session is not synthesisable — `ResearchRow` returns exactly what
-    /// this closure returns, which is pinned separately by
-    /// `TripwireGrepTests.test_theResearchRowNeverAcceptsADropOnItsOwnAuthority`.
-    func test_theTreesDropVerbsRefuseUntilTaskSevenFillsThem() async throws {
+    /// **Task 7 filled the routing and this test did not change**, which is the
+    /// point of it: the ids here belong to nothing in the project, and an id the
+    /// tree cannot place is refused by `TreeDropIntent` for exactly the reason
+    /// the stub refused it. Where the drag CAN be routed is
+    /// `BinderTreeDropRoutingTests`; that the row forwards this answer rather
+    /// than a literal is `TripwireGrepTests`'.
+    func test_theTreeRefusesADropItCannotPlace() async throws {
         let store = try await novel(notes: ["Ships"], cards: ["Harbour"])
         let target = try XCTUnwrap(researchNote(named: "Ships", in: store))
         let sections = BinderTreeSections(
@@ -324,12 +325,14 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         XCTAssertFalse(
             sections.actions.internalDrop("some-other-id", .middle, target),
-            "the tree cannot route a research drag until Task 7 — it must "
-            + "refuse, so the drag bounces back to where the writer took it "
-            + "from. Returning true accepts it and drops it on the floor")
+            "an id from outside this project — a canvas node, another window's "
+            + "row — must bounce back to where the writer took it from. "
+            + "Returning true accepts it and drops it on the floor")
         XCTAssertFalse(
             sections.actions.externalDrop([], .middle, target),
-            "and the same for a Finder file or a browser bitmap")
+            "and a Finder file or a browser bitmap is refused outright: it has "
+            + "to land in a SCOPE, and importing to a piece's root has no store "
+            + "API (the hole Task 6 recorded for New Group). Stage 2b owns it")
     }
 
     /// The control, and it is what makes the assertion above mean something: the

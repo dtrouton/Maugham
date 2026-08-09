@@ -3027,10 +3027,21 @@ final class TripwireGrepTests: XCTestCase {
     /// ignored. They are fixed and held here too; a census that covered only the
     /// file the finding arrived in would have left the older instances to be
     /// rediscovered.
+    ///
+    /// **The three ROWS joined the list in stage-2a Task 7**, when their
+    /// handlers stopped being a formality. Until then `BinderRow` and `PieceRow`
+    /// could only ever receive a manuscript id, so accepting unconditionally was
+    /// harmless; the tree now carries research rows beside them, so a note can
+    /// be dragged onto a chapter that cannot take it (a screenplay's, a
+    /// referenced piece's) and the refusal has to survive the same overload
+    /// trap this census is about.
     func test_everyDropDestinationInTheResearchSurfacesDeclaresItsBool() throws {
         var offenders: [String] = []
         for file in ["Views/BinderTreeSections.swift",
-                     "Views/CollectionResearchPane.swift"] {
+                     "Views/CollectionResearchPane.swift",
+                     "Views/BinderRow.swift",
+                     "Views/PieceRow.swift",
+                     "Views/ResearchRow.swift"] {
             offenders += try Self.unannotatedDropDestinations(
                 in: sourceDir.appendingPathComponent(file))
         }
@@ -3183,6 +3194,138 @@ final class TripwireGrepTests: XCTestCase {
             + "caller whose handler is a stub, with the animation that says it "
             + "landed. Return the closure's Bool instead.\n\nFound:\n"
             + code.filter { $0.contains("return true") }.joined(separator: "\n"))
+    }
+
+    /// **And neither manuscript row does either** (stage-2a Task 7).
+    ///
+    /// `BinderRow` and `PieceRow` both answered `.dropDestination` with a bare
+    /// `return true` for as long as the only thing that could land on them was
+    /// another manuscript row — where the host's handler always did something,
+    /// so the literal was never wrong. The tree changed the premise: a research
+    /// note dropped on a chapter is now a scope change, and a chapter that
+    /// cannot take one (a screenplay's, a referenced Collection piece's, a
+    /// structure group) must bounce it. A literal `true` there is the
+    /// accept-then-discard defect `ResearchRow` already shipped once.
+    func test_neitherManuscriptRowAcceptsADropOnItsOwnAuthority() throws {
+        for file in ["Views/BinderRow.swift", "Views/PieceRow.swift"] {
+            let url = sourceDir.appendingPathComponent(file)
+            let code = Self.codeLines(of: try String(contentsOf: url, encoding: .utf8))
+            XCTAssertTrue(
+                code.contains { $0.contains("return onDrop(") },
+                "\(file) must return its `onDrop` closure's answer.")
+            XCTAssertFalse(
+                code.contains { $0.trimmingCharacters(in: .whitespaces) == "return true" },
+                "\(file) must not accept a drop on its own authority — the row "
+                + "cannot know whether the host could route it.\n\nFound:\n"
+                + code.filter { $0.contains("return true") }.joined(separator: "\n"))
+        }
+    }
+
+    // MARK: - Every drop target in the tree reaches the one classifier
+
+    /// The verbs that route a drop, and the files each is reached from.
+    private static let treeDropRouters = [
+        "routePieceRowDrop(", "routeResearchRowDrop(", "routeSharedSectionDrop("
+    ]
+    /// The file that DEFINES them, which naturally contains all three.
+    private static let treeDropRouterDefiner = "BinderTreeDrops.swift"
+
+    /// **Every drop target in the binder tree routes through
+    /// `TreeDropIntent`** — and which file reaches which verb is the wiring
+    /// this census holds (stage-2a Task 7).
+    ///
+    /// The tree has four kinds of drop target and they live in four different
+    /// files: manuscript rows in the two hosts, research rows in the sections,
+    /// research rows again inside a piece's fold, and the shared section itself.
+    /// A target wired to anything else — its own `moveResearchItem` call, a
+    /// stubbed refusal left behind, a `return true` — is invisible to every
+    /// other test in the repo, because **a real drag session is not
+    /// synthesisable headless**: nothing can drive the closure a
+    /// `.dropDestination` installs. What CAN be checked is that the closure
+    /// calls the router, and that is what this is.
+    ///
+    /// The sharpest case is the fold. `BinderPieceFold` re-routes
+    /// `internalDrop` to pass its `documentId`, and without that one line the
+    /// fold's rows read to the classifier as ordinary shared research rows —
+    /// so a note dropped into chapter three's fold quietly reorders shared
+    /// research and never reaches chapter three. Nothing on screen says so.
+    func test_everyDropTargetInTheTreeReachesTheClassifier() throws {
+        let census = try treeDropRoutingCensus(in: sourceDir)
+        XCTAssertEqual(
+            census,
+            ["BinderView.swift": ["routePieceRowDrop("],
+             "CollectionPiecesPane.swift": ["routePieceRowDrop("],
+             "BinderTreeSections.swift": ["routeResearchRowDrop(",
+                                          "routeSharedSectionDrop("],
+             "BinderPieceFold.swift": ["routeResearchRowDrop("]],
+            "Every drop target in the binder tree routes through "
+            + "`TreeDropIntent`, via `BinderTreeDrops`.\n\n"
+            + "If you ADDED a target: call the matching router and add the file "
+            + "above. If a file has LOST its entry, its drops are no longer "
+            + "classified — they either refuse everything or accept and discard, "
+            + "and no mounted test can see which.\n\n"
+            + "Found:\n\(census)")
+    }
+
+    /// Self-check: a census of a REQUIRED token passes happily while blind, so
+    /// prove it sees a host that stopped routing.
+    func test_theDropRoutingCensusFiresOnAHostThatStoppedRouting() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-drop-routing-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct Wired: View {
+            var body: some View {
+                Row(onDrop: { id, position in
+                    verbs.routePieceRowDrop(draggedId: id, documentId: item.id) {}
+                })
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("Wired.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        struct Unwired: View {
+            var body: some View {
+                // A doc comment naming routePieceRowDrop( must not count, and
+                // neither may a host that only reorders.
+                Row(onDrop: { id, position in
+                    Task { await handleDrop(draggedId: id, position: position) }
+                    return true
+                })
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("Unwired.swift"),
+                  atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            try treeDropRoutingCensus(in: tmp),
+            ["Wired.swift": ["routePieceRowDrop("]],
+            "Self-check: the census must name the wired host and say nothing "
+            + "about the one that routes nothing.")
+    }
+
+    private func treeDropRoutingCensus(in dir: URL) throws -> [String: [String]] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return [:]
+        }
+        var census: [String: [String]] = [:]
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let name = url.lastPathComponent
+            guard name != Self.treeDropRouterDefiner else { continue }
+            let code = Self.codeLines(of: try String(contentsOf: url, encoding: .utf8))
+            var found: Set<String> = []
+            for line in code {
+                for router in Self.treeDropRouters where line.contains(router) {
+                    found.insert(router)
+                }
+            }
+            if !found.isEmpty { census[name] = found.sorted() }
+        }
+        return census
     }
 
     // MARK: - The binder tree's sections mount in two halves

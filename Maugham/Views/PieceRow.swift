@@ -9,7 +9,11 @@ struct PieceRow: View {
     let piece: StructureItem
     @Binding var renamingItemId: String?
     let onRename: (String, String) -> Void   // (pieceId, newTitle)
-    let onDrop: (_ draggedId: String, _ position: DropIntent.Position) -> Void
+    /// Returns whether the drop was ACCEPTED, and this row returns exactly that
+    /// (stage-2a Task 7) — the tree now carries research rows, so a piece can
+    /// receive a note as well as another piece, and a drop it cannot route must
+    /// bounce rather than animate home and vanish. See `BinderRow.onDrop`.
+    let onDrop: (_ draggedId: String, _ position: DropIntent.Position) -> Bool
 
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
@@ -64,7 +68,7 @@ struct PieceRow: View {
                     .padding(6)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
             }
-            .dropDestination(for: String.self) { ids, location in
+            .dropDestination(for: String.self) { ids, location -> Bool in
                 guard let droppedId = ids.first, droppedId != piece.id else {
                     return false
                 }
@@ -72,8 +76,8 @@ struct PieceRow: View {
                 let rowHeight: CGFloat = 22
                 let position: DropIntent.Position =
                     location.y < rowHeight / 2 ? .top : .bottom
-                onDrop(droppedId, position)
-                return true
+                // The caller's answer, never a literal — see `onDrop`.
+                return onDrop(droppedId, position)
             }
         }
     }

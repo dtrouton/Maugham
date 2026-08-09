@@ -191,10 +191,20 @@ struct BinderView: View {
             onRename: { id, newTitle in
                 Task { await rename(id: id, to: newTitle) }
             },
+            // **A manuscript row now receives two kinds of drag** (stage-2a
+            // Task 7). A chapter dropped on a chapter is the binder's own
+            // reorder, unchanged and still `handleDrop`'s; a research note
+            // dropped on a chapter is a scope change, and what it means is
+            // `TreeDropIntent`'s to say. The row returns whichever answer
+            // comes back, so a chapter that cannot take a note bounces it.
             onDrop: { draggedId, position in
-                Task { await handleDrop(draggedId: draggedId,
-                                        position: position,
-                                        target: item) }
+                treeVerbs.routePieceRowDrop(
+                    draggedId: draggedId, documentId: item.id,
+                    structureReorder: {
+                        Task { await handleDrop(draggedId: draggedId,
+                                                position: position,
+                                                target: item) }
+                    })
             }
         )
         .contextMenu {
@@ -224,6 +234,16 @@ struct BinderView: View {
     }
 
     // MARK: - Actions
+
+    /// The tree's research verbs, over this view's own section state — the same
+    /// value the Research section and every fold act through, so a drop on a
+    /// chapter row and a drop on a row inside its fold cannot come to disagree
+    /// about what scope means. Built per access like `BinderTreeSections.verbs`:
+    /// it is a handful of closures over the store, and nothing in it is state.
+    private var treeVerbs: BinderTreeVerbs {
+        BinderTreeVerbs(store: store, state: treeState,
+                        selectedSubject: $selectedSubject)
+    }
 
     private func addItem(parent: StructureItem?, kind: StructureItemKind) async {
         let parentId: String? = {

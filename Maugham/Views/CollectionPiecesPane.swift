@@ -121,11 +121,22 @@ struct CollectionPiecesPane: View {
                         pieceId: id, newTitle: newTitle)
                 }
             },
+            // **A piece row now receives two kinds of drag** (stage-2a Task 7):
+            // another piece, which is this pane's own reorder and unchanged;
+            // or a research note, which in a Collection means the note's FILE
+            // moves into `pieces/<slug>/research/`. What the drop means is
+            // `TreeDropIntent`'s to say, and the row returns its answer — a
+            // referenced piece, which keeps research in its own project,
+            // bounces the drag rather than swallowing it.
             onDrop: { draggedId, position in
-                handleDrop(
-                    draggedId: draggedId,
-                    targetId: piece.id,
-                    position: position)
+                treeVerbs.routePieceRowDrop(
+                    draggedId: draggedId, documentId: piece.id,
+                    structureReorder: {
+                        handleDrop(
+                            draggedId: draggedId,
+                            targetId: piece.id,
+                            position: position)
+                    })
             })
             // Inset under the project row above. Part of the row rather than a
             // wrapper around it, so the List tags a row that is already inset.
@@ -200,6 +211,14 @@ struct CollectionPiecesPane: View {
     }
 
     // MARK: - Drag-reorder
+
+    /// The tree's research verbs, over this pane's own section state — see
+    /// `BinderView.treeVerbs`. One value for the piece rows, the Research
+    /// section and every fold, so the three cannot disagree about scope.
+    private var treeVerbs: BinderTreeVerbs {
+        BinderTreeVerbs(store: store, state: treeState,
+                        selectedSubject: $selectedSubject)
+    }
 
     private func handleDrop(
         draggedId: String,

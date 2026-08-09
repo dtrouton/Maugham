@@ -86,6 +86,17 @@ struct BinderPieceFold: View {
                 try await store.createResearchNote(scope: .document(documentId))
             }
         }
+        // **The second re-routed verb, and the same reason** (Task 7): a drop
+        // on a row in this fold is aimed at THIS document. Without the
+        // document, `TreeDropIntent` would read the row as an ordinary shared
+        // research row and answer "reorder" — so a note dropped into chapter
+        // three's fold would silently change the order of shared research and
+        // never reach chapter three. The fold is a near-miss of the piece row
+        // above it and means the same thing.
+        actions.internalDrop = { [verbs, documentId] draggedId, position, target in
+            verbs.routeResearchRowDrop(draggedId: draggedId, position: position,
+                                       target: target, inFoldOf: documentId)
+        }
         return actions
     }
 

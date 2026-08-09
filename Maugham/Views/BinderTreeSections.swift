@@ -53,7 +53,9 @@ struct BinderTreeSections: View {
                 research: store.manifest.research,
                 projectType: store.manifest.type)
             if roots.isEmpty {
-                placeholder("No research yet.")
+                placeholder("No research yet.") { ids in
+                    sharedSectionDrop(ids)
+                }
             } else {
                 ForEach(roots) { item in
                     ResearchTreeNode(
@@ -74,6 +76,17 @@ struct BinderTreeSections: View {
                 Button("Add File…") { actions.addFile(nil) }
                 Button("Add Link…") { actions.addLink(nil) }
             }
+            // **The header is the section's drop target when the section has
+            // rows** (Task 7). The placeholder below is the target when it has
+            // none, and a `Section` gets no live drop region of its own — so
+            // without this there would be no way to drag a note OUT of a
+            // chapter's fold in a novel at all: a novel's linked note is a
+            // shared item that is already showing in this very section, so the
+            // empty-section placeholder can never be on screen while a fold
+            // has something in it.
+            .dropDestination(for: String.self) { ids, _ -> Bool in
+                return sharedSectionDrop(ids)
+            }
         }
     }
 
@@ -91,7 +104,13 @@ struct BinderTreeSections: View {
     private var paletteSection: some View {
         Section {
             if state.cards.isEmpty {
-                placeholder("No cards yet.")
+                // The palette's placeholder refuses: a card is MADE (the
+                // header's `+` menu), never dragged into being, and the
+                // section's rows are not drop targets either.
+                placeholder("No cards yet.") { ids in
+                    refuseDrop("palette placeholder", payload: ids.first,
+                               reason: .notAResearchTarget)
+                }
             } else {
                 ForEach(state.cards) { card in
                     Label(card.title,
@@ -141,17 +160,19 @@ struct BinderTreeSections: View {
     ///
     /// **It is a row rather than a section-level affordance because a drop on an
     /// empty `Section` never fires** — SwiftUI gives it no live drop region
-    /// (`CollectionResearchPane.swift`'s measured lesson). Task 7 makes this the
-    /// full-width target; until then its destination REFUSES, so a note dragged
-    /// here is returned to where it came from rather than accepted and dropped
-    /// on the floor.
+    /// (`CollectionResearchPane.swift`'s measured lesson). Since Task 7 it is
+    /// the Research section's full-width drop target — its `onDrop` is the
+    /// section's, and the Palette's placeholder passes a refusal instead, since
+    /// a card is made and never dragged into being.
     ///
     /// **It carries no `.tag`, and that is why the trees' selection binding
     /// refuses a `nil` write** (`BinderTreeSelection`). An untagged row is
     /// selected anyway and writes `nil` through the binding — measured on
     /// `BinderView`'s old empty-state row, macOS 26.5 — which would blank the
     /// centre column every time a writer clicked "No research yet."
-    private func placeholder(_ text: String) -> some View {
+    private func placeholder(
+        _ text: String, onDrop: @escaping ([String]) -> Bool
+    ) -> some View {
         Text(text)
             .font(.callout)
             .foregroundStyle(.tertiary)
@@ -167,7 +188,7 @@ struct BinderTreeSections: View {
             // annotated result type is what forces the Bool overload; the
             // `return` is what makes a future reader see the value matters.
             .dropDestination(for: String.self) { ids, _ -> Bool in
-                return refuseDrop("empty section placeholder", payload: ids.first)
+                return onDrop(ids)
             }
     }
 
@@ -194,8 +215,21 @@ struct BinderTreeSections: View {
             title: "New \(kind.rawValue)", kind: kind) }
     }
 
-    private func refuseDrop(_ target: String, payload: String?) -> Bool {
-        verbs.refuseDrop(target, payload: payload)
+    private func refuseDrop(_ target: String, payload: String?,
+                            reason: TreeDropIntent.Reason? = nil) -> Bool {
+        verbs.refuseDrop(target, payload: payload, reason: reason)
+    }
+
+    /// The Research section as a drop target — mounted twice, on its header and
+    /// on the placeholder an empty section shows, because those are the two
+    /// times exactly one of them is on screen.
+    ///
+    /// Not `private`: `BinderTreeSectionsTests` asks the section directly what
+    /// a drop on it does, for the reason the drop verbs are reachable at all —
+    /// a real drag session is not synthesisable headless.
+    func sharedSectionDrop(_ ids: [String]) -> Bool {
+        guard let id = ids.first else { return false }
+        return verbs.routeSharedSectionDrop(draggedId: id)
     }
 
     private func findParentId(of childId: String) -> String? {
@@ -267,11 +301,27 @@ struct BinderTreeVerbs {
             rename: { id, newTitle in
                 perform { try await store.updateResearchItem(id: id, title: newTitle) }
             },
-            internalDrop: { draggedId, _, target in
-                refuseDrop("research row \(target.id)", payload: draggedId)
+            // **The tree's rows route by scope** (Task 7): what a drop MEANS is
+            // `TreeDropIntent.classify`, what it DOES is `BinderTreeDrops`.
+            // `inFoldOf: nil` — these are the shared section's rows;
+            // `BinderPieceFold` re-routes this one verb with its document, for
+            // the same reason it re-routes `newNote`.
+            internalDrop: { draggedId, position, target in
+                routeResearchRowDrop(draggedId: draggedId, position: position,
+                                     target: target, inFoldOf: nil)
             },
+            // **Still refuses, and deliberately** (Task 7's one declared gap).
+            // A Finder file or a browser bitmap dropped on a research row has
+            // to land in a SCOPE, and the piece-root case has no store API:
+            // `importResearchFiles(toParentId:)` reads `nil` as the shared
+            // root, so a file dropped on a row at a Collection piece's root
+            // would silently import to shared research. That is the same hole
+            // Task 6 recorded for `New Group` at a piece root, and the honest
+            // answer until it is filled is a bounce the writer can see. Stage
+            // 2b owns it — it deletes the panes that still do this.
             externalDrop: { _, _, target in
-                refuseDrop("research row \(target.id)", payload: nil)
+                refuseDrop("research row \(target.id)", payload: nil,
+                           reason: .notAResearchTarget)
             },
             newNote: { parentId in
                 create { try await store.addResearchTextNote(
@@ -321,7 +371,14 @@ struct BinderTreeVerbs {
     /// attaches. Nothing here repairs the subject on a delete — the window's own
     /// sweep does that (`SubjectValidationModifier`, Task 2), and a second rule
     /// beside it is how the two come to disagree.
-    private func perform(_ work: @escaping () async throws -> Void) {
+    ///
+    /// Not `private`: `BinderTreeDrops` — the peer extension that performs what
+    /// `TreeDropIntent` decided — is a file over, and a store failure it causes
+    /// (the mover refusing to take a role-bearing item across scopes, a group
+    /// into its own descendant) has to reach the same alert every other verb's
+    /// does. A second error channel is how two surfaces come to disagree about
+    /// whether anything went wrong.
+    func perform(_ work: @escaping () async throws -> Void) {
         Task { @MainActor in
             do { try await work() }
             catch { state.pendingError = error.localizedDescription }
@@ -353,9 +410,9 @@ struct BinderTreeVerbs {
         }
     }
 
-    /// **Task 7's placeholder, and it refuses for real** — the drag bounces
-    /// back to where it came from, which is what the writer needs to see while
-    /// the tree's routing does not exist yet.
+    /// **A refused drop, said out loud.** The drag bounces back to where the
+    /// writer took it from and the log says why (`reason`, since Task 7 —
+    /// before it every refusal was the same sentence about unbuilt routing).
     ///
     /// This shipped wrong once and the fix is worth recording. The first version
     /// returned `Void` and only logged, on the reasoning that a `Void` closure
@@ -369,9 +426,10 @@ struct BinderTreeVerbs {
     /// (fix round 1).
     ///
     /// Returns `false`, always, and says why in the log.
-    func refuseDrop(_ target: String, payload: String?) -> Bool {
+    func refuseDrop(_ target: String, payload: String?,
+                    reason: TreeDropIntent.Reason? = nil) -> Bool {
         _binderTreeSectionsLog.warning(
-            "binder tree refused a drop on \(target, privacy: .public) with payload \(payload ?? "external", privacy: .public) — routing lands in stage-2a Task 7")
+            "binder tree refused a drop on \(target, privacy: .public) with payload \(payload ?? "external", privacy: .public): \(reason?.explanation ?? "no route", privacy: .public)")
         return false
     }
 
