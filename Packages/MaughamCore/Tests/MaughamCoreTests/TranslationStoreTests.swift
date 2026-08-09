@@ -124,4 +124,124 @@ final class TranslationStoreTests: XCTestCase {
         }
         XCTAssertEqual(TranslationStore.languages(forDocId: "doc1", in: projectURL).sorted(), ["es", "fr"])
     }
+
+    func test_languages_wellFormed_pinsCurrentBehavior() async throws {
+        // Step 1 (RED phase): enumerate what should parse correctly today
+        // and verify it still parses after the fix.
+
+        let slug1 = DeviceSlug.unsafeForTesting("maca-1111")
+        let slug2 = DeviceSlug.unsafeForTesting("macb-2222")
+
+        // Create files with various docId formats:
+        // - simple: "simple.es.maca-1111.jsonl"
+        // - dotted: "doc.chapter.en.macb-2222.jsonl"
+        // - hyphenated: "my-doc.fr.maca-1111.jsonl"
+
+        let files = [
+            ("simple", "es", slug1),
+            ("doc.chapter", "en", slug2),
+            ("my-doc", "fr", slug1),
+            ("a.b.c.d", "de", slug2),
+        ]
+
+        for (docId, lang, slug) in files {
+            let rec = TranslationRecord(
+                paragraphId: "aaaa", language: lang, text: "x", sourceHash: "h",
+                at: Date(timeIntervalSince1970: 1_753_000_000)
+            )
+            try await TranslationStore.append(rec, forDocId: docId, deviceSlug: slug, in: projectURL)
+        }
+
+        // Verify each docId finds exactly its own language
+        XCTAssertEqual(TranslationStore.languages(forDocId: "simple", in: projectURL), ["es"])
+        XCTAssertEqual(TranslationStore.languages(forDocId: "doc.chapter", in: projectURL), ["en"])
+        XCTAssertEqual(TranslationStore.languages(forDocId: "my-doc", in: projectURL), ["fr"])
+        XCTAssertEqual(TranslationStore.languages(forDocId: "a.b.c.d", in: projectURL), ["de"])
+    }
+
+    func test_languages_dottedPrefixDocIds_noCrossMatch() async throws {
+        // Step 1 (RED phase): docId that is a dotted prefix of another
+        // should not cross-match. This is the main bug the fix addresses.
+
+        let slug1 = DeviceSlug.unsafeForTesting("maca-1111")
+        let slug2 = DeviceSlug.unsafeForTesting("macb-2222")
+
+        // Create: doc.a.en.maca-1111.jsonl and doc.a.b.en.macb-2222.jsonl
+        try await TranslationStore.append(
+            TranslationRecord(paragraphId: "aaaa", language: "en", text: "x", sourceHash: "h"),
+            forDocId: "doc.a", deviceSlug: slug1, in: projectURL
+        )
+        try await TranslationStore.append(
+            TranslationRecord(paragraphId: "bbbb", language: "en", text: "y", sourceHash: "h"),
+            forDocId: "doc.a.b", deviceSlug: slug2, in: projectURL
+        )
+
+        // Query for "doc.a" should find only the first file
+        XCTAssertEqual(TranslationStore.languages(forDocId: "doc.a", in: projectURL), ["en"])
+
+        // Query for "doc.a.b" should find only the second file
+        XCTAssertEqual(TranslationStore.languages(forDocId: "doc.a.b", in: projectURL), ["en"])
+
+        // Query for non-existent "doc" should find nothing
+        XCTAssertEqual(TranslationStore.languages(forDocId: "doc", in: projectURL), [])
+    }
+
+    func test_languages_wrongComponentCounts_skipped() async throws {
+        // Step 1 (RED phase): files with wrong component counts should be skipped.
+
+        let dir = TranslationStore.directoryURL(in: projectURL)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        // Create a valid file first
+        let slug = DeviceSlug.unsafeForTesting("maca-1111")
+        try await TranslationStore.append(
+            TranslationRecord(paragraphId: "aaaa", language: "en", text: "x", sourceHash: "h"),
+            forDocId: "doc", deviceSlug: slug, in: projectURL
+        )
+
+        // Now manually create malformed files in the directory
+        let malformedFiles = [
+            "doc.jsonl",                    // Too few components (missing language and slug)
+            "doc.en.jsonl",                 // Too few components (missing slug)
+            "doc.en.slug.extra.jsonl",      // Too many components
+            "doc.en.slug",                  // Missing .jsonl extension
+            "doc..en.slug.jsonl",           // Empty component
+        ]
+
+        for filename in malformedFiles {
+            try Data().write(to: dir.appendingPathComponent(filename))
+        }
+
+        // Should still find only the valid "en" language
+        XCTAssertEqual(TranslationStore.languages(forDocId: "doc", in: projectURL), ["en"])
+    }
+
+    func test_languages_invalidLanguageTag_skipped() async throws {
+        // Step 1 (RED phase): files with invalid language tags should be skipped.
+
+        let dir = TranslationStore.directoryURL(in: projectURL)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        // Create a valid file
+        let slug = DeviceSlug.unsafeForTesting("maca-1111")
+        try await TranslationStore.append(
+            TranslationRecord(paragraphId: "aaaa", language: "en", text: "x", sourceHash: "h"),
+            forDocId: "doc", deviceSlug: slug, in: projectURL
+        )
+
+        // Manually create files with invalid language tags
+        let invalidFiles = [
+            "doc.EN.maca-1111.jsonl",       // Uppercase (invalid)
+            "doc.e.maca-1111.jsonl",        // Too short (invalid)
+            "doc.123.maca-1111.jsonl",      // Numeric (invalid)
+            "doc..maca-1111.jsonl",         // Empty language (invalid)
+        ]
+
+        for filename in invalidFiles {
+            try Data().write(to: dir.appendingPathComponent(filename))
+        }
+
+        // Should still find only the valid "en" language
+        XCTAssertEqual(TranslationStore.languages(forDocId: "doc", in: projectURL), ["en"])
+    }
 }

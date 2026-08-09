@@ -34,17 +34,44 @@ public enum TranslationStore {
     }
 
     /// Distinct languages present for a doc (scans filenames).
+    /// Parses from the right: filename must be `{docId}.{language}.{deviceSlug}.jsonl`
+    /// where deviceSlug is non-empty. Rejects files with wrong component counts or
+    /// mismatched docId prefix to avoid false matches when docId is a dotted prefix
+    /// of another (e.g., "doc.a" vs "doc.a.b").
     public static func languages(forDocId docId: String, in projectURL: URL) -> [String] {
         let dir = directoryURL(in: projectURL)
         let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
         var langs = Set<String>()
-        for n in names where n.hasPrefix("\(docId).") && n.hasSuffix(".jsonl") {
-            let rest = n.dropFirst(docId.count + 1).dropLast(".jsonl".count)
-            let parts = rest.split(separator: ".")
-            if parts.count == 2, TranslationRecord.isValidLanguageTag(String(parts[0])) {
-                langs.insert(String(parts[0]))
-            }
+
+        for n in names where n.hasSuffix(".jsonl") {
+            // Remove .jsonl extension (5 characters)
+            let withoutExt = String(n.dropLast(".jsonl".count))
+
+            // Split by . and parse from the right:
+            // The rightmost part is deviceSlug, second-from-right is language,
+            // and everything before that should join back to docId
+            let parts = withoutExt.split(separator: ".", omittingEmptySubsequences: false)
+                .map(String.init)
+
+            // Need at least 3 components: docId (≥1), language (1), deviceSlug (1)
+            guard parts.count >= 3 else { continue }
+
+            let deviceSlug = parts[parts.count - 1]
+            let language = parts[parts.count - 2]
+            let reconstructedDocId = parts.dropLast(2).joined(separator: ".")
+
+            // Verify docId matches exactly (prevents false matches on dotted prefixes)
+            guard reconstructedDocId == docId else { continue }
+
+            // Verify deviceSlug is non-empty (should be guaranteed by split, but explicit)
+            guard !deviceSlug.isEmpty else { continue }
+
+            // Validate language tag
+            guard TranslationRecord.isValidLanguageTag(language) else { continue }
+
+            langs.insert(language)
         }
+
         return Array(langs)
     }
 
