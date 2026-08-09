@@ -889,11 +889,7 @@ extension Document {
     /// `withdrawState` pass uses; kept here rather than derived from
     /// `annotations()` because a withdrawn annotation has no row to read.
     internal func isWithdrawn(annotationId id: String) -> Bool {
-        let latest = _opLogMirror
-            .filter { ($0.kind == .annotationWithdraw || $0.kind == .annotationReopen)
-                      && $0.provenance?.sourceAnnotationId == id }
-            .max { $0.opId < $1.opId }
-        return latest?.kind == .annotationWithdraw
+        AnnotationDeriver.isWithdrawn(annotationId: id, in: _opLogMirror)
     }
 
     /// Undo the splice of an accept that a reject beat across a merge, so the

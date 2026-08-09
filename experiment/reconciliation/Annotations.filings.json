@@ -176,6 +176,11 @@
    "authorised_by": "RULING-33 — Denver 2026-08-08, RATIFIED_FROM_OPTIONS ('1 but also 4'), with the revisit-at-collaboration clause attached",
    "pinned_by": "MaughamTests/OpLog/AnnotationConvergenceTests (production) + the rewritten characterisation pin",
    "note": "the single-device half of RULING-33; the merge race it shares the ruling with is claimed at M5-AN-057"
+  },
+  "independent_verification": {
+   "date": "2026-08-09",
+   "outcome": "CONFIRMED (blind, phase-2 round)",
+   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
   }
  },
  {
@@ -358,6 +363,11 @@
    "authorised_by": "RULING-36 — Denver 2026-08-08, recommended option accepted",
    "pinned_by": "AnnotationsCharacterization.test_theMirrorStaysSortedAcrossMergeThenAppend",
    "note": "phase-2 loop one"
+  },
+  "independent_verification": {
+   "date": "2026-08-09",
+   "outcome": "CONFIRMED (blind, phase-2 round)",
+   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
   }
  },
  {
@@ -460,16 +470,31 @@
    "authorised_by": "RULING-33 — Denver 2026-08-08, RATIFIED_FROM_OPTIONS ('1 but also 4 — 1 is the more correct version of what happens now but we may want to revisit'); the CONVERGENCE shape, and the first ruling proved by a model before it was made",
    "pinned_by": "formal/AnnotationRace_Fixed_NoRejectedButSpliced.cfg (green) + its red partner AnnotationRace_NoRejectedButSpliced.cfg + MaughamTests/OpLog/AnnotationConvergenceTests (production, nine cases incl. the drift refusal, idempotence and the accept-beats-reject control)",
    "note": "carries a schema bump (ProjectManifest 4→5) because `claudeReject` became manuscript-affecting; MaughamCore changed, so `swift test --parallel --package-path Packages/MaughamCore` (472/472) and the MaughamPhone scheme were both run green"
+  },
+  "independent_verification": {
+   "date": "2026-08-09",
+   "outcome": "CONFIRMED (blind, phase-2 round)",
+   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
   }
  },
  {
+  "claim_id": "M5-AN-058",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-33",
+  "clause_that_reaches_it": "status and manuscript may not disagree",
+  "why_in_scope": "The verification round's load-bearing residual: the Mac guard existed, the phone's wider exposure did not — RULING-8's sameness clause (one writer question, one answer) plus tripwire 19 (one shared implementation, no restatement). Fixed same-day.",
+  "intent_expressed_when": "earlier — the withdraw is the writer's standing instruction",
+  "call_path": "phone AnnotationDetailView Accept → fresh OpLogStore.load → writer.accept(verifyingAgainst:) → shared isWithdrawn",
+  "violation_or_enhancement": "neither"
+ },
+ {
   "_summary": {
-   "reached": 19,
-   "complies": 19,
+   "reached": 20,
+   "complies": 20,
    "violates": 0,
    "no_ruling": 37,
-   "total": 56,
-   "coverage": "34%",
+   "total": 57,
+   "coverage": "35%",
    "by_ruling": {
     "RULING-1": [
      "M5-AN-006"
@@ -497,7 +522,8 @@
     ],
     "RULING-33": [
      "M5-AN-028",
-     "M5-AN-057"
+     "M5-AN-057",
+     "M5-AN-058"
     ],
     "RULING-34": [
      "M5-AN-056"

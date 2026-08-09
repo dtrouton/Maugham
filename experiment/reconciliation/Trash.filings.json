@@ -79,7 +79,12 @@
   },
   "intent_expressed_when": "contemporaneous",
   "call_path": "UNTRACED — no production caller mints two entries with one id in one second. The 'x' default (M3-TR-002) would open it; nothing supplies id-less metadata today.",
-  "violation_or_enhancement": "neither"
+  "violation_or_enhancement": "neither",
+  "independent_verification": {
+   "date": "2026-08-09",
+   "outcome": "CONFIRMED (blind, phase-2 round)",
+   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
+  }
  },
  {
   "claim_id": "M3-TR-012",
@@ -123,7 +128,12 @@
   },
   "intent_expressed_when": "contemporaneous — the writer is looking at the pane now",
   "call_path": "ProjectStore.load → TrashStore.list() → the entry is skipped → TrashView renders an empty pane. The half-written state comes from a crash, force-quit or write failure between TrashStore.swift:151 and :163.",
-  "violation_or_enhancement": "neither"
+  "violation_or_enhancement": "neither",
+  "independent_verification": {
+   "date": "2026-08-09",
+   "outcome": "CONFIRMED (blind, phase-2 round)",
+   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
+  }
  },
  {
   "claim_id": "M3-TR-016",
@@ -341,7 +351,12 @@
    "pinned_by": "TrashCharacterization.test_restoreLastDeletion_refusesAndSaysWhy_whenPartOfTheGestureIsGone"
   },
   "intent_expressed_when": "contemporaneous",
-  "call_path": "trash pane / binder delete / ⌘⌥Z — see the pin"
+  "call_path": "trash pane / binder delete / ⌘⌥Z — see the pin",
+  "independent_verification": {
+   "date": "2026-08-09",
+   "outcome": "CONFIRMED (blind, phase-2 round)",
+   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
+  }
  },
  {
   "claim_id": "M3-TR-038",
@@ -631,6 +646,11 @@
    "date": "2026-08-09",
    "authorised_by": "RULING-15 — Denver 2026-08-08/09 ruling rounds",
    "pinned_by": "TrashCharacterization.test_promotingACaptureSendsTheInboxOriginalToTheTrash_notOffTheDisk"
+  },
+  "independent_verification": {
+   "date": "2026-08-09",
+   "outcome": "CONFIRMED (blind, phase-2 round)",
+   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
   }
  },
  {

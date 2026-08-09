@@ -261,6 +261,11 @@
    "authorised_by": "RULING-7 — RATIFIED_BY_DEFAULT, with the scope clause added 2026-08-08 (a surface is WRITER-FACING if what it returns reaches the writer without an independent check)",
    "pinned_by": "MaughamTests/OpLog/DocumentNoticeTests (production, with the succeeds-quietly control) + the renamed characterisation pin RewindCharacterization.test_undoOfARewind_declinesWhenTextDriftedSince_andSaysWhy",
    "note": "the shipped RewindUndoTests.test_restore_undo_afterForeignOps_isLoudNoOp called this 'loud' meaning loud to the LOG; that test is unchanged and still passes — what was added is the other audience"
+  },
+  "independent_verification": {
+   "date": "2026-08-09",
+   "outcome": "CONFIRMED (blind, phase-2 round)",
+   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
   }
  },
  {
