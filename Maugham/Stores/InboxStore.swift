@@ -92,8 +92,24 @@ final class InboxStore {
         entries = collapsed
             .filter { $0.status == .new }
             .sorted { $0.createdAt > $1.createdAt }
-        trashedEntries = collapsed
-            .filter { $0.status == .trashed }
+        // RULING-53: the inbox trash keeps the project trash's retention — a
+        // trashed capture ages out at 30 days on RULING-39's quiet clock. The
+        // sweep disposes the ASSET and hides the row; the manifest row itself
+        // stays `.trashed`, because a new status value would decode as `.new`
+        // on an older phone build (ADR 0015's unknown-case tolerance) and
+        // resurrect the capture there. Age is `resolvedAt` (stamped at trash
+        // time, cleared by restore), falling back to the row's write time for
+        // legacy rows.
+        let cutoff = Date().addingTimeInterval(-30 * 86_400)
+        let trashed = collapsed.filter { $0.status == .trashed }
+        for expired in trashed where (expired.resolvedAt ?? writeTime(expired)) < cutoff {
+            if let asset = assetURL(for: expired),
+               FileManager.default.fileExists(atPath: asset.path) {
+                try? FileManager.default.removeItem(at: asset)
+            }
+        }
+        trashedEntries = trashed
+            .filter { ($0.resolvedAt ?? writeTime($0)) >= cutoff }
             .sorted { writeTime($0) > writeTime($1) }
     }
 

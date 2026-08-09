@@ -199,6 +199,13 @@ struct InboxPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Days until RULING-53's 30-day sweep disposes this capture, floored at 0.
+    private func daysUntilSweep(_ entry: InboxEntry) -> Int {
+        let basis = entry.resolvedAt ?? entry.writtenAt ?? entry.createdAt
+        let elapsed = Date().timeIntervalSince(basis)
+        return max(0, 30 - Int(elapsed / 86_400))
+    }
+
     @ViewBuilder
     private var trashList: some View {
         if store.trashedEntries.isEmpty {
@@ -213,7 +220,14 @@ struct InboxPane: View {
                     Image(systemName: icon(for: entry.kind))
                         .foregroundStyle(.secondary)
                         .frame(width: 18)
-                    Text(title(for: entry)).lineLimit(2)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title(for: entry)).lineLimit(2)
+                        // RULING-53: the same clock the project trash shows —
+                        // the writer sees the window they were given.
+                        Text("sweeps in \(daysUntilSweep(entry)) days")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                     Spacer(minLength: 0)
                     Button("Restore") {
                         Task {
