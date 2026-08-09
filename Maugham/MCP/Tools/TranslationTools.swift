@@ -40,6 +40,7 @@ public enum WriteTranslationTool: MCPTool {
         public let paragraph_id: String
         public let text: String?
         public let verbatim: Bool?
+        public let delete: Bool?
     }
     public struct Params: Codable {
         public let project_id: String
@@ -57,19 +58,26 @@ public enum WriteTranslationTool: MCPTool {
     public static let description =
         "Record per-paragraph translations of a document into a language, stored " +
         "in a parallel translation layer (the manuscript itself is never mutated). " +
-        "Each entry supplies either `text` (the translated paragraph) or " +
+        "Each entry supplies exactly one of `text` (the translated paragraph), " +
         "`verbatim: true` (copy the current source text unchanged — for chrome " +
-        "like sluglines or numerals that don't translate). The server stamps each " +
+        "like sluglines or numerals that don't translate), or `delete: true` " +
+        "(remove this paragraph's translation — retracting one, or purging an " +
+        "orphan whose source paragraph is gone; deleting a never-translated " +
+        "paragraph is a harmless no-op). The server stamps each " +
         "record with a hash of the current source paragraph so downstream reads " +
         "can flag a translation as stale after the source is edited. Paragraph ids " +
-        "come from read_document; every id must be current — an unknown id rejects " +
-        "the whole batch (nothing is written). Non-verbatim entries are checked for " +
+        "come from read_document; every id a `text` or `verbatim` entry names must " +
+        "be current — an unknown id rejects the whole batch, its `delete` entries " +
+        "included. `delete` entries are exempt from that check, since an orphan " +
+        "names a paragraph the document no longer has. The batch is all-or-nothing " +
+        "for writes as well as validation: every record is built before any is " +
+        "persisted, in one append. Non-verbatim entries are checked for " +
         "structural drift (a dropped **bold** run, changed block shape) and, if the " +
         "translated text is identical to the current source, a reminder to mark it " +
         "`verbatim: true` instead — these are advisory only and never block the write. " +
         "See get_help topic 'translation-pass' for the translation workflow."
     public static let inputSchemaJSON =
-        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"language":{"type":"string","description":"lowercase tag, e.g. es, pt-br"},"entries":{"type":"array","items":{"type":"object","properties":{"paragraph_id":{"type":"string"},"text":{"type":"string"},"verbatim":{"type":"boolean","description":"copy current source text as the translation (chrome idiom)"}},"required":["paragraph_id"]}}},"required":["project_id","document_id","language","entries"]}"#
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"language":{"type":"string","description":"lowercase tag, e.g. es, pt-br"},"entries":{"type":"array","items":{"type":"object","properties":{"paragraph_id":{"type":"string"},"text":{"type":"string"},"verbatim":{"type":"boolean","description":"copy current source text as the translation (chrome idiom)"},"delete":{"type":"boolean","description":"remove this paragraph's translation; exempt from the unknown-id check, so an orphan can be purged"}},"required":["paragraph_id"]}}},"required":["project_id","document_id","language","entries"]}"#
 
     @MainActor
     public static func handle(
@@ -87,14 +95,14 @@ public enum WriteTranslationTool: MCPTool {
             documentId: params.document_id,
             registry: registry)
 
-        // 2. Each entry supplies exactly one of `text` / `verbatim: true`.
+        // 2. Each entry supplies exactly one of `text` / `verbatim: true` /
+        // `delete: true`.
         for e in params.entries {
-            let hasText = e.text != nil
-            let isVerbatim = e.verbatim == true
-            if hasText == isVerbatim {
+            let forms = [e.text != nil, e.verbatim == true, e.delete == true]
+            if forms.filter({ $0 }).count != 1 {
                 throw MCPError.invalidArgument(
                     "entry for paragraph \(e.paragraph_id) must supply exactly one of " +
-                    "`text` or `verbatim: true`")
+                    "`text`, `verbatim: true` or `delete: true`")
             }
         }
 
@@ -106,40 +114,63 @@ public enum WriteTranslationTool: MCPTool {
                 "duplicate paragraph ids in batch: \(duplicates.joined(separator: ", "))")
         }
 
-        // 3. All-or-nothing: every id must be in the current sequence.
+        // 3. All-or-nothing: every id a `text` or `verbatim` entry names must be
+        // in the current sequence. A `delete` entry is exempt — an orphaned
+        // translation names a paragraph the document no longer has, which is
+        // exactly the one a writer needs to purge, and tombstoning an id that
+        // was never translated is an idempotent no-op. The exemption is per
+        // entry, not per batch: a text entry's unknown id still rejects the
+        // whole call, its delete siblings included.
         let known = Set(state.sequence)
-        let unknown = params.entries.map(\.paragraph_id).filter { !known.contains($0) }
+        let unknown = params.entries
+            .filter { $0.delete != true }
+            .map(\.paragraph_id)
+            .filter { !known.contains($0) }
         if !unknown.isEmpty {
             throw MCPError.invalidArgument(
                 "unknown paragraph ids: \(unknown.joined(separator: ", "))")
         }
 
-        // 4-6. Build + append one record per entry; collect drift warnings.
+        // 4-6. Build every record first, then persist the whole batch in one
+        // write, so "nothing is written" holds for an I/O failure and not only
+        // for a validation failure. Every record carries `params.language` —
+        // one call is one language, the invariant `appendBatch` takes the tag
+        // as a parameter for and does not re-check per record.
         let deviceSlug = DeviceSlug.make(from: MacDeviceID.current)
         var warnings: [String] = []
+        var records: [TranslationRecord] = []
         for e in params.entries {
             let source = state.paragraphs[e.paragraph_id] ?? ""
             let isVerbatim = e.verbatim == true
-            let text = isVerbatim ? source : (e.text ?? "")
-            let record = TranslationRecord(
+            let isDelete = e.delete == true
+            // `text == nil` is the tombstone `TranslationStore.latestByParagraph`
+            // already honors — the delete form is what finally mints one.
+            let text: String? = isDelete ? nil : (isVerbatim ? source : (e.text ?? ""))
+            records.append(TranslationRecord(
                 paragraphId: e.paragraph_id,
                 language: params.language,
                 text: text,
                 sourceHash: TranslationHash.hash(source),
-                verbatim: isVerbatim)
-            try await TranslationStore.append(
-                record, forDocId: params.document_id,
-                deviceSlug: deviceSlug, in: state.projectURL)
-            if !isVerbatim {
+                verbatim: isVerbatim))
+            if !isVerbatim, !isDelete, let translation = text {
                 warnings.append(contentsOf: ConstructSkeleton.warnings(
-                    source: source, translation: text, paragraphId: e.paragraph_id))
-                if text == source {
+                    source: source, translation: translation, paragraphId: e.paragraph_id))
+                // Both sides in display form, normalized through the same
+                // stripper the freshness hash normalizes with: against the raw
+                // source this comparison could never fire on an anchored
+                // paragraph — a slugline or a numeral, the very lines the
+                // advisory exists for.
+                if MarkdownDisplayFilter.stripAnchors(translation)
+                    == MarkdownDisplayFilter.stripAnchors(source) {
                     warnings.append(
                         "¶\(e.paragraph_id): translated text equals source — mark " +
                         "verbatim: true if deliberate")
                 }
             }
         }
+        try TranslationStore.appendBatch(
+            records, forDocId: params.document_id, language: params.language,
+            deviceSlug: deviceSlug, in: state.projectURL)
 
         // 7. Notify any live window on this project so an in-progress
         // translation-review posture re-derives its read-only surface (a
