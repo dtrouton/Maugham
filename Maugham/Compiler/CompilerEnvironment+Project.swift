@@ -129,8 +129,19 @@ extension CompilerOrchestrator.Environment {
                 // the derivation reads all of it — the rulings are half of what
                 // there is to derive, and a reading made from the essay alone
                 // would drop every decision the writer has ruled.
+                // RULING-54: `statementText` throws on an unreadable file.
+                // For the briefing that maps to the absence arm above — the
+                // run carries nothing declared — and the Intent pane's editor
+                // owns surfacing the refusal. RESIDUAL, recorded: a statement
+                // the writer DID declare that has become unreadable briefs as
+                // undeclared without a run-side signal; if that silence ever
+                // matters in practice, this closure wants a throwing
+                // signature so the run can refuse instead (register queue).
+                guard let text = try? store.statementText(of: resolved) else {
+                    return nil
+                }
                 return CompilerOrchestrator.IntentBriefing(
-                    statementText: store.statementText(of: resolved),
+                    statementText: text,
                     // `DeclaredWorldStore`'s own spelling, asked for rather
                     // than rebuilt (that type's own doc: two spellings are two
                     // caches, and one of them is never hit).
