@@ -283,6 +283,14 @@ struct DiagnosticsPane: View {
         return !hasRefused
     }
 
+    /// The offer's one sentence. A `static let` for `headerCopy`'s reason —
+    /// every sentence the pane can say is assertable without mounting anything
+    /// — and because the property that it WRAPS rather than truncating is now
+    /// pinned by a test (`DiagnosticsPaneColumnHeightTests`), which must ask
+    /// production for the words rather than quote them.
+    static let coldStartOfferSentence =
+        "I haven\u{2019}t read this piece. Read it whole and take notes?"
+
     /// One honest sentence per failure — no apology, no chirp. `cliNotFound`
     /// and `disabledByToggle` each name the surface that fixes them;
     /// `sessionDied` only ever reaches here for a death that was NOT the
@@ -315,13 +323,25 @@ struct DiagnosticsPane: View {
         // happening — an indeterminate control here would only animate to say
         // it twice.
         HStack(spacing: 8) {
+            // **This wraps, and it must NOT be made to wrap with
+            // `fixedSize(horizontal: false, vertical: true)`.** A `Text`
+            // already reports its WRAPPED height as its ideal for whatever
+            // width it is proposed, so it wraps here without the modifier;
+            // what the modifier adds is an *unbreakable minimum* height, and
+            // AppKit resolves that minimum at a probe width far narrower than
+            // the column — `cliNotFound`'s sentence came back ~400pt tall.
+            // `NSSplitView` takes the tallest column, so a pane that cannot be
+            // broken grows all three columns past the window: the tree is laid
+            // out taller than the window and shows a band the writer cannot
+            // scroll back up from, and the centre column's content is pushed
+            // above the visible region. There is no max-height constraint for
+            // AppKit to break here, which is why this fails differently from
+            // the WIDTH conflict `DetailColumnWidthTests` documents.
+            // Measured 2026-08-08 (macOS 26.5); see
+            // `DiagnosticsPaneColumnHeightTests`.
             Text(headerLine)
                 .font(.caption)
                 .foregroundStyle(isFailureState ? Color.red : .secondary)
-                // Wraps rather than truncating: `cliNotFound`'s sentence names
-                // the Settings path that fixes it, and a writer who cannot
-                // read the end of it has been told nothing.
-                .fixedSize(horizontal: false, vertical: true)
             Spacer()
             if case .running = state {
                 Button("Cancel") { orchestrator.cancel() }
@@ -478,10 +498,17 @@ struct DiagnosticsPane: View {
             Image(systemName: "text.book.closed")
                 .font(.system(size: 26))
                 .foregroundStyle(.secondary)
-            Text("I haven\u{2019}t read this piece. Read it whole and take notes?")
+            // **No `fixedSize(horizontal:vertical:)` here, and the absence is
+            // load-bearing** — see `header`'s own note. This sentence carried
+            // one, and it is what Denver's 2026-08-08 smoke found: the whole
+            // window's three columns laid out ~600pt taller than the window,
+            // so the tree showed a band scrolled off the top that could not be
+            // scrolled back, and the centre column's editor sat above the
+            // visible region entirely. `DiagnosticsPaneColumnHeightTests`
+            // measures it.
+            Text(Self.coldStartOfferSentence)
                 .font(.callout)
                 .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 280)
             HStack(spacing: 8) {
                 Button("Not now") { diagnostics.refuseColdStart(docId: docId) }
