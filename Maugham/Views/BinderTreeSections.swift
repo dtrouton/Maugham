@@ -157,8 +157,17 @@ struct BinderTreeSections: View {
             .foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .dropDestination(for: String.self) { ids, _ in
-                refuseDrop("empty section placeholder", payload: ids.first)
+            // **`-> Bool` and an explicit `return`, both deliberately** (fix
+            // round 2). Written without them, this closure bound to a
+            // Void-returning `dropDestination` overload, so `refuseDrop`'s
+            // `false` went nowhere and the placeholder accepted the drag and
+            // discarded it — the round-1 defect again, one layer out, and the
+            // compiler said so in a warning nobody read
+            // (`result of call to 'refuseDrop(_:payload:)' is unused`). The
+            // annotated result type is what forces the Bool overload; the
+            // `return` is what makes a future reader see the value matters.
+            .dropDestination(for: String.self) { ids, _ -> Bool in
+                return refuseDrop("empty section placeholder", payload: ids.first)
             }
     }
 

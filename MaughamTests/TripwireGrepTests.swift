@@ -2991,6 +2991,163 @@ final class TripwireGrepTests: XCTestCase {
             + "above would pass for it too and prove nothing.")
     }
 
+    // MARK: - A drop destination in the binder tree declares its Bool
+
+    /// **Every `.dropDestination` closure in the binder tree's sections must
+    /// annotate `-> Bool`** (fix round 2).
+    ///
+    /// The empty-section placeholder shipped as:
+    ///
+    /// ```swift
+    /// .dropDestination(for: String.self) { ids, _ in
+    ///     refuseDrop("empty section placeholder", payload: ids.first)
+    /// }
+    /// ```
+    ///
+    /// which reads exactly like a refusal and is not one. Without the annotated
+    /// result type the closure bound to a **Void-returning** `dropDestination`
+    /// overload, so `refuseDrop`'s `false` went nowhere and the placeholder
+    /// accepted the drag and discarded it — the same accept-then-discard defect
+    /// fix round 1 had just removed from the rows, one layer out. The compiler
+    /// said so (`result of call to 'refuseDrop(_:payload:)' is unused`) and the
+    /// warning was not read.
+    ///
+    /// **Why this shape of guard.** The bundle-level refusal test asks
+    /// `ResearchTreeActions` and cannot see the view layer at all, and a real
+    /// drag session is not synthesisable headless — so the thing to pin is the
+    /// one token that forces the right overload. `-> Bool` in the closure
+    /// signature is that token: with it the Void overload is not a candidate,
+    /// and a value-returning closure cannot silently drop its value.
+    ///
+    /// **Both research surfaces, not just the new one.** The warning sweep that
+    /// closed this finding found the identical defect at FOUR older sites in
+    /// `CollectionResearchPane.swift` — every call of its `sectionDropHandler`,
+    /// discarding the same kind of `Bool` since the day they were written, so a
+    /// payload that pane's own guard rejects was accepted on screen and then
+    /// ignored. They are fixed and held here too; a census that covered only the
+    /// file the finding arrived in would have left the older instances to be
+    /// rediscovered.
+    func test_everyDropDestinationInTheResearchSurfacesDeclaresItsBool() throws {
+        var offenders: [String] = []
+        for file in ["Views/BinderTreeSections.swift",
+                     "Views/CollectionResearchPane.swift"] {
+            offenders += try Self.unannotatedDropDestinations(
+                in: sourceDir.appendingPathComponent(file))
+        }
+        XCTAssertEqual(
+            offenders, [],
+            "Every `.dropDestination` in the research surfaces must spell its "
+            + "closure `{ ids, _ -> Bool in … }`.\n\nWithout it the closure can "
+            + "bind to a Void-returning overload, and a handler that computes a "
+            + "refusal has it thrown away — the drop is ACCEPTED and the "
+            + "writer's drag is discarded, which is what shipped. Add the "
+            + "annotation and return the value.\n\nUnannotated:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: the census must fire on the shape that shipped, and must not
+    /// fire on the fixed one.
+    func test_theDropDestinationBoolCensusFiresOnTheShapeThatShipped() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-drop-bool-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let offender = tmp.appendingPathComponent("Offender.swift")
+        try """
+        struct Placeholder: View {
+            var body: some View {
+                Text("No research yet.")
+                    // The shape that shipped: reads like a refusal, is not one.
+                    .dropDestination(for: String.self) { ids, _ in
+                        refuseDrop("empty section placeholder", payload: ids.first)
+                    }
+            }
+        }
+        """.write(to: offender, atomically: true, encoding: .utf8)
+        XCTAssertEqual(
+            try Self.unannotatedDropDestinations(in: offender),
+            [".dropDestination(for: String.self) { ids, _ in"],
+            "Self-check: an unannotated drop closure must be caught, and "
+            + "reported by the text of the call so the reader can find it.")
+
+        let fixed = tmp.appendingPathComponent("Fixed.swift")
+        try """
+        struct Placeholder: View {
+            var body: some View {
+                Text("No research yet.")
+                    .dropDestination(for: String.self) { ids, _ -> Bool in
+                        return refuseDrop("empty", payload: ids.first)
+                    }
+                Text("Section")
+                    // The OTHER correct shape, and the census must accept it
+                    // too: no annotation, but a multi-statement body that
+                    // returns explicitly cannot bind to the Void overload at
+                    // all. CollectionResearchPane's section-level destinations
+                    // are written this way, and an over-strict first draft of
+                    // this census flagged them.
+                    .dropDestination(for: String.self) { ids, _ in
+                        guard !ids.isEmpty else { return false }
+                        Task { await move(ids) }
+                        return true
+                    }
+            }
+        }
+        """.write(to: fixed, atomically: true, encoding: .utf8)
+        XCTAssertEqual(
+            try Self.unannotatedDropDestinations(in: fixed), [],
+            "Control: neither correct shape may be reported — the annotated "
+            + "one, nor the one whose explicit returns already force the Bool "
+            + "overload. A census that fires on everything says nothing.")
+    }
+
+    /// The `.dropDestination(` calls in `url` whose closure can silently discard
+    /// its handler's value, reported as the text of the call.
+    ///
+    /// **A closure is fine if it declares `-> Bool` OR returns explicitly**, and
+    /// requiring both would be a style rule rather than a guard. A
+    /// multi-statement body ending in `return true` cannot bind to the
+    /// Void-returning overload at all — returning a value from a Void closure is
+    /// an error, so the compiler has already made the choice. The defect is
+    /// specifically the *implicit-return* shape, where a single call is the
+    /// whole body: that binds to Void and throws the value away with nothing
+    /// but a warning. (Measured while writing this: an over-strict first draft
+    /// flagged `CollectionResearchPane`'s two section-level destinations, which
+    /// return explicitly and are correct.)
+    ///
+    /// **Text rather than a line number, deliberately:** `codeLines` drops
+    /// comment-only and blank lines, so an index into it is not the file's line
+    /// number — and a census that points at the wrong line is worse than one
+    /// that points at none.
+    private static func unannotatedDropDestinations(in url: URL) throws -> [String] {
+        let lines = codeLines(of: try String(contentsOf: url, encoding: .utf8))
+        var offenders: [String] = []
+        for (index, line) in lines.enumerated() where line.contains(".dropDestination(") {
+            let signature = line + (index + 1 < lines.count ? lines[index + 1] : "")
+            if signature.contains("-> Bool") { continue }
+            if Self.closureBody(startingAt: index, in: lines)
+                .contains(where: { $0.contains("return ") }) { continue }
+            offenders.append(line.trimmingCharacters(in: .whitespaces))
+        }
+        return offenders
+    }
+
+    /// The lines of the closure opening on `start`, by brace depth — good enough
+    /// for a census over hand-written view code, and it needs no parser.
+    private static func closureBody(startingAt start: Int, in lines: [String]) -> [String] {
+        var depth = 0
+        var body: [String] = []
+        for line in lines[start...] {
+            let opened = line.filter { $0 == "{" }.count
+            let closed = line.filter { $0 == "}" }.count
+            if depth > 0 { body.append(line) }
+            depth += opened - closed
+            if depth <= 0 && opened > 0 { break }
+        }
+        return body
+    }
+
     // MARK: - The shared research row never accepts a drop on its own authority
 
     /// **`ResearchRow` must return its CALLER's accept/refuse, never a literal**
