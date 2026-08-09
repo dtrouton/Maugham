@@ -240,7 +240,7 @@ public enum RepublishTool: MCPTool {
         let republisher = Republisher(
             projectURL: projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: store, language: prior?.language, allowStale: false),
+                projectStore: store, language: prior?.language),
             publicationStore: stores.publicationStore,
             snapshotStore: stores.snapshotStore,
             jobManager: stores.jobManager,
