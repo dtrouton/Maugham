@@ -858,6 +858,102 @@ final class PromotionPerformerTests: XCTestCase {
         _ = root
     }
 
+    // MARK: - Line → the intent statement (F1)
+
+    /// F1 (2026-08-09 audit, High): a line drawn FROM a craft-intent card passed
+    /// preview and threw a false `artifactMissing` at commit, because
+    /// `performWikiLink` looked the mark up in `manifest.research` only. The link
+    /// must land in the statement, through its op log.
+    func test_aLineFromAnIntentCardWritesItsLinkIntoTheStatement() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(
+            plan(.scrap(a), .intentStatement, store: store, model: model))
+        _ = try await performer.perform(
+            plan(.scrap(b), .researchNote, store: store, model: model))
+
+        let result = try await performer.perform(
+            plan(.line(l1), .wikiLink, store: store, model: model))
+
+        let statement = try intent(.project, in: store)
+        XCTAssertEqual(result.createdItemID, statement.id)
+        XCTAssertTrue(statementText(statement, in: root).contains("[[October's doctor]]"),
+                      "the link must be in the statement's OP LOG, not lost or on disk only")
+    }
+
+    /// The statement arm's dedupe must match the file arm's: same link twice is
+    /// `linkAlreadyPresent`, read off the freshest text (`statementText(of:)`).
+    func test_aRepeatedLineIntoTheStatementRefusesAsAlreadyPresent() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(
+            plan(.scrap(a), .intentStatement, store: store, model: model))
+        _ = try await performer.perform(
+            plan(.scrap(b), .researchNote, store: store, model: model))
+        _ = try await performer.perform(plan(.line(l1), .wikiLink, store: store, model: model))
+        do {
+            _ = try await performer.perform(plan(.line(l1), .wikiLink, store: store, model: model))
+            XCTFail("second identical link must refuse")
+        } catch PromotionFailure.linkAlreadyPresent {
+            // expected
+        }
+    }
+
+    /// Contract 7 (spec §4.3) for the LINE verb —
+    /// `test_promotingWhileTheIntentPaneIsOpenDoesNotOpenASecondDocument`'s
+    /// sibling, same harness, different write.
+    ///
+    /// The intent arm reaches `appendToStatement` from `performCraftIntent`; the
+    /// statement arm of `performWikiLink` is a SECOND caller, and a second caller
+    /// that loaded its own `Document` rather than finding the pane's would cost
+    /// the writer the link on their very next keystroke. So the assertion is on
+    /// the LIVE document first — the link is in the text the pane is showing,
+    /// which is only true if nothing opened a second one — and then on what the
+    /// statement says after the pane has flushed.
+    func test_aLinePromotionWhileTheIntentPaneIsOpenDoesNotOpenASecondDocument() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "promote-line")
+        defer { fixture.tearDown() }
+        let window = await fixture.host(kind: .intent, subject: nil)
+        let textView = try fixture.textView(in: window)
+        await fixture.type("Typed first.", into: textView)
+
+        let model = makeModel(at: fixture.projectURL)
+        let performer = PromotionPerformer(store: fixture.store, model: model)
+        // The two ends the line needs: `a`'s mark is the statement the pane has
+        // open — the F1 shape — and `b`'s is an ordinary note.
+        _ = try await performer.perform(
+            plan(.scrap(a), .intentStatement, store: fixture.store, model: model))
+        _ = try await performer.perform(
+            plan(.scrap(b), .researchNote, store: fixture.store, model: model))
+
+        _ = try await performer.perform(
+            plan(.line(l1), .wikiLink, store: fixture.store, model: model))
+
+        let statement = try intent(.project, in: fixture.store)
+        let live = try XCTUnwrap(fixture.store.openStatementDocument(id: statement.id),
+                                 "the pane's Document is the one the link had to "
+                                 + "reach; without it this test proves nothing")
+        XCTAssertTrue(live.displayText.contains("[[October's doctor]]"),
+                      "the link went into a SECOND Document on this path — the "
+                      + "pane cannot see it, so its next burst writes it out — "
+                      + "found: \(live.displayText)")
+
+        // See the sibling test for why the runloop turn is not a papered-over
+        // race: a real keystroke has already had this turn.
+        await fixture.waitOut(0.2)
+        await fixture.type(" Typed last.", into: textView)
+        try await fixture.settle(window, expectingOpsFor: statement.id)
+
+        let text = fixture.derivedText(forDocId: statement.id)
+        XCTAssertTrue(text.contains("Typed first."), "found: \(text)")
+        XCTAssertTrue(text.contains("[[October's doctor]]"),
+                      "the line's link was written out of the statement by the "
+                      + "pane's own Document — found: \(text)")
+        XCTAssertTrue(text.contains("Typed last."), "found: \(text)")
+    }
+
     // MARK: - Failure leaves nothing behind
 
     /// Constitution must #1, on the append paths. "No file there" is legitimately

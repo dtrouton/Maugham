@@ -554,21 +554,73 @@ struct PromotionPerformer {
     /// open. Stable for the launch, like every other session stamp.
     private static let promotionSession = "promotion-\(UUID().uuidString)"
 
+    /// The two places a mark's artifact can be WRITTEN — `manifest.research`
+    /// first (every pre-M1A case, unchanged), else `manifest.statements`.
+    ///
+    /// **One spelling, because the preview and the commit must agree about what
+    /// "writable" means.** `Promotion.targets`/`plan`/`blockedReason` resolve a
+    /// mark through `ArtifactIndex`, which has read both registries since M1A —
+    /// so a line drawn from an intent card previews as a real promotion and then
+    /// met `artifactMissing` at Commit, told that the writer's intent is "no
+    /// longer in the project" while it is open in the pane beside them. This is
+    /// the write side of that index, and it is a separate resolver rather than
+    /// `ArtifactIndex` itself because the two questions differ: the index knows
+    /// what an artifact is CALLED, and this knows where its words go.
+    ///
+    /// A research item with no `path` stays unwritable, as it always was.
+    private enum WritableDestination {
+        case researchFile(item: ResearchItem, path: String)
+        case statement(Statement)
+    }
+
+    private func writableDestination(of itemID: String) -> WritableDestination? {
+        if let item = TreeWalk.find(id: itemID, in: store.manifest.research),
+           let path = item.path {
+            return .researchFile(item: item, path: path)
+        }
+        if let statement = store.manifest.statements.first(where: { $0.id == itemID }) {
+            return .statement(statement)
+        }
+        return nil
+    }
+
     private func performWikiLink(_ plan: PromotionPlan) async throws -> PromotionResult {
         guard let link = plan.wikiLinkWrite else { throw PromotionFailure.missingWikiLinkWrite }
-        guard let item = TreeWalk.find(id: link.intoItemID, in: store.manifest.research),
-              let path = item.path else {
+        // No mark on either arm: a line's artifact is text inside somebody
+        // else's note, and a flag on the line could disagree with what is there.
+        switch writableDestination(of: link.intoItemID) {
+        case nil:
             throw PromotionFailure.artifactMissing(link.intoItemID)
+        case .researchFile(let item, let path):
+            try? await store.documentStore?.flushPendingSave()
+            let body = try readBody(atPath: path)
+            // The plan's own check was against a SNAPSHOT taken when the sheet
+            // opened. This one is against the file.
+            guard !body.contains(link.linkText) else { throw PromotionFailure.linkAlreadyPresent }
+            try await write(body + link.appendedText, toPath: path)
+            return PromotionResult(createdItemID: item.id, title: item.title, writtenLinks: [])
+        case .statement(let statement):
+            // **The freshest text, and not the file.** `statementText`'s live arm
+            // reads the pane's own `Document`, which leads the op log by a burst
+            // window — the file arm's read-the-destination dedupe, asked of the
+            // representation that is true for a statement (tripwire 20).
+            //
+            // **No flush dance, and its absence is the point**: an op-log append
+            // cannot be raced by the debounced 750 ms save the way a
+            // read-append-write over a whole file can (`appendToStatement`'s own
+            // rule). `link.linkText` rather than `link.appendedText` for the same
+            // reason — `statementAppending` owns the blank line between what is
+            // there and what is arriving, so pre-padded text would double it.
+            guard !store.statementText(of: statement).contains(link.linkText) else {
+                throw PromotionFailure.linkAlreadyPresent
+            }
+            try await store.appendToStatement(link.linkText, to: statement,
+                                              session: Self.promotionSession)
+            return PromotionResult(
+                createdItemID: statement.id,
+                title: ArtifactIndex.statementTitle(statement, documentTitle: documentTitle),
+                writtenLinks: [])
         }
-        try? await store.documentStore?.flushPendingSave()
-        let body = try readBody(atPath: path)
-        // The plan's own check was against a SNAPSHOT taken when the sheet
-        // opened. This one is against the file.
-        guard !body.contains(link.linkText) else { throw PromotionFailure.linkAlreadyPresent }
-        try await write(body + link.appendedText, toPath: path)
-        // No mark: a line's artifact is text inside somebody else's note, and a
-        // flag on the line could disagree with the file.
-        return PromotionResult(createdItemID: link.intoItemID, title: item.title, writtenLinks: [])
     }
 
     // MARK: - The picture (spec §6's 2026-07-30 amendment)
