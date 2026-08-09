@@ -3012,20 +3012,35 @@ final class TripwireGrepTests: XCTestCase {
     /// CTM (`CanvasCamera`); nothing in `Maugham/Canvas/` should assign to
     /// `.magnification` or call `.scaleEffect(`.
     static let tw25ScaleEffectPattern = ".scaleEffect("
-    static let tw25MagnificationPatterns = [".magnification(", "magnification ="]
+    static let tw25MagnificationPatterns = [
+        ".magnification(", "magnification =", "setMagnification(", "allowsMagnification",
+    ]
 
     /// Recurrence-tripper: scoped to PRODUCTION `.swift` under
-    /// `Maugham/Canvas/` only. Test files under `MaughamTests/Canvas/`
-    /// legitimately name these tokens in prose/assertions (e.g.
-    /// `CanvasViewMountingSurfaceTests.swift` discusses the `.scaleEffect`
-    /// alternative it deliberately does NOT use) and are excluded by scanning
-    /// `sourceDir` (which is `Maugham/`, not `MaughamTests/`) rather than by
-    /// an allowlist. As of this writing there are zero legitimate production
-    /// uses to exclude — the guard is a flat ban.
+    /// `Maugham/Canvas/`, plus `Views/CanvasClaudeArrivalModifier.swift` by
+    /// name — canvas view code that lives outside `Maugham/Canvas/` proper
+    /// (it's an animation-shaped `ViewModifier` for arriving Claude-written
+    /// scraps, exactly the kind of file where a stray `.scaleEffect(` would
+    /// naturally be reached for). Named explicitly rather than widening the
+    /// scan to all of `Views/`, which would pull in unrelated UI code. Test
+    /// files under `MaughamTests/Canvas/` legitimately name these tokens in
+    /// prose/assertions (e.g. `CanvasViewMountingSurfaceTests.swift` discusses
+    /// the `.scaleEffect` alternative it deliberately does NOT use) and are
+    /// excluded by scanning `sourceDir` (which is `Maugham/`, not
+    /// `MaughamTests/`) rather than by an allowlist. As of this writing there
+    /// are zero legitimate production uses to exclude — the guard is a flat
+    /// ban.
     func test_noCanvasZoomViaScaleEffectOrMagnification() throws {
         let canvasDir = sourceDir.appendingPathComponent("Canvas", isDirectory: true)
-        let offenders = try grepSwift(
+        let viewsDir = sourceDir.appendingPathComponent("Views", isDirectory: true)
+        var offenders = try grepSwift(
             in: canvasDir,
+            patterns: [Self.tw25ScaleEffectPattern] + Self.tw25MagnificationPatterns,
+            excludeLine: { Self.isCommentLine($0) }
+        )
+        offenders += try grepSwift(
+            in: viewsDir,
+            files: ["CanvasClaudeArrivalModifier.swift"],
             patterns: [Self.tw25ScaleEffectPattern] + Self.tw25MagnificationPatterns,
             excludeLine: { Self.isCommentLine($0) }
         )
@@ -3107,5 +3122,38 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
         XCTAssertTrue(offenders.first?.contains("magnification = level") == true,
             "Self-check: the planted magnification assignment should be the one caught.")
+    }
+
+    /// Self-check: prove the tripwire FIRES on a planted `setMagnification(`
+    /// call — AppKit's setter-method spelling of the same forbidden zoom,
+    /// distinct from both the property assignment above and `.scaleEffect(`.
+    func test_tw25TripwireFiresOnPlantedSetMagnificationOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-tw25-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        final class BadScrollZoom: NSScrollView {
+            /// A doc comment naming setMagnification( must not count.
+            func zoomTo(_ level: CGFloat) {
+                setMagnification(level, centeredAt: .zero)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("BadScrollZoom.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: [Self.tw25ScaleEffectPattern] + Self.tw25MagnificationPatterns,
+            excludeLine: { Self.isCommentLine($0) }
+        )
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected exactly the planted `setMagnification(level, "
+            + "centeredAt: .zero)` call to fire (and the doc comment above it to "
+            + "be excluded). Got:\n" + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.first?.contains("setMagnification(level, centeredAt: .zero)") == true,
+            "Self-check: the planted setMagnification( call should be the one caught.")
     }
 }

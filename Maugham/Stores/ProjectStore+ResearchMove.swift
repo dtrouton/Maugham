@@ -284,11 +284,12 @@ extension ProjectStore {
     /// at the destination with no matching note otherwise collides
     /// mid-relocate (2026-07-19 sweep W2).
     ///
-    /// `isTaken` rather than a name set (`dedupedName`'s shape) because the two
-    /// callers ask different worlds the same question: a batch move asks its
-    /// in-flight claims plus the destination's manifest names, a rename asks the
-    /// filesystem directly. One implementation, because a second copy is the
-    /// drift W2 existed to kill.
+    /// `isTaken` rather than a name set (`dedupedName`'s shape) because a name
+    /// set would force the rename caller to pre-list the whole destination
+    /// directory just to build one: both callers ask the filesystem for what's
+    /// taken, and the batch mover additionally unions its own in-flight claims.
+    /// One implementation, because a second copy is the drift W2 existed to
+    /// kill.
     static func researchDedupedNotePair(
         _ name: String, isTaken: (String) -> Bool
     ) -> String {
