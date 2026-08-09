@@ -2886,16 +2886,20 @@ final class TripwireGrepTests: XCTestCase {
     /// - `StatementEditorHost.swift:load` — the pane, which holds its `Document`
     ///   for as long as the scope is showing and releases the gate as soon as it
     ///   has registered.
-    /// - `ProjectStore+Statements.swift:appendToStatement` — the transient
+    /// - `ProjectStore+Statements.swift:withStatementDocument` — the transient
     ///   writer's arm, which every out-of-band write reaches (a promotion, a
-    ///   dropped picture). `PromotionPerformer` is NOT a taker: it gets here.
+    ///   dropped picture, a wiki-link rename). `PromotionPerformer` is NOT a
+    ///   taker, and neither is `appendToStatement` any more: both get here. The
+    ///   dance was extracted out of `appendToStatement` in S2 precisely so the
+    ///   rename could not ship a second copy of it, and the census moved with
+    ///   the `lockStatementOpen` call rather than gaining an entry.
     /// - `ProjectStore+StatementAdoption.swift:adopt` — the third opener, safe
     ///   by circumstance before it took the gate and no longer relying on that.
     /// - `ProjectStore+CollectionPieces.swift:promotePieceToProject` — takes the
     ///   gate while opening nothing, because it MOVES the file the gate is over.
     private static let statementOpenGateTakers: Set<String> = [
         "ProjectStore+Statements.swift:lockStatementOpen",
-        "ProjectStore+Statements.swift:appendToStatement",
+        "ProjectStore+Statements.swift:withStatementDocument",
         "ProjectStore+StatementAdoption.swift:adopt",
         "ProjectStore+CollectionPieces.swift:promotePieceToProject",
         "StatementEditorHost.swift:load",

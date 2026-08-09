@@ -267,7 +267,15 @@ final class PromotionSheetModel: Identifiable {
         guard let plan = resolvedPlan else { return nil }
         if let why = pieceRefusal { return why }
         if plan.linkAlreadyPresent {
-            return "That link is already in “\(plan.title)”."
+            // **The performer's own sentence, not a second spelling** — the same
+            // shape `pieceRefusal` above already uses. These are two surfaces for
+            // one refusal (this one before Commit, the performer's after), and the
+            // two said different things: this named the destination's title alone
+            // and the failure hardcoded "the note", which is false about a
+            // statement. `destinationDescription` carries the noun for both.
+            return PromotionFailure
+                .linkAlreadyPresent(destination: plan.destinationDescription)
+                .errorDescription
         }
         if plan.producedKind.namesItsArtifact
             && editedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

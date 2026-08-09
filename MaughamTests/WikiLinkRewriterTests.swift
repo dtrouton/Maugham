@@ -82,4 +82,24 @@ final class WikiLinkRewriterTests: XCTestCase {
             result,
             "Visit [[Brand New Title With Many Words]] today.")
     }
+
+    func test_rewriteAll_appliesEveryPair() {
+        let out = WikiLinkRewriter.rewriteAll(
+            body: "See [[Alpha]] and [[Craft Intent · Alpha]].",
+            pairs: [("Alpha", "Omega"), ("Craft Intent · Alpha", "Craft Intent · Omega")])
+        XCTAssertEqual(out, "See [[Omega]] and [[Craft Intent · Omega]].")
+    }
+
+    func test_rewriteAll_nilWhenNoPairMatches() {
+        XCTAssertNil(WikiLinkRewriter.rewriteAll(
+            body: "No links to [[Beta]] here.",
+            pairs: [("Alpha", "Omega")]))
+    }
+
+    func test_rewriteAll_partialMatchStillReturnsRewrite() {
+        let out = WikiLinkRewriter.rewriteAll(
+            body: "[[Alpha]] only.",
+            pairs: [("Alpha", "Omega"), ("Gamma", "Delta")])
+        XCTAssertEqual(out, "[[Omega]] only.")
+    }
 }

@@ -393,6 +393,26 @@ final class PromotionTests: XCTestCase {
         XCTAssertFalse(plan!.linkAlreadyPresent)
     }
 
+    /// A line drawn FROM an intent-marked scrap names its destination by its
+    /// own kind. Until F10's routed fix this said "the note" for a statement
+    /// too — a noun that describes what `writeOfferedLinks` used to silently
+    /// refuse to write into, in the very sentence promising the write happened.
+    /// `confirmation` must read the same noun rather than restating it, so the
+    /// two cannot drift apart the way they did before this fix.
+    func test_theWikiLinkDestinationNamesACraftIntentAndNotANote() {
+        let idx = ArtifactIndex(entriesByID: [
+            "res-a": .init(title: "Craft Intent", kind: .craftIntent),
+            "res-b": .init(title: "October's doctor", kind: .researchNote)])
+        let plan = Promotion.plan(request(.line(l1), .wikiLink, artifacts: idx),
+                                  in: promotedScene())!
+        XCTAssertEqual(plan.destinationDescription, "the craft intent “Craft Intent”")
+
+        let result = PromotionResult(createdItemID: "res-a", title: "Craft Intent",
+                                     writtenLinks: [])
+        XCTAssertEqual(result.confirmation(for: plan),
+                       "Wrote the link into the craft intent “Craft Intent”.")
+    }
+
     func test_thePaletteKindRidesThePlan() {
         let plan = Promotion.plan(request(.scrap(a), .paletteCard, kind: .location),
                                   in: scene())

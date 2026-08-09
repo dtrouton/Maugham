@@ -45,6 +45,12 @@ public enum ListAllLinksTool: MCPTool {
         // research assets compete on title; if both exist with the same title
         // the document wins (caller should be using unique titles).
         var titleIndex: [String: (id: String, title: String)] = [:]
+        // Statements lowest: a composed title contains a kind word and ` · `,
+        // so a collision is near-impossible — and if one occurs, the
+        // writer-named artifact (research, then docs) should win.
+        for pair in store.statementTitlePairs() {
+            titleIndex[pair.title.lowercased()] = (pair.id, pair.title)
+        }
         // Index every research item (groups + assets) so linked groups
         // resolve their title instead of falling back to the raw id.
         let allResearch = TreeWalk.collect(in: store.manifest.research, where: { _ in true })
@@ -173,6 +179,9 @@ public enum ListAllLinksTool: MCPTool {
                 statement, documentTitle: { statementDocumentTitles[$0] })
             for token in Self.wikiTokens(in: text) {
                 let hit = titleIndex[token.lowercased()]
+                // A statement whose body contains its own composed title is
+                // not a link to itself; mirrors the research-note rule above.
+                if let hit, hit.id == statement.id { continue }
                 edges.append(Edge(
                     from_id: statement.id,
                     from_title: fromTitle,
