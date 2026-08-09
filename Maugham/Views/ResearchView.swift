@@ -21,7 +21,8 @@ struct ResearchView: View {
                     item: item,
                     renamingItemId: $renamingItemId,
                     findParentId: { findParentId(of: $0) },
-                    actions: treeActions)
+                    actions: treeActions,
+                    tagFor: { $0.id })
             }
         }
         .listStyle(.sidebar)
@@ -87,18 +88,29 @@ struct ResearchView: View {
         pendingRenameId = nil
     }
 
-    private var treeActions: ResearchTreeActions {
+    /// Not `private`: `BinderTreeSectionsTests` asks this bundle whether it
+    /// accepts a drop, as the CONTROL for the binder tree's stubbed refusal —
+    /// without a surface that really does accept, "the tree refuses" could pass
+    /// on a type that refuses everywhere.
+    var treeActions: ResearchTreeActions {
         ResearchTreeActions(
             rename: { id, newTitle in Task { await rename(id: id, to: newTitle) } },
+            // Both accept: this pane's routing is built, and the drop's own
+            // outcome is asynchronous — a refusal the store raises surfaces
+            // through `pendingError`, not through the drag. `true` is the
+            // behaviour this pane has always had; it is spelled here now
+            // because the row asks rather than assuming (fix round 1).
             internalDrop: { draggedId, position, target in
                 Task { await handleInternalDrop(
                     draggedId: draggedId, position: position, target: target) }
+                return true
             },
             externalDrop: { providers, position, target in
                 let parent = position == .middle && target.type == .group
                     ? target.id
                     : findParentId(of: target.id)
                 Task { await importExternal(providers, toParentId: parent) }
+                return true
             },
             newNote: { parentId in Task { await addResearchNote(parentId: parentId) } },
             newGroup: { parentId in Task { await addGroup(parentId: parentId) } },

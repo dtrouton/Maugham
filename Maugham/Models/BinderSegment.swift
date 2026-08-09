@@ -163,6 +163,74 @@ public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
         }
     }
 
+    /// **Does this segment's centre column answer to a research selection of
+    /// its OWN?**
+    ///
+    /// Two do, and both are transitional: `.research` still mounts
+    /// `ResearchView` over `ProjectWindow`'s `selectedResearchId`, and
+    /// `.palette` mounts the wall over `selectedPaletteCardId`. Neither writes
+    /// the window's subject, so a `.research` SUBJECT reaching over them would
+    /// leave a writer clicking rows in the old pane while the centre column
+    /// showed whatever the tree had named last — two controls disagreeing about
+    /// what the window is about, which is the shape the subject type exists to
+    /// remove.
+    ///
+    /// **It is not `centresTheCanvas` inverted and not its complement.** That
+    /// one answers *"is the canvas the centre"*; this answers *"is this centre
+    /// already about a research item"*, and `.canvas`/`.tree` say no to both.
+    ///
+    /// This is the one predicate stage 2b deletes outright: with `ResearchView`
+    /// and `CollectionResearchPane` gone, every segment answers `false` and the
+    /// subject is the only research selection there is. Exhaustive with no
+    /// `default:` for `centresTheCanvas`'s reason.
+    var keepsItsOwnResearchSelection: Bool {
+        switch self {
+        case .research, .palette: return true
+        case .manuscript, .tree, .scenes, .canvas, .trash, .find: return false
+        }
+    }
+
+    /// **Does this segment's LEFT PANE write the window's subject?**
+    ///
+    /// The question a research subject's placement turns on, and the one that
+    /// was missing: a research subject may only reach over a segment's columns
+    /// where the writer has a control that can point the window somewhere else
+    /// again. Three panes write `selectedSubject` — `BinderView`,
+    /// `SceneNavigatorPane` and `CollectionPiecesPane` — and they are what
+    /// `.manuscript`, `.tree` and `.scenes` mount (`BinderPaneToggle`,
+    /// `CollectionBinderPaneToggle`). Every other segment's left pane writes
+    /// something else or nothing: `ResearchView` writes `selectedResearchId`,
+    /// `PaletteBinderList` writes `selectedPaletteCardId`, `TrashView` and
+    /// `ProjectSearchView` write no subject at all.
+    ///
+    /// **The defect it exists to stop is a TRAP, not a mis-route.** `.canvas`
+    /// and `.trash` answered no to `keepsItsOwnResearchSelection` and so let a
+    /// research subject take a column — `.canvas`'s right column (the region,
+    /// scrap, line and item inspectors, and their Promote buttons), `.trash`'s
+    /// centre — while their left panes offered nothing that could write the
+    /// subject back. Nothing in the segment could clear it, the subject persists
+    /// through `UIState`, and Plan's `binderHome` IS `.canvas`, so relaunching
+    /// reopened into the same trap.
+    ///
+    /// **It is not `keepsItsOwnResearchSelection` renamed**, though the two
+    /// agree on every case today. That one asks whether this segment's CENTRE is
+    /// already about a research item — a reason to leave the centre alone that
+    /// survives even where the left column could clear the subject. This asks
+    /// whether the writer can get OUT. `ResearchSubjectRoutingTests`'
+    /// `test_everySegmentKeepingItsOwnResearchSelectionAlsoFailsToWriteTheSubject`
+    /// asserts the containment rather than leaving it to be noticed, and stage
+    /// 2b deletes the other one when the old panes go.
+    ///
+    /// Exhaustive with no `default:` for `centresTheCanvas`'s reason: a new
+    /// segment must say whether its left pane can point the window at something,
+    /// because inheriting "yes" is how the trap returns.
+    var leftPaneWritesTheSubject: Bool {
+        switch self {
+        case .manuscript, .tree, .scenes: return true
+        case .research, .palette, .canvas, .trash, .find: return false
+        }
+    }
+
     /// Runtime-gated, persona-independent segments that survive a persona
     /// switch: a writer mid-search or looking at the trash must not be
     /// ejected by switching persona. This is the single source both

@@ -50,6 +50,15 @@ final class CanvasHighlightTests: XCTestCase {
         XCTAssertFalse(CanvasSubject.wholeProject.dimsTheBoard)
     }
 
+    /// A research subject dims nothing — the canvas's dim is entered only by a
+    /// piece/group click, and a research item is neither (stage-2a Task 1).
+    func test_aResearchSubjectAlsoMeansTheWholeBoard() {
+        XCTAssertEqual(CanvasSubject.resolve(.research("r-1"), in: structure()),
+                       .wholeProject)
+        XCTAssertFalse(CanvasSubject.resolve(.research("r-1"), in: structure())
+            .dimsTheBoard)
+    }
+
     func test_aDocumentResolvesToItsOwnPiece() {
         XCTAssertEqual(CanvasSubject.resolve(.item("ch2"), in: structure()), .piece("ch2"))
         XCTAssertTrue(CanvasSubject.resolve(.item("ch2"), in: structure()).dimsTheBoard)

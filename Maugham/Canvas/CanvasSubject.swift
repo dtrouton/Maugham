@@ -86,7 +86,10 @@ enum CanvasSubject: Hashable {
     static func resolve(_ subject: BinderSubject?,
                         in structure: [StructureItem]) -> CanvasSubject {
         switch subject {
-        case nil, .project:
+        case nil, .project, .research:
+            // A research subject dims nothing — the dim is entered only by a
+            // piece/group click (this type's own posture above), and a
+            // research item is neither (stage-2a Task 1).
             return .wholeProject
         case .item(let id):
             // An id naming nothing is not a subject — see this type's own doc

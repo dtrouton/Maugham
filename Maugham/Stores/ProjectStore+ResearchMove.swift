@@ -23,7 +23,7 @@ extension ProjectStore {
     /// pathless links inside a group — can't be classified by their own path,
     /// but the root always carries a reliable path. Combine with
     /// `researchScopePieceId(ofPath:)` to get the owning scope.
-    static func researchRootPath(
+    nonisolated static func researchRootPath(
         ofItemId id: String, in research: [ResearchItem]
     ) -> String? {
         var rootId = id
@@ -38,9 +38,25 @@ extension ProjectStore {
     /// Scope of a manifest-relative research path: the owning loose piece's
     /// id for paths under `pieces/<NN>-<slug>/research/`, nil for shared.
     func researchScopePieceId(ofPath path: String?) -> String? {
+        Self.researchScopePieceId(ofPath: path, structure: manifest.structure)
+    }
+
+    /// The pure core of `researchScopePieceId(ofPath:)` — the structure passed
+    /// in as a value rather than read off `self.manifest`, so a store-free
+    /// layer can ask which scope a research path is in. Extracted (not
+    /// restated) for `TreeDropIntent`, the binder tree's drop classifier
+    /// (stage-2a Task 7): *which scope is this item in* is the question its
+    /// whole routing turns on, and a second spelling of the piece-prefix rule
+    /// is exactly the copy that drifts. Same shape as
+    /// `researchRouting(for:projectType:)` and
+    /// `pieceResearchSectionRoots(forDocumentId:structure:research:projectType:)`,
+    /// both split for the same reason.
+    nonisolated static func researchScopePieceId(
+        ofPath path: String?, structure: [StructureItem]
+    ) -> String? {
         guard let path, path.hasPrefix("pieces/") else { return nil }
-        for piece in manifest.structure where piece.pieceKind == .loose {
-            if let prefix = Self.pieceResearchPrefix(for: piece),
+        for piece in structure where piece.pieceKind == .loose {
+            if let prefix = pieceResearchPrefix(for: piece),
                path.hasPrefix(prefix) {
                 return piece.id
             }

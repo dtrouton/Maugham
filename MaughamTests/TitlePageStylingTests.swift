@@ -3,6 +3,11 @@ import AppKit
 @testable import Maugham
 
 final class TitlePageStylingTests: XCTestCase {
+    override class func setUp() {
+        super.setUp()
+        FontWarmup.ensure()   // absorbs the parallel-worker fontd cold-start window — see FontWarmup.swift
+    }
+
     private let mode = ScreenplayMode()
 
     private func style(_ text: String) -> NSTextStorage {

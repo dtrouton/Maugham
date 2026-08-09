@@ -26,6 +26,14 @@ import MaughamCore
 /// `legacyCraftIntentByScope` adopts a pre-M1A whole-script craft-intent note
 /// into `.project` scope, gated on schema version and never on project type.
 struct SceneNavigatorPane: View {
+    /// The project, for the Research and Palette sections at the foot of the
+    /// tree (stage-2a Task 4). Every persona gets one left column, so those
+    /// sections are furniture in all three trees — and this pane is the one that
+    /// had no store of its own, because sluglines are parsed from a script it is
+    /// handed. Required rather than optional on purpose: an optional would let a
+    /// call site ship a screenplay whose writer can reach no research at all,
+    /// silently.
+    @Bindable var store: ProjectStore
     let script: FountainScript?
     /// Shown on the head row.
     let projectTitle: String
@@ -41,6 +49,10 @@ struct SceneNavigatorPane: View {
     let documentID: String?
     /// Called with the line range location when the user clicks a scene.
     let onSelect: (Int) -> Void
+
+    /// The Research and Palette sections' own state (stage-2a Task 4). Owned
+    /// here because their presentations hang off this pane, outside the `List`.
+    @State private var treeState = BinderTreeSectionsState()
 
     var body: some View {
         // Compute every scene's page number + length in ONE O(document) pass,
@@ -69,11 +81,19 @@ struct SceneNavigatorPane: View {
                 sceneRow(for: summary)
                     .padding(.leading, ProjectRowLabel.childIndent)
             }
+            // Below the sluglines — furniture at the foot of the column
+            // (stage-2a Task 4). A screenplay's writer reaches the same research
+            // and the same palette as everyone else's; before this the Scenes
+            // segment was the only tree with no way to either.
+            BinderTreeSections(store: store, state: treeState,
+                               selectedSubject: $selectedSubject)
         }
         .listStyle(.sidebar)
         .overlay {
             if summaries.isEmpty { emptyState }
         }
+        .binderTreeSections(store: store, state: treeState,
+                            selectedSubject: $selectedSubject)
     }
 
     /// The row at the head of the navigator naming the project itself.
@@ -172,25 +192,39 @@ struct SceneNavigatorPane: View {
     /// A subject naming some *other* document selects nothing: the pane draws no
     /// row for it, and claiming a row it does not have would highlight the
     /// script while the window was about something else.
+    ///
+    /// A **research** subject passes straight through (stage-2a Task 4): the
+    /// Research and Palette sections at the foot of this list draw rows that
+    /// mean one. It needs none of the document case's care — a research id this
+    /// tree happens not to draw simply highlights nothing, where a foreign
+    /// document id would have highlighted the script.
     static func listSelection(for subject: BinderSubject?,
                               documentID: String?) -> BinderSubject? {
         switch subject {
         case .project: return .project
         case .item(let id): return id == documentID ? .item(id) : nil
+        case .research(let id): return .research(id)
         case .none: return nil
         }
     }
 
     /// What the subject becomes when the List writes through the projection.
-    /// This pane's own two rows move it; a `nil` from an untagged scene row, and
-    /// an item this pane draws no row for, leave the window's subject alone.
+    /// This pane's own rows move it; a `nil` — from an untagged scene row or an
+    /// untagged section placeholder — and an item this pane draws no row for
+    /// leave the window's subject alone.
+    ///
+    /// **The `nil` rule is not spelled here**: it is `BinderTreeSelection`'s,
+    /// shared with the other two trees, which grew untagged rows of their own in
+    /// stage-2a Task 4. Only the foreign-document refusal is this pane's, and it
+    /// is the one thing about this list the others do not have.
     static func subject(_ current: BinderSubject?,
                         whenListWrites written: BinderSubject?,
                         documentID: String?) -> BinderSubject? {
         switch written {
-        case .project: return .project
-        case .item(let id): return id == documentID ? .item(id) : current
-        case .none: return current
+        case .item(let id):
+            return id == documentID ? .item(id) : current
+        case .project, .research, .none:
+            return BinderTreeSelection.subject(current, whenListWrites: written)
         }
     }
 
@@ -216,11 +250,21 @@ struct SceneNavigatorPane: View {
     /// A then B quickly, which is worse than a first click that under-delivers.
     /// Fixing it properly means the coordinator holding a pending navigation
     /// across its own mount, which is an editor change, not a binder one.
+    ///
+    /// **A research subject is reclaimed, exactly like the project** (stage-2a
+    /// Task 4's ruling; Task 1 deferred it to the task that gave this pane
+    /// research rows, which is this one). The two are the same case in the only
+    /// way that matters here: neither has an editor in the centre column, so the
+    /// `maughamNavigateToScene` post that follows this call reaches no
+    /// coordinator and the writer's click on a slugline does nothing they can
+    /// see. `.item` is left alone for the opposite reason — an editor IS
+    /// mounted, and re-writing the same value would churn its reload triggers.
     static func subject(_ current: BinderSubject?,
                         whenNavigatingTo documentID: String?) -> BinderSubject? {
         switch current {
         case .item: return current
-        case .project, .none: return documentID.map(BinderSubject.item) ?? current
+        case .project, .research, .none:
+            return documentID.map(BinderSubject.item) ?? current
         }
     }
 

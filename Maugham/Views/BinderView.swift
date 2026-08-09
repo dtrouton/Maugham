@@ -8,6 +8,9 @@ struct BinderView: View {
     @State private var pendingError: String?
     @State private var pendingTidyParentId: String?
     @State private var showingTidyConfirmation: Bool = false
+    /// The Research and Palette sections' own state (stage-2a Task 4). Owned
+    /// here because their presentations hang off this view, outside the `List`.
+    @State private var treeState = BinderTreeSectionsState()
 
     var body: some View {
         // One `List`, always — including when the structure is empty. The empty
@@ -30,14 +33,26 @@ struct BinderView: View {
         // An overlay is neither a row nor a selection, so it cannot become a
         // subject. It intercepts only its own glyphs and buttons — nothing gives
         // it a background — so the project row above it stays clickable.
-        List(selection: $selectedSubject) {
+        //
+        // **The selection is a projection, not the binding itself** (stage-2a
+        // Task 4): the sections below carry untagged placeholder rows when they
+        // are empty, and the measurement above is exactly why one of those may
+        // not reach the binding. `BinderTreeSelection` refuses the `nil`; every
+        // tagged row still writes straight through.
+        List(selection: BinderTreeSelection.binding($selectedSubject)) {
             projectRow
             outline(items: store.manifest.structure)
+            // Below everything the tree already had — the sections are furniture
+            // at the foot of the column, and the project row stays row zero.
+            BinderTreeSections(store: store, state: treeState,
+                               selectedSubject: $selectedSubject)
         }
         .listStyle(.sidebar)
         .overlay {
             if store.manifest.structure.isEmpty { emptyState }
         }
+        .binderTreeSections(store: store, state: treeState,
+                            selectedSubject: $selectedSubject)
         // Root context menu — attached at the binder level so it's
         // available even when the structure is empty (right-clicking
         // a row gives the per-row menu instead, no overlap).
@@ -120,10 +135,52 @@ struct BinderView: View {
                 .padding(.leading, indent)
                 .tag(BinderSubject.item(item.id))
             } else {
-                row(for: item)
-                    .padding(.leading, indent)
-                    .tag(BinderSubject.item(item.id))
+                documentEntry(for: item, indent: indent)
             }
+        }
+    }
+
+    /// A document's row, and — when it has research of its own — the fold that
+    /// research hangs in (stage-2a Task 6).
+    ///
+    /// **The chevron belongs to the piece row, and the piece row is unchanged.**
+    /// `row(for:)` is the same `BinderRow` with the same context menu either
+    /// way, so a chapter that unfolds is still draggable, still renamable, and
+    /// still the subject when clicked. This is the shape the group branch above
+    /// already uses — the `.tag` and the inset go on the `DisclosureGroup` so
+    /// the children move with the row they belong to (see `outline`).
+    ///
+    /// **An empty fold gets no chevron** (`PieceFold.showsDisclosure`): a
+    /// triangle onto nothing is noise on every chapter of a novel whose writer
+    /// has linked nothing yet. The row is still where the first item lands —
+    /// Task 7 makes it a drop target.
+    ///
+    /// **Derived per render, from the manifest** (tripwire 4): the fold is a
+    /// manifest walk, never a read. Deliberately no cache — a parallel copy of
+    /// the manifest is a second source of truth for what a chapter's research
+    /// is, and `manifest.modified` is the key it would have to be built on if
+    /// profiling ever asks for one.
+    @ViewBuilder
+    private func documentEntry(for item: StructureItem, indent: CGFloat) -> some View {
+        let fold = TreeSectionDerivation.pieceFold(
+            for: item,
+            structure: store.manifest.structure,
+            research: store.manifest.research,
+            projectType: store.manifest.type)
+        if fold.showsDisclosure {
+            DisclosureGroup {
+                BinderPieceFold(store: store, state: treeState,
+                                selectedSubject: $selectedSubject,
+                                documentId: item.id, fold: fold)
+            } label: {
+                row(for: item)
+            }
+            .padding(.leading, indent)
+            .tag(BinderSubject.item(item.id))
+        } else {
+            row(for: item)
+                .padding(.leading, indent)
+                .tag(BinderSubject.item(item.id))
         }
     }
 
@@ -134,10 +191,20 @@ struct BinderView: View {
             onRename: { id, newTitle in
                 Task { await rename(id: id, to: newTitle) }
             },
+            // **A manuscript row now receives two kinds of drag** (stage-2a
+            // Task 7). A chapter dropped on a chapter is the binder's own
+            // reorder, unchanged and still `handleDrop`'s; a research note
+            // dropped on a chapter is a scope change, and what it means is
+            // `TreeDropIntent`'s to say. The row returns whichever answer
+            // comes back, so a chapter that cannot take a note bounces it.
             onDrop: { draggedId, position in
-                Task { await handleDrop(draggedId: draggedId,
-                                        position: position,
-                                        target: item) }
+                treeVerbs.routePieceRowDrop(
+                    draggedId: draggedId, documentId: item.id,
+                    structureReorder: {
+                        Task { await handleDrop(draggedId: draggedId,
+                                                position: position,
+                                                target: item) }
+                    })
             }
         )
         .contextMenu {
@@ -167,6 +234,16 @@ struct BinderView: View {
     }
 
     // MARK: - Actions
+
+    /// The tree's research verbs, over this view's own section state — the same
+    /// value the Research section and every fold act through, so a drop on a
+    /// chapter row and a drop on a row inside its fold cannot come to disagree
+    /// about what scope means. Built per access like `BinderTreeSections.verbs`:
+    /// it is a handful of closures over the store, and nothing in it is state.
+    private var treeVerbs: BinderTreeVerbs {
+        BinderTreeVerbs(store: store, state: treeState,
+                        selectedSubject: $selectedSubject)
+    }
 
     private func addItem(parent: StructureItem?, kind: StructureItemKind) async {
         let parentId: String? = {

@@ -44,13 +44,18 @@ private struct CollectionPiecesProbeView: View {
 /// hand-built `VStack` of glyphs and buttons and its comment says nothing gives
 /// it a background; `ContentUnavailableView` is a system view chained to a full
 /// frame, and that is a different question.
-/// `test_theEmptyStateOverlayDoesNotSwallowTheProjectRow` is the answer, and it
+/// `test_theEmptyStateOverlayDoesNotSwallowAnyRowBeneathIt` is the answer, and it
 /// hit-tests rather than asserting a shape.
 @MainActor
 final class CollectionProjectRowTests: XCTestCase {
 
     private var temp: TempDirectory!
     private var windows: [NSWindow] = []
+
+    /// Rows the Research and Palette sections contribute at the foot of the
+    /// tree when a Collection has neither yet (stage-2a Task 4): a header and
+    /// one placeholder row each.
+    private let emptySectionRows = (1 + 1) + (1 + 1)
 
     override func setUp() async throws {
         temp = TempDirectory()
@@ -72,9 +77,11 @@ final class CollectionProjectRowTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window),
                                   "the pieces List never reached the hierarchy")
 
-        XCTAssertEqual(table.numberOfRows, 1 + store.manifest.structure.count,
+        XCTAssertEqual(table.numberOfRows,
+                       1 + store.manifest.structure.count + emptySectionRows,
                        "the project row should be one row, at the head, and "
-                       + "should not have displaced a piece")
+                       + "should not have displaced a piece — with the two "
+                       + "sections' furniture below all of it")
     }
 
     // MARK: - Selecting it, through the list
@@ -138,7 +145,7 @@ final class CollectionProjectRowTests: XCTestCase {
     /// Collection opens on. The empty state therefore cannot REPLACE the list,
     /// or the project row would be missing exactly when the writer most needs a
     /// subject to point the intent pane at.
-    func test_theEmptyCollectionHasExactlyOneRowAndItIsTheProject() async throws {
+    func test_theEmptyCollectionHasNoRowForItsMessageAndTheProjectIsStillTheHead() async throws {
         let store = try await collection(named: "Empty", pieces: [])
         XCTAssertTrue(store.manifest.structure.isEmpty, "fixture precondition")
 
@@ -147,10 +154,11 @@ final class CollectionProjectRowTests: XCTestCase {
             firstTableView(in: window),
             "the empty Pieces pane must still be a List — the project row lives in it")
 
-        XCTAssertEqual(table.numberOfRows, 1,
+        XCTAssertEqual(table.numberOfRows, 1 + emptySectionRows,
                        "the 'No pieces yet' message must not be a row — an "
                        + "untagged row writes nil through the selection binding "
-                       + "when it is clicked (measured on the novel binder)")
+                       + "when it is clicked (measured on the novel binder). "
+                       + "The rest is the two sections' furniture (Task 4)")
         await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project)
     }
@@ -159,16 +167,23 @@ final class CollectionProjectRowTests: XCTestCase {
     /// is only safe if it does not take the clicks. `select(row:)` above drives
     /// `selectRowIndexes` and so proves nothing about hit-testing; this asks
     /// AppKit directly, at the middle of row zero.
-    func test_theEmptyStateOverlayDoesNotSwallowTheProjectRow() async throws {
+    /// **Widened to every row** (stage-2a Task 4): the sections now live under
+    /// the same overlay, and a Collection with no pieces is exactly where a
+    /// writer reaches for research first.
+    func test_theEmptyStateOverlayDoesNotSwallowAnyRowBeneathIt() async throws {
         let store = try await collection(named: "Hit", pieces: [])
         let (window, _) = try await host(store: store)
         let table = try XCTUnwrap(firstTableView(in: window))
+        XCTAssertEqual(table.numberOfRows, 1 + emptySectionRows, "precondition")
 
-        let hit = try XCTUnwrap(hitTestCentre(ofRow: 0, in: table, window: window),
-                                "nothing at all was hit at row zero's centre")
-        XCTAssertTrue(hit.isDescendant(of: table),
-                      "the empty-state overlay must not intercept the project "
-                      + "row's clicks — hit \(type(of: hit)) instead of the table")
+        for row in 0..<table.numberOfRows {
+            let hit = try XCTUnwrap(hitTestCentre(ofRow: row, in: table, window: window),
+                                    "nothing at all was hit at row \(row)'s centre")
+            XCTAssertTrue(hit.isDescendant(of: table),
+                          "the empty-state overlay must not intercept row "
+                          + "\(row)'s clicks — hit \(type(of: hit)) instead of "
+                          + "the table")
+        }
     }
 
     // MARK: - Fixtures

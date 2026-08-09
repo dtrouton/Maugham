@@ -182,12 +182,22 @@ final class StatementPaneTests: XCTestCase {
             .project)
     }
 
+    /// A research item carries no craft intent of its own — intent is a
+    /// document/group affair, and a research subject is neither
+    /// (stage-2a Task 1).
+    func test_intentFallsBackToTheProjectForAResearchSubject() {
+        XCTAssertEqual(
+            StatementPane.effectiveScope(
+                kind: .intent, subject: .research("r-1"), structure: structure),
+            .project)
+    }
+
     /// Visual language is project-scope only — the book has one look (§2.1). It
     /// ignores the subject entirely, over every input.
     func test_visualLanguageIsAlwaysProjectScope() {
         let subjects: [BinderSubject?] = [
             nil, .project, .item("doc-1"), .item("grp-1"),
-            .item(BinderSubject.noDocumentSubject),
+            .item(BinderSubject.noDocumentSubject), .research("r-1"),
         ]
         for subject in subjects {
             XCTAssertEqual(

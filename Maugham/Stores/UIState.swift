@@ -16,6 +16,11 @@ public struct UIState: Codable, Equatable, Sendable {
     /// deleted item already gets. Decode reads a bare string back as `.item`.
     /// Neither direction of the skew loses or invents a selection, which is why
     /// the new case cost no schema bump and no migration.
+    ///
+    /// **A research subject writes a THIRD key, `selectedResearchItemId`, on the
+    /// same principle** (stage-2a Task 1): a build that has never heard of it
+    /// writes and reads neither of the other two, so it sees no selection at
+    /// all rather than misreading a research id as a structure item id.
     public var selectedSubject: BinderSubject?
     public var isNoChromeOn: Bool
     public var binderSegment: BinderSegment
@@ -165,6 +170,7 @@ public struct UIState: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, selectedItemId, selectedSubjectIsProject,
+             selectedResearchItemId,
              isNoChromeOn, binderSegment,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
              persona, personaMemory, compilerModel, assistantColumnWidth,
@@ -182,6 +188,8 @@ public struct UIState: Codable, Equatable, Sendable {
             try c.encode(id, forKey: .selectedItemId)
         case .project:
             try c.encode(true, forKey: .selectedSubjectIsProject)
+        case .research(let id):
+            try c.encode(id, forKey: .selectedResearchItemId)
         case nil:
             break
         }
@@ -209,6 +217,8 @@ public struct UIState: Codable, Equatable, Sendable {
             self.selectedSubject = .project
         } else if let id = try c.decodeIfPresent(String.self, forKey: .selectedItemId) {
             self.selectedSubject = .item(id)
+        } else if let id = try c.decodeIfPresent(String.self, forKey: .selectedResearchItemId) {
+            self.selectedSubject = .research(id)
         } else {
             self.selectedSubject = nil
         }

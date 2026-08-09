@@ -54,3 +54,43 @@ Note the constraint any fix inherits: the budgets under test model a **real prod
 ## Until then
 
 `-skip-testing:MaughamTests/MCPServerLifecycleTests` gives a complete Mac run in ~5 minutes; the other two fail in-suite and pass in isolation, which is the discriminator to apply before believing a red run is about your branch.
+
+## Resolution (2026-08-08): parallelization removed the trigger
+
+The suite now runs test classes across ~7 parallel worker processes
+(`parallelizable: true`, project.yml). Each worker hosts a seventh of the
+classes, so the condition all three failures needed — one process grinding
+3,400 tests through one main actor — no longer exists. This is the "something
+holding the main actor" hypothesis above, confirmed by removal.
+
+Evidence, all on 2026-08-08:
+
+- Two full parallel gates with NO skips: green, with margins that are no
+  longer close — `dispatchesViaRouter` 0.002s against its 10s receive
+  timeout, `exitsCleanly` 0.33s against its 5s window, `pollsUntilServerBinds`
+  3.1s against its 9s read.
+- A 5-gate no-skip burn-in (results recorded in the retiring commit).
+- Two CI runs of the full suite (CI never had the skip) green on slower
+  `macos-26` runners.
+- `MCPColdStartTests` + `MCPBinaryIntegrationTests` ran in every local
+  parallel gate all day (~8 more runs) without a failure.
+
+The `test.sh full` / documented `-skip-testing:MaughamTests/MCPServerLifecycleTests`
+skip is retired. Two of the three tests were also hardened so a genuinely
+overloaded machine (e.g. two sessions' gates overlapping — the third
+confounder in CLAUDE.md's build-flow notes) cannot produce a false red:
+
+- `exitsCleanly_onStdinClose`: exit allowance 5s → 60s. The property is
+  "stdin closes ⇒ the binary exits"; the expectation fulfills on the exit
+  event, so the widening costs nothing when green and models no product
+  constant.
+- `pollsUntilServerBinds_noPriorConnection`: bridge budget 10s → 15s, which
+  is `MAUGHAM_MCP_RECONNECT_BUDGET_MS`'s production default — more faithful,
+  not less — and the stub listener records when it ACTUALLY bound; a bind
+  that lands outside the budget discards the attempt (bounded retry, the
+  mint-and-return pattern) instead of failing on a slipped `asyncAfter`.
+- `dispatchesViaRouter` keeps its 10s `SO_RCVTIMEO` unchanged: 5,000× margin,
+  and its hang trigger lived in the serial world.
+
+If one of these goes red again: in-suite/in-isolation discriminator first,
+`ps ax | grep xcodebuild` for other sessions second, code archaeology last.

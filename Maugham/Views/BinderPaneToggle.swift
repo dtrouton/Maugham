@@ -130,6 +130,7 @@ struct BinderPaneToggle: View {
     /// reason.
     private var sceneNavigator: some View {
         SceneNavigatorPane(
+            store: store,
             script: lastParsedScript,
             projectTitle: store.manifest.title,
             selectedSubject: $selectedSubject,

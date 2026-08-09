@@ -83,6 +83,12 @@ struct StatementPane: View {
                   item.type == .document
             else { return .project }
             return .document(id)
+        case .research:
+            // A research item carries no craft intent of its own — intent is
+            // a document/group affair, and a research subject is neither.
+            // Permanent, not interim: unlike `validSubject`, there is no
+            // research-tree validation this could grow into.
+            return .project
         }
     }
 

@@ -7,9 +7,17 @@ struct BinderRow: View {
     let onRename: (String, String) -> Void  // (id, newTitle)
     /// Called when a drop completes on this row. The closure receives the
     /// dragged item id and the vertical position within this row (top/middle/
-    /// bottom). Caller (BinderView) translates that to a DropIntent and
-    /// invokes the appropriate ProjectStore mutator.
-    let onDrop: (_ draggedId: String, _ position: DropIntent.Position) -> Void
+    /// bottom). Caller (BinderView) routes it — a manuscript id is the binder's
+    /// own reorder, a research id is a scope change (`TreeDropIntent`).
+    ///
+    /// **Returns whether the drop was ACCEPTED, and this row returns exactly
+    /// that** (stage-2a Task 7). It used to return `true` unconditionally,
+    /// which was harmless while every id this row could receive was a
+    /// manuscript id — but the tree now carries research rows, so a note can be
+    /// dragged onto a chapter that cannot take it (a screenplay's, a referenced
+    /// piece's) and accepting it would animate the drag home and discard it.
+    /// Same fix, same reason, as `ResearchRow`'s.
+    let onDrop: (_ draggedId: String, _ position: DropIntent.Position) -> Bool
 
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
@@ -59,15 +67,15 @@ struct BinderRow: View {
                     .padding(6)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
             }
-            .dropDestination(for: String.self) { ids, location in
+            .dropDestination(for: String.self) { ids, location -> Bool in
                 guard let droppedId = ids.first else { return false }
                 let rowHeight: CGFloat = 22
                 let position: DropIntent.Position
                 if location.y < rowHeight / 3 { position = .top }
                 else if location.y > (rowHeight * 2 / 3) { position = .bottom }
                 else { position = .middle }
-                onDrop(droppedId, position)
-                return true
+                // The caller's answer, never a literal — see `onDrop`.
+                return onDrop(droppedId, position)
             }
         }
     }

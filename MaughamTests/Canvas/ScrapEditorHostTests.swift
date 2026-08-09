@@ -29,7 +29,7 @@ final class ScrapEditorHostTests: XCTestCase {
     private func host(_ container: ScrapEditorContainer,
                       contentSize: CGSize? = nil) -> NSWindow {
         let frame = CGRect(origin: .zero, size: contentSize ?? size)
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
+        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.contentView = NSView(frame: frame)
         window.contentView?.addSubview(container)

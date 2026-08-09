@@ -11,6 +11,9 @@ final class BinderSubjectTests: XCTestCase {
         XCTAssertNil(BinderSubject.project.itemID,
                      "the project names no structure item — a caller must handle that")
         XCTAssertEqual(BinderSubject.item("doc-1").itemID, "doc-1")
+        XCTAssertNil(BinderSubject.research("r-1").itemID,
+                     "a research subject names no structure item either — every "
+                     + "existing reader of itemID assumes structure")
     }
 
     /// The `activeDocId` the per-document panes take. Three spellings of this
@@ -21,6 +24,17 @@ final class BinderSubjectTests: XCTestCase {
                        BinderSubject.noDocumentSubject)
         XCTAssertEqual(BinderSubject.activeDocId(for: nil),
                        BinderSubject.noDocumentSubject)
+        // Falls straight out of itemID being nil for `.research` — asserted
+        // here rather than re-derived, per the brief.
+        XCTAssertEqual(BinderSubject.activeDocId(for: .research("r-1")),
+                       BinderSubject.noDocumentSubject)
+    }
+
+    /// The research subject's own one-way accessor, the mirror of `itemID`.
+    func test_researchID_isNilForEverythingButResearch_andTheIdForResearch() {
+        XCTAssertNil(BinderSubject.project.researchID)
+        XCTAssertNil(BinderSubject.item("doc-1").researchID)
+        XCTAssertEqual(BinderSubject.research("r-1").researchID, "r-1")
     }
 
     /// The sentinel has one home. The panes that compare against it read it
@@ -62,7 +76,8 @@ final class BinderSubjectTests: XCTestCase {
     }
 
     func test_everySubjectRoundTrips() throws {
-        for subject in [BinderSubject.project, .item("doc-1"), nil] as [BinderSubject?] {
+        for subject in [BinderSubject.project, .item("doc-1"), .research("r-1"), nil]
+            as [BinderSubject?] {
             var state = UIState.empty
             state.selectedSubject = subject
             let data = try JSONEncoder().encode(state)
@@ -70,6 +85,33 @@ final class BinderSubjectTests: XCTestCase {
             XCTAssertEqual(decoded.selectedSubject, subject,
                            "\(String(describing: subject)) did not survive the codec")
         }
+    }
+
+    /// **The third key touches neither legacy key.** A research subject is
+    /// written under its own `selectedResearchItemId`, so an older build sees
+    /// no selection at all and falls to the first document — the same landing
+    /// every other subject an older build cannot read already gets.
+    func test_theResearchSubjectTouchesNeitherLegacyKey() throws {
+        var state = UIState.empty
+        state.selectedSubject = .research("r-1")
+        let object = try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(state)) as? [String: Any]
+        XCTAssertNil(object?["selectedItemId"])
+        XCTAssertNil(object?["selectedSubjectIsProject"])
+        XCTAssertEqual(object?["selectedResearchItemId"] as? String, "r-1")
+    }
+
+    /// An older build's file — no `selectedResearchItemId` key at all — must
+    /// decode to no selection, not crash and not invent one.
+    func test_aFileWithNoResearchKeyDecodesToNoSelectionForThatCase() throws {
+        let json = Data("""
+        {"schemaVersion":5,"isNoChromeOn":false,
+         "binderSegment":"manuscript","researchPreviewVisible":false,
+         "detailSegment":"inspector","outlineLayout":"table",
+         "isReviewModeOn":false,"persona":"author"}
+        """.utf8)
+        let decoded = try JSONDecoder().decode(UIState.self, from: json)
+        XCTAssertNil(decoded.selectedSubject)
     }
 
     /// **What an older build sees.** The project subject is written under its

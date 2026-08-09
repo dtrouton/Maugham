@@ -17,8 +17,13 @@ struct ResearchMoveMenuTarget: Identifiable {
 
 struct ResearchTreeActions {
     var rename: (String, String) -> Void
-    var internalDrop: (_ draggedId: String, _ position: DropIntent.Position, _ target: ResearchItem) -> Void
-    var externalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position, _ target: ResearchItem) -> Void
+    /// Returns whether the drop is ACCEPTED. `ResearchRow` returns exactly this
+    /// from its `.dropDestination`, so a surface whose routing is not built yet
+    /// says `false` and the writer's drag bounces back, rather than being
+    /// animated home and silently discarded (fix round 1; see `ResearchRow`).
+    var internalDrop: (_ draggedId: String, _ position: DropIntent.Position, _ target: ResearchItem) -> Bool
+    /// Returns whether the drop is accepted — see `internalDrop`.
+    var externalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position, _ target: ResearchItem) -> Bool
     var newNote: (_ parentId: String?) -> Void
     var newGroup: (_ parentId: String?) -> Void
     var addFile: (_ parentId: String?) -> Void
@@ -34,14 +39,52 @@ struct ResearchTreeActions {
     var deleteMany: (_ ids: [String]) -> Void
 }
 
-struct ResearchTreeNode: View {
+struct ResearchTreeNode<Tag: Hashable>: View {
     let item: ResearchItem
     @Binding var renamingItemId: String?
     let findParentId: (String) -> String?
     let actions: ResearchTreeActions
+    /// The value each row tags itself with, for the enclosing `List`'s
+    /// selection. `ResearchView`/`CollectionResearchPane` tag bare `item.id`
+    /// (their `List` selects over `Set<String>`, unchanged); the binder tree
+    /// (Task 4) tags `.research(item.id)` — a `BinderSubject` — instead.
+    let tagFor: (ResearchItem) -> Tag
+    /// Whether a group row carries its own disclosure triangle. True
+    /// everywhere the node renders a *tree* — both research panes, and the
+    /// binder tree's Research section and its `.contained` piece folds, where a
+    /// group's children belong to the same piece its group does.
+    ///
+    /// **False for a novel chapter's `.linked` fold** (stage-2a Task 6). That
+    /// fold's rows are the chapter's `linkedResearchIds`, resolved — and a
+    /// group's children are not links, they are the group's. Expanding one
+    /// under the chapter would show the writer items as that chapter's research
+    /// on the strength of a link nothing recorded. Flat, the fold says exactly
+    /// what the manifest says.
+    var expandsGroups: Bool = true
+    /// Whether this row can go into inline rename.
+    ///
+    /// **False for a novel chapter's `.linked` fold** (final-review finding I2),
+    /// and it is not a policy about linked notes — it is about there being TWO
+    /// rows. A linked note is a SHARED research item, so in a novel it is drawn
+    /// once in the tree's Research section and again in every fold that links
+    /// it, in one `List`, off one `renamingItemId`. Both rows matched the id and
+    /// both mounted a `TextField`, each running `claimFocus()`'s 30ms deferral
+    /// against the other — tripwire 16's exact race, with a second field in the
+    /// same list eating the writer's typing.
+    ///
+    /// **The fix is a read-only fold, not a filtered section.** Hiding linked
+    /// notes from the shared section would misplace notes nested inside groups
+    /// (they are not roots) and would take them out of the section where they
+    /// actually live. So the fold — which is a VIEW of the chapter's links —
+    /// stops offering the verb, and the shared row keeps it. Selection, opening
+    /// and dragging out to unlink are untouched.
+    ///
+    /// A `.contained` fold keeps rename: those items live in the piece's own
+    /// folder and are drawn exactly once.
+    var offersRename: Bool = true
 
     var body: some View {
-        if item.type == .group {
+        if item.type == .group, expandsGroups {
             DisclosureGroup {
                 AnyView(childNodes)
             } label: {
@@ -58,22 +101,33 @@ struct ResearchTreeNode: View {
                 item: child,
                 renamingItemId: $renamingItemId,
                 findParentId: findParentId,
-                actions: actions))
+                actions: actions,
+                tagFor: tagFor,
+                offersRename: offersRename))
         }
+    }
+
+    /// The binding the row renames through — **a dead one where the row does not
+    /// offer rename**, so the `TextField` branch cannot mount at all. Hiding
+    /// only the menu item would leave the duplicate field to be opened by the
+    /// other path that sets this id: `pendingRenameId`, committed for every
+    /// newly created note (`BinderTreeVerbs.create`).
+    private var renameBinding: Binding<String?> {
+        offersRename ? $renamingItemId : .constant(nil)
     }
 
     private var row: some View {
         ResearchRow(
             item: item,
-            renamingItemId: $renamingItemId,
+            renamingItemId: renameBinding,
             onRename: actions.rename,
             onDrop: { draggedId, position in
                 actions.internalDrop(draggedId, position, item)
             },
             onExternalDrop: { providers, position in
                 actions.externalDrop(providers, position, item)
-            })
-            .tag(item.id)
+            })  // both pass the bundle's accept/refuse straight back to the row
+            .tag(tagFor(item))
             .contextMenu {
                 Button("New Note") {
                     actions.newNote(item.type == .group ? item.id : findParentId(item.id))
@@ -100,7 +154,12 @@ struct ResearchTreeNode: View {
                     }
                 } else {
                     Button("Duplicate") { actions.duplicate(item.id) }
-                    Button("Rename") { renamingItemId = item.id }
+                    // Absent on a `.linked` fold row: renaming there opens a
+                    // second field over the row's shared-section twin. The
+                    // writer renames it where it lives — see `offersRename`.
+                    if offersRename {
+                        Button("Rename") { renamingItemId = item.id }
+                    }
                     Button("Delete", role: .destructive) { actions.delete(item.id) }
                 }
             }

@@ -2991,6 +2991,482 @@ final class TripwireGrepTests: XCTestCase {
             + "above would pass for it too and prove nothing.")
     }
 
+    // MARK: - A drop destination in the binder tree declares its Bool
+
+    /// **Every `.dropDestination` closure in the binder tree's sections must
+    /// annotate `-> Bool`** (fix round 2).
+    ///
+    /// The empty-section placeholder shipped as:
+    ///
+    /// ```swift
+    /// .dropDestination(for: String.self) { ids, _ in
+    ///     refuseDrop("empty section placeholder", payload: ids.first)
+    /// }
+    /// ```
+    ///
+    /// which reads exactly like a refusal and is not one. Without the annotated
+    /// result type the closure bound to a **Void-returning** `dropDestination`
+    /// overload, so `refuseDrop`'s `false` went nowhere and the placeholder
+    /// accepted the drag and discarded it — the same accept-then-discard defect
+    /// fix round 1 had just removed from the rows, one layer out. The compiler
+    /// said so (`result of call to 'refuseDrop(_:payload:)' is unused`) and the
+    /// warning was not read.
+    ///
+    /// **Why this shape of guard.** The bundle-level refusal test asks
+    /// `ResearchTreeActions` and cannot see the view layer at all, and a real
+    /// drag session is not synthesisable headless — so the thing to pin is the
+    /// one token that forces the right overload. `-> Bool` in the closure
+    /// signature is that token: with it the Void overload is not a candidate,
+    /// and a value-returning closure cannot silently drop its value.
+    ///
+    /// **Both research surfaces, not just the new one.** The warning sweep that
+    /// closed this finding found the identical defect at FOUR older sites in
+    /// `CollectionResearchPane.swift` — every call of its `sectionDropHandler`,
+    /// discarding the same kind of `Bool` since the day they were written, so a
+    /// payload that pane's own guard rejects was accepted on screen and then
+    /// ignored. They are fixed and held here too; a census that covered only the
+    /// file the finding arrived in would have left the older instances to be
+    /// rediscovered.
+    ///
+    /// **The three ROWS joined the list in stage-2a Task 7**, when their
+    /// handlers stopped being a formality. Until then `BinderRow` and `PieceRow`
+    /// could only ever receive a manuscript id, so accepting unconditionally was
+    /// harmless; the tree now carries research rows beside them, so a note can
+    /// be dragged onto a chapter that cannot take it (a screenplay's, a
+    /// referenced piece's) and the refusal has to survive the same overload
+    /// trap this census is about.
+    func test_everyDropDestinationInTheResearchSurfacesDeclaresItsBool() throws {
+        var offenders: [String] = []
+        for file in ["Views/BinderTreeSections.swift",
+                     "Views/CollectionResearchPane.swift",
+                     "Views/BinderRow.swift",
+                     "Views/PieceRow.swift",
+                     "Views/ResearchRow.swift"] {
+            offenders += try Self.unannotatedDropDestinations(
+                in: sourceDir.appendingPathComponent(file))
+        }
+        XCTAssertEqual(
+            offenders, [],
+            "Every `.dropDestination` in the research surfaces must spell its "
+            + "closure `{ ids, _ -> Bool in … }`.\n\nWithout it the closure can "
+            + "bind to a Void-returning overload, and a handler that computes a "
+            + "refusal has it thrown away — the drop is ACCEPTED and the "
+            + "writer's drag is discarded, which is what shipped. Add the "
+            + "annotation and return the value.\n\nUnannotated:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: the census must fire on the shape that shipped, and must not
+    /// fire on the fixed one.
+    func test_theDropDestinationBoolCensusFiresOnTheShapeThatShipped() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-drop-bool-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let offender = tmp.appendingPathComponent("Offender.swift")
+        try """
+        struct Placeholder: View {
+            var body: some View {
+                Text("No research yet.")
+                    // The shape that shipped: reads like a refusal, is not one.
+                    .dropDestination(for: String.self) { ids, _ in
+                        refuseDrop("empty section placeholder", payload: ids.first)
+                    }
+            }
+        }
+        """.write(to: offender, atomically: true, encoding: .utf8)
+        XCTAssertEqual(
+            try Self.unannotatedDropDestinations(in: offender),
+            [".dropDestination(for: String.self) { ids, _ in"],
+            "Self-check: an unannotated drop closure must be caught, and "
+            + "reported by the text of the call so the reader can find it.")
+
+        let fixed = tmp.appendingPathComponent("Fixed.swift")
+        try """
+        struct Placeholder: View {
+            var body: some View {
+                Text("No research yet.")
+                    .dropDestination(for: String.self) { ids, _ -> Bool in
+                        return refuseDrop("empty", payload: ids.first)
+                    }
+                Text("Section")
+                    // The OTHER correct shape, and the census must accept it
+                    // too: no annotation, but a multi-statement body that
+                    // returns explicitly cannot bind to the Void overload at
+                    // all. CollectionResearchPane's section-level destinations
+                    // are written this way, and an over-strict first draft of
+                    // this census flagged them.
+                    .dropDestination(for: String.self) { ids, _ in
+                        guard !ids.isEmpty else { return false }
+                        Task { await move(ids) }
+                        return true
+                    }
+            }
+        }
+        """.write(to: fixed, atomically: true, encoding: .utf8)
+        XCTAssertEqual(
+            try Self.unannotatedDropDestinations(in: fixed), [],
+            "Control: neither correct shape may be reported — the annotated "
+            + "one, nor the one whose explicit returns already force the Bool "
+            + "overload. A census that fires on everything says nothing.")
+    }
+
+    /// The `.dropDestination(` calls in `url` whose closure can silently discard
+    /// its handler's value, reported as the text of the call.
+    ///
+    /// **A closure is fine if it declares `-> Bool` OR returns explicitly**, and
+    /// requiring both would be a style rule rather than a guard. A
+    /// multi-statement body ending in `return true` cannot bind to the
+    /// Void-returning overload at all — returning a value from a Void closure is
+    /// an error, so the compiler has already made the choice. The defect is
+    /// specifically the *implicit-return* shape, where a single call is the
+    /// whole body: that binds to Void and throws the value away with nothing
+    /// but a warning. (Measured while writing this: an over-strict first draft
+    /// flagged `CollectionResearchPane`'s two section-level destinations, which
+    /// return explicitly and are correct.)
+    ///
+    /// **Text rather than a line number, deliberately:** `codeLines` drops
+    /// comment-only and blank lines, so an index into it is not the file's line
+    /// number — and a census that points at the wrong line is worse than one
+    /// that points at none.
+    private static func unannotatedDropDestinations(in url: URL) throws -> [String] {
+        let lines = codeLines(of: try String(contentsOf: url, encoding: .utf8))
+        var offenders: [String] = []
+        for (index, line) in lines.enumerated() where line.contains(".dropDestination(") {
+            let signature = line + (index + 1 < lines.count ? lines[index + 1] : "")
+            if signature.contains("-> Bool") { continue }
+            if Self.closureBody(startingAt: index, in: lines)
+                .contains(where: { $0.contains("return ") }) { continue }
+            offenders.append(line.trimmingCharacters(in: .whitespaces))
+        }
+        return offenders
+    }
+
+    /// The lines of the closure opening on `start`, by brace depth — good enough
+    /// for a census over hand-written view code, and it needs no parser.
+    private static func closureBody(startingAt start: Int, in lines: [String]) -> [String] {
+        var depth = 0
+        var body: [String] = []
+        for line in lines[start...] {
+            let opened = line.filter { $0 == "{" }.count
+            let closed = line.filter { $0 == "}" }.count
+            if depth > 0 { body.append(line) }
+            depth += opened - closed
+            if depth <= 0 && opened > 0 { break }
+        }
+        return body
+    }
+
+    // MARK: - The shared research row never accepts a drop on its own authority
+
+    /// **`ResearchRow` must return its CALLER's accept/refuse, never a literal**
+    /// (fix round 1).
+    ///
+    /// The row is shared by every research surface, and it used to answer
+    /// `.dropDestination` with a bare `return true` no matter what its `onDrop`
+    /// closure did. That made "accepted" a property of the row: the binder
+    /// tree's handlers are stubs until stage-2a Task 7, so a note dragged onto a
+    /// populated research row in the tree got the accepted-drop animation and
+    /// was then silently discarded — the writer's drag gone, with the animation
+    /// that says it worked.
+    ///
+    /// A `Bool` return through `ResearchTreeActions` fixed it, and the compiler
+    /// now asks every caller. What the compiler CANNOT ask is whether the row
+    /// still forwards that answer rather than shadowing it with a literal, which
+    /// is exactly the shape that shipped. Hence this.
+    func test_theResearchRowNeverAcceptsADropOnItsOwnAuthority() throws {
+        let url = sourceDir.appendingPathComponent("Views/ResearchRow.swift")
+        let code = Self.codeLines(of: try String(contentsOf: url, encoding: .utf8))
+
+        XCTAssertTrue(
+            code.contains { $0.contains("return onDrop(") },
+            "ResearchRow must return its `onDrop` closure's answer. If this "
+            + "moved, this census needs to know where.")
+        XCTAssertTrue(
+            code.contains { $0.contains("return onExternalDrop(") },
+            "…and its `onExternalDrop` closure's answer.")
+        XCTAssertFalse(
+            code.contains { $0.trimmingCharacters(in: .whitespaces) == "return true" },
+            "ResearchRow must not accept a drop on its own authority. A bare "
+            + "`return true` in a drop destination discards the drag of every "
+            + "caller whose handler is a stub, with the animation that says it "
+            + "landed. Return the closure's Bool instead.\n\nFound:\n"
+            + code.filter { $0.contains("return true") }.joined(separator: "\n"))
+    }
+
+    /// **And neither manuscript row does either** (stage-2a Task 7).
+    ///
+    /// `BinderRow` and `PieceRow` both answered `.dropDestination` with a bare
+    /// `return true` for as long as the only thing that could land on them was
+    /// another manuscript row — where the host's handler always did something,
+    /// so the literal was never wrong. The tree changed the premise: a research
+    /// note dropped on a chapter is now a scope change, and a chapter that
+    /// cannot take one (a screenplay's, a referenced Collection piece's, a
+    /// structure group) must bounce it. A literal `true` there is the
+    /// accept-then-discard defect `ResearchRow` already shipped once.
+    func test_neitherManuscriptRowAcceptsADropOnItsOwnAuthority() throws {
+        for file in ["Views/BinderRow.swift", "Views/PieceRow.swift"] {
+            let url = sourceDir.appendingPathComponent(file)
+            let code = Self.codeLines(of: try String(contentsOf: url, encoding: .utf8))
+            XCTAssertTrue(
+                code.contains { $0.contains("return onDrop(") },
+                "\(file) must return its `onDrop` closure's answer.")
+            XCTAssertFalse(
+                code.contains { $0.trimmingCharacters(in: .whitespaces) == "return true" },
+                "\(file) must not accept a drop on its own authority — the row "
+                + "cannot know whether the host could route it.\n\nFound:\n"
+                + code.filter { $0.contains("return true") }.joined(separator: "\n"))
+        }
+    }
+
+    // MARK: - Every drop target in the tree reaches the one classifier
+
+    /// The verbs that route a drop, and the files each is reached from.
+    private static let treeDropRouters = [
+        "routePieceRowDrop(", "routeResearchRowDrop(", "routeSharedSectionDrop("
+    ]
+    /// The file that DEFINES them, which naturally contains all three.
+    private static let treeDropRouterDefiner = "BinderTreeDrops.swift"
+
+    /// **Every drop target in the binder tree routes through
+    /// `TreeDropIntent`** — and which file reaches which verb is the wiring
+    /// this census holds (stage-2a Task 7).
+    ///
+    /// The tree has four kinds of drop target and they live in four different
+    /// files: manuscript rows in the two hosts, research rows in the sections,
+    /// research rows again inside a piece's fold, and the shared section itself.
+    /// A target wired to anything else — its own `moveResearchItem` call, a
+    /// stubbed refusal left behind, a `return true` — is invisible to every
+    /// other test in the repo, because **a real drag session is not
+    /// synthesisable headless**: nothing can drive the closure a
+    /// `.dropDestination` installs. What CAN be checked is that the closure
+    /// calls the router, and that is what this is.
+    ///
+    /// The sharpest case is the fold. `BinderPieceFold` re-routes
+    /// `internalDrop` to pass its `documentId`, and without that one line the
+    /// fold's rows read to the classifier as ordinary shared research rows —
+    /// so a note dropped into chapter three's fold quietly reorders shared
+    /// research and never reaches chapter three. Nothing on screen says so.
+    func test_everyDropTargetInTheTreeReachesTheClassifier() throws {
+        let census = try treeDropRoutingCensus(in: sourceDir)
+        XCTAssertEqual(
+            census,
+            ["BinderView.swift": ["routePieceRowDrop("],
+             "CollectionPiecesPane.swift": ["routePieceRowDrop("],
+             "BinderTreeSections.swift": ["routeResearchRowDrop(",
+                                          "routeSharedSectionDrop("],
+             "BinderPieceFold.swift": ["routeResearchRowDrop("]],
+            "Every drop target in the binder tree routes through "
+            + "`TreeDropIntent`, via `BinderTreeDrops`.\n\n"
+            + "If you ADDED a target: call the matching router and add the file "
+            + "above. If a file has LOST its entry, its drops are no longer "
+            + "classified — they either refuse everything or accept and discard, "
+            + "and no mounted test can see which.\n\n"
+            + "Found:\n\(census)")
+    }
+
+    /// Self-check: a census of a REQUIRED token passes happily while blind, so
+    /// prove it sees a host that stopped routing.
+    func test_theDropRoutingCensusFiresOnAHostThatStoppedRouting() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-drop-routing-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct Wired: View {
+            var body: some View {
+                Row(onDrop: { id, position in
+                    verbs.routePieceRowDrop(draggedId: id, documentId: item.id) {}
+                })
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("Wired.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        struct Unwired: View {
+            var body: some View {
+                // A doc comment naming routePieceRowDrop( must not count, and
+                // neither may a host that only reorders.
+                Row(onDrop: { id, position in
+                    Task { await handleDrop(draggedId: id, position: position) }
+                    return true
+                })
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("Unwired.swift"),
+                  atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            try treeDropRoutingCensus(in: tmp),
+            ["Wired.swift": ["routePieceRowDrop("]],
+            "Self-check: the census must name the wired host and say nothing "
+            + "about the one that routes nothing.")
+    }
+
+    private func treeDropRoutingCensus(in dir: URL) throws -> [String: [String]] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return [:]
+        }
+        var census: [String: [String]] = [:]
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let name = url.lastPathComponent
+            guard name != Self.treeDropRouterDefiner else { continue }
+            let code = Self.codeLines(of: try String(contentsOf: url, encoding: .utf8))
+            var found: Set<String> = []
+            for line in code {
+                for router in Self.treeDropRouters where line.contains(router) {
+                    found.insert(router)
+                }
+            }
+            if !found.isEmpty { census[name] = found.sorted() }
+        }
+        return census
+    }
+
+    // MARK: - The binder tree's sections mount in two halves
+
+    /// The file that DEFINES both halves, which naturally contains both tokens
+    /// and is not a host.
+    private static let binderTreeSectionsDefiner = "BinderTreeSections.swift"
+    /// The rows, mounted inside a host's `List`.
+    private static let binderTreeSectionsRows = "BinderTreeSections("
+    /// The presentations, attached outside it.
+    private static let binderTreeSectionsPresentations = ".binderTreeSections("
+
+    /// **A host that mounts the tree's sections must attach their presentations
+    /// too**, and the failure of the pair is silent in exactly one direction.
+    ///
+    /// `BinderTreeSections` puts its rows inside the host's `List` and its
+    /// presentations — the Add Link sheet, the error alert, the palette-card
+    /// load, the deferred rename commit — OUTSIDE it, because a sheet attached
+    /// to a row inside a lazy list is presented from a view the list may
+    /// unmount. That split is deliberate and it is also a trap: a host with the
+    /// rows and no modifier draws a perfectly convincing tree in which Add Link
+    /// does nothing, every store failure is swallowed, the palette section is
+    /// permanently empty and a new note never enters rename mode. **No row count
+    /// and no selection test can see any of it** — which is what a census is
+    /// for.
+    func test_everyBinderTreeMountsBothHalvesOfTheSections() throws {
+        let census = try binderTreeSectionsCensus(in: sourceDir)
+        XCTAssertEqual(
+            census,
+            ["BinderView.swift": ["presentations", "rows"],
+             "CollectionPiecesPane.swift": ["presentations", "rows"],
+             "SceneNavigatorPane.swift": ["presentations", "rows"]],
+            "Every binder tree host mounts BOTH halves of the sections.\n\n"
+            + "If you have ADDED a tree host (a fifth project type, a new left "
+            + "column): mount `BinderTreeSections(store:state:selectedSubject:)` "
+            + "inside its `List`, attach "
+            + "`.binderTreeSections(store:state:)` outside it, and add it "
+            + "above.\n\n"
+            + "If a host here shows only \"rows\": its sheet, alert, "
+            + "palette-card load and deferred rename are all missing and "
+            + "NOTHING else fails — Add Link opens nothing, store errors "
+            + "vanish, the Palette section is empty forever.\n\n"
+            + "If a host shows only \"presentations\": it carries the state and "
+            + "the modifiers and draws no section at all.\n\n"
+            + "Found:\n\(census)")
+    }
+
+    /// Self-check: prove the census FIRES on a host with one half. A census of
+    /// a REQUIRED token is exactly the shape that can pass while blind.
+    func test_binderTreeSectionsCensusFiresOnAHostMissingItsPresentations() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-tree-sections-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct WholeHost: View {
+            var body: some View {
+                List(selection: $subject) {
+                    BinderTreeSections(store: store, state: state,
+                                       selectedSubject: $subject)
+                }
+                .binderTreeSections(store: store, state: state)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("WholeHost.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        /// A doc comment naming .binderTreeSections( must not count as a call.
+        struct HalfHost: View {
+            var body: some View {
+                List(selection: $subject) {
+                    BinderTreeSections(store: store, state: state,
+                                       selectedSubject: $subject)
+                }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("HalfHost.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        struct StrandedHost: View {
+            var body: some View {
+                List(selection: $subject) { projectRow }
+                    .binderTreeSections(store: store, state: state)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("StrandedHost.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        struct Unrelated: View {
+            var body: some View { Text("nothing to do with the tree") }
+        }
+        """.write(to: tmp.appendingPathComponent("Unrelated.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let census = try binderTreeSectionsCensus(in: tmp)
+        XCTAssertEqual(
+            census,
+            ["WholeHost.swift": ["presentations", "rows"],
+             "HalfHost.swift": ["rows"],
+             "StrandedHost.swift": ["presentations"]],
+            "Self-check: a host with only the rows must enter the census with "
+            + "only \"rows\" (the silent half — its doc comment naming the "
+            + "modifier must NOT count as attaching it), a host with only the "
+            + "modifier with only \"presentations\", and a file naming neither "
+            + "must not appear at all.")
+    }
+
+    /// The whole-tree census: which halves of `BinderTreeSections` each file
+    /// carries. Comments are stripped, so the definer's own prose and a host's
+    /// explanatory comments cannot stand in for a call.
+    private func binderTreeSectionsCensus(in dir: URL) throws -> [String: [String]] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return [:]
+        }
+        var census: [String: [String]] = [:]
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let name = url.lastPathComponent
+            guard name != Self.binderTreeSectionsDefiner else { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            var found: Set<String> = []
+            for line in Self.codeLines(of: text) {
+                if line.contains(Self.binderTreeSectionsPresentations) {
+                    found.insert("presentations")
+                }
+                // The modifier's spelling contains the rows' spelling only if
+                // case is ignored, so the rows test is safe as written — but
+                // check anyway rather than rely on it staying that way.
+                if line.replacingOccurrences(
+                    of: Self.binderTreeSectionsPresentations, with: "")
+                    .contains(Self.binderTreeSectionsRows) {
+                    found.insert("rows")
+                }
+            }
+            if !found.isEmpty { census[name] = found.sorted() }
+        }
+        return census
+    }
+
     /// A whole-line comment, in either spelling. Shared by the canvas-asset
     /// tripwires, which both guard tokens their own documentation names.
     private static func isCommentLine(_ line: String) -> Bool {

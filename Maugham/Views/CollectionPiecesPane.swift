@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// The Pieces segment of a Collection binder. Flat list with kind icons,
 /// inline rename support, and a right-click context menu.
@@ -6,6 +7,9 @@ struct CollectionPiecesPane: View {
     @Bindable var store: ProjectStore
     @Binding var selectedSubject: BinderSubject?
     @Binding var renamingItemId: String?
+    /// The Research and Palette sections' own state (stage-2a Task 4). Owned
+    /// here because their presentations hang off this pane, outside the `List`.
+    @State private var treeState = BinderTreeSectionsState()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,53 +58,143 @@ struct CollectionPiecesPane: View {
     /// measured here, because `ContentUnavailableView` is a system view chained
     /// to a full frame rather than `BinderView`'s hand-built `VStack` of glyphs:
     /// the overlay does not take the project row's clicks
-    /// (`CollectionProjectRowTests.test_theEmptyStateOverlayDoesNotSwallowTheProjectRow`
+    /// (`CollectionProjectRowTests.test_theEmptyStateOverlayDoesNotSwallowAnyRowBeneathIt`
     /// hit-tests it).
+    ///
+    /// **The selection is a projection, not the binding itself** (stage-2a Task
+    /// 4): the sections at the foot of the list carry untagged placeholder rows
+    /// when they are empty, and an untagged row writes `nil` through the
+    /// binding — the same measurement this pane's empty state is shaped by.
+    /// `BinderTreeSelection` refuses that `nil`; every tagged row is unaffected.
     private var pieceList: some View {
-        List(selection: $selectedSubject) {
+        List(selection: BinderTreeSelection.binding($selectedSubject)) {
             projectRow
             ForEach(store.manifest.structure) { piece in
-                PieceRow(
-                    piece: piece,
-                    renamingItemId: $renamingItemId,
-                    onRename: { id, newTitle in
-                        Task {
-                            try? await store.renamePiece(
-                                pieceId: id, newTitle: newTitle)
-                        }
-                    },
-                    onDrop: { draggedId, position in
+                pieceEntry(for: piece)
+            }
+            // Below the pieces — furniture at the foot of the column, with the
+            // project row still row zero.
+            BinderTreeSections(store: store, state: treeState,
+                               selectedSubject: $selectedSubject)
+        }
+        .listStyle(.sidebar)
+        .overlay {
+            if store.manifest.structure.isEmpty { emptyState }
+        }
+        .binderTreeSections(store: store, state: treeState,
+                            selectedSubject: $selectedSubject)
+    }
+
+    /// One piece's row, whole — the modifier chain is unchanged from when it was
+    /// written inline inside `pieceList`'s `ForEach`.
+    ///
+    /// **Extracted for headroom, NOT because the ceiling was reached** — and the
+    /// distinction is recorded because a SourceKit report said otherwise
+    /// (stage-2a Task 4). After the sections went into `pieceList`, SourceKit
+    /// reported *"the compiler is unable to type-check this expression in
+    /// reasonable time"* here — the one diagnostic class CLAUDE.md says to heed
+    /// rather than triage as noise, since ignoring it shipped a Release-only
+    /// build failure on v0.8.0. **`xcodebuild` was then asked directly and did
+    /// not agree.** With `-warn-long-expression-type-checking` /
+    /// `-warn-long-function-bodies` at 400ms, a Release build of the inline
+    /// shape reported nothing anywhere in the app; at 100ms the only two bodies
+    /// over the limit were `EditorHost.body` (151ms) and `ProjectWindow.body`
+    /// (114ms), and nothing in this file appeared at all. So the report was a
+    /// stale index, and the extraction is kept on its own merits: it is
+    /// `BinderView.row(for:)`'s shape, and Task 6 grows this same `ForEach`
+    /// again with the per-piece research fold.
+    ///
+    /// **The `.tag` moved out to `pieceEntry(for:)` in Task 6, and only the
+    /// tag.** The padding stays inside — it has to be part of the row the List
+    /// tags rather than a wrapper around it, which is what the extraction was
+    /// careful about — but a folded piece is a `DisclosureGroup` whose LABEL is
+    /// this row, and the tag has to be on the group so its children move with
+    /// the row they belong to (`BinderView.outline` reached the same shape for
+    /// its structure groups). Tagging both would be two names for one row.
+    private func pieceRow(for piece: StructureItem) -> some View {
+        PieceRow(
+            piece: piece,
+            renamingItemId: $renamingItemId,
+            onRename: { id, newTitle in
+                Task {
+                    try? await store.renamePiece(
+                        pieceId: id, newTitle: newTitle)
+                }
+            },
+            // **A piece row now receives two kinds of drag** (stage-2a Task 7):
+            // another piece, which is this pane's own reorder and unchanged;
+            // or a research note, which in a Collection means the note's FILE
+            // moves into `pieces/<slug>/research/`. What the drop means is
+            // `TreeDropIntent`'s to say, and the row returns its answer — a
+            // referenced piece, which keeps research in its own project,
+            // bounces the drag rather than swallowing it.
+            onDrop: { draggedId, position in
+                treeVerbs.routePieceRowDrop(
+                    draggedId: draggedId, documentId: piece.id,
+                    structureReorder: {
                         handleDrop(
                             draggedId: draggedId,
                             targetId: piece.id,
                             position: position)
                     })
-                    // Inset under the project row above. Before the `.tag`, so
-                    // the padding is part of the row the List tags rather than a
-                    // wrapper around it.
-                    .padding(.leading, ProjectRowLabel.childIndent)
-                    .tag(BinderSubject.item(piece.id))
-                    .contextMenu {
-                        Button("Rename") {
-                            renamingItemId = piece.id
-                        }
-                        if piece.pieceKind == .loose {
-                            Button("Promote to Standalone Project…") {
-                                MaughamEvent.post(.maughamPromotePiece, to: .keyWindow, payload: ["piece_id": piece.id])
-                            }
-                        }
-                        Divider()
-                        Button("Delete", role: .destructive) {
-                            Task {
-                                try? await store.deleteStructureItem(id: piece.id)
-                            }
-                        }
+            })
+            // Inset under the project row above. Part of the row rather than a
+            // wrapper around it, so the List tags a row that is already inset.
+            .padding(.leading, ProjectRowLabel.childIndent)
+            .contextMenu {
+                Button("Rename") {
+                    renamingItemId = piece.id
+                }
+                if piece.pieceKind == .loose {
+                    Button("Promote to Standalone Project…") {
+                        MaughamEvent.post(.maughamPromotePiece, to: .keyWindow, payload: ["piece_id": piece.id])
                     }
+                }
+                Divider()
+                Button("Delete", role: .destructive) {
+                    Task {
+                        try? await store.deleteStructureItem(id: piece.id)
+                    }
+                }
             }
-        }
-        .listStyle(.sidebar)
-        .overlay {
-            if store.manifest.structure.isEmpty { emptyState }
+    }
+
+    /// A piece's row, and — when the piece has research of its own — the fold
+    /// that research hangs in (stage-2a Task 6).
+    ///
+    /// **A loose piece's fold is CONTAINMENT**: those items live under
+    /// `pieces/<slug>/research/`, so a group in there is a group of this
+    /// piece's research and expands like one. A *reference* piece never folds —
+    /// its research lives in its own project — and that is not decided here:
+    /// `TreeSectionDerivation.pieceFold` asks `ProjectStore.researchRouting`,
+    /// the one rule, which refuses a reference piece outright.
+    ///
+    /// **An empty fold gets no chevron** (`PieceFold.showsDisclosure`) — a
+    /// triangle onto nothing on every piece of a new Collection. The row is
+    /// still where the first item lands (Task 7's drop target).
+    ///
+    /// Derived per render from the manifest, never cached (tripwire 4): the
+    /// cost is a manifest walk, not a read, and a cached fold would be a second
+    /// answer to what a piece's research is.
+    @ViewBuilder
+    private func pieceEntry(for piece: StructureItem) -> some View {
+        let fold = TreeSectionDerivation.pieceFold(
+            for: piece,
+            structure: store.manifest.structure,
+            research: store.manifest.research,
+            projectType: store.manifest.type)
+        if fold.showsDisclosure {
+            DisclosureGroup {
+                BinderPieceFold(store: store, state: treeState,
+                                selectedSubject: $selectedSubject,
+                                documentId: piece.id, fold: fold)
+            } label: {
+                pieceRow(for: piece)
+            }
+            .tag(BinderSubject.item(piece.id))
+        } else {
+            pieceRow(for: piece)
+                .tag(BinderSubject.item(piece.id))
         }
     }
 
@@ -117,6 +211,14 @@ struct CollectionPiecesPane: View {
     }
 
     // MARK: - Drag-reorder
+
+    /// The tree's research verbs, over this pane's own section state — see
+    /// `BinderView.treeVerbs`. One value for the piece rows, the Research
+    /// section and every fold, so the three cannot disagree about scope.
+    private var treeVerbs: BinderTreeVerbs {
+        BinderTreeVerbs(store: store, state: treeState,
+                        selectedSubject: $selectedSubject)
+    }
 
     private func handleDrop(
         draggedId: String,

@@ -80,8 +80,8 @@ struct CollectionResearchPane: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
-                    .dropDestination(for: String.self) { ids, _ in
-                        sectionDropHandler(ids: ids, scope: .shared)
+                    .dropDestination(for: String.self) { ids, _ -> Bool in
+                        return sectionDropHandler(ids: ids, scope: .shared)
                     }
             } else {
                 ForEach(items) { item in
@@ -89,7 +89,8 @@ struct CollectionResearchPane: View {
                         item: item,
                         renamingItemId: $renamingItemId,
                         findParentId: { findParentId(of: $0) },
-                        actions: treeActions(scope: .shared))
+                        actions: treeActions(scope: .shared),
+                        tagFor: { $0.id })
                 }
             }
         } header: {
@@ -98,8 +99,8 @@ struct CollectionResearchPane: View {
                 Spacer()
                 sharedHeaderMenu
             }
-            .dropDestination(for: String.self) { ids, _ in
-                sectionDropHandler(ids: ids, scope: .shared)
+            .dropDestination(for: String.self) { ids, _ -> Bool in
+                return sectionDropHandler(ids: ids, scope: .shared)
             }
         }
         // **The string destination FIRST, the provider drop after it** — the
@@ -133,8 +134,8 @@ struct CollectionResearchPane: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
-                    .dropDestination(for: String.self) { ids, _ in
-                        sectionDropHandler(ids: ids, scope: .piece(piece.id))
+                    .dropDestination(for: String.self) { ids, _ -> Bool in
+                        return sectionDropHandler(ids: ids, scope: .piece(piece.id))
                     }
             } else {
                 ForEach(items) { item in
@@ -142,7 +143,8 @@ struct CollectionResearchPane: View {
                         item: item,
                         renamingItemId: $renamingItemId,
                         findParentId: { findParentId(of: $0) },
-                        actions: treeActions(scope: .piece(piece.id)))
+                        actions: treeActions(scope: .piece(piece.id)),
+                        tagFor: { $0.id })
                 }
             }
         } header: {
@@ -151,8 +153,8 @@ struct CollectionResearchPane: View {
                 Spacer()
                 pieceHeaderMenu(pieceId: piece.id)
             }
-            .dropDestination(for: String.self) { ids, _ in
-                sectionDropHandler(ids: ids, scope: .piece(piece.id))
+            .dropDestination(for: String.self) { ids, _ -> Bool in
+                return sectionDropHandler(ids: ids, scope: .piece(piece.id))
             }
         }
         // See `sharedSection`: string destination first, provider drop after.
@@ -217,10 +219,13 @@ struct CollectionResearchPane: View {
     private func treeActions(scope: Scope) -> ResearchTreeActions {
         ResearchTreeActions(
             rename: { id, newTitle in Task { await rename(id: id, to: newTitle) } },
+            // Both accept — see `ResearchView.treeActions` for why the answer is
+            // `true` and why it is now stated rather than assumed.
             internalDrop: { draggedId, position, target in
                 Task { await handleInternalDrop(
                     draggedId: draggedId, position: position,
                     target: target, scope: scope) }
+                return true
             },
             externalDrop: { providers, position, target in
                 if position == .middle && target.type == .group {
@@ -228,6 +233,7 @@ struct CollectionResearchPane: View {
                 } else {
                     Task { await importExternal(providers, scope: scope) }
                 }
+                return true
             },
             newNote: { parentId in
                 if let parentId {
@@ -640,6 +646,16 @@ struct CollectionResearchPane: View {
     /// Back-stop drop handler for a section's header and empty-state row — the
     /// two targets that catch an internal drag when the Section-level
     /// `.dropDestination` can't (an empty section has no live drop region).
+    ///
+    /// **Its four call sites had been discarding this `Bool` since they were
+    /// written** (found by stage-2a Task 4's fix-round-2 warning sweep; the
+    /// compiler had been saying `result of call to 'sectionDropHandler(ids:scope:)'
+    /// is unused` at all four). Without `-> Bool` on the closure the call bound
+    /// to a Void-returning `dropDestination` overload, so a payload this guard
+    /// rejects was ACCEPTED on screen and then did nothing. Nothing else moved:
+    /// the guard already ran, and no store call was reached either way — the
+    /// only change is that a drag this pane was always going to ignore now
+    /// springs back instead of animating home.
     /// Guards the payload exactly as `moveToSection` does (non-empty, and the
     /// dragged id must exist in the tree — same TreeWalk existence check), then
     /// routes to it. Returns whether the drop was accepted.

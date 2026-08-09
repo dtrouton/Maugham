@@ -53,6 +53,12 @@ final class BinderProjectRowTests: XCTestCase {
     private var temp: TempDirectory!
     private var windows: [NSWindow] = []
 
+    /// Rows the Research and Palette sections contribute at the foot of the
+    /// tree when a project has neither yet (stage-2a Task 4): a header and one
+    /// placeholder row each. Every fixture in this suite is a bare factory
+    /// novel, so every count below is "what the binder had, plus the furniture".
+    private let emptySectionRows = (1 + 1) + (1 + 1)
+
     override func setUp() async throws {
         temp = TempDirectory()
     }
@@ -73,9 +79,11 @@ final class BinderProjectRowTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window),
                                   "the binder's List never reached the hierarchy")
 
-        XCTAssertEqual(table.numberOfRows, 1 + flatStructureRowCount(store),
+        XCTAssertEqual(table.numberOfRows,
+                       1 + flatStructureRowCount(store) + emptySectionRows,
                        "the project row should be one row, at the head, and "
-                       + "should not have displaced a chapter")
+                       + "should not have displaced a chapter — with the two "
+                       + "sections' furniture below all of it")
     }
 
     // MARK: - Selecting it, through the list
@@ -170,16 +178,46 @@ final class BinderProjectRowTests: XCTestCase {
     ///   stopped being row zero.
     ///
     /// One row means neither can come back without this going red.
-    func test_theEmptyBinderHasExactlyOneRowAndItIsTheProject() async throws {
+    ///
+    /// **The count is now the project row plus the sections' furniture**
+    /// (stage-2a Task 4) — and the assertion is unchanged in what it protects:
+    /// the "No documents yet" message must contribute NO row of its own. The
+    /// sections' placeholder rows are untagged too, which is exactly why the
+    /// trees' selection binding refuses a `nil` write; that is measured in
+    /// `BinderTreeSectionsTests`.
+    func test_theEmptyBinderHasNoRowForItsMessageAndTheProjectIsStillTheHead() async throws {
         let store = try await novelWithNothingLeftInIt(named: "EmptyRow")
         let (window, probe) = try await host(store: store)
         let table = try XCTUnwrap(firstTableView(in: window))
 
-        XCTAssertEqual(table.numberOfRows, 1,
+        XCTAssertEqual(table.numberOfRows, 1 + emptySectionRows,
                        "the message must not be a row — an untagged row writes "
                        + "nil through the selection binding when it is clicked")
         await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project)
+    }
+
+    /// **The overlay grew something to cover** (stage-2a Task 4). It is sized to
+    /// the whole list, and the Research and Palette sections now live inside
+    /// that list — so an empty binder, which is the state a writer gathers
+    /// research in before there is a chapter to put it near, is exactly where an
+    /// overlay that took the clicks would cost the most. Asked of every row, of
+    /// AppKit, rather than reasoned about: `select(row:)` drives the table
+    /// directly and proves nothing about hit-testing.
+    func test_theEmptyStateOverlayDoesNotSwallowAnyRowBeneathIt() async throws {
+        let store = try await novelWithNothingLeftInIt(named: "EmptyHit")
+        let (window, _) = try await host(store: store)
+        let table = try XCTUnwrap(firstTableView(in: window))
+        XCTAssertEqual(table.numberOfRows, 1 + emptySectionRows, "precondition")
+
+        for row in 0..<table.numberOfRows {
+            let hit = try XCTUnwrap(hitTestCentre(ofRow: row, in: table, window: window),
+                                    "nothing at all was hit at row \(row)'s centre")
+            XCTAssertTrue(hit.isDescendant(of: table),
+                          "the empty-state overlay must not intercept row "
+                          + "\(row)'s clicks — hit \(type(of: hit)) instead of "
+                          + "the table")
+        }
     }
 
     // MARK: - The delete path
@@ -264,6 +302,16 @@ final class BinderProjectRowTests: XCTestCase {
         var found: [NSTableView] = []
         collect(NSTableView.self, in: root, into: &found)
         return found.first
+    }
+
+    /// What AppKit says is at the centre of `row`, asked of the window's whole
+    /// content view so anything layered above the table gets its chance first.
+    private func hitTestCentre(ofRow row: Int, in table: NSTableView,
+                               window: NSWindow) -> NSView? {
+        guard let content = window.contentView else { return nil }
+        let rect = table.rect(ofRow: row)
+        let centre = CGPoint(x: rect.midX, y: rect.midY)
+        return content.hitTest(content.convert(centre, from: table))
     }
 
     /// Whether the row mounts the AppKit view SwiftUI installs for
