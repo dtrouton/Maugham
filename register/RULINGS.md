@@ -3,7 +3,7 @@
 **GENERATED from `register/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
 Regenerate with `python3 register/scripts/23-generate-rulings.py` after any ruling change.
 
-52 rulings, 4 principles.
+54 rulings, 4 principles.
 
 Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:
 applying a ruling to a new case means re-checking the basis, not pattern-matching the
@@ -552,6 +552,22 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 *basis:* Denver, 2026-08-09, structured question GAP-P6: chose the recommended 'Rule it generally' over case-by-case. Promotion's own case was already closed by the validate-first fix (a refused promotion leaves nothing behind), so this ruling is the standing sentence for every future operation.
 
 *settles:* GAP-P6. Filings gain a clause to cite when an operation can fail after its first write: either it validates first so a refusal leaves nothing behind (promotion's route), or its failure report names what it already did (this ruling's route). Silence about a partial change is a defect on sight.
+
+### RULING-53 — J — delete is normalised (RULING-15's family)  `RATIFIED_FROM_OPTIONS`
+
+> The inbox trash keeps the project trash's retention: a trashed capture ages out on the same 30-day clock, swept with the same quietness RULING-39 ratified — one retention story for every trash surface. The sweep disposes the ASSET and hides the row; the manifest row itself stays .trashed (a new status value would decode as .new on older phone builds and resurrect the capture — ADR 0015's own tolerance turned against it).
+
+*basis:* Denver, 2026-08-09, structured question GAP-I1: chose the recommended 'Parity — 30-day sweep' over route-to-project-trash and keep-forever, with the mechanics (status-flip trash, unbounded audio accumulation, two trashes answering one question differently) presented first.
+
+*settles:* GAP-I1 (recorded in M8-IN-011's filing as the retention divergence). The two-trash divergence closes: both age out at 30 days.
+
+### RULING-54 — B — never misrepresent (RULING-7's family)  `RATIFIED_FROM_OPTIONS`
+
+> A reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty; lenient reads are opt-in with a recorded reason. RULING-7's 'unreadable is never presented as empty' becomes the DEFAULT contract for storage readers, not a per-surface conviction. The four existing lenient consumers of JSONLAppendStore.load (op log, checkpoints, publications, tasks) get a scheduled sweep, OP LOG FIRST — an unreadable op-log file at document load presenting the manuscript as shorter than it is would be the forbidden shape at the highest-stakes surface.
+
+*basis:* Denver, 2026-08-09, structured question GAP-I2: chose the recommended 'Rule it generally' over op-log-only-now and case-by-case.
+
+*settles:* GAP-I2 (the Inbox filings' shared-layer residual). The inbox's loadStrict fix (6955c2d8) becomes the pattern; the sweep of the four consumers is queued in START-HERE, op log first, each with its own characterised loop because the surfacing UX differs per consumer.
 
 ## The enforcement gradient — how each ruling is held
 

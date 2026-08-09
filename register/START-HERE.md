@@ -168,7 +168,15 @@ pending" this section once carried is closed; the filings hold the details:
    systematic application of RULING-52's standing duty. After it, by writer-proximity:
    InboxStore, MCP/Tools (per RULING-21), checkpoint paths — the worthwhile set is roughly
    five or six more modules, not twenty (PLAN.md phase 4).
-2. **Small residuals**: RULING-30's presentation duty (verify-and-file); the two
+2. **RULING-54's strict-read sweep, op log first** (ruled 2026-08-09, GAP-I2):
+   `JSONLAppendStore.load` presents an unreadable-yet-present file as empty for
+   its four remaining consumers — the op log, checkpoints, publications, tasks.
+   Each migrates to `loadStrict` (the inbox's fix, 6955c2d8, is the pattern)
+   with its own characterised loop, because the surfacing UX differs per
+   consumer. THE OP LOG IS FIRST: an unreadable op-log file at document load
+   presenting the manuscript as shorter than it is would be RULING-7's
+   forbidden shape at the highest-stakes surface.
+3. **Small residuals**: RULING-30's presentation duty (verify-and-file); the two
    formal-methods findings (§8.2/§8.4); the audio-capture nuance.
 3. **The gap queue is EMPTY again as of 2026-08-09's P-gap sitting** — Promotion's five
    substantive gaps ruled (RULING-48..52): P1 research-protection (bridge ratified, milestone

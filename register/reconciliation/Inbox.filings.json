@@ -1,174 +1,180 @@
 [
-  {
-    "claim_id": "M8-IN-001",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-7",
-    "clause_that_reaches_it": "Maugham never misrepresents a failure",
-    "why_in_scope": "the body write is on the throwing path before the flip — a failed write is a failed promotion, never an empty note reported as success",
-    "intent_expressed_when": "not at all",
-    "call_path": "InboxPane Promote to Research / MCP promote_inbox_entry",
-    "violation_or_enhancement": "violation — the write joins the throwing path before the flip",
-    "fix": {
-      "commit": "6955c2d8",
-      "date": "2026-08-09",
-      "authorised_by": "RULING-7 (standing)",
-      "pinned_by": "InboxCharacterization.test_theResearchTextPromoteBodyWriteThrows"
-    }
-  },
-  {
-    "claim_id": "M8-IN-002",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-7",
-    "clause_that_reaches_it": "Maugham never misrepresents a failure",
-    "why_in_scope": "the asset arm adopts the palette ordering (copy, throwing flip, retire-after): a failed flip throws on both surfaces, the original stays, the retry succeeds",
-    "intent_expressed_when": "not at all",
-    "call_path": "InboxPane Promote to Research / MCP promote_inbox_entry",
-    "violation_or_enhancement": "violation — adopt the palette ordering (copy → throwing flip → retire)",
-    "fix": {
-      "commit": "6955c2d8",
-      "date": "2026-08-09",
-      "authorised_by": "RULING-7 (standing)",
-      "pinned_by": "InboxCharacterization.test_aResearchAssetPromoteWhoseFlipFailsThrowsAndTheRetryLives; InboxPromoteTests.test_aFailedStatusFlipThrowsAndLeavesTheOriginalSoARetrySucceeds"
-    }
-  },
-  {
-    "claim_id": "M8-IN-003",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-8",
-    "clause_that_reaches_it": "a second code path may not answer the same question differently",
-    "why_in_scope": "the image arm converges on retry via byte-equal dedup against the well's most recent image — the note arm's convergence, one kind over",
-    "intent_expressed_when": "not at all",
-    "call_path": "pane or MCP palette promote, retried",
-    "violation_or_enhancement": "violation — byte-equal dedup against the well's images",
-    "fix": {
-      "commit": "6955c2d8",
-      "date": "2026-08-09",
-      "authorised_by": "RULING-8 (standing)",
-      "pinned_by": "InboxCharacterization.test_aPaletteImageRetryConverges; InboxPromoteTests.test_aPaletteImageRetryDoesNotAppendASecondCopy"
-    }
-  },
-  {
-    "claim_id": "M8-IN-004",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-8",
-    "clause_that_reaches_it": "a second code path may not answer the same question differently",
-    "why_in_scope": "the capture node id is derived (cap-<entryId>) and both CanvasCapture arms skip a node already present — the failed-flip retry lands on the same card, the second-drop-reveals shape",
-    "intent_expressed_when": "not at all",
-    "call_path": "Send to Canvas, retried",
-    "violation_or_enhancement": "violation — derive the capture node id; a re-send lands on the same node",
-    "fix": {
-      "commit": "6955c2d8",
-      "date": "2026-08-09",
-      "authorised_by": "RULING-8 (standing)",
-      "pinned_by": "InboxCharacterization.test_aCanvasRetryConvergesOnTheSameCard; InboxToCanvasTests.test_aRetryAfterAFailedFlipLandsOnTheSameCard"
-    }
-  },
-  {
-    "claim_id": "M8-IN-005",
-    "outcome": "NO_RULING_REACHES",
-    "reason": "deliberate best-effort with the trade defended in place: the promotion has succeeded, the duplicate is a cost not a loss, and RULING-15's normalisation is already satisfied (the removal that replaced removeItem IS the trash move). The invisible-leftover residue is an absence of information, RULING-22's own out-of-scope note. Recorded, not stretched"
-  },
-  {
-    "claim_id": "M8-IN-006",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-22",
-    "clause_that_reaches_it": "controls are unambiguous and DO WHAT THEY SAY",
-    "why_in_scope": "the pane's transitions ride throwing siblings (trashThrowing/restoreThrowing/updateTranscriptThrowing) and a failed append surfaces through the existing alert",
-    "intent_expressed_when": "the channel: contemporaneous. The silence: not at all",
-    "call_path": "any pane transition under a failing disk",
-    "violation_or_enhancement": "violation — the pane surfaces a failed transition through its existing alert",
-    "fix": {
-      "commit": "6955c2d8",
-      "date": "2026-08-09",
-      "authorised_by": "RULING-22 (standing)",
-      "pinned_by": "InboxCharacterization.test_aTrashClickWhoseAppendFailsIsSilent (the store-level channel, which the worker keeps); the pane wiring in InboxPane"
-    }
-  },
-  {
-    "claim_id": "M8-IN-007",
-    "outcome": "NO_RULING_REACHES",
-    "reason": "a crash window between two writes on the phone: no report is possible at the moment of failure, the capture's words (text arm) are unaffected, and the orphan is bytes the writer never saw listed. RULING-4 reaches loss the writer would look for; an asset that never gained a row was never visible anywhere. Residual recorded: a sweep or row-first ordering would close it; neither is owed by a current ruling"
-  },
-  {
-    "claim_id": "M8-IN-008",
-    "outcome": "NO_RULING_REACHES",
-    "reason": "deliberate scope, recorded at the tool header (read + promote only): the MCP surface has no trash capability, so not resolving trashed entries is the scope holding, not two surfaces disagreeing about a fact. The refusal's 'already resolved' wording covers the trashed state honestly enough; sharpening it to name the pane's restore is an enhancement, not a defect"
-  },
-  {
-    "claim_id": "M8-IN-009",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-4",
-    "clause_that_reaches_it": "words the writer authored are ALWAYS recoverable; nothing is lost without a trace",
-    "why_in_scope": "captures are authored words crossing devices: the monotonic writtenAt + last-wins merge is what keeps every device's writes recoverable through the sync — the smoke-caught infinite-retranscribe loop was exactly this clause failing before the +1ms stamp",
-    "intent_expressed_when": "contemporaneous — appendThrowing's doc comment",
-    "call_path": "every cross-device sync",
-    "violation_or_enhancement": "neither"
-  },
-  {
-    "claim_id": "M8-IN-010",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-7",
-    "clause_that_reaches_it": "Maugham never misrepresents a failure; a refusal names its real cause",
-    "why_in_scope": "a failed transcription lands as .failed with its reason carried in transcriptionError and the draft preserved — the failure is represented AS a failure, named, and never silently retried",
-    "intent_expressed_when": "contemporaneous — the worker's doc comment",
-    "call_path": "every audio capture on Apple Silicon",
-    "violation_or_enhancement": "neither"
-  },
-  {
-    "claim_id": "M8-IN-011",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-15",
-    "clause_that_reaches_it": "delete is normalised: nothing is unlinked; recovery is restore from trash",
-    "why_in_scope": "the capture trash is stricter than the ruling demands — nothing is ever disposed at all, and restore is a clean flip. The residue (trashed captures accumulate forever, unlike the project trash's 30-day sweep) is a RETENTION divergence the ruling does not reach; recorded as a gap candidate for a future sitting rather than stretched into a conviction",
-    "intent_expressed_when": "contemporaneous",
-    "call_path": "the pane's trash view",
-    "violation_or_enhancement": "neither"
-  },
-  {
-    "claim_id": "M8-IN-012",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-7",
-    "clause_that_reaches_it": "Unreadable is never presented as empty",
-    "why_in_scope": "refresh() reads via JSONLAppendStore.loadStrict, records unreadable files in unreadableManifests, and the pane shows a notice naming them",
-    "intent_expressed_when": "not at all",
-    "call_path": "a permissions break, an iCloud stub, or any unreadable inbox file",
-    "violation_or_enhancement": "violation — refresh() records unreadable files and the pane says so",
-    "fix": {
-      "commit": "6955c2d8",
-      "date": "2026-08-09",
-      "authorised_by": "RULING-7 (standing)",
-      "pinned_by": "InboxCharacterization.test_anUnreadableDeviceManifestIsRecordedNotSilent; InboxStoreLastWinsTests.test_anUnreadableManifestIsRecordedNotSilentlyEmpty"
-    }
-  },
-  {
-    "_summary": {
-      "reached": 9,
-      "complies": 9,
-      "violates": 0,
-      "no_ruling": 3,
-      "total": 12,
-      "coverage": "75%",
-      "by_ruling": {
-        "RULING-15": [
-          "M8-IN-011"
-        ],
-        "RULING-22": [
-          "M8-IN-006"
-        ],
-        "RULING-4": [
-          "M8-IN-009"
-        ],
-        "RULING-7": [
-          "M8-IN-001",
-          "M8-IN-002",
-          "M8-IN-010",
-          "M8-IN-012"
-        ],
-        "RULING-8": [
-          "M8-IN-003",
-          "M8-IN-004"
-        ]
-      }
-    }
+ {
+  "claim_id": "M8-IN-001",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure",
+  "why_in_scope": "the body write is on the throwing path before the flip — a failed write is a failed promotion, never an empty note reported as success",
+  "intent_expressed_when": "not at all",
+  "call_path": "InboxPane Promote to Research / MCP promote_inbox_entry",
+  "violation_or_enhancement": "violation — the write joins the throwing path before the flip",
+  "fix": {
+   "commit": "6955c2d8",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-7 (standing)",
+   "pinned_by": "InboxCharacterization.test_theResearchTextPromoteBodyWriteThrows"
   }
+ },
+ {
+  "claim_id": "M8-IN-002",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure",
+  "why_in_scope": "the asset arm adopts the palette ordering (copy, throwing flip, retire-after): a failed flip throws on both surfaces, the original stays, the retry succeeds",
+  "intent_expressed_when": "not at all",
+  "call_path": "InboxPane Promote to Research / MCP promote_inbox_entry",
+  "violation_or_enhancement": "violation — adopt the palette ordering (copy → throwing flip → retire)",
+  "fix": {
+   "commit": "6955c2d8",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-7 (standing)",
+   "pinned_by": "InboxCharacterization.test_aResearchAssetPromoteWhoseFlipFailsThrowsAndTheRetryLives; InboxPromoteTests.test_aFailedStatusFlipThrowsAndLeavesTheOriginalSoARetrySucceeds"
+  }
+ },
+ {
+  "claim_id": "M8-IN-003",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "a second code path may not answer the same question differently",
+  "why_in_scope": "the image arm converges on retry via byte-equal dedup against the well's most recent image — the note arm's convergence, one kind over",
+  "intent_expressed_when": "not at all",
+  "call_path": "pane or MCP palette promote, retried",
+  "violation_or_enhancement": "violation — byte-equal dedup against the well's images",
+  "fix": {
+   "commit": "6955c2d8",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-8 (standing)",
+   "pinned_by": "InboxCharacterization.test_aPaletteImageRetryConverges; InboxPromoteTests.test_aPaletteImageRetryDoesNotAppendASecondCopy"
+  }
+ },
+ {
+  "claim_id": "M8-IN-004",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "a second code path may not answer the same question differently",
+  "why_in_scope": "the capture node id is derived (cap-<entryId>) and both CanvasCapture arms skip a node already present — the failed-flip retry lands on the same card, the second-drop-reveals shape",
+  "intent_expressed_when": "not at all",
+  "call_path": "Send to Canvas, retried",
+  "violation_or_enhancement": "violation — derive the capture node id; a re-send lands on the same node",
+  "fix": {
+   "commit": "6955c2d8",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-8 (standing)",
+   "pinned_by": "InboxCharacterization.test_aCanvasRetryConvergesOnTheSameCard; InboxToCanvasTests.test_aRetryAfterAFailedFlipLandsOnTheSameCard"
+  }
+ },
+ {
+  "claim_id": "M8-IN-005",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "deliberate best-effort with the trade defended in place: the promotion has succeeded, the duplicate is a cost not a loss, and RULING-15's normalisation is already satisfied (the removal that replaced removeItem IS the trash move). The invisible-leftover residue is an absence of information, RULING-22's own out-of-scope note. Recorded, not stretched"
+ },
+ {
+  "claim_id": "M8-IN-006",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "controls are unambiguous and DO WHAT THEY SAY",
+  "why_in_scope": "the pane's transitions ride throwing siblings (trashThrowing/restoreThrowing/updateTranscriptThrowing) and a failed append surfaces through the existing alert",
+  "intent_expressed_when": "the channel: contemporaneous. The silence: not at all",
+  "call_path": "any pane transition under a failing disk",
+  "violation_or_enhancement": "violation — the pane surfaces a failed transition through its existing alert",
+  "fix": {
+   "commit": "6955c2d8",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-22 (standing)",
+   "pinned_by": "InboxCharacterization.test_aTrashClickWhoseAppendFailsIsSilent (the store-level channel, which the worker keeps); the pane wiring in InboxPane"
+  }
+ },
+ {
+  "claim_id": "M8-IN-007",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "a crash window between two writes on the phone: no report is possible at the moment of failure, the capture's words (text arm) are unaffected, and the orphan is bytes the writer never saw listed. RULING-4 reaches loss the writer would look for; an asset that never gained a row was never visible anywhere. Residual recorded: a sweep or row-first ordering would close it; neither is owed by a current ruling"
+ },
+ {
+  "claim_id": "M8-IN-008",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "deliberate scope, recorded at the tool header (read + promote only): the MCP surface has no trash capability, so not resolving trashed entries is the scope holding, not two surfaces disagreeing about a fact. The refusal's 'already resolved' wording covers the trashed state honestly enough; sharpening it to name the pane's restore is an enhancement, not a defect"
+ },
+ {
+  "claim_id": "M8-IN-009",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "words the writer authored are ALWAYS recoverable; nothing is lost without a trace",
+  "why_in_scope": "captures are authored words crossing devices: the monotonic writtenAt + last-wins merge is what keeps every device's writes recoverable through the sync — the smoke-caught infinite-retranscribe loop was exactly this clause failing before the +1ms stamp",
+  "intent_expressed_when": "contemporaneous — appendThrowing's doc comment",
+  "call_path": "every cross-device sync",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M8-IN-010",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure; a refusal names its real cause",
+  "why_in_scope": "a failed transcription lands as .failed with its reason carried in transcriptionError and the draft preserved — the failure is represented AS a failure, named, and never silently retried",
+  "intent_expressed_when": "contemporaneous — the worker's doc comment",
+  "call_path": "every audio capture on Apple Silicon",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M8-IN-011",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-53",
+  "clause_that_reaches_it": "the inbox trash keeps the project trash's retention: 30 days, swept quietly",
+  "why_in_scope": "the retention divergence this filing recorded as a gap candidate went to Denver (GAP-I1) and came back ruled: parity. The sweep runs in refresh() on RULING-39's clock, disposes assets only (the row stays .trashed — a new status value would decode as .new on older phone builds and resurrect the capture), and the pane's trash rows now show the same sweeps-in-N-days clock the project trash shows",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "the pane's trash view",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "PENDING",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-53 (Denver, 2026-08-09, GAP-I1, recommended option)",
+   "pinned_by": "InboxStoreLastWinsTests.test_aTrashedCaptureAgesOutAtThirtyDaysAndAFreshOneSurvives"
+  }
+ },
+ {
+  "claim_id": "M8-IN-012",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Unreadable is never presented as empty",
+  "why_in_scope": "refresh() reads via JSONLAppendStore.loadStrict, records unreadable files in unreadableManifests, and the pane shows a notice naming them",
+  "intent_expressed_when": "not at all",
+  "call_path": "a permissions break, an iCloud stub, or any unreadable inbox file",
+  "violation_or_enhancement": "violation — refresh() records unreadable files and the pane says so",
+  "fix": {
+   "commit": "6955c2d8",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-7 (standing)",
+   "pinned_by": "InboxCharacterization.test_anUnreadableDeviceManifestIsRecordedNotSilent; InboxStoreLastWinsTests.test_anUnreadableManifestIsRecordedNotSilentlyEmpty"
+  }
+ },
+ {
+  "_summary": {
+   "reached": 9,
+   "complies": 9,
+   "violates": 0,
+   "no_ruling": 3,
+   "total": 12,
+   "coverage": "75%",
+   "by_ruling": {
+    "RULING-22": [
+     "M8-IN-006"
+    ],
+    "RULING-4": [
+     "M8-IN-009"
+    ],
+    "RULING-53": [
+     "M8-IN-011"
+    ],
+    "RULING-7": [
+     "M8-IN-001",
+     "M8-IN-002",
+     "M8-IN-010",
+     "M8-IN-012"
+    ],
+    "RULING-8": [
+     "M8-IN-003",
+     "M8-IN-004"
+    ]
+   }
+  }
+ }
 ]
