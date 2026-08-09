@@ -17,16 +17,168 @@
   }
  },
  {
+  "claim_id": "M7-PB-002",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-52",
+  "clause_that_reaches_it": "either it validates first so a refusal leaves nothing behind, or its failure report names what it already did",
+  "why_in_scope": "the refusal half takes RULING-52's first route: every guard runs before any durable mutation except the deliberate EMISSION.md refresh (filed separately, M7-PB-004), the job terminates .failed with the cause, and a retry meets a clean project",
+  "intent_expressed_when": "contemporaneous — the guards' own messages name remedies",
+  "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M7-PB-003",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-52",
+  "clause_that_reaches_it": "validates first — a refusal (or a question) leaves nothing behind",
+  "why_in_scope": "dry_run is the pure question form: gates run, verdict returns, nothing durable moves, and the mint gate is neither charged nor released for it (M1's own exemption reasoning)",
+  "intent_expressed_when": "contemporaneous — F2's design",
+  "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile dry_run:true",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M7-PB-004",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "the unconditional EMISSION.md refresh is a deliberate app-owned-doc policy (F5): the file is generated, carries no writer content, and refreshing it on refused compiles is the point — an agent reading it must never meet a stale copy. No ruling governs when Maugham may rewrite its own generated documentation inside the project; RULING-52's 'changed the project' is not credibly read to cover it, and stretching would be discipline 3's symptom-matching"
+ },
+ {
+  "claim_id": "M7-PB-005",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "a compile that dies is never reported as still compiling",
+  "why_in_scope": "any error thrown after the first durable mutation now surfaces as .failed through the DurableProgress catch: the job is terminalised with the honest diagnostic, compile_status tells the truth, the pill stops",
+  "intent_expressed_when": "not at all — no comment anywhere accepts a stranded job",
+  "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile; every thrown exit after jobManager.register",
+  "violation_or_enhancement": "violation — behaviour change owed (terminalise the job on the thrown path)",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-7 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_aFailureAfterMutationNamesWhatLandedAndTheJobIsTerminal; CompileOrchestratorTests.test_aFailureAfterMutationNamesWhatLandedAndTerminalisesTheJob"
+  }
+ },
+ {
+  "claim_id": "M7-PB-006",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-52",
+  "clause_that_reaches_it": "an operation that has already changed the project and then fails says what it did as well as what failed",
+  "why_in_scope": "the DurableProgress ledger records each durable step as it lands; the failure diagnostic's context names the export, the snapshot and the catalog row that survive, and states that everything unlisted did not happen",
+  "intent_expressed_when": "not at all",
+  "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+  "violation_or_enhancement": "violation — the failure report must name what landed",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-52 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_aFailureAfterMutationNamesWhatLandedAndTheJobIsTerminal; RepublisherTests.test_aRepublishFailureAfterTheMoveNamesTheMovedFile"
+  }
+ },
+ {
+  "claim_id": "M7-PB-007",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-52",
+  "clause_that_reaches_it": "the report half of the TODO window",
+  "why_in_scope": "the ordering (append before bump) and the TODO stand — the ruling demands the report, and the ledger now supplies it: a bump failure names the committed catalog row and says the counter did not advance",
+  "intent_expressed_when": "the ordering: contemporaneous (the TODO). The silence: not at all",
+  "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+  "violation_or_enhancement": "violation — the report half only; the two-phase commit stays future work",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-52 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_theCatalogAppendPrecedesTheVersionBumpAndTheTodoStandsWitness"
+  }
+ },
+ {
+  "claim_id": "M7-PB-008",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "one refusal for one question on both paths",
+  "why_in_scope": "PDFCompiler/EPUBCompiler refuse an occupied destination by default (shared OutputFilenameBuilder.occupiedDestinationRefusal — one spelling, matching republish); previews and the font spike opt into replacement explicitly because their filenames are reused by design",
+  "intent_expressed_when": "not at all — the delete predates the republish guard and was never revisited",
+  "call_path": "MCP set_publish_config (template without {version}) then two compiles",
+  "violation_or_enhancement": "violation — the compile path owes the republish path's refusal (scoped so previews, which overwrite deliberately, keep overwriting)",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-8 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_anOccupiedDestinationRefusesAndTheEarlierRecordsBytesSurvive; CompileOrchestratorTests.test_anOccupiedDestinationRefusesRatherThanReplacingAnEarlierRecordsBytes; PreviewCompilerTests.testPreview_overwritesItsOwnPriorOutput"
+  }
+ },
+ {
+  "claim_id": "M7-PB-009",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "cancelled means cancelled",
+  "why_in_scope": "terminal writers refuse to overwrite .cancelled, updatePhase never resurrects a terminal job, and both pipelines poll the token at the last exit before durable commit — Outcome.cancelled, nothing published, the staged artifact removed",
+  "intent_expressed_when": "not at all",
+  "call_path": "MCP compile_cancel during a compile",
+  "violation_or_enhancement": "violation — honour the token at phase boundaries and guard the terminal overwrite",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-22 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_cancelStandsAndTheTokenHasItsPreCommitPollers; CompileOrchestratorTests.test_aCancelledCompileDoesNotPublish; CompileJobManagerTests.testCancel_survivesALateTerminalWrite"
+  }
+ },
+ {
+  "claim_id": "M7-PB-010",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "a failure is never presented as a success",
+  "why_in_scope": "the no-config refusal rides Result.errors, so the tool renders the failed shape naming the cause and the remedy (initialize_publish_template)",
+  "intent_expressed_when": "not at all",
+  "call_path": "MCP preview_compile on an uninitialised project",
+  "violation_or_enhancement": "violation — return the cause in Result.errors so the tool reports failed",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-7 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_aPreviewWithNoConfigReportsItsCauseAsAFailure; PreviewCompilerTests.testPreview_withNoConfigReturnsTheCauseAsAnError"
+  }
+ },
+ {
+  "claim_id": "M7-PB-011",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "both pipelines answer the pane the same way",
+  "why_in_scope": "Republisher posts maughamPublicationCompleted project-scoped after its catalog append, exactly as the orchestrator does",
+  "intent_expressed_when": "not at all",
+  "call_path": "MCP republish with the project window open",
+  "violation_or_enhancement": "violation — republish posts the same project-scoped event",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-8 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_theCompletionEventIsPostedByBothPipelines; RepublisherTests.test_republishPostsTheCompletionEventTheExportsPaneRefreshesOn"
+  }
+ },
+ {
   "_summary": {
-   "reached": 1,
-   "complies": 1,
+   "reached": 10,
+   "complies": 10,
    "violates": 0,
-   "no_ruling": 0,
-   "total": 1,
-   "coverage": "100%",
+   "no_ruling": 1,
+   "total": 11,
+   "coverage": "91%",
    "by_ruling": {
+    "RULING-22": [
+     "M7-PB-009"
+    ],
+    "RULING-52": [
+     "M7-PB-002",
+     "M7-PB-003",
+     "M7-PB-006",
+     "M7-PB-007"
+    ],
+    "RULING-7": [
+     "M7-PB-005",
+     "M7-PB-010"
+    ],
     "RULING-8": [
-     "M7-PB-001"
+     "M7-PB-001",
+     "M7-PB-008",
+     "M7-PB-011"
     ]
    }
   }

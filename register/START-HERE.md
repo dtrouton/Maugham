@@ -53,9 +53,9 @@ why. **Read `register/RULINGS.md` and nothing else.**
 | `OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`) | 35 | 60% | 21 / 0 | `24-rewind-reconciliation.md` |
 | `OpLog/Document+Annotations` (+`AnnotationDeriver`, `AnnotationInverse`) | 57 | 35% | 20 / 0 | `28-annotations-reconciliation.md` |
 | `Canvas/Promotion*` (the falsification module) | 78 | 67% | 52 / 0 | `29-promotion-falsification.md` |
-| `Publish/Republisher` (+`CompileOrchestrator`) | 1 | 100% | 1 / 0 | — |
+| `Publish/Republisher` (+`CompileOrchestrator`) | 11 | 91% | 10 / 0 | — |
 
-The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 235 further claims in their own files. **404 claims in the experiment, 383 reconciled.** The app layer stands at **136 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
+The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 245 further claims in their own files. **414 claims in the experiment, 393 reconciled.** The app layer stands at **145 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
 App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`).
 
@@ -140,32 +140,35 @@ test.** Treat every entry as a lead. Of the ones checked so far:
   `Maugham/Stores/AREA.md` point at their filings; the constitution↔rulings precedence paragraph is
   in `RECONCILE.md`.
 
-## Ruled 2026-08-08, round 2 (three of four with NO recommendation offered — the mitigation)
+## Ruled 2026-08-08, round 2 — ALL FOUR FIX LOOPS RAN in phase 2 (2026-08-08/09)
 
-- **RULING-26** — accepted status rides travel too: forward travel restores an accept to
-  `.accepted`, closing the accepted-then-archived residual. Fix loop pending in step 9.
+Three of the four were ruled with NO recommendation offered (the mitigation). Every "fix loop
+pending" this section once carried is closed; the filings hold the details:
+
+- **RULING-26** — accepted status rides travel too. Fixed `dfe2a77b` (M4-RW-035; M4-RW-036 is
+  its composition claim).
 - **RULING-27** — a missing moment restores to the NEAREST SURVIVING MOMENT, named in a notice
-  that itself carries Revert. **The revert clause is Denver's own addition, offered by no option**
-  — the strongest provenance of the questionnaire era. Convicts M4-RW-003/008/022's silent
-  restore-to-the-present with a specified replacement. Fix loop pending.
-- **RULING-28** — the collateral report has two halves: the confirm sheet states the full set
-  (archives AND reopens) before commit, the post-restore report confirms what happened.
-  `ProjectWindow`'s `_ =` discard and the impactSummary's omissions are now clean defects. Fix
-  loop pending.
-- **RULING-29** — any archived or rejected annotation is reopenable from the annotations pane;
-  resolution is the writer's to reverse. `reopenAnnotation` gains its first non-undo caller.
-  Fix pending, best built after the Document+Annotations characterisation pins that module.
+  that itself carries Revert. **The revert clause is Denver's own addition, offered by no
+  option** — the strongest provenance of the questionnaire era. Fixed `6b15e905`
+  (M4-RW-008/022).
+- **RULING-28** — the collateral report has two halves. `ProjectWindow`'s `_ =` discard and
+  the impactSummary's omissions fixed; M4-RW-038 pins the composition. RULING-52 (2026-08-09)
+  is this family's completing sentence: a PARTIAL failure names both halves, standing for
+  every future operation.
+- **RULING-29** — any archived or rejected annotation is reopenable from the annotations pane.
+  Fixed `5ea5b860` (M5-AN-039); `reopenAnnotation`'s first non-undo caller exists.
 
 ## Open, and ordered by what I would do next
 
-1. **The four fix loops above**, smallest first: RULING-26 (step 9's accepted branch, fully
-   claim-covered today), then 27+28 together (both live at the restore boundary and its
-   rendering), then 29 (after the module below is characterised).
-2. **Next module: `Maugham/OpLog/Document+Annotations.swift`.** Now quadruply motivated — RULING-25
-   and RULING-29 both get tested against pinned claims there, GAP-R2's fix lands there, and the
-   verifier's not-chased thread (can a merge append into a live mirror unsorted?) is its probe
-   target. `Maugham/Canvas/Promotion*.swift` (75% survey specificity) remains the harder
-   falsification of the sampling correction.
+1. **Phase 4's module sweep, RULING-52-first** (in progress 2026-08-09, branch
+   `claude/publications-claims`): extend the Publications module — the compile/republish
+   pipeline is the newest module (1 claim, born with #25's work) and the densest set of
+   multi-step operations that can fail after their first write, which makes it the first
+   systematic application of RULING-52's standing duty. After it, by writer-proximity:
+   InboxStore, MCP/Tools (per RULING-21), checkpoint paths — the worthwhile set is roughly
+   five or six more modules, not twenty (PLAN.md phase 4).
+2. **Small residuals**: RULING-30's presentation duty (verify-and-file); the two
+   formal-methods findings (§8.2/§8.4); the audio-capture nuance.
 3. **The gap queue is EMPTY again as of 2026-08-09's P-gap sitting** — Promotion's five
    substantive gaps ruled (RULING-48..52): P1 research-protection (bridge ratified, milestone
    scheduled into `docs/roadmap.md`), P2 Name-withholding on Rewrite, P3 link identity

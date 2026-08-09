@@ -74,6 +74,8 @@ final class RepublisherTests: XCTestCase {
             XCTFail("republish failed: errors=\(errors.map(\.message)) log=\(log.prefix(300))")
         case .dryRunPassed:
             XCTFail("republish never produces dry_run_passed")
+        case .cancelled:
+            XCTFail("nothing cancelled this republish")
         }
     }
 
@@ -148,6 +150,8 @@ final class RepublisherTests: XCTestCase {
             XCTFail("republish failed: errors=\(errors.map(\.message)) log=\(log.prefix(300))")
         case .dryRunPassed:
             XCTFail("republish never produces dry_run_passed")
+        case .cancelled:
+            XCTFail("nothing cancelled this republish")
         }
     }
 
@@ -332,6 +336,8 @@ final class RepublisherTests: XCTestCase {
             XCTFail("republish failed: errors=\(errors.map(\.message)) log=\(log.prefix(300))")
         case .dryRunPassed:
             XCTFail("republish never produces dry_run_passed")
+        case .cancelled:
+            XCTFail("nothing cancelled this republish")
         }
     }
 
@@ -595,6 +601,102 @@ final class RepublisherTests: XCTestCase {
     /// P1 (issue #25): republish clobbered the ORIGINAL edition's artifact —
     /// the staged filename came from snap.config's pinned nextVersion. The
     /// original's bytes must survive a republish, verbatim.
+    /// RULING-52 + RULING-7 (fix for M7-PB-005/006 on the republish path):
+    /// with the catalog file made read-only after the original compile, the
+    /// republish's append throws AFTER the artifact has been moved into
+    /// Exports/ — the failure must name the moved file and terminalise the job.
+    func test_aRepublishFailureAfterTheMoveNamesTheMovedFile() async throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hello.")]
+            }
+        }
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Led", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        guard case .completed(let initialPub, _) = try await orch.compile(format: .epub, label: nil)
+        else { return XCTFail("fixture compile failed") }
+
+        let catalogURL = PublicationStore.fileURL(
+            deviceSlug: DeviceSlug.make(from: MacDeviceID.current), in: tmp)
+        try FileManager.default.setAttributes(
+            [.immutable: true], ofItemAtPath: catalogURL.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.immutable: false], ofItemAtPath: catalogURL.path)
+        }
+
+        let jobs = CompileJobManager()
+        let r = Republisher(
+            projectURL: tmp, astSource: Src(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: jobs,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .failed(let errors, _) = outcome else {
+            return XCTFail("the thrown append must surface as .failed, got \(outcome)")
+        }
+        let context = (errors.first?.contextLines ?? []).joined(separator: "\n")
+        XCTAssertTrue(context.contains("Exports/"),
+                      "the report names the moved artifact — found: \(context)")
+        let inFlight = await jobs.allInProgress()
+        XCTAssertTrue(inFlight.isEmpty, "the job is terminal, not stranded")
+    }
+
+    /// RULING-8 (fix for M7-PB-011): the Exports pane refreshes on
+    /// `.maughamPublicationCompleted`, and a republish lands a publication the
+    /// same as a compile does — so it posts the same project-scoped event.
+    /// One question ("does this edition exist?"), one answer on both paths.
+    func test_republishPostsTheCompletionEventTheExportsPaneRefreshesOn() async throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hello.")]
+            }
+        }
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Evt", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        guard case .completed(let initialPub, _) = try await orch.compile(format: .epub, label: nil)
+        else { return XCTFail("fixture compile failed") }
+
+        var receivedIDs: [String] = []
+        let observer = NotificationCenter.default.addObserver( // adr-0021-ok: headless test observes the post; the scoped receive helpers are View modifiers
+
+            forName: .maughamPublicationCompleted, object: nil, queue: nil
+        ) { note in
+            if let id = note.object as? String { receivedIDs.append(id) }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let r = Republisher(
+            projectURL: tmp, astSource: Src(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        guard case .completed(let repub, _) = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        else { return XCTFail("republish failed") }
+
+        XCTAssertEqual(receivedIDs, [repub.publicationID],
+                       "the republish posts the completion event with its own "
+                       + "publication id, exactly as the compile path does")
+    }
+
     func test_republishLeavesTheOriginalArtifactBytesUntouched() async throws {
         struct Src: ProjectASTBuilder.Source {
             func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
@@ -712,9 +814,11 @@ final class RepublisherTests: XCTestCase {
                       "a finished republish must hold no reservation, got: \(held)")
     }
 
-    /// A republish that THROWS mid-flight hands it back too — a plain file
-    /// where `Exports/` belongs makes the stage→Exports move's
-    /// `createDirectory` throw, well past the reservation point.
+    /// A republish whose reserved section throws hands its reservation back
+    /// too — a plain file where `Exports/` belongs makes the stage→Exports
+    /// move's `createDirectory` throw, well past the reservation point. Since
+    /// the RULING-52 fix the throw surfaces as a `.failed` outcome; the
+    /// release this test guards is unchanged.
     func testP2_republishReleasesItsReservationWhenItThrows() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
         try await configStore.save(PublishConfig(metadata: .init(title: "GateThrow", author: "T")))
@@ -742,12 +846,10 @@ final class RepublisherTests: XCTestCase {
             publicationStore: pubStore, snapshotStore: snapStore,
             jobManager: CompileJobManager(), mintGate: gate,
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
-        do {
-            _ = try await r.republish(
-                snapshotID: initialPub.snapshotID, format: .epub, label: nil)
-            return XCTFail("expected the republish to throw with a file where Exports/ belongs")
-        } catch {
-            // expected
+        let blocked = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .failed = blocked else {
+            return XCTFail("expected .failed with a file where Exports/ belongs, got \(blocked)")
         }
 
         let held = await gate._inFlightForTesting

@@ -64,8 +64,18 @@ public struct PreviewCompiler {
     ) async throws -> Result {
         let jobID = await jobManager.register(phase: .renderingBody)
         guard var config = try await configStore.load() else {
-            await jobManager.fail(jobID: jobID, errors: [], logExcerpt: "no config")
-            return Result(outputPath: "", warnings: [], errors: [])
+            // RULING-7 (M7-PB-010): the cause rides the Result, so the tool
+            // renders the failed shape — an empty `errors` here was read by
+            // `PreviewCompileTool` as success-with-an-empty-path, the failure
+            // presented as a success with the reason dropped on the floor.
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: "no publish config — run initialize_publish_template first.",
+                contextLines: [
+                    "Previews read .maugham/publish/config.json, which this project does not have yet."
+                ])
+            await jobManager.fail(jobID: jobID, errors: [diag], logExcerpt: "no config")
+            return Result(outputPath: "", warnings: [], errors: [diag])
         }
         // F5: previews are where template iteration lives, so refresh the
         // project's app-owned EMISSION.md here too — same unconditional
@@ -139,7 +149,8 @@ public struct PreviewCompiler {
                 projectURL: projectURL, astSource: filteredSrc,
                 config: config, jobManager: jobManager,
                 maughamVersion: maughamVersion, jobID: jobID,
-                language: language)
+                language: language,
+                replacesExistingOutput: true)
             let r = try await pdf.compile(label: "preview")
             let warnings = gateWarnings + r.warnings
             await jobManager.complete(jobID: jobID, outputPath: r.outputPath,
@@ -151,7 +162,8 @@ public struct PreviewCompiler {
                 config: config, jobManager: jobManager,
                 maughamVersion: maughamVersion,
                 tectonicVersion: tectonicVersion, jobID: jobID,
-                language: language)
+                language: language,
+                replacesExistingOutput: true)
             let r = try await e.compile(label: "preview")
             let warnings = gateWarnings + r.warnings
             await jobManager.complete(jobID: jobID, outputPath: r.outputPath,

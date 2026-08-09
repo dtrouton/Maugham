@@ -207,12 +207,16 @@ final class FontSpikeTests: XCTestCase {
     private func compileOnce(config: PublishConfig, label: String?) async throws -> Data {
         let astSource = ProjectStoreASTSource(projectStore: store)
         let jobManager = CompileJobManager()
+        // The spike deliberately recompiles to the same name to compare
+        // determinism, so it opts into replacement — the production default
+        // refuses an occupied destination (RULING-8, M7-PB-008).
         let compiler = try PDFCompiler(
             projectURL: projectURL,
             astSource: astSource,
             config: config,
             jobManager: jobManager,
-            maughamVersion: "0.0.0-test")
+            maughamVersion: "0.0.0-test",
+            replacesExistingOutput: true)
         let result = try await compiler.compile(label: label)
         guard !result.outputPath.isEmpty else {
             XCTFail("compile produced no output. errors=\(result.errors.map { $0.message }). log tail:\n" +
