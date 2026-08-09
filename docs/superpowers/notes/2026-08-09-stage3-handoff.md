@@ -19,8 +19,18 @@ reconciliation at `c873e206`, and the RULING-52 Publications sweep at
 `d379b2fe` — compilers now refuse an occupied destination by default via
 `replacesExistingOutput:`, `CompileOrchestrator.Outcome` gained
 `.cancelled`, thrown compile errors surface as `.failed` with a ledger);
-Denver's palette-name ruling (`d0860761`). Local main is reconciled through
-origin `050b3293`. Last full gates: clean (one chronic flake family,
+Denver's palette-name ruling (`d0860761`); two more smoke-find fixes (the
+fold indentation, `0c6903a3`; the unbreakable-height pane bug + its
+registry-walking census, `892d4f91`); and two further reconciliations —
+the Inbox register sweep, then the RULING-54 op-log slice — bringing
+local main to origin `c0a38d05`. **RULING-54 made `statementText` (and
+kin) THROW**: our four call sites adapted to the fringe-reader shape
+(`try?` with the reason recorded), with ONE residual recorded at
+`CompilerEnvironment+Project.swift`'s briefing closure — a
+declared-but-unreadable intent briefs as undeclared without a run-side
+signal; if that silence matters, the closure wants a throwing signature
+(register queue). One more one-sighting flake joined the ledger:
+`ScreenplaySingleParseTests.test_applyTypography_usesPassedScript_notReparse`. Last full gates: clean (one chronic flake family,
 discriminated by name every time — see "Flakes" below).
 
 **Two-clone topology**: the behavioural-spec/register sessions work in
