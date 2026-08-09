@@ -10,7 +10,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "INDIRECT \u2014 never a writer gesture; governs whether the typing hot path does annotation work at all",
+  "reachability": "INDIRECT — never a writer gesture; governs whether the typing hot path does annotation work at all",
   "evidence": {
    "property_test": null
   }
@@ -26,7 +26,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 the pane's default view; its 'show all statuses' toggle passes statuses: nil",
+  "reachability": "LIVE — the pane's default view; its 'show all statuses' toggle passes statuses: nil",
   "evidence": {
    "property_test": null
   }
@@ -42,7 +42,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 the pane's kind chips and the editor's per-paragraph marks",
+  "reachability": "LIVE — the pane's kind chips and the editor's per-paragraph marks",
   "evidence": {
    "property_test": null
   }
@@ -58,7 +58,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 the order of rows in the annotations pane",
+  "reachability": "LIVE — the order of rows in the annotations pane",
   "evidence": {
    "property_test": null
   }
@@ -67,14 +67,14 @@
   "claim_id": "M5-AN-005",
   "scope": "Document.annotations cache",
   "kind": "POSTCONDITION",
-  "statement": "nothing on the text-edit path invalidates the annotations cache \u2014 neither setParagraph nor setFullText. Once the cache is warm (which a rendered pane guarantees) isStale keeps reporting the PRE-edit answer until the next burst flush or the next annotation op",
+  "statement": "nothing on the text-edit path invalidates the annotations cache — neither setParagraph nor setFullText. Once the cache is warm (which a rendered pane guarantees) isStale keeps reporting the PRE-edit answer until the next burst flush or the next annotation op",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_theStaleFlagDoesNotFollowAParagraphEditUntilTheNextBurst"
   },
   "warrant": "HIGH",
   "intent": "UNKNOWN",
-  "reachability": "LIVE \u2014 every keystroke in a document with an open annotation. CAME OUT OPPOSITE TO THE READING",
+  "reachability": "LIVE — every keystroke in a document with an open annotation. CAME OUT OPPOSITE TO THE READING",
   "evidence": {
    "property_test": null
   }
@@ -90,7 +90,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 every MCP add_comment / add_query / add_suggested_change call",
+  "reachability": "LIVE — every MCP add_comment / add_query / add_suggested_change call",
   "evidence": {
    "property_test": null
   }
@@ -106,7 +106,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "UNTRACED \u2014 add_craft_note's JSON schema has no paragraph_id property and no other caller passes one for this kind",
+  "reachability": "UNTRACED — add_craft_note's JSON schema has no paragraph_id property and no other caller passes one for this kind",
   "evidence": {
    "property_test": null
   }
@@ -122,7 +122,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 every comment and query",
+  "reachability": "LIVE — every comment and query",
   "evidence": {
    "property_test": null
   }
@@ -138,7 +138,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 every suggested change",
+  "reachability": "LIVE — every suggested change",
   "evidence": {
    "property_test": null
   }
@@ -154,7 +154,7 @@
   },
   "warrant": "HIGH",
   "intent": "UNKNOWN",
-  "reachability": "LIVE \u2014 add_suggestion's schema requires suggested_text but a JSON empty string satisfies it; addReviewerAnnotation's parameter defaults to nil",
+  "reachability": "LIVE — add_suggestion's schema requires suggested_text but a JSON empty string satisfies it; addReviewerAnnotation's parameter defaults to nil",
   "evidence": {
    "property_test": null
   }
@@ -170,7 +170,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 body is a required MCP field but an empty string satisfies it",
+  "reachability": "LIVE — body is a required MCP field but an empty string satisfies it",
   "evidence": {
    "property_test": null
   }
@@ -186,7 +186,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 the review toolbar vs every MCP annotation",
+  "reachability": "LIVE — the review toolbar vs every MCP annotation",
   "evidence": {
    "property_test": null
   }
@@ -202,7 +202,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "UNTRACED \u2014 the editor derives the span from the live selection, so a production span resolves by construction at creation time",
+  "reachability": "UNTRACED — the editor derives the span from the live selection, so a production span resolves by construction at creation time",
   "evidence": {
    "property_test": null
   }
@@ -218,7 +218,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 add_query's optional language parameter",
+  "reachability": "LIVE — add_query's optional language parameter",
   "evidence": {
    "property_test": null
   }
@@ -234,7 +234,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 the pane's pencil affordance on the reviewer's own row",
+  "reachability": "LIVE — the pane's pencil affordance on the reviewer's own row",
   "evidence": {
    "property_test": null
   }
@@ -250,7 +250,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 the edit sheet leaves the replacement field untouched for a comment",
+  "reachability": "LIVE — the edit sheet leaves the replacement field untouched for a comment",
   "evidence": {
    "property_test": null
   }
@@ -266,7 +266,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "UNTRACED \u2014 the pane can only name ids the projection produced",
+  "reachability": "UNTRACED — the pane can only name ids the projection produced",
   "evidence": {
    "property_test": null
   }
@@ -275,7 +275,7 @@
   "claim_id": "M5-AN-018",
   "scope": "Document.editReviewerAnnotation",
   "kind": "POSTCONDITION",
-  "statement": "there is no status guard on editing: an archived annotation can be edited and stays archived, and a WITHDRAWN one can be edited invisibly \u2014 the edit is real and surfaces if the annotation is ever reopened",
+  "statement": "there is no status guard on editing: an archived annotation can be edited and stays archived, and a WITHDRAWN one can be edited invisibly — the edit is real and surfaces if the annotation is ever reopened",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_editHasNoTargetAndNoStatusGuard"
@@ -289,16 +289,16 @@
  },
  {
   "claim_id": "M5-AN-019",
-  "scope": "Document.editReviewerAnnotation \u2318Z",
+  "scope": "Document.editReviewerAnnotation ⌘Z",
   "kind": "GUARD",
-  "statement": "the edit's undo is drift-guarded: the compensating edit is appended only while the annotation still shows the body this action wrote. On drift it declines silently \u2014 the menu item still reads 'Undo Edit Annotation', nothing happens and nothing is said",
+  "statement": "the edit's undo is drift-guarded: the compensating edit is appended only while the annotation still shows the body this action wrote. On drift it declines silently — the menu item still reads 'Undo Edit Annotation', nothing happens and nothing is said",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_theEditUndoDeclinesSilentlyWhenTheAnnotationDrifted"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "RACE \u2014 needs a change to the same annotation between registration and \u2318Z: a cross-device merge, or the phone editing the same row",
+  "reachability": "RACE — needs a change to the same annotation between registration and ⌘Z: a cross-device merge, or the phone editing the same row",
   "evidence": {
    "property_test": null
   }
@@ -307,14 +307,14 @@
   "claim_id": "M5-AN-020",
   "scope": "Document.withdrawReviewerAnnotation / AnnotationDeriver",
   "kind": "POSTCONDITION",
-  "statement": "withdraw drops the annotation from the projection ENTIRELY at every status \u2014 there is no 'withdrawn' state to filter for \u2014 while the withdraw op stays in the log for audit and rewind",
+  "statement": "withdraw drops the annotation from the projection ENTIRELY at every status — there is no 'withdrawn' state to filter for — while the withdraw op stays in the log for audit and rewind",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_withdrawDropsTheAnnotationFromEveryStatus"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 the pane's trash affordance on the reviewer's own row ('Delete your annotation')",
+  "reachability": "LIVE — the pane's trash affordance on the reviewer's own row ('Delete your annotation')",
   "evidence": {
    "property_test": null
   }
@@ -330,7 +330,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 delete an own suggestion after accepting it",
+  "reachability": "LIVE — delete an own suggestion after accepting it",
   "evidence": {
    "property_test": null
   }
@@ -346,7 +346,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 delete, \u2318Z, delete again",
+  "reachability": "LIVE — delete, ⌘Z, delete again",
   "evidence": {
    "property_test": null
   }
@@ -362,7 +362,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "UNTRACED \u2014 the pane can only name ids the projection produced",
+  "reachability": "UNTRACED — the pane can only name ids the projection produced",
   "evidence": {
    "property_test": null
   }
@@ -371,14 +371,14 @@
   "claim_id": "M5-AN-024",
   "scope": "Document.acceptAnnotation",
   "kind": "GUARD",
-  "statement": "accept of an id that is not an annotation CREATION op \u2014 an unknown id, a bootstrap op, a lifecycle op \u2014 is a silent no-op: nothing is appended and nothing is logged",
+  "statement": "accept of an id that is not an annotation CREATION op — an unknown id, a bootstrap op, a lifecycle op — is a silent no-op: nothing is appended and nothing is logged",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_acceptIgnoresAnIdItCannotResolveToACreationOp"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "UNTRACED \u2014 every production caller passes an id the projection produced",
+  "reachability": "UNTRACED — every production caller passes an id the projection produced",
   "evidence": {
    "property_test": null
   }
@@ -387,14 +387,14 @@
   "claim_id": "M5-AN-025",
   "scope": "Document.acceptAnnotation",
   "kind": "POSTCONDITION",
-  "statement": "accepting a comment, query or craft note sets .accepted, records the userResponse, and changes no manuscript text \u2014 only a suggested change mutates the manuscript on accept",
+  "statement": "accepting a comment, query or craft note sets .accepted, records the userResponse, and changes no manuscript text — only a suggested change mutates the manuscript on accept",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_acceptingANonSuggestionChangesNoText"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 the pane's 'Got it' and 'Reply\u2026' buttons",
+  "reachability": "LIVE — the pane's 'Got it' and 'Reply…' buttons",
   "evidence": {
    "property_test": null
   }
@@ -410,7 +410,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 every accepted suggestion",
+  "reachability": "LIVE — every accepted suggestion",
   "evidence": {
    "property_test": null
   }
@@ -426,7 +426,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 the pane renders Accept / 'Got it' on resolved rows under 'show all statuses'",
+  "reachability": "LIVE — the pane renders Accept / 'Got it' on resolved rows under 'show all statuses'",
   "evidence": {
    "property_test": null
   }
@@ -442,7 +442,7 @@
   },
   "warrant": "HIGH",
   "intent": "UNKNOWN",
-  "reachability": "RACE \u2014 UNTRACED single-device; cross-device a second Mac's pane rendered before the withdraw merged still offers Accept on the row",
+  "reachability": "RACE — UNTRACED single-device; cross-device a second Mac's pane rendered before the withdraw merged still offers Accept on the row",
   "evidence": {
    "property_test": null
   }
@@ -451,14 +451,14 @@
   "claim_id": "M5-AN-029",
   "scope": "Document.acceptedTextDrifted",
   "kind": "POSTCONDITION",
-  "statement": "drift is false with no accept op, no change payload or no live paragraph, and true once the paragraph's text differs (whitespace-exact) from the accept's next \u2014 this is what arms the pane's revert confirm",
+  "statement": "drift is false with no accept op, no change payload or no live paragraph, and true once the paragraph's text differs (whitespace-exact) from the accept's next — this is what arms the pane's revert confirm",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_acceptedTextDrifted"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 the pane's Revert button consults it on every click",
+  "reachability": "LIVE — the pane's Revert button consults it on every click",
   "evidence": {
    "property_test": null
   }
@@ -474,7 +474,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 an accepted suggestion survives the orphan sweep (M5-AN-053), so its row keeps offering Revert after its paragraph is deleted",
+  "reachability": "LIVE — an accepted suggestion survives the orphan sweep (M5-AN-053), so its row keeps offering Revert after its paragraph is deleted",
   "evidence": {
    "property_test": null
   }
@@ -483,14 +483,14 @@
   "claim_id": "M5-AN-031",
   "scope": "Document.revertAcceptedAnnotation",
   "kind": "POSTCONDITION",
-  "statement": "a revert restores the PRE-accept text over whatever the paragraph now holds \u2014 clobbering any intervening edit \u2014 returns the annotation to .open, and drops the userResponse recorded at accept",
+  "statement": "a revert restores the PRE-accept text over whatever the paragraph now holds — clobbering any intervening edit — returns the annotation to .open, and drops the userResponse recorded at accept",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_revertRestoresThePreAcceptTextAndReopens"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 the pane's Revert, gated behind a confirm that states this consequence when drifted",
+  "reachability": "LIVE — the pane's Revert, gated behind a confirm that states this consequence when drifted",
   "evidence": {
    "property_test": null
   }
@@ -506,7 +506,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "PARTLY LIVE \u2014 archived\u2192rejected is reachable from the pane's resolved rows; the junk-id arms are UNTRACED",
+  "reachability": "PARTLY LIVE — archived→rejected is reachable from the pane's resolved rows; the junk-id arms are UNTRACED",
   "evidence": {
    "property_test": null
   }
@@ -522,7 +522,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "INDIRECT \u2014 the tolerance that makes M5-AN-017/023/032's junk ops harmless",
+  "reachability": "INDIRECT — the tolerance that makes M5-AN-017/023/032's junk ops harmless",
   "evidence": {
    "property_test": null
   }
@@ -531,14 +531,14 @@
   "claim_id": "M5-AN-034",
   "scope": "Document.reopenAnnotation",
   "kind": "GUARD",
-  "statement": "reopen acts only from .rejected, .archived and withdrawn. .open and .accepted are logged no-ops, which is why AnnotationInverse's .noInverse decline is UNREACHABLE from this caller \u2014 the status switch returns first",
+  "statement": "reopen acts only from .rejected, .archived and withdrawn. .open and .accepted are logged no-ops, which is why AnnotationInverse's .noInverse decline is UNREACHABLE from this caller — the status switch returns first",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_reopenActsOnlyFromRejectedArchivedOrWithdrawn"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "UNTRACED today \u2014 reopen has no non-undo caller (M5-AN-039)",
+  "reachability": "UNTRACED today — reopen has no non-undo caller (M5-AN-039)",
   "evidence": {
    "property_test": null
   }
@@ -547,14 +547,14 @@
   "claim_id": "M5-AN-035",
   "scope": "Document.reopenAnnotation",
   "kind": "GUARD",
-  "statement": "reopen appends nothing for an unknown id, for an id that is not withdrawn, or on a closed (husked) Document \u2014 the isClosed decline is atomic, so a compound-undo hop resuming after close() cannot append a reopen whose paired text restore no-ops",
+  "statement": "reopen appends nothing for an unknown id, for an id that is not withdrawn, or on a closed (husked) Document — the isClosed decline is atomic, so a compound-undo hop resuming after close() cannot append a reopen whose paired text restore no-ops",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_reopenDeclinesOnAnUnknownIdAndOnAClosedDocument"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "INDIRECT \u2014 a \u2318Z landing after a window closed",
+  "reachability": "INDIRECT — a ⌘Z landing after a window closed",
   "evidence": {
    "property_test": null
   }
@@ -563,14 +563,14 @@
   "claim_id": "M5-AN-036",
   "scope": "Document.reopenAnnotation / AnnotationDeriver",
   "kind": "POSTCONDITION",
-  "statement": "annotationReopen is ONE op kind serving TWO inverses and the deriver reads it as both, so a reopen issued to undo a withdrawal also cancels an earlier archive or reject. \u2318Z on 'delete my annotation' therefore over-restores: an annotation the writer had archived comes back OPEN",
+  "statement": "annotationReopen is ONE op kind serving TWO inverses and the deriver reads it as both, so a reopen issued to undo a withdrawal also cancels an earlier archive or reject. ⌘Z on 'delete my annotation' therefore over-restores: an annotation the writer had archived comes back OPEN",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_oneReopenCancelsBothAWithdrawalAndAnEarlierResolution"
   },
   "warrant": "HIGH",
   "intent": "UNKNOWN",
-  "reachability": "LIVE \u2014 archive your own note, delete it, press \u2318Z",
+  "reachability": "LIVE — archive your own note, delete it, press ⌘Z",
   "evidence": {
    "property_test": null
   }
@@ -579,14 +579,14 @@
   "claim_id": "M5-AN-037",
   "scope": "AnnotationDeriver.resolution",
   "kind": "POSTCONDITION",
-  "statement": "a reopen clears the userResponse and resolvedAt from the projection \u2014 the reply the writer typed when they rejected the note disappears from every surface, surviving only inside the op log",
+  "statement": "a reopen clears the userResponse and resolvedAt from the projection — the reply the writer typed when they rejected the note disappears from every surface, surviving only inside the op log",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_reopenClearsTheWritersRecordedReply"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 reject with a reason, then \u2318Z. Becomes routine the day RULING-29's pane Reopen ships",
+  "reachability": "LIVE — reject with a reason, then ⌘Z. Becomes routine the day RULING-29's pane Reopen ships",
   "evidence": {
    "property_test": null
   }
@@ -602,7 +602,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "INDIRECT \u2014 the discriminator RULING-25's step 9 depends on",
+  "reachability": "INDIRECT — the discriminator RULING-25's step 9 depends on",
   "evidence": {
    "property_test": null
   }
@@ -611,14 +611,14 @@
   "claim_id": "M5-AN-039",
   "scope": "Document.reopenAnnotation callers / AnnotationsPane",
   "kind": "STRUCTURE",
-  "statement": "reopenAnnotation still has no non-undo production caller \u2014 its only two callers are the rewind-undo and the task-archive-undo compensations \u2014 and the annotations pane offers no Reopen affordance. No archived or rejected annotation can be reopened by the writer",
+  "statement": "reopenAnnotation still has no non-undo production caller — its only two callers are the rewind-undo and the task-archive-undo compensations — and the annotations pane offers no Reopen affordance. No archived or rejected annotation can be reopened by the writer",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_reopenHasNoNonUndoProductionCaller"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 every archived or rejected row in the pane, none of which offers a way back",
+  "reachability": "LIVE — every archived or rejected row in the pane, none of which offers a way back",
   "evidence": {
    "property_test": null
   }
@@ -627,14 +627,14 @@
   "claim_id": "M5-AN-040",
   "scope": "AnnotationInverse.reopenOp",
   "kind": "INVARIANT",
-  "statement": "exactly three (undone kind, current status) pairs mint an op \u2014 reject/rejected, archive/archived, withdraw/absent. Accept declines .noInverse because its inverse is claudeAcceptRevert, which also restores text; every other status mismatch declines .stateDrifted",
+  "statement": "exactly three (undone kind, current status) pairs mint an op — reject/rejected, archive/archived, withdraw/absent. Accept declines .noInverse because its inverse is claudeAcceptRevert, which also restores text; every other status mismatch declines .stateDrifted",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_theReopenFactorysDecisionMatrix"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "INDIRECT \u2014 the shared cross-surface decision (Mac \u2318Z and the phone's Reopen both consume it)",
+  "reachability": "INDIRECT — the shared cross-surface decision (Mac ⌘Z and the phone's Reopen both consume it)",
   "evidence": {
    "property_test": null
   }
@@ -650,7 +650,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 delete a paragraph that carries an open note; the sweep runs at the next burst flush",
+  "reachability": "LIVE — delete a paragraph that carries an open note; the sweep runs at the next burst flush",
   "evidence": {
    "property_test": null
   }
@@ -659,14 +659,14 @@
   "claim_id": "M5-AN-042",
   "scope": "Document.sweepOrphanedAnnotations",
   "kind": "POSTCONDITION",
-  "statement": "the sweep trusts reason.removed and never consults sequence \u2014 a removed set naming a paragraph that is still present archives its open annotations anyway. This is deliberate: a transient Document's reconstructed sequence is a subset of the live one, and 'anything missing from sequence' once mass-archived a live editor's notes",
+  "statement": "the sweep trusts reason.removed and never consults sequence — a removed set naming a paragraph that is still present archives its open annotations anyway. This is deliberate: a transient Document's reconstructed sequence is a subset of the live one, and 'anything missing from sequence' once mass-archived a live editor's notes",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_theSweepTrustsTheRemovedSetAndNeverChecksSequence"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "INDIRECT \u2014 the correctness rests entirely on the four SweepReason factories' call sites",
+  "reachability": "INDIRECT — the correctness rests entirely on the four SweepReason factories' call sites",
   "evidence": {
    "property_test": null
   }
@@ -682,7 +682,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "INDIRECT \u2014 belt-and-braces; falsifies any survey finding that rests on a paragraph-anchored craft note",
+  "reachability": "INDIRECT — belt-and-braces; falsifies any survey finding that rests on a paragraph-anchored craft note",
   "evidence": {
    "property_test": null
   }
@@ -691,7 +691,7 @@
   "claim_id": "M5-AN-044",
   "scope": "Document.sweepOrphanedAnnotations",
   "kind": "POSTCONDITION",
-  "statement": "every synthesised archive carries synthesisSource = reason.cause \u2014 .rewind for a time-travel sweep, .paragraphDeleted for the other three factories \u2014 which is the forensic distinction the history viewer and RULING-25's step 9 both read",
+  "statement": "every synthesised archive carries synthesisSource = reason.cause — .rewind for a time-travel sweep, .paragraphDeleted for the other three factories — which is the forensic distinction the history viewer and RULING-25's step 9 both read",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_theSweepStampsItsCauseOnEveryArchive"
@@ -723,14 +723,14 @@
   "claim_id": "M5-AN-046",
   "scope": "Document._opLogMirror",
   "kind": "POSTCONDITION",
-  "statement": "every annotation append pushes onto _opLogMirror without re-sorting. handleExternalLogChange REPLACES the mirror with a sorted merge, so the mirror is opId-ordered right up until the first local append after a merge that brought in a peer op with a higher ULID \u2014 after which it is not, and currentFoldBasis (documented as 'the last element is the newest') no longer holds",
+  "statement": "every annotation append pushes onto _opLogMirror without re-sorting. handleExternalLogChange REPLACES the mirror with a sorted merge, so the mirror is opId-ordered right up until the first local append after a merge that brought in a peer op with a higher ULID — after which it is not, and currentFoldBasis (documented as 'the last element is the newest') no longer holds",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_theMirrorIsNotReSortedOnAppend"
   },
   "warrant": "HIGH",
   "intent": "UNKNOWN",
-  "reachability": "CROSS-DEVICE \u2014 needs a peer op whose ULID sorts after a subsequent local one, i.e. a second Mac whose clock is ahead",
+  "reachability": "CROSS-DEVICE — needs a peer op whose ULID sorts after a subsequent local one, i.e. a second Mac whose clock is ahead",
   "evidence": {
    "property_test": null
   }
@@ -739,14 +739,14 @@
   "claim_id": "M5-AN-047",
   "scope": "Deriver.derive(ops:upTo:) over _opLogMirror",
   "kind": "POSTCONDITION",
-  "statement": "over an unsorted mirror, derive(ops:upTo:) \u2014 which trusts caller order by design, being a timeline prefix \u2014 returns a state the document never held: a rewind to the writer's own newest moment renders the PEER's text. The annotation projection is unharmed, because it compares opIds rather than trusting order",
+  "statement": "over an unsorted mirror, derive(ops:upTo:) — which trusts caller order by design, being a timeline prefix — returns a state the document never held: a rewind to the writer's own newest moment renders the PEER's text. The annotation projection is unharmed, because it compares opIds rather than trusting order",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_theMirrorIsNotReSortedOnAppend"
   },
   "warrant": "HIGH",
   "intent": "UNKNOWN",
-  "reachability": "CROSS-DEVICE \u2014 the verifier's not-chased thread, answered: yes, a merge path can leave a live mirror unsorted, and the opId-ordered premise breaks in rewind rather than in annotations",
+  "reachability": "CROSS-DEVICE — the verifier's not-chased thread, answered: yes, a merge path can leave a live mirror unsorted, and the opId-ordered premise breaks in rewind rather than in annotations",
   "evidence": {
    "property_test": null
   }
@@ -755,14 +755,14 @@
   "claim_id": "M5-AN-048",
   "scope": "Document annotation mutators on a husked doc",
   "kind": "POSTCONDITION",
-  "statement": "the closed-document guard covers two of seven annotation mutators: reopen declines explicitly and accept declines by consequence of the emptied mirror, while craft-note creation, archive, reject, withdraw and edit all append \u2014 to disk and back into the husked mirror. A paragraph-anchored creation throws instead, because the husked sequence is empty",
+  "statement": "the closed-document guard covers two of seven annotation mutators: reopen declines explicitly and accept declines by consequence of the emptied mirror, while craft-note creation, archive, reject, withdraw and edit all append — to disk and back into the husked mirror. A paragraph-anchored creation throws instead, because the husked sequence is empty",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_theClosedDocumentGuardCoversTwoOfSevenMutators"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "UNTRACED \u2014 a Document is abandoned by contract after close(); no production reader touches one",
+  "reachability": "UNTRACED — a Document is abandoned by contract after close(); no production reader touches one",
   "evidence": {
    "property_test": null
   }
@@ -771,30 +771,31 @@
   "claim_id": "M5-AN-049",
   "scope": "Document.acceptAnnotation / SuggestionSplice",
   "kind": "POSTCONDITION",
-  "statement": "a span-anchored suggestion whose quoted phrase is NO LONGER in the paragraph is still applied, and the bare span-sized replacement becomes the WHOLE paragraph. 'She was livid about the whole business.' + a lost 'very angry \u2192 furious' anchor accepts to 'furious'. The pane's preview still reads 'very angry \u2192 furious'",
+  "statement": "a span-anchored suggestion whose quoted phrase is NO LONGER in the paragraph is REFUSED: acceptAnnotation throws AnnotationAcceptError.suggestionAnchorLost before anything is appended — the paragraph is untouched, the annotation stays open, and the pane says why. The decision is SuggestionSplice.attempt's .anchorLost (MaughamCore), shared by the phone's makeAccept (WriteError.suggestionAnchorLost), so the surfaces cannot drift",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "AnnotationsCharacterization.test_aLostSpanAnchorReplacesTheWholeParagraph"
+   "ref": "AnnotationsCharacterization.test_aLostSpanAnchorRefusesTheAccept (+ phone: AnnotationWriterTests.test_makeAccept_lostSpanAnchor_isRefused; core: SuggestionSpliceTests.test_attempt_unresolvableSpan_isRefused)"
   },
   "warrant": "HIGH",
-  "intent": "UNKNOWN",
-  "reachability": "LIVE \u2014 rewrite a sentence that carries an open span suggestion, then accept it",
+  "intent": "INTENTIONAL — ruled (RULING-5); fixed 2026-08-09",
+  "reachability": "LIVE — rewrite a sentence that carries an open span suggestion, then accept it",
   "evidence": {
    "property_test": null
-  }
+  },
+  "fix_history": "Pinned the whole-paragraph replacement ('She was livid…' + lost 'very angry→furious' anchor accepted to 'furious') until fixed under RULING-5"
  },
  {
   "claim_id": "M5-AN-050",
-  "scope": "Document annotations cache \u00d7 AnnotationsPane's stale gate",
+  "scope": "Document annotations cache × AnnotationsPane's stale gate",
   "kind": "POSTCONDITION",
-  "statement": "the stale gate that would warn about M5-AN-049 is DISARMED across a typing edit: with the cache warm \u2014 which a rendered pane guarantees \u2014 isStale still reads false after the writer rewrites the paragraph, so no confirm fires and the paragraph is replaced with no warning at all",
+  "statement": "the staleness cache still lags a typing edit until the next burst flush (M5-AN-005's mechanism, unchanged — the pane badge can read fresh ≤30s) but the lag can no longer cost prose: the accept re-resolves the span against CURRENT text and refuses on a lost anchor whatever the cache says; the pane surfaces the refusal instead of swallowing it",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "AnnotationsCharacterization.test_theStaleGateIsDisarmedAcrossATypingEdit"
+   "ref": "AnnotationsCharacterization.test_theStaleCacheLagCannotCostProseAnymore"
   },
   "warrant": "HIGH",
-  "intent": "UNKNOWN",
-  "reachability": "LIVE \u2014 the same gesture as M5-AN-049, performed inside the burst window (up to 30s idle / 90s of continuous typing)",
+  "intent": "INTENTIONAL — RULING-19 layering: the lower layer protects, the gate is advisory",
+  "reachability": "LIVE — the same gesture as M5-AN-049, performed inside the burst window (up to 30s idle / 90s of continuous typing)",
   "evidence": {
    "property_test": null
   }
@@ -810,7 +811,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 a phone annotation syncing to a Mac that has never annotated the doc",
+  "reachability": "LIVE — a phone annotation syncing to a Mac that has never annotated the doc",
   "evidence": {
    "property_test": null
   }
@@ -826,7 +827,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "INDIRECT \u2014 the property that confines M5-AN-047's damage to rewind",
+  "reachability": "INDIRECT — the property that confines M5-AN-047's damage to rewind",
   "evidence": {
    "property_test": null
   }
@@ -842,7 +843,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE \u2014 delete a paragraph whose suggestion you had already accepted; the row survives with a Revert that cannot work (M5-AN-030)",
+  "reachability": "LIVE — delete a paragraph whose suggestion you had already accepted; the row survives with a Revert that cannot work (M5-AN-030)",
   "evidence": {
    "property_test": null
   }
