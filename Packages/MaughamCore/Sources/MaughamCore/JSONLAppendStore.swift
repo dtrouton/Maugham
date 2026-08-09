@@ -39,6 +39,34 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         parseDiagnosed(bytes: try readBytes())
     }
 
+    /// Like `load()`, but an UNREADABLE-yet-present file THROWS instead of
+    /// reading as empty. `readBytes` swallows the coordinated read's failure
+    /// (`try? Data(contentsOf:)`), so every lenient consumer presents an
+    /// unreadable file as an empty list — RULING-7's forbidden shape
+    /// ("unreadable is never presented as empty"), fixed for the inbox at
+    /// M8-IN-012. `load()` keeps the lenient contract its existing consumers
+    /// (op log, checkpoints, publications, tasks) currently rely on; a
+    /// register residual records that they should each decide deliberately.
+    public func loadStrict() async throws -> [Element] {
+        parseDiagnosed(bytes: try readBytesStrict()).elements
+    }
+
+    /// The strict twin of `readBytes`: absent is still empty, unreadable throws.
+    private func readBytesStrict() throws -> Data {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return Data() }
+        let coord = NSFileCoordinator(filePresenter: presenter)
+        var coordErr: NSError?
+        var readErr: Error?
+        var bytes: Data?
+        coord.coordinate(readingItemAt: fileURL, options: [], error: &coordErr) { ru in
+            do { bytes = try Data(contentsOf: ru) }  // adr-0018-ok: append-store (op-log / inbox JSONL) bytes — the log IS the source of truth (ADR 0018)
+            catch { readErr = error }
+        }
+        if let coordErr { throw coordErr }
+        if let readErr { throw readErr }
+        return bytes ?? Data()
+    }
+
     /// Coordinated read of the whole file; empty Data if the file is absent.
     private func readBytes() throws -> Data {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return Data() }

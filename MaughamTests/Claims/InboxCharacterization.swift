@@ -71,29 +71,26 @@ final class InboxCharacterization: XCTestCase {
 
     // MARK: - The research promote's failure honesty (M8-IN-001, M8-IN-002)
 
-    /// M8-IN-001 — the text arm's body write is a swallowed `try?`: a failed
-    /// write produces an EMPTY research note with the entry flipped
-    /// `.promoted` and both surfaces told success — the capture's words then
-    /// survive only in the promoted-hidden manifest history. Pinned as a
-    /// source census (there is no injection seam between the note's creation
-    /// and the body write); the fix makes the write part of the throwing path.
-    func test_theResearchTextPromoteBodyWriteIsSwallowed() throws {
+    /// M8-IN-001 — fixed under RULING-7 (2026-08-09): the text arm's body
+    /// write is on the throwing path, BEFORE the flip — a failed write is a
+    /// failed promotion, never an empty note reported as a success.
+    func test_theResearchTextPromoteBodyWriteThrows() throws {
         let source = try String(
             contentsOf: repoRoot().appendingPathComponent("Maugham/Stores/InboxStore.swift"),
             encoding: .utf8)
-        XCTAssertTrue(source.contains("try? (entry.inlineText ?? \"\").write("),
-                      "M8-IN-001: the body write is swallowed — if this census "
-                      + "fails, the write has a throwing channel now; restate the "
-                      + "claim and flip its filing")
+        XCTAssertFalse(source.contains("try? (entry.inlineText ?? \"\").write("),
+                       "the swallow is gone")
+        XCTAssertTrue(source.contains("try (entry.inlineText ?? \"\").write("),
+                      "M8-IN-001: the write throws — a failed body write fails "
+                      + "the promotion before the flip")
     }
 
-    /// M8-IN-002 — the asset arm trashes the inbox original BEFORE a
-    /// NON-throwing status flip. When the flip's append fails, the promote
-    /// still returns the created item (success on both surfaces), the entry
-    /// stays `.new` in the pane, and — the original being gone — every retry
-    /// hits `assetMissing` permanently. The palette and canvas siblings both
-    /// order copy → throwing flip → remove; this is the one that does not.
-    func test_aResearchAssetPromoteWhoseFlipFailsReportsSuccessAndStrandsTheEntry() async throws {
+    /// M8-IN-002 — fixed under RULING-7 (2026-08-09): the asset arm adopts
+    /// the palette sibling's ordering — copy, THROWING flip, retire. A failed
+    /// flip throws, the original stays in place, and the retry succeeds.
+    /// (Also pinned in production: `InboxPromoteTests
+    /// .test_aFailedStatusFlipThrowsAndLeavesTheOriginalSoARetrySucceeds`.)
+    func test_aResearchAssetPromoteWhoseFlipFailsThrowsAndTheRetryLives() async throws {
         let (url, store, inbox) = try await openProject()
         try Data([0x52, 0x49, 0x46, 0x46]).write(
             to: url.appendingPathComponent(".maugham/inbox/audio/a1.m4a"))
@@ -105,31 +102,28 @@ final class InboxCharacterization: XCTestCase {
         let entry = try XCTUnwrap(inbox.entries.first { $0.id == "a1" })
 
         try sabotageAppends(url)
-        // No throw: the promote reports SUCCESS while its terminal flip failed.
-        let created = try await inbox.promoteToResearch(entry, projectStore: store)
-        XCTAssertNotNil(created.path, "the research copy exists")
-
-        await inbox.refresh()
-        XCTAssertTrue(inbox.entries.contains { $0.id == "a1" },
-                      "the entry is still .new in the pane — the flip never landed")
-        XCTAssertFalse(FileManager.default.fileExists(
-            atPath: url.appendingPathComponent(".maugham/inbox/audio/a1.m4a").path),
-            "while the inbox original is already gone (trashed before the flip)")
-
-        // And the stranding is permanent: the retry the pane invites fails.
-        try healAppends(url)
         do {
             _ = try await inbox.promoteToResearch(entry, projectStore: store)
-            XCTFail("expected assetMissing on retry")
-        } catch InboxStore.InboxError.assetMissing {}
+            XCTFail("a failed terminal flip throws — never a silent success")
+        } catch {}
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent(".maugham/inbox/audio/a1.m4a").path),
+            "the original is still in place — the retry is alive")
+
+        try healAppends(url)
+        await inbox.refresh()
+        let retryEntry = try XCTUnwrap(inbox.entries.first { $0.id == "a1" })
+        _ = try await inbox.promoteToResearch(retryEntry, projectStore: store)
+        await inbox.refresh()
+        XCTAssertFalse(inbox.entries.contains { $0.id == "a1" },
+                       "the retry completes")
     }
 
     // MARK: - The retry asymmetries (M8-IN-003, M8-IN-004)
 
-    /// M8-IN-003 — the palette NOTE arm converges on retry (last-note dedup);
-    /// the palette IMAGE arm does not: a retry after a failed flip appends a
-    /// SECOND copy of the picture to the card's well.
-    func test_aPaletteImageRetryAppendsASecondImage() async throws {
+    /// M8-IN-003 — fixed under RULING-8 (2026-08-09): the image arm converges
+    /// on retry exactly as the note arm does.
+    func test_aPaletteImageRetryConverges() async throws {
         let (url, store, inbox) = try await openProject()
         let png: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
         try Data(png).write(to: url.appendingPathComponent(".maugham/inbox/images/p1.png"))
@@ -154,15 +148,16 @@ final class InboxCharacterization: XCTestCase {
 
         let after = try XCTUnwrap(store.loadPaletteCards()
             .first { $0.researchItemId == card.id })
-        XCTAssertEqual(after.imagePaths.count, 2,
-                       "M8-IN-003: the retry appended a second copy — the note "
-                       + "arm's dedup has no image twin")
+        XCTAssertEqual(after.imagePaths.count, 1,
+                       "M8-IN-003, fixed under RULING-8 (2026-08-09): the image "
+                       + "arm converges on retry like the note arm — byte-equal "
+                       + "dedup against the well's most recent image")
     }
 
-    /// M8-IN-004 — the canvas sibling has the same retry shape: a failed flip
-    /// leaves the card on the canvas, and the retry lands a SECOND one.
-    /// (Detached route — no canvas open — so the sidecar is the scene.)
-    func test_aCanvasRetryLandsASecondNode() async throws {
+    /// M8-IN-004 — fixed under RULING-8 (2026-08-09): the capture node id is
+    /// derived, so the only reachable second send (the failed-flip retry)
+    /// converges. (Detached route — no canvas open — the sidecar is the scene.)
+    func test_aCanvasRetryConvergesOnTheSameCard() async throws {
         let (url, store, inbox) = try await openProject()
         try await seed(url, [InboxEntry(
             id: "t1", createdAt: Date(timeIntervalSince1970: 100),
@@ -181,8 +176,10 @@ final class InboxCharacterization: XCTestCase {
         _ = try await inbox.sendToCanvas(retryEntry, projectStore: store, placement: .loose)
 
         let scene = CanvasStore(projectRoot: url).load().scene
-        XCTAssertEqual(scene.count, 2,
-                       "M8-IN-004: two cards carry the one capture's words")
+        XCTAssertEqual(scene.count, 1,
+                       "M8-IN-004, fixed under RULING-8 (2026-08-09): the node id "
+                       + "is derived from the entry id, so the retry lands on the "
+                       + "same card")
     }
 
     // MARK: - The silent pane transitions (M8-IN-006)
@@ -243,12 +240,12 @@ final class InboxCharacterization: XCTestCase {
 
     // MARK: - The unreadable manifest (M8-IN-012)
 
-    /// M8-IN-012 — an unreadable per-device manifest is presented as EMPTY:
-    /// `refresh()` wraps each file's load in `try? … ?? []`, so every capture
-    /// from that device vanishes from the pane with nothing said anywhere.
-    /// RULING-7's clause is literal about this shape: unreadable is never
-    /// presented as empty.
-    func test_anUnreadableDeviceManifestVanishesSilently() async throws {
+    /// M8-IN-012 — fixed under RULING-7 (2026-08-09): an unreadable device
+    /// manifest is recorded (`unreadableManifests`, via the strict read
+    /// `JSONLAppendStore.loadStrict`) and the pane shows a notice. The
+    /// lenient `load()` remains the shared-layer default — a register
+    /// residual records that its other consumers should decide deliberately.
+    func test_anUnreadableDeviceManifestIsRecordedNotSilent() async throws {
         let (url, _, inbox) = try await openProject()
         try await seed(url, [InboxEntry(
             id: "t1", createdAt: Date(timeIntervalSince1970: 100),
@@ -264,9 +261,11 @@ final class InboxCharacterization: XCTestCase {
 
         await inbox.refresh()
         XCTAssertTrue(inbox.entries.isEmpty,
-                      "M8-IN-012: the device's captures are gone from the pane")
-        XCTAssertTrue(inbox.trashedEntries.isEmpty, "nowhere else either")
-        // And no API carries the failure: the store exposes only the two lists.
+                      "the device's rows cannot be read, so the lists are empty")
+        XCTAssertEqual(inbox.unreadableManifests, ["inbox.seed.jsonl"],
+                       "M8-IN-012, fixed under RULING-7 (2026-08-09): the "
+                       + "unreadable file is RECORDED — never presented as "
+                       + "silently empty — and the pane says so")
     }
 
     // MARK: - Census pins (M8-IN-005, M8-IN-007, M8-IN-008)

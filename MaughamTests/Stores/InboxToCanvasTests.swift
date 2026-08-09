@@ -619,4 +619,34 @@ final class InboxToCanvasTests: XCTestCase {
         try Data("fake-audio".utf8).write(to: asset)
         return asset
     }
+    /// RULING-8 (fix for M8-IN-004): the canvas sibling converges on retry —
+    /// the capture's node id is derived from the entry id, so the retry after
+    /// a failed status flip lands on the SAME card instead of a second one.
+    func test_aRetryAfterAFailedFlipLandsOnTheSameCard() async throws {
+        let f = try await openProject("RetryConverge")
+        try await seed(f, [InboxEntry(
+            id: "t9", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "A thought.")])
+        let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "t9" })
+
+        let own = InboxManifest.inboxManifestURL(
+            forDeviceSlug: DeviceSlug.make(from: "mac"), in: f.url)
+        try FileManager.default.createDirectory(at: own, withIntermediateDirectories: true)
+        do {
+            _ = try await f.inbox.sendToCanvas(entry, projectStore: f.store, placement: .loose)
+            XCTFail("expected the throwing flip to fail")
+        } catch {}
+        try FileManager.default.removeItem(at: own)
+        await f.inbox.refresh()
+        let retryEntry = try XCTUnwrap(f.inbox.entries.first { $0.id == "t9" })
+        let node = try await f.inbox.sendToCanvas(
+            retryEntry, projectStore: f.store, placement: .loose)
+
+        let (scene, scraps) = CanvasStore(projectRoot: f.url).load()
+        XCTAssertEqual(scene.count, 1,
+                       "one capture, one card — the retry converged")
+        XCTAssertEqual(scraps[node], "A thought.")
+        withExtendedLifetime(f.documentStore) {}
+    }
+
 }

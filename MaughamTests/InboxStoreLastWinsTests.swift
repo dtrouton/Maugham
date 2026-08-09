@@ -173,4 +173,31 @@ final class InboxStoreLastWinsTests: XCTestCase {
         let entry = try dec.decode(InboxEntry.self, from: json)
         XCTAssertEqual(entry.transcriptionState, .userEdited)
     }
+    /// RULING-7 (fix for M8-IN-012): an unreadable device manifest is never
+    /// presented as empty — `refresh()` records it, so the pane can say a
+    /// device's captures are unreadable rather than showing nothing.
+    func test_anUnreadableManifestIsRecordedNotSilentlyEmpty() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inbox-unreadable-\(UUID().uuidString)")
+        let url = dir
+        try FileManager.default.createDirectory(
+            at: url.appendingPathComponent(".maugham/inbox"),
+            withIntermediateDirectories: true)
+        let seedFile = url.appendingPathComponent(".maugham/inbox/inbox.seed.jsonl")
+        let s = JSONLAppendStore<InboxEntry>(fileURL: seedFile)
+        try await s.append(InboxEntry(
+            id: "t1", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "From the phone."))
+        let inbox = InboxStore(projectURL: url, deviceId: "mac")
+        await inbox.refresh()
+        XCTAssertEqual(inbox.entries.count, 1)
+        XCTAssertTrue(inbox.unreadableManifests.isEmpty)
+
+        try FileManager.default.removeItem(at: seedFile)
+        try FileManager.default.createDirectory(at: seedFile, withIntermediateDirectories: true)
+        await inbox.refresh()
+        XCTAssertEqual(inbox.unreadableManifests, ["inbox.seed.jsonl"],
+                       "the unreadable file is named, not silently empty")
+    }
+
 }

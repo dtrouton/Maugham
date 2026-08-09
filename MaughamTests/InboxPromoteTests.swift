@@ -56,6 +56,81 @@ final class InboxPromoteTests: XCTestCase {
         withExtendedLifetime(ds) {}   // documentStore is weak; keep it alive
     }
 
+    /// RULING-8 (fix for M8-IN-003): the image arm converges on retry like
+    /// the note arm — a picture whose bytes are already the well's most recent
+    /// image is not appended twice.
+    func test_aPaletteImageRetryDoesNotAppendASecondCopy() async throws {
+        let (url, store, inbox, ds) = try await openProject()
+        try FileManager.default.createDirectory(
+            at: url.appendingPathComponent(".maugham/inbox/images"),
+            withIntermediateDirectories: true)
+        let png: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        try Data(png).write(to: url.appendingPathComponent(".maugham/inbox/images/p1.png"))
+        try await seed(url, [InboxEntry(
+            id: "p1", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .image, sourceFilename: "p1.png")])
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "p1" })
+        let card = try await store.addPaletteCard(title: "Fog", kind: .location)
+
+        let own = InboxManifest.inboxManifestURL(
+            forDeviceSlug: DeviceSlug.make(from: "mac"), in: url)
+        try FileManager.default.createDirectory(at: own, withIntermediateDirectories: true)
+        do {
+            _ = try await inbox.promoteToPaletteCard(
+                entry, projectStore: store, cardId: card.id)
+            XCTFail("expected the throwing flip to fail")
+        } catch {}
+        try FileManager.default.removeItem(at: own)
+        await inbox.refresh()
+        let retryEntry = try XCTUnwrap(inbox.entries.first { $0.id == "p1" })
+        _ = try await inbox.promoteToPaletteCard(
+            retryEntry, projectStore: store, cardId: card.id)
+
+        let after = try XCTUnwrap(store.loadPaletteCards()
+            .first { $0.researchItemId == card.id })
+        XCTAssertEqual(after.imagePaths.count, 1,
+                       "the retry converges to ONE copy, like the note arm")
+        withExtendedLifetime(ds) {}
+    }
+
+    /// RULING-7 (fix for M8-IN-002): the asset arm adopts the palette
+    /// sibling's ordering — copy, THROWING flip, retire. A flip whose append
+    /// fails now throws (never a silent success), leaves the inbox original in
+    /// place, and the retry the pane invites SUCCEEDS.
+    func test_aFailedStatusFlipThrowsAndLeavesTheOriginalSoARetrySucceeds() async throws {
+        let (url, store, inbox, ds) = try await openProject()
+        try Data([0x52, 0x49, 0x46, 0x46]).write(
+            to: url.appendingPathComponent(".maugham/inbox/audio/a1.m4a"))
+        try await seed(url, [InboxEntry(
+            id: "a1", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .audio, sourceFilename: "a1.m4a",
+            transcript: "the fog came in")])
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "a1" })
+
+        // A directory squatting on this device's manifest path fails the flip.
+        let own = InboxManifest.inboxManifestURL(
+            forDeviceSlug: DeviceSlug.make(from: "mac"), in: url)
+        try FileManager.default.createDirectory(at: own, withIntermediateDirectories: true)
+        do {
+            _ = try await inbox.promoteToResearch(entry, projectStore: store)
+            XCTFail("a failed terminal flip must throw, not report success")
+        } catch {}
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent(".maugham/inbox/audio/a1.m4a").path),
+            "the inbox original is still in place — the retry is alive")
+
+        try FileManager.default.removeItem(at: own)
+        await inbox.refresh()
+        let retryEntry = try XCTUnwrap(inbox.entries.first { $0.id == "a1" })
+        _ = try await inbox.promoteToResearch(retryEntry, projectStore: store)
+        await inbox.refresh()
+        XCTAssertFalse(inbox.entries.contains { $0.id == "a1" },
+                       "the retry completes: promoted and gone from the pane")
+        withExtendedLifetime(ds) {}
+    }
+
     func test_promoteAudio_copiesAssetIntoResearch_removesInboxOriginal_hidesEntry() async throws {
         let (url, store, inbox, ds) = try await openProject()
         let assetURL = url.appendingPathComponent(".maugham/inbox/audio/a1.m4a")
