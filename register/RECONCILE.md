@@ -11,7 +11,7 @@ Maugham's behavioural specification is being built as two layers:
 - **Claims** — verified facts about what the code does. Machine-generable, cheap, and *pinned by a
   passing test against HEAD*. An unpinned claim is an assertion, not a claim.
 - **Rulings** — human product decisions about what *should* be true. Expensive, scarce, authored by
-  Denver. In `experiment/RULINGS.md`: 4 roots, 21 subs, 4 principles.
+  Denver. In `register/RULINGS.md`: 4 roots, 21 subs, 4 principles.
 
 **Reconciliation** is running the rulings over the claims. The mismatches are the output: places the
 code violates a stated decision, and places no decision exists yet.
@@ -28,25 +28,25 @@ finding to escalate, never a decision to apply; ADRs govern architecture (how it
 govern behaviour (what the writer gets); tripwires enforce decisions, they do not make them. Do not
 restate a ruling's content in those other layers — link to it, so there is one answer (RULING-8).
 
-The ledger is `experiment/01-claims-ledger.json`. 169 claims, all reconciled. `_meta` carries the
+The ledger is `register/01-claims-ledger.json`. 169 claims, all reconciled. `_meta` carries the
 rulings, the method findings and the audit history.
 
 ## What has been done, and what has not
 
 **Done — the easy half.** `MaughamCore.PaletteCard` and `MaughamCore.TreeWalk`: pure, deterministic,
-no I/O. 103 characterisation + property tests in `experiment/ExperimentTests` (standalone SPM
-package, `swift test --package-path experiment/ExperimentTests`). Reconciliation result: **21%
+no I/O. 103 characterisation + property tests in `register/ExperimentTests` (standalone SPM
+package, `swift test --package-path register/ExperimentTests`). Reconciliation result: **21%
 coverage — 0% on TreeWalk, 34-40% on PaletteCard — with 30 COMPLIES against 2 VIOLATES.**
 
 **Not done — the hard half.** The app layer: `Maugham/Stores/TrashStore.swift`,
 `Maugham/OpLog/Document+Annotations.swift`, `Maugham/OpLog/Document+Rewind.swift`,
 `Maugham/Canvas/Promotion*.swift`, `Maugham/MCP/Tools/`. A survey of these
-(`experiment/sweep2/*.json`) produced **product decisions**, but no claims — **nothing there is
+(`register/sweep2/*.json`) produced **product decisions**, but no claims — **nothing there is
 pinned by a test.** That is the work.
 
 ## The blocker you will hit in the first ten minutes
 
-`experiment/ExperimentTests` depends on `MaughamCore` only. It **cannot** reach app-layer code,
+`register/ExperimentTests` depends on `MaughamCore` only. It **cannot** reach app-layer code,
 which needs `@testable import Maugham` from the `MaughamTests` target.
 
 So characterising the app layer means writing tests inside `MaughamTests/`. Options, in order of
@@ -79,11 +79,11 @@ tests show the idioms — `MaughamTests/DocumentStoreRelocateRollbackTests.swift
    RULING-15 was made about trash and reaches none of its decisions, which is either a gap in the
    rulings or a gap in my reading of them.
 2. **Write characterisation tests** pinning what it actually does. Probe first and write assertions
-   from observed output — never from what you expect. `experiment/ExperimentTests/.../Probe.swift`
+   from observed output — never from what you expect. `register/ExperimentTests/.../Probe.swift`
    is the pattern. **They must pass against HEAD.** A failing test means you mis-read the code, not
    that you found a bug.
 3. **Extract a claim per pinned behaviour**, in the ledger's schema.
-4. **Reconcile** each claim against `experiment/RULINGS.md`, using the template below.
+4. **Reconcile** each claim against `register/RULINGS.md`, using the template below.
 5. **Report** coverage, comply/violate, and the gaps.
 
 ## The filing template — a verdict cannot be filed without all six fields

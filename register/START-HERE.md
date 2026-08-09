@@ -16,12 +16,12 @@ layer alone, and how much of a codebase a small ruling set actually reaches.
 
 ## Where everything lives
 
-Everything is under `experiment/`. **For its first 47+ phases the experiment changed zero
+Everything is under `register/`. **For its first 47+ phases the experiment changed zero
 production files.** That era ended deliberately on 2026-08-08, with Denver's approval, when the
 fix loop first ran (M4-RW-002, commit `7f741db4`) and consumption was wired into CLAUDE.md, two
 AREA.md files and CI. The discipline that replaces it: **production changes ride the fix loop** —
 a ruling authorising them, a pinned production test, and the claim + filing flipped in the same
-branch. Characterisation of a NEW module still changes nothing outside `experiment/`.
+branch. Characterisation of a NEW module still changes nothing outside `register/`.
 
 | | Path | Note |
 |---|---|---|
@@ -36,13 +36,13 @@ branch. Characterisation of a NEW module still changes nothing outside `experime
 
 **Two `RULINGS.md` decoys.** `reconciliation/RULINGS.md` and `sweep2/RULINGS.md` are frozen snapshots
 of a *damaged* extraction, kept as evidence. Each now has a `FROZEN-SNAPSHOT.md` beside it explaining
-why. **Read `experiment/RULINGS.md` and nothing else.**
+why. **Read `register/RULINGS.md` and nothing else.**
 
 ## State of play
 
 ### Modules reconciled
 
-<!-- BEGIN GENERATED STATE (experiment/scripts/27-generate-state.py) -->
+<!-- BEGIN GENERATED STATE (register/scripts/27-generate-state.py) -->
 
 | Module | Claims | Coverage | Complies / Violates | Report |
 |---|---|---|---|---|
@@ -56,7 +56,7 @@ why. **Read `experiment/RULINGS.md` and nothing else.**
 
 The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 234 further claims in their own files. **403 claims in the experiment, 382 reconciled.** The app layer stands at **125 complies / 6 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
-App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `experiment/ExperimentTests` (CI job `behavioural-claims`).
+App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`).
 
 <!-- END GENERATED STATE -->
 
@@ -192,7 +192,7 @@ Non-negotiable, and each is a mistake someone already made:
   becomes a permanent, running part of the Mac suite, not a copy. (The copies-that-don't-run
   arrangement was a zero-production-changes-era design; it ended 2026-08-08 when the non-running
   copies were recognised as the register's biggest rot risk. Probes stay in
-  `experiment/app-layer-tests/` as history.)
+  `register/app-layer-tests/` as history.)
 - **Probe before you assert.** Write a probe that prints observed behaviour, run it, *then* write
   assertions from what it printed. Never from what the code looks like it should do. This caught three
   claims in rewind alone that came out opposite to the reading — including the one that falsified
@@ -208,7 +208,7 @@ Non-negotiable, and each is a mistake someone already made:
 
 ```bash
 # MaughamCore claims — standalone SPM package, runs anywhere; CI job `behavioural-claims`
-swift test --package-path experiment/ExperimentTests
+swift test --package-path register/ExperimentTests
 
 # App-layer claims — PERMANENT residents of the Mac suite since 2026-08-08
 xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO \

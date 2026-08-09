@@ -2,7 +2,7 @@
 """Phase 2: append CHARACTERIZATION claims to the ledger."""
 import json, collections
 
-LEDGER = "experiment/01-claims-ledger.json"
+LEDGER = "register/01-claims-ledger.json"
 
 # (claim_id, scope, kind, statement, test_ref, extra)
 # extra: dict merged into the claim (e.g. evidence overrides, _note)

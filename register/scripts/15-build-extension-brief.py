@@ -10,8 +10,8 @@ The brief is claims + rulings + interfaces. No implementation, no test source.
 """
 import json, sys, re
 
-LEDGER = "experiment/01-claims-ledger.json"
-OUT = "experiment/15-extension-brief.md"
+LEDGER = "register/01-claims-ledger.json"
+OUT = "register/15-extension-brief.md"
 SRC = "Packages/MaughamCore/Sources/MaughamCore/PaletteCard.swift"
 
 d = json.load(open(LEDGER))

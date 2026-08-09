@@ -6,7 +6,7 @@ import MaughamCore
 /// claim set `M6-PR-nnn`, one passing assertion per claim.
 ///
 /// Every assertion here was written from OBSERVED output (the probes at
-/// `experiment/app-layer-tests/PromotionProbe*.swift`), never from what the code
+/// `register/history/app-layer-tests/PromotionProbe*.swift`), never from what the code
 /// looks like it should do. Three came out against the reading:
 /// a promotion that throws has already created and marked its artifact
 /// (M6-PR-070), a region's REFERENCED pictures vanish from the plan when the
@@ -14,7 +14,7 @@ import MaughamCore
 /// substring test that answers asymmetrically for a labelled line (M6-PR-024).
 ///
 /// **A red test here means PINNED BEHAVIOUR CHANGED.** Check
-/// `experiment/reconciliation/Promotion.filings.json` before "fixing" it: a
+/// `register/reconciliation/Promotion.filings.json` before "fixing" it: a
 /// defect fix must flip its claim and its filing in the same branch.
 ///
 /// House pattern is `PromotionPerformerTests`': a per-file helper, not a shared

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Close the M4-RW-002 loop: the first defect fixed under the reconciliation
-register. Usage: python3 experiment/scripts/25-flip-m4-rw-002.py <fix-commit-sha>
+register. Usage: python3 register/scripts/25-flip-m4-rw-002.py <fix-commit-sha>
 
 The lifecycle this encodes (the pattern for every future fix):
   1. The FIX lands with a pinned production test, in its own commit.
@@ -20,8 +20,8 @@ if len(sys.argv) != 2:
     sys.exit("usage: 25-flip-m4-rw-002.py <fix-commit-sha>")
 FIX = sys.argv[1]
 
-CLAIMS = "experiment/reconciliation/Rewind.claims.json"
-FILINGS = "experiment/reconciliation/Rewind.filings.json"
+CLAIMS = "register/reconciliation/Rewind.claims.json"
+FILINGS = "register/reconciliation/Rewind.filings.json"
 
 claims = json.load(open(CLAIMS))
 filings = json.load(open(FILINGS))

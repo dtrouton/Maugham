@@ -3,7 +3,7 @@
 the three claims the regeneration produced. Records HOW each was found."""
 import json
 
-LEDGER = "experiment/01-claims-ledger.json"
+LEDGER = "register/01-claims-ledger.json"
 d = json.load(open(LEDGER))
 by_id = {c["claim_id"]: c for c in d["claims"]}
 
@@ -66,7 +66,7 @@ claims = d["claims"]
 d["_meta"]["phase"] = 10
 d["_meta"]["regeneration"] = {
     "module": "M2 MaughamCore.TreeNode / TreeWalk",
-    "brief": "experiment/08-regeneration-brief.md",
+    "brief": "register/08-regeneration-brief.md",
     "brief_contents": {"claims": 63, "intent_clauses": 26, "public_signatures": True,
                        "implementation": False, "doc_comments": False, "tests": False,
                        "commit_messages": False},
@@ -84,7 +84,7 @@ d["_meta"]["regeneration"] = {
     "defects_found_by_execution_that_regeneration_missed": ["M1-C-024 CRLF", "M1-C-003 hex '+'",
                                                             "M2-C-027 trailing-slash behaviour (P13)"],
     "contradictions_the_implementer_found_in_the_artifact": 8,
-    "predictions_scored": {"correct": 3, "wrong": 4, "see": "experiment/09-regeneration-predictions.md"},
+    "predictions_scored": {"correct": 3, "wrong": 4, "see": "register/09-regeneration-predictions.md"},
 }
 d["_meta"]["counts"]["total"] = len(claims)
 d["_meta"]["counts"]["corrected_by_regeneration"] = 2

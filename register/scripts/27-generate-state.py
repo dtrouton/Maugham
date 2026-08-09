@@ -5,14 +5,14 @@ are overwritten, which is the point: the table drifted twice on 2026-08-08 and
 was hand-fixed twice, and a state table that can drift is a state table that
 lies. Narrative stays hand-written outside the markers.
 
-Run after any flip/recompute:  python3 experiment/scripts/27-generate-state.py
+Run after any flip/recompute:  python3 register/scripts/27-generate-state.py
 """
 import json
 import sys
 
-START = "<!-- BEGIN GENERATED STATE (experiment/scripts/27-generate-state.py) -->"
+START = "<!-- BEGIN GENERATED STATE (register/scripts/27-generate-state.py) -->"
 END = "<!-- END GENERATED STATE -->"
-DOC = "experiment/START-HERE.md"
+DOC = "register/START-HERE.md"
 
 # MaughamCore modules live in the ledger and are frozen history; app-layer
 # modules live in per-module files and move with every fix loop.
@@ -31,7 +31,7 @@ CORE_RECONCILED, CORE_TOTAL = 148, 169
 
 
 def app_row(module, label, report):
-    filings = json.load(open(f"experiment/reconciliation/{module}.filings.json"))
+    filings = json.load(open(f"register/reconciliation/{module}.filings.json"))
     s = next(f for f in filings if "_summary" in f)["_summary"]
     return ((label, s["total"], s["coverage"],
              f"{s['complies']} / {s['violates']}", report),
@@ -65,7 +65,7 @@ lines += [
     "",
     "App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full "
     "suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as "
-    "`experiment/ExperimentTests` (CI job `behavioural-claims`).",
+    "`register/ExperimentTests` (CI job `behavioural-claims`).",
     "",
     END,
 ]

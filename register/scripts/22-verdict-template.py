@@ -15,7 +15,7 @@ it is the point: it should catch errors, not rubber-stamp them.
 """
 import json, sys, collections
 
-L = "experiment/01-claims-ledger.json"
+L = "register/01-claims-ledger.json"
 d = json.load(open(L))
 by = {c["claim_id"]: c for c in d["claims"]}
 R = d["_meta"]["rulings"]

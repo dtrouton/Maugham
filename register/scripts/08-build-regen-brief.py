@@ -10,8 +10,8 @@ implementation, so a leak fails loudly rather than silently invalidating the run
 """
 import json, re, sys
 
-LEDGER = "experiment/01-claims-ledger.json"
-OUT = "experiment/08-regeneration-brief.md"
+LEDGER = "register/01-claims-ledger.json"
+OUT = "register/08-regeneration-brief.md"
 
 d = json.load(open(LEDGER))
 claims = [c for c in d["claims"] if c["claim_id"].startswith("M2")]

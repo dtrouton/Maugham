@@ -8,7 +8,7 @@ So Arm S is generated from Arm B mechanically: same task, same API surface, same
 """
 import sys
 
-B = open("experiment/11-seam-brief-BOUNDARY.md").read()
+B = open("register/11-seam-brief-BOUNDARY.md").read()
 
 SEAM = """
 ## 3b. Seam claims — the relationship between the mover, the autosaves, and the filesystem
@@ -44,7 +44,7 @@ S = S.replace("CandidateMoverB.swift", "CandidateMoverS.swift")
 S = S.replace("NOTES-B.md", "NOTES-S.md")
 S = S.replace(marker, "\n" + SEAM + "\n---\n\n## 4. Output")
 
-open("experiment/11-seam-brief-SEAM.md", "w").write(S)
+open("register/11-seam-brief-SEAM.md", "w").write(S)
 
 # Verify the arms differ ONLY by the added section + the three filename swaps.
 import difflib

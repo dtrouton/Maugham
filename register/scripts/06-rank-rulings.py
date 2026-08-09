@@ -79,4 +79,4 @@ for n, (rid, subj, deps, key, rec, why) in enumerate(rows, 1):
 json.dump([{"rank": n, "id": r[0], "subject": r[1], "deps": r[2], "uncertainty": r[3],
             "score": round(r[2]*W[r[3]], 2), "recommendation": r[4], "why": r[5]}
            for n, r in enumerate(rows, 1)],
-          open("experiment/06-ruling-queue.json", "w"), indent=2)
+          open("register/06-ruling-queue.json", "w"), indent=2)

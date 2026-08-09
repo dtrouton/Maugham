@@ -2,7 +2,7 @@
 """Close the M4-RW-019 loop — the second defect fixed under the register, and
 the first fixed by a NEW ruling (RULING-25, Denver 2026-08-08) rather than a
 disposition on an existing one.
-Usage: python3 experiment/scripts/26-flip-m4-rw-019.py <fix-commit-sha>
+Usage: python3 register/scripts/26-flip-m4-rw-019.py <fix-commit-sha>
 
 Same lifecycle as 25-flip-m4-rw-002.py: fix + pinned production test in its
 own commit -> update the claim whose pinned behaviour changed (here the claim
@@ -18,8 +18,8 @@ if len(sys.argv) != 2:
     sys.exit("usage: 26-flip-m4-rw-019.py <fix-commit-sha>")
 FIX = sys.argv[1]
 
-CLAIMS = "experiment/reconciliation/Rewind.claims.json"
-FILINGS = "experiment/reconciliation/Rewind.filings.json"
+CLAIMS = "register/reconciliation/Rewind.claims.json"
+FILINGS = "register/reconciliation/Rewind.filings.json"
 claims = json.load(open(CLAIMS))
 filings = json.load(open(FILINGS))
 

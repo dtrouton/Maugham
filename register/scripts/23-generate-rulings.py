@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate experiment/RULINGS.md from the ledger. THE LEDGER IS THE SOURCE OF TRUTH.
+"""Generate register/RULINGS.md from the ledger. THE LEDGER IS THE SOURCE OF TRUTH.
 
 Run this after ANY change to `_meta.rulings`. It has already drifted twice:
   - the first extraction emitted only family/statement/basis for ROOT rulings, silently
@@ -12,8 +12,8 @@ the file be verbose rather than lossy. Verification at the bottom fails loudly.
 """
 import json, sys
 
-L = "experiment/01-claims-ledger.json"
-OUT = "experiment/RULINGS.md"
+L = "register/01-claims-ledger.json"
+OUT = "register/RULINGS.md"
 d = json.load(open(L))
 R = d["_meta"]["rulings"]
 
@@ -41,8 +41,8 @@ def block(k):
     return out
 
 L_ = ["# Maugham — the ruling set", "",
- "**GENERATED from `experiment/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**",
- "Regenerate with `python3 experiment/scripts/23-generate-rulings.py` after any ruling change.",
+ "**GENERATED from `register/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**",
+ "Regenerate with `python3 register/scripts/23-generate-rulings.py` after any ruling change.",
  "", f"{len([k for k in R if k.startswith('RULING')])} rulings, "
  f"{len([k for k in R if k.startswith('PRINCIPLE')])} principles.", "",
  "Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:",
@@ -96,7 +96,7 @@ if lost:
 # nothing caught it until a reconciliation run spent a filing on it.
 import re
 dangling = []
-for doc in ("experiment/RECONCILE.md", "experiment/reconciliation/PROTOCOL.md"):
+for doc in ("register/RECONCILE.md", "register/reconciliation/PROTOCOL.md"):
     try:
         body = open(doc).read()
     except FileNotFoundError:
@@ -116,7 +116,7 @@ if dangling:
 # prints the citing filings as the re-check queue.
 import glob
 import hashlib
-HASHES = "experiment/reconciliation/ruling-hashes.json"
+HASHES = "register/reconciliation/ruling-hashes.json"
 amend_ok = set()
 for i, arg in enumerate(sys.argv):
     if arg == "--amend" and i + 1 < len(sys.argv):
@@ -128,7 +128,7 @@ current = {k: hashlib.sha256(
 
 def citing_filings(ruling):
     hits = []
-    for path in sorted(glob.glob("experiment/reconciliation/*.filings.json")):
+    for path in sorted(glob.glob("register/reconciliation/*.filings.json")):
         for f in json.load(open(path)):
             if isinstance(f, dict) and f.get("ruling") == ruling:
                 hits.append(f"{path.split('/')[-1]}:{f['claim_id']}")

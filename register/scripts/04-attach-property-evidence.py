@@ -2,11 +2,11 @@
 """Phase 4: attach property-test evidence to the ledger.
 
 Numbers transcribed from the PROP lines emitted by
-  swift test --package-path experiment/ExperimentTests --filter PropertyHammering
+  swift test --package-path register/ExperimentTests --filter PropertyHammering
 """
 import json
 
-LEDGER = "experiment/01-claims-ledger.json"
+LEDGER = "register/01-claims-ledger.json"
 
 # name -> (cases_run, held, counterexample, claims it bears on, intent clauses)
 PROPS = {

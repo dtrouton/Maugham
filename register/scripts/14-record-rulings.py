@@ -10,7 +10,7 @@ otherwise. `verdict` is that missing field.
 """
 import json
 
-LEDGER = "experiment/01-claims-ledger.json"
+LEDGER = "register/01-claims-ledger.json"
 d = json.load(open(LEDGER))
 by_id = {c["claim_id"]: c for c in d["claims"]}
 

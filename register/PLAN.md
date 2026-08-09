@@ -3,7 +3,7 @@
 Four phases, each with an exit condition. Update this file when a phase closes or a decision
 lands; the queue detail lives in `START-HERE.md`, the numbers in the generated state block.
 
-## Phase 1 — finish what's in flight (branch `experiment/behavioural-spec`)
+## Phase 1 — finish what's in flight (branch `register/behavioural-spec`)
 
 1. ~~`Document+Annotations` characterisation~~ **DONE 2026-08-08** — 53 claims, 6/9, and the
    register's most serious find yet: M5-AN-049/050, a live data-loss path under RULING-5.
@@ -66,7 +66,7 @@ into one ruling question.
 
 ## Phase 3 — graduate the layer
 
-8. Out of `experiment/`: rulings, reconciliation, protocol and scripts to a first-class home
+8. Out of `register/`: rulings, reconciliation, protocol and scripts to a first-class home
    (name is Denver's); phase reports archived as history; decoy-file warnings compressed to one
    paragraph of history.
 9. **The owed falsification: `Promotion*.swift`** — characterise the module where the SURVEYS did

@@ -19,9 +19,9 @@ Nothing in the brief hints that a conflict exists. That is the test.
 """
 import json
 
-LEDGER = "experiment/01-claims-ledger.json"
-IMPL = "experiment/extension/PaletteCard.swift"
-OUT = "experiment/17-escalation-brief.md"
+LEDGER = "register/01-claims-ledger.json"
+IMPL = "register/extension/PaletteCard.swift"
+OUT = "register/17-escalation-brief.md"
 
 d = json.load(open(LEDGER))
 claims = [c for c in d["claims"] if c["claim_id"].startswith("M1")]

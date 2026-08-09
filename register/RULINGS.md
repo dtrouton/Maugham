@@ -1,7 +1,7 @@
 # Maugham — the ruling set
 
-**GENERATED from `experiment/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
-Regenerate with `python3 experiment/scripts/23-generate-rulings.py` after any ruling change.
+**GENERATED from `register/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
+Regenerate with `python3 register/scripts/23-generate-rulings.py` after any ruling change.
 
 45 rulings, 4 principles.
 

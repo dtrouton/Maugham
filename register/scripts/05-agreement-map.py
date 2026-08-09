@@ -3,7 +3,7 @@
 the ratchet-safety table from the ledger."""
 import json, collections
 
-d = json.load(open("experiment/01-claims-ledger.json"))
+d = json.load(open("register/01-claims-ledger.json"))
 claims = d["claims"]
 by_id = {c["claim_id"]: c for c in claims}
 
@@ -157,5 +157,5 @@ d["_meta"]["phase"] = 5
 d["_meta"]["agreement_map"] = out
 d["_meta"]["intent_clause_verdicts"] = [
     {"clause": c[0], "module": c[1], "arm": c[2], "verdict": c[3], "evidence": c[4]} for c in CLAUSES]
-json.dump(d, open("experiment/01-claims-ledger.json", "w"), indent=2)
+json.dump(d, open("register/01-claims-ledger.json", "w"), indent=2)
 print(json.dumps(out, indent=2))

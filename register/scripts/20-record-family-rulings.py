@@ -8,7 +8,7 @@ the claim that a family, once ruled, resolves its members mechanically.
 """
 import json, glob, collections
 
-LEDGER = "experiment/01-claims-ledger.json"
+LEDGER = "register/01-claims-ledger.json"
 d = json.load(open(LEDGER))
 
 FAMILY_RULINGS = {
@@ -102,7 +102,7 @@ FAM_KEYS = {
 resolved = collections.defaultdict(list)
 unresolved = []
 inconsistent = []
-for f in sorted(glob.glob("experiment/sweep/*.json")):
+for f in sorted(glob.glob("register/sweep/*.json")):
     j = json.load(open(f))
     for x in j["product_decisions"]:
         if x["classification"] == "INCONSISTENT":
