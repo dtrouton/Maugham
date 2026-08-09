@@ -186,7 +186,7 @@ final class PromotionContributionPerformerTests: XCTestCase {
         XCTAssertEqual(contribution(a, in: model), result.createdItemID,
                        "the control: there are records to take back at all, or the "
                        + "nil assertions below hold on a field nothing writes")
-        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Region"),
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promotion Mark"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
 
         model.undo.undo()
@@ -214,7 +214,7 @@ final class PromotionContributionPerformerTests: XCTestCase {
         XCTAssertEqual(contribution(a, in: model), result.createdItemID,
                        "the control: the records were written at all, so the undo "
                        + "assertions below are not passing vacuously")
-        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Region"),
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promotion Mark"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
         model.endGesture()
         model.undo.undo()

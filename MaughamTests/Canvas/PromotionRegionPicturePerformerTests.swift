@@ -285,7 +285,7 @@ final class PromotionRegionPicturePerformerTests: XCTestCase {
     /// **A scene-only assertion cannot tell "its own step" from "folded into the
     /// neighbouring step".** The discriminator is the step's NAME, which is also
     /// what the writer reads in the Edit menu. A second `mutateFromInspector`
-    /// opened for the pictures would leave a second "Promote Region" on the
+    /// opened for the pictures would leave a second "Promotion Mark" on the
     /// stack — or, nested, no step at all.
     func test_oneUndoTakesBackTheMarkAndEveryPictureRecordInOneStep() async throws {
         let (root, store) = try await makeProject()
@@ -300,7 +300,7 @@ final class PromotionRegionPicturePerformerTests: XCTestCase {
             .perform(try plan(store, model))
         XCTAssertEqual(model.scene.node(owned)?.contributedToItemID, result.createdItemID,
                        "the control: there is a picture record to take back at all")
-        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Region"),
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promotion Mark"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
 
         model.undo.undo()
@@ -325,7 +325,7 @@ final class PromotionRegionPicturePerformerTests: XCTestCase {
         model.beginGesture("Edit Scrap")          // the writer is typing in a card
         _ = try await PromotionPerformer(store: store, model: model)
             .perform(try plan(store, model))
-        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Region"),
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promotion Mark"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
         model.endGesture()
     }
