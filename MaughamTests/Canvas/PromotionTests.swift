@@ -393,6 +393,41 @@ final class PromotionTests: XCTestCase {
         XCTAssertFalse(plan!.linkAlreadyPresent)
     }
 
+    /// RULING-50: two wiki-links are the same link when they point at the same
+    /// artifact, whatever the label. The raw substring test this replaces was
+    /// asymmetric — a labelled link blocked the plain one while a plain link
+    /// let a labelled twin through, leaving two links to one artifact.
+    func test_aPlainLinkAlreadyThereRefusesTheLabelledOne_RULING50() {
+        var s = promotedScene()
+        s.updateLine(l1) { $0.label = "because of the ponchos" }
+        let plan = Promotion.plan(
+            request(.line(l1), .wikiLink, artifacts: bothPromoted,
+                    destinationBody: "The falls.\n\n[[October's doctor]]\n"),
+            in: s)
+        XCTAssertTrue(plan!.linkAlreadyPresent,
+                      "same target, different spelling — same link")
+    }
+
+    func test_aDifferentlyLabelledLinkAlreadyThereRefusesToo_RULING50() {
+        var s = promotedScene()
+        s.updateLine(l1) { $0.label = "because of the ponchos" }
+        let plan = Promotion.plan(
+            request(.line(l1), .wikiLink, artifacts: bothPromoted,
+                    destinationBody: "The falls.\n\n[[October's doctor]] — an older reason\n"),
+            in: s)
+        XCTAssertTrue(plan!.linkAlreadyPresent)
+    }
+
+    /// The identity is the TARGET, so a longer title that merely starts with
+    /// this one never blocks — the closing brackets are part of the token.
+    func test_aLinkToALongerTitledArtifactDoesNotBlock_RULING50() {
+        let plan = Promotion.plan(
+            request(.line(l1), .wikiLink, artifacts: bothPromoted,
+                    destinationBody: "The falls.\n\n[[October's doctor and his dog]]\n"),
+            in: promotedScene())
+        XCTAssertFalse(plan!.linkAlreadyPresent)
+    }
+
     /// A line drawn FROM an intent-marked scrap names its destination by its
     /// own kind. Until F10's routed fix this said "the note" for a statement
     /// too — a noun that describes what `writeOfferedLinks` used to silently

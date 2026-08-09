@@ -854,6 +854,29 @@ final class PromotionPerformerTests: XCTestCase {
         }
     }
 
+    /// RULING-50's live-file half: the runtime guard compares link TARGETS, not
+    /// raw text. A plain [[October's doctor]] is already in the note; labelling
+    /// the line changes its linkText, and before the ruling that was enough to
+    /// slip a second link to the same artifact past the substring check.
+    func test_labellingTheLineDoesNotSlipASecondLinkPastTheLiveFileCheck() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        try await promoteBothScraps(store, model)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(plan(.line(l1), .wikiLink, store: store, model: model))
+        model.mutate("Label Line") {
+            $0.updateLine(l1) { $0.label = "because of the ponchos" }
+        }
+        do {
+            _ = try await performer.perform(plan(.line(l1), .wikiLink, store: store, model: model))
+            XCTFail("expected a refusal — same target, same link (RULING-50)")
+        } catch PromotionFailure.linkAlreadyPresent {
+            let text = try body(of: item("The falls at night", in: store), in: root)
+            XCTAssertEqual(text.components(separatedBy: "[[October's doctor]]").count - 1, 1,
+                           "one artifact, one link, whatever the label")
+        }
+    }
+
     /// The scene assertions alone cannot see the likely bug: node `a`'s existing
     /// mark IS the wiki-link's `intoItemID`, so a regression that re-marked the
     /// from-node with it would leave them true. The discriminator is the undo
@@ -1411,7 +1434,8 @@ final class PromotionPerformerTests: XCTestCase {
         let already = PromotionPlan(
             source: .line(l1), producedKind: .wikiLink, title: "T", body: "[[X]]",
             destinationDescription: "the note “T”", discards: [], offeredLinks: [],
-            wikiLinkWrite: WikiLinkWrite(intoNode: a, intoItemID: "res-x", linkText: "[[X]]"),
+            wikiLinkWrite: WikiLinkWrite(intoNode: a, intoItemID: "res-x",
+                                         targetTitle: "X", linkText: "[[X]]"),
             mode: .new, paletteKind: .other, contributors: [], linkAlreadyPresent: true, pictures: [])
         do {
             _ = try await PromotionPerformer(store: store, model: model).perform(already)

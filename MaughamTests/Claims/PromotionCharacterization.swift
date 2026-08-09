@@ -383,10 +383,12 @@ final class PromotionCharacterization: XCTestCase {
                        "M6-PR-023: the noun follows the artifact's kind")
     }
 
-    /// M6-PR-024 — the duplicate check is a raw substring test, and it is
-    /// asymmetric: a labelled link in the destination blocks the unlabelled
-    /// promotion, and an unlabelled one does not block a labelled promotion.
-    func test_theDuplicateLinkCheckIsARawSubstringTest() async throws {
+    /// M6-PR-024 — the duplicate check compares link TARGETS: promotion never
+    /// adds a link to an artifact the destination already points at, under any
+    /// label, in either direction (RULING-50, fixed 2026-08-09 — the asymmetric
+    /// raw substring test this pin used to record let a plain link's labelled
+    /// twin through).
+    func test_theDuplicateLinkCheckComparesTargetsNotSpellings() async throws {
         let (root, store) = try await makeProject()
         let model = makeModel(at: root)
         let n1 = try await store.createResearchNote(scope: .shared, title: "From note")
@@ -403,9 +405,11 @@ final class PromotionCharacterization: XCTestCase {
         XCTAssertFalse(try plan(.line(l1), .wikiLink, store: store, model: model,
                                 destinationBody: "prose\n\n[[To notebook]]\n").linkAlreadyPresent)
         model.withScene { $0.updateLine(l1) { $0.label = "why" } }
-        XCTAssertFalse(try plan(.line(l1), .wikiLink, store: store, model: model,
-                                destinationBody: "prose\n\n[[To note]]\n").linkAlreadyPresent,
-                       "and the plain link does not suppress the labelled one")
+        XCTAssertTrue(try plan(.line(l1), .wikiLink, store: store, model: model,
+                               destinationBody: "prose\n\n[[To note]]\n").linkAlreadyPresent,
+                      "and the plain link suppresses the labelled one too — the check "
+                      + "compares TARGETS, not spellings (RULING-50, fixed from the "
+                      + "asymmetric substring test this pin used to record)")
     }
 
     /// M6-PR-025, M6-PR-026, M6-PR-027, M6-PR-028 — §6.2's rows, in the sheet's words.

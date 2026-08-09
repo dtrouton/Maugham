@@ -704,8 +704,10 @@ struct PromotionPerformer {
             try? await store.documentStore?.flushPendingSave()
             let body = try readBody(atPath: path)
             // The plan's own check was against a SNAPSHOT taken when the sheet
-            // opened. This one is against the file.
-            guard !body.contains(link.linkText) else {
+            // opened. This one is against the file — and it compares link
+            // TARGETS, not spellings (RULING-50): a plain link already there
+            // refuses a labelled twin the raw text check would have missed.
+            guard !Promotion.alreadyLinks(to: link.targetTitle, in: body) else {
                 throw PromotionFailure.linkAlreadyPresent(
                     destination: plan.destinationDescription)
             }
@@ -723,7 +725,8 @@ struct PromotionPerformer {
             // rule). `link.linkText` rather than `link.appendedText` for the same
             // reason — `statementAppending` owns the blank line between what is
             // there and what is arriving, so pre-padded text would double it.
-            guard !store.statementText(of: statement).contains(link.linkText) else {
+            guard !Promotion.alreadyLinks(to: link.targetTitle,
+                                          in: store.statementText(of: statement)) else {
                 throw PromotionFailure.linkAlreadyPresent(
                     destination: plan.destinationDescription)
             }
@@ -880,11 +883,18 @@ struct PromotionPerformer {
                 continue   // genuinely gone since the sheet opened — the honest skip
             case .researchFile(_, let path):
                 let body = try readBody(atPath: path)
-                guard !body.contains(link) else { continue }
+                // Target-based, one spelling with `performWikiLink`'s guards
+                // (RULING-50). For the plain link this pass writes the raw
+                // containment test was already equivalent — the brackets close
+                // the token — but two spellings of one identity is how the
+                // asymmetry shipped in the first place.
+                guard !Promotion.alreadyLinks(to: artifactTitle, in: body) else { continue }
                 try await write(body + "\n\n" + link + "\n", toPath: path)
                 written.append(offer.node)
             case .statement(let statement):
-                guard !store.statementText(of: statement).contains(link) else { continue }
+                guard !Promotion.alreadyLinks(to: artifactTitle,
+                                              in: store.statementText(of: statement))
+                else { continue }
                 try await store.appendToStatement(link, to: statement,
                                                   session: Self.promotionSession)
                 written.append(offer.node)
