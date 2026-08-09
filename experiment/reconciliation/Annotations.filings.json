@@ -104,7 +104,7 @@
   "call_path": "AnnotationsPane pencil → EditAnnotationSheet → Document.editReviewerAnnotation(undoManager:) → OpUndoRegistrar registers → a cross-device merge or a phone edit moves the annotation on → ⌘Z → the drift guard returns after documentLog.error. Reachability is a race window; PRINCIPLE-4 applies.",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "commit": "234eb143d0e9116c90d070b7dd2f692e1efe7e9e",
    "date": "2026-08-09",
    "authorised_by": "RULING-22 — Denver 2026-08-08, 'Maugham should never surprise the writer'; the six settled-in-scope cases include this shape by name",
    "pinned_by": "MaughamTests/OpLog/DocumentNoticeTests (production) + the renamed characterisation pin AnnotationsCharacterization.test_theEditUndoDeclinesWhenTheAnnotationDrifted_andSaysSo",
@@ -171,7 +171,7 @@
   "call_path": "UNTRACED single-device. Cross-device: Mac B's pane rendered before Mac A's withdraw merged still shows the row; clicking Accept inside the sync window reaches Document.acceptAnnotation with a withdrawn id and the creation op still in Mac B's mirror.",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "commit": "234eb143d0e9116c90d070b7dd2f692e1efe7e9e",
    "date": "2026-08-09",
    "authorised_by": "RULING-33 — Denver 2026-08-08, RATIFIED_FROM_OPTIONS ('1 but also 4'), with the revisit-at-collaboration clause attached",
    "pinned_by": "MaughamTests/OpLog/AnnotationConvergenceTests (production) + the rewritten characterisation pin",
@@ -245,7 +245,7 @@
   "call_path": "AnnotationsPane → own row → Archive → trash affordance ('Delete your annotation') → ⌘Z → Document.reopenAnnotation → AnnotationInverse.reopenOp(undoing: .annotationWithdraw) → one annotationReopen op that both passes of the deriver honour",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "commit": "234eb143d0e9116c90d070b7dd2f692e1efe7e9e",
    "date": "2026-08-09",
    "authorised_by": "RULING-22 — Denver 2026-08-08; the ruling's own options list offers the prior-status capture as the first alternative",
    "pinned_by": "MaughamTests/AnnotationLifecycleUndoTests (production, three cases incl. the direct-reopen control) + the rewritten characterisation pin",
@@ -299,7 +299,7 @@
   "call_path": "editor → delete a paragraph carrying an open note → setFullText populates SweepReason.userTyped → flushBurstNow → Document.sweepOrphanedAnnotations → appendLifecycleOp(.claudeArchive, synthesisSource: .paragraphDeleted) → nothing surfaced",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "commit": "234eb143d0e9116c90d070b7dd2f692e1efe7e9e",
    "date": "2026-08-09",
    "authorised_by": "RULING-32 — Denver 2026-08-08, RATIFIED_FROM_OPTIONS, no recommendation offered; settles GAP-A4",
    "pinned_by": "MaughamTests/OpLog/DocumentNoticeTests (production, four cases incl. the silent-during-the-burst and spent-count controls) + AnnotationsCharacterization.test_theSweepCountsWhatItArchivedForTheSummary",
@@ -455,7 +455,7 @@
   "call_path": "Mac A accepts a suggestion (text spliced) → Mac B, whose pane predates the accept, rejects it → B's op syncs with the higher opId → A's NSFilePresenter fires → handleExternalLogChange merges, sweeps, then repairs",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "commit": "234eb143d0e9116c90d070b7dd2f692e1efe7e9e",
    "date": "2026-08-09",
    "authorised_by": "RULING-33 — Denver 2026-08-08, RATIFIED_FROM_OPTIONS ('1 but also 4 — 1 is the more correct version of what happens now but we may want to revisit'); the CONVERGENCE shape, and the first ruling proved by a model before it was made",
    "pinned_by": "formal/AnnotationRace_Fixed_NoRejectedButSpliced.cfg (green) + its red partner AnnotationRace_NoRejectedButSpliced.cfg + MaughamTests/OpLog/AnnotationConvergenceTests (production, nine cases incl. the drift refusal, idempotence and the accept-beats-reject control)",
