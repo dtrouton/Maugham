@@ -47,16 +47,23 @@ extension Document {
             }
         }
 
+        // RULING-37: an action that changes nothing costs nothing. Before the
+        // destructive clear below, establish whether this restore would be a
+        // genuine no-op — no text delta, no task window to move. The burst is
+        // flushed first so the answer is computed against the live text
+        // (restoreToOp re-flushes; flushBurstNow is idempotent), and the
+        // clear→mutate→register contiguity for the REAL-change path is
+        // untouched: the guard runs entirely before the clear, and a keystroke
+        // landing during ITS await merely re-runs the derive inside
+        // restoreToOp as before.
+        try await flushBurstNow()
+        if restoreWouldBeGenuineNoOp(targetOpId: targetOpId) {
+            return try await restoreToOp(opId: targetOpId)
+        }
+
         // D1: drop stale native typing actions BEFORE the buffer-replacing
         // restore (clear → mutate → register, contiguous — accept's ordering).
         // Skipped mid-undo/redo (NSUndoManager forbids removeAllActions there).
-        //
-        // Known-minor D1 artifact: if the restore turns out to be a genuine
-        // no-op (restoreOp == nil below), this clear already discarded typing
-        // history for zero benefit. Accepted — deferring the clear past the
-        // await would break the contiguous clear→mutate→register ordering (a
-        // keystroke could land in the gap), which is the regression-scarred
-        // invariant; a no-op restore (rewinding to the current state) is rare.
         if let um = undoManager, !um.isUndoing, !um.isRedoing {
             um.removeAllActions()
         }

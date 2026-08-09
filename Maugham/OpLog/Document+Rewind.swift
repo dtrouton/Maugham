@@ -325,6 +325,29 @@ extension Document {
             travelReacceptedAnnotationIds: travelReacceptedIds)
     }
 
+    /// True when a restore to `targetOpId` would change neither the text nor
+    /// the task window — RULING-37's precondition: an action that changes
+    /// nothing costs nothing, so `restoreToOpUndoable` skips its undo-stack
+    /// clear entirely. An UNKNOWN target also answers true today (it derives
+    /// as the present), so a vanished moment no longer costs the stack either;
+    /// its silent-success half remains RULING-27's territory.
+    internal func restoreWouldBeGenuineNoOp(targetOpId: String) -> Bool {
+        let ops = _opLogMirror
+        let current = Deriver.derive(ops: ops)
+        let target = Deriver.derive(ops: ops, upTo: .atOp(opId: targetOpId, at: Date()))
+        guard current.paragraphs == target.paragraphs,
+              current.sequence == target.sequence else { return false }
+        let taskKinds: Set<OpKind> = [
+            .taskCreate, .taskStatusChange, .taskPriorityChange,
+            .taskParentChange, .taskBodyEdit, .taskArchive
+        ]
+        let targetIdx = ops.firstIndex(where: { $0.opId == targetOpId })
+        let hasTaskOpsAfterTarget = targetIdx.map { idx in
+            ops.dropFirst(idx + 1).contains { taskKinds.contains($0.kind) }
+        } ?? false
+        return !hasTaskOpsAfterTarget
+    }
+
     /// Fold the document to `target` by appending a `.checkpointRestore` op
     /// and updating the in-memory derived state — the shared append/fold core
     /// of `restoreToOp`, reused by compound undos that must rebuild document

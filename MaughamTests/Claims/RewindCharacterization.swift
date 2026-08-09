@@ -396,7 +396,7 @@ final class RewindCharacterization: XCTestCase {
     /// the restore. When the restore turns out to be a genuine no-op the guard
     /// returns before registering anything, so the writer is left with an EMPTY
     /// undo stack and nothing to show for it.
-    func test_undoableRewind_aNoOpStillDestroysTheWritersUndoStack() async throws {
+    func test_undoableRewind_aNoOpCostsNothing() async throws {
         let (h, marks) = try await makeThreeParagraphDoc()
         let doc = h.doc
         let um = UndoManager()
@@ -407,14 +407,19 @@ final class RewindCharacterization: XCTestCase {
         let r = try await doc.restoreToOpUndoable(opId: marks[2], undoManager: um)
 
         XCTAssertNil(r.restoreOp, "a genuine no-op")
-        XCTAssertFalse(um.canUndo, "and the typing history is gone anyway")
-        XCTAssertFalse(um.canRedo)
-        XCTAssertEqual(um.undoActionName, "", "no replacement action was registered")
+        XCTAssertTrue(um.canUndo,
+                      "the typing history SURVIVES — an action that changes nothing costs nothing "
+                      + "(RULING-37, fixed 2026-08-09)")
+        XCTAssertEqual(um.undoActionName, "Typing",
+                       "the writer's own stack is exactly as they left it")
     }
 
-    /// M4-RW-022 — the same for a target that does not exist in the log: the
-    /// stack is destroyed, nothing is done, and a success value is returned.
-    func test_undoableRewind_unknownTarget_destroysTheStackAndReportsSuccess() async throws {
+    /// M4-RW-022 (stack half fixed under RULING-37, 2026-08-09) — a target that
+    /// does not exist in the log: nothing is done and the writer's undo stack
+    /// SURVIVES. The remaining defect is the silent success (a vanished moment
+    /// still derives as the present and reports normally) — that half awaits
+    /// RULING-27's nearest-surviving-moment fix and stays filed VIOLATES.
+    func test_undoableRewind_unknownTarget_costsNothing_butIsStillSilent() async throws {
         let (h, _) = try await makeThreeParagraphDoc()
         let doc = h.doc
         let textBefore = doc.materialize()
@@ -426,8 +431,9 @@ final class RewindCharacterization: XCTestCase {
 
         XCTAssertNil(r.restoreOp)
         XCTAssertEqual(doc.materialize(), textBefore)
-        XCTAssertFalse(um.canUndo,
-                       "the moment did not exist, nothing happened, and the cost was paid anyway")
+        XCTAssertTrue(um.canUndo, "no change, no cost (RULING-37)")
+        // Still pinned AS A DEFECT: the caller gets a normal no-op result with
+        // no signal that the requested moment was not found (M4-RW-003/008).
     }
 
     /// M4-RW-023 / M4-RW-024 — a real rewind leaves exactly ONE undo action,
