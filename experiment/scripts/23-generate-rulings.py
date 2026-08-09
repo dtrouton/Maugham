@@ -55,6 +55,16 @@ for k in ROOTS:
 L_ += ["## Sub-rulings — prefer these. Name the MOST SPECIFIC that reaches a case.", ""]
 for k in sorted([k for k in R if k.startswith("RULING") and k not in ROOTS], key=num):
     L_ += block(k)
+enf = d["_meta"].get("enforcement", {})
+if enf:
+    L_ += ["## The enforcement gradient — how each ruling is held", ""]
+    L_ += ["prose → test → tripwire → type → model. A prose-only ruling with LIVE reach is a",
+           "promotion candidate. (Source: `_meta.enforcement`; metadata, outside the ruling hashes.)", ""]
+    for k in sorted([k for k in enf if k.startswith("RULING")], key=lambda x: int(x.split("-")[1])):
+        e = enf[k]
+        L_.append(f"- **{k}** `{e['mechanism']}` — {e['note']}")
+    L_.append("")
+
 L_ += ["## Principles — how to judge, not what to decide", ""]
 for k in sorted([k for k in R if k.startswith("PRINCIPLE")], key=num):
     L_ += [f"### {k}", "", f"> {R[k]['statement']}", ""]

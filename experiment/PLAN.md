@@ -56,9 +56,11 @@ into one ruling question.
    research-protection milestone — the latter ROI-parked explicitly under PRINCIPLE-4.
 6. A trash-gap ruling sitting: the 6 remaining gaps, batched structured questions, mixed
    recommendation/no-recommendation, acceptance rate tracked.
-7. The `enforced_by` gradient: classify every RATIFIED ruling (test / tripwire / type /
-   prose-only); build mechanisms for enforceable prose-only ones — RULING-15 first (typed-mover
-   shape, already proven on user content).
+7. ~~The `enforced_by` gradient~~ **DONE 2026-08-09** — `_meta.enforcement`, rendered in
+   RULINGS.md. RULING-15 got its type (TrashSubject) in the trash batch. **Residual:** RULING-30
+   (blank means delete) is ruled but NOT re-filed — the presentation duty is unverified against
+   what the pane renders for a blank replacement (the original filing's honest premise gap);
+   verify-and-file is the next characterisation-adjacent task.
 
 *Exit: zero LIVE violations neither fixed nor explicitly parked.*
 
