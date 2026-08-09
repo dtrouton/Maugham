@@ -182,9 +182,9 @@ final class PromotionPicturePerformerTests: XCTestCase {
             .perform(try plan(owned, .researchAsset, store: store, model: model))
 
         XCTAssertEqual(model.scene.node(owned)?.promotedItemID, result.createdItemID)
-        XCTAssertNil(try XCTUnwrap(model.scene.node(owned)).contributedToItemID,
-                     "and no contribution record: nothing of this picture went "
-                     + "into somebody else's artifact")
+        XCTAssertEqual(try XCTUnwrap(model.scene.node(owned)).contributedToItemIDs, [],
+                       "and no contribution record: nothing of this picture went "
+                       + "into somebody else's artifact")
         XCTAssertNil(try XCTUnwrap(model.scene.node(scrap)).promotedItemID,
                      "the control: only the promoted node is marked")
     }
@@ -231,7 +231,7 @@ final class PromotionPicturePerformerTests: XCTestCase {
             .perform(try plan(owned, .paletteCardImage, store: store, model: model,
                               paletteCardID: card.researchItemId))
 
-        XCTAssertEqual(model.scene.node(owned)?.contributedToItemID, card.researchItemId)
+        XCTAssertEqual(model.scene.node(owned)?.contributedToItemIDs, [card.researchItemId])
         XCTAssertNil(try XCTUnwrap(model.scene.node(owned)).promotedItemID,
                      "no mark — with one, promoting again would offer to rewrite "
                      + "the card and replace its other images")
@@ -260,11 +260,11 @@ final class PromotionPicturePerformerTests: XCTestCase {
             try plan(second, .paletteCardImage, store: store, model: model,
                      paletteCardID: card.researchItemId))
 
-        XCTAssertEqual(model.scene.node(owned)?.contributedToItemID, card.researchItemId,
+        XCTAssertEqual(model.scene.node(owned)?.contributedToItemIDs, [card.researchItemId],
                        "the first picture's record survives the second promotion — "
                        + "routed through the region path's clear-then-stamp it "
                        + "would have been wiped, and its words really are still there")
-        XCTAssertEqual(model.scene.node(second)?.contributedToItemID, card.researchItemId)
+        XCTAssertEqual(model.scene.node(second)?.contributedToItemIDs, [card.researchItemId])
         let after = try XCTUnwrap(store.loadPaletteCards()
             .first { $0.researchItemId == card.researchItemId })
         XCTAssertEqual(after.imagePaths.count, card.imagePaths.count + 2,
@@ -298,7 +298,7 @@ final class PromotionPicturePerformerTests: XCTestCase {
         _ = try await performer.perform(
             try plan(owned, .paletteCardImage, store: store, model: model,
                      paletteCardID: cardID))
-        XCTAssertEqual(model.scene.node(owned)?.contributedToItemID, cardID,
+        XCTAssertEqual(model.scene.node(owned)?.contributedToItemIDs, [cardID],
                        "the control: the picture really recorded the card before "
                        + "the Update, or the assertion below holds on nothing")
 
@@ -308,9 +308,9 @@ final class PromotionPicturePerformerTests: XCTestCase {
         _ = try await performer.perform(
             try planFor(.region(r1), .paletteCard, store: store, model: model, mode: update))
 
-        XCTAssertEqual(model.scene.node(owned)?.contributedToItemID, cardID,
+        XCTAssertEqual(model.scene.node(owned)?.contributedToItemIDs, [cardID],
                        "the picture's record survives a producer that never wrote it")
-        XCTAssertEqual(model.scene.node(scrap)?.contributedToItemID, cardID,
+        XCTAssertEqual(model.scene.node(scrap)?.contributedToItemIDs, [cardID],
                        "and the region's own member is re-stamped — the clear still "
                        + "does its job for the records it does own")
         let after = try XCTUnwrap(store.loadPaletteCards()
@@ -370,13 +370,13 @@ final class PromotionPicturePerformerTests: XCTestCase {
         _ = try await PromotionPerformer(store: store, model: model)
             .perform(try plan(owned, .paletteCardImage, store: store, model: model,
                               paletteCardID: card.researchItemId))
-        XCTAssertEqual(model.scene.node(owned)?.contributedToItemID, card.researchItemId,
+        XCTAssertEqual(model.scene.node(owned)?.contributedToItemIDs, [card.researchItemId],
                        "the control")
         XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Picture"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
 
         model.undo.undo()
-        XCTAssertNil(try XCTUnwrap(model.scene.node(owned)).contributedToItemID)
+        XCTAssertEqual(try XCTUnwrap(model.scene.node(owned)).contributedToItemIDs, [])
         XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Move Card"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
     }
@@ -454,7 +454,7 @@ final class PromotionPicturePerformerTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? PromotionFailure, .paletteCardIsGone)
         }
-        XCTAssertNil(try XCTUnwrap(model.scene.node(owned)).contributedToItemID)
+        XCTAssertEqual(try XCTUnwrap(model.scene.node(owned)).contributedToItemIDs, [])
     }
 
     /// **Which refusal comes first when BOTH are true** (1C-d Task 12a, review

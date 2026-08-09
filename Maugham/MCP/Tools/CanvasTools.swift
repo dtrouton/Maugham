@@ -19,11 +19,12 @@ import MaughamCore
 /// `read_preview_page` carries `preview_filename`/`preview_mtime` for exactly this
 /// reason: provenance a caller cannot recover is provenance the response owes it.
 ///
-/// **`promoted_item_id` and `contributed_to_item_id` are two fields because they
+/// **`promoted_item_id` and `contributed_to_item_ids` are two fields because they
 /// are two facts** (spec §6.3). The first means *this card produced this artifact*
-/// and is what an Update offer reads; the second means *this card's words are in
-/// that artifact, along with other cards'*. Collapsed into one, a re-promotion
-/// could offer to rewrite a six-card note with one card's text.
+/// and is what an Update offer reads; the second lists every artifact *this card's
+/// content went into, along with other cards'* — plural since RULING-51, because a
+/// record is a fact and Maugham holds every one. Collapsed into one, a
+/// re-promotion could offer to rewrite a six-card note with one card's text.
 public enum ListCanvasTool: MCPTool {
 
     public struct Params: Codable {
@@ -67,9 +68,11 @@ public enum ListCanvasTool: MCPTool {
         public let height: Double?
         /// The artifact this card BECAME.
         public let promoted_item_id: String?
-        /// The artifact this card's words went INTO, alongside other cards'.
-        /// Never readable as `promoted_item_id`; see the type's doc comment.
-        public let contributed_to_item_id: String?
+        /// Every artifact this card's content went INTO, alongside other
+        /// cards' — in contribution order, absent when there are none
+        /// (RULING-51). Never readable as `promoted_item_id`; see the type's
+        /// doc comment.
+        public let contributed_to_item_ids: [String]?
         public let bound_piece_id: String?
         /// `"claude"` for a card this server added. **Absent means the writer.**
         ///
@@ -164,9 +167,9 @@ public enum ListCanvasTool: MCPTool {
         may include a sentence they are still typing, or "sidecar" when it was read \
         from disk. `author` is absent on the writer's own cards and lines and reads \
         "claude" on ones added through this server. `promoted_item_id` is the \
-        artifact a card BECAME; `contributed_to_item_id` is an artifact its words \
-        went into alongside other cards' — only the first means the card has \
-        produced a note of its own. `piece_references` is the answer to "what has \
+        artifact a card BECAME; `contributed_to_item_ids` lists every artifact its \
+        content went into alongside other cards' — only the first means the card \
+        has produced a note of its own. `piece_references` is the answer to "what has \
         the writer gathered around this piece": one entry per piece some region is \
         bound to, listing the cards that LIVE in those regions. Read it rather than \
         working the same thing out from `bound_piece_id` and the region lists — a \
@@ -275,7 +278,8 @@ public enum ListCanvasTool: MCPTool {
             width: Double(node.width),
             height: node.cachedHeight.map(Double.init),
             promoted_item_id: node.promotedItemID,
-            contributed_to_item_id: node.contributedToItemID,
+            contributed_to_item_ids: node.contributedToItemIDs.isEmpty
+                ? nil : node.contributedToItemIDs,
             bound_piece_id: node.boundPieceID,
             author: node.author?.rawValue)
     }

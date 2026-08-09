@@ -840,7 +840,7 @@ struct PromotionPerformer {
     /// focused scrap holds "Edit Scrap" open).
     private func recordPicture(in cardID: String, on node: CanvasNodeID) {
         model.mutateFromInspector(Self.pictureStep) {
-            $0.setContributedItem(cardID, for: node)
+            $0.addContribution(cardID, to: node)
         }
         model.bumpSceneRevision()
     }
@@ -1161,10 +1161,14 @@ struct PromotionPerformer {
     /// is a picture this promotion just copied, and it must record that.
     private static func record(_ itemID: String, contributors: [CanvasNodeID],
                                in scene: inout CanvasScene) {
+        // Per-artifact on BOTH sides (RULING-51): the removal takes back only
+        // THIS artifact's fact from cards that no longer feed it, and the stamp
+        // appends rather than overwrites — a record naming another artifact is
+        // a fact this promotion has no standing to discard.
         for node in scene.unorderedNodes
-        where node.contributedToItemID == itemID && node.kind.isScrap {
-            scene.setContributedItem(nil, for: node.id)
+        where node.contributedToItemIDs.contains(itemID) && node.kind.isScrap {
+            scene.removeContribution(itemID, from: node.id)
         }
-        for node in contributors { scene.setContributedItem(itemID, for: node) }
+        for node in contributors { scene.addContribution(itemID, to: node) }
     }
 }

@@ -661,7 +661,7 @@ struct PromotionPlan: Equatable {
     /// promotion has more than one card behind a single artifact.
     ///
     /// **This is NOT the promotion mark, and must never be conflated with
-    /// one.** See `CanvasNode.contributedToItemID`'s doc comment — a
+    /// one.** See `CanvasNode.contributedToItemIDs`'s doc comment — a
     /// contributor's words are IN the artifact alongside others', and reading
     /// this list where `promotedItemID` is read would let one member's
     /// re-promotion offer to rewrite the whole joint note with its own single
@@ -899,7 +899,7 @@ enum Promotion {
         guard updatableTargets.contains(target) else { return nil }
         let markedID: String?
         switch source {
-        // **`promotedItemID` ONLY, and never `contributedToItemID`** (spec §6.3).
+        // **`promotedItemID` ONLY, and never `contributedToItemIDs`** (spec §6.3).
         // This function is what offers **Rewrite**, and a contributor is not the
         // artifact's producer: falling back to the contribution record here
         // would let the writer promote one member of a six-card region note and

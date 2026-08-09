@@ -141,7 +141,7 @@ struct ItemInspector: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            } else if let contribution = Self.referencedContribution(provenance) {
+            } else if let contributions = Self.referencedContributions(provenance) {
                 // **A reference cannot be promoted and CAN have contributed**
                 // (1C-d Task 12a, spec §6.3's 2026-07-31 amendment). A region's
                 // palette promotion copies the pictures in it onto the card
@@ -157,7 +157,7 @@ struct ItemInspector: View {
                 // contribution suppresses "Not promoted yet." by
                 // `Provenance.saysNotPromotedYet`'s own rule.
                 PromotedArtifactSection(
-                    state: .init(artifact: .notPromoted, contribution: contribution),
+                    state: .init(artifact: .notPromoted, contributions: contributions),
                     subject: .referencedPicture, onOpen: onOpenResearchItem)
             }
         }
@@ -172,13 +172,13 @@ struct ItemInspector: View {
     /// branch-invariant, so the decision would otherwise be beyond any test that
     /// hosts no SwiftUI. `Self.promotes` and `openAffordance` are the same shape.
     ///
-    /// It answers nil for `.none` — a reference with no record mounts **no
-    /// section**, rather than one saying "Not promoted yet." about a card that
-    /// can never be promoted.
-    static func referencedContribution(
+    /// It answers nil for no records at all — a reference with none mounts
+    /// **no section**, rather than one saying "Not promoted yet." about a card
+    /// that can never be promoted.
+    static func referencedContributions(
         _ provenance: PromotedArtifactSection.Provenance
-    ) -> PromotedArtifactSection.ContributionState? {
-        provenance.contribution == .none ? nil : provenance.contribution
+    ) -> [PromotedArtifactSection.ContributionState]? {
+        provenance.contributions.isEmpty ? nil : provenance.contributions
     }
 
     /// Both records, resolved through the one artifact lookup — `ScrapInspector`'s
@@ -190,9 +190,10 @@ struct ItemInspector: View {
     /// carrying neither — every picture until it is promoted — asks nothing.
     private var provenance: PromotedArtifactSection.Provenance {
         let node = model.scene.node(nodeID)
-        return PromotedArtifactSection.provenance(promotedItemID: node?.promotedItemID,
-                                                  contributedToItemID: node?.contributedToItemID,
-                                                  title: artifactTitle)
+        return PromotedArtifactSection.provenance(
+            promotedItemID: node?.promotedItemID,
+            contributedToItemIDs: node?.contributedToItemIDs ?? [],
+            title: artifactTitle)
     }
 
     /// Whether this card can be promoted at all — **the provenance, and it is the

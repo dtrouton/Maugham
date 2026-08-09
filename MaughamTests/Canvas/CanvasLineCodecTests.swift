@@ -27,8 +27,8 @@ final class CanvasLineCodecTests: XCTestCase {
     /// the two other files that pin it point here. Rename it at every bump — a
     /// test called `…IsSeven` asserting 8 is the comment that lies loudest,
     /// because the name is what a reader greps for.
-    func test_theSchemaVersionIsEight() {
-        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 8)
+    func test_theSchemaVersionIsNine() {
+        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 9)
     }
 
     func test_linesRoundTripThroughDisk() {
@@ -108,9 +108,9 @@ final class CanvasLineCodecTests: XCTestCase {
     /// the `schemaVersion <= currentSchemaVersion` gate passes, and the test
     /// asserts nothing while still going green. It has needed doing at every
     /// bump so far, 1C-d's included.
-    func test_aSchemaNineSidecarLosesTheArrangementAndKeepsTheWords() throws {
+    func test_aSchemaTenSidecarLosesTheArrangementAndKeepsTheWords() throws {
         try writeSidecar("""
-        {"schemaVersion":9,"nodes":[{"id":"a","kind":"scrap","x":5,"y":6,\
+        {"schemaVersion":10,"nodes":[{"id":"a","kind":"scrap","x":5,"y":6,\
         "width":240,"cachedHeight":80,"z":1}]}
         """)
         try "\(ScrapText.banner)\n\n## a\n\nthe falls at night\n"

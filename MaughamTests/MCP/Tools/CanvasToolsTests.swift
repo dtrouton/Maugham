@@ -77,7 +77,7 @@ final class CanvasToolsTests: XCTestCase {
         CanvasNode(id: CanvasNodeID(id), kind: kind,
                    origin: CGPoint(x: x, y: y), width: width, cachedHeight: height,
                    promotedItemID: promoted, boundPieceID: piece,
-                   contributedToItemID: contributed, author: author)
+                   contributedToItemIDs: contributed.map { [$0] } ?? [], author: author)
     }
 
     private func call(_ registry: ProjectRegistry,
@@ -318,8 +318,9 @@ final class CanvasToolsTests: XCTestCase {
     ///
     /// `promoted_item_id` means *this card produced this artifact* — it is what
     /// `Promotion.existingArtifact` reads to offer a Rewrite.
-    /// `contributed_to_item_id` means *this card's words are in that artifact,
-    /// along with other cards'*, and re-promoting a contributor must offer only a
+    /// `contributed_to_item_ids` lists *the artifacts this card's content went
+    /// into, along with other cards'* (plural since RULING-51 — every fact is
+    /// held), and re-promoting a contributor must offer only a
     /// new artifact (spec §6.3). Merged into one field they would let a
     /// re-promotion rewrite a six-card note with one card's text — the 1C-c2
     /// Critical returning as a mark that does not record its cardinality. So the
@@ -346,9 +347,9 @@ final class CanvasToolsTests: XCTestCase {
         let both = try XCTUnwrap(reported(result, "aaaa"))
         XCTAssertEqual(both.promoted_item_id, "note-own",
                        "the artifact this card BECAME — the one an Update may rewrite")
-        XCTAssertEqual(both.contributed_to_item_id, "card-joint",
+        XCTAssertEqual(both.contributed_to_item_ids, ["card-joint"],
                        "the artifact this card's words went INTO alongside others'")
-        XCTAssertNotEqual(both.promoted_item_id, both.contributed_to_item_id,
+        XCTAssertNotEqual(both.promoted_item_id.map { [$0] }, both.contributed_to_item_ids,
                           "precondition: the fixture gives the two marks different "
                           + "values, or the separation is untested")
         XCTAssertEqual(both.bound_piece_id, "piece-3")
@@ -358,7 +359,7 @@ final class CanvasToolsTests: XCTestCase {
                      "a contributing card has produced nothing of its own — reported "
                      + "as promoted, a re-promotion would offer to rewrite the joint "
                      + "note with this one card's text")
-        XCTAssertEqual(contributorOnly.contributed_to_item_id, "card-joint")
+        XCTAssertEqual(contributorOnly.contributed_to_item_ids, ["card-joint"])
 
         let region = try XCTUnwrap(result.regions.first)
         XCTAssertEqual(region.promoted_item_id, "card-joint")

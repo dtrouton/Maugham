@@ -755,13 +755,16 @@ that note. An empty scrap contributes nothing. A scrap promotion and a line prom
 nothing at all. **An update rebuilds the set**, clearing every node that names this artifact
 before stamping the current contributors, so a card that has left the region stops claiming
 the note and one that joined starts; the clear is scoped to the artifact, so a promotion
-cannot wipe a record naming somebody else's note. **The record is single-valued, and the
-most recent contribution wins** — the scope limits the clear, not the stamp, so a card
-dragged from one promoted region into another and promoted again names only the later note
-while its words are in both. Intended, and the honest cost of one field: a set would put a
-growing, never-collected list of danglable ids on every node to describe a snapshot taken
-once, and provenance reads most usefully as the most recent act. Pinned, so it reads as a
-decision.
+cannot wipe a record naming somebody else's note. ~~**The record is single-valued, and the
+most recent contribution wins**~~ — **overturned 2026-08-09 by RULING-51** ("a contribution
+record is a FACT, and Maugham holds every one"). The original paragraph argued a set would
+put a growing, never-collected list of danglable ids on every node; Denver ruled the other
+way with the mechanics in front of them — both contributions are the writer's own deliberate
+placements, and latest-wins disarmed §6.3's rewrite-guard for every earlier artifact the
+card fed. `contributedToItemIDs` is now an ordered, de-duplicated array; the stamp APPENDS
+and the rewrite removes ITS OWN artifact's fact only (sidecar schema 9, the first bump to
+change a field's cardinality rather than add a field). The mark stays a single bookmark —
+that half is RULING-47's and is unchanged.
 
 **A card may carry both, and the inspector shows both rather than choosing.** They say
 different things — it produced its own note, *and* its words are in a region's — with
