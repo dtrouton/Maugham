@@ -336,6 +336,42 @@ final class TreeFindOverlayTests: XCTestCase {
             + "would strand the writer in a state they cannot clear")
     }
 
+    /// **The one place `.find` can still arrive from: a `UIState` written by an
+    /// earlier build.** `binderSegment` is persisted on every change, so a quit
+    /// taken mid-search under the old shape leaves `.find` on disk — Denver's
+    /// own machine included — and restoring it verbatim would put a phantom Find
+    /// segment in the strip over a pane that is now the tree. Everything else
+    /// must still restore as itself, out-of-persona selections included, which
+    /// is the half a coercion is always in danger of eating.
+    func test_aSavedFindSegmentIsRestoredAsThePersonasHome() {
+        for persona in Persona.allCases {
+            for type in ProjectType.allCases where type != .unknown {
+                XCTAssertEqual(
+                    ProjectWindow.binderSegment(restoring: .find, persona: persona,
+                                                projectType: type),
+                    persona.binderHome(for: type),
+                    "\(persona)/\(type): a legacy find segment must restore as "
+                    + "this persona's home")
+                XCTAssertEqual(
+                    ProjectWindow.binderSegment(restoring: .manuscript,
+                                                persona: persona, projectType: type),
+                    .documentHome(for: type),
+                    "\(persona)/\(type): the screenplay coercion still stands")
+                for saved in [BinderSegment.tree, .scenes, .research, .palette,
+                              .canvas, .trash] {
+                    XCTAssertEqual(
+                        ProjectWindow.binderSegment(restoring: saved, persona: persona,
+                                                    projectType: type),
+                        saved,
+                        "\(persona)/\(type): \(saved) must restore as itself — "
+                        + "the picker appends an out-of-persona selection so it "
+                        + "renders highlighted, and coercing here is what ate "
+                        + "the writer's last explicit choice in the right pane")
+                }
+            }
+        }
+    }
+
     // MARK: - Census: nothing selects the segment any more
 
     /// **The half a mounted probe cannot see.** The probe drives the write the

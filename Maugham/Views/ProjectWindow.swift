@@ -1167,6 +1167,37 @@ struct ProjectWindow: View {
                                         subject: subject).centreItemID == nil
     }
 
+    /// **What a saved `UIState` restores the binder to**, as a pure function
+    /// for `applyCloseFind`'s reason: the two coercions here are rules, and a
+    /// rule spelled inside `load()` cannot be asked anything.
+    ///
+    /// Two values are not restored as themselves:
+    ///
+    /// - `.manuscript` on a screenplay, which has no Manuscript segment (Scenes
+    ///   IS its slugline navigator) — routed through the typed
+    ///   `documentHome(for:)` rather than re-deriving the type check inline,
+    ///   which is the shape that shipped a real bug on 2026-07-02.
+    /// - `.find`, since stage 2b Task 1. Nothing writes it any more — find is an
+    ///   overlay — but a `UIState` written by an earlier build still holds it if
+    ///   the last quit was mid-search, and restoring it verbatim would put a
+    ///   phantom Find segment in the strip over a pane that is now the tree.
+    ///   This arm dies with the case in the kill task.
+    ///
+    /// Everything else IS restored verbatim, including a segment the restored
+    /// persona does not offer: `BinderSegmentPicker.visibleSegments` appends the
+    /// current selection precisely so a restored `UIState` renders highlighted,
+    /// and coercing here is what ate the writer's last explicit choice when the
+    /// right pane tried it.
+    static func binderSegment(restoring saved: BinderSegment,
+                              persona: Persona,
+                              projectType: ProjectType) -> BinderSegment {
+        switch saved {
+        case .manuscript: return .documentHome(for: projectType)
+        case .find: return persona.binderHome(for: projectType)
+        case .tree, .scenes, .research, .palette, .canvas, .trash: return saved
+        }
+    }
+
     /// **What the window is about after a search match is clicked**, as a pure
     /// function, so the routing is drivable without a mounted window — the two
     /// arms differ only in which tree the match's path is looked up in, and
@@ -1303,8 +1334,13 @@ struct ProjectWindow: View {
         case .manuscript, .scenes, .find:
             // Both .manuscript and .scenes show the editor — .scenes is just an
             // alternate sidebar navigator; the underlying screenplay file is the same.
-            // .find also shows the active document, as search results update
-            // selectedItemId when clicked.
+            //
+            // **`.find` is unreachable here since stage 2b Task 1** and goes
+            // with the case in the kill task. It was in this arm because find
+            // took the centre column: whatever the writer was in, running ⌘⌥F
+            // put a manuscript editor in front of them, which is what made a
+            // research match click show them their manuscript. The overlay
+            // leaves the centre alone, so this arm no longer answers for it.
             EditorHost(
                 store: store,
                 documentStore: documentStore,
@@ -2525,15 +2561,10 @@ struct ProjectWindow: View {
             self.persona = ds.uiState.persona
             self.outlineLayout = ds.uiState.outlineLayout
 
-            // Restore binderSegment from saved state. A screenplay has no
-            // Manuscript segment (Scenes IS its slugline navigator), so route
-            // through the typed `documentHome(for:)` rather than re-deriving
-            // the check inline — `Persona.swift` warns against exactly that,
-            // and it shipped a real bug on 2026-07-02.
-            let savedSegment = ds.uiState.binderSegment
-            self.binderSegment = savedSegment == .manuscript
-                ? .documentHome(for: s.manifest.type)
-                : savedSegment
+            self.binderSegment = Self.binderSegment(
+                restoring: ds.uiState.binderSegment,
+                persona: self.persona,
+                projectType: s.manifest.type)
             applyNoChrome()
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {
