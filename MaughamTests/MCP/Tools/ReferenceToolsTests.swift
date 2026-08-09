@@ -615,4 +615,68 @@ extension ReferenceToolsTests {
             from: try await FindReferencesTool.handle(paramsJSON: Data(req.utf8), registry: reg))
         XCTAssertFalse(refs.contains { $0.from_id == intent.id })
     }
+
+    /// `find_references` must answer for a statement the way it answers for any
+    /// other artifact: by id or by (composed) title. Before this widening the
+    /// target never resolved — `resolveTargetId` had no statement arm — so a
+    /// chapter whose body says `[[Craft Intent · Chapter 1]]` was invisible to
+    /// "what points at this" when asked about that chapter's own intent
+    /// statement.
+    func test_findReferences_resolvesAStatementTargetByIdAndComposedTitle() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FRST-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try "She looked back once. [[Craft Intent · Chapter 1]] holds why.\n".write(
+            to: tmp.appendingPathComponent("manuscript/c1.md"),
+            atomically: true, encoding: .utf8)
+        let chapter = StructureItem(
+            id: "ch-1", title: "Chapter 1", type: .document, path: "manuscript/c1.md")
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [chapter], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        // ADR 0018: seed the op log before any MCP call.
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s", presenter: nil)
+        let store = try await ProjectStore.load(from: tmp)
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+        let projectId = ProjectIdentifier.id(for: tmp)
+
+        // Document-scoped intent statement for "Chapter 1" composes to
+        // "Craft Intent · Chapter 1" (ArtifactIndex.statementTitle).
+        let intent = try await store.createStatement(kind: .intent, scope: .document("ch-1"))
+
+        // Target = the statement's id. RED honesty: assert on this id-form
+        // first — the literal-title scan in titlesToScan's unresolved-target
+        // fallback would otherwise mask a title-resolution failure by matching
+        // "Craft Intent · Chapter 1" as a literal, unresolved wiki target.
+        let byId = "{\"project_id\":\"\(projectId)\",\"target\":\"\(intent.id)\"}"
+        let refsById = try JSONDecoder().decode(
+            [FindReferencesTool.Reference].self,
+            from: try await FindReferencesTool.handle(paramsJSON: Data(byId.utf8), registry: reg))
+        XCTAssertTrue(
+            refsById.contains { $0.from_id == "ch-1" && $0.kind == "wiki" },
+            "target by statement id should resolve and find the chapter's "
+            + "wiki link to it; refs: \(refsById)")
+
+        // Target = the composed title, case-insensitive.
+        let byTitle = "{\"project_id\":\"\(projectId)\","
+            + "\"target\":\"craft intent · chapter 1\"}"
+        let refsByTitle = try JSONDecoder().decode(
+            [FindReferencesTool.Reference].self,
+            from: try await FindReferencesTool.handle(
+                paramsJSON: Data(byTitle.utf8), registry: reg))
+        XCTAssertTrue(
+            refsByTitle.contains { $0.from_id == "ch-1" && $0.kind == "wiki" },
+            "target by case-insensitive composed title should resolve the "
+            + "same way; refs: \(refsByTitle)")
+    }
 }
