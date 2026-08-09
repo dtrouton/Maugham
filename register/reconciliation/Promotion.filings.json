@@ -289,7 +289,7 @@
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.update) → store.updateResearchItem(id:title:)",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "PENDING — uncommitted on branch claude/spec-phase-3 (2026-08-09)",
+   "commit": "b55b055840fe797f5b4831ca1aef2085af74b29c",
    "date": "2026-08-09",
    "authorised_by": "RULING-22 — Denver 2026-08-08, verbatim; team-lead ruling 2026-08-09 directing both halves (the seeding and the write) be fixed",
    "pinned_by": "MaughamTests/Claims/PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName (rewritten pin: title and path both stand) + MaughamTests/Canvas/PromotionSheetTests.test_choosingRewriteWithdrawsTheNameFieldAndCarriesTheArtifactsOwnName"
@@ -305,7 +305,7 @@
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "PENDING — uncommitted on branch claude/spec-phase-3 (2026-08-09)",
+   "commit": "b55b055840fe797f5b4831ca1aef2085af74b29c",
    "date": "2026-08-09",
    "authorised_by": "RULING-22 — Denver 2026-08-08, verbatim; team-lead ruling 2026-08-09",
    "pinned_by": "MaughamTests/Canvas/PromotionSheetTests.test_choosingRewriteWithdrawsTheNameFieldAndCarriesTheArtifactsOwnName (the sheet half) + PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName (the plan half: pl.title == 'Fog, act II')"
@@ -331,7 +331,7 @@
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote → writeOfferedLinks → readBody",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "PENDING — uncommitted on branch claude/spec-phase-3 (2026-08-09)",
+   "commit": "b55b055840fe797f5b4831ca1aef2085af74b29c",
    "date": "2026-08-09",
    "authorised_by": "RULING-22 — Denver 2026-08-08, verbatim; team-lead ruling 2026-08-09 directing pre-validation of everything the link pass needs",
    "pinned_by": "MaughamTests/Claims/PromotionCharacterization.test_aLinkWriteFailureThrowsAfterTheArtifactExists (rewritten pin: the region is unmarked, no artifact was created, no contribution record stamped)"
@@ -417,7 +417,7 @@
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.update) → writeBody → DocumentStore.performFileSave",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "PENDING — uncommitted on branch claude/spec-phase-3 (2026-08-09)",
+   "commit": "b55b055840fe797f5b4831ca1aef2085af74b29c",
    "date": "2026-08-09",
    "authorised_by": "RULING-24 — Denver: 'the WORK … must be protected at all costs … Research can be recovered'; team-lead ruling 2026-08-09 directing the minimal within-machinery fix rather than the versioning milestone",
    "pinned_by": "MaughamTests/Claims/PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName (rewritten pin: the prior version is in TrashStore.list(), restores beside the live note with the writer's words in it)",
