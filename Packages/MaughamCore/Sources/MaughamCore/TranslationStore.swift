@@ -56,6 +56,46 @@ public enum TranslationStore {
         try await JSONLAppendStore<TranslationRecord>(fileURL: url).append(record)
     }
 
+    /// Appends every record in `records` to one device's file in a SINGLE
+    /// coordinated write — the whole batch is serialized to one `Data` first,
+    /// so a failure (bad directory, coordination error) writes nothing rather
+    /// than a partial file. `language` is explicit rather than read off the
+    /// records so an empty batch and the file it would target are unambiguous;
+    /// callers building a batch for one write_translation call already know it
+    /// (task 2 makes that call atomic on top of this).
+    public static func appendBatch(_ records: [TranslationRecord], forDocId docId: String,
+                                   language: String, deviceSlug: DeviceSlug, in projectURL: URL) throws {
+        guard !records.isEmpty else { return }
+        let url = fileURL(forDocId: docId, language: language, deviceSlug: deviceSlug, in: projectURL)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = JSONLAppendStore<TranslationRecord>.dateEncoding
+        enc.outputFormatting = [.sortedKeys]
+        var data = Data()
+        for r in records {
+            data.append(try enc.encode(r))
+            data.append(0x0A)
+        }
+        let coord = NSFileCoordinator()
+        var coordErr: NSError?
+        var writeErr: Error?
+        coord.coordinate(writingItemAt: url, options: [], error: &coordErr) { wu in
+            do {
+                if FileManager.default.fileExists(atPath: wu.path) {
+                    let h = try FileHandle(forWritingTo: wu)
+                    try h.seekToEnd()
+                    try h.write(contentsOf: data)
+                    try h.close()
+                } else {
+                    try data.write(to: wu, options: .atomic)
+                }
+            } catch { writeErr = error }
+        }
+        if let coordErr { throw coordErr }
+        if let writeErr { throw writeErr }
+    }
+
     /// opId-ascending, canonical-content tiebreak, first-wins dedup by opId —
     /// same total-order discipline as OpLogStore.mergeSortedDedup.
     public static func loadMerged(forDocId docId: String, language: String,

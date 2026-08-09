@@ -67,6 +67,53 @@ final class TranslationStoreTests: XCTestCase {
         XCTAssertNil(latest["bbbb"])
     }
 
+    func test_appendBatch_writesAllRecordsInOneOperation() throws {
+        let slug = DeviceSlug.unsafeForTesting("maca-1234")
+        let records = (0..<3).map { i in
+            TranslationRecord(paragraphId: "aaa\(i)", language: "es", text: "t\(i)", sourceHash: "h",
+                              at: Date(timeIntervalSince1970: 1_753_000_000 + TimeInterval(i)))
+        }
+        try TranslationStore.appendBatch(records, forDocId: "doc1", language: "es",
+                                         deviceSlug: slug, in: projectURL)
+        let url = TranslationStore.fileURL(forDocId: "doc1", language: "es", deviceSlug: slug, in: projectURL)
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        let lines = contents.split(separator: "\n", omittingEmptySubsequences: true)
+        XCTAssertEqual(lines.count, 3)
+        let loaded = TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: projectURL)
+        XCTAssertEqual(Set(loaded.map(\.paragraphId)), Set(records.map(\.paragraphId)))
+    }
+
+    func test_appendBatch_failurePathWritesNothing() throws {
+        // Make ".maugham" a FILE, so creating ".maugham/translations"
+        // underneath it fails — the write must throw and leave no jsonl file.
+        let blockerPath = projectURL.appendingPathComponent(".maugham")
+        try Data().write(to: blockerPath)
+        let slug = DeviceSlug.unsafeForTesting("maca-1234")
+        let records = [TranslationRecord(paragraphId: "aaaa", language: "es", text: "x", sourceHash: "h")]
+        XCTAssertThrowsError(
+            try TranslationStore.appendBatch(records, forDocId: "doc1", language: "es",
+                                             deviceSlug: slug, in: projectURL))
+        let url = TranslationStore.fileURL(forDocId: "doc1", language: "es", deviceSlug: slug, in: projectURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func test_tombstoneRemovesKey_andLaterValueRestoresIt() {
+        // Order pinned by construction order: ULID.generate() is process-monotonic,
+        // so opId ordering follows call order here, not `at` or array position.
+        let value1 = TranslationRecord(paragraphId: "aaaa", language: "es", text: "hola", sourceHash: "h")
+        let tombstone = TranslationRecord(paragraphId: "aaaa", language: "es", text: nil, sourceHash: "h")
+        let value2 = TranslationRecord(paragraphId: "aaaa", language: "es", text: "hola de nuevo", sourceHash: "h")
+
+        // Value then tombstone (later opId): the key is removed.
+        XCTAssertNil(TranslationStore.latestByParagraph([value1, tombstone])["aaaa"])
+
+        // Tombstone then a later value: the value restores the key.
+        XCTAssertEqual(TranslationStore.latestByParagraph([tombstone, value2])["aaaa"]?.text, "hola de nuevo")
+
+        // All three, fed out of opId order: last-opId-wins still applies.
+        XCTAssertEqual(TranslationStore.latestByParagraph([value2, tombstone, value1])["aaaa"]?.text, "hola de nuevo")
+    }
+
     func test_languages_scansDirectory() async throws {
         let slug = DeviceSlug.unsafeForTesting("maca-1234")
         for (i, lang) in ["es", "fr"].enumerated() {
