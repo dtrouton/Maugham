@@ -138,7 +138,7 @@ final class PromotionPieceRoutingTests: XCTestCase {
     /// is derived from these ops (tripwire 20).
     private func statementText(_ statement: Statement, in root: URL) -> String {
         let state = Deriver.deriveWithSequenceFallback(
-            ops: OpLogStore.loadSyncMerged(forDocId: statement.id, in: root))
+            ops: (try? OpLogStore.loadSyncMerged(forDocId: statement.id, in: root)) ?? [])
         return state.sequence
             .compactMap { state.paragraphs[$0] }
             .joined(separator: "\n\n")

@@ -45,7 +45,7 @@ final class ProjectStoreASTSourceFreshnessTests: XCTestCase {
         doc.setFullText("Freshly typed sentence not yet flushed.")
 
         let source = ProjectStoreASTSource(projectStore: store)
-        let pieces = source.orderedPieces()
+        let pieces = try source.orderedPieces()
         let piece = try XCTUnwrap(pieces.first { $0.pieceID == docId })
 
         XCTAssertTrue(

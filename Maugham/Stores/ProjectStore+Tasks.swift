@@ -226,7 +226,10 @@ extension ProjectStore {
             // Derive paragraphs from the op log (ADR 0018: the .md is derived,
             // never authoritative). Sync read is deliberate — see the function
             // header note on avoiding async actor init per doc.
-            let ops = OpLogStore.loadSyncMerged(forDocId: item.id, in: url)
+            // RULING-54 lenient, reason recorded: the task pane skips an
+            // unreadable closed doc; opening it refuses loudly.
+            guard let ops = try? OpLogStore.loadSyncMerged(forDocId: item.id, in: url)
+            else { continue }
             let paragraphs = Deriver.deriveWithSequenceFallback(ops: ops).paragraphs
             let (closedTasks, _, _) = TaskDeriver.derive(
                 ops: ops, paragraphs: paragraphs, docId: item.id)
@@ -282,7 +285,10 @@ extension ProjectStore {
         // NSFileCoordinator is acceptable for this local-only synthetic log.
         // If iCloud coordination ever matters, route through the async
         // OpLogStore.load via a startup task instead.
-        _projectOpLogMirror = OpLogStore.loadSyncMerged(
-            forDocId: Self.projectTasksDocId, in: url)
+        // RULING-54 lenient, reason recorded: the tiny synthetic project
+        // task log falls back to empty — its pane has no error surface, and
+        // nothing manuscript-shaped lives in it.
+        _projectOpLogMirror = (try? OpLogStore.loadSyncMerged(
+            forDocId: Self.projectTasksDocId, in: url)) ?? []
     }
 }

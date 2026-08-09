@@ -741,16 +741,12 @@ final class ResearchMoveTests: XCTestCase {
     /// W2 unit: joint dedup must skip a stem whose `_assets` sibling is taken
     /// even when the note leaf itself is free.
     func test_researchDedupedNotePair_avoidsTakenAssetsSibling() {
-        XCTAssertEqual(
-            ProjectStore.researchDedupedNotePair("sarah.md", taken: ["sarah_assets"]),
-            "sarah-2.md")
-        XCTAssertEqual(
-            ProjectStore.researchDedupedNotePair("sarah.md", taken: []),
-            "sarah.md")
-        XCTAssertEqual(
-            ProjectStore.researchDedupedNotePair(
-                "sarah.md", taken: ["sarah.md", "sarah-2_assets"]),
-            "sarah-3.md")
+        func pair(_ name: String, _ taken: Set<String>) -> String {
+            ProjectStore.researchDedupedNotePair(name, isTaken: { taken.contains($0) })
+        }
+        XCTAssertEqual(pair("sarah.md", ["sarah_assets"]), "sarah-2.md")
+        XCTAssertEqual(pair("sarah.md", []), "sarah.md")
+        XCTAssertEqual(pair("sarah.md", ["sarah.md", "sarah-2_assets"]), "sarah-3.md")
     }
 
     /// W1: the post-relocate image-ref rewrite is cosmetic — a write failure

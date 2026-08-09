@@ -222,7 +222,7 @@ final class TranslationCoverageGateTests: XCTestCase {
         """)
         // No translation records written for "es".
 
-        let report = TranslationCoverage.check(projectStore: fx.store, language: "es")
+        let report = try TranslationCoverage.check(projectStore: fx.store, language: "es")
         // Every paragraph is "missing" with no records, so `gaps` are populated
         // too — but `zeroLayerError` is the distinct, higher-precedence outcome
         // the orchestrator surfaces (a single error, not per-piece missing lists).
@@ -268,7 +268,7 @@ final class TranslationCoverageGateTests: XCTestCase {
         try await fresh(ids[0], doc.paragraphs[ids[0]] ?? "")
         try await fresh(ids[1], "EL CAPITÁN\nPreparen a los hombres.")
 
-        let report = TranslationCoverage.check(projectStore: store, language: "es")
+        let report = try TranslationCoverage.check(projectStore: store, language: "es")
         XCTAssertFalse(report.isBlocked, "piece must be fully covered for drift to run")
         XCTAssertEqual(report.fountainDriftWarnings.count, 1,
             "expected exactly one drift warning, got \(report.fountainDriftWarnings)")
@@ -329,7 +329,7 @@ final class TranslationCoverageGateTests: XCTestCase {
         try await fx.doc.flushBurstNow()
 
         let freshStore = try await ProjectStore.load(from: fx.projectURL)
-        let report = TranslationCoverage.check(projectStore: freshStore, language: "es")
+        let report = try TranslationCoverage.check(projectStore: freshStore, language: "es")
 
         XCTAssertNil(report.zeroLayerError,
             "ids[0] carries a real translation record, so zero-layer must not fire")
@@ -365,12 +365,12 @@ final class TranslationCoverageGateTests: XCTestCase {
         }
 
         // Without exclusion, B blocks.
-        let blocked = TranslationCoverage.check(projectStore: fx.store, language: "es")
+        let blocked = try TranslationCoverage.check(projectStore: fx.store, language: "es")
         XCTAssertNil(blocked.zeroLayerError, "A carries records, so zero-layer is quiet")
         XCTAssertTrue(blocked.isBlocked, "the untranslated stub B must block un-excluded")
 
         // With B excluded, the gate is clean.
-        let clean = TranslationCoverage.check(
+        let clean = try TranslationCoverage.check(
             projectStore: fx.store, language: "es", excludedSectionIDs: [fx.docB.id])
         XCTAssertNil(clean.zeroLayerError)
         XCTAssertFalse(clean.isBlocked,
@@ -396,11 +396,11 @@ final class TranslationCoverageGateTests: XCTestCase {
     func test_excludedOnlyDoc_doesNotFireZeroLayer() async throws {
         let fx = try await makeCompileFixture(content: "Sole untranslated paragraph.")
         // No records for "es" anywhere.
-        let unexcluded = TranslationCoverage.check(projectStore: fx.store, language: "es")
+        let unexcluded = try TranslationCoverage.check(projectStore: fx.store, language: "es")
         XCTAssertNotNil(unexcluded.zeroLayerError,
             "un-excluded untranslated doc must fire zero-layer")
 
-        let excluded = TranslationCoverage.check(
+        let excluded = try TranslationCoverage.check(
             projectStore: fx.store, language: "es", excludedSectionIDs: [fx.docID])
         XCTAssertNil(excluded.zeroLayerError,
             "an excluded doc must not feed the zero-layer denominator")

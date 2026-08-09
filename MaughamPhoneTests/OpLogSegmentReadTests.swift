@@ -36,7 +36,7 @@ final class OpLogSegmentReadTests: XCTestCase {
         try tail.write(to: OpLogStore.opLogFileURL(
             forDocId: "doc-ph1", deviceSlug: DeviceSlug.make(from: "mac"), in: projectURL))
 
-        let ops = OpLogStore.loadSyncMerged(forDocId: "doc-ph1", in: projectURL)
+        let ops = try OpLogStore.loadSyncMerged(forDocId: "doc-ph1", in: projectURL)
         XCTAssertEqual(ops.map(\.opId), ["01A", "01B"])
         XCTAssertEqual(Deriver.derive(ops: ops).paragraphs["aaaa"], "live")
     }

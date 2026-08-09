@@ -125,10 +125,10 @@ public struct PreviewCompiler {
         // any pass warnings ride out on the success path below.
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
         if let language, let source = astSource as? ProjectStoreASTSource {
-            let renderedIDs = Set(filteredSrc.orderedPieces().map(\.pieceID))
-            let allIDs = Set(source.orderedPieces().map(\.pieceID))
+            let renderedIDs = Set(try filteredSrc.orderedPieces().map(\.pieceID))
+            let allIDs = Set(try source.orderedPieces().map(\.pieceID))
             let excludedFromGate = allIDs.subtracting(renderedIDs)
-            let report = TranslationCoverage.check(
+            let report = try TranslationCoverage.check(
                 projectStore: source.projectStore, language: language,
                 excludedSectionIDs: excludedFromGate)
             switch TranslationCoverage.applyGate(
@@ -178,8 +178,8 @@ public struct PreviewCompiler {
 private struct FilteredASTSource: ProjectASTBuilder.Source {
     let base: ProjectASTBuilder.Source
     let sectionIDs: [String]?
-    func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
-        let all = base.orderedPieces()
+    func orderedPieces() throws -> [ProjectASTBuilder.PieceRef] {
+        let all = try base.orderedPieces()
         guard let ids = sectionIDs, !ids.isEmpty else { return all }
         let set = Set(ids)
         return all.filter { set.contains($0.pieceID) }
@@ -195,8 +195,8 @@ private struct FilteredASTSource: ProjectASTBuilder.Source {
 struct IncludeFilteredASTSource: ProjectASTBuilder.Source {
     let base: ProjectASTBuilder.Source
     let excludedSectionIDs: Set<String>
-    func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
-        let all = base.orderedPieces()
+    func orderedPieces() throws -> [ProjectASTBuilder.PieceRef] {
+        let all = try base.orderedPieces()
         guard !excludedSectionIDs.isEmpty else { return all }
         return all.filter { !excludedSectionIDs.contains($0.pieceID) }
     }

@@ -51,6 +51,12 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         parseDiagnosed(bytes: try readBytesStrict()).elements
     }
 
+    /// The strict twin of `loadDiagnosed` (RULING-54): unreadable-yet-present
+    /// throws; absent is still empty.
+    public func loadDiagnosedStrict() async throws -> (elements: [Element], diagnostics: ParseDiagnostics) {
+        parseDiagnosed(bytes: try readBytesStrict())
+    }
+
     /// The strict twin of `readBytes`: absent is still empty, unreadable throws.
     private func readBytesStrict() throws -> Data {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return Data() }

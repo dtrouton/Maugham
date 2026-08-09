@@ -76,11 +76,14 @@ extension ProjectStore {
     /// Display form, not the materialised one: a statement carries no
     /// annotations, so nothing on these surfaces anchors to a `¶id`, and what
     /// the writer sees in the pane is what Claude should read.
-    func statementText(of statement: Statement) -> String {
+    func statementText(of statement: Statement) throws -> String {
         if let live = openStatementDocument(id: statement.id) {
             return live.displayText
         }
-        return derivedCache.displayText(forDocId: statement.id, in: url)
+        // RULING-54: an unreadable statement log throws — a pane or tool
+        // showing the writer's INTENT as empty over a file it could not read
+        // is the M1-C-055 shape one surface over.
+        return try derivedCache.displayText(forDocId: statement.id, in: url)
     }
 
     /// `(id, composed title)` for every statement — the resolution-side spelling

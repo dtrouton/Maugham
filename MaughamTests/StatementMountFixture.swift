@@ -404,7 +404,9 @@ final class StatementMountFixture: RunLoopPumping {
     // MARK: - Reading the op log
 
     func ops(forDocId docId: String) -> [Op] {
-        OpLogStore.loadSyncMerged(forDocId: docId, in: projectURL)
+        // Test fixture absorbs RULING-54's strict throw: an unreadable file
+        // reads as [] here, and the exact-match assertions fail loudly anyway.
+        (try? OpLogStore.loadSyncMerged(forDocId: docId, in: projectURL)) ?? []
     }
 
     /// The document text the op log derives to — the authoritative reading of

@@ -2341,8 +2341,11 @@ struct ProjectWindow: View {
             return try? String(contentsOf: // adr-0018-ok: a research note is not manuscript
                                 store.url.appendingPathComponent(path), encoding: .utf8)
         }
+        // RULING-54 lenient, reason recorded: this feeds a marker-position
+        // heuristic; an unreadable statement yields nil (no marker) and the
+        // statement pane itself refuses loudly on open.
         return store.manifest.statements.first { $0.id == itemID }
-            .map { store.statementText(of: $0) }
+            .flatMap { try? store.statementText(of: $0) }
     }
 
     // MARK: - Helpers

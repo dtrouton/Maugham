@@ -19,11 +19,16 @@ public enum ProjectASTBuilder {
     }
 
     public protocol Source {
-        func orderedPieces() -> [PieceRef]
+        /// THROWS when a piece's history is unreadable (RULING-54): a compile
+        /// must fail loudly — through `CompileOrchestrator`'s DurableProgress
+        /// catch — rather than emit a book silently missing the chapters an
+        /// unreadable op-log file held. Non-throwing sources satisfy this
+        /// requirement unchanged.
+        func orderedPieces() throws -> [PieceRef]
     }
 
-    public static func build(from source: Source) -> ProjectAST {
-        let sections = source.orderedPieces().map(buildSection(from:))
+    public static func build(from source: Source) throws -> ProjectAST {
+        let sections = try source.orderedPieces().map(buildSection(from:))
         return ProjectAST(sections: sections)
     }
 

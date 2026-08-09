@@ -1,6 +1,8 @@
 # START HERE — the behavioural-specification experiment
 
-Handoff written 2026-08-08. Read this, then `RECONCILE.md`, then carry on.
+Handoff refreshed 2026-08-09 — the dated session handoff is `30-handoff-2026-08-09.md`
+(read it after this file for the pickup queue and the conventions that bit).
+Read this, then `RECONCILE.md`, then carry on.
 **The standing plan is `PLAN.md`** — four phases with exit conditions, approved by Denver
 2026-08-08; this file carries the live queue and state, the plan carries the arc.
 
@@ -55,8 +57,9 @@ why. **Read `register/RULINGS.md` and nothing else.**
 | `Canvas/Promotion*` (the falsification module) | 78 | 67% | 52 / 0 | `29-promotion-falsification.md` |
 | `Publish/Republisher` (+`CompileOrchestrator`) | 11 | 91% | 10 / 0 | — |
 | `Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings) | 12 | 75% | 9 / 0 | — |
+| `OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice) | 6 | 100% | 6 / 0 | — |
 
-The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 257 further claims in their own files. **426 claims in the experiment, 405 reconciled.** The app layer stands at **154 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
+The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 263 further claims in their own files. **432 claims in the experiment, 411 reconciled.** The app layer stands at **160 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
 App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`).
 
@@ -168,14 +171,18 @@ pending" this section once carried is closed; the filings hold the details:
    systematic application of RULING-52's standing duty. After it, by writer-proximity:
    InboxStore, MCP/Tools (per RULING-21), checkpoint paths — the worthwhile set is roughly
    five or six more modules, not twenty (PLAN.md phase 4).
-2. **RULING-54's strict-read sweep, op log first** (ruled 2026-08-09, GAP-I2):
-   `JSONLAppendStore.load` presents an unreadable-yet-present file as empty for
-   its four remaining consumers — the op log, checkpoints, publications, tasks.
-   Each migrates to `loadStrict` (the inbox's fix, 6955c2d8, is the pattern)
-   with its own characterised loop, because the surfacing UX differs per
-   consumer. THE OP LOG IS FIRST: an unreadable op-log file at document load
-   presenting the manuscript as shorter than it is would be RULING-7's
-   forbidden shape at the highest-stakes surface.
+2. **RULING-54's strict-read sweep — THE OP LOG SLICE LANDED** (branch
+   `claude/oplog-strict-read`, the OpLog module's first six claims): an
+   unreadable op-log file or unlistable ops directory now REFUSES the document
+   load with the file named (the mapped cascade — shorter doc → truncated
+   autosave → superseded paragraphs → and, for the directory case, a
+   re-bootstrapped parallel history — is closed at its first link); the
+   closed-doc and compile reads are strict too, and the app-fringe readers are
+   lenient with recorded reasons. STILL QUEUED, in order: **checkpoints**
+   (CheckpointStore.load — an unreadable device file silently thins
+   History/Rewind), the seal tail's silent skip, PendingBuffer's silent
+   crash-recovery skip, BackupSignature's dropped file, and the
+   publications/tasks lenient loads.
 3. **Small residuals**: RULING-30's presentation duty (verify-and-file); the two
    formal-methods findings (§8.2/§8.4); the audio-capture nuance.
 3. **The gap queue is EMPTY again as of 2026-08-09's P-gap sitting** — Promotion's five

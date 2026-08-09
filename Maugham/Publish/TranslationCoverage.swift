@@ -46,7 +46,7 @@ enum TranslationCoverage {
         projectStore: ProjectStore,
         language: String,
         excludedSectionIDs: Set<String> = []
-    ) -> Report {
+    ) throws -> Report {
         let docs = ProjectStore.collectDocuments(in: projectStore.manifest.structure)
         var gaps: [Report.PieceGap] = []
         var driftWarnings: [String] = []
@@ -61,7 +61,7 @@ enum TranslationCoverage {
             if excludedSectionIDs.contains(item.id) { continue }
             guard let path = item.path else { continue }
 
-            let (sequence, paragraphs) = sourceSplit(
+            let (sequence, paragraphs) = try sourceSplit(
                 projectStore: projectStore, docId: item.id, path: path)
             let records = TranslationStore.loadMerged(
                 forDocId: item.id, language: language, in: projectStore.url)
@@ -187,11 +187,11 @@ enum TranslationCoverage {
     /// `derivedCache.state`. Never the raw `.md` (tripwire 20).
     private static func sourceSplit(
         projectStore: ProjectStore, docId: String, path: String
-    ) -> (sequence: [String], paragraphs: [String: String]) {
+    ) throws -> (sequence: [String], paragraphs: [String: String]) {
         if let ds = projectStore.documentStore, let doc = ds.document(for: path) {
             return (doc.sequence, doc.paragraphs)
         }
-        let state = projectStore.derivedCache.state(forDocId: docId, in: projectStore.url)
+        let state = try projectStore.derivedCache.state(forDocId: docId, in: projectStore.url)
         return (state.sequence, state.paragraphs)
     }
 

@@ -106,7 +106,12 @@ enum ScreenplayScriptSource {
             // same thing to both producers.
             text = doc.displayText
         } else {
-            text = store.derivedCache.displayText(forDocId: item.id, in: store.url)
+            // RULING-54 lenient, reason recorded: the Scenes sidebar has no
+            // per-doc error surface; an unreadable doc lists no scenes here
+            // and refuses loudly the moment the writer opens it.
+            guard let derived = try? store.derivedCache.displayText(
+                forDocId: item.id, in: store.url) else { return FountainScript() }
+            text = derived
         }
         return FountainTokenizer().parse(text)
     }

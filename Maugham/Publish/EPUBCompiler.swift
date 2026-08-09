@@ -50,7 +50,7 @@ public struct EPUBCompiler {
             await jobManager.updatePhase(jobID: id, phase: .renderingBody)
         }
 
-        let ast = ProjectASTBuilder.build(from: astSource)
+        let ast = try ProjectASTBuilder.build(from: astSource)
         let sections = zip(ast.sections.indices, ast.sections).map { (i, s) in
             EPUBPackage.Section(
                 id: "s\(i + 1)",

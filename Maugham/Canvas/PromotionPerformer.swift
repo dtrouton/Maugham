@@ -726,7 +726,7 @@ struct PromotionPerformer {
             // reason — `statementAppending` owns the blank line between what is
             // there and what is arriving, so pre-padded text would double it.
             guard !Promotion.alreadyLinks(to: link.targetTitle,
-                                          in: store.statementText(of: statement)) else {
+                                          in: try store.statementText(of: statement)) else {
                 throw PromotionFailure.linkAlreadyPresent(
                     destination: plan.destinationDescription)
             }
@@ -893,7 +893,7 @@ struct PromotionPerformer {
                 written.append(offer.node)
             case .statement(let statement):
                 guard !Promotion.alreadyLinks(to: artifactTitle,
-                                              in: store.statementText(of: statement))
+                                              in: try store.statementText(of: statement))
                 else { continue }
                 try await store.appendToStatement(link, to: statement,
                                                   session: Self.promotionSession)

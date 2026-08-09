@@ -176,9 +176,9 @@ final class CompileOrchestratorTests: XCTestCase {
             }
         }
         let filtered = IncludeFilteredASTSource(base: Src(), excludedSectionIDs: ["p2"])
-        XCTAssertEqual(filtered.orderedPieces().map(\.pieceID), ["p1", "p3"])
+        XCTAssertEqual(try filtered.orderedPieces().map(\.pieceID), ["p1", "p3"])
 
-        let ast = ProjectASTBuilder.build(from: filtered)
+        let ast = try ProjectASTBuilder.build(from: filtered)
         let latex = LaTeXBodyEmitter.emit(ast)
         let xhtml = XHTMLBodyEmitter.emit(ast)
         for body in [latex, xhtml] {
@@ -196,7 +196,7 @@ final class CompileOrchestratorTests: XCTestCase {
             }
         }
         let filtered = IncludeFilteredASTSource(base: Src(), excludedSectionIDs: [])
-        XCTAssertEqual(filtered.orderedPieces().map(\.pieceID), ["p1", "p2"])
+        XCTAssertEqual(try filtered.orderedPieces().map(\.pieceID), ["p1", "p2"])
     }
 
     // MARK: - F2: dry_run runs the gates but mutates nothing

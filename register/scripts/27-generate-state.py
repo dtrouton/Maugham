@@ -28,6 +28,7 @@ APP_MODULES = [
     ("Promotion", "`Canvas/Promotion*` (the falsification module)", "`29-promotion-falsification.md`"),
     ("Publications", "`Publish/Republisher` (+`CompileOrchestrator`)", "—"),
     ("Inbox", "`Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings)", "—"),
+    ("OpLog", "`OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice)", "—"),
 ]
 CORE_RECONCILED, CORE_TOTAL = 148, 169
 
