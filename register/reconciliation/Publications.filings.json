@@ -43,79 +43,121 @@
  },
  {
   "claim_id": "M7-PB-005",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-7",
-  "clause_that_reaches_it": "Maugham never misrepresents a failure",
-  "why_in_scope": "a compile that died on a thrown error is reported by compile_status as still compiling, for the life of the process — the job record is never terminalised on any thrown path, and the status pill spins forever. That is a failure presented as an in-progress success, RULING-7's own sentence",
+  "clause_that_reaches_it": "a compile that dies is never reported as still compiling",
+  "why_in_scope": "any error thrown after the first durable mutation now surfaces as .failed through the DurableProgress catch: the job is terminalised with the honest diagnostic, compile_status tells the truth, the pill stops",
   "intent_expressed_when": "not at all — no comment anywhere accepts a stranded job",
   "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile; every thrown exit after jobManager.register",
-  "violation_or_enhancement": "violation — behaviour change owed (terminalise the job on the thrown path)"
+  "violation_or_enhancement": "violation — behaviour change owed (terminalise the job on the thrown path)",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-7 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_aFailureAfterMutationNamesWhatLandedAndTheJobIsTerminal; CompileOrchestratorTests.test_aFailureAfterMutationNamesWhatLandedAndTerminalisesTheJob"
+  }
  },
  {
   "claim_id": "M7-PB-006",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-52",
   "clause_that_reaches_it": "an operation that has already changed the project and then fails says what it did as well as what failed",
-  "why_in_scope": "the catalog-append throw is the sharpest case: the export is in Exports/ and the snapshot persisted, and the caller gets a raw internal_error naming neither — the writer cannot know a finished artifact is sitting invisible to list_publications, where the next compile at the same version will silently overwrite it. The same shape holds at every thrown site after the first mutation (snapshot-save, the compilers' moves, republish's post-move throws)",
+  "why_in_scope": "the DurableProgress ledger records each durable step as it lands; the failure diagnostic's context names the export, the snapshot and the catalog row that survive, and states that everything unlisted did not happen",
   "intent_expressed_when": "not at all",
   "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
-  "violation_or_enhancement": "violation — the failure report must name what landed"
+  "violation_or_enhancement": "violation — the failure report must name what landed",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-52 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_aFailureAfterMutationNamesWhatLandedAndTheJobIsTerminal; RepublisherTests.test_aRepublishFailureAfterTheMoveNamesTheMovedFile"
+  }
  },
  {
   "claim_id": "M7-PB-007",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-52",
-  "clause_that_reaches_it": "an operation that has already changed the project and then fails says what it did as well as what failed",
-  "why_in_scope": "the TODO's window: append succeeds, bump throws — publication committed, counter unbumped, and the raw error names neither half. The TODO records the TRANSACTIONAL gap deliberately and RULING-52 does not demand the transaction — it demands the report. The conviction is scoped to the silence, not the ordering: the ordering is the claim's INTENTIONAL half and stands",
+  "clause_that_reaches_it": "the report half of the TODO window",
+  "why_in_scope": "the ordering (append before bump) and the TODO stand — the ruling demands the report, and the ledger now supplies it: a bump failure names the committed catalog row and says the counter did not advance",
   "intent_expressed_when": "the ordering: contemporaneous (the TODO). The silence: not at all",
   "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
-  "violation_or_enhancement": "violation — the report half only; the two-phase commit stays future work"
+  "violation_or_enhancement": "violation — the report half only; the two-phase commit stays future work",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-52 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_theCatalogAppendPrecedesTheVersionBumpAndTheTodoStandsWitness"
+  }
  },
  {
   "claim_id": "M7-PB-008",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-8",
-  "clause_that_reaches_it": "where the same product question is answered in more than one place, it has one answer — a second surface or a second code path may not answer it differently",
-  "why_in_scope": "the same question M7-PB-001 was filed under — 'what is at this catalog record's outputPath?' — answered differently by the compile path and the republish path: republish refuses an occupied destination ('they are not this job's to destroy'), the compile path deletes it. Under a template without {version} that deletion replaces an EXISTING RECORD's bytes, recreating exactly the catalog-row-vs-disk-bytes disagreement the #25 fix closed — through the door it did not cover",
+  "clause_that_reaches_it": "one refusal for one question on both paths",
+  "why_in_scope": "PDFCompiler/EPUBCompiler refuse an occupied destination by default (shared OutputFilenameBuilder.occupiedDestinationRefusal — one spelling, matching republish); previews and the font spike opt into replacement explicitly because their filenames are reused by design",
   "intent_expressed_when": "not at all — the delete predates the republish guard and was never revisited",
   "call_path": "MCP set_publish_config (template without {version}) then two compiles",
-  "violation_or_enhancement": "violation — the compile path owes the republish path's refusal (scoped so previews, which overwrite deliberately, keep overwriting)"
+  "violation_or_enhancement": "violation — the compile path owes the republish path's refusal (scoped so previews, which overwrite deliberately, keep overwriting)",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-8 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_anOccupiedDestinationRefusesAndTheEarlierRecordsBytesSurvive; CompileOrchestratorTests.test_anOccupiedDestinationRefusesRatherThanReplacingAnEarlierRecordsBytes; PreviewCompilerTests.testPreview_overwritesItsOwnPriorOutput"
+  }
  },
  {
   "claim_id": "M7-PB-009",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-22",
-  "clause_that_reaches_it": "controls are unambiguous and DO WHAT THEY SAY",
-  "why_in_scope": "compile_cancel says 'cancelled' and the compile publishes anyway — the token is polled by nothing (a zero-caller census) and the finishing compile overwrites .cancelled with .completed, so even the RECORD of the writer's instruction is erased. The writer formed an expectation from the control's own answer and the outcome differs from it — R22's scope test verbatim",
+  "clause_that_reaches_it": "cancelled means cancelled",
+  "why_in_scope": "terminal writers refuse to overwrite .cancelled, updatePhase never resurrects a terminal job, and both pipelines poll the token at the last exit before durable commit — Outcome.cancelled, nothing published, the staged artifact removed",
   "intent_expressed_when": "not at all",
   "call_path": "MCP compile_cancel during a compile",
-  "violation_or_enhancement": "violation — honour the token at phase boundaries and guard the terminal overwrite"
+  "violation_or_enhancement": "violation — honour the token at phase boundaries and guard the terminal overwrite",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-22 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_cancelStandsAndTheTokenHasItsPreCommitPollers; CompileOrchestratorTests.test_aCancelledCompileDoesNotPublish; CompileJobManagerTests.testCancel_survivesALateTerminalWrite"
+  }
  },
  {
   "claim_id": "M7-PB-010",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-7",
-  "clause_that_reaches_it": "Maugham never misrepresents a failure; a refusal names its real cause",
-  "why_in_scope": "no-config fails the job and returns an empty-path success to the caller: the tool renders {status: completed, output_path: \"\"} — a failure presented as a success with the cause dropped on the floor, one call producing two contradictory answers",
+  "clause_that_reaches_it": "a failure is never presented as a success",
+  "why_in_scope": "the no-config refusal rides Result.errors, so the tool renders the failed shape naming the cause and the remedy (initialize_publish_template)",
   "intent_expressed_when": "not at all",
   "call_path": "MCP preview_compile on an uninitialised project",
-  "violation_or_enhancement": "violation — return the cause in Result.errors so the tool reports failed"
+  "violation_or_enhancement": "violation — return the cause in Result.errors so the tool reports failed",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-7 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_aPreviewWithNoConfigReportsItsCauseAsAFailure; PreviewCompilerTests.testPreview_withNoConfigReturnsTheCauseAsAnError"
+  }
  },
  {
   "claim_id": "M7-PB-011",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-8",
-  "clause_that_reaches_it": "where the same product question is answered in more than one place, it has one answer",
-  "why_in_scope": "'does this edition exist?' — the catalog says yes the moment republish completes; the Exports pane, which refreshes only on the completion event the republish never posts, keeps answering without it until something else triggers a rescan. The two code paths (compile posts, republish does not) answer the same duty differently for no recorded reason",
+  "clause_that_reaches_it": "both pipelines answer the pane the same way",
+  "why_in_scope": "Republisher posts maughamPublicationCompleted project-scoped after its catalog append, exactly as the orchestrator does",
   "intent_expressed_when": "not at all",
   "call_path": "MCP republish with the project window open",
-  "violation_or_enhancement": "violation — republish posts the same project-scoped event"
+  "violation_or_enhancement": "violation — republish posts the same project-scoped event",
+  "fix": {
+   "commit": "21f7682c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-8 (standing; RULING-52 ruled 2026-08-09 GAP-P6, the others long-standing)",
+   "pinned_by": "PublicationsCharacterization.test_theCompletionEventIsPostedByBothPipelines; RepublisherTests.test_republishPostsTheCompletionEventTheExportsPaneRefreshesOn"
+  }
  },
  {
   "_summary": {
    "reached": 10,
-   "complies": 3,
-   "violates": 7,
+   "complies": 10,
+   "violates": 0,
    "no_ruling": 1,
    "total": 11,
    "coverage": "91%",
