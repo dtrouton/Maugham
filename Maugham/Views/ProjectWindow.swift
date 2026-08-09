@@ -1132,7 +1132,8 @@ struct ProjectWindow: View {
         // adding a parameter that could not change an answer, and the re-base
         // onto the persona inherits the same shape.
         guard Self.showsStatusFooter(persona: persona,
-                                     subject: selectedSubject) else { return false }
+                                     subject: selectedSubject,
+                                     showsPaletteWall: showsPaletteWall) else { return false }
         if isNoChromeOn { return false }
         return true
     }
@@ -1162,14 +1163,24 @@ struct ProjectWindow: View {
     /// is about a different thing and the last two are blank, so the strip is a
     /// row of claims the centre column cannot support.
     ///
-    /// **What it still does NOT ask about is the palette wall**, which since
-    /// Task 5 can take the centre column in Author, Review and Publish with the
-    /// footer left underneath it. That is a live gap rather than a decision —
-    /// closing it is a behaviour change, and Tasks 6 and 7 were both bound to
-    /// answer exactly what they answered before. Recorded for Task 8.
+    /// **The palette wall since Task 8.** Since stage 2b Task 5 the wall can
+    /// take the centre column in Author, Review and Publish
+    /// (`showsPaletteWallCentre`) — layered on top of `editorPane`'s other
+    /// arms, `researchSubjectPlacement` included, so a wall open over a
+    /// research subject still hides the footer. Tasks 6 and 7 each recorded
+    /// this as a live gap rather than closing it, because a re-base is bound to
+    /// answer exactly what it answered before and this is a behaviour change.
+    /// The `.find` overlay took no third parameter for the same-shaped
+    /// question and does not get one here either — opening it writes neither
+    /// `persona` nor `subject` nor `showsPaletteWall`
+    /// (`TreeFindOverlayTests.test_openingTheOverlayCannotTakeTheStatusFooterAway`),
+    /// so Denver's 2026-08-02 find ruling holds unchanged by construction.
     static func showsStatusFooter(persona: Persona,
-                                  subject: BinderSubject?) -> Bool {
+                                  subject: BinderSubject?,
+                                  showsPaletteWall: Bool) -> Bool {
         guard persona.showsManuscriptDocuments else { return false }
+        guard !showsPaletteWallCentre(showsPaletteWall: showsPaletteWall,
+                                      persona: persona) else { return false }
         return researchSubjectPlacement(persona: persona,
                                         subject: subject).centreItemID == nil
     }

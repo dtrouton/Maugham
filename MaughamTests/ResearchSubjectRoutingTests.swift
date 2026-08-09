@@ -297,11 +297,13 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         for persona in Self.centresThatHoldADocument {
             XCTAssertTrue(
                 ProjectWindow.showsStatusFooter(persona: persona,
-                                                subject: .item("doc1")),
+                                                subject: .item("doc1"),
+                                                showsPaletteWall: false),
                 "control: \(persona) over a manuscript document still reports")
             XCTAssertFalse(
                 ProjectWindow.showsStatusFooter(persona: persona,
-                                                subject: .research("r1")),
+                                                subject: .research("r1"),
+                                                showsPaletteWall: false),
                 "\(persona) with a research item in the centre has no document "
                 + "for the footer to be about")
         }
@@ -312,10 +314,44 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         for persona in Self.centresThatHoldNoDocument {
             XCTAssertFalse(
                 ProjectWindow.showsStatusFooter(persona: persona,
-                                                subject: .item("doc1")),
+                                                subject: .item("doc1"),
+                                                showsPaletteWall: false),
                 "\(persona): a document subject cannot conjure a footer over a "
                 + "centre column that is not a document")
         }
+    }
+
+    /// **The wall term, since Task 8.** Tasks 6 and 7 each recorded the same
+    /// gap and left it: since stage 2b Task 5 the palette wall can take the
+    /// centre column in Author, Review and Publish
+    /// (`showsPaletteWallCentre`), and the footer's gate did not know about
+    /// it — so the goal capsule, the live session words and a stale
+    /// `¶id`/element readout sat under the wall.
+    ///
+    /// **The wall never reaches Plan's centre** (`showsPaletteWallCentre`'s own
+    /// `persona != .plan` term — Plan's centre is the board), so Plan gets its
+    /// own assertion below: the wall flag must be able to flip `true` with no
+    /// effect there, or the fact that Author/Review/Publish go silent under it
+    /// would be a coincidence about those three rather than about the wall.
+    func test_theManuscriptStatusFooterIsSilentUnderThePaletteWall() {
+        for persona in [Persona.author, .review, .publish] {
+            XCTAssertFalse(
+                ProjectWindow.showsStatusFooter(persona: persona,
+                                                subject: .item("doc1"),
+                                                showsPaletteWall: true),
+                "\(persona): the wall is centred over the document — the "
+                + "footer's four readings have nothing under them to report on")
+            XCTAssertTrue(
+                ProjectWindow.showsStatusFooter(persona: persona,
+                                                subject: .item("doc1"),
+                                                showsPaletteWall: false),
+                "control: \(persona) with the wall closed still reports")
+        }
+        XCTAssertFalse(
+            ProjectWindow.showsStatusFooter(persona: .plan, subject: .item("doc1"),
+                                            showsPaletteWall: true),
+            "Plan never shows the footer regardless — its centre is the board, "
+            + "not a document, wall or no wall")
     }
 
     /// The personas whose centre column IS a manuscript document, and the ones

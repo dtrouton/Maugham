@@ -3505,4 +3505,249 @@ final class TripwireGrepTests: XCTestCase {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         return trimmed.hasPrefix("//") || trimmed.hasPrefix("/*") || trimmed.hasPrefix("*")
     }
+
+    // MARK: - No spelling of the killed binder strip survives (stage 2b Task 8)
+
+    /// **The five names the strip died with, censused rather than merely
+    /// believed dead.** `BinderSegment` itself (Task 7); `Persona`'s
+    /// `binderSegments(for:)` registry (Task 7, this class's own two-file
+    /// helper of the same shape); `binderHome(for:)` (Task 7 — CLAUDE.md's
+    /// Views row named it as where a dying transient segment used to return
+    /// to); `findActive` (`treeFindActive`'s dead predecessor — its own doc
+    /// comment at the property that replaced it says "zero true-writers");
+    /// and `selectedResearchId` (the old research pane's private selection,
+    /// half of the 2a Critical `ResearchSubjectRoutingTests` and
+    /// `ProjectSubjectReachabilityTests` now guard the successor of).
+    ///
+    /// All five are still named in prose across this repo — `Views/AREA.md`,
+    /// `Canvas/AREA.md`, CLAUDE.md, three task reports in this milestone's own
+    /// `.superpowers/sdd/` directory, and the doc comment two paragraphs up
+    /// this file — which is exactly why `SourceScan` and not a raw `contains`
+    /// is the reader: it strips comments first, so a citation cannot trip a
+    /// census built to catch the name coming back as real code.
+    private static let deadStripSpellings = [
+        "BinderSegment", "binderSegments(", "binderHome(", "findActive",
+        "selectedResearchId",
+    ]
+
+    func test_noProductionSpellingOfTheDeadStripSurvives() throws {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil) else {
+            XCTFail("could not enumerate \(sourceDir)"); return
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let lines = SourceScan.codeLines(of: text)
+            for name in Self.deadStripSpellings {
+                for line in lines where line.contains(name) {
+                    offenders.append(
+                        "\(url.lastPathComponent): \(name) — "
+                        + line.trimmingCharacters(in: .whitespaces))
+                }
+            }
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A name from the binder strip killed in stage 2b Task 7 survives "
+            + "outside comments. BinderSegment, binderSegments(for:), "
+            + "binderHome(for:), findActive and selectedResearchId are all "
+            + "dead — see ManuscriptForceCensusTests, TreePaneTests and "
+            + "PersonaMemoryTests for their successors. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check, both directions in one plant: a doc comment naming all five
+    /// spellings must NOT fire — that is the whole reason this census reads
+    /// through `SourceScan` rather than a raw `contains` — and real code
+    /// reintroducing each of them, right below that same comment, must.
+    func test_deadStripCensusFiresOnPlantedOffendersAndIgnoresComments() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-deadstrip-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        /// Prose naming every dead spelling, which must not fire the census:
+        /// BinderSegment, binderSegments(for:), binderHome(for:), findActive,
+        /// selectedResearchId.
+        struct Reviving {
+            var findActive = false
+            var selectedResearchId: String?
+            let segment: BinderSegment? = nil
+            func binderSegments(for persona: Int) -> [Int] { [] }
+            func binderHome(for type: Int) -> Int { 0 }
+        }
+        """.write(to: tmp.appendingPathComponent("Reviving.swift"),
+                  atomically: true, encoding: .utf8)
+
+        var offenders: Set<String> = []
+        let walker = try XCTUnwrap(
+            fm.enumerator(at: tmp, includingPropertiesForKeys: nil))
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let lines = SourceScan.codeLines(of: text)
+            for name in Self.deadStripSpellings
+            where lines.contains(where: { $0.contains(name) }) {
+                offenders.insert(name)
+            }
+        }
+        XCTAssertEqual(offenders, Set(Self.deadStripSpellings),
+            "self-check: every planted offender must fire and the doc comment "
+            + "naming all five must not suppress any of them — got \(offenders)")
+    }
+
+    // MARK: - Who decides the persona (stage 2b Task 8, T7 report §6)
+
+    /// **T7's report closed with a named open question rather than a built
+    /// census**: "does any site write `selectedSubject` without going through
+    /// the rule that decides the persona with it." Building that census
+    /// literally is the wrong shape, and the reason is worth recording rather
+    /// than silently doing something else.
+    ///
+    /// `grep -rn "selectedSubject = " Maugham/` finds roughly twenty sites —
+    /// `BinderTreeSections`, `CorkboardGrid`, `SceneNavigatorPane`,
+    /// `OutlineTable`, `BinderView`, and a dozen more inside `ProjectWindow`
+    /// itself — and asking each "did you call `ManuscriptNavigation.go` first"
+    /// would fail on nearly all of them, because nearly all of them are
+    /// correct as written: a click in whatever tree the writer is already
+    /// looking at needs no persona decision to go with it. Which document or
+    /// research item the centre column HOLDS is answered by
+    /// `Persona.centresTheCanvas`/`showsManuscriptDocuments`
+    /// (`ManuscriptNavigationTests`), never by `selectedSubject`'s write
+    /// history — so a census demanding every subject write route through the
+    /// persona rule would be a forbidden-pattern census whose "forbidden"
+    /// pattern is the normal case. That is what "vacuous" means for this
+    /// class of test (task 8 brief, item 1's own escape hatch), and the three
+    /// notification receivers that DO need the rule — `.maughamNavigateToDocument`,
+    /// `.maughamNavigateToParagraph`, `.maughamNavigateToScene` — already have
+    /// their own census: `ManuscriptForceCensusTests
+    /// .test_everyNavigationReceiverStillRoutesThroughTheNavigation`.
+    ///
+    /// **The stronger fact underneath both of those, asserted here.** If
+    /// `selectedSubject`'s write history is irrelevant to which persona is
+    /// showing, the only way the two could ever disagree is a site deciding to
+    /// move the PERSONA on its own — reinventing `ManuscriptNavigation`'s rule
+    /// one level up, which is exactly this file's own doc comment's warning
+    /// ("a route added and nothing goes red") about a different value. So the
+    /// census asks of `persona` what T7's question asked of `selectedSubject`:
+    /// every production site that WRITES the window's `persona` is one of a
+    /// small, named, closed set — nowhere else invents its own persona-moving
+    /// logic. `ManuscriptNavigation.go` is the one sanctioned cross-context
+    /// arrival; `PersonaModifier`'s `.maughamSetPersona` handler is the one
+    /// sanctioned direct choice (⌘1–4 and the picker); `CanvasClaudeArrivalModifier`
+    /// is Claude's own arrival (1C-c3), reviewed separately; `UIState.swift`
+    /// is the model's own init/decode, not a live decision; and the two
+    /// `self.persona = persona` lines in `AssistantColumn.swift` and
+    /// `DetailPaneToggle.swift` are init-parameter captures for a subview
+    /// reading the persona it was handed, not a place that moves anything.
+    func test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites() throws {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil) else {
+            XCTFail("could not enumerate \(sourceDir)"); return
+        }
+        var offendersByFile: [String: [String]] = [:]
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let name = url.lastPathComponent
+            if name == "UIState.swift" { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for line in SourceScan.codeLines(of: text) {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard Self.isPersonaStateWrite(trimmed) else { continue }
+                if trimmed == "self.persona = persona" { continue }   // init capture
+                offendersByFile[name, default: []].append(trimmed)
+            }
+        }
+        XCTAssertEqual(
+            Set(offendersByFile.keys),
+            ["ManuscriptNavigation.swift", "CanvasClaudeArrivalModifier.swift",
+             "ProjectWindow.swift"],
+            "a new file writes the window's persona directly — either route it "
+            + "through ManuscriptNavigation.go / PersonaModifier, or if it is a "
+            + "genuinely new sanctioned decision site, add it here by name "
+            + "rather than widening the census silently. Found:\n"
+            + offendersByFile.map { "\($0.key): \($0.value.joined(separator: " / "))" }
+                .sorted().joined(separator: "\n"))
+    }
+
+    /// A line writes the persona state if it assigns through one of the three
+    /// shapes production actually uses — a plain `persona =`, a `Binding`'s
+    /// `.wrappedValue`, or the keyed `UIState` mutation closure's `$0.persona`.
+    /// The trailing space in each pattern is load-bearing: `persona == .plan`
+    /// does NOT contain `"persona = "` (the second `=` sits where the pattern
+    /// wants a space), so a bare comparison never matches and needs no special
+    /// exclusion — verified rather than assumed, because the same-line guard
+    /// shape (`if persona == .plan { persona = .author }`) would have made an
+    /// exclusion on the substring `"persona =="` blind the whole line to the
+    /// real write sharing it.
+    private static func isPersonaStateWrite(_ trimmed: String) -> Bool {
+        trimmed.contains("persona = ")
+            || trimmed.contains("persona.wrappedValue = ")
+            || trimmed.contains("$0.persona = ")
+    }
+
+    /// Self-check: a planted direct write in a file outside the closed set
+    /// must fire, and the same census run over just the three sanctioned files
+    /// (stood up as a fixture, so the test does not depend on the real tree's
+    /// line numbers) must not.
+    func test_personaDecisionCensusFiresOnAPlantedDirectWrite() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-persona-decision-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct ManuscriptNavigation {
+            static func go() { persona.wrappedValue = .author }
+        }
+        """.write(to: tmp.appendingPathComponent("ManuscriptNavigation.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        struct AssistantColumn {
+            init(persona: Persona) {
+                self.persona = persona
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("AssistantColumn.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        struct RogueRow {
+            // The guard on its own must not fire the census — only the write
+            // below it, which shares the same comparison a blind exclusion on
+            // "persona ==" would have hidden.
+            func tap() {
+                if persona == .plan {
+                    persona = .author
+                }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("RogueRow.swift"),
+                  atomically: true, encoding: .utf8)
+
+        var offendersByFile: [String: [String]] = [:]
+        let walker = try XCTUnwrap(
+            fm.enumerator(at: tmp, includingPropertiesForKeys: nil))
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let name = url.lastPathComponent
+            if name == "UIState.swift" { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for line in SourceScan.codeLines(of: text) {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard Self.isPersonaStateWrite(trimmed) else { continue }
+                if trimmed == "self.persona = persona" { continue }
+                offendersByFile[name, default: []].append(trimmed)
+            }
+        }
+        XCTAssertEqual(offendersByFile["RogueRow.swift"], ["persona = .author"],
+            "the planted direct write must fire, and only the comparison-free "
+            + "assignment inside it — the guard's own `persona == .plan` must "
+            + "not")
+        XCTAssertNil(offendersByFile["AssistantColumn.swift"],
+            "the init-parameter capture must not fire — it is not a decision")
+        XCTAssertEqual(offendersByFile["ManuscriptNavigation.swift"],
+            ["static func go() { persona.wrappedValue = .author }"],
+            "the sanctioned file still reports its own write — the closed-set "
+            + "test is what allows it, not this census")
+    }
 }
