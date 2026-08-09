@@ -357,8 +357,8 @@ final class PromotionCommandTests: XCTestCase {
               ".modifier(CanvasCollapseModifier(",
               "NavigationSplitView(columnVisibility: $columnVisibility)",
               "Self.releasesCanvasCollapse(",
-              "Self.clearsPaletteStash(",
-              "ProjectWindow.applyPaletteSegmentChange("],
+              "Self.clearsPaletteWallStash(",
+              "ProjectWindow.applyPaletteWallChange("],
              // **Numbered by what each token IS, never by its position in the
              // array above** (1C-d Task 12a, review Important 1). This read
              // "The FIFTH is…", "The SIXTH is…" and so on; Task 12a inserted a
@@ -481,22 +481,24 @@ final class PromotionCommandTests: XCTestCase {
              + "`CanvasCollapseTests` assertion stays green while a writer who "
              + "closed the inspector before collapsing lands in the next "
              + "persona with it closed, which is the exact defect the predicate "
-             + "exists to prevent. **`Self.clearsPaletteStash(` is its "
+             + "exists to prevent. **`Self.clearsPaletteWallStash(` is its "
              + "NEIGHBOUR three lines up, and it had the identical gap "
              + "until the 1C-d whole-branch review (M3)** — Task 13 measured "
              + "the hazard on its own predicate and censused that one, and "
              + "the sibling it was copied from was left uncovered. Delete "
              + "those three lines and every test stays green while a writer "
-             + "switching persona out of the Palette lands with the inspector "
-             + "CLOSED: `PaletteSegmentModifier`'s exit arm restores the "
-             + "stashed visibility over the persona switch's unconditional "
-             + "`showInspector = true`, which is the exact ordering hazard the "
-             + "canvas takeover was built to remove, on the surface it was "
-             + "built from. "
-             + "`ProjectWindow.applyPaletteSegmentChange(` is the wall's own "
+             + "switching persona INTO PLAN with the wall open (shell-finish "
+             + "stage 2b Task 5 re-keyed this from a palette-segment exit to a "
+             + "wall-open exit, but the hazard and its shape are unchanged) "
+             + "lands with the inspector CLOSED: `PaletteWallModifier`'s exit "
+             + "arm restores the stashed visibility over the persona switch's "
+             + "unconditional `showInspector = true`, which is the exact "
+             + "ordering hazard the canvas takeover was built to remove, on "
+             + "the surface it was built from. "
+             + "`ProjectWindow.applyPaletteWallChange(` is the wall's own "
              + "fold, and it is that shape one surface over: the fold is a "
              + "static with its own tests, so deleting the single line that "
-             + "calls it from `PaletteSegmentModifier` compiles, warns nothing, "
+             + "calls it from `PaletteWallModifier` compiles, warns nothing, "
              + "keeps every assertion over the fold green — and the palette "
              + "wall silently stops taking the width it was given, while the "
              + "canvas collapse's takeover starts reading a stash nobody sets"),
@@ -726,7 +728,7 @@ final class PromotionCommandTests: XCTestCase {
         // copied from.
         XCTAssertEqual(
             try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
-                              required: ["Self.clearsPaletteStash(",
+                              required: ["Self.clearsPaletteWallStash(",
                                          "Self.clearsNotARealStash("]),
             ["Self.clearsNotARealStash("],
             "the census reports the ABSENT palette-stash-call-site token and not "
@@ -735,7 +737,7 @@ final class PromotionCommandTests: XCTestCase {
         // its own tests, called from exactly one line.
         XCTAssertEqual(
             try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
-                              required: ["ProjectWindow.applyPaletteSegmentChange(",
+                              required: ["ProjectWindow.applyPaletteWallChange(",
                                          "ProjectWindow.applyNotARealSegmentChange("]),
             ["ProjectWindow.applyNotARealSegmentChange("],
             "the census reports the ABSENT palette-fold token and not the present one")

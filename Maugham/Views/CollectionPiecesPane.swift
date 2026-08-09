@@ -7,6 +7,11 @@ struct CollectionPiecesPane: View {
     @Bindable var store: ProjectStore
     @Binding var selectedSubject: BinderSubject?
     @Binding var renamingItemId: String?
+    /// Threaded to `BinderTreeSections`' Palette header — see its own doc
+    /// comment (stage 2b Task 5). Defaulted for the mounted-tree fixtures that
+    /// do not care about the wall's door.
+    var canOpenPaletteWall: Bool = true
+    var onOpenPaletteWall: () -> Void = {}
     /// The Research and Palette sections' own state (stage-2a Task 4). Owned
     /// here because their presentations hang off this pane, outside the `List`.
     @State private var treeState = BinderTreeSectionsState()
@@ -80,7 +85,9 @@ struct CollectionPiecesPane: View {
             // Below the pieces — furniture at the foot of the column, with the
             // project row still row zero.
             BinderTreeSections(store: store, state: treeState,
-                               selectedSubject: $selectedSubject)
+                               selectedSubject: $selectedSubject,
+                               canOpenPaletteWall: canOpenPaletteWall,
+                               onOpenPaletteWall: onOpenPaletteWall)
         }
         .listStyle(.sidebar)
         .overlay {

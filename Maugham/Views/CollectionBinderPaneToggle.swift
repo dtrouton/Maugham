@@ -21,6 +21,9 @@ struct CollectionBinderPaneToggle: View {
     /// Coercion onto this persona's list happens once, centrally, in
     /// `PersonaModifier`; this view only renders.
     let persona: Persona
+    /// Opens the palette wall in the centre column — see `BinderPaneToggle`'s
+    /// twin, whose doc comment carries the whole reasoning.
+    var onOpenPaletteWall: () -> Void = {}
     /// The foot disclosure's own expand/collapse flag — see
     /// `BinderPaneToggle`'s twin for the reasoning, not restated here.
     @State private var trashExpanded = false
@@ -123,6 +126,12 @@ struct CollectionBinderPaneToggle: View {
         CollectionPiecesPane(
             store: store,
             selectedSubject: $selectedSubject,
-            renamingItemId: $renamingItemId)
+            renamingItemId: $renamingItemId,
+            canOpenPaletteWall: canOpenPaletteWall,
+            onOpenPaletteWall: onOpenPaletteWall)
     }
+
+    /// The wall's own door — see `BinderPaneToggle`'s twin, whose doc comment
+    /// carries the whole reasoning.
+    private var canOpenPaletteWall: Bool { persona != .plan }
 }

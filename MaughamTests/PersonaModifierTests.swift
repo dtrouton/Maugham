@@ -199,38 +199,30 @@ final class PersonaModifierTests: XCTestCase {
         }
     }
 
-    // MARK: - The palette stash must not fight the force-open
+    // MARK: - The wall's stash must not fight the force-open
 
-    /// `PaletteSegmentModifier`'s exit arm restores the pre-palette inspector
-    /// visibility in a LATER update pass than the persona handler, so a ⌘3
-    /// pressed while the binder is on `.palette` (with the stash `false`) used
-    /// to close the column right back over `showInspector = true`. Dropping
-    /// the stash in the persona handler makes that arm a no-op restore.
-    func test_clearsPaletteStash_whenAPersonaChangeLeavesThePalette() {
-        // Review does not offer Palette, so the binder moves to its home.
-        let change = PersonaModifier.applyPersonaChange(
-            to: .review, from: .plan, currentSegment: .palette,
-            currentBinderSegment: .palette, projectType: .novel,
-            memory: .empty)
-        XCTAssertNotEqual(change.binderSegment, .palette)
-        XCTAssertTrue(PersonaModifier.clearsPaletteStash(
-            from: .palette, to: change.binderSegment))
+    /// `PaletteWallModifier`'s exit arm restores the pre-wall inspector
+    /// visibility in a LATER update pass than the persona handler, so a ⌘1
+    /// (into Plan) pressed while the wall is open — with the stash `false` —
+    /// used to close the column right back over `showInspector = true`.
+    /// Dropping the stash in the persona handler makes that arm a no-op
+    /// restore. Re-keyed on `showsPaletteWall` since stage 2b Task 5 — see
+    /// `ProjectWindow.clearsPaletteWallStash`'s doc comment.
+    func test_clearsPaletteWallStash_whenAPersonaChangeEntersPlanWithTheWallOpen() {
+        XCTAssertTrue(PersonaModifier.clearsPaletteWallStash(
+            showsPaletteWall: true, enteringPersona: .plan))
     }
 
-    func test_clearsPaletteStash_isFalseWhenThePaletteSurvives() {
-        // Plan REMEMBERS Palette, so the binder stays put — nothing to clear,
-        // and the exit arm never fires anyway.
-        let change = PersonaModifier.applyPersonaChange(
-            to: .plan, from: .author, currentSegment: .palette,
-            currentBinderSegment: .palette, projectType: .novel,
-            memory: PersonaMemory(binder: ["plan": .palette]))
-        XCTAssertEqual(change.binderSegment, .palette)
-        XCTAssertFalse(PersonaModifier.clearsPaletteStash(
-            from: .palette, to: change.binderSegment))
+    func test_clearsPaletteWallStash_isFalseWhenTheDestinationIsNotPlan() {
+        // The wall survives every persona but Plan, so leaving nothing to
+        // clear on a switch between any of the other three.
+        XCTAssertFalse(PersonaModifier.clearsPaletteWallStash(
+            showsPaletteWall: true, enteringPersona: .review))
     }
 
-    func test_clearsPaletteStash_isFalseWhenTheBinderWasNotOnThePalette() {
-        XCTAssertFalse(PersonaModifier.clearsPaletteStash(from: .manuscript, to: .research))
+    func test_clearsPaletteWallStash_isFalseWhenTheWallWasAlreadyClosed() {
+        XCTAssertFalse(PersonaModifier.clearsPaletteWallStash(
+            showsPaletteWall: false, enteringPersona: .plan))
     }
 
     // MARK: - Paragraph navigation lands on the project's document home

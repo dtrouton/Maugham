@@ -19,6 +19,10 @@ struct BinderPaneToggle: View {
     /// Coercion onto this persona's list happens once, centrally, in
     /// `PersonaModifier`; this view only renders.
     let persona: Persona
+    /// Opens the palette wall in the centre column — `ProjectWindow`'s
+    /// `showsPaletteWall = true` (stage 2b Task 5). Defaulted so tests that
+    /// mount this toggle without caring about the wall's door keep compiling.
+    var onOpenPaletteWall: () -> Void = {}
     /// The foot disclosure's own expand/collapse flag (shell-finish stage 2b
     /// Task 2) — collapsed by default, private to this view. It is `@State`
     /// rather than threaded in from `ProjectWindow` because nothing outside
@@ -145,7 +149,9 @@ struct BinderPaneToggle: View {
     /// because two arms render it and a second literal is how the two would
     /// come to differ.
     private var binderTree: some View {
-        BinderView(store: store, selectedSubject: $selectedSubject)
+        BinderView(store: store, selectedSubject: $selectedSubject,
+                   canOpenPaletteWall: canOpenPaletteWall,
+                   onOpenPaletteWall: onOpenPaletteWall)
     }
 
     /// A screenplay's tree, shared by `.scenes` and `.tree` for `binderTree`'s
@@ -168,6 +174,15 @@ struct BinderPaneToggle: View {
                 MaughamEvent.post(
                     .maughamNavigateToScene, to: .keyWindow,
                     payload: ["lineLocation": lineLocation])
-            })
+            },
+            canOpenPaletteWall: canOpenPaletteWall,
+            onOpenPaletteWall: onOpenPaletteWall)
     }
+
+    /// The wall's own door, guarded on the PERSONA being Plan (stage 2b Task
+    /// 5's contract) rather than the segment — `Persona.centresTheCanvas`
+    /// doesn't exist yet (Task 6), and `persona` is directly in scope here, so
+    /// there is no need for the `binderSegment.centresTheCanvas` proxy a site
+    /// without it would have to fall back on.
+    private var canOpenPaletteWall: Bool { persona != .plan }
 }

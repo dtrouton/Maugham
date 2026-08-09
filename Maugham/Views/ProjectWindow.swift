@@ -54,9 +54,19 @@ struct ProjectWindow: View {
     @State private var selectedSubject: BinderSubject?
     @State private var selectedResearchId: String?
     @State private var selectedPaletteCardId: String?
-    /// The inspector's visibility captured on entry to the palette segment, so
-    /// leaving restores it exactly (spec: no stuck-hidden inspector). `nil` when
-    /// not in palette. Owned by `PaletteSegmentModifier`.
+    /// The palette wall's post-segment door (shell-finish stage 2b Task 5) —
+    /// the Palette tree section's own "Open Wall" affordance writes this
+    /// rather than `binderSegment = .palette`, so the wall survives the strip
+    /// `.palette` dies with in Task 7. `showsPaletteWallCentre` is what turns
+    /// this (plus the persona) into a routing decision; `PaletteWallModifier`
+    /// is what turns it into the inspector stash/restore that `.palette` used
+    /// to own.
+    @State private var showsPaletteWall: Bool = false
+    /// The inspector's visibility captured on entry to the palette wall, so
+    /// leaving restores it exactly (spec: no stuck-hidden inspector). `nil`
+    /// when the wall is closed. Owned by `PaletteWallModifier`, re-keyed on
+    /// `showsPaletteWall` since stage 2b Task 5 (it used to key on
+    /// `binderSegment == .palette`).
     @State private var inspectorWasVisibleBeforePalette: Bool?
     /// The inspector's visibility captured when `⌘\` gave the canvas the whole
     /// window (spec §8A.3), so leaving restores it exactly. `nil` when the
@@ -389,6 +399,7 @@ struct ProjectWindow: View {
                                   detailSegment: $detailSegment,
                                   binderSegment: $binderSegment,
                                   showInspector: $showInspector,
+                                  showsPaletteWall: $showsPaletteWall,
                                   inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette,
                                   inspectorWasVisibleBeforeCanvasCollapse:
                                     $inspectorWasVisibleBeforeCanvasCollapse,
@@ -421,11 +432,12 @@ struct ProjectWindow: View {
             projectURL: url,
             activeDocId: activeDocId,
             editorControl: $editorControl))
-        .modifier(PaletteSegmentModifier(
-            binderSegment: binderSegment,
+        .modifier(PaletteWallModifier(
+            showsPaletteWall: $showsPaletteWall,
             showInspector: $showInspector,
             inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette,
-            selectedPaletteCardId: $selectedPaletteCardId))
+            selectedPaletteCardId: $selectedPaletteCardId,
+            selectedSubject: $selectedSubject))
         .modifier(CanvasPromotionModifier(window: window, store: store,
                                           model: canvasModel, binderSegment: binderSegment))
         // The writer's notice that Claude added cards to their canvas, and the way
@@ -567,25 +579,41 @@ struct ProjectWindow: View {
         }
     }
 
-    /// Entering the palette segment hides the right pane so the wall gets width;
-    /// leaving restores the pane's prior visibility exactly (spec: no stuck-hidden
+    /// Opening the palette wall hides the right pane so it gets width; closing
+    /// restores the pane's prior visibility exactly (spec: no stuck-hidden
     /// inspector). Kept out of ProjectWindow.body for the type-checker budget.
-    /// A ⌘⌥N that sets `showInspector = true` while in palette wins — the user
-    /// explicitly asked for the pane; we don't fight it.
-    private struct PaletteSegmentModifier: ViewModifier {
-        let binderSegment: BinderSegment
+    /// A ⌘⌥N that sets `showInspector = true` while the wall is open wins —
+    /// the user explicitly asked for the pane; we don't fight it.
+    ///
+    /// **Re-keyed on `showsPaletteWall` since stage 2b Task 5** — see
+    /// `applyPaletteWallChange`'s doc comment for what changed and why.
+    ///
+    /// **The subject-change close lives here too**, rather than as a second
+    /// modifier: "Esc or any subject change closes it" is the door's own
+    /// contract (its Esc half is `PaletteWallCentre.onClose`), and a subject
+    /// change that closes the wall must run through the SAME
+    /// `applyPaletteWallChange` the door's other exits do, or the inspector
+    /// stash restores twice or not at all depending on which `onChange` wins
+    /// the pass.
+    private struct PaletteWallModifier: ViewModifier {
+        @Binding var showsPaletteWall: Bool
         @Binding var showInspector: Bool
         @Binding var inspectorWasVisibleBeforePalette: Bool?
         @Binding var selectedPaletteCardId: String?
+        @Binding var selectedSubject: BinderSubject?
 
         func body(content: Content) -> some View {
-            content.onChange(of: binderSegment) { old, new in
-                ProjectWindow.applyPaletteSegmentChange(
-                    from: old, to: new,
-                    showInspector: &showInspector,
-                    stash: &inspectorWasVisibleBeforePalette,
-                    selectedPaletteCardId: &selectedPaletteCardId)
-            }
+            content
+                .onChange(of: showsPaletteWall) { old, new in
+                    ProjectWindow.applyPaletteWallChange(
+                        from: old, to: new,
+                        showInspector: &showInspector,
+                        stash: &inspectorWasVisibleBeforePalette,
+                        selectedPaletteCardId: &selectedPaletteCardId)
+                }
+                .onChange(of: selectedSubject) { _, _ in
+                    if showsPaletteWall { showsPaletteWall = false }
+                }
         }
     }
 
@@ -965,7 +993,8 @@ struct ProjectWindow: View {
                 activePiece: activePiece(in: store),
                 onAddSharedNote: { Task { try? await addSharedNoteAction(store: store) } },
                 onAddPieceNote: { Task { try? await addPieceNoteAction(store: store) } },
-                persona: persona
+                persona: persona,
+                onOpenPaletteWall: { showsPaletteWall = true }
             )
         case .standard:
             BinderPaneToggle(
@@ -977,7 +1006,8 @@ struct ProjectWindow: View {
                 projectType: store.manifest.type,
                 lastParsedScript: lastParsedScript,
                 treeFindActive: $treeFindActive,
-                persona: persona)
+                persona: persona,
+                onOpenPaletteWall: { showsPaletteWall = true })
         }
     }
 
@@ -1192,6 +1222,15 @@ struct ProjectWindow: View {
     ///   Empty Trash moved to the foot disclosure's header — right next to the
     ///   foot disclosure showing the identical rows correctly. This arm dies
     ///   with the case in the kill task, same as find's.
+    /// - `.palette`, since stage 2b Task 5. The wall has its own door now
+    ///   (`showsPaletteWall`), and a `UIState` an earlier build wrote with the
+    ///   binder on `.palette` must not hand the writer back the segment path —
+    ///   its own inspector auto-hide died with the re-key
+    ///   (`applyPaletteWallChange`'s doc comment), so restoring it verbatim
+    ///   would land them on a segment that no longer stashes the inspector on
+    ///   entry. Unlike find and trash, the CASE survives until Task 7 — only
+    ///   the restore coercion moves early, on the same "the phantom comes back
+    ///   through the restore path" precedent Task 2's fix round 1 established.
     ///
     /// Everything else IS restored verbatim, including a segment the restored
     /// persona does not offer: `BinderSegmentPicker.visibleSegments` appends the
@@ -1203,8 +1242,8 @@ struct ProjectWindow: View {
                               projectType: ProjectType) -> BinderSegment {
         switch saved {
         case .manuscript: return .documentHome(for: projectType)
-        case .find, .trash: return persona.binderHome(for: projectType)
-        case .tree, .scenes, .research, .palette, .canvas: return saved
+        case .find, .trash, .palette: return persona.binderHome(for: projectType)
+        case .tree, .scenes, .research, .canvas: return saved
         }
     }
 
@@ -1303,12 +1342,25 @@ struct ProjectWindow: View {
             binderSegment: binderSegment,
             projectType: store.manifest.type,
             selectedPieceIsReference: selectedPieceIsReference(in: store))
+        // **Above everything else, including `researchSubjectPlacement`**
+        // (stage 2b Task 5). The wall is a deliberately-entered posture like
+        // the canvas is, and it is layered on TOP of whatever segment is
+        // active — `.manuscript`/`.tree`/`.scenes` all write the subject
+        // (`leftPaneWritesTheSubject`), so a research row selected while the
+        // wall is open could otherwise claim the centre out from under it.
+        // `PaletteWallModifier` closes the wall on any subject change, so in
+        // practice the two rarely coincide; this is the belt to that
+        // modifier's braces; the guard on persona is the same belt-and-braces
+        // the door's own disabled state already keeps.
+        if Self.showsPaletteWallCentre(showsPaletteWall: showsPaletteWall, persona: persona) {
+            PaletteWallCentre(store: store, selectedPaletteCardId: $selectedPaletteCardId,
+                              onClose: { showsPaletteWall = false })
         // **Above `editorRoute` and never inside it**, because the canvas
         // branch below must stay the one the canvas is mounted from: a
         // `.research` subject in Plan resolves to `.besideTheCanvas` and never
         // reaches here, so the board keeps its identity and the RIGHT column
         // takes the item (`researchSubjectPlacement`).
-        if let id = Self.researchSubjectPlacement(
+        } else if let id = Self.researchSubjectPlacement(
             binderSegment: binderSegment, subject: selectedSubject).centreItemID {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: researchPreviewVisible)
@@ -1386,23 +1438,15 @@ struct ProjectWindow: View {
                                   itemID: selectedResearchId,
                                   previewVisible: researchPreviewVisible)
         case .palette:
-            if let cardId = selectedPaletteCardId,
-               store.paletteCardItems().contains(where: { $0.id == cardId }) {
-                VStack(spacing: 0) {
-                    HStack {
-                        Button { selectedPaletteCardId = nil } label: {
-                            Label("Wall", systemImage: "chevron.left")
-                        }
-                        .buttonStyle(.plain)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    Divider()
-                    PaletteCardEditor(store: store, cardId: cardId)
-                }
-            } else {
-                PaletteWallView(store: store, selectedCardId: $selectedPaletteCardId)
-            }
+            // **Still reachable via the picker until Task 7** — unlike
+            // `.canvas`/`.tree`, whose arm above is genuinely unreachable, a
+            // writer in Plan can still click the still-live Palette tab and
+            // land here. Routed through the SAME view the door mounts
+            // (`PaletteWallCentre`) so the two cannot draw the wall
+            // differently while both routes exist; `.palette` itself dies
+            // with the strip in Task 7, and this arm goes with it.
+            PaletteWallCentre(store: store, selectedPaletteCardId: $selectedPaletteCardId,
+                              onClose: { showsPaletteWall = false })
         case .trash:
             ContentUnavailableView(
                 "Trash",
@@ -1755,24 +1799,29 @@ struct ProjectWindow: View {
     }
 
     /// The palette wall's own inspector rule, as a fold rather than a closure
-    /// body — behaviour unchanged, extracted so a test can drive it.
+    /// body — behaviour unchanged in shape, extracted so a test can drive it.
     ///
-    /// **Extracted because it shares an update pass with the canvas collapse.**
-    /// `PaletteSegmentModifier` and `CanvasCollapseModifier` both watch
-    /// `binderSegment`, and Plan's binder offers Palette and Canvas side by side
-    /// (`Persona.plan.binderSegments`), so a **one-click** palette → canvas move
-    /// in focus mode runs both of these in the same pass in an order SwiftUI
-    /// picks. Neither may depend on being first, and the only way to know that
-    /// is to run the pair both ways round — which needs both halves callable.
-    static func applyPaletteSegmentChange(from old: BinderSegment,
-                                          to new: BinderSegment,
-                                          showInspector: inout Bool,
-                                          stash: inout Bool?,
-                                          selectedPaletteCardId: inout String?) {
-        if new == .palette && old != .palette {
+    /// **Re-keyed on `showsPaletteWall` since stage 2b Task 5**, rather than on
+    /// `binderSegment == .palette`. The old key shared an update pass with
+    /// `CanvasCollapseModifier`, which also watches `binderSegment` — Plan's
+    /// binder offers Palette and Canvas side by side
+    /// (`Persona.plan.binderSegments`), so a one-click palette → canvas move in
+    /// focus mode ran both in the same pass, in an order neither could depend
+    /// on. Opening the wall's DOOR never touches `binderSegment` at all, so
+    /// that race does not reach this key any more; it still reaches the
+    /// still-live `.palette` segment arm (`existingEditorSwitch`), which this
+    /// predicate no longer answers for. That arm stops auto-hiding the
+    /// inspector on entry — an acceptable loss on a path that dies with the
+    /// strip in Task 7, where the door is the one this task keeps whole.
+    static func applyPaletteWallChange(from old: Bool,
+                                       to new: Bool,
+                                       showInspector: inout Bool,
+                                       stash: inout Bool?,
+                                       selectedPaletteCardId: inout String?) {
+        if new && !old {
             stash = showInspector
             showInspector = false
-        } else if old == .palette && new != .palette {
+        } else if old && !new {
             // A `nil` stash is a real state and means "someone else has already
             // taken this memory over" — see `canvasCollapse`'s takeover. It has
             // always been written as a conditional restore; that is now
@@ -1781,6 +1830,14 @@ struct ProjectWindow: View {
             stash = nil
             selectedPaletteCardId = nil
         }
+    }
+
+    /// Whether the palette wall takes the centre column — `showsPaletteWall`
+    /// AND the persona is not Plan, whose centre is the canvas (stage 2b Task
+    /// 5's contract). Pure and named so `editorPane`'s guard and a test can
+    /// share one answer rather than two copies of `persona != .plan` drifting.
+    static func showsPaletteWallCentre(showsPaletteWall: Bool, persona: Persona) -> Bool {
+        showsPaletteWall && persona != .plan
     }
 
     // MARK: - ⌘\ collapses to the canvas (spec §8A.3)
@@ -1832,13 +1889,13 @@ struct ProjectWindow: View {
     /// same pass would stash the `false` the first one wrote and leave the
     /// inspector hidden for good.
     ///
-    /// **`paletteStash`, and why a collapse TAKES IT OVER.** Plan's binder
-    /// offers Palette and Canvas side by side, so palette → canvas in focus mode
-    /// is **one click** and needs no persona switch — and it runs
+    /// **`paletteStash`, and why a collapse TAKES IT OVER.** Plan's binder used
+    /// to offer Palette and Canvas side by side, so palette → canvas in focus
+    /// mode was **one click** and needed no persona switch — and it ran
     /// `PaletteSegmentModifier`'s exit arm and `CanvasCollapseModifier`'s
     /// collapse **in the same update pass**, in whichever order SwiftUI picks.
-    /// Left alone the two orders disagree, which is tripwire 2 whichever one
-    /// happens to win today:
+    /// Left alone the two orders disagreed, which is tripwire 2 whichever one
+    /// happened to win:
     ///
     /// - palette first — it restores the pre-palette visibility and clears its
     ///   stash, then the collapse remembers that value. Right.
@@ -1849,8 +1906,21 @@ struct ProjectWindow: View {
     ///
     /// So the collapse takes the palette's memory when one is live —
     /// `paletteStash ?? showInspector` — and says so, which makes the exit arm's
-    /// conditional restore a no-op. **Both orders now end in the same state**,
-    /// so nothing here depends on which runs first.
+    /// conditional restore a no-op. **Both orders end in the same state**, so
+    /// nothing here depends on which runs first.
+    ///
+    /// **Dormant since stage 2b Task 5, not removed.** `PaletteWallModifier`
+    /// (the renamed `PaletteSegmentModifier`) now keys its stash on
+    /// `showsPaletteWall` rather than `binderSegment == .palette`, and the
+    /// wall's door is disabled in Plan and closes on any persona change INTO
+    /// Plan — so `showsPaletteWall` and a canvas-centring `binderSegment` can no
+    /// longer be true together, and `paletteStash` reads `nil` through this
+    /// function from here on. The still-live `.palette` segment arm
+    /// (`existingEditorSwitch`, reachable via the picker until Task 7) no longer
+    /// writes the stash either, for the same reason. The takeover branch is
+    /// kept rather than deleted because `.palette` and this whole race are
+    /// Task 7's to remove together — deleting the branch here first would be
+    /// two commits answering one question.
     static func canvasCollapse(route: InspectorRoute,
                                isNoChromeOn: Bool,
                                showInspector: Bool,
@@ -2869,7 +2939,7 @@ private struct FocusPostureModifier: ViewModifier {
 /// (the canvas is the centre column) AND (the writer asked for focus mode), so
 /// arriving on the canvas with focus mode off does nothing at all — you need the
 /// binder open to drag research and captures onto the canvas, and only *then* do
-/// you want it gone. The palette wall's `PaletteSegmentModifier` does auto-hide
+/// you want it gone. The palette wall's `PaletteWallModifier` does auto-hide
 /// on entry; §8A.3 says in those words that the canvas does not follow it.
 ///
 /// **The interaction worth knowing about, and it is true of ONE of the two
@@ -2955,8 +3025,12 @@ struct PersonaModifier: ViewModifier {
     @Binding var detailSegment: DetailSegment
     @Binding var binderSegment: BinderSegment
     @Binding var showInspector: Bool
-    /// `PaletteSegmentModifier`'s pre-palette visibility stash. Written here
-    /// only to DROP it — see `clearsPaletteStash(from:to:)`.
+    /// The wall's own door (stage 2b Task 5) — closed here, synchronously,
+    /// when the destination persona is Plan. See
+    /// `clearsPaletteWallStash(showsPaletteWall:enteringPersona:)`.
+    @Binding var showsPaletteWall: Bool
+    /// `PaletteWallModifier`'s pre-wall visibility stash. Written here only to
+    /// DROP it — see `clearsPaletteWallStash(showsPaletteWall:enteringPersona:)`.
     @Binding var inspectorWasVisibleBeforePalette: Bool?
     /// `CanvasCollapseModifier`'s pre-collapse visibility stash. Written here
     /// only to DROP it — see `releasesCanvasCollapse(from:to:stash:)`.
@@ -3022,20 +3096,27 @@ struct PersonaModifier: ViewModifier {
         return Persona(rawValue: raw)
     }
 
-    /// True when a persona change moves the binder OFF the palette — the case
-    /// where `PaletteSegmentModifier`'s pre-palette visibility stash must be
-    /// dropped rather than restored.
+    /// True when a persona change is ABOUT to close the wall — the destination
+    /// is Plan while the wall is open (stage 2b Task 5's contract: "persona
+    /// change to Plan" closes it) — the case where `PaletteWallModifier`'s
+    /// pre-wall visibility stash must be dropped rather than restored.
     ///
-    /// That modifier's `.onChange(of: binderSegment)` fires in a LATER update
-    /// pass than this handler, so its exit arm would restore the stashed
-    /// visibility *over* the `showInspector = true` below and land the writer
-    /// in the new persona with a closed inspector column — unlike every other
+    /// **Re-keyed off `showsPaletteWall` rather than a segment transition.**
+    /// The wall is no longer tied to `binderSegment`, so there is no `from`/`to`
+    /// segment pair to ask "did this leave `.palette`" of any more — the
+    /// question is just whether the wall is open and the destination is the one
+    /// persona it cannot stay open in.
+    ///
+    /// That modifier's `.onChange(of: showsPaletteWall)` fires in a LATER
+    /// update pass than this handler, so its exit arm would restore the
+    /// stashed visibility *over* the `showInspector = true` below and land the
+    /// writer in Plan with a closed inspector column — unlike every other
     /// persona-switch path. Clearing the stash here (rather than deferring the
     /// force-open by a pass) makes that arm a no-op restore without depending
     /// on SwiftUI pass ordering, which is the fragility tripwire 2 is about.
-    static func clearsPaletteStash(from current: BinderSegment,
-                                   to next: BinderSegment) -> Bool {
-        leaves({ $0 == .palette }, from: current, to: next)
+    static func clearsPaletteWallStash(showsPaletteWall: Bool,
+                                       enteringPersona persona: Persona) -> Bool {
+        showsPaletteWall && persona == .plan
     }
 
     /// True when a persona change moves the binder OFF the canvas *while a
@@ -3098,8 +3179,10 @@ struct PersonaModifier: ViewModifier {
                     currentBinderSegment: binderSegment,
                     projectType: projectType,
                     memory: documentStore?.uiState.personaMemory ?? .empty)
-                if Self.clearsPaletteStash(from: binderSegment, to: change.binderSegment) {
+                if Self.clearsPaletteWallStash(showsPaletteWall: showsPaletteWall,
+                                               enteringPersona: change.persona) {
                     inspectorWasVisibleBeforePalette = nil
+                    showsPaletteWall = false
                 }
                 if Self.releasesCanvasCollapse(
                     from: binderSegment, to: change.binderSegment,

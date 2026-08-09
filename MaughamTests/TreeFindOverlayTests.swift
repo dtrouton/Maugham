@@ -352,10 +352,17 @@ final class TreeFindOverlayTests: XCTestCase {
     /// `hasTrash: false`, and both toggles' `.trash` switch arm renders the
     /// same trashed rows a SECOND time in the main area — a duplicate, not
     /// merely a stale destination.
-    func test_aSavedFindOrTrashSegmentIsRestoredAsThePersonasHome() {
+    ///
+    /// **`.palette` joined the two here in stage 2b Task 5** — same precedent,
+    /// different shape: the wall's inspector auto-hide no longer keys off this
+    /// segment (`applyPaletteWallChange`'s doc comment), so restoring it
+    /// verbatim would land the writer on a segment that no longer stashes the
+    /// inspector on entry. Unlike find and trash, the CASE itself survives
+    /// until Task 7 — only the restore coercion moved early.
+    func test_aSavedFindTrashOrPaletteSegmentIsRestoredAsThePersonasHome() {
         for persona in Persona.allCases {
             for type in ProjectType.allCases where type != .unknown {
-                for legacy in [BinderSegment.find, .trash] {
+                for legacy in [BinderSegment.find, .trash, .palette] {
                     XCTAssertEqual(
                         ProjectWindow.binderSegment(restoring: legacy, persona: persona,
                                                     projectType: type),
@@ -368,8 +375,7 @@ final class TreeFindOverlayTests: XCTestCase {
                                                 persona: persona, projectType: type),
                     .documentHome(for: type),
                     "\(persona)/\(type): the screenplay coercion still stands")
-                for saved in [BinderSegment.tree, .scenes, .research, .palette,
-                              .canvas] {
+                for saved in [BinderSegment.tree, .scenes, .research, .canvas] {
                     XCTAssertEqual(
                         ProjectWindow.binderSegment(restoring: saved, persona: persona,
                                                     projectType: type),

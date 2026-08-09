@@ -40,6 +40,22 @@ struct BinderTreeSections: View {
     @Bindable var store: ProjectStore
     @Bindable var state: BinderTreeSectionsState
     @Binding var selectedSubject: BinderSubject?
+    /// Whether the Palette header's "Open Wall" affordance is live — false in
+    /// Plan, where the centre column is the canvas and the wall taking it over
+    /// there is stage 3's call (shell-finish stage 2b Task 5). Derived by the
+    /// caller from `persona != .plan` today; Task 6 re-bases the segment-shaped
+    /// predicates this file already reads onto `Persona` directly, and this one
+    /// can fold into that pass then.
+    ///
+    /// Defaulted so the mounted-tree fixtures across `BinderPieceFoldTests`,
+    /// `BinderTreeSectionsTests`, `BinderTreeMultiselectMountTests` and
+    /// `BinderTreeDropRoutingTests` — none of which are about the wall's door —
+    /// keep compiling unchanged.
+    var canOpenPaletteWall: Bool = true
+    /// Opens the palette wall in the centre column — `ProjectWindow`'s
+    /// `showsPaletteWall = true` (stage 2b Task 5). Defaulted for the same
+    /// reason `canOpenPaletteWall` is.
+    var onOpenPaletteWall: () -> Void = {}
 
     var body: some View {
         researchSection
@@ -140,14 +156,67 @@ struct BinderTreeSections: View {
                 }
             }
         } header: {
-            // The group's LIVE title, not the convention's: the writer can
-            // rename it, and the header that names it must follow.
-            sectionHeader(store.paletteGroupDisplayTitle) {
-                ForEach(PaletteCard.Kind.allCases, id: \.self) { kind in
-                    Button(kind.rawValue.capitalized) { addCard(kind: kind) }
-                }
-            }
+            paletteSectionHeader
         }
+    }
+
+    /// The Palette section's own header: its live title, its `+` creation
+    /// menu, and — since stage 2b Task 5 — the wall's own door. `.palette`
+    /// dies with the strip in Task 7; this button is what survives it, so a
+    /// writer can still reach the wall of images once the segment picker that
+    /// used to carry it is gone.
+    ///
+    /// **A button of its own rather than folded into the `+` menu**, per the
+    /// task's contract: opening the wall is not a creation verb, and burying
+    /// it inside "New Swatch / New Photo / New Note" would read as one more
+    /// kind of card rather than a door to all of them. Mirrored onto the
+    /// header's own context menu for the writer who right-clicks instead of
+    /// hunting for the icon — `sectionHeader`'s shape, one arm wider.
+    ///
+    /// **Disabled rather than hidden in Plan.** Plan's centre column is the
+    /// canvas; the wall taking it over there is stage 3's call. A hidden
+    /// button reads as "no door here", where a disabled one with a tooltip
+    /// says what is actually true — the door exists, this room just does not
+    /// open into it yet.
+    private var paletteSectionHeader: some View {
+        HStack {
+            Text(store.paletteGroupDisplayTitle)
+            Spacer()
+            openWallButton
+            SwiftUI.Menu(content: paletteCreationMenu) {
+                Image(systemName: "plus.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+        }
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button("Open Wall", action: onOpenPaletteWall)
+                .disabled(!canOpenPaletteWall)
+            Divider()
+            paletteCreationMenu()
+        }
+    }
+
+    @ViewBuilder
+    private func paletteCreationMenu() -> some View {
+        ForEach(PaletteCard.Kind.allCases, id: \.self) { kind in
+            Button(kind.rawValue.capitalized) { addCard(kind: kind) }
+        }
+    }
+
+    private var openWallButton: some View {
+        Button(action: onOpenPaletteWall) {
+            Image(systemName: "rectangle.grid.2x2")
+        }
+        .buttonStyle(.plain)
+        .disabled(!canOpenPaletteWall)
+        .help(canOpenPaletteWall
+              ? "Open the Palette wall"
+              : "The Palette wall isn't available in Plan — Plan's centre "
+                + "column is the canvas.")
+        .accessibilityLabel("Open Wall")
     }
 
     // MARK: - Shared row shapes
