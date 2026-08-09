@@ -241,7 +241,7 @@ final class IntentStripTests: XCTestCase {
         let briefed = environment.intent(chapter.id)?.statementText
 
         let resolved = try XCTUnwrap(store.effectiveIntent(forDocId: chapter.id))
-        XCTAssertEqual(briefed, store.statementText(of: resolved),
+        XCTAssertEqual(briefed, try store.statementText(of: resolved),
                        "the compiler reads a different intent than the strip shows")
         XCTAssertEqual(resolved.scope, .document(chapter.id))
     }

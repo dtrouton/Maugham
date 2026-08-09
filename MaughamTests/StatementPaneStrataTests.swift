@@ -176,7 +176,7 @@ final class StatementPaneStrataTests: XCTestCase {
             + "under their hands (`applyExternalText(preserveUndoStack: false)`)")
 
         XCTAssertTrue(
-            RulingsStratum.rows(in: fixture.store.statementText(of: statement)).isEmpty,
+            RulingsStratum.rows(in: try fixture.store.statementText(of: statement)).isEmpty,
             "a heading with nothing under it itemized something")
         XCTAssertFalse(
             fixture.shows("Revoke", in: window),
@@ -218,14 +218,14 @@ final class StatementPaneStrataTests: XCTestCase {
         // pane's editor. Without this the test passes over a heading that was
         // never a boundary for some other reason.
         XCTAssertTrue(
-            StatementEssay.half(of: fixture.store.statementText(of: statement))
+            StatementEssay.half(of: try fixture.store.statementText(of: statement))
                 .contains(underTheHeading))
 
         try await RulingPerformer.rule(
             "Kelly never lies", provenance: "from an answered note",
             forScope: scope, store: fixture.store, world: nil)
 
-        let after = fixture.store.statementText(of: statement)
+        let after = try fixture.store.statementText(of: statement)
         XCTAssertTrue(after.contains(underTheHeading),
                       "the ruling deleted the writer's paragraph: \(after)")
         XCTAssertTrue(
@@ -342,7 +342,7 @@ final class StatementPaneStrataTests: XCTestCase {
         try await fixture.store.appendToStatement(
             "A promoted card.", to: statement, session: "s")
 
-        let text = fixture.store.statementText(of: statement)
+        let text = try fixture.store.statementText(of: statement)
         let essay = StatementEssay.half(of: text)
         XCTAssertTrue(essay.contains("A promoted card."),
                       "the append landed where the essay editor cannot show it: \(text)")
@@ -428,26 +428,26 @@ final class StatementPaneStrataTests: XCTestCase {
 
         let undoManager = UndoManager()
         var work: [Task<Void, Never>] = []
-        let rows = RulingsStratum.rows(in: fixture.store.statementText(of: statement))
+        let rows = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))
         await RulingsStratum.revoke(
             rows[0], at: 0, forScope: scope, store: fixture.store, world: nil,
             undoManager: undoManager, workTaskSink: { work.append($0) })
 
         XCTAssertEqual(
-            RulingsStratum.rows(in: fixture.store.statementText(of: statement)).map(\.text),
+            RulingsStratum.rows(in: try fixture.store.statementText(of: statement)).map(\.text),
             ["Second"])
 
         undoManager.undo()
         for task in work { await task.value }
         work.removeAll()
 
-        let restored = RulingsStratum.rows(in: fixture.store.statementText(of: statement))
+        let restored = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))
         XCTAssertEqual(restored.map(\.text), ["First", "Second"],
                        "one ⌘Z did not put the ruling back where it was")
         XCTAssertEqual(restored[0].ruledOn, ruled,
                        "the restored ruling was re-dated — a ⌘Z must not rewrite the record")
         XCTAssertEqual(restored[0].provenance, "from a run")
-        XCTAssertEqual(StatementEssay.half(of: fixture.store.statementText(of: statement)),
+        XCTAssertEqual(StatementEssay.half(of: try fixture.store.statementText(of: statement)),
                        "Essay.", "the undo disturbed the essay")
     }
 
@@ -471,7 +471,7 @@ final class StatementPaneStrataTests: XCTestCase {
             at: 0, to: "First, corrected", forScope: scope, store: fixture.store,
             world: nil, undoManager: undoManager, workTaskSink: { work.append($0) })
 
-        let edited = RulingsStratum.rows(in: fixture.store.statementText(of: statement))
+        let edited = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))
         XCTAssertEqual(edited.map(\.text), ["First, corrected", "Second"],
                        "an edit moved the ruling out of its place")
         XCTAssertEqual(edited[0].ruledOn, ruled,
@@ -480,7 +480,7 @@ final class StatementPaneStrataTests: XCTestCase {
         undoManager.undo()
         for task in work { await task.value }
         XCTAssertEqual(
-            RulingsStratum.rows(in: fixture.store.statementText(of: statement)).map(\.text),
+            RulingsStratum.rows(in: try fixture.store.statementText(of: statement)).map(\.text),
             ["First", "Second"], "one ⌘Z did not restore the ruling's old words")
     }
 
@@ -558,7 +558,7 @@ final class StatementPaneStrataTests: XCTestCase {
                        "the window's ⌘Z did not put the revoked ruling back in place")
         XCTAssertEqual(restored[0].ruledOn, ruled)
         XCTAssertEqual(restored[0].provenance, "from a run")
-        XCTAssertEqual(StatementEssay.half(of: fixture.store.statementText(of: statement)),
+        XCTAssertEqual(StatementEssay.half(of: try fixture.store.statementText(of: statement)),
                        "Essay.")
     }
 
@@ -576,13 +576,13 @@ final class StatementPaneStrataTests: XCTestCase {
             RulingsSection.render(essay: "E.", rulings: [
                 Ruling(id: "", text: "Before", ruledOn: nil, provenance: nil)])
         }
-        let before = RulingsStratum.rows(in: fixture.store.statementText(of: statement))[0].id
+        let before = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))[0].id
 
         await RulingsStratum.edit(
             at: 0, to: "After", forScope: scope, store: fixture.store, world: nil,
             undoManager: nil, workTaskSink: { _ in })
 
-        let after = RulingsStratum.rows(in: fixture.store.statementText(of: statement))[0]
+        let after = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))[0]
         XCTAssertNotEqual(after.id, before,
                           "the ruling id must move with the text — if it did not, the "
                           + "row's stale id would still address the line and this suite "
@@ -594,7 +594,7 @@ final class StatementPaneStrataTests: XCTestCase {
             at: 0, to: "After again", forScope: scope, store: fixture.store, world: nil,
             undoManager: nil, workTaskSink: { _ in })
         XCTAssertEqual(
-            RulingsStratum.rows(in: fixture.store.statementText(of: statement)).map(\.text),
+            RulingsStratum.rows(in: try fixture.store.statementText(of: statement)).map(\.text),
             ["After again"])
     }
 
@@ -615,7 +615,7 @@ final class StatementPaneStrataTests: XCTestCase {
         }
 
         let key = DeclaredWorldStore.scopeKey(for: scope)
-        let text = fixture.store.statementText(of: statement)
+        let text = try fixture.store.statementText(of: statement)
         let hash = DerivedWorld.sourceHash(of: text)
         world.store(DerivedWorld(sourceHash: hash, clauses: [], rules: [], derivedAt: Date()),
                     forScopeKey: key)
@@ -772,7 +772,7 @@ final class StatementPaneStrataTests: XCTestCase {
                                  bible: bible, world: nil)
 
         let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: scope))
-        let rulings = RulingsStratum.rows(in: fixture.store.statementText(of: statement))
+        let rulings = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))
         XCTAssertEqual(rulings.map(\.text), ["Kelly is a nurse."])
         XCTAssertEqual(rulings[0].provenance, BibleStratum.blessedProvenance)
         XCTAssertNotNil(rulings[0].ruledOn,
@@ -922,7 +922,7 @@ final class StatementPaneStrataTests: XCTestCase {
                                    store: fixture.store, bible: bible, world: nil)
 
         let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: scope))
-        let rulings = RulingsStratum.rows(in: fixture.store.statementText(of: statement))
+        let rulings = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))
         XCTAssertEqual(rulings.map(\.text), ["Kelly is a paramedic."])
         XCTAssertEqual(rulings[0].provenance, BibleStratum.correctedProvenance)
         XCTAssertTrue(bible.allFacts().isEmpty)

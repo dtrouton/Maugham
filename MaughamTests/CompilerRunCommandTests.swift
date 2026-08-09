@@ -1516,7 +1516,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let briefing = try XCTUnwrap(environment.intent("ch-1"))
 
         let resolved = try XCTUnwrap(store.effectiveIntent(forDocId: "ch-1"))
-        XCTAssertEqual(briefing.statementText, store.statementText(of: resolved),
+        XCTAssertEqual(briefing.statementText, try store.statementText(of: resolved),
                        "the run reads the statement through the one spelling every "
                        + "other reader uses")
         XCTAssertEqual(briefing.scopeKey, DeclaredWorldStore.scopeKey(for: resolved.scope),
@@ -2139,7 +2139,7 @@ final class CompilerRunCommandTests: XCTestCase {
             "the bless minted no statement, so nothing graduated and the rest of "
             + "this test is about a loop that never closed")
         XCTAssertEqual(
-            RulingsStratum.rows(in: fixture.store.statementText(of: statement)).map(\.text),
+            RulingsStratum.rows(in: try fixture.store.statementText(of: statement)).map(\.text),
             [ruled])
         XCTAssertTrue(bible.allFacts().isEmpty, "the blessed fact stayed in the register")
 
