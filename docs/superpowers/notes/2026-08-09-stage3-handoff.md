@@ -7,8 +7,11 @@ these" block into the next session's start.*
 
 ## State
 
-**Local `main` is ~130 commits ahead of origin. NOTHING is pushed** —
-Denver: "we will push this when happy"; the smokes below are the gate. What
+**PUSHED 2026-08-09 late: origin took the whole line (`c0a38d05..2900afb1`,
+146 commits, fast-forward) on Denver's word after his live smoke.** The
+paired Mac + phone RELEASE (the M1A manifest-bump gate) remains separate
+and untagged — that is the next release decision, not this push's.
+What the line contains: What
 they contain, in order: the 2a plan + milestone (the tree — sections,
 widened subject, one sweep, folds, drag-is-scope; merged `1cf19122`); the
 2b plan + milestone (the strip's true death — find overlay, trash
