@@ -218,11 +218,11 @@ manifest, no cross-writes).
   generalization was what trapped a subject in `.canvas`/`.trash`, the
   eighteenth branch Critical.) `.find` still writes the subject only for a
   manuscript match — the asymmetry to revisit when 2b makes find an overlay.
-- **The palette-name collision is surfaced, not decided**: a research group
-  titled "Palette" takes the path `research/palette` and collides with the
-  palette folder itself (pre-existing, confirmed still live). Task 8 does
-  not resolve it — either `ensurePaletteGroup` should adopt/dedupe that
-  folder, or group creation should refuse the reserved name. Denver's call.
+- **The palette-name collision is RESOLVED (Denver's ruling, 2026-08-09,
+  post-2b)**: refuse, not adopt — a shared-root research group whose minted
+  path would collide with `research/palette` throws at creation and rename,
+  case-insensitively; `ensurePaletteGroup` is the one unchecked minter.
+  Merged `d0860761`.
 
 ### Denver's smoke list for 2a
 
@@ -284,10 +284,10 @@ and this addendum.
 - **The wall-in-Plan question** — the palette wall is disabled (not hidden)
   in Plan because Plan's centre column is already the canvas; whether the
   wall should ever be reachable there, and how, is stage 3's call.
-- **The palette-name collision is STILL Denver's call** — a research group
-  titled "Palette" takes the path `research/palette` and collides with the
-  palette folder itself. Surfaced at 2a's close, re-confirmed live through
-  2b; nothing in 2b resolves it.
+- **The palette-name collision is RESOLVED** — Denver ruled refuse-not-adopt
+  post-2b (2026-08-09): creation and rename of a shared-root group refusing
+  the reserved path case-insensitively, `ensurePaletteGroup` the one
+  unchecked minter, merged `d0860761`. Off stage 3's list.
 - **The T7-noted select-only re-point, if a reveal is ever wanted** —
   `openResearchItem` (a wiki-link, the Inspector's Links row, the stats
   window navigating to a research item) selects the item without expanding
