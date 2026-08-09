@@ -836,6 +836,51 @@ final class AnnotationsCharacterization: XCTestCase {
         XCTAssertNil(one(h.doc, clean)?.previousRejectionReason)
     }
 
+    /// RULING-34 (2026-08-09) — a deleted (withdrawn) annotation is
+    /// recoverable later: it appears in the withdrawn projection the pane's
+    /// Deleted view lists, and restoring returns it to the open list whole.
+    func test_aWithdrawnNoteIsListedAndRestorable() async throws {
+        let h = try await makeHarness("Alpha.")
+        let id = try await h.doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: h.pid, span: nil, body: "keep me",
+            suggestedText: nil, authorName: "D")
+        try await h.doc.withdrawReviewerAnnotation(
+            id: id, authorName: "D", authorId: nil, undoManager: nil)
+        XCTAssertNil(one(h.doc, id), "withdrawn — gone from every status filter")
+
+        let deleted = h.doc.withdrawnAnnotations()
+        XCTAssertEqual(deleted.map(\.id), [id])
+        XCTAssertEqual(deleted.first?.body, "keep me")
+
+        try await h.doc.reopenAnnotation(id: id)
+        XCTAssertEqual(one(h.doc, id)?.status, .open, "restored whole")
+        XCTAssertTrue(h.doc.withdrawnAnnotations().isEmpty)
+    }
+
+    /// RULING-35 (2026-08-09) — a resolved note whose paragraph is gone offers
+    /// no dead controls: the row policy disables Revert (with the reason) when
+    /// the anchor paragraph is no longer in the document.
+    func test_revertIsDisabledWhenTheParagraphIsGone() async throws {
+        let h = try await makeHarness("First.")
+        h.doc.setFullText("First.\n\nSecond.\n"); try await h.doc.flushBurstNow()
+        let burst = try await h.doc.opLog().last { $0.kind == .typingBurst }
+        let p2 = try XCTUnwrap(burst?.changes.first { $0.next.contains("Second") }?.paragraphId)
+        let sid = try await h.doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: p2, body: "b",
+            suggestedText: "Second, improved.")
+        try await h.doc.acceptAnnotation(id: sid)
+        let ann = try XCTUnwrap(one(h.doc, sid))
+
+        XCTAssertTrue(AnnotationRowPolicy.revertEnabled(ann, livePids: Set(h.doc.sequence)))
+
+        h.doc.setFullText("First.\n"); try await h.doc.flushBurstNow()
+        h.doc.invalidateAnnotationsCache()
+        let after = try XCTUnwrap(one(h.doc, sid))
+        XCTAssertEqual(after.status, .accepted, "resolved rows survive the sweep")
+        XCTAssertFalse(AnnotationRowPolicy.revertEnabled(after, livePids: Set(h.doc.sequence)),
+                       "an enabled control that silently does nothing is the M5-AN-030 defect")
+    }
+
     /// RULING-29's undo contract — a pane Reopen is undoable: ⌘Z re-applies
     /// the prior resolution (a reject returns WITH its reason), ⇧⌘Z reopens.
     func test_paneReopen_isUndoable_andUndoRestoresTheRejectionReason() async throws {

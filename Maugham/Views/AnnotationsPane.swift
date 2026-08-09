@@ -130,10 +130,12 @@ struct AnnotationsPane: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
+                    let livePids = Set(document.sequence)
                     LazyVStack(spacing: 0) {
                         ForEach(visibleAnnotations) { ann in
                             AnnotationRow(
                                 annotation: ann,
+                                revertIsEnabled: AnnotationRowPolicy.revertEnabled(ann, livePids: livePids),
                                 showingStet: stetIds.contains(ann.id),
                                 isOwn: AnnotationOwnership.isOwn(
                                     ann, localName: userPreferences.collaboratorDisplayName),
@@ -149,6 +151,32 @@ struct AnnotationsPane: View {
                                 },
                                 onJumpToParagraph: { jump(ann) })
                             Divider()
+                        }
+                        // RULING-34: delete is normalised for annotations too.
+                        // The writer's withdrawn notes are findable here and
+                        // restorable — not gone at one expired ⌘Z's mercy.
+                        if showResolved {
+                            let deleted = document.withdrawnAnnotations()
+                            if !deleted.isEmpty {
+                                Text("Deleted")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12).padding(.top, 10)
+                                ForEach(deleted, id: \.id) { note in
+                                    HStack(spacing: 8) {
+                                        Text(note.body)
+                                            .font(.callout).foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                        Spacer()
+                                        Button("Restore") {
+                                            Task { try? await document.reopenAnnotation(id: note.id) }
+                                        }
+                                        .buttonStyle(.bordered).controlSize(.small)
+                                    }
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    Divider()
+                                }
+                            }
                         }
                     }
                 }
@@ -408,8 +436,22 @@ struct AnnotationsPane: View {
 }
 
 @MainActor
+/// Row-level control policy — pure, so RULING-35's no-dead-controls rule is
+/// testable without mounting the pane.
+enum AnnotationRowPolicy {
+    /// Revert makes sense only for an accepted suggestion whose anchor
+    /// paragraph still exists — an enabled Revert that silently does nothing
+    /// was the M5-AN-030 defect.
+    static func revertEnabled(_ ann: Annotation, livePids: Set<String>) -> Bool {
+        guard ann.status == .accepted, ann.kind == .suggestedChange,
+              let pid = ann.paragraphId else { return true }
+        return livePids.contains(pid)
+    }
+}
+
 struct AnnotationRow: View {
     let annotation: Annotation
+    var revertIsEnabled: Bool = true
     var showingStet: Bool = false
     /// True iff this is the local reviewer's own human annotation — gates the
     /// Edit + Delete (withdraw) affordances. Claude's / other humans' rows
@@ -595,7 +637,10 @@ struct AnnotationRow: View {
                     // ⌘Z only reaches the MOST RECENT accept; this reaches
                     // any accepted suggestion at any time.
                     Button("Revert", action: onRevert).buttonStyle(.bordered)
-                        .help("Restore the pre-accept text and reopen this suggestion")
+                        .disabled(!revertIsEnabled)
+                        .help(revertIsEnabled
+                              ? "Restore the pre-accept text and reopen this suggestion"
+                              : "Its paragraph was deleted — there is nothing to revert into")
                 } else {
                     Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
                     Button("Reject\u{2026}", action: onReject).buttonStyle(.bordered)

@@ -674,6 +674,13 @@ extension Document {
         try await appendAnnotationOpInternal(op)
     }
 
+    /// The Deleted view's content (RULING-34): annotations the writer
+    /// withdrew, recoverable later via `reopenAnnotation`. Derived from the
+    /// live mirror on each call — the list is small and the view is cold.
+    public func withdrawnAnnotations() -> [AnnotationDeriver.WithdrawnAnnotation] {
+        AnnotationDeriver.deriveWithdrawn(ops: _opLogMirror)
+    }
+
     /// The pane's Reopen (RULING-29): `reopenAnnotation` wrapped in a ⌘Z pair.
     /// Undo re-applies the PRIOR resolution whole — a reject returns with its
     /// written reason (RULING-31's history is the projection's job; undo's job

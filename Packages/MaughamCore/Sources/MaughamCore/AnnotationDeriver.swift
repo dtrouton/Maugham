@@ -170,6 +170,50 @@ public enum AnnotationDeriver {
         return result
     }
 
+    /// A withdrawn (writer-deleted) annotation, as the Deleted view lists it
+    /// (RULING-34: delete is normalised for annotations too — recoverable
+    /// later, not gone at one keystroke's mercy). Deliberately NOT a fifth
+    /// `AnnotationStatus` case: withdrawal is absence from the projection, and
+    /// widening the status enum would ripple through every filter, surface and
+    /// wire format for what is a listing concern.
+    public struct WithdrawnAnnotation: Equatable, Sendable {
+        public let id: String
+        public let kind: AnnotationKind
+        public let body: String
+        public let withdrawnAt: Date
+    }
+
+    /// The annotations whose latest withdraw/reopen op is a WITHDRAW — the
+    /// Deleted view's content, newest withdrawal first. Body honours the
+    /// latest self-service edit, same as the live projection.
+    public static func deriveWithdrawn(ops: [Op]) -> [WithdrawnAnnotation] {
+        var latestEdit: [String: Op] = [:]
+        var withdrawState: [String: Op] = [:]
+        for op in ops {
+            guard let src = op.provenance?.sourceAnnotationId else { continue }
+            switch op.kind {
+            case .annotationEdit:
+                if latestEdit[src].map({ op.opId > $0.opId }) ?? true { latestEdit[src] = op }
+            case .annotationWithdraw, .annotationReopen:
+                if withdrawState[src].map({ op.opId > $0.opId }) ?? true { withdrawState[src] = op }
+            default:
+                break
+            }
+        }
+        var result: [WithdrawnAnnotation] = []
+        for op in ops {
+            guard let kind = AnnotationKind.fromOpKind(op.kind),
+                  let latest = withdrawState[op.opId],
+                  latest.kind == .annotationWithdraw else { continue }
+            let body = latestEdit[op.opId]?.provenance?.annotationBody
+                ?? op.provenance?.annotationBody ?? ""
+            result.append(WithdrawnAnnotation(
+                id: op.opId, kind: kind, body: body, withdrawnAt: latest.at))
+        }
+        result.sort { $0.withdrawnAt > $1.withdrawnAt }
+        return result
+    }
+
     // MARK: - Helpers
 
     /// The subset of an annotation op's `toolArgs` we read back — the
