@@ -15,5 +15,165 @@
    "property_test": null
   },
   "fix_history": "Pinned the CLOBBER (a republish's staged filename echoed the ORIGINAL edition's version, so moving it into Exports/ silently destroyed the original's bytes on every republish) until fixed at 680f2ff1, 2026-08-09 — mint the version before compile, so the filename can never equal a prior record's. Hardened the same day by the branch's whole-branch review (finding I1): the minted `-r<suffix>` was random over a 65,536-value pool with no uniqueness check, and a collision's punishment was a silent removeItem of the earlier republish's artifact — the same loss, one door over. The mint now re-draws while the version is taken, and an occupied destination fails the job loudly instead of deleting."
+ },
+ {
+  "claim_id": "M7-PB-002",
+  "scope": "CompileOrchestrator.compile — the refusal half",
+  "kind": "POSTCONDITION",
+  "statement": "every pre-compile refusal (no config, version-without-language, no-source-version, version collision, mint-in-flight, coverage block) terminates its job as .failed and leaves nothing durable behind except the EMISSION.md refresh — no snapshot, no export, no catalog row, no version bump",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PublicationsCharacterization.test_aRefusedCompileLeavesOnlyTheEmissionRefreshAndATerminalJob"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M7-PB-003",
+  "scope": "CompileOrchestrator.compile(dryRun:)",
+  "kind": "POSTCONDITION",
+  "statement": "a dry run mutates nothing durable except the EMISSION.md refresh and terminates in the distinct dryRunPassed job state; it neither reserves nor releases the mint gate",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PublicationsCharacterization.test_aDryRunMutatesNothingDurableExceptTheEmissionRefresh"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile with dry_run:true",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M7-PB-004",
+  "scope": "CompileOrchestrator.compile / PreviewCompiler.preview",
+  "kind": "POSTCONDITION",
+  "statement": "EMISSION.md is rewritten unconditionally on every compile and preview, refusals and dry runs included, before any guard runs — the one app-owned generated file in the publish tree, refreshed so it never misinforms an agent reading it (F5's own rationale)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PublicationsCharacterization.test_aRefusedCompileLeavesOnlyTheEmissionRefreshAndATerminalJob"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M7-PB-005",
+  "scope": "CompileOrchestrator.compile / Republisher.republish — the thrown half",
+  "kind": "POSTCONDITION",
+  "statement": "a thrown error after the first durable mutation (EMISSION.md write, snapshot capture/save, the compilers, the catalog append, the version-bump save) never terminalises the job: the record stays .inProgress for the life of the process, so compile_status reports a dead compile as still compiling and the status pill spins forever",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PublicationsCharacterization.test_aThrowAfterMutationStrandsTheJobAndSaysNothingAboutWhatLanded"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile; injected via a directory squatting on the device catalog path",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M7-PB-006",
+  "scope": "CompileOrchestrator.compileReserved — throw after mutation",
+  "kind": "POSTCONDITION",
+  "statement": "when the catalog append throws, the export is already in Exports/ and the snapshot is already persisted, and the error that reaches the caller (a raw internal_error with the Swift error description) names neither — the operation changed the project and the failure does not say what it did",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PublicationsCharacterization.test_aThrowAfterMutationStrandsTheJobAndSaysNothingAboutWhatLanded"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M7-PB-007",
+  "scope": "CompileOrchestrator.compileReserved — commit order",
+  "kind": "INVARIANT",
+  "statement": "the catalog append precedes the version-bump save, so a bump failure strands a committed publication behind an unbumped counter (the next source compile of the same format refuses with the collision guard's remedy) — the file's own recorded TODO: transactional commit",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PublicationsCharacterization.test_theCatalogAppendPrecedesTheVersionBumpAndTheTodoStandsWitness"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the TODO records the trade deliberately",
+  "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M7-PB-008",
+  "scope": "PDFCompiler/EPUBCompiler — the destination delete",
+  "kind": "POSTCONDITION",
+  "statement": "the compile path deletes whatever is at its destination filename before moving its output in, so with a filename template omitting {version} a later source compile renders the SAME filename and replaces the earlier record's bytes — that record's catalog row then points at the later edition's bytes. The republish path refuses an occupied destination; the compile path does not",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PublicationsCharacterization.test_aTemplateWithoutVersionLetsALaterCompileReplaceAnEarlierRecordsBytes"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile after set_publish_config removes {version} from filename_template",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M7-PB-009",
+  "scope": "CompileJobManager.cancel / compile_cancel",
+  "kind": "POSTCONDITION",
+  "statement": "cancellation is advisory and the terminal write wins: cancel reports cancelled and sets a token nothing polls (isCancelled has zero production callers), the compile proceeds through every mutation, and its completion OVERWRITES .cancelled with .completed — a writer told cancelled gets a published edition",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PublicationsCharacterization.test_cancelIsAdvisoryAndTheFinishingCompileOverwritesIt"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "LIVE — MCP compile_cancel during any compile",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M7-PB-010",
+  "scope": "PreviewCompiler.preview — no config",
+  "kind": "POSTCONDITION",
+  "statement": "a preview with no publish config fails its job and then returns Result(outputPath: \"\", errors: []) — which the tool renders as {status: completed, output_path: \"\"}; the 'no config' reason never reaches the caller",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PublicationsCharacterization.test_aPreviewWithNoConfigFailsTheJobAndReportsSuccessToTheCaller"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "LIVE — MCP preview_compile on a project never initialised for publishing",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M7-PB-011",
+  "scope": "Republisher.republishReserved — completion event",
+  "kind": "POSTCONDITION",
+  "statement": "the maughamPublicationCompleted event has exactly one post site, in CompileOrchestrator: a republish never posts it, so the Exports pane refreshes after a compile and not after a republish — the catalog says the edition exists while the pane still answers without it",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PublicationsCharacterization.test_theCompletionEventIsPostedByTheOrchestatorOnly"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN",
+  "reachability": "LIVE — MCP republish with the project window open",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]
