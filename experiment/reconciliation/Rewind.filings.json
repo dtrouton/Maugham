@@ -30,13 +30,19 @@
  },
  {
   "claim_id": "M4-RW-003",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "RULING-22's `settles IN SCOPE` names it and cites the exact lines: 'stale cursor silent no-op — Restore lands on now and nothing happens, silently (Deriver+Rewind.swift:34-36)'. Independently, RULING-19's corollary — restored to the file since my trash run — reaches it too: 'a repair firing at a lower layer means a guard above did not fire — that is a BUG'. The deriver's fallback IS a lower-layer repair and the Restore button above it has no guard. R22 is the sub and is cited per the root-is-decoration discipline; the corollary is recorded because it VINDICATES the survey's REW-D11, which convicted under R19 quoting a clause the damaged file did not then contain.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-19",
+  "clause_that_reaches_it": "Lower layers — storage, rendering, serialisation — are responsible for protecting the system and the data, and are not obliged to communicate.",
+  "why_in_scope": "The deriver's full-fold fallback is now exactly what R19 licenses: a pure lower-layer protection with NO writer surface — restoreToOp resolves vanished targets before deriving and RewindWindow feeds only loaded ops, so the entry points tell (RULING-27) while the fold protects. The claim's mechanism is unchanged and true; its conviction rested on the writer-reachable silence, which is gone.",
   "intent_expressed_when": "contemporaneous — the writer scrubbed to a moment and asked for it",
   "call_path": "UNTRACED as a writer gesture. RewindWindow.load reads doc.opLog(), which prefers _opLogMirror — the same array restoreToOp derives from — so the cursor is in the live log by construction. I found no compaction or truncation path that removes an op from the mirror (ADR 0016 sealing keeps sealed segments loadable; handleExternalLogChange replaces the mirror with a merged union). The fallback may defend a case that no longer exists.",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "6b15e905d84addaf583eda5e51948a32afd6fef0",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-27's relation_to_RULING_19 clause",
+   "pinned_by": "deriver behaviour unchanged — reachability collapse verified by the restoreToOp resolution tests"
+  }
  },
  {
   "claim_id": "M4-RW-004",
@@ -60,13 +66,20 @@
  },
  {
   "claim_id": "M4-RW-008",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "The same settled defect as M4-RW-003, pinned one layer up and sharper than the survey knew: RewindRestoreResult is Equatable and the two results compare EQUAL. So it is not merely that the caller does not distinguish 'nothing to do' from 'your moment does not exist' — no caller COULD, because the API carries no channel for the difference. That makes the silence structural rather than an omission at the call site, which matters for what a fix has to touch. Counted as one defect with M4-RW-003, not two.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-27",
+  "clause_that_reaches_it": "A moment the writer selected in their history that no longer exists restores to the NEAREST SURVIVING MOMENT, the notice names what happened, and the notice itself carries REVERT. A missing moment is never quietly replaced by the present.",
+  "why_in_scope": "The ruled replacement implemented at the restore boundary: resolution to the greatest opId at-or-before the request, with targetResolution carrying the substitution — the exact channel whose absence this claim pinned (no caller COULD tell; now every caller can). The notice rendering rides the RULING-28 toast work; the channel and semantics are what this claim scopes.",
   "intent_expressed_when": "contemporaneous",
   "call_path": "UNTRACED as a writer gesture — same trace as M4-RW-003",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "6b15e905d84addaf583eda5e51948a32afd6fef0",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-27 — Denver 2026-08-09, no recommendation offered, revert clause Denver's own",
+   "pinned_by": "RewindCharacterization nearest-resolution tests (production claims suite)",
+   "note": "sixth loop, first half"
+  }
  },
  {
   "claim_id": "M4-RW-009",
@@ -190,16 +203,22 @@
  },
  {
   "claim_id": "M4-RW-022",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "The compound of the two settled entries: the moment the writer selected did not exist, so Restore lands on 'now' silently (R22's 'stale cursor silent no-op'), AND the cost is charged anyway — the typing stack is destroyed for an operation that did nothing. A control that reports success, changes nothing, and takes something away is the plainest reading of not doing what it says.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-27",
+  "clause_that_reaches_it": "A missing moment is never quietly replaced by the present.",
+  "why_in_scope": "Both halves now hold: RULING-37's guard keeps the stack (flipped at M4-RW-021), and the result names the nearest-surviving resolution instead of reporting an indistinguishable success.",
   "intent_expressed_when": "contemporaneous",
   "call_path": "UNTRACED as a writer gesture — same trace as M4-RW-003",
   "violation_or_enhancement": "violation",
   "partial_fix": {
    "date": "2026-08-09",
    "note": "The undo-stack half was fixed under RULING-37 (see M4-RW-021's flip); the filing stays VIOLATES on the silent-success half alone, which RULING-27 now specifies the replacement for (nearest surviving moment, named, revertible) — fix pending."
+  },
+  "fix": {
+   "commit": "6b15e905d84addaf583eda5e51948a32afd6fef0",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-37 + RULING-27",
+   "pinned_by": "RewindCharacterization.test_undoableRewind_unknownTarget_costsNothing_andSaysSo"
   }
  },
  {
@@ -334,17 +353,17 @@
  {
   "_summary": {
    "reached": 20,
-   "complies": 16,
-   "violates": 4,
+   "complies": 19,
+   "violates": 1,
    "no_ruling": 14,
    "total": 34,
    "coverage": "59%",
    "by_ruling": {
+    "RULING-19": [
+     "M4-RW-003"
+    ],
     "RULING-22": [
      "M4-RW-002",
-     "M4-RW-003",
-     "M4-RW-008",
-     "M4-RW-022",
      "M4-RW-023",
      "M4-RW-024",
      "M4-RW-032"
@@ -362,6 +381,10 @@
     "RULING-26": [
      "M4-RW-035",
      "M4-RW-036"
+    ],
+    "RULING-27": [
+     "M4-RW-008",
+     "M4-RW-022"
     ],
     "RULING-37": [
      "M4-RW-021"

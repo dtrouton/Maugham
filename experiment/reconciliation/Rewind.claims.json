@@ -42,7 +42,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "UNTRACED as a writer gesture — RewindWindow reads the same _opLogMirror restoreToOp derives from, so the cursor is normally in the log by construction; I found no compaction path that removes an op from the mirror",
+  "reachability": "LOWER LAYER ONLY since 6b15e905d8 (2026-08-09): restoreToOp resolves a vanished target to the nearest surviving moment before deriving, and RewindWindow's scrub only feeds loaded ops — no writer path reaches the deriver's defensive full-fold fallback",
   "evidence": {
    "property_test": null
   }
@@ -115,13 +115,13 @@
   "claim_id": "M4-RW-008",
   "scope": "Document.restoreToOp",
   "kind": "INVARIANT",
-  "statement": "a target op id that is NOT IN THE LOG produces a RewindRestoreResult that compares EQUAL to the legitimate no-op above, and nothing is thrown: no channel carries the difference between 'there was nothing to do' and 'the moment you asked for does not exist'",
+  "statement": "a vanished target is DISTINGUISHABLE: the result's targetResolution carries .nearest(requested, restoredTo) and the restore lands on the greatest opId at-or-before the request — never silently on the present",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "RewindCharacterization.test_restoreToOp_unknownTarget_isIndistinguishableFromAGenuineNoOp"
+   "ref": "RewindCharacterization.test_restoreToOp_unknownTarget_isDistinguishableAndResolvesNearest + test_restoreToOp_vanishedMidHistoryTarget_restoresToNearestBefore"
   },
   "warrant": "HIGH",
-  "intent": "INCIDENTAL",
+  "intent": "INTENTIONAL — ruled (RULING-27); fixed 2026-08-09",
   "reachability": "UNTRACED as a writer gesture — same trace as M4-RW-003",
   "evidence": {
    "property_test": null
@@ -341,10 +341,10 @@
   "claim_id": "M4-RW-022",
   "scope": "Document.restoreToOpUndoable",
   "kind": "POSTCONDITION",
-  "statement": "a target that does not exist in the log no longer costs the undo stack (RULING-37's guard answers true for it), but the SILENCE remains: it derives as the present and returns a normal no-op result with no signal the moment was not found — RULING-27's nearest-surviving-moment fix is pending",
+  "statement": "a target that does not exist in the log costs nothing (RULING-37) AND says so (RULING-27): the stack survives and the result names the nearest surviving moment it resolved to",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "RewindCharacterization.test_undoableRewind_unknownTarget_costsNothing_butIsStillSilent"
+   "ref": "RewindCharacterization.test_undoableRewind_unknownTarget_costsNothing_andSaysSo"
   },
   "warrant": "HIGH",
   "intent": "INCIDENTAL",
