@@ -16,6 +16,11 @@ struct AnnotationsPane: View {
     @State private var rejectSheet: Annotation?
     @State private var querySheet: Annotation?
     @State private var staleConfirm: Annotation?
+    /// A suggestion whose accept was REFUSED because its quoted phrase is no
+    /// longer in the paragraph (RULING-5). Drives the told-why alert; the
+    /// refusal itself is `Document.acceptAnnotation`'s throw — this state only
+    /// makes it audible.
+    @State private var anchorLostNotice: Annotation?
     /// The accepted suggestion pending a revert confirmation — set when the
     /// paragraph's text drifted since the accept, so reverting would clobber
     /// the intervening edits (mirror of `staleConfirm` on the accept path).
@@ -168,13 +173,23 @@ struct AnnotationsPane: View {
         ) {
             Button("Apply anyway") {
                 if let ann = staleConfirm {
-                    Task { try? await document.acceptAnnotation(id: ann.id, undoManager: undoManager) }
+                    Task { await performAccept(ann) }
                 }
                 staleConfirm = nil
             }
             Button("Cancel", role: .cancel) { staleConfirm = nil }
         } message: {
             Text("Applying this suggestion will replace the current paragraph text with the originally-proposed replacement.")
+        }
+        .alert(
+            "This suggestion can no longer be applied",
+            isPresented: Binding(
+                get: { anchorLostNotice != nil },
+                set: { if !$0 { anchorLostNotice = nil } })
+        ) {
+            Button("OK") { anchorLostNotice = nil }
+        } message: {
+            Text(anchorLostMessage)
         }
         .alert(
             "Paragraph has changed since this suggestion was accepted",
@@ -267,7 +282,33 @@ struct AnnotationsPane: View {
             staleConfirm = ann
             return
         }
-        Task { try? await document.acceptAnnotation(id: ann.id, undoManager: undoManager) }
+        Task { await performAccept(ann) }
+    }
+
+    private var anchorLostMessage: String {
+        let quoted: String
+        if let quote = anchorLostNotice?.span?.quote, !quote.isEmpty {
+            quoted = " (\u{201C}\(quote)\u{201D})"
+        } else {
+            quoted = ""
+        }
+        return "The passage it would replace\(quoted) is no longer in the "
+            + "paragraph, so applying it could put the replacement in the wrong "
+            + "place. The suggestion stays open — ask Claude for a fresh one "
+            + "against the current text."
+    }
+
+    /// The one accept executor for suggestion-capable paths: a refusal for a
+    /// lost span anchor (RULING-5) is surfaced, never swallowed — `try?` here
+    /// would be the M5-AN-050 silence back again.
+    private func performAccept(_ ann: Annotation) async {
+        do {
+            try await document.acceptAnnotation(id: ann.id, undoManager: undoManager)
+        } catch let error as AnnotationAcceptError where error == .suggestionAnchorLost {
+            anchorLostNotice = ann
+        } catch {
+            documentLog.error("acceptAnnotation failed for \(ann.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func reject(_ ann: Annotation, reason: String) {

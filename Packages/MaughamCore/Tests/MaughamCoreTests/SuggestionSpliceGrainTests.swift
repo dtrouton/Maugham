@@ -13,9 +13,9 @@ final class SuggestionSpliceGrainTests: XCTestCase {
     }
 
     func test_correctGrain_splicesSpanOnly() {
-        let out = SuggestionSplice.apply(
+        let out = SuggestionSplice.attempt(
             suggestion: "and the silence held", span: span, to: paragraph)
-        XCTAssertEqual(out, "The rain fell hard on the tin roof, and the silence held for a long time.")
+        XCTAssertEqual(out, .applied("The rain fell hard on the tin roof, and the silence held for a long time."))
     }
 
     func test_wholeParagraphBare_bothContextsPresent_replacesWholeParagraph() {
@@ -23,16 +23,16 @@ final class SuggestionSpliceGrainTests: XCTestCase {
         // paragraph, but a quote was also supplied. Salvage: detect the
         // surrounding context inside the bare text and use it verbatim.
         let bare = "The rain fell hard on the tin roof, and the silence held for a long time."
-        let out = SuggestionSplice.apply(suggestion: bare, span: span, to: paragraph)
-        XCTAssertEqual(out, bare)
+        let out = SuggestionSplice.attempt(suggestion: bare, span: span, to: paragraph)
+        XCTAssertEqual(out, .applied(bare))
     }
 
     func test_wholeParagraphBare_spanAtStart_longSuffixMatch_replacesWholeParagraph() {
         let startSpan = SpanAnchor(quote: "The rain fell hard",
                                    prefix: "", suffix: " on the tin", posHint: 0)
         let bare = "Rain hammered down on the tin roof, and nobody spoke for a long time."
-        let out = SuggestionSplice.apply(suggestion: bare, span: startSpan, to: paragraph)
-        XCTAssertEqual(out, bare)
+        let out = SuggestionSplice.attempt(suggestion: bare, span: startSpan, to: paragraph)
+        XCTAssertEqual(out, .applied(bare))
     }
 
     func test_shortSuffixCoincidence_doesNotTriggerSalvage() {
@@ -41,8 +41,8 @@ final class SuggestionSpliceGrainTests: XCTestCase {
         // would silently DELETE the rest of the paragraph).
         let p = "Hello world. Goodbye."
         let endSpan = SpanAnchor(quote: "Goodbye", prefix: "world. ", suffix: ".", posHint: 13)
-        let out = SuggestionSplice.apply(suggestion: "Farewell.", span: endSpan, to: p)
-        XCTAssertEqual(out, "Hello world. Farewell..")
+        let out = SuggestionSplice.attempt(suggestion: "Farewell.", span: endSpan, to: p)
+        XCTAssertEqual(out, .applied("Hello world. Farewell.."))
     }
 
     func test_shortBothSidesCoincidence_doesNotTriggerSalvage() {
@@ -53,8 +53,8 @@ final class SuggestionSpliceGrainTests: XCTestCase {
         let p = "She said hello to the stranger."
         let s = SpanAnchor(quote: "said hello to the stranger",
                            prefix: "She ", suffix: ".", posHint: 4)
-        let out = SuggestionSplice.apply(suggestion: "She waved.", span: s, to: p)
-        XCTAssertEqual(out, "She She waved..")
+        let out = SuggestionSplice.attempt(suggestion: "She waved.", span: s, to: p)
+        XCTAssertEqual(out, .applied("She She waved.."))
     }
 
     func test_wholeGrain_longCombinedContext_bothShortSides() {
@@ -66,17 +66,20 @@ final class SuggestionSpliceGrainTests: XCTestCase {
         let s = SpanAnchor(quote: "the dogs barked at shadows",
                            prefix: "Meanwhile, ", suffix: " tonight.", posHint: 11)
         let bare = "Meanwhile, the cats hissed at nothing tonight."
-        let out = SuggestionSplice.apply(suggestion: bare, span: s, to: p)
-        XCTAssertEqual(out, bare)
+        let out = SuggestionSplice.attempt(suggestion: bare, span: s, to: p)
+        XCTAssertEqual(out, .applied(bare))
     }
 
     func test_noSpan_bareIsWholeParagraph_unchangedBehavior() {
-        XCTAssertEqual(SuggestionSplice.apply(suggestion: "New.", span: nil, to: paragraph), "New.")
+        XCTAssertEqual(SuggestionSplice.attempt(suggestion: "New.", span: nil, to: paragraph), .applied("New."))
     }
 
-    func test_unresolvableSpan_fallsBackToBare_unchangedBehavior() {
+    func test_unresolvableSpan_isRefused() {
+        // RULING-5 (2026-08-09): a span whose quote cannot be found is never
+        // guessed at. The old fallback returned the bare text as the WHOLE
+        // paragraph — the M5-AN-049 data-loss path.
         let ghost = SpanAnchor(quote: "zebra quantum", prefix: "", suffix: "", posHint: 0)
-        XCTAssertEqual(SuggestionSplice.apply(suggestion: "New.", span: ghost, to: paragraph), "New.")
+        XCTAssertEqual(SuggestionSplice.attempt(suggestion: "New.", span: ghost, to: paragraph), .anchorLost)
     }
 
     func test_display_wholeGrain_beforeIsPriorText() {

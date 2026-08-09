@@ -68,6 +68,12 @@ struct AnnotationWriter {
         /// rule). Fail loud rather than fabricate a revert with no paragraph to
         /// restore.
         case malformedAcceptRevert(annotationId: String)
+        /// `makeAccept` found the suggestion's span no longer resolvable against
+        /// the current paragraph. RULING-5: it MUST NOT be applied — the caller
+        /// shows the refusal; the writer may ask for a fresh suggestion. Same
+        /// decision as the Mac's `AnnotationAcceptError.suggestionAnchorLost`,
+        /// made by the same shared `SuggestionSplice.attempt`.
+        case suggestionAnchorLost(annotationId: String)
     }
 
     // MARK: - Paths
@@ -124,9 +130,15 @@ struct AnnotationWriter {
                 throw WriteError.malformedSuggestion(annotationId: annotation.id)
             }
             let current = currentParagraph ?? annotation.priorText ?? ""
-            let next = SuggestionSplice.apply(
-                suggestion: bare, span: annotation.span, to: current)
-            changes = [Op.ParagraphChange(paragraphId: pid, prior: current, next: next)]
+            switch SuggestionSplice.attempt(
+                suggestion: bare, span: annotation.span, to: current) {
+            case .applied(let next):
+                changes = [Op.ParagraphChange(paragraphId: pid, prior: current, next: next)]
+            case .anchorLost:
+                // RULING-5: a span whose quoted phrase is gone is refused, not
+                // guessed at — same decision, same shared splice, as the Mac.
+                throw WriteError.suggestionAnchorLost(annotationId: annotation.id)
+            }
         } else {
             // comment/query/craftNote: nothing to materialize.
             changes = []

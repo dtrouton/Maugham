@@ -13,23 +13,38 @@ import Foundation
 /// is what the bare text already is.
 public enum SuggestionSplice {
 
-    /// The full paragraph text after applying `bare` to `paragraph`.
+    /// The outcome of attempting to apply `bare` to `paragraph`. There is no
+    /// String-returning variant: a lost anchor must be impossible to conflate
+    /// with a paragraph-level suggestion at the type level, because the old
+    /// `apply` did exactly that — its shared fallback returned the bare
+    /// span-sized replacement as the WHOLE paragraph, a measured data-loss
+    /// path on the writer's prose (M5-AN-049, RULING-5).
+    public enum Outcome: Equatable, Sendable {
+        /// The full paragraph text after the suggestion is applied.
+        case applied(String)
+        /// The suggestion carries a span whose quoted phrase can no longer be
+        /// found in the paragraph. RULING-5: it MUST NOT be applied — the
+        /// caller refuses, tells the writer why, and they may ask again.
+        case anchorLost
+    }
+
+    /// Attempt to apply `bare` to `paragraph`.
     ///
     /// - Span-anchored (sub-paragraph): the span is re-resolved against
     ///   `paragraph` at call time and only that range is replaced — robust if the
     ///   paragraph was edited between authoring and accept.
-    /// - No span / empty quote / span no longer resolvable: the bare text IS the
-    ///   whole paragraph (the Claude/MCP `add_suggested_change` contract, and the
-    ///   safe fallback for a lost anchor).
+    /// - No span / empty quote: the bare text IS the whole paragraph (the
+    ///   Claude/MCP `add_suggested_change` contract).
+    /// - Span present but no longer resolvable: `.anchorLost` — never a guess.
     /// - Span resolvable but `bare` detected as whole-paragraph grain (it embeds
     ///   the span's surrounding context): `bare` is used verbatim instead of
     ///   spliced — see `isWholeParagraphGrain`.
-    public static func apply(
+    public static func attempt(
         suggestion bare: String, span: SpanAnchor?, to paragraph: String
-    ) -> String {
-        guard let span,
-              let range = SpanAnchorResolver.resolve(anchor: span, in: paragraph)
-        else { return bare }
+    ) -> Outcome {
+        guard let span else { return .applied(bare) }
+        guard let range = SpanAnchorResolver.resolve(anchor: span, in: paragraph)
+        else { return .anchorLost }
         let chars = Array(paragraph)
         let prefix = String(chars[..<range.lowerBound])
         let suffix = String(chars[range.upperBound...])
@@ -38,9 +53,9 @@ public enum SuggestionSplice {
         // pre-v2 add_suggested_change contract read that way). Splicing it
         // into the span would duplicate the surroundings — use it verbatim.
         if isWholeParagraphGrain(bare: bare, prefix: prefix, suffix: suffix) {
-            return bare
+            return .applied(bare)
         }
-        return prefix + bare + suffix
+        return .applied(prefix + bare + suffix)
     }
 
     /// Minimum context length (in characters, whitespace-trimmed) for a match

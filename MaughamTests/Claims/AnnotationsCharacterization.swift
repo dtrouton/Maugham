@@ -483,7 +483,13 @@ final class AnnotationsCharacterization: XCTestCase {
     /// M5-AN-049 — A SPAN WHOSE QUOTE IS NO LONGER IN THE PARAGRAPH IS STILL
     /// APPLIED, and it replaces the WHOLE paragraph with the span-sized
     /// replacement. The writer's rewritten sentence becomes one word.
-    func test_aLostSpanAnchorReplacesTheWholeParagraph() async throws {
+    /// M5-AN-049 (fixed under RULING-5, 2026-08-09) — a span-anchored
+    /// suggestion whose quoted phrase is NO LONGER in the paragraph is REFUSED:
+    /// the accept throws, the paragraph is untouched, the annotation stays
+    /// open, and no accept op is appended. Maugham never guesses where an
+    /// AI-authored change belongs. (This test pinned the whole-paragraph
+    /// data loss until the fix.)
+    func test_aLostSpanAnchorRefusesTheAccept() async throws {
         let h = try await makeHarness("She was very angry about the whole business.")
         let span = SpanAnchor(quote: "very angry", prefix: "She was ",
                               suffix: " about the", posHint: 8)
@@ -494,21 +500,31 @@ final class AnnotationsCharacterization: XCTestCase {
         h.doc.setParagraph(id: h.pid, text: "She was livid about the whole business.")
         h.doc.invalidateAnnotationsCache()
         let ann = one(h.doc, sid)!
-        XCTAssertTrue(ann.isStale)
         XCTAssertNil(ann.resolvedSpanRange, "the quoted phrase is gone")
-        XCTAssertEqual(SuggestionDisplay.before(for: ann), "very angry",
-                       "the pane still previews a two-word swap")
 
-        try await h.doc.acceptAnnotation(id: sid)
-        XCTAssertEqual(h.doc.paragraphs[h.pid], "furious",
-                       "the whole sentence is replaced by the span-sized replacement")
+        let opsBefore = try await h.doc.opLog().count
+        do {
+            try await h.doc.acceptAnnotation(id: sid)
+            XCTFail("a lost anchor must refuse, not apply")
+        } catch let error as AnnotationAcceptError {
+            XCTAssertEqual(error, .suggestionAnchorLost)
+        }
+
+        XCTAssertEqual(h.doc.paragraphs[h.pid], "She was livid about the whole business.",
+                       "the writer's sentence is untouched")
+        XCTAssertEqual(one(h.doc, sid)?.status, .open,
+                       "the suggestion stays open — the writer may ask again")
+        let opsAfter = try await h.doc.opLog().count
+        XCTAssertEqual(opsAfter, opsBefore, "no accept op was appended")
     }
 
-    /// M5-AN-050 — the stale gate that guards M5-AN-049 is DISARMED across a
-    /// typing edit: with the cache warm (a rendered pane), `isStale` still reads
-    /// false after the writer rewrites the paragraph, so the pane's confirm
-    /// never fires and the paragraph is replaced with no warning at all.
-    func test_theStaleGateIsDisarmedAcrossATypingEdit() async throws {
+    /// M5-AN-050 (fixed under RULING-5, 2026-08-09) — the staleness CACHE still
+    /// lags a typing edit until the next burst flush (M5-AN-005's mechanism,
+    /// unchanged — the pane's badge can read fresh for up to 30s), but the lag
+    /// can no longer cost prose: the accept itself re-resolves the span against
+    /// the CURRENT text and refuses when the anchor is gone, whatever the cache
+    /// says. Lower layer protects; the upper layer's gate is advisory.
+    func test_theStaleCacheLagCannotCostProseAnymore() async throws {
         let h = try await makeHarness("She was very angry about the whole business.")
         let sid = try await h.doc.addReviewerAnnotation(
             kind: .suggestedChange, paragraphId: h.pid,
@@ -520,10 +536,15 @@ final class AnnotationsCharacterization: XCTestCase {
         h.doc.setFullText("She was livid about the whole business.\n")
         XCTAssertEqual(h.doc.paragraphs[h.pid], "She was livid about the whole business.")
         XCTAssertFalse(one(h.doc, sid)!.isStale,
-                       "the pane re-renders and STILL reports the suggestion fresh")
+                       "the cache still lags — M5-AN-005's mechanism is unchanged")
 
-        try await h.doc.acceptAnnotation(id: sid)
-        XCTAssertEqual(h.doc.paragraphs[h.pid], "furious")
+        do {
+            try await h.doc.acceptAnnotation(id: sid)
+            XCTFail("the lagging cache must not let the accept through")
+        } catch let error as AnnotationAcceptError {
+            XCTAssertEqual(error, .suggestionAnchorLost)
+        }
+        XCTAssertEqual(h.doc.paragraphs[h.pid], "She was livid about the whole business.")
     }
 
     /// M5-AN-027 — accept has NO status guard. An already-rejected or archived

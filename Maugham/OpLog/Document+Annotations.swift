@@ -1,6 +1,15 @@
 import Foundation
 import MaughamCore
 
+/// Thrown by `Document.acceptAnnotation` when the accept must be refused.
+/// RULING-5: a suggestion whose quoted phrase can no longer be found in the
+/// writer's paragraph MUST NOT be applied — it is refused, the writer is told
+/// why, and they may ask again. The pane catches this and says so; a caller
+/// that swallows it silently is an M5-AN-050 regression.
+public enum AnnotationAcceptError: Error, Equatable {
+    case suggestionAnchorLost
+}
+
 extension Document {
 
     internal static func isAnnotationOpKind(_ kind: OpKind) -> Bool {
@@ -326,21 +335,31 @@ extension Document {
         // level suggestion (no span) replaces the whole paragraph. The accept
         // op carries the resulting full paragraph as `next`, so replay
         // (`Materializer`) applies it unchanged. See `SuggestionSplice`.
-        let changes: [Op.ParagraphChange] = {
-            switch kind {
-            case .suggestedChange:
-                guard let orig = creation.changes.first else { return [] }
-                let pid = orig.paragraphId
-                let current = paragraphs[pid] ?? orig.prior ?? ""
-                let next = SuggestionSplice.apply(
-                    suggestion: orig.next ?? "",
-                    span: SuggestionSplice.spanAnchor(from: creation.provenance),
-                    to: current)
-                return [.init(paragraphId: pid, prior: current, next: next)]
-            case .comment, .query, .craftNote:
-                return []
+        //
+        // A span whose quoted phrase is GONE from the current paragraph is
+        // REFUSED before anything is appended (RULING-5: Maugham never guesses
+        // where an AI-authored change belongs; the writer is told and may ask
+        // again). This throw is the layer that actually protects the prose —
+        // the pane's staleness gate is advisory and its cache can lag a typing
+        // edit (M5-AN-005/050).
+        let changes: [Op.ParagraphChange]
+        switch kind {
+        case .suggestedChange:
+            guard let orig = creation.changes.first else { changes = []; break }
+            let pid = orig.paragraphId
+            let current = paragraphs[pid] ?? orig.prior ?? ""
+            switch SuggestionSplice.attempt(
+                suggestion: orig.next ?? "",
+                span: SuggestionSplice.spanAnchor(from: creation.provenance),
+                to: current) {
+            case .applied(let next):
+                changes = [.init(paragraphId: pid, prior: current, next: next)]
+            case .anchorLost:
+                throw AnnotationAcceptError.suggestionAnchorLost
             }
-        }()
+        case .comment, .query, .craftNote:
+            changes = []
+        }
 
         let acceptOp = Op(
             opId: ULID.generate(),
