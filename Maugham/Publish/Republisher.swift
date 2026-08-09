@@ -24,6 +24,12 @@ public struct Republisher {
     public let publicationStore: PublicationStore
     public let snapshotStore: PublicationSnapshotStore
     public let jobManager: CompileJobManager
+    /// P2 (issue #25): the same per-project gate `CompileOrchestrator` uses —
+    /// a republish mints a triple too, and two of them (or a republish and a
+    /// compile that resolved to the same triple) must not be in flight at
+    /// once. Defaulted for the test call sites; production passes
+    /// `PublishingStores.mintGate`.
+    public let mintGate: PublishMintGate
     public let maughamVersion: String
     public let tectonicVersion: String
 
@@ -32,6 +38,7 @@ public struct Republisher {
         publicationStore: PublicationStore,
         snapshotStore: PublicationSnapshotStore,
         jobManager: CompileJobManager,
+        mintGate: PublishMintGate = PublishMintGate(),
         maughamVersion: String, tectonicVersion: String
     ) {
         self.projectURL = projectURL
@@ -39,6 +46,7 @@ public struct Republisher {
         self.publicationStore = publicationStore
         self.snapshotStore = snapshotStore
         self.jobManager = jobManager
+        self.mintGate = mintGate
         self.maughamVersion = maughamVersion
         self.tectonicVersion = tectonicVersion
     }
@@ -106,6 +114,69 @@ public struct Republisher {
 
         let jobID = await jobManager.register(phase: .renderingBody)
 
+        // P2 (issue #25): reserve the triple this republish mints at. The
+        // `-r<suffix>` makes a collision with a SIBLING edition impossible, so
+        // what this closes is the same republish arriving twice — a re-sent
+        // MCP call, or a republish racing a compile that resolved to the same
+        // triple. Reserved after `register` (nothing between it and the mint
+        // above mutates anything) so the refusal terminates a job the way
+        // every other republish failure does.
+        let mintKey = PublishMintGate.Key(
+            version: newVersion, language: language, format: format)
+        guard await mintGate.reserve(mintKey) else {
+            let langLabel = language ?? "source"
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: "Publication v\(newVersion) (\(langLabel), \(format.rawValue)) is already compiling; wait for it to finish.",
+                contextLines: [
+                    "Another compile of the (version, language, format) triple '\(newVersion)/\(langLabel)/\(format.rawValue)' is in flight in this app.",
+                    "Poll it with compile_status, or republish once it finishes."
+                ])
+            await jobManager.fail(
+                jobID: jobID, errors: [diag],
+                logExcerpt: "mint_in_flight: \(newVersion)/\(langLabel)/\(format.rawValue)")
+            return .failed(
+                errors: [diag],
+                logExcerpt: "mint_in_flight: \(newVersion)/\(langLabel)/\(format.rawValue)")
+        }
+
+        // As in `CompileOrchestrator.compile`: the reserved work lives in its
+        // own method so the release has exactly two sites and covers the
+        // throwing calls (the compilers, the stage→Exports move, the snapshot
+        // re-save, the catalog append) as well as the returns.
+        do {
+            let outcome = try await republishReserved(
+                snap: snap, format: format, label: label, jobID: jobID,
+                effective: effective, newVersion: newVersion,
+                priorVersion: priorVersion, language: language,
+                allowStale: allowStale, emitSource: emitSource,
+                excludedSectionIDs: excludedSectionIDs, stage: stage)
+            await mintGate.release(mintKey)
+            return outcome
+        } catch {
+            await mintGate.release(mintKey)
+            throw error
+        }
+    }
+
+    /// The compiling half of `republish`, run while its minted triple is
+    /// reserved on the mint gate. Split out for the release discipline only —
+    /// see the call site. `stage` is still owned (and cleaned up) by
+    /// `republish`.
+    private func republishReserved(
+        snap: PublicationSnapshot,
+        format: PublishConfig.Format,
+        label: String?,
+        jobID: String,
+        effective: PublishConfig,
+        newVersion: String,
+        priorVersion: String?,
+        language: String?,
+        allowStale: Bool,
+        emitSource: ProjectASTBuilder.Source,
+        excludedSectionIDs: Set<String>,
+        stage: URL
+    ) async throws -> Outcome {
         // Task 9 F1: the snapshot freezes config/templates only — `astSource`
         // still reads the LIVE ProjectStore for manuscript/translation content
         // (see `pieceRef(for:)` in ProjectStoreASTSource), so a translated

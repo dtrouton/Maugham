@@ -660,6 +660,101 @@ final class RepublisherTests: XCTestCase {
             "the republished edition must land at a distinct path from the original")
     }
 
+    // MARK: - P2 (issue #25): republish holds the mint gate too
+    //
+    // The `-r<suffix>` means a republish can't collide with a sibling
+    // edition, so what the reservation guards is the same republish arriving
+    // twice, or one racing a compile that resolved to its triple. That
+    // version is unpredictable from outside, which is why these two assert on
+    // the gate's own state rather than on a refusal: what they falsify is a
+    // LEAKED reservation, which would wedge the triple for the life of the
+    // app. (The refusal wording and the reserve-before-compile ordering are
+    // pinned on the compile path, in `CompileOrchestratorTests`.)
+
+    private struct RepubSrc: ProjectASTBuilder.Source {
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hello.")]
+        }
+    }
+
+    /// A republish that succeeds hands its reservation back.
+    func testP2_republishReleasesItsReservationOnSuccess() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Gate", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let gate = PublishMintGate()
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: RepubSrc(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(), mintGate: gate,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let initialPub, _) = initial else {
+            return XCTFail("initial compile failed: \(initial)")
+        }
+
+        let r = Republisher(
+            projectURL: tmp, astSource: RepubSrc(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(), mintGate: gate,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .completed = outcome else {
+            return XCTFail("republish failed: \(outcome)")
+        }
+
+        let held = await gate._inFlightForTesting
+        XCTAssertTrue(held.isEmpty,
+                      "a finished republish must hold no reservation, got: \(held)")
+    }
+
+    /// A republish that THROWS mid-flight hands it back too — a plain file
+    /// where `Exports/` belongs makes the stage→Exports move's
+    /// `createDirectory` throw, well past the reservation point.
+    func testP2_republishReleasesItsReservationWhenItThrows() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "GateThrow", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let gate = PublishMintGate()
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: RepubSrc(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(), mintGate: gate,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let initialPub, _) = initial else {
+            return XCTFail("initial compile failed: \(initial)")
+        }
+
+        let exports = tmp.appendingPathComponent("Exports")
+        try FileManager.default.removeItem(at: exports)
+        try "not a directory".write(to: exports, atomically: true, encoding: .utf8)
+
+        let r = Republisher(
+            projectURL: tmp, astSource: RepubSrc(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(), mintGate: gate,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        do {
+            _ = try await r.republish(
+                snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+            return XCTFail("expected the republish to throw with a file where Exports/ belongs")
+        } catch {
+            // expected
+        }
+
+        let held = await gate._inFlightForTesting
+        XCTAssertTrue(held.isEmpty,
+                      "a thrown republish must not leak its reservation, got: \(held)")
+    }
+
     /// Repeated republishes each get their own file — no shared clobber path.
     func test_twoRepublishesProduceTwoNewDistinctFiles() async throws {
         struct Src: ProjectASTBuilder.Source {

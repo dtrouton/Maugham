@@ -418,7 +418,8 @@ final class CompileOrchestratorTests: XCTestCase {
     }
 
     private func makeOrch(
-        _ configStore: PublishConfigStore, _ pubStore: PublicationStore
+        _ configStore: PublishConfigStore, _ pubStore: PublicationStore,
+        _ mintGate: PublishMintGate = PublishMintGate()
     ) -> CompileOrchestrator {
         CompileOrchestrator(
             projectURL: tmp, astSource: OneSrc(),
@@ -426,6 +427,7 @@ final class CompileOrchestratorTests: XCTestCase {
             publicationStore: pubStore,
             snapshotStore: PublicationSnapshotStore(projectURL: tmp),
             jobManager: CompileJobManager(),
+            mintGate: mintGate,
             maughamVersion: "0.0.0-test",
             tectonicVersion: "n/a")
     }
@@ -790,5 +792,114 @@ final class CompileOrchestratorTests: XCTestCase {
                           "distinct pinned versions must not share an output path (clobber): \(pubA.outputPath)")
         XCTAssertTrue(pubA.outputPath.contains("v1.0"), pubA.outputPath)
         XCTAssertTrue(pubB.outputPath.contains("v1.1"), pubB.outputPath)
+    }
+
+    // MARK: - P2 (issue #25): the mint gate
+    //
+    // The catalog triple-guard reads the catalog, and only after the compile
+    // does the winner's row land in it — so two calls inside that window both
+    // pass the guard and both mint. `PublishMintGate` closes it. EPUB
+    // throughout: no tectonic, sub-second, so two calls really do overlap.
+
+    /// Two same-process compiles of one triple, started together: exactly one
+    /// Publication, and one refusal naming the in-flight edition.
+    func testP2_concurrentIdenticalCompiles_mintExactlyOnePublication() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Race", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let orch = makeOrch(configStore, pubStore)
+
+        async let first = orch.compile(format: .epub, label: nil)
+        async let second = orch.compile(format: .epub, label: nil)
+        let outcomes = try await [first, second]
+
+        let completed = outcomes.compactMap { outcome -> Publication? in
+            if case .completed(let pub, _) = outcome { return pub }
+            return nil
+        }
+        let refusals = outcomes.compactMap { outcome -> [TectonicLogParser.Diagnostic]? in
+            if case .failed(let errs, _) = outcome { return errs }
+            return nil
+        }
+        XCTAssertEqual(completed.count, 1, "exactly one of the two compiles may mint: \(outcomes)")
+        XCTAssertEqual(refusals.count, 1, "the loser must be refused, not silently succeed: \(outcomes)")
+        XCTAssertTrue(
+            refusals.flatMap { $0 }.contains { $0.message.contains("already compiling") },
+            "the refusal must name the in-flight compile, got: \(refusals)")
+
+        let pubs = try await pubStore.load()
+        XCTAssertEqual(pubs.count, 1, "the race must leave exactly one Publication at v0.1")
+        // The source path's other half of the same race: one grab of
+        // next_version, so the counter advanced exactly once.
+        let cfg = try await configStore.load()
+        XCTAssertEqual(cfg?.nextVersion, "0.2",
+                       "only the winning compile may bump next_version")
+    }
+
+    /// The deterministic half of the race: with the triple already reserved on
+    /// the gate the orchestrator shares, a compile is refused before it
+    /// touches anything — no snapshot, no output, no Publication, no bump.
+    /// (The concurrent test above proves the reservation really happens on the
+    /// compile path; this one proves what the refusal costs.)
+    func testP2_aTripleAlreadyInFlightIsRefusedWithoutMinting() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Held", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let gate = PublishMintGate()
+        let reserved = await gate.reserve(
+            PublishMintGate.Key(version: "0.1", language: nil, format: .epub))
+        XCTAssertTrue(reserved)
+
+        let result = try await makeOrch(configStore, pubStore, gate)
+            .compile(format: .epub, label: nil)
+        guard case .failed(let errs, let log) = result else {
+            return XCTFail("expected .failed while the triple is in flight, got \(result)")
+        }
+        XCTAssertTrue(errs.contains { $0.message.contains("already compiling") },
+                      "got: \(errs.map(\.message))")
+        XCTAssertTrue(errs.contains { $0.message.contains("0.1") && $0.message.contains("epub") },
+                      "the refusal must name the triple: \(errs.map(\.message))")
+        XCTAssertTrue(log.contains("mint_in_flight"), log)
+
+        let minted = try await pubStore.load()
+        XCTAssertTrue(minted.isEmpty, "a refusal must mint nothing")
+        let cfg = try await configStore.load()
+        XCTAssertEqual(cfg?.nextVersion, "0.1", "a refusal must not bump next_version")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: tmp.appendingPathComponent("Exports").path),
+            "a refusal must not write output")
+    }
+
+    /// A compile that THROWS out of the reserved section must hand its
+    /// reservation back — otherwise one transient disk error wedges that
+    /// edition for the life of the app. A plain file where `Exports/` belongs
+    /// makes the EPUB writer's `createDirectory` throw, well past the
+    /// reservation point; removing it and retrying must compile, not refuse.
+    func testP2_reservationIsReleasedWhenTheCompileThrows() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Throw", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let gate = PublishMintGate()
+        let orch = makeOrch(configStore, pubStore, gate)
+
+        let exports = tmp.appendingPathComponent("Exports")
+        try "not a directory".write(to: exports, atomically: true, encoding: .utf8)
+        do {
+            _ = try await orch.compile(format: .epub, label: nil)
+            return XCTFail("expected the compile to throw with a file where Exports/ belongs")
+        } catch {
+            // expected
+        }
+        try FileManager.default.removeItem(at: exports)
+
+        let retry = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let pub, _) = retry else {
+            return XCTFail("the retry must not be refused by a leaked reservation: \(retry)")
+        }
+        XCTAssertEqual(pub.version, "0.1", "the failed attempt minted nothing, so 0.1 is still free")
+        // And the gate itself is clean.
+        let free = await gate.reserve(
+            PublishMintGate.Key(version: "0.1", language: nil, format: .epub))
+        XCTAssertTrue(free, "the gate must hold no reservation once the compile has returned")
     }
 }

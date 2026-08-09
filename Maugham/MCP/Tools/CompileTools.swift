@@ -130,6 +130,7 @@ public enum CompileTool: MCPTool {
             publicationStore: stores.publicationStore,
             snapshotStore: stores.snapshotStore,
             jobManager: stores.jobManager,
+            mintGate: stores.mintGate,
             maughamVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0",
             tectonicVersion: "0.15.0")
 
