@@ -307,7 +307,10 @@ public enum TranslationStatusTool: MCPTool {
         "`missing` — plus `verbatim` (of the translated paragraphs, how many are copied " +
         "unchanged from source rather than actually translated), `orphans` (translations " +
         "whose source paragraph was deleted), and `open_queries` (unresolved translator " +
-        "questions raised against that language). " +
+        "questions raised against that language). A language shows up here as soon as a " +
+        "translator asks a query against it, even before any translation file exists for " +
+        "it — that row's coverage counts are all zero (nothing to derive yet) with " +
+        "`open_queries` real, distinct from a language that has files but nothing missing. " +
         "Use it to see how much of a book is translated and where retranslation is due. " +
         "See get_help topic 'translation-pass' for the translation workflow."
     public static let inputSchemaJSON =
@@ -336,40 +339,65 @@ public enum TranslationStatusTool: MCPTool {
         let explicitDoc = params.document_id != nil
         var rows: [Row] = []
         for docId in docIds {
-            // In the project-wide walk, skip resolving (and, for a closed doc,
-            // deriving) paragraph state for documents with no translation files —
-            // a cheap filename scan. An explicit document_id always resolves so a
-            // bad id fails loudly rather than returning empty rows.
-            let languages = TranslationStore.languages(forDocId: docId, in: entry.url).sorted()
-            if !explicitDoc && languages.isEmpty { continue }
-            let state = try currentParagraphState(
-                projectId: params.project_id, documentId: docId, registry: registry)
+            // Languages with an actual translation file — a cheap filename scan.
+            let fileLanguages = Set(TranslationStore.languages(forDocId: docId, in: entry.url))
 
             // Open translator questions for this doc, resolved the same
-            // open/closed way list_annotations does so counts match the pane.
-            // Fetched once per doc; bucketed by language below.
+            // open/closed way list_annotations (and TranslationReviewPane's
+            // own filter) do so counts match the pane. Fetched once per doc;
+            // also the source of query-first languages (M2) — a translator
+            // can ask about a language before any file for it exists, so the
+            // row set is the UNION of file languages and languages tagged on
+            // an open query, not file languages alone.
             let openQueries = try await withAnnotationDocument(
                 projectId: params.project_id, documentId: docId, registry: registry
             ) { doc in
                 doc.annotations(filter: AnnotationFilter(
                     kinds: [.query], statuses: [.open]))
             }
+            let queryLanguages = Set(openQueries.compactMap(\.language))
+            let languages = fileLanguages.union(queryLanguages).sorted()
+
+            // In the project-wide walk, skip documents with neither a
+            // translation file nor an open query for any language. An
+            // explicit document_id always resolves so a bad id fails loudly
+            // rather than returning empty rows.
+            if !explicitDoc && languages.isEmpty { continue }
 
             for language in languages {
-                let records = TranslationStore.loadMerged(
-                    forDocId: docId, language: language, in: state.projectURL)
-                let derived = TranslationDeriver.derive(
-                    records: records, sequence: state.sequence,
-                    paragraphs: state.paragraphs, language: language)
-                rows.append(Row(
-                    document_id: docId,
-                    language: language,
-                    fresh: derived.freshCount,
-                    stale: derived.staleCount,
-                    missing: derived.missingCount,
-                    verbatim: derived.verbatimCount,
-                    orphans: derived.orphans.count,
-                    open_queries: openQueries.filter { $0.language == language }.count))
+                let openQueryCount = openQueries.filter { $0.language == language }.count
+                if fileLanguages.contains(language) {
+                    let state = try currentParagraphState(
+                        projectId: params.project_id, documentId: docId, registry: registry)
+                    let records = TranslationStore.loadMerged(
+                        forDocId: docId, language: language, in: state.projectURL)
+                    let derived = TranslationDeriver.derive(
+                        records: records, sequence: state.sequence,
+                        paragraphs: state.paragraphs, language: language)
+                    rows.append(Row(
+                        document_id: docId,
+                        language: language,
+                        fresh: derived.freshCount,
+                        stale: derived.staleCount,
+                        missing: derived.missingCount,
+                        verbatim: derived.verbatimCount,
+                        orphans: derived.orphans.count,
+                        open_queries: openQueryCount))
+                } else {
+                    // Query-only language: no translation file yet, so there
+                    // is no coverage to derive — report it zero/absent rather
+                    // than "every paragraph missing", which would conflate
+                    // "not started" with "started and incomplete".
+                    rows.append(Row(
+                        document_id: docId,
+                        language: language,
+                        fresh: 0,
+                        stale: 0,
+                        missing: 0,
+                        verbatim: 0,
+                        orphans: 0,
+                        open_queries: openQueryCount))
+                }
             }
         }
 
