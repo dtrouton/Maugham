@@ -47,7 +47,7 @@ public enum ListScenesTool: MCPTool {
                 // Closed doc: display form through the per-project cache (F5);
                 // strip anchors so the Fountain parser sees clean text, matching
                 // the open-doc displayText form.
-                text = store.derivedCache.displayText(forDocId: item.id, in: entry.url)
+                text = try store.derivedCache.displayText(forDocId: item.id, in: entry.url)
             }
             let script = FountainTokenizer().parse(text)
             for line in script.lines {
@@ -191,7 +191,7 @@ public enum FindReferencesTool: MCPTool {
                    let live = ds.document(for: path) {
                     text = live.materialize()
                 } else {
-                    text = store.derivedCache.materialize(forDocId: doc.id, in: entry.url)
+                    text = try store.derivedCache.materialize(forDocId: doc.id, in: entry.url)
                 }
                 guard !text.isEmpty else { continue }
                 for title in titles where text.contains("[[\(title)]]") {
@@ -237,7 +237,7 @@ public enum FindReferencesTool: MCPTool {
                 uniquingKeysWith: { _, later in later })
             for statement in store.manifest.statements {
                 guard statement.id != resolvedId else { continue }
-                let text = store.statementText(of: statement)
+                let text = try store.statementText(of: statement)
                 guard !text.isEmpty else { continue }
                 for title in titles where text.contains("[[\(title)]]") {
                     if seenFromIds.insert(statement.id).inserted {

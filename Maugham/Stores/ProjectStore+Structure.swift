@@ -449,8 +449,12 @@ extension ProjectStore {
                 // Guard on !isEmpty: an unbootstrapped doc has no op log yet
                 // and materialises to ""; skipping it would silently miss the
                 // rename, so we fall through to Document.load which bootstraps.
-                let preCheckBody = derivedCache.materialize(
-                    forDocId: doc.id, in: url)
+                // RULING-54 lenient, reason recorded: unreadable reads as
+                // nil and falls THROUGH to Document.load below, which throws
+                // loudly — never as "no occurrence", which would silently
+                // skip the rename and leave a stale link.
+                let preCheckBody = (try? derivedCache.materialize(
+                    forDocId: doc.id, in: url)) ?? ""
                 if !preCheckBody.isEmpty,
                    WikiLinkRewriter.rewriteAll(
                        body: preCheckBody, pairs: docPairs) == nil {
@@ -518,7 +522,11 @@ extension ProjectStore {
         // of its content, which would be the manuscript-as-truth read tripwire
         // 20 forbids.
         for statement in manifest.statements {
-            let derived = derivedCache.displayText(forDocId: statement.id, in: url)
+            // RULING-54 lenient, reason recorded: an unreadable statement is
+            // SKIPPED — never classified as empty, which is what this loop
+            // acts on.
+            guard let derived = try? derivedCache.displayText(
+                forDocId: statement.id, in: url) else { continue }
             let liveText = openStatementDocument(id: statement.id)?.displayText
             let preview = liveText ?? derived
             if preview.isEmpty {

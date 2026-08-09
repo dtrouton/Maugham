@@ -43,7 +43,12 @@ public struct ProjectSearchEngine {
                 // Closed doc: display form through the per-project cache (F5),
                 // so a repeated search (per debounced keystroke × N docs)
                 // decodes each doc's log at most once until it changes.
-                content = store.derivedCache.displayText(forDocId: item.id, in: store.url)
+                // RULING-54 lenient, reason recorded: search has no per-doc error
+                // channel; an unreadable doc is SKIPPED here and the writer
+                // meets the loud refusal the moment they open it.
+                guard let derived = try? store.derivedCache.displayText(
+                    forDocId: item.id, in: store.url) else { continue }
+                content = derived
             }
             // The DISPLAY form is what we search, not the raw anchored bytes. The
             // materialised `.md` carries op-log join anchors (`<!-- ¶id -->`

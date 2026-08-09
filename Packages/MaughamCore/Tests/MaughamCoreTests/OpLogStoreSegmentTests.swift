@@ -120,7 +120,7 @@ final class OpLogStoreSegmentTests: XCTestCase {
     func test_loadSyncMerged_readsSegmentsPlusTail() async throws {
         _ = try writeSegment([op("01A", next: "first")])
         try await OpLogStore(projectURL: projectURL).append(op("01B", next: "second"))
-        let ops = OpLogStore.loadSyncMerged(forDocId: docId, in: projectURL)
+        let ops = try OpLogStore.loadSyncMerged(forDocId: docId, in: projectURL)
         XCTAssertEqual(ops.map(\.opId), ["01A", "01B"])
     }
 

@@ -209,7 +209,7 @@ final class VisualLanguageToolTests: XCTestCase {
         live.setFullText("Flushed to the op log.\n\nAnd photocopied ![now](./covers/now.jpg)")
 
         XCTAssertNotEqual(
-            store.derivedCache.displayText(forDocId: statement.id, in: url),
+            try store.derivedCache.displayText(forDocId: statement.id, in: url),
             live.displayText,
             "precondition: the burst has already reached the op log, so this test "
             + "cannot tell the live branch from the derived one")

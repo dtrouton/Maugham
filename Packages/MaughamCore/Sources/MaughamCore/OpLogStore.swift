@@ -80,17 +80,69 @@ public final class OpLogStore {
     /// entry (so `ProjectIntegrity.check` marks the doc unhealthy and the
     /// load path quarantines it) while any salvageable decompressed lines
     /// still parse — best-effort, never silent (spec §5.3).
+    /// RULING-54: a reader of a durable store treats an unreadable-yet-present
+    /// file as an ERROR to surface, never as empty. The op log is the surface
+    /// this ruling named FIRST: an unreadable device file used to contribute
+    /// zero ops with empty diagnostics, the document opened SHORTER with no
+    /// quarantine record, and the writer's next autosave truncated the `.md`
+    /// to match — with the file's paragraphs superseded by the new sequence
+    /// keyframe when it came back. Refusal at load is the only safe shape.
+    public enum ReadError: Error, LocalizedError {
+        case unreadableFile(name: String, underlying: String)
+        case unlistableOpsDirectory(underlying: String)
+        public var errorDescription: String? {
+            switch self {
+            case .unreadableFile(let name, let underlying):
+                return "The manuscript's history file “\(name)” exists but can't be read (\(underlying)). "
+                     + "Your words are intact inside it — check the file's permissions or wait for "
+                     + "iCloud to finish syncing, then reopen the document. Maugham won't open a "
+                     + "shortened version over it."
+            case .unlistableOpsDirectory(let underlying):
+                return "The manuscript's history folder (.maugham/ops) exists but can't be listed "
+                     + "(\(underlying)). Check its permissions, then reopen — opening without it "
+                     + "would start a second, parallel history."
+            }
+        }
+    }
+
+    /// RULING-54's directory half: an ops directory that EXISTS but cannot be
+    /// LISTED must throw — `opLogFileURLs` is presence-only (`try?` → `[]`),
+    /// and an empty answer there reads as "no log yet", which sends
+    /// `Document.load` into `Bootstrap.run` to mint FRESH paragraph ids: a
+    /// second, parallel history for a manuscript whose real history is intact
+    /// behind a permissions error.
+    public nonisolated static func verifyOpsDirectoryListable(in projectURL: URL) throws {
+        let dir = projectURL.appendingPathComponent(".maugham/ops", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: dir.path) else { return }
+        do { _ = try FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: nil) }
+        catch {
+            throw ReadError.unlistableOpsDirectory(underlying: error.localizedDescription)
+        }
+    }
+
     public static func loadFileDiagnosed(
         url: URL, presenter: NSFilePresenter?
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics) {
         if url.pathExtension == OpLogSegment.fileExtension {
             let coord = NSFileCoordinator(filePresenter: presenter)
             var coordErr: NSError?
+            var readErr: Error?
             var bytes: Data?
             coord.coordinate(readingItemAt: url, options: [], error: &coordErr) { ru in
-                bytes = try? Data(contentsOf: ru)  // adr-0018-ok: op-log file bytes — the op log IS the source of truth (ADR 0018)
+                do { bytes = try Data(contentsOf: ru) }  // adr-0018-ok: op-log file bytes — the op log IS the source of truth (ADR 0018)
+                catch { readErr = error }
             }
             if let coordErr { throw coordErr }
+            if let readErr {
+                // Unreadable, not corrupt: a CHECKSUM failure below salvages
+                // and quarantines, because the bytes were readable and partial
+                // truth is recordable. Here nothing can be known — throw
+                // (RULING-54), the same split the inbox fix drew.
+                throw ReadError.unreadableFile(
+                    name: url.lastPathComponent,
+                    underlying: readErr.localizedDescription)
+            }
             guard let container = bytes else { return ([], ParseDiagnostics()) }
 
             let decoded = OpLogSegment.decodeVerifying(container)
@@ -116,8 +168,14 @@ public final class OpLogStore {
         let store = JSONLAppendStore<Op>(
             fileURL: url, presenter: presenter,
             dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
-        let result = try await store.loadDiagnosed()
-        return (result.elements, result.diagnostics)
+        do {
+            let result = try await store.loadDiagnosedStrict()
+            return (result.elements, result.diagnostics)
+        } catch {
+            throw ReadError.unreadableFile(
+                name: url.lastPathComponent,
+                underlying: error.localizedDescription)
+        }
     }
 
     /// Append to the writer's own per-device file, keyed by `op.device`.
@@ -341,12 +399,23 @@ public final class OpLogStore {
     /// preferred where the call site can await. Same opId dedupe + sort.
     public nonisolated static func loadSyncMerged(
         forDocId docId: String, in projectURL: URL
-    ) -> [Op] {
+    ) throws -> [Op] {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
         var ops: [Op] = []
         for url in opLogFileURLs(forDocId: docId, in: projectURL) {
-            guard let data = try? Data(contentsOf: url) else { continue }  // adr-0018-ok: op-log file bytes — the op log IS the source of truth (ADR 0018)
+            let data: Data
+            do { data = try Data(contentsOf: url) }  // adr-0018-ok: op-log file bytes — the op log IS the source of truth (ADR 0018)
+            catch {
+                // RULING-54: an unreadable-yet-present file throws — a closed
+                // document must not derive SHORTER because one device's file
+                // could not be read (the reader here includes MCP
+                // read_document, which would otherwise hand Claude a shorter
+                // manuscript as the truth).
+                throw ReadError.unreadableFile(
+                    name: url.lastPathComponent,
+                    underlying: error.localizedDescription)
+            }
             if url.pathExtension == OpLogSegment.fileExtension {
                 guard let jsonl = OpLogSegment.decodeVerifying(data).jsonl else { continue }
                 ops.append(contentsOf: JSONLAppendStore<Op>.parse(bytes: jsonl).elements)

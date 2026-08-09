@@ -179,10 +179,10 @@ final class WikiLinkRenameOpLogTests: XCTestCase {
 
         try await store.renameStructureItem(id: "a", newTitle: "Omega")
 
-        XCTAssertTrue(store.statementText(of: statement).contains("[[Omega]]"),
-                      "the statement still says: \(store.statementText(of: statement))")
-        XCTAssertFalse(store.statementText(of: statement).contains("[[Alpha]]"))
-        let ops = OpLogStore.loadSyncMerged(forDocId: statement.id, in: root)
+        XCTAssertTrue(try store.statementText(of: statement).contains("[[Omega]]"),
+                      "the statement still says: \((try? store.statementText(of: statement)) ?? "<unreadable>")")
+        XCTAssertFalse(try store.statementText(of: statement).contains("[[Alpha]]"))
+        let ops = try OpLogStore.loadSyncMerged(forDocId: statement.id, in: root)
         XCTAssertTrue(ops.contains { op in
             op.changes.contains { $0.next.contains("[[Omega]]") }
         }, "the rewrite must be IN the op log, not a raw file write")
@@ -235,7 +235,7 @@ final class WikiLinkRenameOpLogTests: XCTestCase {
         pane.setFullText(pane.displayText + "\n\nTyped after.")
         try await pane.flushBurstNow()
 
-        let text = store.statementText(of: statement)
+        let text = try store.statementText(of: statement)
         XCTAssertTrue(text.contains("[[Omega]]"),
                       "the pane's next burst wrote the rename back out — "
                       + "found: \(text)")
@@ -271,13 +271,13 @@ final class WikiLinkRenameOpLogTests: XCTestCase {
         // this statement, so the only text about it the pre-check can see is
         // empty — and no pane holds a fresher one.
         XCTAssertTrue(
-            store.derivedCache.displayText(forDocId: statement.id, in: root).isEmpty,
+            try store.derivedCache.displayText(forDocId: statement.id, in: root).isEmpty,
             "this test is only about a COLD statement; the derive answered "
             + "something, so it no longer reproduces the shape it is named for")
 
         try await store.renameStructureItem(id: "a", newTitle: "Omega")
 
-        let text = store.statementText(of: statement)
+        let text = try store.statementText(of: statement)
         XCTAssertTrue(text.contains("[[Omega]]"),
                       "an empty derive skipped a statement whose file has "
                       + "prose in it — found: \(text)")
@@ -341,7 +341,7 @@ final class WikiLinkRenameOpLogTests: XCTestCase {
 
         try await store.renameStructureItem(id: "a", newTitle: "Omega")
 
-        let rewritten = store.derivedCache.materialize(forDocId: "a", in: root)
+        let rewritten = try store.derivedCache.materialize(forDocId: "a", in: root)
         XCTAssertTrue(rewritten.contains("[[Craft Intent · Omega]]"),
                       "found: \(rewritten)")
         XCTAssertFalse(rewritten.contains("[[Craft Intent · Alpha]]"),
@@ -361,7 +361,7 @@ final class WikiLinkRenameOpLogTests: XCTestCase {
 
         try await store.renameStructureItem(id: "a", newTitle: "Omega")
 
-        let rewritten = store.derivedCache.displayText(forDocId: "b", in: root)
+        let rewritten = try store.derivedCache.displayText(forDocId: "b", in: root)
         XCTAssertTrue(rewritten.contains("[[Omega]]"), "found: \(rewritten)")
         XCTAssertTrue(rewritten.contains("[[Craft Intent · Omega]]"),
                       "found: \(rewritten)")

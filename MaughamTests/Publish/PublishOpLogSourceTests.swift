@@ -43,7 +43,7 @@ final class PublishOpLogSourceTests: XCTestCase {
         //    the publish pipeline uses).
         let store = try await ProjectStore.load(from: projectURL)
         let src = ProjectStoreASTSource(projectStore: store)
-        let pieces = src.orderedPieces()
+        let pieces = try src.orderedPieces()
 
         // 6. Assert the piece text derives from the op log ("Chapter body."),
         //    not from the stale .md ("STALE").

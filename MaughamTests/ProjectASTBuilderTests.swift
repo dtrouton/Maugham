@@ -11,17 +11,17 @@ final class ProjectASTBuilderTests: XCTestCase {
         }
     }
 
-    func testBuilds_emptyAST_fromNoPieces() {
+    func testBuilds_emptyAST_fromNoPieces() throws {
         let src = FixtureSource(pieces: [])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertTrue(ast.sections.isEmpty)
     }
 
-    func testBuilds_singleProseSection_oneParagraph() {
+    func testBuilds_singleProseSection_oneParagraph() throws {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "Chapter 1", mode: .prose, text: "Hello.")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections.count, 1)
         let s = ast.sections[0]
         XCTAssertEqual(s.pieceID, "p1")
@@ -30,37 +30,37 @@ final class ProjectASTBuilderTests: XCTestCase {
         XCTAssertEqual(s.nodes, [.paragraph("Hello.")])
     }
 
-    func testBuilds_proseParagraphsSplit_onBlankLine() {
+    func testBuilds_proseParagraphsSplit_onBlankLine() throws {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "C", mode: .prose, text: "One.\n\nTwo.")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [.paragraph("One."), .paragraph("Two.")])
     }
 
-    func testProseSceneBreak_lineOfAsterisks_becomesSceneBreak() {
+    func testProseSceneBreak_lineOfAsterisks_becomesSceneBreak() throws {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "C", mode: .prose, text: "Before.\n\n* * *\n\nAfter.")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
             .paragraph("Before."), .sceneBreak, .paragraph("After.")
         ])
     }
 
-    func testProseSceneBreak_fourOrMoreDashes_becomesSceneBreak() {
+    func testProseSceneBreak_fourOrMoreDashes_becomesSceneBreak() throws {
         // Editor parity: the tokenizer's horizontal-rule rule accepts
         // `-{3,}` (any run of 3+ dashes), not just exactly `---`.
         let src = FixtureSource(pieces: [
             (id: "p1", title: "C", mode: .prose, text: "Before.\n\n----\n\nAfter.")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
             .paragraph("Before."), .sceneBreak, .paragraph("After.")
         ])
     }
 
-    func testProseStripsAnchors_fromBody() {
+    func testProseStripsAnchors_fromBody() throws {
         // Manuscript paragraphs carry <!-- ¶XXXX --> anchors on their own line
         // (the Materializer format: anchor-line + blank + text). The AST is
         // anchor-stripped (publishing pipeline never emits them).
@@ -68,68 +68,68 @@ final class ProjectASTBuilderTests: XCTestCase {
             (id: "p1", title: "C", mode: .prose,
              text: "<!-- ¶abcd -->\n\nHello.")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [.paragraph("Hello.")])
     }
 
     // MARK: - block parsing (headings, blockquotes, multi-line paragraphs)
 
-    func testProseHeading_atxBecomesHeadingNode() {
+    func testProseHeading_atxBecomesHeadingNode() throws {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "C", mode: .prose, text: "## Day 1/3\n\nMorning.")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
             .heading(level: 2, [.text("Day 1/3")]),
             .paragraph([.text("Morning.")]),
         ])
     }
 
-    func testProseHeading_levelCountedFromHashes() {
+    func testProseHeading_levelCountedFromHashes() throws {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "C", mode: .prose, text: "# Top\n\n### Deep")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
             .heading(level: 1, [.text("Top")]),
             .heading(level: 3, [.text("Deep")]),
         ])
     }
 
-    func testBareHashes_areSceneBreakNotHeading() {
+    func testBareHashes_areSceneBreakNotHeading() throws {
         // `###` with no space + content is an ornament, not a heading.
         let src = FixtureSource(pieces: [
             (id: "p1", title: "C", mode: .prose, text: "Before.\n\n###\n\nAfter.")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
             .paragraph([.text("Before.")]), .sceneBreak, .paragraph([.text("After.")]),
         ])
     }
 
-    func testProseBlockquote_nestsParagraph() {
+    func testProseBlockquote_nestsParagraph() throws {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "C", mode: .prose, text: "> Quoted line.\n> Still quoted.")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
             .blockquote([.paragraph([.text("Quoted line. Still quoted.")])]),
         ])
     }
 
-    func testProseParagraph_softLineBreakJoinsWithSpace() {
+    func testProseParagraph_softLineBreakJoinsWithSpace() throws {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "C", mode: .prose, text: "Line one\nline two")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [.paragraph([.text("Line one line two")])])
     }
 
-    func testProseParagraph_inlineEmphasisParsed() {
+    func testProseParagraph_inlineEmphasisParsed() throws {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "C", mode: .prose, text: "A *word* and **bold**.")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
             .paragraph([
                 .text("A "), .emphasis([.text("word")]),
@@ -138,7 +138,7 @@ final class ProjectASTBuilderTests: XCTestCase {
         ])
     }
 
-    func testFountainStripsAnchors_fromAction() {
+    func testFountainStripsAnchors_fromAction() throws {
         // Fountain manuscripts carry <!-- ¶XXXX --> anchors on their own line
         // (Materializer format: anchor-line + blank + text). They must never
         // leak into a rendered screenplay (regression: Good Luck Babe's PDF
@@ -147,11 +147,11 @@ final class ProjectASTBuilderTests: XCTestCase {
             (id: "p1", title: "Scene 1", mode: .fountain,
              text: "<!-- ¶abcd -->\n\nAaron pours coffee.")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [.fountain(.action("Aaron pours coffee."))])
     }
 
-    func testFountainSection_parsesElements() {
+    func testFountainSection_parsesElements() throws {
         let text = """
         INT. KITCHEN - DAY
 
@@ -163,7 +163,7 @@ final class ProjectASTBuilderTests: XCTestCase {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "Scene 1", mode: .fountain, text: text)
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].mode, .fountain)
         let nodes = ast.sections[0].nodes
         XCTAssertTrue(nodes.contains(.fountain(.sceneHeading("INT. KITCHEN - DAY"))))
@@ -172,7 +172,7 @@ final class ProjectASTBuilderTests: XCTestCase {
         XCTAssertTrue(nodes.contains(.fountain(.dialogue("Morning."))))
     }
 
-    func testFountainTransition_contextualTO_notMisreadAsCharacter() {
+    func testFountainTransition_contextualTO_notMisreadAsCharacter() throws {
         // "CUT TO:" is all-caps with no period, so the old classifier mislabeled
         // it a character cue (and swallowed the next line as dialogue).
         let text = """
@@ -185,26 +185,26 @@ final class ProjectASTBuilderTests: XCTestCase {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "S", mode: .fountain, text: text)
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         let nodes = ast.sections[0].nodes
         XCTAssertTrue(nodes.contains(.fountain(.transition("CUT TO:"))),
                       "CUT TO: should be a transition, got \(nodes)")
         XCTAssertFalse(nodes.contains(.fountain(.character("CUT TO:"))))
     }
 
-    func testFountainTransition_forcedWithLeadingAngle() {
+    func testFountainTransition_forcedWithLeadingAngle() throws {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "S", mode: .fountain, text: "> Fade to black.")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [.fountain(.transition("Fade to black."))])
     }
 
-    func testFountainAction_parsesInlineEmphasis() {
+    func testFountainAction_parsesInlineEmphasis() throws {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "S", mode: .fountain, text: "She runs *fast* and **hard**.")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
             .fountain(.action([
                 .text("She runs "), .emphasis([.text("fast")]),
@@ -213,7 +213,7 @@ final class ProjectASTBuilderTests: XCTestCase {
         ])
     }
 
-    func testFountainDialogue_parsesInlineEmphasis() {
+    func testFountainDialogue_parsesInlineEmphasis() throws {
         let text = """
         AARON
         I said *no*.
@@ -221,14 +221,14 @@ final class ProjectASTBuilderTests: XCTestCase {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "S", mode: .fountain, text: text)
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
             .fountain(.character("AARON")),
             .fountain(.dialogue([.text("I said "), .emphasis([.text("no")]), .text(".")])),
         ])
     }
 
-    func testFountainTitlePage_parsedAsStructuredNode() {
+    func testFountainTitlePage_parsedAsStructuredNode() throws {
         let text = """
         Title: Good Luck Babe
         Credit: Written by
@@ -241,7 +241,7 @@ final class ProjectASTBuilderTests: XCTestCase {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "S", mode: .fountain, text: text)
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         let nodes = ast.sections[0].nodes
         XCTAssertEqual(nodes.first, .fountain(.titlePage([
             .init(key: "Title", value: "Good Luck Babe"),
@@ -253,11 +253,11 @@ final class ProjectASTBuilderTests: XCTestCase {
         XCTAssertFalse(nodes.contains(.fountain(.action([.text("Title: Good Luck Babe")]))))
     }
 
-    func testFountainNoTitlePage_whenFirstLineIsNotATitleKey() {
+    func testFountainNoTitlePage_whenFirstLineIsNotATitleKey() throws {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "S", mode: .fountain, text: "INT. CLUB - NIGHT\n\nAaron enters.")
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         let hasTitlePage = ast.sections[0].nodes.contains {
             if case .fountain(.titlePage) = $0 { return true }
             return false
@@ -265,7 +265,7 @@ final class ProjectASTBuilderTests: XCTestCase {
         XCTAssertFalse(hasTitlePage)
     }
 
-    func testFountainDialogue_multipleLinesCoalesceIntoOneNode() {
+    func testFountainDialogue_multipleLinesCoalesceIntoOneNode() throws {
         // A hard-wrapped speech must render as ONE dialogue block, not one
         // \dialogue{} (one minipage) per source line.
         let text = """
@@ -276,14 +276,14 @@ final class ProjectASTBuilderTests: XCTestCase {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "S", mode: .fountain, text: text)
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
             .fountain(.character("AARON")),
             .fountain(.dialogue([.text("First line of the speech second line of the same speech.")])),
         ])
     }
 
-    func testFountainDialogue_parentheticalSplitsSpeech() {
+    func testFountainDialogue_parentheticalSplitsSpeech() throws {
         let text = """
         AARON
         Before the beat.
@@ -293,7 +293,7 @@ final class ProjectASTBuilderTests: XCTestCase {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "S", mode: .fountain, text: text)
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
             .fountain(.character("AARON")),
             .fountain(.dialogue([.text("Before the beat.")])),
@@ -302,7 +302,7 @@ final class ProjectASTBuilderTests: XCTestCase {
         ])
     }
 
-    func testFountainAction_multipleLinesCoalesceIntoOneParagraph() {
+    func testFountainAction_multipleLinesCoalesceIntoOneParagraph() throws {
         let text = """
         Aaron crosses the room
         and opens the window.
@@ -313,7 +313,7 @@ final class ProjectASTBuilderTests: XCTestCase {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "S", mode: .fountain, text: text)
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
             .fountain(.action([.text("Aaron crosses the room and opens the window.")])),
             .fountain(.character("BETH")),
@@ -321,7 +321,7 @@ final class ProjectASTBuilderTests: XCTestCase {
         ])
     }
 
-    func testFountainEndToEnd_viaRealTokenizer_omitsAuthorContentAndPairsDual() {
+    func testFountainEndToEnd_viaRealTokenizer_omitsAuthorContentAndPairsDual() throws {
         // End-to-end through the real FountainTokenizer (Task 7 cutover): one
         // fixture that exercises title page + scene heading + an inline note +
         // a boneyard block + dual dialogue (`^`) + lyric + centered + page break.
@@ -357,7 +357,7 @@ final class ProjectASTBuilderTests: XCTestCase {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "S", mode: .fountain, text: text)
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
             .fountain(.titlePage([
                 .init(key: "Title", value: "Good Luck Babe"),
@@ -380,39 +380,39 @@ final class ProjectASTBuilderTests: XCTestCase {
 
     /// Mirrors `SinglePieceSource` (EmissionContract.swift) — a tiny one-piece
     /// prose builder for tests that only care about the resulting nodes.
-    private func buildProse(_ text: String) -> [ProjectAST.Node] {
+    private func buildProse(_ text: String) throws -> [ProjectAST.Node] {
         let src = FixtureSource(pieces: [(id: "p1", title: "T", mode: .prose, text: text)])
-        return ProjectASTBuilder.build(from: src).sections[0].nodes
+        return try ProjectASTBuilder.build(from: src).sections[0].nodes
     }
 
-    func test_unorderedList_parses() {
-        let nodes = buildProse("- one\n- two *em*\n")
+    func test_unorderedList_parses() throws {
+        let nodes = try buildProse("- one\n- two *em*\n")
         XCTAssertEqual(nodes, [.prose(.list(ordered: false,
             items: [[.text("one")], [.text("two "), .emphasis([.text("em")])]]))])
     }
 
     func test_orderedList_bothDelimiters() {
-        XCTAssertEqual(buildProse("1. a\n2) b\n"),
+        XCTAssertEqual(try buildProse("1. a\n2) b\n"),
             [.prose(.list(ordered: true, items: [[.text("a")], [.text("b")]]))])
     }
 
     func test_list_indentedContinuation_joinsCurrentItem() {
-        XCTAssertEqual(buildProse("- one\n  still one\n- two\n"),
+        XCTAssertEqual(try buildProse("- one\n  still one\n- two\n"),
             [.prose(.list(ordered: false, items: [[.text("one still one")], [.text("two")]]))])
     }
 
     func test_list_blankLineEndsBlock() {
-        XCTAssertEqual(buildProse("- one\n\nAfter."),
+        XCTAssertEqual(try buildProse("- one\n\nAfter."),
             [.prose(.list(ordered: false, items: [[.text("one")]])), .prose(.paragraph([.text("After.")]))])
     }
 
-    func test_fence_verbatim_noInlineMangle() {
-        let nodes = buildProse("```\n*not em*\n`nor code`\n```\n")
+    func test_fence_verbatim_noInlineMangle() throws {
+        let nodes = try buildProse("```\n*not em*\n`nor code`\n```\n")
         XCTAssertEqual(nodes, [.prose(.verbatim(["*not em*", "`nor code`"]))])
     }
 
     func test_fence_unterminated_collectsToEndOfInput() {
-        XCTAssertEqual(buildProse("```\nline one\nline two"),
+        XCTAssertEqual(try buildProse("```\nline one\nline two"),
             [.prose(.verbatim(["line one", "line two"]))])
     }
 
@@ -421,12 +421,12 @@ final class ProjectASTBuilderTests: XCTestCase {
     // as list-item text (regression: the original implementation treated any
     // non-blank line as a continuation regardless of indentation).
     func test_list_unindentedSceneBreak_endsListAndBecomesSceneBreak() {
-        XCTAssertEqual(buildProse("- item\n***\n"),
+        XCTAssertEqual(try buildProse("- item\n***\n"),
             [.prose(.list(ordered: false, items: [[.text("item")]])), .prose(.sceneBreak)])
     }
 
     func test_list_unindentedHeading_endsListAndBecomesHeading() {
-        XCTAssertEqual(buildProse("- item\n# H\n"),
+        XCTAssertEqual(try buildProse("- item\n# H\n"),
             [.prose(.list(ordered: false, items: [[.text("item")]])),
              .prose(.heading(level: 1, [.text("H")]))])
     }
@@ -435,7 +435,7 @@ final class ProjectASTBuilderTests: XCTestCase {
     // lists) — the FIRST item's marker decides ordered-vs-unordered for the
     // whole block; a later numeral is just item text, not a mode switch.
     func test_list_mixedMarkers_firstMarkerWins_unordered() {
-        XCTAssertEqual(buildProse("- a\n2. b\n"),
+        XCTAssertEqual(try buildProse("- a\n2. b\n"),
             [.prose(.list(ordered: false, items: [[.text("a")], [.text("b")]]))])
     }
 
@@ -447,8 +447,8 @@ final class ProjectASTBuilderTests: XCTestCase {
     // literal-paragraph AST so the shared-parser cutover — which recognizes the
     // table as its own block, then DEGRADES it back through the same paragraph
     // helper — stays byte-identical.
-    func test_pipeTable_degradesToLiteralParagraph() {
-        let nodes = buildProse("| a | b |\n| --- | --- |\n| 1 | 2 |")
+    func test_pipeTable_degradesToLiteralParagraph() throws {
+        let nodes = try buildProse("| a | b |\n| --- | --- |\n| 1 | 2 |")
         XCTAssertEqual(nodes, [.prose(.paragraph([
             .text("| a | b | | --- | --- | | 1 | 2 |")]))])
     }
@@ -457,8 +457,8 @@ final class ProjectASTBuilderTests: XCTestCase {
     // today it is swallowed as literal paragraph text. The cutover recognizes
     // it as a solo-image block and degrades it back through the same paragraph
     // helper — this pin locks the byte-identical result.
-    func test_soloImageLine_degradesToParagraph() {
-        let nodes = buildProse("![Alt](./img/pic.png)")
+    func test_soloImageLine_degradesToParagraph() throws {
+        let nodes = try buildProse("![Alt](./img/pic.png)")
         XCTAssertEqual(nodes, [.prose(.paragraph([
             .text("![Alt](./img/pic.png)")]))])
     }
@@ -470,16 +470,16 @@ final class ProjectASTBuilderTests: XCTestCase {
     // uniform block grammar is the accepted behavior; re-gluing table/image
     // lines back into a trailing paragraph would reintroduce the divergence the
     // shared parser exists to remove). These pins lock the accepted shape.
-    func test_leadingTable_thenProse_splitsIntoTwoNodes() {
-        let nodes = buildProse("| a |\n|---|\ntrailing prose")
+    func test_leadingTable_thenProse_splitsIntoTwoNodes() throws {
+        let nodes = try buildProse("| a |\n|---|\ntrailing prose")
         XCTAssertEqual(nodes, [
             .prose(.paragraph([.text("| a | |---|")])),
             .prose(.paragraph([.text("trailing prose")])),
         ])
     }
 
-    func test_leadingSoloImage_thenCaption_splitsIntoTwoNodes() {
-        let nodes = buildProse("![Alt](./img.png)\nCaption line")
+    func test_leadingSoloImage_thenCaption_splitsIntoTwoNodes() throws {
+        let nodes = try buildProse("![Alt](./img.png)\nCaption line")
         XCTAssertEqual(nodes, [
             .prose(.paragraph([.text("![Alt](./img.png)")])),
             .prose(.paragraph([.text("Caption line")])),
@@ -498,7 +498,7 @@ final class ProjectASTBuilderTests: XCTestCase {
     /// mode-aware parse both knock-ons are fixed: ONE `.dialogue` node carries a
     /// `.lineBreak` for the held pause, and the later `^` block still pairs into a
     /// `.dualDialogue`, with no spurious `.action` node.
-    func testHeldBlank_survivesOpLogRoundTrip_intoAST() {
+    func testHeldBlank_survivesOpLogRoundTrip_intoAST() throws {
         let fixture = """
         ALICE
         I wrote you every day for a *year*.
@@ -528,7 +528,7 @@ final class ProjectASTBuilderTests: XCTestCase {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "S", mode: .fountain, text: materialized)
         ])
-        let nodes = ProjectASTBuilder.build(from: src).sections[0].nodes
+        let nodes = try ProjectASTBuilder.build(from: src).sections[0].nodes
 
         // Knock-on 1: the held pause survives as ONE dialogue node with a
         // `.lineBreak`, NOT two paragraphs with a real blank between them.
@@ -566,13 +566,13 @@ final class ProjectASTBuilderTests: XCTestCase {
             "the dialogue continuation must not re-materialize as an .action, got \(nodes)")
     }
 
-    func testMixedPieces_preserveOrder() {
+    func testMixedPieces_preserveOrder() throws {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "First", mode: .prose, text: "Hello."),
             (id: "p2", title: "Second", mode: .fountain, text: "INT. ROOM - DAY"),
             (id: "p3", title: "Third", mode: .prose, text: "World."),
         ])
-        let ast = ProjectASTBuilder.build(from: src)
+        let ast = try ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections.map(\.pieceID), ["p1", "p2", "p3"])
         XCTAssertEqual(ast.sections.map(\.mode), [.prose, .fountain, .prose])
     }

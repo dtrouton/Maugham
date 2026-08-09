@@ -103,4 +103,50 @@ final class OpLogStoreDiagnosedTests: XCTestCase {
         XCTAssertEqual(result.ops.count, 1)
         XCTAssertTrue(result.diagnostics.isClean)
     }
+    // MARK: - RULING-54: unreadable is never presented as empty
+
+    /// An UNREADABLE-yet-present device file (a directory squatting on its
+    /// path — the same failure shape as a permissions break or an iCloud
+    /// dataless stub) must THROW from `loadDiagnosed`, never contribute zero
+    /// ops with empty diagnostics: the empty read is how a document opened
+    /// SHORTER with no trace, and the writer's next autosave truncated the
+    /// `.md` to match.
+    func test_loadDiagnosed_unreadableDeviceFile_throws() async throws {
+        let store = OpLogStore(projectURL: tmp)
+        try await store.append(makeOp(opId: "01AAAAAAAAAAAAAAAAAAAAAAAA"))
+
+        let bad = DeviceSlug.unsafeForTesting("bad")
+        let badURL = OpLogStore.opLogFileURL(forDocId: "doc-1", deviceSlug: bad, in: tmp)
+        try FileManager.default.createDirectory(at: badURL, withIntermediateDirectories: true)
+
+        do {
+            _ = try await store.loadDiagnosed(docId: "doc-1")
+            XCTFail("an unreadable device file must throw, not read as empty")
+        } catch {}
+    }
+
+    /// The same strictness on the sync-merge path — the closed-document read
+    /// (`DerivedManuscript`, MCP `read_document`) must not silently derive a
+    /// shorter manuscript from an unreadable file.
+    func test_loadSyncMerged_unreadableDeviceFile_throws() async throws {
+        let store = OpLogStore(projectURL: tmp)
+        try await store.append(makeOp(opId: "01AAAAAAAAAAAAAAAAAAAAAAAA"))
+        let bad = DeviceSlug.unsafeForTesting("bad")
+        let badURL = OpLogStore.opLogFileURL(forDocId: "doc-1", deviceSlug: bad, in: tmp)
+        try FileManager.default.createDirectory(at: badURL, withIntermediateDirectories: true)
+
+        do {
+            _ = try OpLogStore.loadSyncMerged(forDocId: "doc-1", in: tmp)
+            XCTFail("loadSyncMerged must throw on an unreadable file")
+        } catch {}
+    }
+
+    /// ABSENT stays fine — a document with no op-log files at all is the
+    /// legitimate new-document state, not an error.
+    func test_loadDiagnosed_absentFiles_returnsEmptyWithoutThrowing() async throws {
+        let store = OpLogStore(projectURL: tmp)
+        let result = try await store.loadDiagnosed(docId: "doc-none")
+        XCTAssertTrue(result.ops.isEmpty)
+    }
+
 }

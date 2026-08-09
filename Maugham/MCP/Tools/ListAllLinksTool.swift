@@ -109,7 +109,7 @@ public enum ListAllLinksTool: MCPTool {
                let live = ds.document(for: path) {
                 text = live.materialize()
             } else {
-                text = store.derivedCache.materialize(forDocId: doc.id, in: entry.url)
+                text = try store.derivedCache.materialize(forDocId: doc.id, in: entry.url)
             }
             guard !text.isEmpty else { continue }
             for token in Self.wikiTokens(in: text) {
@@ -173,7 +173,7 @@ public enum ListAllLinksTool: MCPTool {
                 .map { ($0.id, $0.title) },
             uniquingKeysWith: { _, later in later })
         for statement in store.manifest.statements {
-            let text = store.statementText(of: statement)
+            let text = try store.statementText(of: statement)
             guard !text.isEmpty else { continue }
             let fromTitle = ArtifactIndex.statementTitle(
                 statement, documentTitle: { statementDocumentTitles[$0] })

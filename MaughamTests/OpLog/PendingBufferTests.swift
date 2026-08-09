@@ -73,7 +73,7 @@ final class PendingBufferTests: XCTestCase {
         let opLogFiles = OpLogStore.opLogFileURLs(forDocId: docId, in: tmp)
         XCTAssertTrue(opLogFiles.isEmpty,
                       "the pending file must not be returned by the op-log glob")
-        XCTAssertEqual(OpLogStore.loadSyncMerged(forDocId: docId, in: tmp).count, 0,
+        XCTAssertEqual(try OpLogStore.loadSyncMerged(forDocId: docId, in: tmp).count, 0,
                        "the pending file must not be ingested as op-log content")
     }
 

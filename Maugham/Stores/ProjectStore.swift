@@ -398,8 +398,10 @@ public final class ProjectStore {
                 if Task.isCancelled { return }
                 guard let self, let path = item.path else { continue }
                 // ADR 0018: derive from the op log, never the .md file.
-                let state = self.derivedCache.state(
-                    forDocId: item.id, in: projectURL)
+                // RULING-54 lenient, reason recorded: a background stats
+                // pass skips an unreadable doc; opening it refuses loudly.
+                guard let state = try? self.derivedCache.state(
+                    forDocId: item.id, in: projectURL) else { continue }
                 let text = state.paragraphs.values.joined(separator: " ")
                 let count = WritingModeFactory.mode(for: path).wordCount(text)
                 self.recordWordCount(forDocumentId: item.id, wordCount: count)

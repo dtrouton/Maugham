@@ -46,12 +46,12 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
         self.language = language
     }
 
-    public func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+    public func orderedPieces() throws -> [ProjectASTBuilder.PieceRef] {
         let docs = ProjectStore.collectDocuments(in: projectStore.manifest.structure)
-        return docs.compactMap(pieceRef(for:))
+        return try docs.compactMap { try pieceRef(for: $0) }
     }
 
-    private func pieceRef(for item: StructureItem) -> ProjectASTBuilder.PieceRef? {
+    private func pieceRef(for item: StructureItem) throws -> ProjectASTBuilder.PieceRef? {
         if item.pieceKind == .reference { return nil }
         guard let path = item.path else { return nil }
         let mode: ProjectAST.Mode = path.lowercased().hasSuffix(".fountain")
@@ -59,7 +59,7 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
             : .prose
         let text: String
         if let language {
-            text = translatedDisplayText(forDocId: item.id, path: path, language: language)
+            text = try translatedDisplayText(forDocId: item.id, path: path, language: language)
         } else {
             // ADR 0018 open-doc rule: an OPEN doc's live `Document` is the
             // freshest source — the op log lags an actively-edited doc by the
@@ -70,7 +70,7 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
             if let ds = projectStore.documentStore, let doc = ds.document(for: path) {
                 text = doc.materialize()
             } else {
-                text = projectStore.derivedCache.materialize(forDocId: item.id, in: projectStore.url)
+                text = try projectStore.derivedCache.materialize(forDocId: item.id, in: projectStore.url)
             }
         }
         return ProjectASTBuilder.PieceRef(
@@ -90,14 +90,14 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
     /// source-language AST exactly — pinned by `ASTTranslationSubstitutionTests`.
     private func translatedDisplayText(
         forDocId docId: String, path: String, language: String
-    ) -> String {
+    ) throws -> String {
         let sequence: [String]
         let paragraphs: [String: String]
         if let ds = projectStore.documentStore, let doc = ds.document(for: path) {
             sequence = doc.sequence
             paragraphs = doc.paragraphs
         } else {
-            let state = projectStore.derivedCache.state(forDocId: docId, in: projectStore.url)
+            let state = try projectStore.derivedCache.state(forDocId: docId, in: projectStore.url)
             sequence = state.sequence
             paragraphs = state.paragraphs
         }

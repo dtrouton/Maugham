@@ -30,7 +30,7 @@ final class ProjectStoreASTSourceTests: XCTestCase {
             url: docURL, device: "test", session: "test", presenter: nil)
 
         let src = ProjectStoreASTSource(projectStore: store)
-        let pieces = src.orderedPieces()
+        let pieces = try src.orderedPieces()
 
         XCTAssertEqual(pieces.count, 1)
         XCTAssertEqual(pieces.first?.mode, .prose)
@@ -53,7 +53,7 @@ final class ProjectStoreASTSourceTests: XCTestCase {
             url: docURL, device: "test", session: "test", presenter: nil)
 
         let src = ProjectStoreASTSource(projectStore: store)
-        let pieces = src.orderedPieces()
+        let pieces = try src.orderedPieces()
 
         XCTAssertEqual(pieces.count, 1)
         XCTAssertEqual(pieces.first?.mode, .fountain)
@@ -65,6 +65,6 @@ final class ProjectStoreASTSourceTests: XCTestCase {
             named: "Empty", in: tmp)
         let store = try await ProjectStore.load(from: url)
         let src = ProjectStoreASTSource(projectStore: store)
-        XCTAssertTrue(src.orderedPieces().isEmpty)
+        XCTAssertTrue(try src.orderedPieces().isEmpty)
     }
 }

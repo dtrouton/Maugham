@@ -739,14 +739,14 @@ final class PromotionCharacterization: XCTestCase {
         XCTAssertEqual(statement.scope, .project, "M6-PR-046: no piece means the project's")
         XCTAssertEqual(model.scene.node(a)?.promotedItemID, statement.id,
                        "M6-PR-047: the mark is the STATEMENT's id")
-        XCTAssertEqual(store.statementText(of: statement),
+        XCTAssertEqual(try store.statementText(of: statement),
                        "The falls at night\n\nSodium light on the spray.")
 
         let second = try await performer.perform(
             try plan(.scrap(b), .intentStatement, store: store, model: model))
         XCTAssertEqual(second.createdItemID, statement.id, "M6-PR-045: find-or-create")
         XCTAssertEqual(store.manifest.statements.count, 1)
-        XCTAssertEqual(store.statementText(of: statement),
+        XCTAssertEqual(try store.statementText(of: statement),
                        "The falls at night\n\nSodium light on the spray.\n\nOctober's doctor",
                        "M6-PR-045: it appends, it never replaces")
 
