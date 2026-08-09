@@ -854,4 +854,66 @@ final class RepublisherTests: XCTestCase {
         XCTAssertTrue(filename.contains(pub.version),
             "expected the republished filename '\(filename)' to contain its own version '\(pub.version)'")
     }
+
+    // MARK: - P3 (issue #25): republish re-validates the snapshot's config
+
+    /// Sweep finding P3 was refuted by source (`PublishConfigValidator.swift:54-56`
+    /// has required `{version}` since `28b6fed9`); what was missing was this pin.
+    /// This is the dynamic replay half — `Republisher.republish` re-validates
+    /// `snap.config` (the same guard finding 1.5 added for traversal) rather than
+    /// trusting a snapshot that could arrive doctored via iCloud sync or a hand
+    /// edit. Doctor a saved snapshot's template down to `{title}.{ext}` — no
+    /// `{version}` — and republish must refuse with
+    /// `RepublishError.invalidSnapshotConfig`. The static half (the validator
+    /// call itself) is pinned in `PublishConfigValidatorTests`.
+    func test_republishRefusesASnapshotWhoseTemplateLacksVersion() async throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hello.")]
+            }
+        }
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Doctored", author: "T")))
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        // 1. A normal compile succeeds and leaves a valid snapshot behind.
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let initialPub, _) = initial else {
+            XCTFail("initial compile failed: \(initial)")
+            return
+        }
+
+        // 2. Doctor the saved snapshot's config: drop {version} from the
+        //    filename template, as if it arrived already invalid.
+        let snap = try snapStore.load(id: initialPub.snapshotID)
+        var doctoredConfig = snap.config
+        doctoredConfig.outputs.filenameTemplate = "{title}.{ext}"
+        let doctored = PublicationSnapshot(
+            snapshotID: snap.snapshotID, createdAt: snap.createdAt,
+            publishFiles: snap.publishFiles, config: doctoredConfig,
+            maughamVersion: snap.maughamVersion, tectonicVersion: snap.tectonicVersion)
+        try snapStore.save(doctored)
+
+        // 3. Republish must re-validate and refuse — not trust the snapshot.
+        let r = Republisher(
+            projectURL: tmp, astSource: Src(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        do {
+            _ = try await r.republish(
+                snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+            XCTFail("expected republish to refuse a snapshot whose template lacks {version}")
+        } catch RepublishError.invalidSnapshotConfig(let msg) {
+            XCTAssertTrue(msg.contains("filename_template"), msg)
+        }
+    }
 }
