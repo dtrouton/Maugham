@@ -19,11 +19,11 @@ Right-click a row in the binder:
 - **Duplicate** — copies the document or group with fresh IDs.
 - **Delete** — moves to Maugham's project-local Trash (see below).
 
-You can do all of that from **Plan** as well. Plan's **Structure** tab shows the same tree with the planning canvas still in the middle, and it carries the same right-click menus and the same empty-binder buttons — Plan is where structure gets built.
+You can do all of that from **Plan** as well. Plan's left column is this very tree, with the planning canvas still in the middle, and it carries the same right-click menus and the same empty-binder buttons.
 
 **A screenplay is the exception, deliberately.** A screenplay is one file, so there is nothing to add to its tree: its structure is its sluglines, and you type those in the script itself. Its tree offers no New Document and no New Scene, in Plan or anywhere else — select **Script** (or ⌘2 for Author) and write the scene heading.
 
-Plan's Structure tab lists a screenplay's sluglines just as the Scenes segment does, and it does it from the moment you open the window — you don't have to visit Author first to make them appear. Selecting the project row or the **Script** row keeps you in Plan. Clicking a **slugline** does not: a slugline is a jump into the script itself, so it takes you to **Author**, where the script is on screen. As above, that first click lands you in the screenplay rather than on that scene, because the editor is arriving at the same moment — click the slugline again and it jumps.
+Plan's tree lists a screenplay's sluglines the same way it does everywhere else, and it does it from the moment you open the window — you don't have to visit Author first to make them appear. Selecting the project row or the **Script** row keeps you in Plan. Clicking a **slugline** does not: a slugline is a jump into the script itself, so it takes you to **Author**, where the script is on screen. As above, that first click lands you in the screenplay rather than on that scene, because the editor is arriving at the same moment — click the slugline again and it jumps.
 
 Drag items to reorder. Move chapters between groups; folders physically move on disk. Filenames keep an `NN-` prefix so the on-disk order matches the binder order.
 
@@ -46,7 +46,7 @@ Research association isn't shown here — see the Research mode (⌘⌥R) in [In
 
 Type `[[Chapter 2]]` in any document. Maugham renders it blue + underlined. Click to navigate. Rename Chapter 2 in the binder and the wiki links in other documents update automatically.
 
-Following a link to a manuscript document from **Plan** takes you to Author with it, because reading and writing the manuscript is Author's job. ⌘1 brings you straight back to the Plan tab you left.
+Following a link to a manuscript document from **Plan** takes you to Author with it, because reading and writing the manuscript is Author's job. ⌘1 brings you straight back to where you left Plan.
 
 ### Find
 
