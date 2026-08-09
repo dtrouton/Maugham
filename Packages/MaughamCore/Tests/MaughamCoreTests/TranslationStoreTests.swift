@@ -97,6 +97,84 @@ final class TranslationStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 
+    // MARK: - A tombstone-only batch mints nothing (review I1)
+
+    func test_appendBatch_allTombstonesOnANeverTranslatedLanguage_writesNoFile() throws {
+        // A `write_translation` call carrying only `delete: true` entries for a
+        // (doc, language) nobody has translated into: there is nothing for a
+        // tombstone to remove, and minting the file would put "es" in
+        // `languages()` — and so in translation_status and the review picker —
+        // forever, with nothing in it to purge.
+        let slug = DeviceSlug.unsafeForTesting("maca-1234")
+        let tombstones = ["aaaa", "bbbb"].map {
+            TranslationRecord(paragraphId: $0, language: "es", text: nil, sourceHash: "h")
+        }
+        try TranslationStore.appendBatch(tombstones, forDocId: "doc1", language: "es",
+                                         deviceSlug: slug, in: projectURL)
+
+        let url = TranslationStore.fileURL(forDocId: "doc1", language: "es",
+                                           deviceSlug: slug, in: projectURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path),
+                       "a delete-only batch must not mint the file")
+        XCTAssertEqual(TranslationStore.languages(forDocId: "doc1", in: projectURL), [],
+                       "no phantom language in the picker / translation_status")
+        XCTAssertTrue(TranslationStore.fileURLs(forDocId: "doc1", language: "es",
+                                                in: projectURL).isEmpty)
+    }
+
+    func test_appendBatch_allTombstonesWhereTheLanguageHasRecords_appendsNormally() throws {
+        // The Translation Review pane's Remove-orphan case: the language is
+        // real, so the tombstones must land.
+        let slug = DeviceSlug.unsafeForTesting("maca-1234")
+        try TranslationStore.appendBatch(
+            [TranslationRecord(paragraphId: "aaaa", language: "es", text: "Hola", sourceHash: "h")],
+            forDocId: "doc1", language: "es", deviceSlug: slug, in: projectURL)
+        try TranslationStore.appendBatch(
+            [TranslationRecord(paragraphId: "aaaa", language: "es", text: nil, sourceHash: "h")],
+            forDocId: "doc1", language: "es", deviceSlug: slug, in: projectURL)
+
+        let url = TranslationStore.fileURL(forDocId: "doc1", language: "es",
+                                           deviceSlug: slug, in: projectURL)
+        let lines = try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: true)
+        XCTAssertEqual(lines.count, 2, "the tombstone appends to the real language's file")
+        let loaded = TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: projectURL)
+        XCTAssertTrue(TranslationStore.latestByParagraph(loaded).isEmpty,
+                      "and it still removes the paragraph")
+    }
+
+    func test_appendBatch_allTombstonesWhereAnotherDeviceHasTheLanguage_writes() throws {
+        // Why the check spans sibling device files rather than only this
+        // device's: another device's translation is exactly what this
+        // tombstone removes on merge, so it must be recordable.
+        let other = DeviceSlug.unsafeForTesting("macb-2222")
+        let mine = DeviceSlug.unsafeForTesting("maca-1111")
+        try TranslationStore.appendBatch(
+            [TranslationRecord(paragraphId: "aaaa", language: "es", text: "Hola", sourceHash: "h")],
+            forDocId: "doc1", language: "es", deviceSlug: other, in: projectURL)
+        try TranslationStore.appendBatch(
+            [TranslationRecord(paragraphId: "aaaa", language: "es", text: nil, sourceHash: "h")],
+            forDocId: "doc1", language: "es", deviceSlug: mine, in: projectURL)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath:
+            TranslationStore.fileURL(forDocId: "doc1", language: "es",
+                                     deviceSlug: mine, in: projectURL).path))
+        let loaded = TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: projectURL)
+        XCTAssertTrue(TranslationStore.latestByParagraph(loaded).isEmpty,
+                      "the sibling device's translation is removed")
+    }
+
+    func test_appendBatch_oneRealEntryAmongTombstones_writesTheWholeBatch() throws {
+        let slug = DeviceSlug.unsafeForTesting("maca-1234")
+        try TranslationStore.appendBatch(
+            [TranslationRecord(paragraphId: "aaaa", language: "es", text: "Hola", sourceHash: "h"),
+             TranslationRecord(paragraphId: "bbbb", language: "es", text: nil, sourceHash: "h")],
+            forDocId: "doc1", language: "es", deviceSlug: slug, in: projectURL)
+        XCTAssertEqual(TranslationStore.languages(forDocId: "doc1", in: projectURL), ["es"])
+        XCTAssertEqual(
+            TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: projectURL).count, 2)
+    }
+
     func test_tombstoneRemovesKey_andLaterValueRestoresIt() {
         // Order pinned by construction order: ULID.generate() is process-monotonic,
         // so opId ordering follows call order here, not `at` or array position.
@@ -203,7 +281,7 @@ final class TranslationStoreTests: XCTestCase {
         let malformedFiles = [
             "doc.jsonl",                    // Too few components (missing language and slug)
             "doc.en.jsonl",                 // Too few components (missing slug)
-            "doc.en.slug.extra.jsonl",      // Too many components
+            "doc.en.slug.extra.jsonl",      // Reconstructs to docId "doc.en", not "doc"
             "doc.en.slug",                  // Missing .jsonl extension
             "doc..en.slug.jsonl",           // Empty component
         ]
@@ -214,6 +292,22 @@ final class TranslationStoreTests: XCTestCase {
 
         // Should still find only the valid "en" language
         XCTAssertEqual(TranslationStore.languages(forDocId: "doc", in: projectURL), ["en"])
+    }
+
+    func test_fileURLs_dottedPrefixDocIds_noCrossMatch() async throws {
+        // `fileURLs` shares `languages`' parse now, so the dotted-prefix
+        // cross-match its old positional prefix match allowed is closed: a file
+        // for docId "doc.en" is not a file for docId "doc" in language "en".
+        let slug = DeviceSlug.unsafeForTesting("maca-1111")
+        try await TranslationStore.append(
+            TranslationRecord(paragraphId: "aaaa", language: "fr", text: "x", sourceHash: "h"),
+            forDocId: "doc.en", deviceSlug: slug, in: projectURL)
+
+        XCTAssertTrue(
+            TranslationStore.fileURLs(forDocId: "doc", language: "en", in: projectURL).isEmpty,
+            "\"doc.en.fr.<slug>.jsonl\" belongs to docId doc.en, not to doc/en")
+        XCTAssertEqual(
+            TranslationStore.fileURLs(forDocId: "doc.en", language: "fr", in: projectURL).count, 1)
     }
 
     func test_languages_invalidLanguageTag_skipped() async throws {

@@ -439,7 +439,12 @@ final class WriteTranslationToolTests: XCTestCase {
         let h = try await makeHarness()
         let livePid = h.doc.sequence[0]
 
-        // Exempt: an id absent from the document.
+        // Exempt: an id absent from the document. The call is ACCEPTED and
+        // reports the entry written — but for a language nothing has ever been
+        // translated into, acceptance costs no file: a tombstones-only sidecar
+        // would put "es" in `languages()`, and so in translation_status and the
+        // Translation Review picker, permanently, with nothing in it to purge
+        // (review I1).
         let resultData = try await call(h, [
             "project_id": h.projectId,
             "document_id": h.doc.docId,
@@ -452,20 +457,34 @@ final class WriteTranslationToolTests: XCTestCase {
 
         var records = TranslationStore.loadMerged(
             forDocId: h.doc.docId, language: "es", in: h.projectURL)
-        XCTAssertEqual(records.count, 1)
-        XCTAssertEqual(records[0].paragraphId, "zzzz")
-        XCTAssertNil(records[0].text)
+        XCTAssertTrue(records.isEmpty, "nothing to remove, so nothing recorded")
+        XCTAssertTrue(
+            TranslationStore.fileURLs(
+                forDocId: h.doc.docId, language: "es", in: h.projectURL).isEmpty,
+            "no tombstones-only file")
+        XCTAssertFalse(
+            TranslationStore.languages(forDocId: h.doc.docId, in: h.projectURL).contains("es"),
+            "and so no phantom language")
 
-        // Idempotent: tombstoning a never-translated id again changes nothing
-        // about the derived state.
+        // Once the language is real, the same delete form tombstones for real —
+        // and repeating it is idempotent in the derived state.
         _ = try await call(h, [
             "project_id": h.projectId,
             "document_id": h.doc.docId,
             "language": "es",
-            "entries": [["paragraph_id": "zzzz", "delete": true]]
+            "entries": [["paragraph_id": livePid, "text": "vivo"]]
         ])
+        for _ in 0..<2 {
+            _ = try await call(h, [
+                "project_id": h.projectId,
+                "document_id": h.doc.docId,
+                "language": "es",
+                "entries": [["paragraph_id": livePid, "delete": true]]
+            ])
+        }
         records = TranslationStore.loadMerged(
             forDocId: h.doc.docId, language: "es", in: h.projectURL)
+        XCTAssertEqual(records.count, 3, "the value plus both tombstones are on disk")
         XCTAssertTrue(TranslationStore.latestByParagraph(records).isEmpty,
                       "a repeated tombstone is still a tombstone")
 

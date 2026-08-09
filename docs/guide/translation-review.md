@@ -36,8 +36,11 @@ button beside each and a **Remove All** for clearing the whole list in one
 go. There's no confirmation dialog — an orphan is stale by definition and
 Claude can retranslate the paragraph again if you ever needed it back, so
 removing one is closer to emptying a wastebasket than deleting a document.
-The list refreshes live as translations change, so a paragraph you re-add to
-the manuscript and have retranslated drops back out on its own.
+The list refreshes live as translations change. An orphan clears by itself
+only if the very paragraph comes back — undoing the deletion restores it with
+the same identity, and its translation is a translation again. Retyping the
+paragraph doesn't do that: to the manuscript it's a new paragraph, so the old
+translation stays an orphan and **Remove** is how it goes.
 
 ### The Translation pane (⌘⌥L)
 

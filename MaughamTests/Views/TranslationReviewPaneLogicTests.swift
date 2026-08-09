@@ -174,6 +174,17 @@ final class TranslationReviewPaneLogicTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let slug = DeviceSlug.unsafeForTesting("maca-test")
 
+        // The orphans exist because those paragraphs were translated once, so
+        // seed that: a purge into a language with nothing translated in it
+        // records nothing at all, by `TranslationStore.appendBatch`'s
+        // tombstone guard (a tombstones-only file is a phantom language).
+        try TranslationStore.appendBatch(
+            ["zzzz", "yyyy"].map {
+                TranslationRecord(paragraphId: $0, language: "es",
+                                  text: "Huérfano", sourceHash: "x")
+            },
+            forDocId: "doc1", language: "es", deviceSlug: slug, in: dir)
+
         try TranslationReviewPaneLogic.purgeOrphans(
             ["zzzz", "yyyy"], docId: "doc1", language: "es",
             deviceSlug: slug, projectURL: dir)
@@ -182,11 +193,15 @@ final class TranslationReviewPaneLogicTests: XCTestCase {
             forDocId: "doc1", language: "es", deviceSlug: slug, in: dir)
         let contents = try String(contentsOf: url, encoding: .utf8)
         let lines = contents.split(separator: "\n", omittingEmptySubsequences: true)
-        XCTAssertEqual(lines.count, 2, "one tombstone line per id, written in one batch")
+        XCTAssertEqual(lines.count, 4,
+                       "the two seeded translations plus one tombstone line per id, in one batch")
 
         let loaded = TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: dir)
-        XCTAssertEqual(loaded.count, 2)
-        XCTAssertTrue(loaded.allSatisfy { $0.text == nil })
+        XCTAssertEqual(loaded.count, 4)
+        XCTAssertEqual(loaded.suffix(2).filter { $0.text == nil }.count, 2,
+                       "the batch appended is two tombstones")
+        XCTAssertTrue(TranslationStore.latestByParagraph(loaded).isEmpty,
+                      "and both orphans are gone from the derived state")
     }
 
     func test_purgeOrphans_roundTrip_purgedOrphanIsAbsentFromNextDerivation() throws {

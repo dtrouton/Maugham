@@ -1,5 +1,13 @@
 import SwiftUI
 import MaughamCore
+import os
+
+/// Diagnostic channel for the Translation pane. Subsystem from the running
+/// bundle id so dev/stable logs separate without hardcoding a literal
+/// (tripwire 13 spirit); mirrors `TranslationStore`'s own logger.
+private let translationPaneLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham",
+    category: "TranslationReviewPane")
 
 /// Pure view-model logic behind `TranslationReviewPane` (Task 14), extracted so
 /// the cursor→paragraph mapping and the open-query filter can be unit-tested
@@ -252,10 +260,18 @@ struct TranslationReviewPane: View {
     private func purgeOrphans(_ ids: [String]) {
         guard let language = control.translationLanguage else { return }
         let deviceSlug = DeviceSlug.make(from: MacDeviceID.current)
-        guard (try? TranslationReviewPaneLogic.purgeOrphans(
-            ids, docId: document.docId, language: language,
-            deviceSlug: deviceSlug, projectURL: document.opStore.projectURL)) != nil
-        else { return }
+        do {
+            try TranslationReviewPaneLogic.purgeOrphans(
+                ids, docId: document.docId, language: language,
+                deviceSlug: deviceSlug, projectURL: document.opStore.projectURL)
+        } catch {
+            // No sheet — spec §2.2 keeps this action silent — but a write that
+            // failed must not vanish without trace: the rows stay on screen and
+            // a retry is a click away, so the log is where the reason lives.
+            translationPaneLog.warning(
+                "orphan purge failed for \(ids.count, privacy: .public) id(s) in \(language, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return
+        }
         MaughamEvent.post(
             .maughamTranslationDidUpdate,
             to: .project(for: document.opStore.projectURL),

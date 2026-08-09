@@ -63,7 +63,10 @@ public enum WriteTranslationTool: MCPTool {
         "like sluglines or numerals that don't translate), or `delete: true` " +
         "(remove this paragraph's translation — retracting one, or purging an " +
         "orphan whose source paragraph is gone; deleting a never-translated " +
-        "paragraph is a harmless no-op). The server stamps each " +
+        "paragraph is a harmless no-op — accepted, and if the language has " +
+        "nothing translated in it at all, nothing is recorded, so deletions " +
+        "alone can never conjure a language the writer never translated into). " +
+        "The server stamps each " +
         "record with a hash of the current source paragraph so downstream reads " +
         "can flag a translation as stale after the source is edited. Paragraph ids " +
         "come from read_document; every id a `text` or `verbatim` entry names must " +
