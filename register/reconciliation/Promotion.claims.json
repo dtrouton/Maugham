@@ -1139,7 +1139,7 @@
     "claim_id": "M6-PR-072",
     "scope": "PromotionPerformer.record",
     "kind": "POSTCONDITION",
-    "statement": "a Rewrite re-records: the clear runs first, so a card that has left the region stops claiming the note and a card that joined starts",
+    "statement": "a Rewrite re-records per artifact on BOTH sides (RULING-51, fixed 16ecdcbc): the removal takes back only THIS artifact's fact from cards that no longer feed it, and the stamp appends — a card that has left the region stops claiming the note, a card that joined starts, and no other artifact's record moves",
     "source": {
       "type": "CHARACTERIZATION",
       "ref": "PromotionCharacterization.test_theContributionRecordFollowsTheRegionsCurrentMembers"
@@ -1153,9 +1153,9 @@
   },
   {
     "claim_id": "M6-PR-073",
-    "scope": "CanvasNode.contributedToItemID",
+    "scope": "CanvasNode.contributedToItemIDs",
     "kind": "POSTCONDITION",
-    "statement": "the record is SINGLE-VALUED and the most recent contribution wins: a card whose words are in two regions' notes records only the later one, while the earlier note still holds its words",
+    "statement": "the record is MULTI-VALUED (RULING-51, fixed 16ecdcbc): a card whose words are in two regions' notes records both, in contribution order — contributedToItemIDs, ordered and de-duplicated; canvas.json schema 9, with a schema-8 singular record folding into the array on decode",
     "source": {
       "type": "CHARACTERIZATION",
       "ref": "PromotionCharacterization.test_theContributionRecordFollowsTheRegionsCurrentMembers"
@@ -1171,7 +1171,7 @@
     "claim_id": "M6-PR-074",
     "scope": "PromotionPerformer.record",
     "kind": "POSTCONDITION",
-    "statement": "the clear reaches scrap nodes only, so a picture's contribution record survives a region's rewrite — the image well is append-only and its picture is still on the card",
+    "statement": "the removal reaches scrap nodes only, so a picture's contribution record survives a region's rewrite — the image well is append-only and its picture is still on the card (restated to the remove-verb under RULING-51; behaviour unchanged)",
     "source": {
       "type": "CHARACTERIZATION",
       "ref": "PromotionCharacterization.test_aRewriteDoesNotClearAPicturesRecord"
