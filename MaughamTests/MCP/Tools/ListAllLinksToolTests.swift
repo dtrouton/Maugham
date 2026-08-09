@@ -407,4 +407,113 @@ final class ListAllLinksToolTests: XCTestCase {
         XCTAssertFalse(all.contains { $0.from_id == empty.id })
         XCTAssertFalse(all.contains { $0.from_id == prose.id })
     }
+
+    // MARK: - Statements as resolution TARGETS (link-machinery, T5)
+
+    /// A line drawn TO a craft-intent card writes `[[Craft Intent · Chapter
+    /// 1]]` into a research note. Before this widening a statement's composed
+    /// title was never in `titleIndex`, so the link stayed `wiki_unresolved`
+    /// forever (issue #24).
+    func test_aLinkToAStatementComposedTitleResolves() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LAL-STMT-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)
+        try "Chapter one prose.".write(
+            to: tmp.appendingPathComponent("manuscript/c1.md"),
+            atomically: true, encoding: .utf8)
+        try "A note referencing [[Craft Intent · Chapter 1]].".write(
+            to: tmp.appendingPathComponent("research/note.md"),
+            atomically: true, encoding: .utf8)
+        let ch1 = StructureItem(id: "ch-1", title: "Chapter 1", type: .document,
+                                 path: "manuscript/c1.md")
+        let note = ResearchItem(id: "res-note", title: "Note", type: .asset,
+                                 kind: .document, path: "research/note.md", addedAt: Date())
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [ch1], research: [note])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: tmp.appendingPathComponent("project.maugham.json"))
+        // ADR 0018: seed the op log before any wiki-scan MCP call.
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s", presenter: nil)
+        let store = try await ProjectStore.load(from: tmp)
+        let intent = try await store.createStatement(kind: .intent, scope: .document("ch-1"))
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+        let all = try await edges(tmp, reg)
+        XCTAssertTrue(all.contains {
+            $0.from_id == "res-note" && $0.to_id == intent.id && $0.kind == "wiki"
+        }, "expected a resolved wiki edge from res-note to statement \(intent.id); edges: \(all)")
+    }
+
+    /// Docs and research keep beating a statement on a title collision — the
+    /// writer-named artifact wins over the composed name. Statements are
+    /// inserted into `titleIndex` first (lowest precedence) precisely so this
+    /// holds.
+    func test_titleCollisionPrefersResearchAndDocsOverStatements() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LAL-COLLIDE-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)
+        try "Some prose. [[Craft Intent]] mentioned here.".write(
+            to: tmp.appendingPathComponent("research/other.md"),
+            atomically: true, encoding: .utf8)
+        try "This note is literally named Craft Intent.".write(
+            to: tmp.appendingPathComponent("research/craft-intent.md"),
+            atomically: true, encoding: .utf8)
+        let named = ResearchItem(id: "res-craft-intent", title: "Craft Intent", type: .asset,
+                                  kind: .document, path: "research/craft-intent.md", addedAt: Date())
+        let other = ResearchItem(id: "res-other", title: "Other", type: .asset,
+                                  kind: .document, path: "research/other.md", addedAt: Date())
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [], research: [named, other])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        // A project-scope intent statement composes to the bare kind name —
+        // "Craft Intent" — with no document suffix, the exact collision shape.
+        _ = try await store.createStatement(kind: .intent, scope: .project)
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+        let all = try await edges(tmp, reg)
+        XCTAssertTrue(all.contains {
+            $0.from_id == "res-other" && $0.to_id == "res-craft-intent" && $0.kind == "wiki"
+        }, "a title collision must resolve to the writer-named research note, not the statement; edges: \(all)")
+    }
+
+    /// A statement whose body contains its own composed title is not a
+    /// self-link — the research-note rule (line 144), applied to the third
+    /// source loop.
+    func test_aStatementNamingItselfEmitsNoSelfEdge() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LAL-STMTSELF-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        let intent = try await store.createStatement(kind: .intent, scope: .project)
+        try await store.appendToStatement(
+            "This intent names itself: [[Craft Intent]].", to: intent, session: "s")
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+        let all = try await edges(tmp, reg)
+        XCTAssertFalse(all.contains { $0.from_id == intent.id && $0.to_id == intent.id },
+            "a statement naming its own composed title must not emit a self-edge")
+    }
 }
