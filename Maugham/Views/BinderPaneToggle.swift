@@ -19,6 +19,12 @@ struct BinderPaneToggle: View {
     /// Coercion onto this persona's list happens once, centrally, in
     /// `PersonaModifier`; this view only renders.
     let persona: Persona
+    /// The foot disclosure's own expand/collapse flag (shell-finish stage 2b
+    /// Task 2) — collapsed by default, private to this view. It is `@State`
+    /// rather than threaded in from `ProjectWindow` because nothing outside
+    /// this column needs to know or drive it; `TrashDisclosure`'s own
+    /// initializer still takes it as a `Binding` so a test can.
+    @State private var trashExpanded = false
 
     var body: some View {
         if treeFindActive {
@@ -40,11 +46,16 @@ struct BinderPaneToggle: View {
             // caller's — see `BinderSegmentPicker.body`'s fix-round-1 note.
             // Placing one here too is exactly the ghost-divider defect that
             // fix caught.
+            // **`hasTrash` is always `false` since stage 2b Task 2** — Trash is
+            // a foot disclosure now, not a segment, so the picker never offers
+            // it. `BinderSegmentPicker`'s own `hasTrash` parameter retires with
+            // the rest of `BinderSegment` in the kill task; this call site just
+            // stops asking it to do anything.
             BinderSegmentPicker(
                 segment: $segment,
                 persona: persona,
                 projectType: projectType,
-                hasTrash: !store.trashEntries.isEmpty)
+                hasTrash: false)
             Group {
                 switch segment {
                 case .manuscript:
@@ -114,24 +125,18 @@ struct BinderPaneToggle: View {
                 Divider()
                 ExportsListView(projectURL: store.url)
             }
-        }
-        // **Leaving the trash returns the writer to THIS PERSONA's home, not to
-        // the manuscript's.**
-        //
-        // It fires when a state the writer was passing through ends — the trash
-        // emptied under them — and it names no document. `.documentHome(for:)`
-        // was the same value in Author, Review and Publish, whose binder home IS
-        // the document home, and in Plan it put a text editor in the centre
-        // column of the persona §2 says does not draft. That is Denver's
-        // 2026-08-02 ruling, arrived at from the other side.
-        //
-        // **Find's twin of this arm is gone with stage 2b Task 1**, and it is
-        // not a return any more: closing the overlay reveals the column that was
-        // always underneath it, so there is nowhere to send anyone. That is why
-        // ⌘⌥F no longer writes `segment` at all.
-        .onChange(of: store.trashEntries.count) { _, newValue in
-            if newValue == 0 && segment == .trash {
-                segment = persona.binderHome(for: projectType)
+            // **The tree's foot** (shell-finish stage 2b Task 2): below the
+            // sections, below the Exports footer, below everything — present
+            // only while there is something in it. This is Trash's whole home
+            // now; the picker never offers it and nothing selects `.trash` any
+            // more, so the transient-exit arm that used to live here (return to
+            // `persona.binderHome` when the last item left the trash) has
+            // nothing left to guard. Find's twin of that arm went the same way
+            // in stage 2b Task 1, for the same reason: there is no longer a
+            // segment to be ejected FROM.
+            if !store.trashEntries.isEmpty {
+                Divider()
+                TrashDisclosure(store: store, isExpanded: $trashExpanded)
             }
         }
     }

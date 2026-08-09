@@ -691,7 +691,7 @@ final class BinderSegmentPickerMountTests: XCTestCase {
 // overlay — where it is asserted in every persona rather than in Author
 // alone, and where the absent picker is asserted rather than assumed.
 
-// MARK: - Census: neither caller spells its own Divider() beside the picker
+// MARK: - Census: neither caller spells a Divider() beside the picker itself
 
 /// **The source half of the residue fix.** `Divider()` has no discoverable
 /// `NSView` of its own — SwiftUI draws it directly rather than bridging an
@@ -699,11 +699,14 @@ final class BinderSegmentPickerMountTests: XCTestCase {
 /// walking the real AppKit subview tree under a `Divider()` found none) — so
 /// a runtime search for "is there a divider view" cannot exist; only a
 /// `fittingSize` measurement (`test_theCallerWrapperAddsNoResidueBeyondThePickerItself`)
-/// or a source read can see one. This is the source read: exactly one
-/// `Divider()` in each caller, the Exports footer's own (gated on
-/// `segment == .documentHome(for:)`), never a second one spelled
-/// unconditionally beside `BinderSegmentPicker(...)` — the shape fix round 1
-/// removed.
+/// or a source read can see one. This is the source read: two `Divider()`s in
+/// each caller as of shell-finish stage 2b Task 2 — the Exports footer's own
+/// (gated on `segment == .documentHome(for:)`) and the trash foot disclosure's
+/// (gated on `!store.trashEntries.isEmpty`) — never a THIRD, and never one
+/// spelled unconditionally beside `BinderSegmentPicker(...)` — the shape fix
+/// round 1 removed. The count alone would miss a ghost that swapped places
+/// with one of the two legitimate dividers rather than adding to them, so the
+/// adjacency itself is asked for separately below.
 @MainActor
 final class BinderSegmentPickerCallerDividerCensusTests: XCTestCase {
 
@@ -735,24 +738,48 @@ final class BinderSegmentPickerCallerDividerCensusTests: XCTestCase {
                        "a second planted Divider() must also be counted")
     }
 
-    /// **Exactly one `Divider()` per caller.** Fix round 1 of shell-finish
-    /// stage 1 task 2 removed the unconditional one that used to sit right
-    /// after `BinderSegmentPicker(...)` — the one that survived even when the
-    /// picker itself rendered nothing, leaving the strip's ghost.
-    /// `BinderSegmentPicker.body` now folds its own `Divider()` in (see its
-    /// doc comment), so neither caller should ever spell one of its own
-    /// beside the picker call again.
-    func test_eachCallerSpellsExactlyOneDividerTheExportsFootersOwn() throws {
+    /// **Exactly two `Divider()`s per caller**, both conditional: the Exports
+    /// footer's (fix round 1 of shell-finish stage 1 task 2) and the trash
+    /// foot disclosure's (shell-finish stage 2b Task 2). Neither ever sits
+    /// unconditionally right after `BinderSegmentPicker(...)` — the shape that
+    /// survived even when the picker itself rendered nothing, leaving the
+    /// strip's ghost. `BinderSegmentPicker.body` folds its own `Divider()` in
+    /// (see its doc comment), so neither caller should ever spell one of its
+    /// own beside the picker call itself.
+    func test_eachCallerSpellsExactlyTwoDividersTheExportsAndTrashFootersOwn() throws {
         for path in ["Maugham/Views/BinderPaneToggle.swift",
                      "Maugham/Views/CollectionBinderPaneToggle.swift"] {
             let text = try source(path)
             XCTAssertFalse(text.isEmpty, "\(path): read nothing")
             let count = nonCommentDividerCount(in: text)
-            XCTAssertEqual(count, 1,
-                           "\(path): expected exactly one Divider() — the "
-                           + "Exports footer's — found \(count). A second one "
-                           + "right after BinderSegmentPicker(...) is the "
-                           + "ghost-divider defect fix round 1 removed.")
+            XCTAssertEqual(count, 2,
+                           "\(path): expected exactly two Divider()s — the "
+                           + "Exports footer's and the trash disclosure's, "
+                           + "both conditional — found \(count). A third one "
+                           + "is the ghost-divider defect fix round 1 removed.")
+        }
+    }
+
+    /// **The ghost's exact shape**, so a divider that merely swaps places with
+    /// one of the two legitimate ones — rather than adding a third — cannot
+    /// slip past the count-only assertion above. Fix round 1's defect was a
+    /// `Divider()` spelled immediately after `BinderSegmentPicker(...)`'s own
+    /// closing line, unconditionally; that adjacency is what is asked for
+    /// here, not the total.
+    func test_noDividerSitsUnconditionallyRightAfterThePickerCall() throws {
+        let pattern = #"hasTrash: [^\n]+\)\n\s*Divider\(\)"#
+        let plant = "                hasTrash: false)\n            Divider()"
+        XCTAssertNotNil(plant.range(of: pattern, options: .regularExpression),
+                        "the pattern no longer matches its own planted "
+                        + "offender, so the census below is vacuous")
+
+        for path in ["Maugham/Views/BinderPaneToggle.swift",
+                     "Maugham/Views/CollectionBinderPaneToggle.swift"] {
+            let text = try source(path)
+            XCTAssertNil(text.range(of: pattern, options: .regularExpression),
+                         "\(path): a Divider() sits unconditionally right "
+                         + "after BinderSegmentPicker(...) — the ghost-divider "
+                         + "defect fix round 1 removed")
         }
     }
 }

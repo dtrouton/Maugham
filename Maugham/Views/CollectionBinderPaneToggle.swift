@@ -21,6 +21,9 @@ struct CollectionBinderPaneToggle: View {
     /// Coercion onto this persona's list happens once, centrally, in
     /// `PersonaModifier`; this view only renders.
     let persona: Persona
+    /// The foot disclosure's own expand/collapse flag — see
+    /// `BinderPaneToggle`'s twin for the reasoning, not restated here.
+    @State private var trashExpanded = false
 
     var body: some View {
         if treeFindActive {
@@ -41,11 +44,13 @@ struct CollectionBinderPaneToggle: View {
             // caller's — see `BinderSegmentPicker.body`'s fix-round-1 note.
             // Placing one here too is exactly the ghost-divider defect that
             // fix caught.
+            // `hasTrash` is always `false` since stage 2b Task 2 — see
+            // `BinderPaneToggle`'s twin call site for the reasoning.
             BinderSegmentPicker(
                 segment: $segment,
                 persona: persona,
                 projectType: .collection,
-                hasTrash: !store.trashEntries.isEmpty)
+                hasTrash: false)
             Group {
                 switch segment {
                 case .manuscript:
@@ -101,15 +106,12 @@ struct CollectionBinderPaneToggle: View {
                 Divider()
                 ExportsListView(projectURL: store.url)
             }
-        }
-        // Leaving the trash returns the writer to this persona's home — see
-        // `BinderPaneToggle` for the whole reasoning, including why find's twin
-        // of this arm went with stage 2b Task 1. `.manuscript` was the raw
-        // spelling of the same wrong answer: it is a Collection, so its document
-        // home is Pieces, and in Plan the writer landed in a piece editor.
-        .onChange(of: store.trashEntries.count) { _, newValue in
-            if newValue == 0 && segment == .trash {
-                segment = persona.binderHome(for: .collection)
+            // The tree's foot — see `BinderPaneToggle` for the whole reasoning,
+            // including why the transient-exit arm this replaced (and find's
+            // twin of it) went with stage 2b.
+            if !store.trashEntries.isEmpty {
+                Divider()
+                TrashDisclosure(store: store, isExpanded: $trashExpanded)
             }
         }
     }

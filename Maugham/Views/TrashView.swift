@@ -1,9 +1,14 @@
 import SwiftUI
 
+/// The trashed-items list: title + "sweep in N days" + Restore / Permanently
+/// Delete context menu, per row. **No "Empty Trash" here** — that moved to
+/// `TrashDisclosure`'s header row (shell-finish stage 2b Task 2), the one
+/// place left that has a toolbar to put it on. This view used to carry both;
+/// it shrank to just the rows so `TrashDisclosure` could wrap it verbatim
+/// rather than forking a second spelling of a trash row.
 struct TrashView: View {
     @Bindable var store: ProjectStore
     @State private var pendingPermanentDelete: TrashEntry?
-    @State private var showingEmptyTrashConfirm = false
     @State private var pendingError: String?
 
     var body: some View {
@@ -11,14 +16,6 @@ struct TrashView: View {
             row(for: entry)
         }
         .listStyle(.sidebar)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Empty Trash") {
-                    showingEmptyTrashConfirm = true
-                }
-                .disabled(store.trashEntries.isEmpty)
-            }
-        }
         .confirmationDialog(
             "Permanently delete this item?",
             isPresented: Binding(
@@ -41,23 +38,6 @@ struct TrashView: View {
             }
         } message: { _ in
             Text("This cannot be undone.")
-        }
-        .confirmationDialog(
-            "Empty Trash?",
-            isPresented: $showingEmptyTrashConfirm
-        ) {
-            Button("Empty Trash", role: .destructive) {
-                Task {
-                    do {
-                        try await store.emptyTrash()
-                    } catch {
-                        pendingError = error.localizedDescription
-                    }
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("All \(store.trashEntries.count) items will be permanently deleted.")
         }
         .alert("Trash error",
                isPresented: Binding(
@@ -101,5 +81,74 @@ struct TrashView: View {
         if days < 1 { return "today" }
         if days == 1 { return "yesterday" }
         return "\(days) days ago"
+    }
+}
+
+/// **The tree's foot** (shell-finish stage 2b Task 2). The segment strip's own
+/// Trash entry died with the strip — nothing selects `.trash` any more — and
+/// this is where a writer browses and restores what they deleted instead:
+/// mounted below the tree, in every persona, collapsed by default, present
+/// only while there is something in it.
+///
+/// Wraps `TrashView` UNCHANGED for its rows rather than forking a second
+/// spelling of a trash row. Owns only what `TrashView` gave up: the header —
+/// a label plus "Empty Trash", which has no window toolbar to live on down
+/// here — and the expand/collapse flag, which the CALLER holds (not private
+/// `@State` in this view) so a test can drive it directly instead of pressing
+/// a `DisclosureGroup`'s AX triangle, the one interaction this codebase has no
+/// proven idiom for.
+struct TrashDisclosure: View {
+    @Bindable var store: ProjectStore
+    @Binding var isExpanded: Bool
+    @State private var showingEmptyTrashConfirm = false
+    @State private var pendingError: String?
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            TrashView(store: store)
+                .frame(maxHeight: 220)
+        } label: {
+            HStack {
+                Label("Trash", systemImage: "trash")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Empty Trash") {
+                    showingEmptyTrashConfirm = true
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .disabled(store.trashEntries.isEmpty)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .confirmationDialog(
+            "Empty Trash?",
+            isPresented: $showingEmptyTrashConfirm
+        ) {
+            Button("Empty Trash", role: .destructive) {
+                Task {
+                    do {
+                        try await store.emptyTrash()
+                    } catch {
+                        pendingError = error.localizedDescription
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("All \(store.trashEntries.count) items will be permanently deleted.")
+        }
+        .alert("Trash error",
+               isPresented: Binding(
+                get: { pendingError != nil },
+                set: { if !$0 { pendingError = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(pendingError ?? "")
+        }
     }
 }
