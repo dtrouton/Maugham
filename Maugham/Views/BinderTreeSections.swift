@@ -2,6 +2,7 @@ import SwiftUI
 import MaughamCore
 import AppKit
 import os
+import UniformTypeIdentifiers
 
 /// Subsystem from the running bundle id so dev/stable logs separate without
 /// hardcoding "com.maugham" (tripwire 13 spirit).
@@ -53,9 +54,11 @@ struct BinderTreeSections: View {
                 research: store.manifest.research,
                 projectType: store.manifest.type)
             if roots.isEmpty {
-                placeholder("No research yet.") { ids in
+                placeholder("No research yet.", onDrop: { ids in
                     sharedSectionDrop(ids)
-                }
+                }, onExternalDrop: { providers in
+                    sharedSectionExternalDrop(providers)
+                })
             } else {
                 ForEach(roots) { item in
                     ResearchTreeNode(
@@ -87,6 +90,18 @@ struct BinderTreeSections: View {
             .dropDestination(for: String.self) { ids, _ -> Bool in
                 return sharedSectionDrop(ids)
             }
+            // **The string destination FIRST, the provider drop after it**
+            // (stage-2b Task 4), and the order is a shipped bug rather than a
+            // style question: `.onDrop(of:)` claims the drag session on hover,
+            // before any payload is examined, so mounted first it leaves the
+            // destination behind it dead — an internal drag onto this header
+            // would do nothing at all, silently, while a Finder file still
+            // landed. Both instances of that were found by a writer and neither
+            // by a test; `TripwireGrepTests` censuses the ordering, and this
+            // file is now one of its members.
+            .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+                return sharedSectionExternalDrop(providers)
+            }
         }
     }
 
@@ -107,10 +122,16 @@ struct BinderTreeSections: View {
                 // The palette's placeholder refuses: a card is MADE (the
                 // header's `+` menu), never dragged into being, and the
                 // section's rows are not drop targets either.
-                placeholder("No cards yet.") { ids in
+                placeholder("No cards yet.", onDrop: { ids in
                     refuseDrop("palette placeholder", payload: ids.first,
                                reason: .notAResearchTarget)
-                }
+                }, onExternalDrop: { _ in
+                    // A card is MADE, from the header's `+` menu — and that
+                    // goes for a Finder file too: a dropped image is research,
+                    // and a card is a written thing with an image on it.
+                    refuseDrop("palette placeholder", payload: nil,
+                               reason: .notAResearchTarget)
+                })
             } else {
                 ForEach(state.cards) { card in
                     Label(card.title,
@@ -171,7 +192,8 @@ struct BinderTreeSections: View {
     /// `BinderView`'s old empty-state row, macOS 26.5 — which would blank the
     /// centre column every time a writer clicked "No research yet."
     private func placeholder(
-        _ text: String, onDrop: @escaping ([String]) -> Bool
+        _ text: String, onDrop: @escaping ([String]) -> Bool,
+        onExternalDrop: @escaping ([NSItemProvider]) -> Bool
     ) -> some View {
         Text(text)
             .font(.callout)
@@ -189,6 +211,14 @@ struct BinderTreeSections: View {
             // `return` is what makes a future reader see the value matters.
             .dropDestination(for: String.self) { ids, _ -> Bool in
                 return onDrop(ids)
+            }
+            // The section's other drop kind, mounted AFTER the string one for
+            // the reason the header's is — see there. An empty Research section
+            // is exactly where a writer drags their first file, and until Task
+            // 4 the only surface that would take it was a pane about to be
+            // deleted.
+            .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+                return onExternalDrop(providers)
             }
     }
 
@@ -230,6 +260,14 @@ struct BinderTreeSections: View {
     func sharedSectionDrop(_ ids: [String]) -> Bool {
         guard let id = ids.first else { return false }
         return verbs.routeSharedSectionDrop(draggedId: id)
+    }
+
+    /// The same two targets, for a Finder file or a browser bitmap (stage-2b
+    /// Task 4). The section IS the shared root, so this is the plain import —
+    /// and it is reachable for the same reason `sharedSectionDrop` is.
+    func sharedSectionExternalDrop(_ providers: [NSItemProvider]) -> Bool {
+        verbs.routeExternalDrop(providers: providers, position: .middle,
+                                target: .sharedSection)
     }
 
     private func findParentId(of childId: String) -> String? {
@@ -310,18 +348,21 @@ struct BinderTreeVerbs {
                 routeResearchRowDrop(draggedId: draggedId, position: position,
                                      target: target, inFoldOf: nil)
             },
-            // **Still refuses, and deliberately** (Task 7's one declared gap).
-            // A Finder file or a browser bitmap dropped on a research row has
-            // to land in a SCOPE, and the piece-root case has no store API:
-            // `importResearchFiles(toParentId:)` reads `nil` as the shared
-            // root, so a file dropped on a row at a Collection piece's root
-            // would silently import to shared research. That is the same hole
-            // Task 6 recorded for `New Group` at a piece root, and the honest
-            // answer until it is filled is a bounce the writer can see. Stage
-            // 2b owns it — it deletes the panes that still do this.
-            externalDrop: { _, _, target in
-                refuseDrop("research row \(target.id)", payload: nil,
-                           reason: .notAResearchTarget)
+            // **Routed since stage-2b Task 4**, and this is where 2a's one
+            // declared gap closed. A Finder file dropped on a research row has
+            // to land in a SCOPE, and the piece-root case looked like it had no
+            // store API — `importResearchFiles(toParentId:)` reads `nil` as the
+            // shared root, so a file dropped on a row at a Collection piece's
+            // root would have imported to shared research silently. The rule
+            // that fills it is `TreeDropIntent.container(ofRow:)`, which
+            // already answers *"what does beside this row mean"* with a typed
+            // scope; `importPieceResearchFiles` is the verb for its `.piece`
+            // arm, and this is that store call's first caller outside the pane
+            // stage 2b deletes. `inFoldOf` has its mirror here too —
+            // `BinderPieceFold` re-routes this verb with its document.
+            externalDrop: { providers, position, target in
+                routeExternalDrop(providers: providers, position: position,
+                                  target: .researchRow(target.id))
             },
             newNote: { parentId in
                 create { try await store.addResearchTextNote(
@@ -381,13 +422,31 @@ struct BinderTreeVerbs {
     }
 
     private func addFile(parentId: String?) {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
+        let panel = Self.makeAddFilePanel()
         guard panel.runModal() == .OK else { return }
         let urls = panel.urls
         perform { _ = try await store.importResearchFiles(urls, toParentId: parentId) }
+    }
+
+    /// **The Add File panel, and it takes folders** (stage-2b Task 4).
+    ///
+    /// `importResearchFiles` has always imported a folder as a group with its
+    /// contents recursively under it, and `ResearchView`'s panel has always
+    /// allowed one. Stage 2a's tree wrote `canChooseDirectories = false` with
+    /// nothing said about it — an unflagged narrowing, harmless only for as
+    /// long as the pane it copied from was still there to ask. Stage 2b deletes
+    /// that pane, so the narrowing would have shipped as a capability the app
+    /// simply lost.
+    ///
+    /// A factory rather than four lines inside `addFile` because `runModal()`
+    /// is not drivable from a test: the panel's configuration is assertable,
+    /// the modal it runs is not.
+    static func makeAddFilePanel() -> NSOpenPanel {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        return panel
     }
 
     /// Runs a store mutation, surfacing any failure in the alert the host
@@ -565,6 +624,23 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
                     get: { state.pendingError != nil },
                     set: { if !$0 { state.pendingError = nil } })) {
                 Button("OK", role: .cancel) {}
+            }
+            // **⌘V lands in shared research** (stage-2b Task 4) — the table is
+            // `ResearchPasteImporter`'s, which is `ResearchView`'s moved, and
+            // whether this window's paste is research's at all is
+            // `TreePasteRouting`'s. Mounted here rather than in each host for
+            // the reason every other presentation is: three copies of the same
+            // wiring is the shape that drifts, and this modifier is what all
+            // three trees already attach.
+            .onPasteCommand(of: ResearchPasteImporter.acceptedTypeIdentifiers) { items in
+                guard TreePasteRouting.acceptsPaste(subject: selectedSubject) else {
+                    return
+                }
+                Task { @MainActor in
+                    await ResearchPasteImporter(
+                        store: store,
+                        reportError: { state.pendingError = $0 }).paste(items)
+                }
             }
             // One load per manifest change, never per row (tripwire 4).
             .task(id: store.manifest.modified) {

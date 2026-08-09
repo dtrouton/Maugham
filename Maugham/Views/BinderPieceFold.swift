@@ -112,6 +112,17 @@ struct BinderPieceFold: View {
             verbs.routeResearchRowDrop(draggedId: draggedId, position: position,
                                        target: target, inFoldOf: documentId)
         }
+        // **The third re-routed verb, and it fails the same silent way**
+        // (stage-2b Task 4): a Finder file dropped in chapter three's fold is
+        // chapter three's. Without the document, the classifier reads the row
+        // as an ordinary shared research row and the file lands in shared
+        // research, unlinked — no error, nothing missing on screen, and the
+        // chapter the writer aimed at simply never gets it.
+        actions.externalDrop = { [verbs, documentId] providers, position, target in
+            verbs.routeExternalDrop(
+                providers: providers, position: position,
+                target: .foldRow(rowId: target.id, documentId: documentId))
+        }
         return actions
     }
 

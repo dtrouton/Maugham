@@ -2387,9 +2387,21 @@ final class TripwireGrepTests: XCTestCase {
     ///   each token, which is why the swap was made in both.
     /// - `Maugham/Views/ResearchRow.swift` — has always had it right, and is the
     ///   only member whose order was ever validated by use.
+    /// - `Maugham/Views/BinderTreeSections.swift`, `BinderRow.swift`,
+    ///   `PieceRow.swift` — the tree's own three, as of stage-2b Task 4. The
+    ///   milestone deletes `ResearchView` and `CollectionResearchPane`, so the
+    ///   external-drop capability moved onto the tree's targets; **the census's
+    ///   guarantee had to move with it**, which is why these are listed here in
+    ///   the same task that mounted them rather than after the next smoke finds
+    ///   the reversed order by hand. `CollectionResearchPane` stays a member
+    ///   until Task 7 deletes it — both surfaces are guaranteed for as long as
+    ///   both exist.
     private static let bothDropKinds: Set<String> = [
+        "BinderRow.swift",
+        "BinderTreeSections.swift",
         "CanvasView.swift",
         "CollectionResearchPane.swift",
+        "PieceRow.swift",
         "ResearchRow.swift",
     ]
 
@@ -3213,6 +3225,15 @@ final class TripwireGrepTests: XCTestCase {
             XCTAssertTrue(
                 code.contains { $0.contains("return onDrop(") },
                 "\(file) must return its `onDrop` closure's answer.")
+            // …and its external one, since stage-2b Task 4 gave both rows a
+            // Finder/browser drop. A manuscript row is the target that can
+            // least afford a literal: a screenplay's script and a referenced
+            // Collection piece both REFUSE files, and accepting one on the
+            // row's own authority animates the writer's photograph home and
+            // imports it nowhere.
+            XCTAssertTrue(
+                code.contains { $0.contains("return onExternalDrop(") },
+                "\(file) must return its `onExternalDrop` closure's answer.")
             XCTAssertFalse(
                 code.contains { $0.trimmingCharacters(in: .whitespaces) == "return true" },
                 "\(file) must not accept a drop on its own authority — the row "
@@ -3225,7 +3246,12 @@ final class TripwireGrepTests: XCTestCase {
 
     /// The verbs that route a drop, and the files each is reached from.
     private static let treeDropRouters = [
-        "routePieceRowDrop(", "routeResearchRowDrop(", "routeSharedSectionDrop("
+        "routePieceRowDrop(", "routeResearchRowDrop(", "routeSharedSectionDrop(",
+        // The external half (stage-2b Task 4). One verb for every target,
+        // because what a Finder file dropped on a piece row means must not be
+        // decided twice — the internal side needed three verbs only because
+        // three of them compute an insertion index.
+        "routeExternalDrop("
     ]
     /// The file that DEFINES them, which naturally contains all three.
     private static let treeDropRouterDefiner = "BinderTreeDrops.swift"
@@ -3253,11 +3279,14 @@ final class TripwireGrepTests: XCTestCase {
         let census = try treeDropRoutingCensus(in: sourceDir)
         XCTAssertEqual(
             census,
-            ["BinderView.swift": ["routePieceRowDrop("],
-             "CollectionPiecesPane.swift": ["routePieceRowDrop("],
-             "BinderTreeSections.swift": ["routeResearchRowDrop(",
+            ["BinderView.swift": ["routeExternalDrop(", "routePieceRowDrop("],
+             "CollectionPiecesPane.swift": ["routeExternalDrop(",
+                                            "routePieceRowDrop("],
+             "BinderTreeSections.swift": ["routeExternalDrop(",
+                                          "routeResearchRowDrop(",
                                           "routeSharedSectionDrop("],
-             "BinderPieceFold.swift": ["routeResearchRowDrop("]],
+             "BinderPieceFold.swift": ["routeExternalDrop(",
+                                       "routeResearchRowDrop("]],
             "Every drop target in the binder tree routes through "
             + "`TreeDropIntent`, via `BinderTreeDrops`.\n\n"
             + "If you ADDED a target: call the matching router and add the file "

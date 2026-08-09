@@ -357,6 +357,167 @@ final class TreeDropIntentTests: XCTestCase {
         }
     }
 
+    // MARK: - A Finder file or a browser bitmap (stage-2b Task 4)
+
+    /// **The external half of the same question**, and it is a different one.
+    ///
+    /// An internal drag carries an id the classifier can look up, so it always
+    /// knows what is moving. A Finder file carries nothing the project has ever
+    /// seen — there is only the TARGET, and the target alone has to say which
+    /// scope the files land in and by which store verb. So the answer is a
+    /// destination rather than a move: the shared tree (root or a group), a
+    /// Collection piece's own folder, or shared-plus-a-link for a novel
+    /// chapter, whose research is a link and never a file in its folder.
+    ///
+    /// Same reason it is a pure function as the internal side: a real drag
+    /// session is not synthesisable headless, so if the routing is not right
+    /// here, no test in this repo can see it.
+
+    func test_aFileDroppedOnTheResearchSectionImportsToTheSharedRoot() {
+        XCTAssertEqual(
+            classifyExternal(on: .sharedSection, in: Novel.self),
+            .importFiles(.sharedGroup(nil)),
+            "the section IS the shared root — its header and the placeholder an "
+            + "empty section shows are the same target")
+    }
+
+    func test_aFileDroppedOnANovelChapterIsImportedToSharedAndLinked() {
+        XCTAssertEqual(
+            classifyExternal(on: .pieceRow("ch1"), in: Novel.self),
+            .importFiles(.sharedAndLink("ch1")),
+            "a novel chapter's research is a LINK, so the file has nowhere of "
+            + "the chapter's own to be imported into: it lands in shared "
+            + "research and the link is what makes it the chapter's — one act")
+    }
+
+    func test_aFileDroppedInsideAChaptersFoldMeansWhatTheChapterRowMeans() {
+        XCTAssertEqual(
+            classifyExternal(on: .foldRow(rowId: "linked", documentId: "ch1"),
+                             position: .bottom, in: Novel.self),
+            .importFiles(.sharedAndLink("ch1")),
+            "the fold is a near-miss of the piece row above it and means the "
+            + "same thing — which is why the fold's rows carry their document")
+    }
+
+    func test_aFileDroppedOnACollectionPieceImportsIntoThatPiecesFolder() {
+        XCTAssertEqual(
+            classifyExternal(on: .pieceRow("pA"), in: Collection.self),
+            .importFiles(.piece("pA")),
+            "a Collection piece's research is CONTAINMENT, so the file is "
+            + "imported into pieces/01-a/research/ — `importPieceResearchFiles`")
+    }
+
+    func test_aFileDroppedInsideACollectionPiecesFoldImportsIntoThatPiece() {
+        XCTAssertEqual(
+            classifyExternal(on: .foldRow(rowId: "pieceNote", documentId: "pA"),
+                             position: .top, in: Collection.self),
+            .importFiles(.piece("pA")))
+    }
+
+    func test_aFileDroppedIntoAGroupRowLandsInThatGroup() {
+        XCTAssertEqual(
+            classifyExternal(on: .researchRow("group"), position: .middle,
+                             in: Novel.self),
+            .importFiles(.sharedGroup("group")),
+            "dropped ON a group — the same gesture that moves a note into one")
+    }
+
+    func test_aFileDroppedBesideAGroupRowLandsBesideIt() {
+        XCTAssertEqual(
+            classifyExternal(on: .researchRow("group"), position: .top,
+                             in: Novel.self),
+            .importFiles(.sharedGroup(nil)),
+            "control for the case above: the top third of a group row is "
+            + "*beside* it, and beside a root group is the shared root")
+    }
+
+    func test_aFileDroppedBesideANestedRowLandsInThatRowsGroup() {
+        XCTAssertEqual(
+            classifyExternal(on: .researchRow("nested"), position: .bottom,
+                             in: Novel.self),
+            .importFiles(.sharedGroup("group")),
+            "beside a row means that row's container — importing to the shared "
+            + "root would put the file where the writer was not looking")
+    }
+
+    func test_aFileDroppedBesideAPiecesOwnRowLandsInThatPiece() {
+        XCTAssertEqual(
+            classifyExternal(on: .researchRow("pieceNote"), position: .bottom,
+                             in: Collection.self),
+            .importFiles(.piece("pA")),
+            "the container rule is `TreeDropIntent.container(ofRow:)`'s, called "
+            + "rather than restated — a piece-scoped row's container is its "
+            + "piece, and reading its nil parent id as 'shared' is exactly the "
+            + "mistake a re-derivation makes")
+    }
+
+    func test_aSingleDocumentTypeRefusesAnExternalDropOnItsScript() {
+        for type in [ProjectType.shortStory, .screenplay] {
+            XCTAssertEqual(
+                TreeDropIntent.classifyExternal(
+                    target: .pieceRow("doc"), position: .middle,
+                    structure: Single.structure, research: Single.research,
+                    projectType: type),
+                .refuse(.sharedOnly),
+                "\(type): all of its research is already the document's, so "
+                + "there is no scope the drop could be asking for — and the "
+                + "bounce is the same refusal an internal drag gets")
+        }
+    }
+
+    func test_aReferencePieceRefusesAnExternalDropRatherThanImportingElsewhere() {
+        XCTAssertEqual(
+            classifyExternal(on: .pieceRow("pRef"), in: Collection.self),
+            .refuse(.notAResearchTarget),
+            "a referenced piece keeps its research in its own project — "
+            + "importing into this one would file the writer's photograph "
+            + "under a piece that cannot show it")
+    }
+
+    func test_aStructureGroupRefusesAnExternalDrop() {
+        XCTAssertEqual(
+            classifyExternal(on: .pieceRow("grp"), in: Novel.self),
+            .refuse(.notAResearchTarget))
+    }
+
+    func test_anExternalDropOnARowTheTreeCannotFindIsRefused() {
+        XCTAssertEqual(
+            classifyExternal(on: .researchRow("who-knows"), in: Novel.self),
+            .refuse(.unknownId),
+            "a stale row is not the shared root — silently importing there is "
+            + "the accept-and-file-it-somewhere-else defect")
+        XCTAssertEqual(
+            classifyExternal(on: .pieceRow("who-knows"), in: Novel.self),
+            .refuse(.unknownId))
+    }
+
+    /// The external classifier is **total** too: every target × every position
+    /// × every project type answers, without trapping.
+    func test_theExternalClassifierAnswersEveryTargetInEveryProjectType() {
+        var answers: [TreeDropIntent.ExternalIntent] = []
+        for (_, type, structure, research) in Self.fixtures {
+            let docId = structure[0].id
+            let rowId = research[0].id
+            let targets: [TreeDropIntent.Target] = [
+                .pieceRow(docId), .sharedSection, .researchRow(rowId),
+                .foldRow(rowId: rowId, documentId: docId),
+                .pieceRow("nobody")
+            ]
+            for target in targets {
+                for position in [DropIntent.Position.top, .middle, .bottom] {
+                    answers.append(TreeDropIntent.classifyExternal(
+                        target: target, position: position,
+                        structure: structure, research: research,
+                        projectType: type))
+                }
+            }
+        }
+        XCTAssertEqual(answers.count, 60,
+                       "four fixtures × five targets × three positions — if "
+                       + "this moved, a target or a project type was added and "
+                       + "the external grid should grow with it")
+    }
+
     // MARK: - The whole grid
 
     /// Every target × every payload kind × every project type, asked at once.
@@ -495,6 +656,29 @@ final class TreeDropIntentTests: XCTestCase {
     ) -> TreeDropIntent.Intent {
         TreeDropIntent.classify(
             payloadId: payloadId, target: target,
+            structure: Collection.structure, research: Collection.research,
+            projectType: Collection.type)
+    }
+
+    /// The external classifier takes no payload — a Finder file is nothing the
+    /// project has seen — so the target and the drop's vertical position are
+    /// the whole question.
+    private func classifyExternal(
+        on target: TreeDropIntent.Target,
+        position: DropIntent.Position = .middle, in _: Novel.Type
+    ) -> TreeDropIntent.ExternalIntent {
+        TreeDropIntent.classifyExternal(
+            target: target, position: position,
+            structure: Novel.structure, research: Novel.research,
+            projectType: Novel.type)
+    }
+
+    private func classifyExternal(
+        on target: TreeDropIntent.Target,
+        position: DropIntent.Position = .middle, in _: Collection.Type
+    ) -> TreeDropIntent.ExternalIntent {
+        TreeDropIntent.classifyExternal(
+            target: target, position: position,
             structure: Collection.structure, research: Collection.research,
             projectType: Collection.type)
     }

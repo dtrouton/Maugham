@@ -211,6 +211,15 @@ struct BinderView: View {
                                                 position: position,
                                                 target: item) }
                     })
+            },
+            // **And a third kind, from outside the app** (stage-2b Task 4): a
+            // file dropped on a chapter is that chapter's research, which in a
+            // novel means shared-plus-a-link and in a group or a screenplay's
+            // script means a bounce. `TreeDropIntent` says which.
+            onExternalDrop: { providers, position in
+                treeVerbs.routeExternalDrop(
+                    providers: providers, position: position,
+                    target: .pieceRow(item.id))
             }
         )
         .contextMenu {

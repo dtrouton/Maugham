@@ -328,11 +328,37 @@ final class BinderTreeSectionsTests: XCTestCase {
             "an id from outside this project — a canvas node, another window's "
             + "row — must bounce back to where the writer took it from. "
             + "Returning true accepts it and drops it on the floor")
-        XCTAssertFalse(
+        // **The external half is no longer a refusal, and that is stage-2b Task
+        // 4's whole point.** A Finder file has no id to be unplaceable: what
+        // decides it is the TARGET, and a shared research row is a scope the
+        // tree can name. The refusals that remain are the target's — a
+        // screenplay's script, a referenced piece, a stale row — and they are
+        // asserted where the routing lives (`BinderTreeDropRoutingTests`,
+        // `TreeDropIntentTests`).
+        XCTAssertTrue(
             sections.actions.externalDrop([], .middle, target),
-            "and a Finder file or a browser bitmap is refused outright: it has "
-            + "to land in a SCOPE, and importing to a piece's root has no store "
-            + "API (the hole Task 6 recorded for New Group). Stage 2b owns it")
+            "a research row is a scope the tree can import into — the drop is "
+            + "accepted on the strength of the target, since whether the "
+            + "providers yield anything is only knowable asynchronously (the "
+            + "answer both replaced panes gave)")
+    }
+
+    /// …and the refusal it replaced still exists where a target really cannot
+    /// take a file. Without this, "the external drop accepts" above would be
+    /// indistinguishable from a route that accepts everything.
+    func test_theTreeStillRefusesAnExternalDropOnATargetThatCannotTakeOne() async throws {
+        let store = try await screenplay(notes: [], cards: [])
+        let script = try XCTUnwrap(TreeWalk.first(
+            in: store.manifest.structure, where: { $0.type == .document }))
+        let verbs = BinderTreeVerbs(store: store, state: BinderTreeSectionsState(),
+                                    selectedSubject: .constant(nil))
+
+        XCTAssertFalse(
+            verbs.routeExternalDrop(providers: [], position: .middle,
+                                    target: .pieceRow(script.id)),
+            "a screenplay keeps all its research shared, so its script row has "
+            + "no scope a dropped file could be asking for — and the bounce is "
+            + "what tells the writer, rather than a file appearing elsewhere")
     }
 
     /// The control, and it is what makes the assertion above mean something: the

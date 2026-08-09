@@ -142,6 +142,15 @@ struct CollectionPiecesPane: View {
                             targetId: piece.id,
                             position: position)
                     })
+            },
+            // **And a third kind, from outside the app** (stage-2b Task 4): a
+            // file dropped on a loose piece is imported into that piece's own
+            // `research/`, which is the store verb whose only caller until now
+            // was the pane this milestone deletes. A referenced piece bounces.
+            onExternalDrop: { providers, position in
+                treeVerbs.routeExternalDrop(
+                    providers: providers, position: position,
+                    target: .pieceRow(piece.id))
             })
             // Inset under the project row above. Part of the row rather than a
             // wrapper around it, so the List tags a row that is already inset.

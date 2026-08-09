@@ -95,6 +95,89 @@ extension BinderTreeVerbs {
                      payload: draggedId, site: "the Research section")
     }
 
+    // MARK: - A drop from outside the app (stage-2b Task 4)
+
+    /// **A Finder file or a browser bitmap, dropped anywhere on the tree.**
+    ///
+    /// The stage-2a tree refused these outright, because a file has to land in
+    /// a SCOPE and the tree had no rule for which one. `TreeDropIntent`'s
+    /// external classifier is that rule, and this performs it: one entry point
+    /// for every target, so the four surfaces that mount an external drop
+    /// cannot come to disagree about what a piece row means.
+    ///
+    /// **`[NSItemProvider]` rather than `[URL]`, and that is not incidental.** A
+    /// browser image drag carries a rendered bitmap and no file URL at all, so
+    /// `.dropDestination(for: URL.self)` rejects it silently — nothing logged,
+    /// nothing red, the writer's picture simply gone (the canvas's 1C-d
+    /// lesson). `DropClassification` is the one classifier that takes both
+    /// kinds, and it is what turns a bitmap into an importable temp file.
+    ///
+    /// Returns whether the drop was ACCEPTED, which is a property of the
+    /// TARGET: whether the providers then yield anything importable is only
+    /// knowable asynchronously, and the panes this replaces answered the same
+    /// way. A refusal is loud in the log and bounces the drag.
+    func routeExternalDrop(
+        providers: [NSItemProvider], position: DropIntent.Position,
+        target: TreeDropIntent.Target
+    ) -> Bool {
+        let intent = TreeDropIntent.classifyExternal(
+            target: target, position: position,
+            structure: store.manifest.structure,
+            research: store.manifest.research,
+            projectType: store.manifest.type)
+        switch intent {
+        case .refuse(let reason):
+            return refuseDrop(site(of: target), payload: nil, reason: reason)
+        case .importFiles(let destination):
+            perform {
+                let urls = await DropClassification.fileURLs(from: providers)
+                guard !urls.isEmpty else { return }
+                try await importFiles(urls, to: destination)
+            }
+            return true
+        }
+    }
+
+    /// Imports `urls` where the classifier said, through the store verb that
+    /// destination names.
+    ///
+    /// Not `private`: this is where the files actually land, and a test can
+    /// hand it real URLs without a drag session — which is the only way to
+    /// assert the *link* half of `.sharedAndLink` separately from the import.
+    func importFiles(
+        _ urls: [URL], to destination: TreeDropIntent.ExternalDestination
+    ) async throws {
+        switch destination {
+        case .sharedGroup(let parentId):
+            _ = try await store.importResearchFiles(urls, toParentId: parentId)
+        case .piece(let pieceId):
+            _ = try await store.importPieceResearchFiles(
+                pieceId: pieceId, urls: urls)
+        case .sharedAndLink(let documentId):
+            // **One act.** A novel chapter's research is a link, so an import
+            // that stopped here would leave the file in the shared section the
+            // writer did not aim at, with the chapter's fold unchanged.
+            let imported = try await store.importResearchFiles(
+                urls, toParentId: nil)
+            for item in imported {
+                try await store.linkResearch(
+                    researchId: item.id, toDocumentId: documentId)
+            }
+        }
+    }
+
+    /// What the log calls a target, for a refusal that has no payload id to
+    /// name.
+    private func site(of target: TreeDropIntent.Target) -> String {
+        switch target {
+        case .pieceRow(let id): return "piece row \(id)"
+        case .sharedSection: return "the Research section"
+        case .researchRow(let id): return "research row \(id)"
+        case .foldRow(let rowId, let documentId):
+            return "row \(rowId) in \(documentId)'s fold"
+        }
+    }
+
     // MARK: - What a drag carries
 
     /// **The rows a drag carries** (stage-2b Task 3): the tree's whole selection
