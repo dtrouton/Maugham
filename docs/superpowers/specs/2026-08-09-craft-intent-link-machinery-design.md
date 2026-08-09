@@ -39,6 +39,12 @@ Lookup order: `manifest.research` first (unchanged behavior for every existing c
 
 Tripwire 32 is untouched: `PromotionPerformer` is already a census entry, and `appendToStatement` is already how `performCraftIntent` writes through it.
 
+**Correction (2026-08-09):** the line above names `link.appendedText`; the built
+code (`PromotionPerformer.swift:625`) correctly passes `link.linkText` —
+padding around the appended text is `appendToStatement`'s job, not the
+caller's. Specs are records too — corrected here rather than silently
+rewritten.
+
 ### 3.2 Resolution (the junk-link half)
 
 `ListAllLinksTool` and `ReferenceTools` each hand-build a title → (id, title) index. Extract **one shared builder** (working name `WikiTitleIndex.build`, living beside the statement seam so both tools and any future reader call the same spelling) that produces today's index **plus** statement composed titles (`ArtifactIndex.statementTitle`) mapping to `stmt-` ids.

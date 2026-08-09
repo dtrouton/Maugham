@@ -1136,6 +1136,12 @@ carried by the material and the lean the surface already had, not by a badge.
   research pane it is plain text. Both are ordinary scope — the link is *correct*, and
   reading it is what §6.1's line row actually required — but they are written down here so
   the next author meets them as known rather than as a surprise.
+
+  **Amendment (2026-08-09):** `propagateWikiLinkRename` now rewrites `[[…]]`
+  inside research-note bodies and statements, and rewrites composed statement
+  titles (`[[Craft Intent · Old]]` → `[[Craft Intent · New]]`) when their
+  document renames — the gap this consequence recorded is closed (issue #24,
+  spec `2026-08-09-craft-intent-link-machinery-design.md`).
 - **A promoted card and its artifact can drift apart, and that is the design** (decision 9,
   §6.1's 2026-07-28 amendment). There is no reconciler, no freshness stamp and no
   "out of date" chrome, because none was promised: the mark is provenance. Do not read the
