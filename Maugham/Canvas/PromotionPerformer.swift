@@ -36,6 +36,14 @@ struct PromotionResult: Equatable {
     /// craft intent* — sending the writer to look in the project's `research/`
     /// for a document sitting in `pieces/story-a/research/`. One value, read
     /// where it was resolved.
+    ///
+    /// **The `.wikiLink` arm reads the same field, since F10's routed fix.**
+    /// It used to hardcode "the note", which said the wrong thing about a line
+    /// drawn from a craft-intent card the moment `performWikiLink` learned to
+    /// write into one (Task 3): the write landed in the statement and the
+    /// banner still called it a note. `plan.destinationDescription` is the one
+    /// place `Promotion.plan`'s line arm names its own destination now, so this
+    /// reads it rather than choosing the noun a second time.
     func confirmation(for plan: PromotionPlan) -> String {
         let count = writtenLinks.count
         let links = count == 0 ? ""
@@ -44,7 +52,7 @@ struct PromotionResult: Equatable {
         case .researchNote: return "Promoted to the note “\(title)”." + links
         case .paletteCard: return "Promoted to the palette card “\(title)”." + links
         case .intentStatement: return "Added to \(plan.destinationDescription)."
-        case .wikiLink: return "Wrote the link into the note “\(title)”."
+        case .wikiLink: return "Wrote the link into \(plan.destinationDescription)."
         // **Both say "a copy", because that is the fact a writer will test.**
         // The picture stays on the canvas and the original file stays in
         // `canvas_assets/` (§6.1's ruling 1) — a sentence reading "Moved" or
@@ -731,14 +739,23 @@ struct PromotionPerformer {
 
     // MARK: - The offer (§6.1: may suggest, must never impose)
 
-    /// Append `[[artifact]]` to each offered member's OWN note — the member
+    /// Append `[[artifact]]` to each offered member's OWN artifact — the member
     /// pointing at what the region produced. Runs only when the writer accepted.
     ///
     /// **Returns what it actually WROTE, not what was offered.** Two members are
-    /// skipped rather than written: one whose note already holds the link, and
-    /// one whose item or path has since gone. "Linked 2 notes" when it linked
-    /// none is a lie on a surface whose whole promise is that you can see what a
-    /// command will do.
+    /// skipped rather than written: one whose artifact already holds the link,
+    /// and one that is genuinely gone since the sheet opened. "Linked 2 notes"
+    /// when it linked none is a lie on a surface whose whole promise is that you
+    /// can see what a command will do.
+    ///
+    /// **F10 (2026-08-09 audit): the offer counted an intent-marked member and
+    /// this loop silently skipped it**, because it only ever looked the member
+    /// up in `store.manifest.research` — a statement lives in
+    /// `store.manifest.statements` and has no `path`. "Also link 2 cards"
+    /// linked 1, the same lie the doc comment above already forbids, just
+    /// reached through the offer rather than the confirmation. `writableDestination`
+    /// (Task 3) resolves either registry, so the statement member now gets the
+    /// same link a research note does.
     ///
     /// **The count reaches the writer through `PromotionResult.confirmation(for:)`**,
     /// and this sentence used to be false: `CanvasPromotionModifier.commit`
@@ -753,12 +770,20 @@ struct PromotionPerformer {
         try? await store.documentStore?.flushPendingSave()
         var written: [CanvasNodeID] = []
         for offer in plan.offeredLinks {
-            guard let item = TreeWalk.find(id: offer.itemID, in: store.manifest.research),
-                  let path = item.path else { continue }
-            let body = try readBody(atPath: path)
-            guard !body.contains(link) else { continue }
-            try await write(body + "\n\n" + link + "\n", toPath: path)
-            written.append(offer.node)
+            switch writableDestination(of: offer.itemID) {
+            case nil:
+                continue   // genuinely gone since the sheet opened — the honest skip
+            case .researchFile(_, let path):
+                let body = try readBody(atPath: path)
+                guard !body.contains(link) else { continue }
+                try await write(body + "\n\n" + link + "\n", toPath: path)
+                written.append(offer.node)
+            case .statement(let statement):
+                guard !store.statementText(of: statement).contains(link) else { continue }
+                try await store.appendToStatement(link, to: statement,
+                                                  session: Self.promotionSession)
+                written.append(offer.node)
+            }
         }
         return written
     }

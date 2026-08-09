@@ -736,6 +736,29 @@ final class PromotionPerformerTests: XCTestCase {
                        "and it is still linked exactly once")
     }
 
+    /// F10 (2026-08-09 audit): the offer counted intent-marked members that the
+    /// writer half then silently skipped — "Also link 2 cards" linking 1. Now it
+    /// writes into the statement, so the counts agree by writing.
+    func test_anOfferedLinkToAnIntentMarkedMemberLandsInTheStatement() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(
+            plan(.scrap(a), .intentStatement, store: store, model: model))
+        _ = try await performer.perform(
+            plan(.scrap(b), .researchNote, store: store, model: model))
+
+        var p = plan(.region(r1), .researchNote, store: store, model: model)
+        p.linksAccepted = true
+        let result = try await performer.perform(p)
+
+        XCTAssertEqual(Set(result.writtenLinks), [a, b],
+                       "both marked members must be written, the intent one included")
+        let statement = try intent(.project, in: store)
+        XCTAssertTrue(statementText(statement, in: root).contains("[[\(result.title)]]"),
+                      "the intent member's own artifact must gain the region link")
+    }
+
     /// The one branch that picks its undo name conditionally, so it is the one
     /// that needs the name asserted — the two hardcoded names are asserted
     /// above.
