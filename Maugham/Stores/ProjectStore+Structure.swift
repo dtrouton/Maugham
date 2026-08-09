@@ -396,6 +396,11 @@ extension ProjectStore {
     func propagateWikiLinkRename(
         excludeId: String, oldTitle: String, newTitle: String
     ) async {
+        // One rename is one pair; the rewriter takes a set of them because a
+        // single rename can move more than one title (a document's own, and the
+        // composed titles of the statements about it — Task 8).
+        let pairs = [(old: oldTitle, new: newTitle)]
+
         for doc in Self.collectDocuments(in: manifest.structure)
         where doc.id != excludeId {
             guard let path = doc.path else { continue }
@@ -421,8 +426,8 @@ extension ProjectStore {
                 let preCheckBody = derivedCache.materialize(
                     forDocId: doc.id, in: url)
                 if !preCheckBody.isEmpty,
-                   WikiLinkRewriter.rewrite(
-                       body: preCheckBody, oldTitle: oldTitle, newTitle: newTitle) == nil {
+                   WikiLinkRewriter.rewriteAll(
+                       body: preCheckBody, pairs: pairs) == nil {
                     continue
                 }
                 do {
@@ -440,9 +445,8 @@ extension ProjectStore {
 
             // Rewrite on display form. nil → no occurrence; nothing to do.
             // Close a transiently-loaded doc on this early-out path too.
-            guard let rewritten = WikiLinkRewriter.rewrite(
-                body: resolved.displayText,
-                oldTitle: oldTitle, newTitle: newTitle) else {
+            guard let rewritten = WikiLinkRewriter.rewriteAll(
+                body: resolved.displayText, pairs: pairs) else {
                 if isTransient { await resolved.close() }
                 continue
             }
@@ -460,6 +464,48 @@ extension ProjectStore {
             // An already-open doc is left to its live schedulers (its editor
             // binding already reflects the new displayText) — do NOT close it.
             if isTransient { await resolved.close() }
+        }
+
+        // **Statements are `Document`s too** (M1A), so the same op-log
+        // discipline applies and the same failure — a rename that leaves
+        // `[[oldTitle]]` behind — is silent in exactly the same way: the link
+        // stops resolving while `list_all_links` goes on reporting it (S2).
+        //
+        // The open/gate/transient dance is `withStatementDocument`'s rather
+        // than a second copy here, because a statement's live `Document` is in
+        // no `DocumentStore` registry and the loop above's `document(for:)`
+        // cannot see one.
+        //
+        // The pre-check mirrors the manuscript loop's, with the live text
+        // preferred where there is any: the pane's `Document` is fresher by up
+        // to one debounce window, so deciding off the derived text alone would
+        // skip a link the writer typed a moment ago. An empty statement is
+        // safely skipped — unlike a manuscript there is no bootstrap owed,
+        // since a statement with no ops has no prose to rewrite.
+        for statement in manifest.statements {
+            let derived = derivedCache.displayText(forDocId: statement.id, in: url)
+            let liveText = openStatementDocument(id: statement.id)?.displayText
+            let preview = liveText ?? derived
+            guard !preview.isEmpty,
+                  WikiLinkRewriter.rewriteAll(body: preview, pairs: pairs) != nil
+            else { continue }
+            do {
+                try await withStatementDocument(
+                    statement,
+                    session: "wiki-rename-\(UUID().uuidString.prefix(8))"
+                ) { document in
+                    // Re-read inside the dance rather than reusing `preview`:
+                    // the transient arm loads the `Document` itself, and a pane
+                    // can have bound while we queued on the gate.
+                    if let rewritten = WikiLinkRewriter.rewriteAll(
+                        body: document.displayText, pairs: pairs) {
+                        document.setFullText(rewritten)
+                    }
+                }
+            } catch {
+                projectStoreLog.error(
+                    "Wiki-rename: statement \(statement.id, privacy: .public) skipped: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 

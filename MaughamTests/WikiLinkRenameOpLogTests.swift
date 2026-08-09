@@ -156,4 +156,88 @@ final class WikiLinkRenameOpLogTests: XCTestCase {
 
         await liveB.close()
     }
+
+    // MARK: - Statements (S2)
+
+    /// S2 (2026-08-02 sweep): renaming a document silently flipped a statement's
+    /// `[[chapter]]` to unresolved while the graph tools kept listing it. The
+    /// statement is a `Document`; the rewrite must arrive as ops.
+    func test_renameRewritesLinksInsideAClosedStatement() async throws {
+        let root = try makeProject(docs: [
+            (id: "a", title: "Alpha", body: "The chapter."),
+            (id: "b", title: "Beta", body: "Another.")])
+        let store = try await ProjectStore.load(from: root)
+        let statement = try await store.createStatement(kind: .intent, scope: .project)
+        try await store.appendToStatement("Open with [[Alpha]].", to: statement,
+                                          session: "test")
+
+        try await store.renameStructureItem(id: "a", newTitle: "Omega")
+
+        XCTAssertTrue(store.statementText(of: statement).contains("[[Omega]]"),
+                      "the statement still says: \(store.statementText(of: statement))")
+        XCTAssertFalse(store.statementText(of: statement).contains("[[Alpha]]"))
+        let ops = OpLogStore.loadSyncMerged(forDocId: statement.id, in: root)
+        XCTAssertTrue(ops.contains { op in
+            op.changes.contains { $0.next.contains("[[Omega]]") }
+        }, "the rewrite must be IN the op log, not a raw file write")
+    }
+
+    /// The live-pane arm: a statement open in the Plan persona's right column
+    /// while the writer renames in the binder — an ordinary act, since Intent is
+    /// a pane of the persona whose centre column is the canvas and the binder is
+    /// its left one.
+    ///
+    /// The rewrite has to reach the `Document` **the pane is holding**. Loading
+    /// a second one on the same path costs the writer the rewrite rather than
+    /// merely duplicating work: each has its own `PendingBuffer`, and the pane's
+    /// next burst writes its own stale `[[Alpha]]` back out over the rewrite.
+    /// So the assertion is on the live instance first, and then on what the
+    /// statement says once that pane has typed again and flushed.
+    func test_renameRewritesLinksInsideAnOpenStatement() async throws {
+        let root = try makeProject(docs: [
+            (id: "a", title: "Alpha", body: "The chapter."),
+            (id: "b", title: "Beta", body: "Another.")])
+        let store = try await ProjectStore.load(from: root)
+        let ds = try await DocumentStore.open(url: root)
+        store.documentStore = ds
+        let statement = try await store.createStatement(kind: .intent, scope: .project)
+        try await store.appendToStatement("Open with [[Alpha]].", to: statement,
+                                          session: "test")
+
+        // Stand in for the Intent pane, through the store's own open seam
+        // rather than a bare load: the gate around the load and the
+        // registration is what `StatementEditorHost.load` does, and the
+        // registration is the only way anything else can find this `Document`
+        // (a statement is in no `DocumentStore` registry by design).
+        await store.lockStatementOpen(statement.id)
+        let pane = try await Document.load(
+            url: root.appendingPathComponent(statement.path),
+            device: MacDeviceID.current, session: "pane-test",
+            presenter: ds.presenter)
+        store.noteStatementDocumentOpened(pane, id: statement.id)
+        store.unlockStatementOpen(statement.id)
+
+        try await store.renameStructureItem(id: "a", newTitle: "Omega")
+
+        XCTAssertTrue(
+            pane.displayText.contains("[[Omega]]"),
+            "the rewrite went into a SECOND Document on this path — the pane "
+            + "cannot see it, so its next burst writes it out — found: "
+            + pane.displayText)
+
+        // The act that turns "merely odd" into lost work: the writer types on.
+        pane.setFullText(pane.displayText + "\n\nTyped after.")
+        try await pane.flushBurstNow()
+
+        let text = store.statementText(of: statement)
+        XCTAssertTrue(text.contains("[[Omega]]"),
+                      "the pane's next burst wrote the rename back out — "
+                      + "found: \(text)")
+        XCTAssertFalse(text.contains("[[Alpha]]"), "found: \(text)")
+        XCTAssertTrue(text.contains("Typed after."), "found: \(text)")
+
+        store.forgetStatementDocument(id: statement.id)
+        await pane.close()
+        await ds.close()
+    }
 }
