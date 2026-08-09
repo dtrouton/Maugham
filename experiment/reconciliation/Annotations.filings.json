@@ -176,13 +176,20 @@
  },
  {
   "claim_id": "M5-AN-030",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "Same clause and same shape as R22's own settled 'stale cursor silent no-op' bullet. An accepted suggestion survives the orphan sweep (M5-AN-053), so after the writer deletes its paragraph the row is still in the pane under 'show all statuses' and still renders a Revert button. Clicking it produces a log line and nothing else — no restore, no message, no disabled state. The expectation was created by Maugham's own rendering of an enabled control. The other two guard arms (not a suggestion, not accepted) are unreachable from the pane, which gates them by kind and status; this arm is not gated at all.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-35",
+  "clause_that_reaches_it": "its dead actions are DISABLED with the reason ('its paragraph was deleted'). Nothing renders an enabled control that silently does nothing.",
+  "why_in_scope": "The ruling's sentence implemented as a pure row policy (AnnotationRowPolicy.revertEnabled) so the no-dead-controls rule is testable without mounting the pane; the stale mark was already derived (paragraphStale) and stays.",
   "intent_expressed_when": "contemporaneous — the writer clicked a button asking for their text back",
   "call_path": "AnnotationsPane → 'show all statuses' → an accepted suggestion whose paragraph was deleted → Revert → Document.revertAcceptedAnnotation → `sequence.contains(pid)` guard → documentLog.error, return",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "870ef2f30f2d9e593cec967f8098f2b2fd63dac7",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-35 — Denver 2026-08-08, recommended option accepted",
+   "pinned_by": "AnnotationsCharacterization.test_revertIsDisabledWhenTheParagraphIsGone",
+   "note": "seventh loop, part two"
+  }
  },
  {
   "claim_id": "M5-AN-031",
@@ -376,13 +383,29 @@
   }
  },
  {
+  "claim_id": "M5-AN-056",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-34",
+  "clause_that_reaches_it": "A deleted (withdrawn) annotation is recoverable later: it lands in a findable Deleted view in the pane and can be restored.",
+  "why_in_scope": "The ruling implemented verbatim; the op log already retained everything, so this is surfacing, not new storage — exactly as the ruling's basis argued. Fixed at 870ef2f30f.",
+  "intent_expressed_when": "earlier — the delete was intent; recoverability honours RULING-15's single meaning of delete",
+  "call_path": "own annotation → Delete → resolved view → Deleted section → Restore",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "870ef2f30f2d9e593cec967f8098f2b2fd63dac7",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-34",
+   "pinned_by": "AnnotationsCharacterization.test_aWithdrawnNoteIsListedAndRestorable"
+  }
+ },
+ {
   "_summary": {
-   "reached": 16,
-   "complies": 10,
-   "violates": 6,
+   "reached": 17,
+   "complies": 12,
+   "violates": 5,
    "no_ruling": 38,
-   "total": 54,
-   "coverage": "30%",
+   "total": 55,
+   "coverage": "31%",
    "by_ruling": {
     "RULING-1": [
      "M5-AN-006"
@@ -391,7 +414,6 @@
      "M5-AN-019",
      "M5-AN-028",
      "M5-AN-029",
-     "M5-AN-030",
      "M5-AN-031",
      "M5-AN-036",
      "M5-AN-041",
@@ -408,6 +430,12 @@
     ],
     "RULING-31": [
      "M5-AN-055"
+    ],
+    "RULING-34": [
+     "M5-AN-056"
+    ],
+    "RULING-35": [
+     "M5-AN-030"
     ],
     "RULING-5": [
      "M5-AN-026",

@@ -863,5 +863,21 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M5-AN-056",
+  "scope": "AnnotationDeriver.deriveWithdrawn + Document.withdrawnAnnotations + the pane's Deleted section",
+  "kind": "POSTCONDITION",
+  "statement": "a withdrawn annotation is listed in the Deleted view (newest withdrawal first, body honouring the latest edit) and restoring returns it to the open list whole; withdrawal is deliberately NOT a fifth AnnotationStatus case — it stays absence from the projection, and the Deleted view derives separately",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_aWithdrawnNoteIsListedAndRestorable"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-34)",
+  "reachability": "LIVE — the resolved view's Deleted section",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]
