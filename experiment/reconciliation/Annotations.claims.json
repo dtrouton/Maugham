@@ -611,13 +611,13 @@
   "claim_id": "M5-AN-039",
   "scope": "Document.reopenAnnotation callers / AnnotationsPane",
   "kind": "STRUCTURE",
-  "statement": "reopenAnnotation still has no non-undo production caller — its only two callers are the rewind-undo and the task-archive-undo compensations — and the annotations pane offers no Reopen affordance. No archived or rejected annotation can be reopened by the writer",
+  "statement": "any archived or rejected annotation is reopenable from the annotations pane: the Reopen action calls reopenAnnotation(id:undoManager:), which registers a ⌘Z pair whose undo re-applies the PRIOR resolution whole — a reject returns with its written reason. The caller census includes the pane deliberately",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "AnnotationsCharacterization.test_reopenHasNoNonUndoProductionCaller"
+   "ref": "AnnotationsCharacterization.test_reopenHasThePaneAsAProductionCaller + test_paneReopen_isUndoable_andUndoRestoresTheRejectionReason"
   },
   "warrant": "HIGH",
-  "intent": "INTENTIONAL",
+  "intent": "INTENTIONAL — ruled (RULING-29); fixed 2026-08-09",
   "reachability": "LIVE — every archived or rejected row in the pane, none of which offers a way back",
   "evidence": {
    "property_test": null
@@ -844,6 +844,22 @@
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
   "reachability": "LIVE — delete a paragraph whose suggestion you had already accepted; the row survives with a Revert that cannot work (M5-AN-030)",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-055",
+  "scope": "AnnotationDeriver + AnnotationsPane",
+  "kind": "POSTCONDITION",
+  "statement": "after a reopen, the projection carries the most recent PRIOR rejection's written reason as previousRejectionReason (open status only; never-rejected notes carry nil), and the pane renders it as 'Previously rejected: …' — the writer's words stay where they would look",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_reopeningARejectedNote_keepsTheReasonAsHistory"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-31)",
+  "reachability": "LIVE — the resolved/All filter's rows",
   "evidence": {
    "property_test": null
   }

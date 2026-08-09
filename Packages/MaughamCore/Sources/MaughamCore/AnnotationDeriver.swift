@@ -34,6 +34,20 @@ public enum AnnotationDeriver {
             }
         }
 
+        // 1a2. The latest rejection per target, for RULING-31's reason
+        //      history: a reopened note keeps its most recent rejection reason
+        //      visible as part of its record.
+        var latestReject: [String: Op] = [:]
+        for op in ops {
+            guard op.kind == .claudeReject,
+                  let src = op.provenance?.sourceAnnotationId else { continue }
+            if let prior = latestReject[src] {
+                if op.opId > prior.opId { latestReject[src] = op }
+            } else {
+                latestReject[src] = op
+            }
+        }
+
         // 1b. Withdraw / reopen: latest-by-opId wins between the two per
         // target (a reopen newer than a withdraw cancels the withdrawal; a
         // later withdraw re-drops it). `annotationReopen` here is the
@@ -117,6 +131,17 @@ public enum AnnotationDeriver {
             let language: String? = (kind == .query)
                 ? decodeToolArgsLanguage(prov?.toolArgs) : nil
 
+            // RULING-31: a reopened note carries its most recent PRIOR
+            // rejection's reason as history (only while open — a live
+            // resolution's own userResponse takes the stage otherwise).
+            let previousRejectionReason: String? = {
+                guard status == .open,
+                      let lifecycle, lifecycle.kind == .annotationReopen,
+                      let reject = latestReject[op.opId],
+                      reject.opId < lifecycle.opId else { return nil }
+                return reject.provenance?.userResponse
+            }()
+
             result.append(Annotation(
                 id: op.opId,
                 kind: kind,
@@ -133,7 +158,8 @@ public enum AnnotationDeriver {
                 author: author,
                 span: span,
                 resolvedSpanRange: resolvedSpanRange,
-                language: language))
+                language: language,
+                previousRejectionReason: previousRejectionReason))
         }
         // Newest first by createdAt; tie-break by op_id (descending) for
         // stable ordering of same-instant ops.

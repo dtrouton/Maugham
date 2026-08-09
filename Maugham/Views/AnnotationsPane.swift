@@ -144,6 +144,9 @@ struct AnnotationsPane: View {
                                 onEdit: { editSheet = ann },
                                 onWithdraw: { withdrawConfirm = ann },
                                 onRevert: { revert(ann) },
+                                onReopen: {
+                                    Task { try? await document.reopenAnnotation(id: ann.id, undoManager: undoManager) }
+                                },
                                 onJumpToParagraph: { jump(ann) })
                             Divider()
                         }
@@ -419,6 +422,9 @@ struct AnnotationRow: View {
     var onEdit: () -> Void = {}
     var onWithdraw: () -> Void = {}
     var onRevert: () -> Void = {}
+    /// RULING-29: resolution is the writer's to reverse, from the surface that
+    /// shows it — rendered for archived/rejected rows.
+    var onReopen: () -> Void = {}
     let onJumpToParagraph: () -> Void
 
     var body: some View {
@@ -427,6 +433,14 @@ struct AnnotationRow: View {
             Text(annotation.body)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
+            if let reason = annotation.previousRejectionReason, !reason.isEmpty {
+                // RULING-31: the writer's rejection reason is part of the
+                // note's history and stays visible after a reopen.
+                Text("Previously rejected: \(reason)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .italic()
+            }
             if annotation.kind == .suggestedChange {
                 diffCard
             }
@@ -563,6 +577,13 @@ struct AnnotationRow: View {
     @ViewBuilder
     private var actionRow: some View {
         HStack(spacing: 8) {
+            if annotation.status == .archived || annotation.status == .rejected {
+                // RULING-29: any archived or rejected annotation can be
+                // reopened from the pane. (An accepted suggestion keeps its
+                // Revert below — reopening it is Revert's job, text included.)
+                Button("Reopen", action: onReopen).buttonStyle(.bordered)
+                    .help("Return this to the open list — resolution is yours to reverse (⌘Z re-applies it)")
+            } else {
             switch annotation.kind {
             case .comment:
                 Button("Got it", action: onAccept).buttonStyle(.borderedProminent)
@@ -587,6 +608,7 @@ struct AnnotationRow: View {
                 Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
                 Button("Reject\u{2026}", action: onReject).buttonStyle(.bordered)
                 Button("Archive", action: onArchive).buttonStyle(.bordered)
+            }
             }
             if isOwn {
                 Spacer(minLength: 4)

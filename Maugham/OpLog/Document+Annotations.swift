@@ -674,6 +674,36 @@ extension Document {
         try await appendAnnotationOpInternal(op)
     }
 
+    /// The pane's Reopen (RULING-29): `reopenAnnotation` wrapped in a ⌘Z pair.
+    /// Undo re-applies the PRIOR resolution whole — a reject returns with its
+    /// written reason (RULING-31's history is the projection's job; undo's job
+    /// is fidelity). Statuses without a clean prior resolution to re-apply
+    /// (withdrawn) fall through to the plain reopen, un-registered.
+    public func reopenAnnotation(id: String, undoManager: UndoManager?) async throws {
+        let prior = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }
+        try await reopenAnnotation(id: id)
+        guard let priorStatus = prior?.status,
+              priorStatus == .rejected || priorStatus == .archived else { return }
+        let priorResponse = prior?.userResponse
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Reopen Annotation", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in
+                switch priorStatus {
+                case .rejected:
+                    try? await doc.rejectAnnotation(id: id, userResponse: priorResponse)
+                case .archived:
+                    try? await doc.archiveAnnotation(id: id)
+                default:
+                    break
+                }
+            },
+            redo: { [weak undoManager] doc in
+                try? await doc.reopenAnnotation(id: id, undoManager: undoManager)
+            })
+    }
+
     /// Shared tail for annotation-only ops (reopen, edit-revert): persist,
     /// mirror, mark the sticky flag, invalidate caches. Never touches manuscript
     /// text — the manuscript-mutating accept path keeps its own bespoke tail.

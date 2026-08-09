@@ -789,10 +789,11 @@ final class AnnotationsCharacterization: XCTestCase {
         XCTAssertNil(reopens[0].provenance?.synthesisSource)
     }
 
-    /// M5-AN-039 — `reopenAnnotation` still has NO non-undo production caller,
-    /// and the annotations pane offers no Reopen affordance. RULING-29 requires
-    /// both; this test is the register's marker for that fix.
-    func test_reopenHasNoNonUndoProductionCaller() throws {
+    /// M5-AN-039 (fixed under RULING-29, 2026-08-09) — `reopenAnnotation` has
+    /// its first non-undo production caller: the annotations pane's Reopen
+    /// action. Resolution is the writer's to reverse, from the surface that
+    /// shows it.
+    func test_reopenHasThePaneAsAProductionCaller() throws {
         var callers: [String] = []
         let fm = FileManager.default
         let appDir = repoRoot.appendingPathComponent("Maugham", isDirectory: true)
@@ -803,16 +804,57 @@ final class AnnotationsCharacterization: XCTestCase {
             callers.append(url.lastPathComponent)
         }
         XCTAssertEqual(Set(callers), [
-            "Document+Annotations.swift",   // the definition
+            "Document+Annotations.swift",   // the definition (+ the undoable wrapper)
             "Document+RewindUndo.swift",    // undo of a rewind's auto-archive
             "Document+Tasks.swift",         // undo of a task-archive's auto-archive
-        ], "a new caller means RULING-29 shipped — update this claim and its filing")
+            "AnnotationsPane.swift",        // RULING-29: the writer's Reopen
+        ], "the caller census — update deliberately, never accidentally")
 
         let pane = try String(
             contentsOf: repoRoot.appendingPathComponent("Maugham/Views/AnnotationsPane.swift"),
             encoding: .utf8)
-        XCTAssertFalse(pane.contains("onReopen"),
-                       "the pane still has no Reopen action (RULING-29 gap)")
+        XCTAssertTrue(pane.contains("onReopen"),
+                      "the pane's Reopen affordance (RULING-29)")
+    }
+
+    /// RULING-31 (2026-08-09) — a rejection's written reason is part of the
+    /// note's history: after reopen, the projection carries it as
+    /// `previousRejectionReason` so the pane can show 'previously rejected: …'.
+    func test_reopeningARejectedNote_keepsTheReasonAsHistory() async throws {
+        let h = try await makeHarness("Alpha.")
+        let id = try await h.doc.addAnnotation(kind: .comment, paragraphId: h.pid, body: "b")
+        try await h.doc.rejectAnnotation(id: id, userResponse: "not this chapter")
+        try await h.doc.reopenAnnotation(id: id)
+
+        let ann = one(h.doc, id)
+        XCTAssertEqual(ann?.status, .open)
+        XCTAssertEqual(ann?.previousRejectionReason, "not this chapter",
+                       "the writer's words stay where they would look for them")
+
+        // And a never-rejected note carries nothing.
+        let clean = try await h.doc.addAnnotation(kind: .comment, paragraphId: h.pid, body: "c")
+        XCTAssertNil(one(h.doc, clean)?.previousRejectionReason)
+    }
+
+    /// RULING-29's undo contract — a pane Reopen is undoable: ⌘Z re-applies
+    /// the prior resolution (a reject returns WITH its reason), ⇧⌘Z reopens.
+    func test_paneReopen_isUndoable_andUndoRestoresTheRejectionReason() async throws {
+        let h = try await makeHarness("Alpha.")
+        let id = try await h.doc.addAnnotation(kind: .comment, paragraphId: h.pid, body: "b")
+        try await h.doc.rejectAnnotation(id: id, userResponse: "keep it lean")
+        let um = UndoManager()
+
+        try await h.doc.reopenAnnotation(id: id, undoManager: um)
+        XCTAssertEqual(one(h.doc, id)?.status, .open)
+        XCTAssertTrue(um.canUndo)
+
+        um.undo(); await h.doc.awaitPendingUndoWork()
+        XCTAssertEqual(one(h.doc, id)?.status, .rejected)
+        XCTAssertEqual(one(h.doc, id)?.userResponse, "keep it lean",
+                       "the prior resolution returns whole, reason included")
+
+        um.redo(); await h.doc.awaitPendingUndoWork()
+        XCTAssertEqual(one(h.doc, id)?.status, .open)
     }
 
     /// M5-AN-040 — `AnnotationInverse.reopenOp`'s full decision matrix: exactly
