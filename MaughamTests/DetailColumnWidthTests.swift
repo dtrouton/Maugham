@@ -157,6 +157,21 @@ private struct DetailColumnHarness: View {
 /// Maugham's. What ties it to production is the census at the bottom of this
 /// file: the harness proves the spelling holds, the census proves the app uses
 /// that spelling and writes the width from one place.
+///
+/// **A mounted test cannot ask for a window; it can only ask a display for one**
+/// (CI run 31339238337, 2026-08-09). Three tests here mounted "a wide window" by
+/// requesting 1400pt and asserting against the 480pt range that width affords.
+/// `NSWindow` clamps to the screen's visible frame, and GitHub's `macos-26`
+/// runner — the SAME macOS and Xcode as the developer machine, which is what
+/// CLAUDE.md's runner-parity rule is about — mounts a 1024pt display against
+/// this Mac's 1470. So the runner's "wide" window was 1024pt, the affordability
+/// sum quite correctly reduced a 480 wish to 336, and three tests went red for
+/// being right. **Same OS is not the same DISPLAY.** Every mounted case here now
+/// reads its premise off the window it actually got, the cases that genuinely
+/// need a big display skip with a named reason, and
+/// `test_theWideDisplayPremiseIsTheDisplaysAnswerAndNotAShrunkenMount` is the
+/// control that goes red the day those skips start firing on a Mac that could
+/// have run them.
 @MainActor
 final class DetailColumnWidthTests: XCTestCase {
 
@@ -166,6 +181,201 @@ final class DetailColumnWidthTests: XCTestCase {
         for window in windows { window.contentView = NSView(frame: .zero) }
         settle(0.05)
         windows.removeAll()
+    }
+
+    // MARK: - The display these mounted tests are standing on
+
+    /// How wide a window has to be before the whole range is affordable at all —
+    /// the three columns' floors plus the range's ceiling. Derived, because a
+    /// worked number in prose is the unmaintainable-count defect wearing
+    /// arithmetic (see `effectiveDetailColumnWidth`'s own comment on that).
+    private static let windowWidthAffordingTheWholeRange =
+        Double(ProjectWindow.binderColumnFloor + ProjectWindow.sidebarInset
+               + ProjectWindow.centreColumnFloor)
+        + UIState.detailColumnWidthRange.upperBound
+
+    /// What the wide cases ASK a display for. What they GET is this or the
+    /// display, whichever is smaller — which is the whole of the CI finding in
+    /// this file's doc comment.
+    private static let wideRequest: CGFloat = 1400
+
+    /// The display these tests mount on, in points. `nil` only where there is no
+    /// screen at all, in which case a window is not clamped by anything.
+    private static var displayWidth: Double? {
+        (NSScreen.main ?? NSScreen.screens.first)
+            .map { Double($0.visibleFrame.width) }
+    }
+
+    /// The display's width, or "unbounded" where there is no display — the shape
+    /// the premise arithmetic wants, since a missing screen clamps nothing.
+    private static var displayWidthOrUnbounded: Double {
+        displayWidth ?? .greatestFiniteMagnitude
+    }
+
+    /// **What THIS window affords the right column**, asked of production's own
+    /// sum rather than restated here. Reads the probe's *measured* container
+    /// rather than the window's frame, because the measured value is what the
+    /// column is actually laid out from — and where nothing has been recorded,
+    /// production's own nil fallback is the honest answer.
+    private func afforded(_ probe: DetailColumnProbe) -> Double {
+        ProjectWindow.draggableDetailCeiling(containerWidth: probe.containerWidth)
+    }
+
+    /// The width the column is SHOWN at for the writer's current wish in this
+    /// window: their wish, reduced only as far as this display makes necessary.
+    private func shown(_ probe: DetailColumnProbe) -> Double {
+        ProjectWindow.effectiveDetailColumnWidth(
+            persisted: probe.width, containerWidth: probe.containerWidth)
+    }
+
+    /// The named skip for a case whose premise is a big display. It names what
+    /// the display gave, what the case needed, and — the part that keeps a skip
+    /// from being a quiet deletion — which sibling holds the same protection on
+    /// a display of any size.
+    private func skipUnlessThisDisplayAffordsTheWholeRange(
+        _ window: NSWindow, _ probe: DetailColumnProbe,
+        heldOnAnyDisplayBy sibling: String
+    ) throws {
+        let room = afforded(probe)
+        try XCTSkipUnless(
+            room >= UIState.detailColumnWidthRange.upperBound,
+            "this display mounted a \(window.frame.width)pt window, which "
+            + "affords a \(room)pt right column; the whole "
+            + "\(UIState.detailColumnWidthRange.upperBound)pt range needs "
+            + "\(Self.windowWidthAffordingTheWholeRange)pt. GitHub's macos-26 "
+            + "runner mounts a 1024pt display (run 31339238337) — same macOS as "
+            + "this machine, different DISPLAY. The same protection runs on any "
+            + "display in `\(sibling)`.")
+    }
+
+    /// The premise the *narrow*-window cases are made of, which is the same rule
+    /// pointing the other way: they mount at the window's own declared floor to
+    /// measure what a squeezed layout does, and a display that cannot even show
+    /// that floor gives them a window neither they nor production is about.
+    ///
+    /// Asked of the DISPLAY rather than of the mounted window on purpose — the
+    /// defect those cases guard is a window that silently GROWS past the floor,
+    /// and a premise read off the window would skip exactly when it fired.
+    private static func skipUnlessThisDisplayCanMountTheWindowFloor() throws {
+        try XCTSkipUnless(
+            displayWidthOrUnbounded >= Double(ProjectWindow.windowFloor),
+            "this display is \(displayWidthOrUnbounded)pt wide, narrower than "
+            + "the window's own \(ProjectWindow.windowFloor)pt floor, so a "
+            + "window cannot be mounted at that floor to be measured")
+    }
+
+    /// **The mechanism behind this file's CI finding, reproduced on any Mac.**
+    /// Ask for a window wider than the screen and AppKit hands back the screen —
+    /// silently, with the test none the wiser unless it looks. That is the
+    /// runner's condition arriving on the developer's own machine, and it is why
+    /// "a wide window" is something a test reads off the window rather than a
+    /// number it can ask for.
+    func test_aWindowWiderThanTheDisplayIsClampedToIt() async throws {
+        let display = try XCTUnwrap(
+            Self.displayWidth,
+            "no display at all: every mounted case in this file is measuring "
+            + "something other than what it claims")
+        let probe = DetailColumnProbe(width: UIState.defaultDetailColumnWidth)
+        let (window, _) = try await mount(probe,
+                                          windowWidth: CGFloat(display + 600))
+        await pump(0.5)
+
+        XCTAssertEqual(Double(window.frame.width), display, accuracy: 2,
+                       "AppKit clamps a window to the display it opens on — a "
+                       + "600pt-too-wide request came back as the screen")
+        XCTAssertEqual(afforded(probe),
+                       ProjectWindow.draggableDetailCeiling(
+                        containerWidth: Double(window.frame.width)),
+                       accuracy: 1,
+                       "and what the writer can reach is what the CLAMPED "
+                       + "window affords, never what was asked for — the whole "
+                       + "of why three tests here were green on this Mac and "
+                       + "red on CI run 31339238337. (Not the same as saying "
+                       + "the memo holds the clamped number: it deliberately "
+                       + "keeps the first measurement while the ceiling is "
+                       + "unchanged, which on a display this wide it is.)")
+    }
+
+    /// **CI's own window, mounted here.** The three cases this file lost on the
+    /// runner all read the same way on a developer machine — green, and about
+    /// nothing — because 1470pt affords everything they asked about. This one
+    /// asks for the runner's 1024 on purpose, so the squeeze CI puts the column
+    /// under is a thing this suite measures rather than a thing it discovers
+    /// once a push.
+    ///
+    /// It is the narrow-window sum's mounted twin: the arithmetic itself is
+    /// covered by `test_theAffordabilitySumGivesTheWindowWhatItNeedsAndTheWriterTheRest`,
+    /// and what this adds is that a real `NavigationSplitView` in a real window
+    /// of that size lays the column out at the reduced width rather than growing
+    /// the window to fit the wish.
+    func test_aRunnerSizedWindowShowsTheColumnOnlyWhatItAffords() async throws {
+        let runnerDisplay: CGFloat = 1024
+        try XCTSkipUnless(
+            Self.displayWidthOrUnbounded >= Double(runnerDisplay),
+            "this display is \(Self.displayWidthOrUnbounded)pt wide and cannot "
+            + "mount CI's own \(runnerDisplay)pt window to be measured")
+
+        let probe = DetailColumnProbe(
+            width: UIState.detailColumnWidthRange.upperBound)
+        let (window, split) = try await mount(probe, windowWidth: runnerDisplay)
+        await pump(0.8)
+
+        XCTAssertEqual(window.frame.width, runnerDisplay, accuracy: 1,
+                       "premise: the window opened at the runner's width — and "
+                       + "did not GROW to fit a wish it cannot afford, which is "
+                       + "this task's own complaint moved to the window edge")
+
+        // Off the window rather than off the number asked for, and for the same
+        // reason as everything else in this section: AppKit answers a 1024pt
+        // request with 1025 often enough (CI's own log does, twice) that a
+        // literal here would be riding a 1pt accuracy margin.
+        let expected = ProjectWindow.effectiveDetailColumnWidth(
+            persisted: UIState.detailColumnWidthRange.upperBound,
+            containerWidth: Double(window.frame.width))
+        XCTAssertLessThan(expected, UIState.detailColumnWidthRange.upperBound,
+                          "premise: \(runnerDisplay)pt cannot afford the whole "
+                          + "range, or this test is about nothing")
+        XCTAssertEqual(width(of: split), expected, accuracy: 1,
+                       "the column is given \(expected)pt — what is left after "
+                       + "the binder and the prose take their floors")
+        XCTAssertEqual(probe.width, UIState.detailColumnWidthRange.upperBound,
+                       "and the writer's wish is untouched: they get their 480 "
+                       + "back on the display they set it on")
+        XCTAssertEqual(probe.widthWrites, 0, "nothing wrote it, either")
+    }
+
+    /// **The control on every skip in this file.** A premise that skips is only
+    /// honest while it skips for the reason it names; the failure this guards is
+    /// a harness that quietly mounts something smaller than the display allows,
+    /// under which the wide cases would skip on Denver's own Mac and a suite
+    /// that skips everywhere protects nothing.
+    ///
+    /// It never skips itself: both halves are true statements on a small display
+    /// as much as a large one.
+    func test_theWideDisplayPremiseIsTheDisplaysAnswerAndNotAShrunkenMount() async throws {
+        XCTAssertGreaterThanOrEqual(
+            Double(Self.wideRequest), Self.windowWidthAffordingTheWholeRange,
+            "premise: the wide cases ask for a window that would afford the "
+            + "whole range wherever the display allows it — otherwise they skip "
+            + "for a reason of their own making")
+
+        let probe = DetailColumnProbe(width: UIState.defaultDetailColumnWidth)
+        let (window, _) = try await mount(probe, windowWidth: Self.wideRequest)
+        await pump(0.5)
+
+        XCTAssertEqual(Double(window.frame.width),
+                       min(Double(Self.wideRequest), Self.displayWidthOrUnbounded),
+                       accuracy: 2,
+                       "the mount must be as wide as this display allows: every "
+                       + "skip here is keyed on what a mounted window comes back "
+                       + "at, so a harness mounting something smaller turns them "
+                       + "all into quiet deletions")
+        XCTAssertEqual(
+            afforded(probe) >= UIState.detailColumnWidthRange.upperBound,
+            Self.displayWidthOrUnbounded >= Self.windowWidthAffordingTheWholeRange,
+            "and the wide cases run exactly when the DISPLAY can afford them — "
+            + "this is the assertion that goes red the day they are skipped on a "
+            + "machine that could have run them")
     }
 
     // MARK: - The width survives what a mode change does to this column
@@ -180,8 +390,14 @@ final class DetailColumnWidthTests: XCTestCase {
     func test_theWidthSurvivesAPersonaRoundTrip() async throws {
         let probe = DetailColumnProbe(width: 320)
         let (_, split) = try await mount(probe)
-        XCTAssertEqual(width(of: split), 320, accuracy: 1,
-                       "premise: the column opens at the writer's own width")
+        // What the writer is SHOWN, captured once: on a display too narrow for
+        // their 320 this is less, and the claim — that a mode change does not
+        // move it — is the same claim about the same column either way. The
+        // literal that used to stand here made the test's subject the display.
+        let held = shown(probe)
+        XCTAssertEqual(width(of: split), held, accuracy: 1,
+                       "premise: the column opens at the writer's own width, "
+                       + "reduced only by what this display affords")
 
         for pane in [1, 2, 0] {
             probe.pane = pane
@@ -193,7 +409,7 @@ final class DetailColumnWidthTests: XCTestCase {
             probe.visibility = .all
             await pump(0.6)
 
-            XCTAssertEqual(width(of: split), 320, accuracy: 1,
+            XCTAssertEqual(width(of: split), held, accuracy: 1,
                            "pane \(pane): a mode change may move what the column "
                            + "SHOWS and must never move how wide it is")
         }
@@ -205,17 +421,18 @@ final class DetailColumnWidthTests: XCTestCase {
     func test_theWidthSurvivesAPaneSwitch() async throws {
         let probe = DetailColumnProbe(width: 300)
         let (_, split) = try await mount(probe)
+        let held = shown(probe)
 
         probe.pane = 1
         await pump(0.7)
-        XCTAssertEqual(width(of: split), 300, accuracy: 1,
+        XCTAssertEqual(width(of: split), held, accuracy: 1,
                        "a pane whose content wants to be wider than the column "
                        + "must be given the column's width, not the other way "
                        + "round")
 
         probe.pane = 0
         await pump(0.7)
-        XCTAssertEqual(width(of: split), 300, accuracy: 1)
+        XCTAssertEqual(width(of: split), held, accuracy: 1)
     }
 
     /// **The hypothesis this task opened with, falsified.** The leading guess
@@ -299,10 +516,11 @@ final class DetailColumnWidthTests: XCTestCase {
     func test_theFixedColumnWinsAgainstAnUnbreakablePane() async throws {
         let probe = DetailColumnProbe(width: 300)
         let (_, split) = try await mount(probe)
+        let held = shown(probe)
 
         probe.pane = 1
         await pump(0.8)
-        XCTAssertEqual(width(of: split), 300, accuracy: 1,
+        XCTAssertEqual(width(of: split), held, accuracy: 1,
                        "the column's width must still win the tie against a "
                        + "pane that cannot break — if this goes red, read this "
                        + "test's doc comment before assuming it is a flake")
@@ -319,6 +537,7 @@ final class DetailColumnWidthTests: XCTestCase {
     func test_aPersonaSwitchDoesNotWriteTheWidth() async throws {
         let probe = DetailColumnProbe(width: 300)
         let (_, split) = try await mount(probe)
+        let held = shown(probe)
         XCTAssertEqual(probe.widthWrites, 0, "premise: mounting wrote nothing")
 
         probe.pane = 1
@@ -334,14 +553,26 @@ final class DetailColumnWidthTests: XCTestCase {
         XCTAssertEqual(probe.widthWrites, 0,
                        "a persona switch, a pane switch and a collapse round "
                        + "trip must write the width exactly never")
-        XCTAssertEqual(width(of: split), 300, accuracy: 1)
+        XCTAssertEqual(width(of: split), held, accuracy: 1)
 
         // The control: the gesture's own write does reach it, so a probe that
-        // simply cannot count is not what the zero above is made of.
-        probe.width = 360
+        // simply cannot count is not what the zero above is made of. The width
+        // it moves to is the widest this display can show — a literal 360 here
+        // was one of the three cases CI's 1024pt screen could not afford, and
+        // what the control needs is a width DIFFERENT from the one held above,
+        // not a particular number.
+        let target = min(360, afforded(probe))
+        try XCTSkipUnless(
+            target > held + 8,
+            "this display shows the column at \(held)pt and affords at most "
+            + "\(afforded(probe))pt, so there is no second width to move to and "
+            + "'follows the value live' cannot be told from 'did not move'. The "
+            + "zero-write assertions above have already run and hold.")
+
+        probe.width = target
         await pump(0.6)
         XCTAssertEqual(probe.widthWrites, 1)
-        XCTAssertEqual(width(of: split), 360, accuracy: 1,
+        XCTAssertEqual(width(of: split), target, accuracy: 1,
                        "and the column follows the value live, which is what "
                        + "makes the handle a resize rather than a jump")
     }
@@ -406,6 +637,7 @@ final class DetailColumnWidthTests: XCTestCase {
     /// **Every assertion here names the window itself**, before and after, which
     /// is the part that was missing rather than the part that was wrong.
     func test_theWidestWishDoesNotGrowTheNarrowestWindow() async throws {
+        try Self.skipUnlessThisDisplayCanMountTheWindowFloor()
         let probe = DetailColumnProbe(width: UIState.detailColumnWidthRange.upperBound)
         let (window, split) = try await mount(probe, windowWidth: 980)
         XCTAssertEqual(window.frame.width, 980, accuracy: 1,
@@ -445,6 +677,7 @@ final class DetailColumnWidthTests: XCTestCase {
     /// before mounting as a value; here it is the *persisted* value being
     /// restored, and the assertion is about the window rather than the column.
     func test_aWishWiderThanTheWindowDoesNotGrowItOnReopen() async throws {
+        try Self.skipUnlessThisDisplayCanMountTheWindowFloor()
         let stored = UIState(detailColumnWidth: 480)
         XCTAssertEqual(stored.detailColumnWidth, 480,
                        "premise: the store kept the writer's wish whole")
@@ -466,32 +699,84 @@ final class DetailColumnWidthTests: XCTestCase {
                        "nothing wrote it, either")
     }
 
-    /// The other side of the asymmetry: a window that can afford the whole wish
-    /// gives the whole wish. Without this, a clamp that simply always returned
-    /// its floor would satisfy every assertion above.
+    /// The other side of the asymmetry: a window that can afford the wish gives
+    /// the wish, whole. Without this, a clamp that simply always returned its
+    /// floor — or one that always returned what the window affords — would
+    /// satisfy every assertion above.
+    ///
+    /// **The wish is the DEFAULT rather than the range's ceiling, and that is
+    /// what lets this run on any display.** The claim is about the asymmetry,
+    /// not about 480: what it needs is a wish this window has room for, sitting
+    /// clear of both the range's floor (so honouring it differs from clamping to
+    /// it) and what the window affords (so honouring it differs from reducing to
+    /// it). The default is such a wish on every Mac display, including the
+    /// 1024pt one CI mounts. `test_aWideDisplayGivesTheWholeRangeAndLetsADragReachIt`
+    /// makes the same claim at the range's ceiling where a display allows it.
     ///
     /// **The premise is read off the window rather than off what was asked
     /// for.** A requested 1600 came back as 1470 on this machine — `NSWindow`
     /// will not open wider than the screen — which is exactly the class of
     /// silently-different-window this whole fix round is about, arriving from
-    /// the other direction. What the test needs is a window that can afford the
-    /// wish, not one particular number.
+    /// the other direction.
     func test_aWindowWithRoomHonoursTheWholeWish() async throws {
-        let probe = DetailColumnProbe(width: 480)
-        let (window, split) = try await mount(probe, windowWidth: 1400)
+        let wish = UIState.defaultDetailColumnWidth
+        let probe = DetailColumnProbe(width: wish)
+        let (window, split) = try await mount(probe, windowWidth: Self.wideRequest)
         await pump(0.8)
 
-        let floors = Double(ProjectWindow.binderColumnFloor
-                            + ProjectWindow.sidebarInset
-                            + ProjectWindow.centreColumnFloor)
-        XCTAssertGreaterThanOrEqual(
-            Double(window.frame.width), floors + 480,
-            "premise: this window can actually afford the whole 480 — it "
-            + "opened at \(window.frame.width)pt, and a screen too small for "
-            + "that makes the assertion below meaningless rather than wrong")
-        XCTAssertEqual(width(of: split), 480, accuracy: 1,
+        let room = afforded(probe)
+        try XCTSkipUnless(
+            room > wish,
+            "this display mounted a \(window.frame.width)pt window, which "
+            + "affords \(room)pt — not more than the \(wish)pt wish, so "
+            + "'honoured whole' cannot be told apart from 'reduced to what the "
+            + "window affords'. No Mac display is this narrow.")
+        XCTAssertGreaterThan(
+            wish, UIState.detailColumnWidthRange.lowerBound,
+            "premise: the wish is clear of the range's floor, so honouring it "
+            + "is distinguishable from clamping to it")
+
+        XCTAssertEqual(width(of: split), wish, accuracy: 1,
                        "a window with the room gives the writer their whole "
-                       + "wish — the reduction is affordability, not policy")
+                       + "wish — neither reduced to the \(room)pt this window "
+                       + "affords nor dropped on the range's floor; the "
+                       + "reduction is affordability, not policy")
+    }
+
+    /// **The headline capability at its full size, where a display allows it.**
+    /// The two claims that genuinely need a big screen, kept together because
+    /// they share one premise: on a display with room for the whole range, the
+    /// column is given all 480 of it and a drag can reach all 480 of it.
+    ///
+    /// This is the wide half of what
+    /// `test_aWindowWithRoomHonoursTheWholeWish` and
+    /// `test_aFreshProjectCanDragPastTheUnmeasuredFallback` hold on any display.
+    /// It skips, loudly and by name, where the display cannot afford it — CI's
+    /// runner cannot; Denver's Mac can, and
+    /// `test_theWideDisplayPremiseIsTheDisplaysAnswerAndNotAShrunkenMount` is
+    /// what keeps that true.
+    func test_aWideDisplayGivesTheWholeRangeAndLetsADragReachIt() async throws {
+        let probe = DetailColumnProbe(
+            width: UIState.detailColumnWidthRange.upperBound)
+        let (window, split) = try await mount(probe, windowWidth: Self.wideRequest)
+        await pump(0.8)
+        try skipUnlessThisDisplayAffordsTheWholeRange(
+            window, probe,
+            heldOnAnyDisplayBy: "test_aWindowWithRoomHonoursTheWholeWish and "
+            + "test_aFreshProjectCanDragPastTheUnmeasuredFallback")
+
+        XCTAssertEqual(width(of: split),
+                       UIState.detailColumnWidthRange.upperBound, accuracy: 1,
+                       "a display with room for the whole range gives the "
+                       + "writer the whole range")
+        XCTAssertEqual(
+            ProjectWindow.draggedDetailColumnWidth(
+                startWidth: UIState.defaultDetailColumnWidth,
+                translation: -400,
+                containerWidth: probe.containerWidth),
+            UIState.detailColumnWidthRange.upperBound,
+            "and a drag from the default reaches it — the branch's headline "
+            + "capability at the size the writer asked for")
     }
 
     /// The sum itself, without a window — cheap, exhaustive, and the thing the
@@ -577,39 +862,50 @@ final class DetailColumnWidthTests: XCTestCase {
     /// it, and the harness reaches it through the real `ContainerWidthReporter`.
     /// Restore the old predicate and this goes red; every other test in this
     /// file stays green, which is exactly why it needs to exist.
-    func test_aFreshProjectOnAWideDisplayCanDragPastTheFallback() async throws {
+    ///
+    /// **What the starved memo cost was never the number 480** — it was that the
+    /// drag ceiling stayed the *unmeasured fallback* however much room the
+    /// writer's display had. So that is what this asserts, and it needs nothing
+    /// more than a window wider than the floor: the memo must record, the
+    /// ceiling must exceed the fallback, and a haul left must reach that ceiling
+    /// rather than stop short of it. Asserting the ceiling was 480 made the test
+    /// a claim about the developer's monitor, and CI's 1024pt display duly
+    /// failed it (run 31339238337) while the defect it guards was nowhere in
+    /// sight. `test_aWideDisplayGivesTheWholeRangeAndLetsADragReachIt` keeps the
+    /// 480 where a display can afford it.
+    func test_aFreshProjectCanDragPastTheUnmeasuredFallback() async throws {
         let probe = DetailColumnProbe(width: UIState.defaultDetailColumnWidth)
-        let (window, _) = try await mount(probe, windowWidth: 1400)
+        let (window, _) = try await mount(probe, windowWidth: Self.wideRequest)
         await pump(0.8)
 
         let unmeasured = ProjectWindow.draggableDetailCeiling(containerWidth: nil)
-        XCTAssertGreaterThanOrEqual(
-            Double(window.frame.width),
-            Double(ProjectWindow.binderColumnFloor + ProjectWindow.sidebarInset
-                   + ProjectWindow.centreColumnFloor)
-                + UIState.detailColumnWidthRange.upperBound,
-            "premise: this window can afford the whole range — it opened at "
-            + "\(window.frame.width)pt")
+        try XCTSkipUnless(
+            Double(window.frame.width) > Double(ProjectWindow.windowFloor),
+            "this display mounted a \(window.frame.width)pt window, no wider "
+            + "than the \(ProjectWindow.windowFloor)pt floor the unmeasured "
+            + "fallback already assumes, so there is no 'past the fallback' "
+            + "here to reach. No Mac display is this narrow.")
 
         let measured = try XCTUnwrap(
             probe.containerWidth,
             "the guard must have recorded a window this much wider than the "
             + "floor — a nil here is the starved memo itself")
+        XCTAssertEqual(measured, Double(window.frame.width), accuracy: 1,
+                       "and what it recorded is the window the writer is "
+                       + "actually in, not the width this test asked for")
 
         let ceiling = ProjectWindow.draggableDetailCeiling(containerWidth: measured)
         XCTAssertGreaterThan(ceiling, unmeasured,
                              "a measured wide window must afford more than the "
                              + "unmeasured fallback of \(unmeasured)pt")
-        XCTAssertEqual(ceiling, UIState.detailColumnWidthRange.upperBound,
-                       "and on a display with this much room the ceiling is the "
-                       + "writer's whole range")
 
         let landed = ProjectWindow.draggedDetailColumnWidth(
             startWidth: probe.width, translation: -400, containerWidth: measured)
-        XCTAssertEqual(landed, UIState.detailColumnWidthRange.upperBound,
-                       "so hauling the handle left reaches it — the branch's "
-                       + "headline capability, which was unreachable on every "
-                       + "display until this test existed")
+        XCTAssertEqual(landed, ceiling,
+                       "so hauling the handle left reaches everything this "
+                       + "display has — the branch's headline capability, which "
+                       + "was unreachable on every display until this test "
+                       + "existed")
     }
 
     /// **The narrow-window drag, which is the corner the re-review found open.**
