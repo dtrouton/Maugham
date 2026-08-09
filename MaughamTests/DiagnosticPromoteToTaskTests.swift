@@ -11,10 +11,17 @@ import MaughamCore
 ///
 /// The ¶ anchor rides the `.taskCreate` op's EXISTING `changes` field — the
 /// same anchor-plus-snapshot shape a paragraph-scoped annotation already uses
-/// (`Document.addAnnotation`) — so nothing about the wire format moves and
-/// `ProjectManifest.currentSchemaVersion` does not bump. Two of the tests
-/// below are about exactly that, because a promotion that quietly widened the
-/// schema would be an old build's problem, not this milestone's.
+/// (`Document.addAnnotation`) — so nothing about the wire format moves. Two of
+/// the tests below are about exactly that, because a promotion that quietly
+/// widened the format would be an old build's problem, not this milestone's.
+///
+/// **They assert the round trip, not a schema NUMBER.** An `== 4` literal stood
+/// here until the 2026-08-09 merge, when an unrelated upstream change
+/// legitimately bumped `ProjectManifest.currentSchemaVersion` to 5 and the
+/// literal fired exactly as its own message predicted. A version census could
+/// only ever have been a proxy: what this milestone owes is that the production
+/// encoder and the production decoder still agree about a task op, whatever the
+/// manifest's version happens to be.
 @MainActor
 final class DiagnosticPromoteToTaskTests: XCTestCase {
 
@@ -130,8 +137,9 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
     /// every op has carried since the first one. Encoded and decoded with the
     /// shipped op-log codec, a promoted task's op comes back whole and its
     /// kind is a named case — not `.unknown`, the fallback an unrecognised
-    /// wire value would produce — and the manifest schema version is where it
-    /// was.
+    /// wire value would produce. **The schema version is not asserted** — see
+    /// the note at the end of this test for why the round trip is the stronger
+    /// claim, and the suite's own doc comment for what took the literal out.
     func test_promotedTaskOpsDecodeUnderTheCurrentSchema() async throws {
         let (doc, root) = try await makeDocument()
         let pid = try firstParagraphId(of: doc)

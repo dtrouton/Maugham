@@ -361,7 +361,7 @@ final class PromotionCommandTests: XCTestCase {
               ".modifier(CanvasCollapseModifier(",
               "NavigationSplitView(columnVisibility: $columnVisibility)",
               "Self.releasesCanvasCollapse(",
-              "Self.clearsPaletteWallStash(",
+              "ProjectWindow.closePaletteWallOnPersonaChange(",
               "ProjectWindow.applyPaletteWallChange("],
              // **Numbered by what each token IS, never by its position in the
              // array above** (1C-d Task 12a, review Important 1). This read
@@ -485,20 +485,23 @@ final class PromotionCommandTests: XCTestCase {
              + "`CanvasCollapseTests` assertion stays green while a writer who "
              + "closed the inspector before collapsing lands in the next "
              + "persona with it closed, which is the exact defect the predicate "
-             + "exists to prevent. **`Self.clearsPaletteWallStash(` is its "
-             + "NEIGHBOUR three lines up, and it had the identical gap "
+             + "exists to prevent. **`ProjectWindow.closePaletteWallOnPersonaChange(` "
+             + "is the same hazard on the WALL, and it had the identical gap "
              + "until the 1C-d whole-branch review (M3)** — Task 13 measured "
-             + "the hazard on its own predicate and censused that one, and "
-             + "the sibling it was copied from was left uncovered. Delete "
-             + "those three lines and every test stays green while a writer "
-             + "switching persona INTO PLAN with the wall open (shell-finish "
-             + "stage 2b Task 5 re-keyed this from a palette-segment exit to a "
-             + "wall-open exit, but the hazard and its shape are unchanged) "
-             + "lands with the inspector CLOSED: `PaletteWallModifier`'s exit "
-             + "arm restores the stashed visibility over the persona switch's "
-             + "unconditional `showInspector = true`, which is the exact "
-             + "ordering hazard the canvas takeover was built to remove, on "
-             + "the surface it was built from. "
+             + "the hazard on the collapse's predicate and censused that one, "
+             + "and left the sibling it was copied from uncovered. It was "
+             + "`Self.clearsPaletteWallStash(`, inside `PersonaModifier`'s "
+             + "handler, until stage 2b's final review (I3): that call could "
+             + "only ever run for the ⌘1–⌘4 path, while two other writers move "
+             + "the persona without touching that handler, so the rule became "
+             + "an `.onChange(of: persona)` observer in `PaletteWallModifier` "
+             + "and this token names the observer's call. Delete it and every "
+             + "test over the fold stays green while a writer who switches "
+             + "persona with the wall open lands with the inspector CLOSED — "
+             + "`PaletteWallModifier`'s exit arm restores the stashed "
+             + "visibility over the switch's unconditional `showInspector = "
+             + "true` — and, one surface further, carries the wall itself into "
+             + "the persona they never opened it in. "
              + "`ProjectWindow.applyPaletteWallChange(` is the wall's own "
              + "fold, and it is that shape one surface over: the fold is a "
              + "static with its own tests, so deleting the single line that "
@@ -726,15 +729,15 @@ final class PromotionCommandTests: XCTestCase {
             ["Self.releasesNotARealCollapse("],
             "the census reports the ABSENT persona-call-site token and not the "
             + "present one")
-        // And its NEIGHBOUR three lines up, which had the identical gap until the
-        // 1C-d whole-branch review: Task 13 measured the hazard on its own
-        // predicate and censused that one, and left uncovered the sibling it was
-        // copied from.
+        // And the wall's half of the same hazard, which had the identical gap
+        // until the 1C-d whole-branch review. It left `PersonaModifier` in stage
+        // 2b's final review (I3) — one observer of the persona covers every
+        // writer of it — so the token names the observer's call.
         XCTAssertEqual(
             try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
-                              required: ["Self.clearsPaletteWallStash(",
-                                         "Self.clearsNotARealStash("]),
-            ["Self.clearsNotARealStash("],
+                              required: ["ProjectWindow.closePaletteWallOnPersonaChange(",
+                                         "ProjectWindow.closesNothingReal("]),
+            ["ProjectWindow.closesNothingReal("],
             "the census reports the ABSENT palette-stash-call-site token and not "
             + "the present one")
         // And the wall's fold, the same shape one surface over: a static with

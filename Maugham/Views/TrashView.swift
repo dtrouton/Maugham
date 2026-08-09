@@ -8,12 +8,26 @@ import SwiftUI
 /// rather than forking a second spelling of a trash row.
 struct TrashView: View {
     @Bindable var store: ProjectStore
+    /// **What a restore has to say, reported UPWARDS** (stage 2b final review's
+    /// I1). RULING-42 says a restore that gives back less than was deleted must
+    /// name the shortfall at the moment of the restore; this view cannot be the
+    /// one that says it, because the restore that most needs saying is the one
+    /// that empties the trash — `restoreTrashEntry` refreshes `trashEntries`
+    /// before it returns, both toggles mount the disclosure only while that
+    /// array is non-empty, and an alert whose host unmounts in the same pass
+    /// never presents. So the message goes to `ProjectWindow.restoreOutcome`,
+    /// the sink ⌘⌥Z already uses, which is mounted unconditionally: one sink,
+    /// both restore paths.
+    ///
+    /// Defaulted so a mount that is not about restore outcomes keeps compiling.
+    var onRestoreOutcome: (String) -> Void = { _ in }
     @State private var pendingPermanentDelete: TrashEntry?
+    /// **Permanent-delete failures only, and that is not an oversight.**
+    /// `permanentlyDeleteTrashEntry` throws BEFORE it re-lists, so the entry —
+    /// and this view with it — is still there to carry the alert. The restore
+    /// path is the one that can pull its own host down, so its error goes
+    /// upwards with its report.
     @State private var pendingError: String?
-    /// What a restore could not give back — dropped rows, a name it had to
-    /// change, a folder it could not put the file back into. Shown at the
-    /// moment of the restore, because that is when it is true (RULING-42).
-    @State private var restoreShortfall: String?
 
     var body: some View {
         List(store.trashEntries) { entry in
@@ -41,15 +55,9 @@ struct TrashView: View {
         } message: {
             Text(pendingError ?? "")
         }
-        .alert("Restored",
-               isPresented: Binding(
-                get: { restoreShortfall != nil },
-                set: { if !$0 { restoreShortfall = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(restoreShortfall ?? "")
-        }
+        // No "Restored" alert here any more — see `onRestoreOutcome`. It was
+        // mounted on a list that stops existing the moment the restored entry
+        // was the trash's last, which is exactly the restore RULING-42 is about.
     }
 
     /// Extracted from the body's modifier chain: the inline closure tripped
@@ -83,18 +91,38 @@ struct TrashView: View {
         .padding(.vertical, 2)
         .contextMenu {
             Button("Restore") {
-                Task {
-                    do {
-                        let report = try await store.restoreTrashEntry(id: entry.id)
-                        restoreShortfall = report.message
-                    } catch {
-                        pendingError = error.localizedDescription
-                    }
-                }
+                // The closure is captured before the `await`: this row can be
+                // gone by the time the store answers, so what reports the
+                // outcome must not be reaching into this view's own state.
+                let report = onRestoreOutcome
+                Task { await Self.restore(entry: entry, store: store, report: report) }
             }
             Button("Permanently Delete", role: .destructive) {
                 pendingPermanentDelete = entry
             }
+        }
+    }
+
+    /// **What the row's Restore does**, as a function a test can call.
+    ///
+    /// A `static` taking the reporter rather than a closure inside the context
+    /// menu, for `BinderTreeSections.addLink`'s reason one directory over: a
+    /// `contextMenu`'s buttons are not reachable from a headless test, so a
+    /// restore that dropped its report on the floor would be invisible to the
+    /// suite — which is exactly how the shortfall came to be shown from a view
+    /// that unmounts before it can show anything.
+    ///
+    /// **Both outcomes go to the same reporter.** A refusal is as much a thing
+    /// the writer needs said at the moment of the restore as a shortfall is
+    /// (RULING-40 beside RULING-42), and the throwing path can pull this row's
+    /// host down just as the succeeding one does.
+    static func restore(entry: TrashEntry, store: ProjectStore,
+                        report: @escaping (String) -> Void) async {
+        do {
+            let outcome = try await store.restoreTrashEntry(id: entry.id)
+            if let message = outcome.message { report(message) }
+        } catch {
+            report(error.localizedDescription)
         }
     }
 
@@ -123,12 +151,15 @@ struct TrashView: View {
 struct TrashDisclosure: View {
     @Bindable var store: ProjectStore
     @Binding var isExpanded: Bool
+    /// Passed straight through to the rows — see `TrashView.onRestoreOutcome`.
+    /// This view cannot host that alert either: it unmounts with the rows.
+    var onRestoreOutcome: (String) -> Void = { _ in }
     @State private var showingEmptyTrashConfirm = false
     @State private var pendingError: String?
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
-            TrashView(store: store)
+            TrashView(store: store, onRestoreOutcome: onRestoreOutcome)
                 .frame(maxHeight: 220)
         } label: {
             HStack {

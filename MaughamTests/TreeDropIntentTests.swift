@@ -249,6 +249,47 @@ final class TreeDropIntentTests: XCTestCase {
             + "see it")
     }
 
+    /// **A group row is a destination** (stage 2b final review's I4).
+    ///
+    /// It used to answer `container(ofRow: "group")` — the group's own parent,
+    /// which for a root group is the shared root — so a note dragged out of a
+    /// piece and dropped ON "World" landed beside it, while a Finder file
+    /// dropped on the same row at the same pixel went INTO it
+    /// (`test_aFileDroppedIntoAGroupRowLandsInThatGroup`), and the research pane
+    /// this tree replaced read middle-on-group as *into the group* too. Two
+    /// answers to one question, and the one this fixed is the answer that files
+    /// the writer's note where they were not pointing.
+    func test_aPiecesNoteDroppedOnAGroupRowJoinsThatGroup() {
+        XCTAssertEqual(
+            classify("pieceNote", on: .researchRow("group"), in: Collection.self),
+            .rescope(ids: ["pieceNote"], to: .group("group")),
+            "dropped ON a group — the same reading the external classifier and "
+            + "the old pane both give the same gesture")
+    }
+
+    /// The control that keeps the rule about GROUPS rather than about rows: a
+    /// leaf target still means beside it, which for a root-level note is the
+    /// shared root.
+    func test_aPiecesNoteDroppedOnALeafRowStillLandsBesideIt() {
+        XCTAssertEqual(
+            classify("pieceNote", on: .researchRow("note"), in: Collection.self),
+            .rescope(ids: ["pieceNote"], to: .sharedRoot),
+            "a leaf is a neighbour, not a container — this is the cell the "
+            + "group rule must not swallow")
+    }
+
+    /// And the other control: within one scope a group row is still a REORDER,
+    /// untouched. The group rule is about the cross-scope arm alone, because a
+    /// same-scope drop is the ordinary reorder every research surface has always
+    /// had and its position is the performer's to compute.
+    func test_aSharedNoteDroppedOnASharedGroupRowIsStillTheOrdinaryReorder() {
+        XCTAssertEqual(
+            classify("note", on: .researchRow("group"), in: Novel.self),
+            .researchReorder,
+            "same scope: nothing about the scope changes, so this is the "
+            + "reorder — the group rule must not reach into it")
+    }
+
     func test_aRowWhoseTargetDoesNotExistIsRefused() {
         XCTAssertEqual(
             classify("note", on: .researchRow("ghost"), in: Novel.self),
@@ -498,8 +539,15 @@ final class TreeDropIntentTests: XCTestCase {
         for (_, type, structure, research) in Self.fixtures {
             let docId = structure[0].id
             let rowId = research[0].id
+            // A GROUP row joined the targets in the final review's I4 fix:
+            // it is the one research target whose answer is not the same
+            // question as a leaf's, and the grid could not see it before.
+            // Fixtures with no group repeat their leaf row, which costs a
+            // duplicate probe and keeps the shape uniform.
+            let groupRowId = research.first { $0.type == .group }?.id ?? rowId
             let targets: [TreeDropIntent.Target] = [
                 .pieceRow(docId), .sharedSection, .researchRow(rowId),
+                .researchRow(groupRowId),
                 .foldRow(rowId: rowId, documentId: docId),
                 .pieceRow("nobody")
             ]
@@ -512,8 +560,8 @@ final class TreeDropIntentTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(answers.count, 60,
-                       "four fixtures × five targets × three positions — if "
+        XCTAssertEqual(answers.count, 72,
+                       "four fixtures × six targets × three positions — if "
                        + "this moved, a target or a project type was added and "
                        + "the external grid should grow with it")
     }
@@ -534,8 +582,8 @@ final class TreeDropIntentTests: XCTestCase {
             answered += 1
         }
         XCTAssertEqual(answered, Self.grid.count)
-        XCTAssertEqual(Self.grid.count, 60,
-                       "four fixtures × five targets × three payload kinds — if "
+        XCTAssertEqual(Self.grid.count, 72,
+                       "four fixtures × six targets × three payload kinds — if "
                        + "this moved, a target or a project type was added and "
                        + "the grid should grow with it")
     }
@@ -584,8 +632,15 @@ final class TreeDropIntentTests: XCTestCase {
         for (name, type, structure, research) in fixtures {
             let docId = structure[0].id
             let rowId = research[0].id
+            // A GROUP row joined the targets in the final review's I4 fix:
+            // it is the one research target whose answer is not the same
+            // question as a leaf's, and the grid could not see it before.
+            // Fixtures with no group repeat their leaf row, which costs a
+            // duplicate probe and keeps the shape uniform.
+            let groupRowId = research.first { $0.type == .group }?.id ?? rowId
             let targets: [TreeDropIntent.Target] = [
                 .pieceRow(docId), .sharedSection, .researchRow(rowId),
+                .researchRow(groupRowId),
                 .foldRow(rowId: rowId, documentId: docId),
                 .pieceRow("nobody")
             ]

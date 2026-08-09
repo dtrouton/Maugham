@@ -36,6 +36,13 @@ story is not "missing" sensory detail.
    and it opens in any persona, so building cards stays in Plan while reading
    them goes wherever you're working.
 
+   **Managing a card** is the tree's, like managing a note: right-click a card
+   row for **Duplicate** or **Delete**, ⌘-click several and delete them
+   together, and drag a card row onto the planning canvas to put it on the
+   board. Renaming is the card editor's — the title is the card's own heading,
+   so you change it where you can see it. There's no **Move to**: a card lives
+   in the palette group, and that's what makes it a card.
+
    **From your phone:** the palette's most natural moment often happens away
    from the desk. Aim a capture at a palette subject from the Capture tab —
    photo, voice, or text, with an optional sense tag — before or after the

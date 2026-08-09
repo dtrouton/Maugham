@@ -81,9 +81,11 @@ struct PaletteWallView: View {
 
 /// **The palette wall's own centre content** — the wall itself, or (once a
 /// card is selected on it) that card's editor with a bar back to the wall
-/// (stage 2b Task 5). Reached from `ProjectWindow.editorPane`'s
-/// `showsPaletteWall` door and from the still-live `.palette` segment arm
-/// alike, so the two cannot draw it differently.
+/// (stage 2b Task 5). **One door since Task 7** — `ProjectWindow.editorPane`'s
+/// `showsPaletteWall`. It was written to serve that door and the `.palette`
+/// segment arm alike so the two could not draw the wall differently; the
+/// segment and its arm died with the strip, and the sentence naming them
+/// outlived them by a task.
 ///
 /// **A view of its own, not a `@ViewBuilder` method on `ProjectWindow`**,
 /// because it needs `@FocusState` to make Escape reliable. `ProjectSearchView`

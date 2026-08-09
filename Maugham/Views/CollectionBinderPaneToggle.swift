@@ -16,6 +16,9 @@ struct CollectionBinderPaneToggle: View {
     /// Opens the palette wall in the centre column — see `BinderPaneToggle`'s
     /// twin, whose doc comment carries the whole reasoning.
     var onOpenPaletteWall: () -> Void = {}
+    /// A restore's report on its way to `ProjectWindow.restoreOutcome` — see
+    /// `BinderPaneToggle`'s twin, whose comment carries the reasoning.
+    var onRestoreOutcome: (String) -> Void = { _ in }
     /// The foot disclosure's own expand/collapse flag — see
     /// `BinderPaneToggle`'s twin for the reasoning, not restated here.
     @State private var trashExpanded = false
@@ -63,7 +66,8 @@ struct CollectionBinderPaneToggle: View {
             // twin of it) went with stage 2b.
             if !store.trashEntries.isEmpty {
                 Divider()
-                TrashDisclosure(store: store, isExpanded: $trashExpanded)
+                TrashDisclosure(store: store, isExpanded: $trashExpanded,
+                                onRestoreOutcome: onRestoreOutcome)
             }
         }
     }

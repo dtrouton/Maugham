@@ -385,20 +385,29 @@ final class CanvasCollapseTests: XCTestCase {
             "a switch that never touched the canvas is not this rule's business")
     }
 
-    /// **Re-derived for `clearsPaletteWallStash`'s new shape** (stage 2b Task
-    /// 5). It no longer shares the `leaves` helper with the canvas's predicate
-    /// below — the wall is not a segment transition any more, so there is no
-    /// `from`/`to` pair to fold a predicate over; the question collapses to
-    /// "is the wall open, and is the destination Plan."
-    func test_thePaletteWallStashRuleClearsExactlyWhenPlanCloses() {
-        XCTAssertTrue(PersonaModifier.clearsPaletteWallStash(
-            showsPaletteWall: true, enteringPersona: .plan))
-        XCTAssertFalse(PersonaModifier.clearsPaletteWallStash(
-            showsPaletteWall: true, enteringPersona: .author),
-            "the wall survives every persona but Plan")
-        XCTAssertFalse(PersonaModifier.clearsPaletteWallStash(
-            showsPaletteWall: false, enteringPersona: .plan),
-            "nothing to drop when the wall was already closed")
+    /// **Re-derived again in the final review's I3 fix.** The rule was
+    /// `PersonaModifier.clearsPaletteWallStash`, asked of the ⌘1–⌘4 handler and
+    /// true only when the destination was Plan — so a wall opened in Author rode
+    /// a Claude arrival or a wiki-link jump (neither of which reaches that
+    /// handler) straight back over Author's centre. It is
+    /// `ProjectWindow.closePaletteWallOnPersonaChange` now, observed on the
+    /// persona itself, and the destination is not a term at all.
+    ///
+    /// **Kept HERE rather than moved wholesale** because this suite's subject is
+    /// the two stashes not fighting each other: the wall's drops on a persona
+    /// change while the canvas collapse's is handed back by
+    /// `releasesCanvasCollapse` above, and a reader comparing them wants both in
+    /// one place. The wall's own behaviour is `PaletteWallDoorTests`'.
+    func test_thePaletteWallStashIsDroppedByAPersonaChangeRatherThanRestored() {
+        var open = true
+        var stash: Bool? = false
+        ProjectWindow.closePaletteWallOnPersonaChange(showsPaletteWall: &open,
+                                                      stash: &stash)
+        XCTAssertFalse(open, "any persona change closes the wall now")
+        XCTAssertNil(stash,
+                     "dropped, not restored — a live `false` here would close "
+                     + "the inspector back over the switch's own force-open, "
+                     + "one update pass later")
     }
 
     // **The `.canvas` ↔ `.tree` flip tests died with the segments** (stage 2b

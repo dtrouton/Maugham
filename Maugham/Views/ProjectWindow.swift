@@ -392,8 +392,6 @@ struct ProjectWindow: View {
         .modifier(PersonaModifier(persona: $persona,
                                   detailSegment: $detailSegment,
                                   showInspector: $showInspector,
-                                  showsPaletteWall: $showsPaletteWall,
-                                  inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette,
                                   inspectorWasVisibleBeforeCanvasCollapse:
                                     $inspectorWasVisibleBeforeCanvasCollapse,
                                   columnVisibility: $columnVisibility,
@@ -429,7 +427,18 @@ struct ProjectWindow: View {
             showInspector: $showInspector,
             inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette,
             selectedPaletteCardId: $selectedPaletteCardId,
-            selectedSubject: $selectedSubject))
+            selectedSubject: $selectedSubject,
+            persona: persona))
+        // A research subject arriving while the canvas holds the centre reveals
+        // the column that previews it — one line, because this body has no
+        // expression budget (the Release type-check ceiling), and the whole of
+        // the rule is in the modifier. Delete this line and every token in that
+        // file is still present, every decision test still green, and a research
+        // row in Plan's tree puts nothing anywhere.
+        .modifier(ResearchRevealModifier(persona: persona,
+                                         selectedSubject: $selectedSubject,
+                                         showInspector: $showInspector,
+                                         detailSegment: $detailSegment))
         .modifier(CanvasPromotionModifier(window: window, store: store,
                                           model: canvasModel, persona: persona))
         // The writer's notice that Claude added cards to their canvas, and the way
@@ -585,12 +594,20 @@ struct ProjectWindow: View {
     /// `applyPaletteWallChange` the door's other exits do, or the inspector
     /// stash restores twice or not at all depending on which `onChange` wins
     /// the pass.
-    private struct PaletteWallModifier: ViewModifier {
+    /// **Internal rather than private because `PaletteWallDoorTests` mounts
+    /// this exact modifier** (the `ContainerWidthReporter` precedent). The
+    /// persona-change close is a SwiftUI `onChange` and the thing that can fail
+    /// about it is whether it fires at all, so a test that re-created the
+    /// observer would be testing its own copy.
+    struct PaletteWallModifier: ViewModifier {
         @Binding var showsPaletteWall: Bool
         @Binding var showInspector: Bool
         @Binding var inspectorWasVisibleBeforePalette: Bool?
         @Binding var selectedPaletteCardId: String?
         @Binding var selectedSubject: BinderSubject?
+        /// The window's working mode — watched, never written. See
+        /// `ProjectWindow.closePaletteWallOnPersonaChange`.
+        let persona: Persona
 
         func body(content: Content) -> some View {
             content
@@ -603,6 +620,14 @@ struct ProjectWindow: View {
                 }
                 .onChange(of: selectedSubject) { _, _ in
                     if showsPaletteWall { showsPaletteWall = false }
+                }
+                // **The wall belongs to the persona it was opened in** (final
+                // review's I3). Here rather than at the three sites that write
+                // `persona`, two of which never touch `PersonaModifier` at all.
+                .onChange(of: persona) { _, _ in
+                    ProjectWindow.closePaletteWallOnPersonaChange(
+                        showsPaletteWall: &showsPaletteWall,
+                        stash: &inspectorWasVisibleBeforePalette)
                 }
         }
     }
@@ -666,7 +691,10 @@ struct ProjectWindow: View {
                 // `personaMemory`, shared last-writer-wins by two windows by
                 // the same design.
                 .onProjectEvent(.maughamNavigateToDocument, url: url, window: window) { note in
-                    if let id = note.userInfo?["id"] as? String, let store {
+                    // `store != nil` rather than a binding: the navigation moves
+                    // window state and reads none of the store's, and an unused
+                    // `let store` has warned since Task 7 took its last reader.
+                    if let id = note.userInfo?["id"] as? String, store != nil {
                         // Whether this persona shows a document at all is
                         // `ManuscriptNavigation`'s to answer.
                         ManuscriptNavigation.go(
@@ -981,7 +1009,8 @@ struct ProjectWindow: View {
                 treeFindActive: $treeFindActive,
                 renamingItemId: $pendingPieceRenameId,
                 persona: persona,
-                onOpenPaletteWall: { showsPaletteWall = true }
+                onOpenPaletteWall: { showsPaletteWall = true },
+                onRestoreOutcome: { restoreOutcome = $0 }
             )
         case .standard:
             BinderPaneToggle(
@@ -991,7 +1020,13 @@ struct ProjectWindow: View {
                 lastParsedScript: lastParsedScript,
                 treeFindActive: $treeFindActive,
                 persona: persona,
-                onOpenPaletteWall: { showsPaletteWall = true })
+                onOpenPaletteWall: { showsPaletteWall = true },
+                // **One sink for both restore paths** (final review's I1). ⌘⌥Z
+                // and the disclosure's own Restore say the same kind of thing —
+                // RULING-40's refusal, RULING-42's shortfall — and only this
+                // alert is mounted unconditionally, so only it can be shown by a
+                // restore that empties the trash and takes the rows with it.
+                onRestoreOutcome: { restoreOutcome = $0 })
         }
     }
 
@@ -1717,8 +1752,42 @@ struct ProjectWindow: View {
     /// move in focus mode ran both folds in the same pass, in an order neither
     /// could depend on. The wall's door touches no shared key, and Task 7 took
     /// the strip that was the other half of the race: the wall cannot be open in
-    /// Plan at all (`showsPaletteWallCentre`, and `PersonaModifier` force-closes
-    /// it on the way in), so the two folds can no longer meet.
+    /// Plan at all (`showsPaletteWallCentre` refuses to draw it there, and
+    /// `closePaletteWallOnPersonaChange` closes it on any persona change), so
+    /// the two folds can no longer meet.
+    /// **A persona change closes the wall — ANY persona change** (stage 2b
+    /// final review's I3).
+    ///
+    /// The rule used to live in `PersonaModifier`, keyed on the destination
+    /// being Plan, and it was reachable only from the ⌘1–⌘4 handler. Two other
+    /// writers move the persona: `CanvasClaudeArrivalModifier.show` writes
+    /// `persona = .plan` directly (deliberately — its own doc comment argues
+    /// down going through the notification), and `ManuscriptNavigation.go`
+    /// writes it for a wiki-link jump. So a wall open over Author's centre
+    /// survived a Show, hid itself in Plan (`showsPaletteWallCentre` refuses
+    /// there), and was back over the manuscript the moment the writer pressed
+    /// ⌘2 — with a visibility stash still armed to close their inspector on the
+    /// way out.
+    ///
+    /// **An observer of the persona rather than a call at each writer.** A
+    /// census of three call sites is one refactor away from being a census of
+    /// two; the wall is window state and the question is about the state.
+    ///
+    /// **It drops the stash rather than restoring it**, which is what makes the
+    /// order-independence argument hold: a persona switch opens the right column
+    /// (`PersonaModifier` writes `showInspector = true`), and
+    /// `applyPaletteWallChange`'s exit arm — which runs a pass later — would
+    /// restore the pre-wall visibility over it and land a writer who had closed
+    /// their inspector in the new persona with it closed, unlike every other
+    /// switch. A `nil` stash makes that restore a no-op in either order, which
+    /// is tripwire 2's whole lesson.
+    static func closePaletteWallOnPersonaChange(showsPaletteWall: inout Bool,
+                                                stash: inout Bool?) {
+        guard showsPaletteWall else { return }
+        stash = nil
+        showsPaletteWall = false
+    }
+
     static func applyPaletteWallChange(from old: Bool,
                                        to new: Bool,
                                        showInspector: inout Bool,
@@ -1805,8 +1874,11 @@ struct ProjectWindow: View {
     /// no-op in either order.
     ///
     /// **The two folds can no longer meet.** The wall is `showsPaletteWall`
-    /// since Task 5, its door is disabled in Plan and `PersonaModifier`
-    /// force-closes it on the way into Plan — and a collapse needs
+    /// since Task 5, its door is disabled in Plan, and a persona change closes
+    /// it — every persona change, from every writer of `persona`, since the
+    /// final review's I3 (`closePaletteWallOnPersonaChange`; the arm that used
+    /// to make this sentence true covered the ⌘1–⌘4 handler alone, so a Claude
+    /// arrival or a wiki-link jump carried the wall across). A collapse needs
     /// `route == .canvas`, which is Plan. Task 5 left the branch dormant rather
     /// than dead because the picker was still there; Task 7 removed the picker,
     /// so the branch and the parameter that fed it go together rather than
@@ -1934,6 +2006,15 @@ struct ProjectWindow: View {
     /// does not do anything. `inspectorRoute` and `canvasCollapse` are
     /// deliberately left alone: the ⌘\ collapse is a question about the SEGMENT
     /// and must not start answering differently because a row is selected.
+    ///
+    /// **Being the column's outermost question is not the same as being on
+    /// screen, and that gap was the stage 2b final review's Critical.** This
+    /// closure is `DetailPaneToggle`'s `inspectorContent`, which its `.inspector`
+    /// arm alone renders — and Plan opens on `.inbox`. So the reveal is a rule of
+    /// its own (`ResearchRevealModifier` /
+    /// `ProjectWindow.revealResearchColumn`), and this method deliberately does
+    /// not try to be it: a `@ViewBuilder` cannot move the segment it is being
+    /// rendered under.
     ///
     /// A method rather than more `ProjectWindow.body`: the inspector closure is
     /// inside `DetailPaneToggle`'s trailing builder, which is already the
@@ -2130,8 +2211,17 @@ struct ProjectWindow: View {
     /// Reached from a promoted card's **Open** button (1C-c2), through
     /// `openPromotedArtifact`. The craft-intent inspector affordance was the
     /// other caller until M1A Task 8 replaced it with a pane switch.
+    /// **And the reveal, explicitly** (final review's Critical). The subject
+    /// observer covers a subject that CHANGES; **Open** pressed on a card whose
+    /// item is already the window's subject changes nothing, so no observer
+    /// fires and a writer who had the pane on Inbox would press Open and watch
+    /// the window sit still. The two writes are idempotent together — the
+    /// observer's reveal and this one ask the same function the same question.
     private func openResearchItem(_ itemId: String) {
         selectedSubject = .research(itemId)
+        Self.revealResearchColumn(persona: persona, subject: selectedSubject,
+                                  showInspector: &showInspector,
+                                  detailSegment: &detailSegment)
     }
 
     /// **Open** on a promoted card, region or picture — which since M1A can name
@@ -2471,9 +2561,16 @@ struct ProjectWindow: View {
     /// in Plan — the persona a writer is most likely to be in when Claude is
     /// adding research — instead of forcing a segment Plan's picker offered and
     /// the other three did not.
+    /// **Show reveals the column too** — `openResearchItem`'s reason exactly: a
+    /// second note arriving while the writer is already looking at the first
+    /// leaves the subject unchanged, and a banner whose button does nothing is
+    /// worse than no banner.
     private func handleShowLatestMCPNote() {
         guard let id = mcpBanner.latestId else { return }
         selectedSubject = .research(id)
+        Self.revealResearchColumn(persona: persona, subject: selectedSubject,
+                                  showInspector: &showInspector,
+                                  detailSegment: &detailSegment)
         mcpBanner.dismiss()
     }
 
@@ -2951,13 +3048,10 @@ struct PersonaModifier: ViewModifier {
     @Binding var persona: Persona
     @Binding var detailSegment: DetailSegment
     @Binding var showInspector: Bool
-    /// The wall's own door (stage 2b Task 5) — closed here, synchronously,
-    /// when the destination persona is Plan. See
-    /// `clearsPaletteWallStash(showsPaletteWall:enteringPersona:)`.
-    @Binding var showsPaletteWall: Bool
-    /// `PaletteWallModifier`'s pre-wall visibility stash. Written here only to
-    /// DROP it — see `clearsPaletteWallStash(showsPaletteWall:enteringPersona:)`.
-    @Binding var inspectorWasVisibleBeforePalette: Bool?
+    // **No wall bindings here since the final review's I3 fix.** They were
+    // written by one arm of the ⌘1–⌘4 handler and nothing else; leaving them
+    // threaded in would invite a second wall rule beside the one observer that
+    // now owns the question (`ProjectWindow.closePaletteWallOnPersonaChange`).
     /// `CanvasCollapseModifier`'s pre-collapse visibility stash. Written here
     /// only to DROP it — see `releasesCanvasCollapse(from:to:stash:)`.
     @Binding var inspectorWasVisibleBeforeCanvasCollapse: Bool?
@@ -3010,28 +3104,16 @@ struct PersonaModifier: ViewModifier {
         return Persona(rawValue: raw)
     }
 
-    /// True when a persona change is ABOUT to close the wall — the destination
-    /// is Plan while the wall is open (stage 2b Task 5's contract: "persona
-    /// change to Plan" closes it) — the case where `PaletteWallModifier`'s
-    /// pre-wall visibility stash must be dropped rather than restored.
-    ///
-    /// **Keyed off `showsPaletteWall` rather than a segment transition** (stage
-    /// 2b Task 5). The wall is not a binder position and, since Task 7, there is
-    /// no binder position to be one — so there is no `from`/`to` pair to ask
-    /// "did this leave the palette" of. The question is just whether the wall is
-    /// open and the destination is the one persona it cannot stay open in.
-    ///
-    /// That modifier's `.onChange(of: showsPaletteWall)` fires in a LATER
-    /// update pass than this handler, so its exit arm would restore the
-    /// stashed visibility *over* the `showInspector = true` below and land the
-    /// writer in Plan with a closed inspector column — unlike every other
-    /// persona-switch path. Clearing the stash here (rather than deferring the
-    /// force-open by a pass) makes that arm a no-op restore without depending
-    /// on SwiftUI pass ordering, which is the fragility tripwire 2 is about.
-    static func clearsPaletteWallStash(showsPaletteWall: Bool,
-                                       enteringPersona persona: Persona) -> Bool {
-        showsPaletteWall && persona == .plan
-    }
+    // **The wall's own arm left this handler in the final review's I3 fix.**
+    // `clearsPaletteWallStash` asked whether a persona change was entering Plan
+    // with the wall open, and it could only ever be asked HERE — of the ⌘1–⌘4
+    // handler — while two other writers move the persona without passing
+    // through it (`CanvasClaudeArrivalModifier.show`,
+    // `ManuscriptNavigation.go`). Its successor is
+    // `ProjectWindow.closePaletteWallOnPersonaChange`, observed on the persona
+    // itself in `PaletteWallModifier`, which covers all three by construction
+    // and every destination rather than Plan alone. It drops the stash for the
+    // same ordering reason this one did — see its doc comment.
 
     /// True when a persona change moves the binder OFF the canvas *while a
     /// `⌘\` collapse is in force* — the case where `CanvasCollapseModifier`'s
@@ -3082,11 +3164,6 @@ struct PersonaModifier: ViewModifier {
                     from: persona,
                     currentSegment: detailSegment,
                     memory: documentStore?.uiState.personaMemory ?? .empty)
-                if Self.clearsPaletteWallStash(showsPaletteWall: showsPaletteWall,
-                                               enteringPersona: change.persona) {
-                    inspectorWasVisibleBeforePalette = nil
-                    showsPaletteWall = false
-                }
                 if Self.releasesCanvasCollapse(
                     fromPersona: persona, toPersona: change.persona,
                     stash: inspectorWasVisibleBeforeCanvasCollapse) {

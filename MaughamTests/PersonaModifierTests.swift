@@ -126,29 +126,16 @@ final class PersonaModifierTests: XCTestCase {
 
     // MARK: - The wall's stash must not fight the force-open
 
-    /// `PaletteWallModifier`'s exit arm restores the pre-wall inspector
-    /// visibility in a LATER update pass than the persona handler, so a ⌘1
-    /// (into Plan) pressed while the wall is open — with the stash `false` —
-    /// used to close the column right back over `showInspector = true`.
-    /// Dropping the stash in the persona handler makes that arm a no-op
-    /// restore. Keyed on `showsPaletteWall` since stage 2b Task 5 — see
-    /// `ProjectWindow.clearsPaletteWallStash`'s doc comment.
-    func test_clearsPaletteWallStash_whenAPersonaChangeEntersPlanWithTheWallOpen() {
-        XCTAssertTrue(PersonaModifier.clearsPaletteWallStash(
-            showsPaletteWall: true, enteringPersona: .plan))
-    }
-
-    func test_clearsPaletteWallStash_isFalseWhenTheDestinationIsNotPlan() {
-        // The wall survives every persona but Plan, so leaving nothing to
-        // clear on a switch between any of the other three.
-        XCTAssertFalse(PersonaModifier.clearsPaletteWallStash(
-            showsPaletteWall: true, enteringPersona: .review))
-    }
-
-    func test_clearsPaletteWallStash_isFalseWhenTheWallWasAlreadyClosed() {
-        XCTAssertFalse(PersonaModifier.clearsPaletteWallStash(
-            showsPaletteWall: false, enteringPersona: .plan))
-    }
+    // **The three `clearsPaletteWallStash` cases moved to
+    // `PaletteWallDoorTests` with the rule itself** (stage 2b final review's
+    // I3). The predicate lived here, asked of this handler, and this handler is
+    // one of THREE writers of `persona` — the other two (a Claude arrival, a
+    // wiki-link jump) never reach it, so a wall opened in Author survived them
+    // both. Its successor is `ProjectWindow.closePaletteWallOnPersonaChange`,
+    // observed on the persona in `PaletteWallModifier`, and the ordering
+    // argument these tests pinned is pinned there instead: the stash is
+    // dropped, so the exit arm's conditional restore cannot fight the
+    // `showInspector = true` below.
 
     func test_personaFromPayload_parsesAValidRawValue() {
         XCTAssertEqual(PersonaModifier.persona(fromPayload: "review"), .review)

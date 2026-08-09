@@ -238,6 +238,145 @@ final class PaletteWallDoorTests: XCTestCase {
             + "the door's own contract")
     }
 
+    // MARK: - A persona change closes the wall, whoever wrote the persona (I3)
+
+    /// **The rule, folded.** Dropping the stash rather than restoring it is what
+    /// keeps the exit arm from fighting `PersonaModifier`'s `showInspector =
+    /// true` a pass later — see `closePaletteWallOnPersonaChange`'s doc comment.
+    func test_closePaletteWallOnPersonaChange_closesAndDropsTheStash() {
+        var open = true
+        var stash: Bool? = false
+        ProjectWindow.closePaletteWallOnPersonaChange(showsPaletteWall: &open,
+                                                      stash: &stash)
+        XCTAssertFalse(open)
+        XCTAssertNil(stash,
+                     "a live stash would restore the pre-wall visibility over "
+                     + "the switch's own force-open, one pass later")
+    }
+
+    func test_closePaletteWallOnPersonaChange_isANoOpWhenTheWallIsShut() {
+        var open = false
+        var stash: Bool? = true
+        ProjectWindow.closePaletteWallOnPersonaChange(showsPaletteWall: &open,
+                                                      stash: &stash)
+        XCTAssertFalse(open)
+        XCTAssertEqual(stash, true,
+                       "a closed wall's memory belongs to whoever armed it — "
+                       + "this rule only ever cleans up after itself")
+    }
+
+    /// **Mounted, on the real modifier**: an `onChange` that does not fire is
+    /// indistinguishable from a rule that decided not to act, and only a mount
+    /// can tell them apart.
+    ///
+    /// Both destinations, because the rule this replaced fired for Plan alone —
+    /// so a wall opened in Author followed the writer into Review.
+    func test_theMountedModifierClosesTheWallOnAnyPersonaChange() async throws {
+        for destination in [Persona.plan, .review] {
+            let box = WallPersonaBox()
+            box.showsPaletteWall = true
+            box.stash = true
+            let window = hostWallModifier(box: box)
+            XCTAssertTrue(box.showsPaletteWall, "premise: the wall is open in Author")
+
+            box.persona = destination
+            await pumpUntil(deadline: 5) { !box.showsPaletteWall }
+
+            XCTAssertFalse(box.showsPaletteWall,
+                           "→\(destination): the wall belongs to the persona it "
+                           + "was opened in")
+            XCTAssertNil(box.stash, "→\(destination): and its stash went with it")
+            _ = window
+        }
+    }
+
+    /// **Bypass 2, through the real writer.** `ManuscriptNavigation.go` moves the
+    /// persona for a wiki-link click and never touches `PersonaModifier`, where
+    /// the old wall rule lived — so this drives production's own function against
+    /// the mounted observer.
+    func test_aNavigationJumpClosesTheWallItWouldOtherwiseCarryAcross() async throws {
+        let box = WallPersonaBox()
+        // Plan with the wall armed — the very state the old rule let a bypass
+        // produce, and the only one a jump can move the persona OUT of (a jump
+        // from a persona that already centres a document moves nobody).
+        box.persona = .plan
+        box.showsPaletteWall = true
+        box.stash = true
+        _ = hostWallModifier(box: box)
+
+        let destination = ManuscriptNavigation.destination(
+            from: box.persona, currentDetailSegment: .inspector, memory: .empty)
+        XCTAssertTrue(destination.movesPersona, "premise: this jump moves the persona")
+        ManuscriptNavigation.go(
+            to: destination,
+            persona: Binding(get: { box.persona }, set: { box.persona = $0 }),
+            detailSegment: Binding(get: { box.detailSegment },
+                                   set: { box.detailSegment = $0 }),
+            documentStore: nil)
+        await pumpUntil(deadline: 5) { !box.showsPaletteWall }
+
+        XCTAssertFalse(box.showsPaletteWall,
+                       "a wiki-link jump moved the writer to Author with the wall "
+                       + "still over the centre column")
+        XCTAssertNil(box.stash)
+    }
+
+    /// **Bypass 1**, as close as its private `show` allows: the persona it
+    /// writes is `CanvasClaudeArrivalModifier.destination(forRegion:)`'s, taken
+    /// from production rather than named here, and driven into the same mounted
+    /// observer. The census below is the other half — that Show writes the
+    /// persona directly and closes nothing itself.
+    func test_aClaudeArrivalClosesTheWallItWouldOtherwiseCarryAcross() async throws {
+        let box = WallPersonaBox()
+        box.showsPaletteWall = true
+        box.stash = true
+        _ = hostWallModifier(box: box)
+
+        box.persona = CanvasClaudeArrivalModifier
+            .destination(forRegion: CanvasRegionID("r1")).persona
+        await pumpUntil(deadline: 5) { !box.showsPaletteWall }
+
+        XCTAssertFalse(box.showsPaletteWall,
+                       "Show took the writer to Plan with the wall still armed — "
+                       + "it hides itself there and is back over Author's centre "
+                       + "the moment they press ⌘2")
+        XCTAssertNil(box.stash)
+    }
+
+    /// **The falsifier for the two above**: neither bypass closes the wall
+    /// itself, and neither goes through the persona handler that used to. If one
+    /// of them grows its own close, this assertion says so — two rules about one
+    /// piece of state is the drift the observer exists to prevent.
+    func test_neitherBypassWriterClosesTheWallItself() throws {
+        for path in ["Maugham/Views/CanvasClaudeArrivalModifier.swift",
+                     "Maugham/Views/ManuscriptNavigation.swift"] {
+            let text = Self.codeOnly(try source(path))
+            XCTAssertTrue(text.contains("persona"),
+                          "\(path): premise — this file writes the window's persona")
+            XCTAssertFalse(text.contains("showsPaletteWall"),
+                           "\(path): a second wall rule has appeared beside "
+                           + "`closePaletteWallOnPersonaChange` — one observer of "
+                           + "the persona covers every writer, and a census of "
+                           + "writers is what this fix removed")
+        }
+        // Comment-stripped, because the replaced predicate is NAMED in the
+        // comment that records its removal — a census over prose would fail on
+        // its own explanation.
+        let window = Self.codeOnly(try source("Maugham/Views/ProjectWindow.swift"))
+        XCTAssertFalse(window.contains("clearsPaletteWallStash"),
+                       "the Plan-only predicate is back in the persona handler, "
+                       + "which two of the three persona writers never reach")
+    }
+
+    /// Source with `//` and `///` lines dropped — the shape
+    /// `test_noComparisonAgainstDotPaletteSurvivesInProjectWindow` already uses
+    /// inline, lifted out because two censuses here need it.
+    private static func codeOnly(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
+
     // MARK: - Fixtures
 
     private func novel() async throws -> ProjectStore {
@@ -276,6 +415,16 @@ final class PaletteWallDoorTests: XCTestCase {
         windows.append(window)
         await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
         pump(0.2)
+        return window
+    }
+
+    /// The real `PaletteWallModifier` over a box the test drives, on a view with
+    /// nothing else in it — the observer is the whole subject, so anything else
+    /// mounted here could only supply another explanation for a closed wall.
+    @discardableResult
+    private func hostWallModifier(box: WallPersonaBox) -> NSWindow {
+        let window = hostKeyWindow(WallPersonaProbeView(box: box))
+        pump(0.1)
         return window
     }
 
@@ -417,5 +566,46 @@ private struct BothOpenProbeView: View {
             PaletteWallCentre(store: store, selectedPaletteCardId: .constant(nil),
                               onClose: onCloseWall)
         }
+    }
+}
+
+/// The window state the wall's persona rule reads and writes, held outside the
+/// view so a test can drive the persona the way any of its three production
+/// writers does. At file scope because `@Observable` cannot expand inside a
+/// `private` nested type.
+@Observable
+@MainActor
+final class WallPersonaBox {
+    var persona: Persona = .author
+    var detailSegment: DetailSegment = .inspector
+    var showsPaletteWall = false
+    var showInspector = true
+    var stash: Bool?
+    var selectedCardId: String?
+    var subject: BinderSubject?
+    init() {}
+}
+
+/// The REAL `ProjectWindow.PaletteWallModifier`, applied to nothing — the
+/// observer is the subject, and a view with content in it could close the wall
+/// for some other reason and read the same from outside.
+@MainActor
+private struct WallPersonaProbeView: View {
+    let box: WallPersonaBox
+
+    var body: some View {
+        Color.clear
+            .modifier(ProjectWindow.PaletteWallModifier(
+                showsPaletteWall: Binding(get: { box.showsPaletteWall },
+                                          set: { box.showsPaletteWall = $0 }),
+                showInspector: Binding(get: { box.showInspector },
+                                       set: { box.showInspector = $0 }),
+                inspectorWasVisibleBeforePalette: Binding(get: { box.stash },
+                                                          set: { box.stash = $0 }),
+                selectedPaletteCardId: Binding(get: { box.selectedCardId },
+                                               set: { box.selectedCardId = $0 }),
+                selectedSubject: Binding(get: { box.subject },
+                                         set: { box.subject = $0 }),
+                persona: box.persona))
     }
 }

@@ -175,6 +175,108 @@ final class BinderTreeSectionsTests: XCTestCase {
         XCTAssertEqual(screenplayProbe.subject, .research(screenplayCard.id), "screenplay tree")
     }
 
+    // MARK: - Managing a card from the tree (final review's I2)
+
+    /// **A card can be deleted again.** Every palette management verb lived on
+    /// `ResearchView`'s rows and died with that pane in Task 7 — and the
+    /// capability census missed it, because 2a's palette rows were already bare
+    /// `Label`s: there was nothing on the tree for the deletion to take away, so
+    /// nothing went red and nothing looked lost. A writer could make a card and
+    /// edit it and never remove it, from any surface in the app.
+    ///
+    /// Driven through the bundle the row's menu calls — a `contextMenu` button
+    /// is not pressable headlessly, which is the same reason the drop verbs are
+    /// asked of `actions` directly one section down — and asserted on the tree:
+    /// the row goes, not just the manifest entry.
+    func test_aPaletteCardCanBeDeletedFromTheTree() async throws {
+        // TWO cards, so the row that goes is not replaced by the empty
+        // section's placeholder — deleting the last one leaves the count
+        // unchanged and would say nothing about the row.
+        let store = try await novel(notes: [], cards: ["Harbour", "Quay"])
+        let card = try XCTUnwrap(store.loadPaletteCards().first)
+        let (window, _) = try await hostBinder(store: store)
+        let table = try XCTUnwrap(firstTableView(in: window))
+        let before = table.numberOfRows
+        XCTAssertTrue(store.paletteCardItems().contains { $0.id == card.id },
+                      "premise: the card is in the palette group")
+
+        let state = BinderTreeSectionsState()
+        BinderTreeSections(store: store, state: state,
+                           selectedSubject: .constant(nil))
+            .actions.delete(card.id)
+        await pumpUntil(deadline: 5) { store.paletteCardItems().count == 1 }
+
+        XCTAssertFalse(store.paletteCardItems().contains { $0.id == card.id },
+                      "the card is still in the palette group — a card is an "
+                      + "ordinary research document and `deleteResearchItem` is "
+                      + "its verb. The verb's own error: "
+                      + "\(state.pendingError ?? "none")")
+        await pumpUntil(deadline: 5) { table.numberOfRows == before - 1 }
+        XCTAssertEqual(table.numberOfRows, before - 1,
+                       "…and its row is still in the tree")
+    }
+
+    /// The other verb, and the control that keeps the one above from passing
+    /// against a bundle that only ever destroys.
+    func test_aPaletteCardCanBeDuplicatedFromTheTree() async throws {
+        let store = try await novel(notes: [], cards: ["Harbour"])
+        let card = try XCTUnwrap(store.loadPaletteCards().first)
+        let (window, _) = try await hostBinder(store: store)
+        let table = try XCTUnwrap(firstTableView(in: window))
+        let before = table.numberOfRows
+
+        BinderTreeSections(store: store, state: BinderTreeSectionsState(),
+                           selectedSubject: .constant(nil))
+            .actions.duplicate(card.id)
+        await pumpUntil(deadline: 5) { store.paletteCardItems().count == 2 }
+
+        XCTAssertEqual(store.paletteCardItems().count, 2,
+                       "Duplicate must make a second card in the palette group")
+        await pumpUntil(deadline: 5) { table.numberOfRows == before + 1 }
+        XCTAssertEqual(table.numberOfRows, before + 1)
+    }
+
+    /// **The row's own affordances, censused** — the menu and the drag are the
+    /// two halves no headless test can press, and they are exactly what went
+    /// missing without a red test. A card drags by its BARE id because that is
+    /// the canvas's drop contract; the Inbox's prefixed payload is the one
+    /// exception in the app and declares itself at its own site.
+    func test_thePaletteRowsCarryTheirVerbsAndTheirDrag() throws {
+        let text = try source("Maugham/Views/BinderTreeSections.swift")
+        XCTAssertTrue(text.contains(".draggable(card.id)"),
+                      "a palette card must drag by its bare research id — the "
+                      + "canvas derives its node id from exactly that")
+        XCTAssertTrue(text.contains(".contextMenu { paletteRowMenu(for: card) }"),
+                      "the palette rows are bare Labels again — no delete, no "
+                      + "duplicate, no way to remove a card from anywhere")
+        XCTAssertTrue(text.contains("actions.duplicate(card.id)")
+                      && text.contains("actions.delete(card.id)"),
+                      "the row's verbs must be the shared bundle's, not a "
+                      + "second spelling of the store calls")
+        // The menu's own body, read on its own: Move to would take the card out
+        // of the palette group — which is what makes it a card — and Rename
+        // belongs to `PaletteCardEditor`, whose title is the card's H1.
+        let menu = try XCTUnwrap(
+            text.range(of: "private func paletteRowMenu").map { start in
+                String(text[start.lowerBound...].prefix(900))
+            },
+            "the palette row's menu builder is gone")
+        for absent in ["Move to", "Rename"] {
+            XCTAssertFalse(menu.contains(absent),
+                           "\(absent) must not be offered on a palette row — see "
+                           + "`paletteRowMenu`'s own doc comment for which "
+                           + "surface owns it instead")
+        }
+    }
+
+    private func source(_ path: String) throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(contentsOf: root.appendingPathComponent(path),
+                          encoding: .utf8)
+    }
+
     // MARK: - The project row is still row zero
 
     func test_theProjectRowIsStillRowZeroInEveryTree() async throws {

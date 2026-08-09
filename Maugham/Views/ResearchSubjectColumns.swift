@@ -100,6 +100,40 @@ extension ProjectWindow {
         return persona.centresTheCanvas ? .besideTheCanvas(id) : .takesTheCentre(id)
     }
 
+    /// **Showing the column the placement chose** (stage 2b final review's
+    /// Critical).
+    ///
+    /// `besideTheCanvas` says the right column previews the item. It does not
+    /// make that column VISIBLE, and in Plan it is not: `Persona.panes` opens
+    /// Plan on `.inbox`, and `ResearchSubjectInspector` is mounted by
+    /// `DetailPaneToggle`'s `.inspector` arm alone. So every correct piece of
+    /// the routing — the tree writes the subject, the placement sends it beside
+    /// the board, the right column knows what to draw — composed into a research
+    /// row that put nothing anywhere: the board does not dim, the pane does not
+    /// change, and the writer's click is silently nothing. Three tasks' choices,
+    /// each right on its own.
+    ///
+    /// **What it does NOT do is decide anything about the columns.** Where the
+    /// centre takes the item (Author, Review, Publish) this writes nothing at
+    /// all, so a writer's pane choice in those personas is never moved by a
+    /// research click — the guard is the placement's own answer, asked rather
+    /// than a second `centresTheCanvas` test.
+    ///
+    /// `inout` and static so the whole rule is drivable without a window, and so
+    /// the three sites that reveal — the subject observer
+    /// (`ResearchRevealModifier`) and the two forced entries (`openResearchItem`,
+    /// `handleShowLatestMCPNote`) — cannot come to disagree about what revealing
+    /// means.
+    static func revealResearchColumn(persona: Persona,
+                                     subject: BinderSubject?,
+                                     showInspector: inout Bool,
+                                     detailSegment: inout DetailSegment) {
+        guard researchSubjectPlacement(persona: persona, subject: subject)
+            .previewsInTheRightColumn else { return }
+        showInspector = true
+        detailSegment = .inspector
+    }
+
     /// Whether the window's subject resolves to a manuscript document — the only
     /// selection kind for which the `EditorCoordinator` delivers metrics, so
     /// anything else zeroes them.

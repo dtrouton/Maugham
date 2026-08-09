@@ -99,7 +99,7 @@ Two new research-adjacent conventions, both plain-edited (no op log, no `¶id` a
 - **Find-or-create, because the well cannot be known before the file exists.** `vacantStatementPath` steers around an occupied `visual-language.md`, so the path is `createStatement`'s answer rather than a constant. `createStatement` is idempotent, so a pane minting on the same turn gets the same statement.
 - **The file-URL twin validates BEFORE it mints.** A refused `.txt` must not be what declares the writer's visual language to exist — so the guard is asked here as well as inside the saver, and a refusal leaves nothing behind at all.
 - **It returns a `StatementPicture` — the statement AND the ref — and never touches the statement's text.** The pair travels together because an async ingest can finish on a different scope than it started on (the writer drops a picture on Visual Language and presses `⌘⌥N` while the file is copied); a caller holding only the ref would have to ask "which document is this for?" of whatever the pane shows *now*. Putting it in is the caller's next act, through the op log — writing the `.md` would be discarded on the next re-materialize.
-- **It opens no `Document` and takes no `lockStatementOpen` of its own** — that gate is over the *opening*, and this only writes a file beside one. `mutateStatementText` is where the gate is taken.
+- **It opens no `Document` and takes no `lockStatementOpen` of its own** — that gate is over the *opening*, and this only writes a file beside one. `withStatementDocument` is where the gate is taken (the seam below; `mutateStatementText` is one of its callers).
 
 ## The statement seam — `ProjectStore+Statements.swift` (M1A, 2026-07-31)
 

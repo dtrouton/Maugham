@@ -28,6 +28,11 @@ struct BinderPaneToggle: View {
     /// `showsPaletteWall = true` (stage 2b Task 5). Defaulted so tests that
     /// mount this toggle without caring about the wall's door keep compiling.
     var onOpenPaletteWall: () -> Void = {}
+    /// What a restore in the foot disclosure has to say (RULING-40/42), on its
+    /// way to `ProjectWindow.restoreOutcome` — see `TrashView.onRestoreOutcome`
+    /// for why the message cannot be shown down here. Defaulted for
+    /// `onOpenPaletteWall`'s reason.
+    var onRestoreOutcome: (String) -> Void = { _ in }
     /// The foot disclosure's own expand/collapse flag (shell-finish stage 2b
     /// Task 2) — collapsed by default, private to this view. It is `@State`
     /// rather than threaded in from `ProjectWindow` because nothing outside
@@ -93,7 +98,8 @@ struct BinderPaneToggle: View {
             // FROM.
             if !store.trashEntries.isEmpty {
                 Divider()
-                TrashDisclosure(store: store, isExpanded: $trashExpanded)
+                TrashDisclosure(store: store, isExpanded: $trashExpanded,
+                                onRestoreOutcome: onRestoreOutcome)
             }
         }
     }

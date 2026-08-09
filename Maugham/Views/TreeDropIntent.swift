@@ -202,11 +202,25 @@ enum TreeDropIntent {
             let to = owningPieceId(of: targetId, structure: structure,
                                    research: research)
             guard from != to else { return .researchReorder }
-            // Cross-scope. The row's CONTAINER is where the item lands — its
-            // parent group if it has one, else the root of its scope. Dropping
-            // beside a row must not put the item somewhere the writer cannot
-            // see it, which is what appending to the scope root would do to a
-            // drop aimed inside a group.
+            // **A GROUP row is a destination, not a neighbour** (stage 2b final
+            // review's I4). The old research pane read middle-on-group as
+            // *into that group*, and `classifyExternal` still does one function
+            // down — so a Finder file dropped on "World" entered it while a note
+            // dragged from a piece landed beside it, in the group's parent, from
+            // the same gesture at the same pixel. Two answers to one question.
+            //
+            // The internal classifier is given no drop POSITION (a row's string
+            // destination reports none), so a group target means the group: the
+            // one reading that can never file the writer's note somewhere they
+            // did not aim.
+            if TreeWalk.find(id: targetId, in: research)?.type == .group {
+                return .rescope(ids: [dragged.id], to: .group(targetId))
+            }
+            // Cross-scope, onto a leaf. The row's CONTAINER is where the item
+            // lands — its parent group if it has one, else the root of its
+            // scope. Dropping beside a row must not put the item somewhere the
+            // writer cannot see it, which is what appending to the scope root
+            // would do to a drop aimed inside a group.
             return .rescope(ids: [dragged.id],
                             to: container(ofRow: targetId, structure: structure,
                                           research: research))

@@ -153,10 +153,62 @@ struct BinderTreeSections: View {
                     Label(card.title,
                           systemImage: PaletteCardTile.kindSymbol(for: card.kind))
                         .tag(BinderSubject.research(card.id))
+                        .contentShape(Rectangle())
+                        // **A card is dragged by its BARE id** (final review's
+                        // I2). That is the canvas's own drop contract — the
+                        // canvas reads a research id and derives its node id
+                        // from it — and it is what `ResearchRow` sends, so a
+                        // card and a note are the same payload to every reader.
+                        // The Inbox's prefixed payload is the exception and
+                        // says so at its own site.
+                        .draggable(card.id) {
+                            Text(card.title)
+                                .padding(6)
+                                .background(.regularMaterial,
+                                            in: RoundedRectangle(cornerRadius: 4))
+                        }
+                        .contextMenu { paletteRowMenu(for: card) }
                 }
             }
         } header: {
             paletteSectionHeader
+        }
+    }
+
+    /// **What a writer can do to a card from the tree** (stage 2b final
+    /// review's I2).
+    ///
+    /// Every management verb the palette had lived on `ResearchView`'s rows and
+    /// died with that pane in Task 7: the capability census enumerated the PANE's
+    /// affordances and missed that 2a's palette rows were already bare `Label`s,
+    /// so there was nothing on the tree for the deletion to take away and nothing
+    /// to notice. A card could be made and edited and never removed.
+    ///
+    /// **Duplicate and Delete, through the same bundle the research rows use** —
+    /// a card is an ordinary research `.document` under `research/palette/`, so
+    /// `duplicateResearchItem`/`deleteResearchItem(s)` are its verbs too and no
+    /// new store API exists here.
+    ///
+    /// **Rename is deliberately absent, and so is Move to.** A card's title is
+    /// the card's own H1 — `PaletteCardEditor` owns it, and
+    /// `updatePaletteCard` routes a title change through the typed mover so the
+    /// file, its `_assets/` folder and its refs move together. An inline rename
+    /// in the tree would write the manifest title alone and leave the card's
+    /// own heading behind. Move to would take the card OUT of the palette group,
+    /// which is what makes it a card at all.
+    @ViewBuilder
+    private func paletteRowMenu(for card: PaletteCard) -> some View {
+        // The whole selection when this row is inside one — the research rows'
+        // rule, asked rather than re-spelled, so ⌘-clicking two cards and
+        // deleting offers the same verb it does one section up.
+        let acting = actions.selectionForRow(card.id)
+        if acting.count > 1 {
+            Button("Delete \(acting.count) Items", role: .destructive) {
+                actions.deleteMany(acting)
+            }
+        } else {
+            Button("Duplicate") { actions.duplicate(card.id) }
+            Button("Delete", role: .destructive) { actions.delete(card.id) }
         }
     }
 

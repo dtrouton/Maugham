@@ -160,9 +160,100 @@ final class TreeTrashDisclosureTests: XCTestCase {
                        + "the window's subject")
     }
 
+    // MARK: - A restore's report reaches the writer (final review's I1)
+
+    /// **The exposure, mounted.** RULING-42 says a restore that gives back less
+    /// than was deleted must name the shortfall *at the moment of the restore* —
+    /// and the restore most in need of saying it is the one that empties the
+    /// trash, because `restoreTrashEntry` re-lists before it returns and both
+    /// toggles mount the disclosure only while `!trashEntries.isEmpty`. So the
+    /// row's own host is gone in the same pass, and an alert attached to it
+    /// never presents.
+    ///
+    /// This is the falsifier for routing the message upwards: it asserts the
+    /// disclosure is unmounted after the restore, which is what makes any alert
+    /// hosted down here unshowable rather than merely inelegant.
+    func test_restoringTheLastEntryTakesTheRowsHostDownWithIt() async throws {
+        let (store, _) = try await novelWithOneTrashedChapter()
+        let box = ToggleProbeBox()
+        let window = mountToggle(store: store, box: box, shell: .standard)
+        XCTAssertNotNil(try findButton(labeled: "Empty Trash", in: window),
+                        "premise: the disclosure — and the rows inside it — are mounted")
+
+        let id = try XCTUnwrap(store.trashEntries.first?.id)
+        try await store.restoreTrashEntry(id: id)
+        await pumpUntil(deadline: 5) {
+            (try? self.findButton(labeled: "Empty Trash", in: window, attempts: 1)) == nil
+        }
+
+        XCTAssertNil(try findButton(labeled: "Empty Trash", in: window),
+                     "restoring the last entry unmounts the disclosure, so nothing "
+                     + "hosted inside it can present a shortfall message — which is "
+                     + "why the report has to travel to the window's own sink")
+    }
+
+    /// **The row's Restore reports upwards**, driven through the exact function
+    /// its button calls (`TrashView.restore` is a `static` for that reason — a
+    /// `contextMenu` button is not reachable headlessly).
+    ///
+    /// The shortfall is real rather than stubbed: the trashed note's own path is
+    /// taken by a new note of the same name before the restore, so it comes back
+    /// renamed and `TrashRestoreReport.message` says so (RULING-38's relocation).
+    /// And it is the trash's LAST entry, so this is the exposure above.
+    func test_theRowsRestoreReportsItsShortfallToTheCaller() async throws {
+        let url = try await ProjectFactory.createNovelProject(
+            named: "Novel-\(UUID().uuidString.prefix(6))", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Ships")
+        try await store.deleteResearchItem(id: note.id)
+        // Something else takes the file's place while it is in the trash.
+        _ = try await store.addResearchTextNote(parentId: nil, title: "Ships")
+        let entry = try XCTUnwrap(store.trashEntries.first,
+                                  "premise: exactly one thing in the trash")
+
+        var reported: [String] = []
+        await TrashView.restore(entry: entry, store: store,
+                                report: { reported.append($0) })
+
+        XCTAssertTrue(store.trashEntries.isEmpty,
+                      "premise: this restore emptied the trash, so the row that "
+                      + "started it is gone")
+        XCTAssertEqual(reported.count, 1,
+                       "the restore came back with a shortfall and said it exactly "
+                       + "once — got \(reported)")
+        XCTAssertTrue(reported.first?.contains("Ships") == true,
+                      "and the message names what could not come back as it was: "
+                      + "\(reported)")
+    }
+
+    /// **One sink, both restore paths.** The window's `restoreOutcome` alert is
+    /// mounted unconditionally, so it is the only place either restore can say
+    /// anything from — asserted at the wiring, because the alternative (a second
+    /// alert somewhere down the column) is exactly what this fix removed.
+    func test_bothTogglesRouteTheRestoreReportToTheWindowsOwnSink() throws {
+        for path in ["Maugham/Views/BinderPaneToggle.swift",
+                     "Maugham/Views/CollectionBinderPaneToggle.swift"] {
+            let text = try source(path)
+            XCTAssertTrue(text.contains("onRestoreOutcome: onRestoreOutcome"),
+                          "\(path): the disclosure must be handed the window's "
+                          + "reporter, or a shortfall has nowhere to go")
+        }
+        let window = try source("Maugham/Views/ProjectWindow.swift")
+        XCTAssertEqual(
+            window.components(separatedBy: "onRestoreOutcome: { restoreOutcome = $0 }")
+                .count - 1, 2,
+            "both binder shells must point at `restoreOutcome` — the ⌘⌥Z sink, "
+            + "which is the alert mounted whatever the trash contains")
+        let trash = try source("Maugham/Views/TrashView.swift")
+        XCTAssertFalse(trash.contains("restoreShortfall"),
+                       "the row-local shortfall alert is back — it cannot present "
+                       + "for the restore that empties the trash")
+    }
+
     // MARK: - ⌘⌥Z restore-last-deleted, with the disclosure mounted
 
-    /// `ProjectWindow.swift:679-683`'s handler, untouched by this task —
+    /// The `.maughamRestoreLastDeleted` handler in
+    /// `ProjectWindow.SessionAndNavigationModifier`, untouched by this task —
     /// this is the regression net proving it still reaches the store with the
     /// foot disclosure in the tree instead of the old picker segment.
     func test_cmdOptZRestoresTheLastDeletedWithTheDisclosureMounted() async throws {
@@ -175,7 +266,7 @@ final class TreeTrashDisclosureTests: XCTestCase {
         await pumpUntil(deadline: 5) { store.trashEntries.isEmpty }
 
         XCTAssertTrue(store.trashEntries.isEmpty,
-                      "⌘⌥Z did not reach restoreLastDeleted with the disclosure mounted")
+                      "⌘⌥Z did not reach restoreLastDeletion with the disclosure mounted")
         XCTAssertEqual(store.manifest.structure.count, 1,
                        "the restored chapter did not come back into the manifest")
         XCTAssertEqual(store.manifest.structure.first?.id, chapterId)
@@ -474,9 +565,10 @@ final class ToggleProbeBox {
     var window: NSWindow?
 }
 
-/// The left column as `ProjectWindow.binderColumn` builds it, for either
+/// The left column as `ProjectWindow.binderShell` builds it, for either
 /// project shell, plus the one receiver `⌘⌥Z` needs — the same
-/// `store.restoreLastDeleted()` call `ProjectWindow.swift:689-692` makes.
+/// `store.restoreLastDeletion()` call the window's
+/// `.maughamRestoreLastDeleted` handler makes.
 @MainActor
 private struct BinderToggleTrashProbeView: View {
     let store: ProjectStore
