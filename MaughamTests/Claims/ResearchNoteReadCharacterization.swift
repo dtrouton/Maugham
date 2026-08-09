@@ -12,7 +12,7 @@ import XCTest
 /// editor is not mounted over it. The SECOND half — that a whole-file
 /// replacement of a research note keeps nothing recoverable — is the
 /// research-protection milestone's tier-2 question and is deliberately still
-/// open (`experiment/MILESTONE-research-protection.md`).
+/// open (`register/MILESTONE-research-protection.md`).
 @MainActor
 final class ResearchNoteReadCharacterization: XCTestCase {
 

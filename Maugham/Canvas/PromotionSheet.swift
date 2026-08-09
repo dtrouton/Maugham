@@ -96,8 +96,38 @@ final class PromotionSheetModel: Identifiable {
         didSet {
             guard oldValue != mode, selectedTarget != nil else { return }
             preview = Promotion.plan(request(), in: scene)
+            // **The name is re-seeded here, and its absence was half of one
+            // defect** (M6-PR-039, RULING-22, fixed 2026-08-09). `select(_:)`
+            // seeded `editedTitle` from a `.new` plan — the card's first line —
+            // and nothing re-seeded it when the writer chose Rewrite. Three
+            // strings were then on screen at once, the mode picker and the
+            // "Goes to" line both naming the artifact by the title the writer
+            // gave it, and the quietest of them — this field, which
+            // `resolvedPlan` writes over `plan.title` — carried the card's first
+            // line into the performer, which renamed the note and its file to
+            // match. `Promotion.plannedTitle` answers the artifact's own name on
+            // a rewrite, so re-seeding from the plan is all this needs.
+            //
+            // **And the writer's own name is kept while it does** (whole-branch
+            // review, 2026-08-09). The re-seed above is one-way: a writer who
+            // typed a name, looked at Rewrite and came back to New found their
+            // name replaced by the card's first line, because the way back is
+            // the same assignment reading a `.new` plan. Typing is the one thing
+            // on this sheet the writer cannot get back by clicking again, so it
+            // is what the mode picker must not cost them.
+            if case .update = mode {
+                titleBeforeRewrite = editedTitle
+                editedTitle = preview?.title ?? editedTitle
+            } else {
+                editedTitle = titleBeforeRewrite ?? preview?.title ?? editedTitle
+                titleBeforeRewrite = nil
+            }
         }
     }
+
+    /// What the writer had typed when they switched to Rewrite, held for the
+    /// switch back. Nil whenever the mode is not `.update`.
+    private var titleBeforeRewrite: String?
 
     /// The destination's body as of the last `select(_:)`. A SNAPSHOT — the
     /// performer checks the live file again before it writes.
@@ -233,6 +263,27 @@ final class PromotionSheetModel: Identifiable {
         return plan
     }
 
+    /// Whether the sheet asks the writer to NAME what this promotion produces.
+    ///
+    /// **A rewrite names nothing** (M6-PR-038/039, RULING-22, fixed 2026-08-09).
+    /// The artifact already has a name — the writer's own, which they may have
+    /// changed in the research pane since — and the performer no longer renames
+    /// it as part of a rewrite. A field still offered here would be the editable
+    /// box that changes nothing, which is the failure
+    /// `PromotionTarget.namesItsArtifact` exists to prevent one row over. What
+    /// the artifact is called is still on screen, twice: the mode picker reads
+    /// *Rewrite “Fog, act II”* and the preview reads *Goes to: the existing
+    /// “Fog, act II”*.
+    ///
+    /// A decision on the model rather than an `if` inside the view, matching
+    /// everything else this sheet branches on: a `Form`'s contents are not
+    /// inspectable, so a branch left in `body` is unreachable from a test.
+    var namesTheArtifact: Bool {
+        guard selectedTarget?.namesItsArtifact == true else { return false }
+        if case .update = mode { return false }
+        return true
+    }
+
     /// The piece association's own refusal, in the performer's words — nil
     /// unless the association has gone stale AND this is the one act it can
     /// break. See `Promotion.pieceFailure`.
@@ -257,7 +308,17 @@ final class PromotionSheetModel: Identifiable {
         // one.** A wiki-link's title is the destination note's, and the intent
         // doc's is fixed — neither performer reads `plan.title` at all, so
         // requiring it disabled Promote for an act that names nothing.
-        if plan.producedKind.namesItsArtifact && plan.title.isEmpty { return false }
+        //
+        // **`namesTheArtifact`, which is what the REFUSAL reads** (whole-branch
+        // review, 2026-08-09). This asked the target alone, and a rewrite
+        // narrowed the other two halves without it: the Name field is withheld
+        // (`namesTheArtifact` is false in `.update`) and the refusal is gated on
+        // the same value, so a rewrite whose resolved title came back empty
+        // disabled Promote and said nothing at all — the dead sheet, arrived at
+        // by the two conditions disagreeing rather than by either being wrong.
+        // Reading one value is what makes them unable to disagree; the
+        // performers already fall back to the artifact's live name.
+        if namesTheArtifact && plan.title.isEmpty { return false }
         if pieceRefusal != nil { return false }
         return !plan.linkAlreadyPresent
     }
@@ -277,7 +338,10 @@ final class PromotionSheetModel: Identifiable {
                 .linkAlreadyPresent(destination: plan.destinationDescription)
                 .errorDescription
         }
-        if plan.producedKind.namesItsArtifact
+        // `namesTheArtifact` rather than the target's own property: a refusal may
+        // only name a control that is on the sheet the writer is looking at, and
+        // the Name field is withheld on a rewrite.
+        if namesTheArtifact
             && editedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "This needs a name."
         }
@@ -433,10 +497,10 @@ struct PromotionSheet: View {
     private var previewSection: some View {
         Section("Preview") {
             // Shown only where the writer's typing reaches the artifact — see
-            // `PromotionTarget.namesItsArtifact`. A field for a wiki-link or a
-            // craft intent was editable, seeded from somebody else's title, and
-            // discarded.
-            if model.selectedTarget?.namesItsArtifact == true {
+            // `PromotionSheetModel.namesTheArtifact`, which folds in the target
+            // (a wiki-link and a craft intent name nothing) and the mode (a
+            // rewrite writes into an artifact that is already named).
+            if model.namesTheArtifact {
                 TextField("Name", text: $model.editedTitle)
             }
             if let plan = model.preview {

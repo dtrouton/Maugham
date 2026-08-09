@@ -299,6 +299,7 @@ struct PromotionPerformer {
 
     func perform(_ plan: PromotionPlan) async throws -> PromotionResult {
         try validate(plan)
+        try await precheckOfferedLinks(plan)
         switch plan.producedKind {
         case .researchNote: return try await performResearchNote(plan)
         case .paletteCard: return try await performPaletteCard(plan)
@@ -402,6 +403,40 @@ struct PromotionPerformer {
         }
     }
 
+    /// Read every member note the link pass will read, BEFORE anything is
+    /// created, marked or stamped (M6-PR-075, RULING-22, fixed 2026-08-09).
+    ///
+    /// **This file's contract is "validate first, write second — a refused
+    /// promotion leaves nothing behind", and the link pass was outside it.**
+    /// `writeOfferedLinks` runs last, after the artifact exists, its body is
+    /// written, the source is marked and every contribution record is stamped;
+    /// its `readBody` throws `unreadableFile` on a member's note that exists and
+    /// will not read as UTF-8. So the writer read *"Maugham could not read what
+    /// is already in research/… , so it did not write over it"* — true about the
+    /// member's note, and false about the sentence they take from it, which is
+    /// that nothing happened. The promotion had happened in full.
+    ///
+    /// The reads are the only fallible part of that pass that can be asked
+    /// early: a destination that is GONE is skipped rather than refused (the
+    /// honest skip `writeOfferedLinks` documents), and a statement is appended
+    /// to through its op log with nothing to read back first. So this walks the
+    /// same offers, resolves the same destinations, and reads the file arm —
+    /// which is exactly what a refusal here has to be able to promise.
+    ///
+    /// **The flush comes first**, for `writeOfferedLinks`' own reason: a queued
+    /// 750 ms save for a member's note would otherwise land between this check
+    /// and the write, and the file this read a verdict from would not be the
+    /// file that gets appended to.
+    private func precheckOfferedLinks(_ plan: PromotionPlan) async throws {
+        guard plan.linksAccepted, !plan.offeredLinks.isEmpty else { return }
+        try? await store.documentStore?.flushPendingSave()
+        for offer in plan.offeredLinks {
+            if case .researchFile(_, let path) = writableDestination(of: offer.itemID) {
+                _ = try readBody(atPath: path)
+            }
+        }
+    }
+
     /// Refuse an update whose target is not a plain research note.
     ///
     /// Read off the live manifest through the same index the sheet uses, so the
@@ -463,13 +498,37 @@ struct PromotionPerformer {
             // and writes raw scrap text over its body — cheap insurance against
             // doing that to a palette card.
             try refuseIfNotAResearchNote(existing)
-            // Renames the backing file through the typed mover when the title
-            // moved (tripwire 14 is satisfied by using this API rather than a
-            // raw move of our own).
-            try await store.updateResearchItem(id: existing, title: plan.title)
+            // **A rewrite does not rename** (M6-PR-038, RULING-22, fixed
+            // 2026-08-09). This called `store.updateResearchItem(id:title:)`
+            // with the plan's title, which was the CARD's first line — so a
+            // writer who had renamed the note in the research pane got it
+            // renamed back, and the file on disk moved with it
+            // (`research/fog-act-ii.md` → `research/the-falls-at-night.md`).
+            // Nothing on the sheet said the name would move; the mode picker and
+            // the destination line both named the note by the writer's own title.
+            // The artifact is already named, and an update is about the body —
+            // `Promotion.plannedTitle` now carries the artifact's own name, and
+            // this arm reads no name at all.
+            //
+            // Keep what is there before writing over it: research is recoverable
+            // but not versioned (RULING-24), and this is the only route back to
+            // the afternoon the writer spent in that note.
+            try await preservePriorVersion(ofItem: existing)
             itemID = existing
         }
         try await writeBody(plan.body, toItem: itemID)
+        if case .update = plan.mode {
+            // **The project was modified, and only this arm has to say so**
+            // (whole-branch review, 2026-08-09). `createResearchNote` stamps and
+            // saves the manifest on the `.new` arm; the rewrite arm used to
+            // reach `updateResearchItem`, which did the same, and when M6-PR-038
+            // took the rename away it took the stamp with it. A rewrite replaces
+            // a note's whole body — the largest edit this file makes — and left
+            // the project reading as untouched since the afternoon before, which
+            // is what the Recents list orders on and what a sync layer compares.
+            store.manifest.modified = Date()
+            try await store.saveManifest()
+        }
         let title = TreeWalk.find(id: itemID, in: store.manifest.research)?.title ?? plan.title
         // The mark BEFORE the offer: a link-write failure must not leave an
         // artifact the canvas has forgotten it produced, because the writer's
@@ -513,8 +572,37 @@ struct PromotionPerformer {
         // lose them to an update that was always about the prose.
         guard let current = store.loadPaletteCards().first(where: { $0.researchItemId == itemID })
         else { throw PromotionFailure.artifactMissing(itemID) }
+        if case .update = plan.mode, !current.body.trimmingCharacters(
+            in: .whitespacesAndNewlines).isEmpty {
+            // **The note arm's promise, on the card arm** (whole-branch review,
+            // 2026-08-09). M6-PR-037 gave a rewritten research note the
+            // recoverability RULING-24 owes it and stopped there; a palette card
+            // rewritten from the canvas replaced the writer's prose with no
+            // route back at all — the same loss, on the artifact a writer is
+            // most likely to have developed by hand, since a card is edited in
+            // the pane rather than generated.
+            //
+            // The TEXT rather than the file: a card's prose lives inside its
+            // card file beside the swatches, sensory notes and image references,
+            // and everything but the prose is deliberately kept by the write
+            // below. Moving the file would preserve a copy of the whole card and
+            // take the live one away from the writer.
+            //
+            // An empty body is not preserved: there is nothing to come back to,
+            // and an empty row in the Trash pane is a false claim that something
+            // was kept. Same reasoning as the note arm's "not on disk yet".
+            try await store.trashPriorVersionText(
+                text: current.body, displayTitle: current.title, id: itemID)
+        }
         try await store.updatePaletteCard(PaletteCard(
-            researchItemId: itemID, title: plan.title, kind: plan.paletteKind,
+            // **The card's own name when the plan carries none.** `canCommit`
+            // stopped requiring a title on a rewrite (the field is withheld, so
+            // requiring one is a dead button) — and a rewrite has never been
+            // about the name: M6-PR-038 is the note arm's version of exactly
+            // this. An empty `plan.title` here would rename the card to nothing.
+            researchItemId: itemID,
+            title: plan.title.isEmpty ? current.title : plan.title,
+            kind: plan.paletteKind,
             swatches: current.swatches, notes: current.notes,
             imagePaths: current.imagePaths, body: plan.body))
         // **The pictures in the region, AFTER that write and never before**
@@ -817,6 +905,42 @@ struct PromotionPerformer {
               let path = item.path else { throw PromotionFailure.itemHasNoFile(id) }
         try? await store.documentStore?.flushPendingSave()
         try await write(text, toPath: path)
+    }
+
+    /// Send the artifact's CURRENT file to the project trash before a rewrite
+    /// writes over it (M6-PR-037, RULING-24, fixed 2026-08-09).
+    ///
+    /// **The minimal bridge inside the machinery that already exists, and NOT
+    /// the versioning milestone.** RULING-24 owes research recoverability, not
+    /// versions — and a rewrite owed it nothing at all: `performFileSave` is an
+    /// atomic whole-file write, a research note has no op log,
+    /// `CheckpointCapture` walks `manifest.structure` and never
+    /// `manifest.research`, and ⌘Z takes back the mark and not the artifact. So
+    /// an afternoon the writer spent developing that note in the research pane
+    /// had no route back inside Maugham, while the same note *deleted* would
+    /// have sat in the Trash pane for the retention window. Their consent to the
+    /// rewrite is real — they chose the mode — but consent to an act is not a
+    /// recovery route. This gives a rewrite the standard a delete already has,
+    /// and no more: the copy lives for the retention window and is then swept,
+    /// exactly as RULING-23 says a deletion is.
+    ///
+    /// **Expected to be superseded.** GAP-P1 / research protection is where
+    /// versioning research is actually decided; when it lands, this is the thing
+    /// it replaces rather than a rule it has to work around.
+    ///
+    /// A note whose file is not on disk yet — a row created and never written —
+    /// has nothing to preserve and is not an error: the rewrite below simply
+    /// creates it.
+    private func preservePriorVersion(ofItem id: String) async throws {
+        guard let item = TreeWalk.find(id: id, in: store.manifest.research),
+              let path = item.path,
+              FileManager.default.fileExists(
+                atPath: store.url.appendingPathComponent(path).path) else { return }
+        // `ProjectStore.trashPriorVersion` routes through the typed mover, which
+        // flushes the research-note debounce before the move — a queued save
+        // landing after it would re-create the pre-rewrite text at the path the
+        // rewrite is about to write (tripwire 14).
+        try await store.trashPriorVersion(at: path, displayTitle: item.title, id: item.id)
     }
 
     /// Through the same `NSFileCoordinator` path research-note saves use, so a

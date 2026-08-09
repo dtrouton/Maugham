@@ -312,9 +312,9 @@ jobs:
   behavioural-claims:
     name: Behavioural claims (ExperimentTests)
     # The MaughamCore half of the behavioural-specification claim ledger
-    # (experiment/01-claims-ledger.json): every claim is pinned by a passing
+    # (register/01-claims-ledger.json): every claim is pinned by a passing
     # test, so this job going red means PINNED BEHAVIOUR CHANGED — check the
-    # module's filings in experiment/reconciliation/ before "fixing" the test;
+    # module's filings in register/reconciliation/ before "fixing" the test;
     # a VIOLATES row is a known defect whose fix must flip its claim + filing
     # in the same commit (see the M4-RW-002 loop). Standalone SPM package,
     # no xcodegen, no Metal, no sim — the cheapest job in this file.
@@ -333,7 +333,7 @@ jobs:
           xcode-version: '26.6'
 
       - name: Run the claims suite
-        run: swift test --package-path experiment/ExperimentTests
+        run: swift test --package-path register/ExperimentTests
 
   # ---------------------------------------------------------------------------
   concurrency-warnings:

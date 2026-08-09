@@ -6,7 +6,7 @@ import MaughamCore
 /// immediate MaughamCore collaborators `AnnotationDeriver` / `AnnotationInverse`.
 ///
 /// Every assertion here was written from OBSERVED probe output
-/// (`experiment/app-layer-tests/AnnotationsProbe{,2,3,4,5}.swift`), never from
+/// (`register/history/app-layer-tests/AnnotationsProbe{,2,3,4,5}.swift`), never from
 /// what the code looked like it should do. Five claims came out opposite to the
 /// reading — most importantly M5-AN-005 (a paragraph edit does NOT refresh the
 /// stale flag) and M5-AN-049 (a lost span anchor replaces the WHOLE paragraph).
@@ -14,7 +14,7 @@ import MaughamCore
 /// Pinned against HEAD `e5a93f0f`. A failure means the behaviour CHANGED, not
 /// that it is wrong — several claims pinned here are defects, pinned as such.
 ///
-/// Claim ids `M5-AN-nnn` correspond to `experiment/reconciliation/Annotations.claims.json`.
+/// Claim ids `M5-AN-nnn` correspond to `register/reconciliation/Annotations.claims.json`.
 @MainActor
 final class AnnotationsCharacterization: XCTestCase {
 

@@ -10,7 +10,7 @@ import MaughamCore
 /// Pinned against HEAD `db1bea2c`. A failure means the behaviour CHANGED, not
 /// that it is wrong — several claims pinned here are defects, pinned as such.
 ///
-/// Claim ids `M4-RW-nnn` correspond to `experiment/reconciliation/Rewind.claims.json`.
+/// Claim ids `M4-RW-nnn` correspond to `register/reconciliation/Rewind.claims.json`.
 @MainActor
 final class RewindCharacterization: XCTestCase {
 

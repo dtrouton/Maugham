@@ -139,6 +139,8 @@ extension ProjectStore {
             report = try await restoreStructureItem(item, entryId: id, pending: pending)
         case .research(let item):
             report = try await restoreResearchItem(item, entryId: id, pending: pending)
+        case .priorVersion:
+            report = try await restorePriorVersion(entryId: id)
         case .fileOnly:
             // A capture's asset (RULING-15): there is no row to rewire, and
             // putting the file back where it was is the whole restore.
@@ -161,6 +163,7 @@ extension ProjectStore {
     private enum RestoreRoute {
         case manuscript(StructureItem)
         case research(ResearchItem)
+        case priorVersion
         case fileOnly
         case unknownEntry
     }
@@ -211,6 +214,11 @@ extension ProjectStore {
             return .research(item)
         case .captureAsset:
             return .fileOnly
+        case .priorVersion:
+            // The manifest row was never removed — it points at the rewritten
+            // note — so nothing is REWIRED. But a row of its own is minted, or
+            // the restore is invisible: see `restorePriorVersion`.
+            return .priorVersion
         case .internalArtifact:
             throw ProjectStoreError.trashEntryNotRewirable(
                 title: entry.displayTitle,
@@ -306,6 +314,48 @@ extension ProjectStore {
         siblings.insert(item, at: clampedIndex)
         replaceResearchChildren(parentId: targetParentId, with: siblings)
         return report
+    }
+
+    /// Put a kept prior version back, and give it a ROW (whole-branch review,
+    /// 2026-08-09).
+    ///
+    /// **A restore the writer cannot see is not a restore.** This was routed to
+    /// `.fileOnly` on the reasoning that nothing needs rewiring — true, and not
+    /// the whole question. `.captureAsset`, the other `.fileOnly` subject, goes
+    /// back to `.maugham/inbox/`, where the Inbox pane is already looking; a
+    /// prior version lands beside the live note in `research/`, where nothing
+    /// looks. The row vanished from the Trash pane, the research tree gained
+    /// nothing, and the writer's afternoon of prose was a file on disk that no
+    /// surface in Maugham would ever show them again — after they had asked for
+    /// it back and been told it came.
+    ///
+    /// The row is minted rather than rewired: the deleted note's own row still
+    /// exists and points at the rewritten text, so this is a second artifact,
+    /// named for what it is. It lands at the tree's root, beside the live note's
+    /// own row, because `TrashStore.restore` lands the FILE beside the live file
+    /// — the row and the disk agree afterwards (RULING-41).
+    private func restorePriorVersion(entryId: String) async throws -> TrashRestoreReport {
+        let entry = try await trashStore.restore(trashId: entryId)
+        // Nothing landed: a `carriesFile: false` entry, which no prior version
+        // is written as. Nothing to point a row at, and inventing one would
+        // give the writer a row over a file that does not exist.
+        guard let landed = entry.restoredRelativePath else { return TrashRestoreReport() }
+        appendResearchItem(
+            ResearchItem(
+                id: Self.newId(prefix: "res"),
+                title: distinguishedTitle("\(entry.displayTitle) (previous version)",
+                                          amongst: manifest.research.map(\.title)),
+                type: .asset,
+                kind: .document,
+                path: landed,
+                url: nil,
+                caption: nil,
+                tags: nil,
+                links: nil,
+                addedAt: Date(),
+                children: nil),
+            to: nil)
+        return TrashRestoreReport()
     }
 
     private func survivingParentId(
@@ -531,6 +581,114 @@ extension ProjectStore {
             originalIndex: 0,
             displayTitle: displayTitle,
             subject: .captureAsset)
+        trashEntries = (try? await trashStore.list()) ?? trashEntries
+        return entry
+    }
+
+    /// Keep what is at `relativePath` NOW, because Maugham is about to write
+    /// over it on the writer's behalf (M6-PR-037, RULING-24, 2026-08-09).
+    ///
+    /// **The minimal bridge, and deliberately not the versioning milestone.**
+    /// RULING-24 places research in the middle tier — recoverable, though not
+    /// versioned — and a canvas Rewrite replaced a research note's whole body
+    /// with no route back at all: research notes have no op log, checkpoints
+    /// walk `manifest.structure` and never `manifest.research`, and nothing was
+    /// left in the trash. The same note *deleted* would have been recoverable
+    /// for the retention window. This gives a rewrite the standard a delete
+    /// already has, using the machinery that already exists, and it is expected
+    /// to be superseded by GAP-P1 / research protection when research versioning
+    /// is actually scoped.
+    ///
+    /// The manifest is untouched: the row stays, pointing at the path this
+    /// entry's file still occupies, and the caller writes the new body over it.
+    /// Nothing arms ⌘⌥Z — the writer's last delete gesture is not what put this
+    /// here.
+    ///
+    /// ## A move, then a copy straight back (whole-branch review, 2026-08-09)
+    /// The net effect is a COPY, and it is reached by moving because the MOVE is
+    /// what carries the typed mover's flush discipline (tripwire 14) — a queued
+    /// 750 ms save landing mid-operation would re-create the note's pre-rewrite
+    /// text at the path the rewrite is about to write. A plain copy has no such
+    /// discipline to borrow.
+    ///
+    /// What the copy-back buys is that **the live file exists continuously**.
+    /// The caller's next act — writing the new body — is fallible, and while
+    /// this method ended at the move, a failed write left the manifest row
+    /// pointing at nothing: the note was in the trash, the research pane showed
+    /// a row over a missing file, and a rewrite the writer had been told failed
+    /// had taken their note with it. Now a failed write leaves the note exactly
+    /// as it was, and the trash holds the same words either way.
+    @discardableResult
+    func trashPriorVersion(at relativePath: String, displayTitle: String,
+                           id: String) async throws -> TrashEntry {
+        let metadata = try JSONSerialization.data(withJSONObject: ["id": id])
+        // Through the typed mover where there is one: a research note has a
+        // 750 ms debounced save behind it, and a queued `scheduleFileSave`
+        // landing after this move would re-create the note's PRE-rewrite text at
+        // the path the rewrite is about to write — tripwire 14 exactly, on the
+        // one path that reaches this. With no DocumentStore (load-only context)
+        // the discipline is a provable no-op.
+        let entry: TrashEntry
+        if let ds = documentStore {
+            entry = try await ds.trash(
+                relativePath: relativePath,
+                using: trashStore,
+                itemMetadata: metadata,
+                originalParentId: nil,
+                originalIndex: 0,
+                displayTitle: displayTitle,
+                subject: .priorVersion)
+        } else {
+            entry = try await trashStore.moveToTrash( // internal-move: no DocumentStore (no debounce to race)
+                fileRelativePath: relativePath,
+                itemMetadata: metadata,
+                originalParentId: nil,
+                originalIndex: 0,
+                displayTitle: displayTitle,
+                subject: .priorVersion)
+        }
+        // The copy back, before anything else can fail. A throw here is a disk
+        // failure rather than a stranded note — the words are in the entry, the
+        // entry is in the pane, and the caller has not written anything yet.
+        if let kept = trashStore.entryFileURL(trashId: entry.id) {
+            try FileManager.default.copyItem(
+                at: kept,
+                to: try SafeRelativePath.resolve(relativePath, under: url))
+        }
+        trashEntries = (try? await trashStore.list()) ?? trashEntries
+        return entry
+    }
+
+    /// Keep the TEXT an artifact holds now, for the artifacts whose body is not
+    /// a file of its own (whole-branch review, 2026-08-09).
+    ///
+    /// `trashPriorVersion`'s sibling, and the same promise on the other rewrite
+    /// arm: a canvas Rewrite of a PALETTE CARD replaces its prose with no route
+    /// back, and RULING-24's middle tier is owed to a card's afternoon exactly
+    /// as it is owed to a note's. The card's prose lives inside its card file
+    /// with the swatches, sensory notes and image references, all of which the
+    /// rewrite deliberately keeps — so what is preserved here is the body alone,
+    /// written into the entry rather than moved into it.
+    ///
+    /// No flush dance and no typed mover: nothing on disk is touched, so there
+    /// is no debounced save to race. The caller flushes before it reads the body
+    /// (`performPaletteCard` does, for its own reasons), which is what makes the
+    /// text handed here the text that is really in the card.
+    @discardableResult
+    func trashPriorVersionText(text: String, displayTitle: String,
+                               id: String) async throws -> TrashEntry {
+        let metadata = try JSONSerialization.data(withJSONObject: ["id": id])
+        // Under `research/` because that is where a RESTORE has to be able to
+        // put it: the `.priorVersion` arm files what comes back as a research
+        // note, and a note has to live in the research tree to be openable.
+        let slug = Slugifier.slug(from: displayTitle)
+        let entry = try await trashStore.recordTextEntry(
+            text: text,
+            filename: "\(slug)-prior.md",
+            originalRelativePath: "research/\(slug)-prior.md",
+            itemMetadata: metadata,
+            displayTitle: displayTitle,
+            subject: .priorVersion)
         trashEntries = (try? await trashStore.list()) ?? trashEntries
         return entry
     }
