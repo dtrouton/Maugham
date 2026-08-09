@@ -98,7 +98,7 @@ final class TranslationCoverageGateTests: XCTestCase {
         CompileOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: fx.store, language: language, allowStale: allowStale),
+                projectStore: fx.store, language: language),
             configStore: fx.stores.configStore,
             publicationStore: fx.stores.publicationStore,
             snapshotStore: fx.stores.snapshotStore,
@@ -113,7 +113,7 @@ final class TranslationCoverageGateTests: XCTestCase {
         CompileOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: fx.store, language: language, allowStale: allowStale),
+                projectStore: fx.store, language: language),
             configStore: fx.stores.configStore,
             publicationStore: fx.stores.publicationStore,
             snapshotStore: fx.stores.snapshotStore,
