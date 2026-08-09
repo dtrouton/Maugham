@@ -206,7 +206,7 @@ extension ProjectStore {
             // dir at the destination and throws mid-relocate.
             let taken = Set(existingNames).union(claimed)
             let dedupedLeaf = travelsWithAssets
-                ? Self.researchDedupedNotePair(leaf, taken: taken)
+                ? Self.researchDedupedNotePair(leaf, isTaken: { taken.contains($0) })
                 : Self.researchDedupedFilename(leaf, existing: Array(taken))
             claimed.insert(dedupedLeaf)
             let newPath = "\(dest.folder)/\(dedupedLeaf)"
@@ -283,19 +283,25 @@ extension ProjectStore {
     /// chosen stem must be free for BOTH names. An orphaned `<stem>_assets`
     /// at the destination with no matching note otherwise collides
     /// mid-relocate (2026-07-19 sweep W2).
+    ///
+    /// `isTaken` rather than a name set (`dedupedName`'s shape) because a name
+    /// set would force the rename caller to pre-list the whole destination
+    /// directory just to build one: both callers ask the filesystem for what's
+    /// taken, and the batch mover additionally unions its own in-flight claims.
+    /// One implementation, because a second copy is the drift W2 existed to
+    /// kill.
     static func researchDedupedNotePair(
-        _ name: String, taken: Set<String>
+        _ name: String, isTaken: (String) -> Bool
     ) -> String {
         let stem = (name as NSString).deletingPathExtension
         let ext = (name as NSString).pathExtension
         func leaf(_ s: String) -> String { ext.isEmpty ? s : "\(s).\(ext)" }
-        if !taken.contains(leaf(stem)), !taken.contains("\(stem)_assets") {
+        if !isTaken(leaf(stem)), !isTaken("\(stem)_assets") {
             return leaf(stem)
         }
         for n in 2...999 {
             let candidate = "\(stem)-\(n)"
-            if !taken.contains(leaf(candidate)),
-               !taken.contains("\(candidate)_assets") {
+            if !isTaken(leaf(candidate)), !isTaken("\(candidate)_assets") {
                 return leaf(candidate)
             }
         }
