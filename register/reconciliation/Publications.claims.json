@@ -1,0 +1,19 @@
+[
+ {
+  "claim_id": "M7-PB-001",
+  "scope": "Republisher.republish + CompileOrchestrator.compile",
+  "kind": "INVARIANT",
+  "statement": "A republish never rewrites another publication's artifact: every catalog record's outputPath resolves to a distinct file, and the bytes at an existing record's outputPath are not modified by any later compile or republish.",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PublicationsCharacterization.test_M7PB001_everyCatalogRecordHasADistinctPath_andEarlierBytesSurviveALaterRepublish"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — fixed 2026-08-09, issue #25 P1",
+  "reachability": "LIVE — every republish reaches Republisher.republish; the MCP `republish` tool (RepublishTool, Maugham/MCP/Tools/PublicationTools.swift) is production's only caller",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Pinned the CLOBBER (a republish's staged filename echoed the ORIGINAL edition's version, so moving it into Exports/ silently destroyed the original's bytes on every republish) until fixed at 680f2ff1, 2026-08-09 — mint the version before compile, so the filename can never equal a prior record's"
+ }
+]
