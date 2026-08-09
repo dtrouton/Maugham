@@ -23,6 +23,23 @@ public enum TrashSubject: String, Codable, Sendable {
     /// the prior version of a per-piece style file. Never shown in the Trash
     /// pane: it is not the writer's deletion (RULING-43).
     case internalArtifact
+    /// The contents a file HAD, kept because Maugham was about to write over it
+    /// on the writer's behalf — today, the research note a canvas Rewrite
+    /// replaces (M6-PR-037, RULING-24, 2026-08-09).
+    ///
+    /// **Visible in the Trash pane, and that is the whole difference from
+    /// `internalArtifact`.** A style file's prior version is a paranoia copy
+    /// nothing would point at again, so RULING-43 hides it. This one is the
+    /// writer's own prose and it is the ONLY route back to it: research is
+    /// recoverable but not versioned (RULING-24's middle tier), and a note that
+    /// was *deleted* rather than rewritten would be sitting in this same pane.
+    /// Hiding it would give a rewrite a weaker guarantee than a delete.
+    ///
+    /// Restores as a FILE — there is no manifest row to rewire, because the row
+    /// still exists and points at the rewritten note. It lands beside the live
+    /// note under a deduped filename (`destinationBesideAnyOccupant`), so
+    /// nothing is overwritten and both are visible.
+    case priorVersion
 }
 
 /// Per-project trash directory operations. Lives at <projectURL>/.trash/
@@ -239,13 +256,11 @@ public struct TrashStore {
         }
 
         // Identify the file inside the entry folder (the non-meta.json file)
-        let contents = try fm.contentsOfDirectory(
-            at: entryFolder,
-            includingPropertiesForKeys: nil,
-            options: [])
-        guard let fileURL = contents.first(where: {
-            $0.lastPathComponent != "meta.json"
-        }) else {
+        guard let fileURL = Self.fileURL(inEntryFolder: entryFolder) else {
+            let contents = (try? fm.contentsOfDirectory(
+                at: entryFolder,
+                includingPropertiesForKeys: nil,
+                options: [])) ?? []
             throw TrashError.entryFileMissing(
                 trashId: trashId,
                 folderContents: contents.map(\.lastPathComponent))
@@ -274,6 +289,25 @@ public struct TrashStore {
         try fm.removeItem(at: entryFolder)
 
         return result(restoredAt: Self.relativePath(of: dest, under: projectURL) ?? requested)
+    }
+
+    /// What an entry is holding: the one thing in its folder that is not
+    /// `meta.json`, or nil when the folder holds nothing but its metadata (a
+    /// manifest-only entry, or an interrupted move).
+    static func fileURL(inEntryFolder folder: URL) -> URL? {
+        ((try? FileManager.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: nil, options: [])) ?? [])
+            .first { $0.lastPathComponent != "meta.json" }
+    }
+
+    /// Where a trashed entry's contents are sitting right now.
+    ///
+    /// For the caller that has to READ an entry back without restoring it —
+    /// `ProjectStore.trashPriorVersion`, which moves a file in for the typed
+    /// mover's flush discipline and then copies it straight back so the live
+    /// file never stops existing. Restoring would undo the move it just made.
+    func entryFileURL(trashId: String) -> URL? {
+        Self.fileURL(inEntryFolder: trashRoot.appendingPathComponent(trashId))
     }
 
     /// `dest` itself when nothing is there, else the same name with a numeric
@@ -347,6 +381,51 @@ public struct TrashStore {
             id: entryId,
             trashedAt: now,
             originalRelativePath: fileRelativePath,
+            displayTitle: displayTitle,
+            itemMetadata: itemMetadata,
+            subject: subject,
+            carriesFile: true)
+    }
+
+    /// Record a trash entry whose contents are handed over as TEXT rather than
+    /// moved off disk.
+    ///
+    /// For what Maugham keeps of an artifact that has no file of its own to
+    /// move: a palette card's prose lives inside its card file beside the
+    /// swatches, sensory notes and image references, and a rewrite replaces
+    /// only the prose — so moving the file would take the rest of the card with
+    /// it, and there is nothing else on disk that is just the body.
+    ///
+    /// `originalRelativePath` is where a RESTORE should land it, not where it
+    /// came from — nothing was moved, so there is no "back". The caller names a
+    /// path under `research/` so the `.priorVersion` restore arm files it as a
+    /// research note the writer can open.
+    func recordTextEntry(
+        text: String,
+        filename: String,
+        originalRelativePath: String,
+        itemMetadata: Data,
+        displayTitle: String,
+        subject: TrashSubject
+    ) async throws -> TrashEntry {
+        let now = Date()
+        let (entryId, entryFolder) = try mintEntryFolder(itemMetadata: itemMetadata, now: now)
+        try text.write(to: entryFolder.appendingPathComponent(filename),
+                       atomically: true, encoding: .utf8)
+        try writeMeta(
+            TrashMeta(
+                originalRelativePath: originalRelativePath,
+                displayTitle: displayTitle,
+                itemMetadata: itemMetadata,
+                originalParentId: nil,
+                originalIndex: 0,
+                subject: subject,
+                carriesFile: true),
+            to: entryFolder)
+        return TrashEntry(
+            id: entryId,
+            trashedAt: now,
+            originalRelativePath: originalRelativePath,
             displayTitle: displayTitle,
             itemMetadata: itemMetadata,
             subject: subject,

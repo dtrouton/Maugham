@@ -255,7 +255,7 @@ four things to know before editing in here:
 ## What to read before editing
 
 - **Trash is claim-covered**: `TrashStore` + `ProjectStore+Trash` have 51 test-pinned behavioural
-  claims and verdicts in `experiment/reconciliation/Trash.{claims,filings}.json`. Read the filings
+  claims and verdicts in `register/reconciliation/Trash.{claims,filings}.json`. Read the filings
   before changing delete/restore behaviour — a `VIOLATES` row is a known defect with a ruling
   behind it, a `COMPLIES` row is ruled-correct behaviour, and changing pinned behaviour means
   updating the claim + filing in the same commit (CLAUDE.md, "Behavioural claims + rulings").

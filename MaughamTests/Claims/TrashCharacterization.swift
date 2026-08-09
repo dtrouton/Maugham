@@ -13,7 +13,7 @@ import MaughamCore
 /// behaviour changed, NOT that the behaviour is wrong — several of the claims
 /// pinned below are defects, and they are pinned AS defects on purpose.
 ///
-/// Claim ids `M3-TR-nnn` correspond to `experiment/reconciliation/Trash.claims.json`.
+/// Claim ids `M3-TR-nnn` correspond to `register/reconciliation/Trash.claims.json`.
 @MainActor
 final class TrashCharacterization: XCTestCase {
 
