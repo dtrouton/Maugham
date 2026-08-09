@@ -241,13 +241,20 @@
  },
  {
   "claim_id": "M5-AN-039",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-29",
-  "clause_that_reaches_it": "Any archived or rejected annotation can be reopened by the writer from the annotations pane. Resolution is the writer's to reverse — whether Maugham made it or they did.",
-  "why_in_scope": "RULING-29 names the surface (the annotations pane), the subjects (any archived or rejected annotation) and the mechanism (`Document.reopenAnnotation gains its first non-undo production caller`) explicitly. None of the three exists at this commit: the pane's action row offers Accept / Reject / Archive and, for an accepted suggestion, Revert — never Reopen — and reopenAnnotation's only callers are the rewind-undo and task-archive-undo compensations. The ruling's own basis rules out the narrower reading: it chose 'Reopen for all archived' over Maugham-archived-only. This is the register's marker for the pending fix loop rather than a newly discovered defect.",
+  "clause_that_reaches_it": "Any archived or rejected annotation can be reopened by the writer from the annotations pane. Resolution is the writer's to reverse — whether Maugham made it or they did. A single undo immediately afterwards is not a recovery route; it expires. The pane action does not.",
+  "why_in_scope": "The ruling implemented verbatim: the Reopen affordance on every archived/rejected row, backed by the undoable wrapper whose ⌘Z re-applies the prior resolution with its reason intact (RULING-31 riding the same fix, filed at M5-AN-055). The recorded traps were respected: the reopen op is the factory's own kind (M5-AN-036's double-inverse untouched) and the rejection reason survives (GAP-A3 closed by design, not lost by accident).",
   "intent_expressed_when": "contemporaneous — the writer is looking at a resolved note they want back",
   "call_path": "AnnotationsPane → 'show all statuses' → any archived or rejected row → no affordance exists. `reopenAnnotation` is reachable only via ⌘Z immediately after the resolution, which RULING-29 states is not a recovery route because it expires.",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "5ea5b8604eeaf4beeac0a3d353d6be4523be9375",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-29 — Denver 2026-08-08, no recommendation marked",
+   "pinned_by": "AnnotationsCharacterization census + undoable-reopen tests",
+   "note": "seventh loop, part one"
+  }
  },
  {
   "claim_id": "M5-AN-040",
@@ -353,13 +360,29 @@
   "reason": "RULING-13's scope is a paragraph whose IDENTITY is not recovered, where annotations move with the text and are marked stale. A deleted paragraph is not that — there is no text to move with. The deriver does mark these stale, which is R13's shape applied by coincidence rather than by reach. Raised as GAP-A5, and note it is what makes M5-AN-030's dead Revert reachable."
  },
  {
+  "claim_id": "M5-AN-055",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-31",
+  "clause_that_reaches_it": "the written rejection reason stays visible on the annotation as part of its record ('previously rejected: …')",
+  "why_in_scope": "The ruling's sentence implemented in the shared deriver (both surfaces inherit) and rendered by the pane. Fixed at 5ea5b8604e.",
+  "intent_expressed_when": "earlier — the writer wrote the reason at rejection; keeping it is honouring that authorship",
+  "call_path": "reject with reason → pane Reopen → row shows 'Previously rejected: …'",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "5ea5b8604eeaf4beeac0a3d353d6be4523be9375",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-31",
+   "pinned_by": "AnnotationsCharacterization.test_reopeningARejectedNote_keepsTheReasonAsHistory"
+  }
+ },
+ {
   "_summary": {
-   "reached": 15,
-   "complies": 8,
-   "violates": 7,
+   "reached": 16,
+   "complies": 10,
+   "violates": 6,
    "no_ruling": 38,
-   "total": 53,
-   "coverage": "28%",
+   "total": 54,
+   "coverage": "30%",
    "by_ruling": {
     "RULING-1": [
      "M5-AN-006"
@@ -382,6 +405,9 @@
     ],
     "RULING-29": [
      "M5-AN-039"
+    ],
+    "RULING-31": [
+     "M5-AN-055"
     ],
     "RULING-5": [
      "M5-AN-026",
