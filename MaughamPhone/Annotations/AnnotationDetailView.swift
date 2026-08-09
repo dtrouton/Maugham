@@ -422,6 +422,11 @@ struct AnnotationDetailView: View {
             } catch AnnotationWriter.WriteError.malformedSuggestion {
                 errorMessage = "This suggestion is malformed and can’t be applied."
                 throw CancelledWrite()
+            } catch AnnotationWriter.WriteError.suggestionAnchorLost {
+                // RULING-5's told-why half, phone surface: same refusal, same
+                // words as the Mac pane.
+                errorMessage = "The passage this suggestion would replace is no longer in the paragraph, so applying it could put the replacement in the wrong place. The suggestion stays open — ask Claude for a fresh one."
+                throw CancelledWrite()
             }
         }
     }

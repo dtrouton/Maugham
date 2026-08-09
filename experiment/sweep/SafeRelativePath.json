@@ -1,0 +1,206 @@
+{
+  "module": "SafeRelativePath",
+  "loc": 95,
+  "claims": [
+    {
+      "id": "SRP-1",
+      "scope": "SafeRelativePath.resolve(_:under:)",
+      "kind": "PRECONDITION",
+      "statement": "An empty `relative` string throws `PathError.emptyPath`.",
+      "evidenced_by": "source|test:SafeRelativePathTests.test_emptyPath_throws",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-2",
+      "scope": "SafeRelativePath.resolve(_:under:)",
+      "kind": "PRECONDITION",
+      "statement": "A `relative` beginning with `/` throws `PathError.absolutePath`. The test evidences only `\"/etc/passwd\"`; the source shows the check is a bare `hasPrefix(\"/\")`, so it is the leading slash and not the target that is rejected. Note it is a LEADING-slash check only — a path like `~/x` or a URL-shaped string is not treated as absolute here.",
+      "evidenced_by": "source|test:SafeRelativePathTests.test_absolutePath_throws",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-3",
+      "scope": "SafeRelativePath.resolve(_:under:)",
+      "kind": "PRECONDITION",
+      "statement": "A `relative` containing a NUL byte throws — and throws `PathError.absolutePath`, i.e. it is reported to the caller with the message \"Path must be relative, not absolute\", which misdescribes the input. No test covers this branch.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-4",
+      "scope": "SafeRelativePath.resolve(_:under:)",
+      "kind": "PRECONDITION",
+      "statement": "A `relative` containing an empty component when split on `/` without omitting empty subsequences throws `PathError.emptyComponent`. The test evidences the interior case `\"a//b.md\"`. The source implies the same rejection for a TRAILING separator (`\"a/\"` splits to `[\"a\", \"\"]`) — untested, so a caller handing this helper a directory path spelled with a trailing slash gets a rejection.",
+      "evidenced_by": "source|test:SafeRelativePathTests.test_emptyComponent_throws",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-5",
+      "scope": "SafeRelativePath.resolve(_:under:)",
+      "kind": "POSTCONDITION",
+      "statement": "A path that, after lexical collapse of `.`/`..`, does not sit strictly under the canonicalised root throws `PathError.escapesRoot`. Tested only for `\"../../../etc/passwd\"` and `\"../project-evil/secret.md\"`; the general form is read from the source's single containment guard.",
+      "evidenced_by": "source|test:SafeRelativePathTests.test_dotDotEscape_throws,test_prefixSiblingAttack_throws",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-6",
+      "scope": "SafeRelativePath.resolve(_:under:)",
+      "kind": "POSTCONDITION",
+      "statement": "A literal `..` segment is NOT itself disqualifying: `\"a/../b.md\"` resolves, and `\"./notes.md\"` resolves. Only a NET escape is refused.",
+      "evidenced_by": "source|test:SafeRelativePathTests.test_netInsidePath_withDotDotSegment_resolves,test_dotSlashPrefixedPath_resolves",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-7",
+      "scope": "SafeRelativePath.resolve(_:under:)",
+      "kind": "POSTCONDITION",
+      "statement": "The returned URL is `root.appendingPathComponent(relative)` built from the ORIGINAL, un-symlink-resolved root and the ORIGINAL, un-normalised relative string. Standardisation is used only for the check, never for the result — so a return value can literally still contain `.`/`..` segments. The two tests that accept a `.`/`..` input both compare `.standardizedFileURL.path` rather than the URL, which is itself evidence the raw return is not standardised; the symlinked-root test asserts the link spelling is preserved.",
+      "evidenced_by": "source|test:SafeRelativePathTests.test_dotSlashPrefixedPath_resolves,test_symlinkedRoot_legitimatePath_stillResolves",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-8",
+      "scope": "SafeRelativePath.resolve(_:under:)",
+      "kind": "INVARIANT",
+      "statement": "`root` is symlink-resolved once up front, so a root reached through a symlink both (a) still resolves a legitimate nested path and (b) still rejects an escape. Evidenced for one shape of symlinked root (a link to a sibling directory in the same temp base).",
+      "evidenced_by": "source|test:SafeRelativePathTests.test_symlinkedRoot_legitimatePath_stillResolves,test_symlinkedRoot_escape_stillThrows",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-9",
+      "scope": "SafeRelativePath.resolve(_:under:)",
+      "kind": "INVARIANT",
+      "statement": "Containment is a string-prefix test against the root path with a trailing separator appended, so a sibling directory sharing a string prefix with the root (`/base/project-evil` vs root `/base/project`) is rejected.",
+      "evidenced_by": "source|test:SafeRelativePathTests.test_prefixSiblingAttack_throws",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-10",
+      "scope": "SafeRelativePath.resolve(_:under:)",
+      "kind": "POSTCONDITION",
+      "statement": "A path that nets to the root ITSELF (`\".\"`, `\"a/..\"`) is rejected as `.escapesRoot`, because the guard demands a strict prefix including the separator. Derived from the source; no test covers it.",
+      "evidenced_by": "source",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "SRP-11",
+      "scope": "SafeRelativePath.resolve(_:under:)",
+      "kind": "INVARIANT",
+      "statement": "The check on the RELATIVE portion is purely lexical. A symlink planted at the leaf or at an intermediate component of the relative subtree is not detected, so `resolve` can return a URL that, at open time, redirects outside `root`. Documented in the source as an accepted gap (A5 audit 2026-07-11, scored Low, deferred); no test covers it, and no call site re-verifies after resolving.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-12",
+      "scope": "SafeRelativePath.resolve(_:under:)",
+      "kind": "POSTCONDITION",
+      "statement": "Resolution never requires the destination to exist — no filesystem access happens on the relative portion — which is what lets a trash-restore target be validated before it is created.",
+      "evidenced_by": "source|test:SafeRelativePathTests (every legitimate-path test resolves a path with no file on disk)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-13",
+      "scope": "SafeRelativePath.resolve(_:under:)",
+      "kind": "INVARIANT",
+      "statement": "The prefix comparison is byte-exact, so it is case-sensitive and normalisation-sensitive even on a case-insensitive volume (APFS default). A path that walks out and back in with different casing (`\"../PROJECT/x.md\"` under root `.../project`) is rejected although it names the same directory on disk. Derived from the source; untested. This is a false REJECTION, never a false acceptance.",
+      "evidenced_by": "source",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "SRP-14",
+      "scope": "TrashStore.restore(trashId:)",
+      "kind": "POSTCONDITION",
+      "statement": "A trash `meta.json` whose `originalRelativePath` escapes the project root makes restore throw `TrashError.unsafeRelativePath`, and the trashed file is still present in its entry folder afterwards.",
+      "evidenced_by": "test:SafeRelativePathSecurityTests.test_trashRestore_escapingOriginalRelativePath_throws_fileStaysInTrash",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-15",
+      "scope": "TrashStore.moveToTrash(fileRelativePath:...)",
+      "kind": "PRECONDITION",
+      "statement": "The source path is validated before any filesystem call, so an escaping `fileRelativePath` throws `TrashError.unsafeRelativePath` without an entry folder's contents being moved. Source only — the security suite covers restore, not moveToTrash. (An empty entry folder has already been created by the time the throw happens.)",
+      "evidenced_by": "source",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "SRP-16",
+      "scope": "ReadDocumentTool / DocumentTools.emitResearchItem, emitImageResearchItem",
+      "kind": "POSTCONDITION",
+      "statement": "A manifest research item whose `path` escapes the project root makes `read_document` throw `MCPError.invalidArgument` naming the item title, for both the `.document` and the `.image` arm. The test evidences the `.document` arm; the `.image` arm is the same code, untested.",
+      "evidenced_by": "source|test:SafeRelativePathSecurityTests.test_readDocument_escapingResearchItemPath_throws",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-17",
+      "scope": "InboxStore.assetURL(for:)",
+      "kind": "POSTCONDITION",
+      "statement": "An escaping `sourceFilename` makes `assetURL` return nil — the error is swallowed by `try?` — and a subsequent `promoteToResearch` throws `InboxError.assetMissing`, leaving the targeted file outside the asset subdir untouched.",
+      "evidenced_by": "test:SafeRelativePathSecurityTests.test_inboxPromote_escapingSourceFilename_failsLoudly_assetMissing",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-18",
+      "scope": "InboxStore.assetURL(for:)",
+      "kind": "INVARIANT",
+      "statement": "At this call site the containment root is the KIND'S asset subdir (`.maugham/inbox/audio`, `.../image`), not the project root — so `\"../evil.m4a\"` is refused even though the file it names is still inside the project. This is the only one of the five call sites whose root is narrower than the project.",
+      "evidenced_by": "source|test:SafeRelativePathSecurityTests.test_inboxPromote_escapingSourceFilename_failsLoudly_assetMissing",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SRP-19",
+      "scope": "SafeRelativePath (call-site census)",
+      "kind": "INVARIANT",
+      "statement": "The helper has exactly five production call sites — `TrashStore.restore`, `TrashStore.moveToTrash`, `InboxStore.assetURL`, and two arms of `DocumentTools` (research document, research image) — matching the count asserted in its own doc comment. Nothing grep-enforces that census.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    }
+  ],
+  "product_decisions": [
+    {
+      "id": "SRP-D1",
+      "question": "May a project's own records — the manifest, the trash sidecar, the inbox log — name a file that lives outside the project folder, and if not, is that refusal enforced everywhere that value is used?",
+      "current_behaviour": "Refused, loudly, at five sites. Accepted, silently, at every other consumer of the same value: `ListAllLinksTool` and `ReferenceTools` read a research item's manifest `path` with a bare `entry.url.appendingPathComponent(path)`; so do `ResearchPreview` (Mac preview pane), `PaletteCardView` (phone), `ProjectStore+Search`, `ProjectStore+Trash`, `ProjectStore+Structure` and `DocumentStore`. The same manifest field, the same untrusted origin, opposite answers depending on which surface reaches it first.",
+      "writer_visible_consequence": "With one corrupted or maliciously-synced manifest row, the writer sees Maugham disagree with itself about the same research note: the preview pane happily displays a file from outside the project and `list_all_links` indexes its `[[…]]` links into the project's link graph, while asking Claude to read that same note fails with \"has an unsafe path\". Nothing tells the writer which surface is telling the truth.",
+      "classification": "INCONSISTENT",
+      "reasoning": "This is the single question the module exists to answer, and the codebase answers it both ways. It is not a leftover: the guarded sites were migrated deliberately (the A5 audit) and the unguarded ones were left, so the boundary is currently drawn by which code happened to be touched rather than by any product rule. Neither RULING covers it — both rulings are about the FIDELITY of content, and this is about the REACH of a path. Note the reach is not read-only: `TrashStore.moveToTrash` and `TrashStore.restore` MOVE files at a sidecar-chosen path, so the unguarded siblings that also move or write (ProjectStore+Trash, DocumentStore) are the sharp end.",
+      "proposed_ruling": "The project folder is the boundary of what Maugham will touch. A path recorded anywhere in a project's own records may only name a file inside that project, and Maugham must refuse the same way at every surface that follows it — reading, previewing, indexing, moving or deleting. If the answer is instead that a project may point outside itself, then it must do so consistently and the writer must be told, at the moment the outside file is displayed, that it lives outside the project."
+    },
+    {
+      "id": "SRP-D2",
+      "question": "When Maugham refuses a path because it is unsafe, must the writer be told that is why — or may the refusal be presented as \"that file isn't there\"?",
+      "current_behaviour": "Two of the three surfaces name the cause: trash restore throws `TrashError.unsafeRelativePath` carrying the offending string, `read_document` throws `MCPError.invalidArgument` naming the research item. The inbox surface does not: `assetURL` swallows the throw with `try?` and returns nil, deliberately collapsing \"this filename is unsafe\" into \"this entry has no asset\", after which promote reports `InboxError.assetMissing`.",
+      "writer_visible_consequence": "A voice memo captured on the phone arrives in the Mac inbox as a row the writer can see, with a transcript they can read, but no playback control and a promote that fails saying the audio is missing. The audio file is in fact sitting on disk. The writer's reasonable conclusion — that the recording was lost in sync — is wrong, and there is nothing on screen that would correct it.",
+      "classification": "INCONSISTENT",
+      "reasoning": "The same question ('what do we tell the writer when a recorded path is unusable?') gets a named cause at two call sites and a misattributed one at the third. The source comment defends the nil as 'fails loudly downstream', but the downstream loudness names the wrong thing — `assetMissing` is a claim about the world that is false. RULING-1's SHAPE argues for the loud answer ('the refusal must be visible at the point of entry rather than discovered later'), though RULING-1's scope is content arriving at an entry point, not a path being read back, so it does not settle this on its own.",
+      "proposed_ruling": "When Maugham refuses to use something the writer can see in the app, the reason it gives must be true. A refusal on safety grounds may not be reported as absence — 'this recording's filename is not one I can safely open' and 'this recording is gone' are different facts and the writer acts differently on each."
+    },
+    {
+      "id": "SRP-D3",
+      "question": "If a writer puts a symlink inside their project pointing at a folder elsewhere on their disk — a shared research directory, a Dropbox notes folder — should Maugham read through it, and should deleting an item through it move the real file out of the shared folder?",
+      "current_behaviour": "Yes to both, silently. The containment check is lexical: it resolves symlinks in the ROOT once, but never in the relative portion. A legitimately-spelled relative path whose leaf or intermediate component is a symlink out of the project passes every one of the five gates, and the caller then does real I/O through it. `TrashStore.moveToTrash` in particular performs a `moveItem`, so trashing a note that lives under a symlinked intermediate directory relocates the real file out of the shared folder and into the project's `.trash`. The source documents this gap, and the A5 audit scored it Low and deferred it on the reasoning that planting such a symlink needs the same disk access the check withholds — which is a threat-model argument and not an answer to what a writer who plants one deliberately should get.",
+      "writer_visible_consequence": "Two writers sharing a research folder: one symlinks it into her project, both work happily for weeks — then she deletes a note from her binder and it disappears from HIS machine too, because the file was moved rather than copied and nothing in Maugham suggested that note was not hers alone. The inverse failure is just as real: if Maugham started refusing symlinks, her working setup would break with an error message about a path she never typed.",
+      "classification": "NOVEL",
+      "reasoning": "Neither ruling addresses it. RULING-1 and RULING-2 are both about content fidelity — what survives being written and read back. This is about the EXTENT of the project: whether the folder boundary is a boundary of names or a boundary of bytes. A writer would plainly notice the difference and the two positions ('a symlink I made is my intent' vs 'the project folder is the project, full stop') are both defensible. It is worth deciding explicitly rather than inheriting from an audit that deferred it as a security score.",
+      "proposed_ruling": "A symlink a writer has placed inside their project is their instruction, and Maugham reads through it. But Maugham never moves or deletes a file that lives outside the project folder, however it was reached: an item reached through a symlink can be removed from the binder, and the file it points at stays where it is."
+    },
+    {
+      "id": "SRP-D4",
+      "question": "When Maugham cannot get a research note's text, should it report the note as EMPTY, or report that it could not be read?",
+      "current_behaviour": "Both, in adjacent lines of the same function. In `DocumentTools.emitResearchItem`, an unsafe path throws a named error, but the very next statement reads the file as `(try? String(contentsOf: abs, encoding: .utf8)) ?? \"\"` — a missing file, a permissions failure or a non-UTF-8 encoding all produce a `DocumentContent` with `text: \"\"`, `word_count: 0` and the item's real title and path. Claude is handed a well-formed document that asserts the note is blank.",
+      "writer_visible_consequence": "The writer asks Claude to work over their research — summarise the interview notes, check the manuscript against them — and one note that is full of text on disk is read as empty. Claude's answer is confidently built on a research set with a hole in it, and neither the writer nor Claude has any signal that a note was skipped. A follow-up rewrite founded on that summary quietly loses whatever was in it.",
+      "classification": "INCONSISTENT",
+      "reasoning": "One function answers 'we cannot get this item's content' two ways one line apart: loudly for an unsafe path, silently-as-empty for an unreadable file. RULING-2 gets close but does not reach: it permits Maugham to DROP content it cannot read from a file that arrived from outside. It does not license asserting, to a reader who will act on it, that the file's content is nothing. Dropping a stray HTML comment while reporting the rest is what RULING-2 sanctions; reporting an entire note as blank is a different act.",
+      "proposed_ruling": "Maugham may drop what it cannot read, but it may never present unreadable as empty. If a research item's file cannot be opened or decoded, every surface that would have shown its text says so instead — a note that failed to load and a note the writer left blank must not look the same, to the writer or to Claude."
+    },
+    {
+      "id": "SRP-D5",
+      "question": "When the record of where a deleted file came from is unusable, does the writer lose the ability to get that file back?",
+      "current_behaviour": "Yes, permanently, through the app. `TrashStore.restore` validates `originalRelativePath` and throws before doing anything else, and there is no second route: the entry stays in `.trash`, the file stays inside its entry folder, and every subsequent Restore fails identically. The test asserts exactly this and treats the file remaining in trash as the desired outcome, which it is for the escape case — but the same code path fires for a merely corrupted path (a truncated sync write, an empty string, a stray `//`).",
+      "writer_visible_consequence": "A writer deletes a chapter, changes their mind a week later, clicks Restore, and gets an error — every time, with no alternative offered. The words are on their disk, intact, inside `.trash/20260101-000000-x/chapter.md`, and the only way to reach them is the Finder, which the app never mentions.",
+      "classification": "NOVEL",
+      "reasoning": "Neither ruling covers it. This is not about fidelity of content at an entry point (RULING-1) nor about what a parse drops (RULING-2) — it is about whether a refusal on safety grounds is allowed to end in the writer's work being unreachable. It bears directly on the constitution's 'the words are safe', which is why refusing is not obviously the right answer even though refusing the ESCAPE plainly is. Two reasonable people disagree about the remedy, not about the refusal: never restore vs. restore somewhere safe and say so.",
+      "proposed_ruling": "Refusing an unsafe destination must never mean the writer cannot get their work back. When a trashed item's recorded location cannot be used, Maugham restores it to a safe place inside the project and tells the writer where it went and why it did not go home."
+    }
+  ],
+  "notes": "SCOPE: 95 lines of source, ~30 lines of which are the doc comment; two test files (124 + 159 lines). The unit matrix in MaughamCoreTests is genuinely strong for the escape cases and I did not find an over-claim in it — every assertion is narrower than the behaviour, and I have stated the narrow form where the source does not license the general one.\n\nUNTESTED SOURCE BRANCHES (recorded as claims, listed here together): the NUL-byte rejection (SRP-3, and it reports the wrong error case), the trailing-separator rejection (SRP-4), resolution to the root itself (SRP-10), case-sensitivity of the prefix compare (SRP-13), the `moveToTrash` gate (SRP-15 — the security suite covers restore only), and the `.image` arm of `read_document` (SRP-16).\n\nAN ARTEFACT I DID NOT RAISE AS A PRODUCT DECISION, because the underlying question is an implementation choice, but which has a real disk consequence: the returned URL is un-normalised (SRP-7), so restoring a trash entry whose `originalRelativePath` is `\"a/../b.md\"` runs `createDirectory(withIntermediateDirectories:)` on `root/a/..`, which creates an empty `a/` directory in the writer's project as a side effect of restoring `b.md` to the root. Harmless, visible in Finder, and it would go away if `resolve` returned the standardised URL.\n\nAN UNGUARDED SIBLING: `InboxConvention.assetURL(kind:filename:inboxDir:)` in MaughamCore does exactly what the guarded `InboxStore.assetURL` does, minus the containment check. It currently has NO production callers (only `InboxConventionTests`), so it is not a live defect — but it is a public API in the shared package that is one call away from reopening SRP-D1 on the phone, where the guarded version does not exist at all.\n\nCROSS-SURFACE: the phone has no equivalent gate. `MaughamPhone/Read/PaletteCardView.swift` joins a manifest `item.path` to the project URL bare, twice. Under tripwire 19 (anything touched by both Mac and phone goes through a shared MaughamCore implementation) the helper IS in MaughamCore, correctly — it is just not called from the phone. That is the same fact as SRP-D1, seen from the other surface.\n\nRULING SHAPE: the pair's shape ('strict where a person acts, tolerant where a file arrives') does not map cleanly onto this module, and I think that is worth saying plainly rather than forcing. Every one of the five call sites is a FILE ARRIVING — a sidecar read off disk — which by the shape of RULING-2 would argue for tolerance; yet the module is strict at all five, and rightly so, because the stakes here are not which characters survive a round-trip but which files on the writer's disk Maugham is willing to open, move and delete. The rulings govern CONTENT fidelity; this module governs REACH. SRP-D1 and SRP-D3 are the two questions that gap leaves unanswered, and both are live today."
+}

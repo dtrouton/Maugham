@@ -1,0 +1,194 @@
+{
+  "module": "DocumentTools (MCP read surface: read_document + search_text)",
+  "loc": 279,
+  "product_decisions": [
+    {
+      "id": "DT-D1",
+      "question": "When a research document's bytes cannot be read as text, should Claude be told the note is empty, or told the note could not be read?",
+      "current_behaviour": "DocumentTools.swift:149 — `let text = (try? String(contentsOf: abs, encoding: .utf8)) ?? \"\"`. Every read failure (file gone, permission denied, iCloud-evicted, non-UTF-8 encoding, binary content) collapses to the empty string, and the tool then returns a fully-formed success: `DocumentContent(text: \"\", word_count: 0, character_count: 0, mode: \"prose\")`. Nothing in the response distinguishes this from a genuinely empty note. Every OTHER unreadable condition in the same function throws a named cause — group-not-asset (:131), missing path (:137), unsafe path (:146), PDF (:170), audio (:173), link (:176), no kind (:179). The one failure that is an actual I/O or decoding failure is the only one that is silent.",
+      "writer_visible_consequence": "The writer asks Claude 'what did I write in my note on Sarah?' and Claude answers, in good faith, that the note is empty — or worse, does not mention it at all and proceeds to draft Sarah from nothing, because a 0-word document reads as 'nothing to work from'. The writer's 800 words are intact on disk and the writer has no reason to suspect anything: they were told a fact about their own material that is false. The reachable causes are ordinary: a .txt exported from Word in Windows-1252 (any curly quote or accented character makes UTF-8 decoding throw), a UTF-16 .txt, or a file whose kind this build does not recognise — ResearchItem.AssetKind's decoder (ResearchItem.swift:82) deliberately degrades an unknown kind from a newer build to `.document`, so forward-compat routes a video or any future binary kind straight into this UTF-8 read.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Research pane → '+' → Add File… (ResearchView.runAddFile, NSOpenPanel with NO allowedContentTypes filter) or a Finder drag (ResearchView.importExternal) → ProjectStore.importResearchFiles:523 → ResearchKindInference.kind maps txt/md/markdown/rtf to `.document` → manifest gains ResearchItem(kind: .document, path: \"research/notes.txt\"). Writer then asks Claude about the note → read_document → ReadDocumentTool.handle:61 (research branch) → emitResearchItem:134 `.document` case → line 149 swallows the throw."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-7",
+      "clause_that_does_the_work": "\"never misrepresent a failure — unreadable is never shown as empty\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "Two things would falsify it. (a) If RULING-7's 'WRITER-FACING surfaces' scope is read narrowly enough to exclude the MCP server — see the scope argument in `notes`; on the narrow reading this drops to SETTLED_BY_ROOT_ONLY under RULING-20 (default SAFE where intent is unclear), which is a weaker but still-adverse verdict, not an acquittal. (b) If the MCP transport or Claude Desktop already surfaces a distinguishable signal for a 0-byte document — it does not; the response is a well-formed success envelope indistinguishable from a genuinely empty note."
+    },
+    {
+      "id": "DT-D2",
+      "question": "A manuscript document whose .md holds the writer's words but which has no op log yet: does Claude see the words, or an empty chapter?",
+      "current_behaviour": "The closed-doc branch (DocumentTools.swift:100) reads `store.derivedCache.materialize(forDocId:in:)`, which is documented (DerivedManuscript.swift:15) as returning 'Empty string when the doc has no ops'. read_document then returns a success with `text: \"\"`, `word_count: 0`. The editor answers the same question differently: Document.load (Document+Load.swift:104) computes `needsBootstrap = !logExists && !parsed.isEmpty` and runs Bootstrap.run, minting anchors FROM the .md — its own comment names the case, 'a brand-new or imported plain file'. So opening the document shows every word; asking Claude about it shows none. ProjectStore+Structure.swift:417 already had to special-case exactly this state for the wiki-rename sweep ('an unbootstrapped doc has no op log yet and materialises to \"\"; skipping it would silently miss the rename, so we fall through to Document.load which bootstraps'). read_document has no equivalent guard.",
+      "writer_visible_consequence": "The writer opens Chapter 3 and reads 4,000 words. They ask Claude to look at Chapter 3 and Claude reports an empty document. The two surfaces disagree about whether the writer's chapter exists. Because the disagreement resolves itself the moment the writer clicks the chapter in the binder (opening it bootstraps the log), the writer's most likely conclusion is that Claude is unreliable rather than that anything is wrong.",
+      "reachability": {
+        "rating": "LATENT",
+        "call_path": "Traced mechanism, not a single UI click. Any route that puts a non-empty .md at a manifest path without opening it: a project folder restored/unzipped/synced without its hidden `.maugham/` directory, then opened and queried via Claude before that chapter is ever clicked; or a manuscript file placed at the manifest path from outside Maugham. Maugham's own creation paths (ProjectFactory:38, :180) write empty .md files, so a factory-made project cannot reach it. Document+Load's own comment ('imported plain file') shows the state is anticipated, and ProjectStore+Structure.swift:417 shows it has already bitten one other reader."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-8",
+      "clause_that_does_the_work": "\"where the SAME writer question is answered in more than one place, it has ONE answer\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "RULING-8's own second clause — 'Two situations that merely look alike may legitimately differ' — is the live defence. Someone could argue the editor is an EDITING surface entitled to repair-on-open while the MCP read is a pure reader forbidden to write ops as a side effect of a read. That is a real argument about the FIX (a read should not bootstrap), but it does not defend the ANSWER: reporting empty is a third option nobody chose, and reporting 'this document has content on disk that Maugham has not taken in yet — open it once' would satisfy both readings. The finding is falsified only if some path guarantees no manuscript item can be in the manifest with a non-empty .md and no op log — Document+Load.swift:104's bootstrap branch is direct evidence that no such guarantee exists."
+    },
+    {
+      "id": "DT-D3",
+      "question": "Should the character count Claude is served include Maugham's paragraph anchors?",
+      "current_behaviour": "DocumentTools.swift:107-109 — `word_count` is computed on `MarkdownDisplayFilter.stripAnchors(text)`, with a comment explaining precisely why ('anchor comment tokens are not words and would inflate the count by ~3 per paragraph'). `character_count` on the next line is `text.count` — the ANCHORED form, uncorrected. Each anchor line contributes `<!-- ¶abcd -->` plus its newline and the blank line the Materializer emits after it (Materializer.swift:17-19): roughly 16 characters per paragraph that the writer never typed. The in-app count (ProseMode.metrics:36, `(text as NSString).length` over the editor's display text) counts only the writer's characters.",
+      "writer_visible_consequence": "A 40-paragraph chapter reports ~640 characters that do not exist. The writer asks Claude 'how close is this to my 2,000-character flash-fiction limit?' or 'is this scene too long?' and gets an answer inflated by Maugham's own bookkeeping — and inflated in proportion to how finely the writer paragraphs, so the more dialogue a scene has the more wrong the number gets. The same question asked of the app's own status bar gives a different number.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Any read_document call on any manuscript document: ReadDocumentTool.handle:57 → emitManuscriptDoc:108 → character_count in the returned JSON. Every manuscript read is affected; there is no branch that avoids it."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-11",
+      "clause_that_does_the_work": "\"Maugham's own invisible bookkeeping (anchors, structural framing) must never alter the writer's intent — not what they see, not what is stored, not what Claude is served\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "Only a ruling that character_count is documented as a byte/payload measure of the anchored transport form rather than a measure of the writer's prose. Nothing in the tool description or schema says so, and the adjacent word_count was explicitly corrected for the identical reason on the line above — which is direct evidence that the intended meaning is 'the writer's text', and that this line was simply missed."
+    },
+    {
+      "id": "DT-D4",
+      "question": "Should read_document's `text` be the writer's prose, or the prose with Maugham's join anchors interleaved through it?",
+      "current_behaviour": "The anchored (materialised) form is returned deliberately (DocumentTools.swift:72-75, ADR 0018/0019) so Claude can target paragraphs by `<!-- ¶id -->`. That means Claude reads a chapter as an alternation of anchor lines, blank lines and prose — plus any inline `<!--t-XXXXXX-->` task anchors mid-sentence, which stripAnchors would remove for a human reader but which read_document leaves in.",
+      "writer_visible_consequence": "Three ways the writer sees it. (1) Claude quotes their own sentence back to them with `<!-- ¶k3n2 -->` or a mid-sentence `<!--t-a3f9k2-->` in it. (2) Any craft judgement Claude makes about rhythm, paragraph length or line breaks is made over a text with two machine-written lines inserted between every paragraph. (3) A phrase Claude copies verbatim out of read_document — one carrying an inline task anchor — will not be found by any tool that matches against the display form, so a legitimate suggestion is refused for a reason that has nothing to do with the writer's text. This last one is the same failure RULING-5 governs, arriving from the wrong direction: the phrase cannot be found because Maugham's bookkeeping was in the phrase.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Every manuscript read_document call. The task-anchor half additionally requires the document to contain a `[[todo: …]]` task (TaskReadTools territory), which is an ordinary feature."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-11",
+      "clause_that_does_the_work": "\"Maugham's own invisible bookkeeping (anchors, structural framing) must never alter the writer's intent — … not what Claude is served\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "This is a genuine standoff between RULING-11's 'not what Claude is served' clause and a deliberate, documented architectural choice (ADR 0018/0019) that the anchors are the join key Claude needs. The finding is falsified if 'alter the writer's intent' is read to mean 'change the words' rather than 'change what the reader takes the writer to have written' — under the narrow reading the anchors add and never alter, so nothing is violated. I do not think the narrow reading survives contact with DT-D3: word_count had to be corrected for exactly this interleaving, which is a concession that the anchored form is not a faithful representation of the writer's prose for any purpose except addressing. Whoever rules on this should note the fix is not necessarily 'stop sending anchors' — sending the display text alongside a separate id→paragraph map would satisfy both the ADR and the ruling — but that is a design question, not the ruling question."
+    },
+    {
+      "id": "DT-D5",
+      "question": "When search_text says a passage is on line 42 and Claude then reads the document, should line 42 be the same line?",
+      "current_behaviour": "search_text's line numbers come from ProjectSearchEngine, which searches the DISPLAY form (ProjectSearchEngine.swift:46 uses derivedCache.displayText; the comment at :47-60 is explicit that 'every coordinate this engine emits … is in display form'). read_document returns the ANCHORED form, which the Materializer gives two extra lines per paragraph (anchor line + blank). The two coordinate systems drift apart by 2 lines for every paragraph preceding the match.",
+      "writer_visible_consequence": "Claude tells the writer 'the repetition is at line 80 of Chapter 3'. In the editor, line 80 is where search_text pointed — that half is right. But Claude reasoning across both tools (find the line, then read the document and quote around that line) lands roughly a third of the way back through the chapter and quotes the wrong passage with confidence. The writer reads a critique of a sentence they did not write there.",
+      "reachability": {
+        "rating": "LATENT",
+        "call_path": "search_text → SearchTextTool.handle:264 emits `line: m.lineNumber` (display coords) → Claude calls read_document on the same document_id → emitManuscriptDoc returns anchored text. Whether it bites depends on Claude choosing to index the returned text by the reported line number, which the response shape invites but does not force."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-8",
+      "clause_that_does_the_work": "\"where the SAME writer question is answered in more than one place, it has ONE answer\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "Discipline 2 is the risk here: 'where in the file is this match' (search) and 'here is the file' (read) could be argued to be different questions that merely share the word 'line'. I think they are the same question because a line NUMBER is only ever meaningful relative to a text, and the only text the reader has is read_document's. Falsified if line numbers were removed from search_text's response, or if read_document's response declared its coordinate system."
+    },
+    {
+      "id": "DT-D6",
+      "question": "When a search result is too large for the transport, should the writer be told, or should the answer simply not arrive?",
+      "current_behaviour": "read_document guards both of its text emit sites with MCPResponseBudget.enforce (:120, :162), which throws a structured `payload_too_large` naming the byte count, the cap, and an alternative. SearchTextTool, in the same file, ends `return try JSONEncoder().encode(mapped)` (:277) with no guard. ProjectSearchEngine imposes no match cap either — only a 120-char preview cap (:219) — so the payload scales with occurrence count: ~200 bytes per match, ~4,500 matches to the 900 KB budget. MCPResponseBudget's own type doc describes exactly this as the failure it was created to close: 'read_document on a novel emitted the whole manuscript unbounded and the transport silently choked'.",
+      "writer_visible_consequence": "The writer asks Claude a craft question that happens to be a common word — 'how often am I leaning on \"just\"?', 'find every \"he said\"', 'am I overusing \"the\"?' (default options are case-insensitive substring, so 'he' also matches inside the, her, where, there). Instead of an answer or a clear refusal, the call chokes at the transport and the writer sees Claude fail opaquely or hang. The identical over-size condition one tool over produces a clear sentence explaining the cap and what to do instead.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "search_text with any high-frequency query against a novel-length project → SearchTextTool.handle:258 engine.search (no cap) → :277 encode (no budget check) → MCPToolsCallHandler embeds it as a text block → transport line exceeds the ~1 MB cap. A 100k-word manuscript contains roughly 5,000 occurrences of 'the'."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-7",
+      "clause_that_does_the_work": "\"never misrepresent a failure … a refusal names its real cause\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "Measuring an actual over-budget search and finding the transport degrades gracefully with a legible error rather than a silent choke. MCPResponseBudget's own documentation asserts the opposite from prior experience. Note that RULING-8 also reaches this independently and arrives at the same verdict — the same question ('this answer is too big, now what?') has two answers inside one 279-line file."
+    },
+    {
+      "id": "DT-D7",
+      "question": "During a rename, which document does a search hit belong to?",
+      "current_behaviour": "read_document was hardened twice for exactly this: it resolves by docId first and its path fallback confirms `$0.docId == item.id` before trusting the registry (:89-91), with two regression tests (test_readDocument_openDoc_resolvesByDocIdDespitePathRename, test_readDocument_pathFallback_confirmsDocIdIdentity) pinning it. search_text reaches the same registry through ProjectSearchEngine.swift:39, which does bare `ds.document(for: fullPath)` with no docId confirmation — the precise shape the second read_document test was written to falsify. SearchTextTool then maps back with `TreeWalk.first { $0.path == m.documentPath }` (:268), which takes the FIRST structure item at that path.",
+      "writer_visible_consequence": "In the rename/path-reuse window, Claude is told a passage lives in Chapter 1 when it lives in Chapter 2. If the writer then acts on that — asks Claude to comment on it, or goes looking — read_document (correctly hardened) shows a Chapter 1 that does not contain the passage, and the writer is left holding two tools that disagree about where their own sentence is.",
+      "reachability": {
+        "rating": "LATENT",
+        "call_path": "Binder rename (or a move that reuses a path) lands in the manifest before DocumentStore's registry is re-keyed → search_text during that window → ProjectSearchEngine.swift:39 returns the doc registered under the old path string → the match carries that doc's content but the manifest path's title/id. Tripwire 22 records this class of bug being hit twice already, and the fix site is the engine, not this module — but SearchTextTool is the writer-facing consumer."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-8",
+      "clause_that_does_the_work": "\"where the SAME writer question is answered in more than one place, it has ONE answer\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "If DocumentStore's path registry is re-keyed synchronously within the same main-actor turn as the manifest write, the window does not exist and this is unreachable rather than latent. I did not trace the rename commit path to closure — that is the check that settles it. The read_document tests exist because the window was real there; the same registry backs both."
+    },
+    {
+      "id": "DT-D8",
+      "question": "Should Maugham's transport limit produce advice about how the writer organises their novel?",
+      "current_behaviour": "When a manuscript document exceeds 900 KB, the refusal hint reads: 'Use search_text to locate the passage you need, or split the manuscript into per-chapter documents in the binder and read one' (:122-124). The refusal itself is correct and names its real cause; the hint's second clause asks the writer to restructure their book.",
+      "writer_visible_consequence": "A writer who keeps their novel as one document — a legitimate way to work, and one Maugham supports — asks Claude to read it and is told, in effect, to break their book into chapters. Claude will relay that as a recommendation, because it arrives as one. A structural decision about the manuscript is being driven by a JSON-RPC line length the writer has no reason to know exists.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "read_document on any manuscript document over ~900 KB (roughly 150,000 words of anchored text) → MCPResponseBudget.enforce:120 → the hint reaches Claude and then the writer."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "When Maugham cannot do something because of its own internal limit, it says so and offers a way through that does not require the writer to change how their book is arranged. Maugham's constraints are never expressed as advice about the writer's structure.",
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "If per-chapter documents are independently the recommended way to work in Maugham for reasons that have nothing to do with the transport, the hint is honest advice that happens to arrive at a bad moment, and this is an enhancement rather than a defect (PRINCIPLE-2). It is also arguably too small to rule on. I am recording it because the ruleset takes an unusually firm line elsewhere about Maugham's internals not reaching the writer, and this is the one place in the module where an internal byte budget speaks to the writer in the imperative."
+    },
+    {
+      "id": "DT-D9",
+      "question": "When a research note is a rich-text file, should Claude be served its markup as the note's text?",
+      "current_behaviour": "ResearchKindInference.swift:21 classifies `rtf` as `kind: .document`, and emitResearchItem's `.document` branch reads it as UTF-8 — which SUCCEEDS for RTF, since RTF is 7-bit ASCII. Claude receives `{\\rtf1\\ansi\\ansicpg1252\\cocoartf…` as `text`, labelled `mode: \"prose\"`, with `word_count` counting control words like `\\pard` and `\\fs24` as words and `character_count` counting braces and backslashes. Unlike DT-D1 nothing fails: the response is confidently, specifically wrong.",
+      "writer_visible_consequence": "The writer imports a character sketch written in TextEdit or exported from Word, asks Claude about it, and Claude reads markup. Best case Claude works around it and quietly loses whatever the RTF encoded (emphasis, and any character stored as an escape); worst case Claude reports the note's word count as several times its real length, or repeats a control word back as if the writer had typed it.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Research pane → Add File… (no allowedContentTypes filter, ResearchView.swift:238) or Finder drag → importResearchFiles:523 admits .rtf because ResearchKindInference returns `.document` → read_document → emitResearchItem `.document` branch → line 149 decodes it successfully as ASCII."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "A research file is served to Claude as its readable content or not at all. Where Maugham holds a file whose text it can identify but not extract, it says which file and why, and never presents the file's internal markup as the writer's words.",
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "RULING-1 is the near miss and it is worth saying why it does not reach here: its scope is Maugham's ENTRY POINTS, and the research import IS an entry point admitting content it cannot read back faithfully — so RULING-1 probably does govern the .rtf ADMISSION, and that finding belongs to the import module, not this one. Inside read_document, nothing is refused and nothing is shown as empty, so RULING-7 does not reach either. Falsified if the app's own research note editor renders RTF properly, in which case the defect is purely read_document's non-parity; I checked, and it does not — ResearchNoteEditor.swift:132 reads the same bytes as plain UTF-8, so the writer sees the same markup. That makes the two surfaces consistent (RULING-8 satisfied) and both wrong, which is why only a new ruling reaches it."
+    },
+    {
+      "id": "DT-D10",
+      "question": "When Claude asks for something out of range, should the request be clamped or refused?",
+      "current_behaviour": "Two policies in one call. `region` is REFUSED on out-of-bounds with an error naming the constraint and the values received (ImageResponseBuilder.validateRegion:161), and a test pins it ('rejected with a clear MCP error rather than silently clamping'). `max_dimension` and `quality` are silently CLAMPED to 256–4096 and 10–100 (clampDimension/clampQuality), with no note in the response.",
+      "writer_visible_consequence": "For region, none — the refusal is correct and Claude retries. For max_dimension, Claude asks for 8000 px on a page of the writer's handwriting, receives 4096 px with no indication it was reduced, and transcribes at a resolution it believes to be twice what it got. A misread word then lands in the writer's research as if it were their own note. Note that a budget-forced step-down IS announced (encodeEnvelope:139) — so the response format already has a place to say this and only the caller-clamp case is silent.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "read_document on an image research item with max_dimension > 4096 → emitImageResearchItem:214 → ImageResponseBuilder.encodeEnvelope:91 clamps before rendering; no text block is prepended unless the byte budget also bit."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-8",
+      "clause_that_does_the_work": "\"Two situations that merely look alike may legitimately differ\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "I am recording this as COMPLIANT on the split itself — discipline 2 applies and the two are not the same question. A clamped dimension still returns the picture that was asked for, only smaller; a clamped crop would return a DIFFERENT PART of the picture than was asked for, which is a wrong answer rather than a coarse one. So refusing one and clamping the other is defensible. What is NOT covered by that defence is the silence: the response announces a budget-forced downscale and not a caller-request downscale, which is one question ('at what resolution am I actually looking at this?') with two answers. If the reviewer disagrees with my reading of discipline 2 here, the whole item flips to CONTRADICTS/RULING-8 and the silence becomes the least of it."
+    },
+    {
+      "id": "DT-D11",
+      "question": "Should read_document refuse a PDF research item outright?",
+      "current_behaviour": "`.pdf` and `.audio` items throw a named refusal pointing at list_research (:169-174); an image over 50 MB throws a refusal naming the file, its size in MB, and the limit (:210-213). Meanwhile the module already owns a full image pipeline (decode → crop → downscale → JPEG) that a rasterised PDF page could ride, and ImageResponseBuilder.render(nsImage:) exists precisely for 'tools that synthesize images (e.g. rasterized PDF pages)'.",
+      "writer_visible_consequence": "The writer scans a 1920s newspaper page or a permissions letter into Research and asks Claude to read it. Claude is told, clearly and truthfully, that it cannot. The writer's material is present, intact, and unreachable — but they are not misled about why, and they can act on the answer.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Research pane import of any .pdf (ResearchKindInference:12) → read_document → emitResearchItem `.pdf` case throws."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-7",
+      "clause_that_does_the_work": "\"a refusal names its real cause\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "Recorded as COMPLIANT and deliberately so — PRINCIPLE-2 governs. Reading PDFs would plainly be a better experience, and the pipeline to do it is already in the building, but a limit that is stated honestly violates no ruling and belongs on a roadmap, not a defect register. It is here as the control case: it is what DT-D1 would look like if it were correct. The only thing that would flip it is a discovered claim elsewhere in the product (help topic, tool description, marketing) that Maugham reads PDF research — that would make the refusal a broken promise rather than a stated limit."
+    }
+  ],
+  "notes": "SCOPE QUESTION — is the MCP read surface 'writer-facing' for RULING-7? You asked for the reasoning either way, so here it is at length.\n\nThe narrow reading: RULING-7 says 'Scope: WRITER-FACING surfaces'. A surface is where a person looks. The MCP server is a machine interface consumed by a program; the writer never sees a DocumentContent struct. On this reading read_document falls outside, and DT-D1/D6 drop to SETTLED_BY_ROOT_ONLY under RULING-20 ('where intent is unclear default SAFE') — still adverse, but weaker, and RULING-20 is exactly the kind of root that the hypothesis under test suspects of explaining everything.\n\nThe broad reading, which I think is right, on four grounds.\n\n(1) The harm RULING-7 names is a person forming a false belief about their own work. Interposing Claude does not dilute that harm — it launders it. The writer still ends up believing their note is empty; they just hear it in a sentence instead of seeing a blank pane.\n\n(2) The interposition makes it WORSE, not better. A writer who opens a research note they know holds 800 words and sees a blank page suspects a bug and goes looking. Claude has no prior about that note, no memory of writing it, and no other source — it will accept text:\"\" as fact and reason onward from it. The ruling's protection is needed MORE where the reader cannot sanity-check, not less. A scope that excludes the least-defended reader is reading the ruling backwards.\n\n(3) The ruleset already treats what Claude is served as governed. RULING-11 ends '…not what they see, not what is stored, NOT WHAT CLAUDE IS SERVED'. Someone drafting these rules had the MCP surface in mind and wrote it into the ruling where it came up. RULING-7's silence is therefore much better explained by 'the question had not arisen when it was written' than by 'Claude was considered and excluded'.\n\n(4) RULING-19 is the strongest counter and it fails. One could argue the MCP tool layer is a 'lower layer' entitled to protect data silently. But RULING-19's licence for silence covers REPAIRS that protect the system and data — and it immediately adds that a lower-layer repair means a guard above did not fire, 'that is a bug'. Line 149 is not a repair. It is an ANSWER to a question about the writer's content, and no ruling licenses silence in an answer.\n\nRECOMMENDATION regardless of which way this is ruled: RULING-7 should gain an explicit clause. Something like 'a surface is writer-facing if what it returns reaches the writer without an independent check — including anything served to Claude.' Right now the scope is settled by argument, which means it will be re-argued in the next sweep, and different modules will land on different sides of it.\n\nOUT-OF-MODULE, FLAGGED: (a) ResearchNoteEditor.swift:132 has the identical `(try? String(contentsOf:encoding:.utf8)) ?? \"\"` at a plainly writer-facing surface — an unreadable note opens as a blank editor. If that editor autosaves, the empty string overwrites the file and the swallow becomes destructive; I did not trace its save path and someone should. This one needs no scope argument at all. (b) ProjectStore.importResearchFiles:523 silently `continue`s past files whose extension it does not recognise — select twelve files, import eight, no message. (c) ProjectSearchEngine.swift:39 is the unhardened twin of the read_document registry lookup (DT-D7); the fix belongs there.\n\nWHAT THE SUB-RULINGS DID: nine of eleven decisions were reached by a sub-ruling; only DT-D8 and DT-D9 needed new rulings, and neither root-only case arose. RULING-11's 'not what Claude is served' clause and RULING-7's 'unreadable is never shown as empty' clause did the heaviest lifting and did it cleanly — both name the exact failure shape rather than a value, which is why they discriminate. RULING-8 was the most double-edged: it reached four findings, and in one of them (DT-D10) its SECOND clause acquitted a difference its first clause would have condemned. That is the sub-ruling set working, but it also means RULING-8 alone can be argued to almost any conclusion — it needs the discipline-2 test applied explicitly every time, and it should probably say so in its own text."
+}

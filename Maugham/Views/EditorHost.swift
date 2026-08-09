@@ -416,7 +416,23 @@ struct EditorHost: View {
             // coordinator refreshes its marks from the provider after each.
             annotationActions: .init(
                 reviewAcceptHandler: { id in
-                    try? await doc.acceptAnnotation(id: id, undoManager: um)
+                    do {
+                        try await doc.acceptAnnotation(id: id, undoManager: um)
+                    } catch let error as AnnotationAcceptError
+                        where error == .suggestionAnchorLost {
+                        // RULING-5's told-why half on the margin-card surface —
+                        // a try? here was the branch review's silent-refusal
+                        // catch. Same words as the pane's alert.
+                        await MainActor.run {
+                            let alert = NSAlert()
+                            alert.messageText = "This suggestion can no longer be applied"
+                            alert.informativeText = "The passage it would replace is no longer in the paragraph, so applying it could put the replacement in the wrong place. The suggestion stays open — ask Claude for a fresh one against the current text."
+                            alert.alertStyle = .informational
+                            alert.runModal()
+                        }
+                    } catch {
+                        documentLog.error("margin-card accept failed for \(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
                 },
                 reviewRejectHandler: { id in
                     // The card has no reasoning field; the reason-capture sheet

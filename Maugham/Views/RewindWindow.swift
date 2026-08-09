@@ -29,6 +29,10 @@ struct RewindWindow: View {
     @State private var cursor: RewindCursor = .now
     @State private var previewMode: PreviewMode = .doc
     @State private var derivedState: Deriver.DerivedState = .init(paragraphs: [:], sequence: [])
+    /// Cached per cursor change (branch review: a computed property here ran
+    /// several whole-log derives per body pass, stuttering the scrubber on
+    /// novel-scale histories).
+    @State private var impactPreview: RewindImpact.Preview = RewindImpact.preview(ops: [], cursorOpId: nil)
     @State private var nowState: Deriver.DerivedState = .init(paragraphs: [:], sequence: [])
     @State private var showingSnapshotPrompt: Bool = false
     @State private var showingRestoreConfirm: Bool = false
@@ -252,9 +256,11 @@ struct RewindWindow: View {
             Button("Cancel") { onComplete(.cancel) }
             Button("Snapshot here…") { showingSnapshotPrompt = true }
                 .disabled(cursor == .now)
+            // RULING-37's view half: Restore is not offered when the restore
+            // would change nothing — no text delta, no task window to move.
             Button("Restore here…") { showingRestoreConfirm = true }
                 .buttonStyle(.borderedProminent)
-                .disabled(cursor == .now)
+                .disabled(cursor == .now || !impactPreview.changesAnything)
         }
         .padding(16)
     }
@@ -310,6 +316,13 @@ struct RewindWindow: View {
     /// cycle as the cursor change, so the preview never lags a frame.
     private func updateDerivedStateNow() {
         derivedState = Deriver.derive(ops: ops, upTo: cursor)
+        // RULING-28's full collateral preview, recomputed exactly when the
+        // derived state is — once per cursor change.
+        if case .atOp(let targetOpId, _) = cursor {
+            impactPreview = RewindImpact.preview(ops: ops, cursorOpId: targetOpId)
+        } else {
+            impactPreview = RewindImpact.preview(ops: ops, cursorOpId: nil)
+        }
     }
 
     private func scrub(toX x: CGFloat, width: CGFloat) {
@@ -397,38 +410,7 @@ struct RewindWindow: View {
     }
 
     private var impactSummary: String {
-        let removed = Set(nowState.sequence).subtracting(Set(derivedState.sequence))
-        let words = removed.compactMap { nowState.paragraphs[$0] }
-            .map { $0.split { $0.isWhitespace || $0.isNewline }.count }
-            .reduce(0, +)
-        var summary = "Restoring would undo \(words) words / \(removed.count) paragraph\(removed.count == 1 ? "" : "s") written after this point."
-        let reopened = reopenedSuggestionCount
-        if reopened > 0 {
-            summary += " \(reopened) accepted suggestion\(reopened == 1 ? "" : "s") reopened."
-        }
-        return summary
-    }
-
-    /// Count of accepted suggestions whose `claudeAccept` lies past the scrub
-    /// target — restoring reverts their applied text and reopens them
-    /// (preview mirror of `Document.restoreToOp`'s stranded-accept scan).
-    private var reopenedSuggestionCount: Int {
-        guard case .atOp(let targetOpId, _) = cursor else { return 0 }
-        var latest: [String: Op] = [:]
-        for op in ops
-        where [.claudeAccept, .claudeReject, .claudeArchive,
-               .claudeAcceptRevert].contains(op.kind) {
-            guard let src = op.provenance?.sourceAnnotationId else { continue }
-            if let prior = latest[src], prior.opId > op.opId { continue }
-            latest[src] = op
-        }
-        let survivors = Set(derivedState.sequence)
-        return latest.values.filter { op in
-            op.kind == .claudeAccept
-                && op.opId > targetOpId
-                && !op.changes.isEmpty
-                && (op.changes.first?.paragraphId).map(survivors.contains) == true
-        }.count
+        RewindImpact.confirmSummary(impactPreview)
     }
 
     private func color(for kind: OpKind) -> Color {

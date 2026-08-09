@@ -48,7 +48,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # CI never pushes back to git, so don't leave the token in
           # .git/config (env-block injection defence, per CI-hardening notes).
@@ -160,7 +160,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -287,7 +287,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -309,6 +309,33 @@ jobs:
   # they cluster in Maugham/Editor/ AppKit-delegate / Sendable-closure code)
   # become visible incrementally as they're fixed.
   # ---------------------------------------------------------------------------
+  behavioural-claims:
+    name: Behavioural claims (ExperimentTests)
+    # The MaughamCore half of the behavioural-specification claim ledger
+    # (experiment/01-claims-ledger.json): every claim is pinned by a passing
+    # test, so this job going red means PINNED BEHAVIOUR CHANGED — check the
+    # module's filings in experiment/reconciliation/ before "fixing" the test;
+    # a VIOLATES row is a known defect whose fix must flip its claim + filing
+    # in the same commit (see the M4-RW-002 loop). Standalone SPM package,
+    # no xcodegen, no Metal, no sim — the cheapest job in this file.
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Xcode 26.6
+        # Same toolchain pin as mac-tests, for one less axis of drift.
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '26.6'
+
+      - name: Run the claims suite
+        run: swift test --package-path experiment/ExperimentTests
+
+  # ---------------------------------------------------------------------------
   concurrency-warnings:
     name: Strict-concurrency warning scan
     # Builds the Mac app, so it follows the macOS 26 deployment target.
@@ -317,7 +344,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 

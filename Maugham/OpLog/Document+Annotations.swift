@@ -1,6 +1,15 @@
 import Foundation
 import MaughamCore
 
+/// Thrown by `Document.acceptAnnotation` when the accept must be refused.
+/// RULING-5: a suggestion whose quoted phrase can no longer be found in the
+/// writer's paragraph MUST NOT be applied — it is refused, the writer is told
+/// why, and they may ask again. The pane catches this and says so; a caller
+/// that swallows it silently is an M5-AN-050 regression.
+public enum AnnotationAcceptError: Error, Equatable {
+    case suggestionAnchorLost
+}
+
 extension Document {
 
     internal static func isAnnotationOpKind(_ kind: OpKind) -> Bool {
@@ -326,21 +335,31 @@ extension Document {
         // level suggestion (no span) replaces the whole paragraph. The accept
         // op carries the resulting full paragraph as `next`, so replay
         // (`Materializer`) applies it unchanged. See `SuggestionSplice`.
-        let changes: [Op.ParagraphChange] = {
-            switch kind {
-            case .suggestedChange:
-                guard let orig = creation.changes.first else { return [] }
-                let pid = orig.paragraphId
-                let current = paragraphs[pid] ?? orig.prior ?? ""
-                let next = SuggestionSplice.apply(
-                    suggestion: orig.next ?? "",
-                    span: SuggestionSplice.spanAnchor(from: creation.provenance),
-                    to: current)
-                return [.init(paragraphId: pid, prior: current, next: next)]
-            case .comment, .query, .craftNote:
-                return []
+        //
+        // A span whose quoted phrase is GONE from the current paragraph is
+        // REFUSED before anything is appended (RULING-5: Maugham never guesses
+        // where an AI-authored change belongs; the writer is told and may ask
+        // again). This throw is the layer that actually protects the prose —
+        // the pane's staleness gate is advisory and its cache can lag a typing
+        // edit (M5-AN-005/050).
+        let changes: [Op.ParagraphChange]
+        switch kind {
+        case .suggestedChange:
+            guard let orig = creation.changes.first else { changes = []; break }
+            let pid = orig.paragraphId
+            let current = paragraphs[pid] ?? orig.prior ?? ""
+            switch SuggestionSplice.attempt(
+                suggestion: orig.next ?? "",
+                span: SuggestionSplice.spanAnchor(from: creation.provenance),
+                to: current) {
+            case .applied(let next):
+                changes = [.init(paragraphId: pid, prior: current, next: next)]
+            case .anchorLost:
+                throw AnnotationAcceptError.suggestionAnchorLost
             }
-        }()
+        case .comment, .query, .craftNote:
+            changes = []
+        }
 
         let acceptOp = Op(
             opId: ULID.generate(),
@@ -653,6 +672,43 @@ extension Document {
             return
         }
         try await appendAnnotationOpInternal(op)
+    }
+
+    /// The Deleted view's content (RULING-34): annotations the writer
+    /// withdrew, recoverable later via `reopenAnnotation`. Derived from the
+    /// live mirror on each call — the list is small and the view is cold.
+    public func withdrawnAnnotations() -> [AnnotationDeriver.WithdrawnAnnotation] {
+        AnnotationDeriver.deriveWithdrawn(ops: _opLogMirror)
+    }
+
+    /// The pane's Reopen (RULING-29): `reopenAnnotation` wrapped in a ⌘Z pair.
+    /// Undo re-applies the PRIOR resolution whole — a reject returns with its
+    /// written reason (RULING-31's history is the projection's job; undo's job
+    /// is fidelity). Statuses without a clean prior resolution to re-apply
+    /// (withdrawn) fall through to the plain reopen, un-registered.
+    public func reopenAnnotation(id: String, undoManager: UndoManager?) async throws {
+        let prior = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }
+        try await reopenAnnotation(id: id)
+        guard let priorStatus = prior?.status,
+              priorStatus == .rejected || priorStatus == .archived else { return }
+        let priorResponse = prior?.userResponse
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Reopen Annotation", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in
+                switch priorStatus {
+                case .rejected:
+                    try? await doc.rejectAnnotation(id: id, userResponse: priorResponse)
+                case .archived:
+                    try? await doc.archiveAnnotation(id: id)
+                default:
+                    break
+                }
+            },
+            redo: { [weak undoManager] doc in
+                try? await doc.reopenAnnotation(id: id, undoManager: undoManager)
+            })
     }
 
     /// Shared tail for annotation-only ops (reopen, edit-revert): persist,

@@ -1,0 +1,252 @@
+[
+  {
+    "rank": 1,
+    "id": "R02",
+    "subject": "M2-C-027 + M2-C-029 / P13 \u2014 rewritePaths has two unguarded string preconditions",
+    "deps": 105,
+    "uncertainty": "SHATTERED",
+    "score": 105.0,
+    "recommendation": "LATENT_DEFECT",
+    "why": "A trailing '/' on oldPrefix silently rewrites NOTHING; an empty newPrefix silently produces leading-slash (absolute-looking) paths. Bare String parameters, three call sites that happen to be well-behaved, and no diagnostic in either direction."
+  },
+  {
+    "rank": 2,
+    "id": "R14",
+    "subject": "M2-A-16 \u2014 'node ids MUST be unique within a forest'",
+    "deps": 105,
+    "uncertainty": "HALLUCINATION",
+    "score": 94.5,
+    "recommendation": "INCIDENTAL-KILLABLE",
+    "why": "Falsified as a requirement by P14; replace with the true clause \u2014 TreeWalk is deliberately agnostic to id uniqueness."
+  },
+  {
+    "rank": 3,
+    "id": "R25",
+    "subject": "M2-A-20 \u2014 'MUST stay allocation-simple and recursive'",
+    "deps": 105,
+    "uncertainty": "HALLUCINATION",
+    "score": 94.5,
+    "recommendation": "INCIDENTAL-KILLABLE",
+    "why": "A style preference I dressed as an intent clause, included in Phase 3 as a deliberate specimen. It behaved as advertised."
+  },
+  {
+    "rank": 4,
+    "id": "R09",
+    "subject": "M2-C-036 \u2014 the walkers' stack-overflow depth is unguarded and environment-dependent",
+    "deps": 105,
+    "uncertainty": "UNPINNABLE",
+    "score": 78.75,
+    "recommendation": "NEEDS-DISCUSSION",
+    "why": "The ratchet's #2 pick and one of only two claims with no test at all; does a depth guard belong here, or is unbounded depth a real invariant of the binder?"
+  },
+  {
+    "rank": 5,
+    "id": "R10",
+    "subject": "M2-C-034 \u2014 'unbounded recursion with no depth guard' as a pinned claim",
+    "deps": 105,
+    "uncertainty": "OVER_SPECIFIC",
+    "score": 47.25,
+    "recommendation": "INCIDENTAL-KILLABLE",
+    "why": "A description of an ABSENCE. Ratified, it forbids ever adding a depth guard \u2014 which R09 may conclude is wanted."
+  },
+  {
+    "rank": 6,
+    "id": "R23",
+    "subject": "M2-B-01 \u2014 TreeWalk is the TEST SUITE's oracle, not only production's",
+    "deps": 105,
+    "uncertainty": "ARCHITECTURAL",
+    "score": 36.75,
+    "recommendation": "RATIFY",
+    "why": "12 of 13 test files use it as a fixture helper; a regression here makes assertions across Store/Canvas/Inbox/MCP report on a lie."
+  },
+  {
+    "rank": 7,
+    "id": "R05",
+    "subject": "M2-C-019 \u2014 a collected node carries its ENTIRE unfiltered subtree",
+    "deps": 36,
+    "uncertainty": "LOW_UNHAMMERED",
+    "score": 21.6,
+    "recommendation": "RATIFY",
+    "why": "36 call sites depend on it, it is almost certainly intended, and nobody has ever written it down."
+  },
+  {
+    "rank": 8,
+    "id": "R01",
+    "subject": "M1-C-024 / P09 \u2014 a CRLF card loses every field",
+    "deps": 11,
+    "uncertainty": "SHATTERED",
+    "score": 11.0,
+    "recommendation": "LATENT_DEFECT",
+    "why": "Swift's \\r\\n grapheme cluster defeats split(separator:\"\\n\"); a Windows-touched card parses as one line and kind/swatches/senses/images all come back empty."
+  },
+  {
+    "rank": 9,
+    "id": "R04",
+    "subject": "The eleven undocumented preconditions behind 'editor-reachable'",
+    "deps": 11,
+    "uncertainty": "PINNED_DEFECT",
+    "score": 8.8,
+    "recommendation": "NEEDS-DISCUSSION",
+    "why": "M1-A-01's escape hatch carries eleven conditions that appear in no comment, no test and no type; either document them or make PaletteCard.init validating."
+  },
+  {
+    "rank": 10,
+    "id": "R15",
+    "subject": "M1-C-021 \u2014 an empty 'kind:' value consumes the one-shot capture",
+    "deps": 11,
+    "uncertainty": "PINNED_DEFECT",
+    "score": 8.8,
+    "recommendation": "LATENT_DEFECT",
+    "why": "The one-shot rule exists to stop body prose corrupting kind (M1-T-039); here it fires on a line carrying no information."
+  },
+  {
+    "rank": 11,
+    "id": "R16",
+    "subject": "M1-C-023 \u2014 a writer-typed blank line before 'kind:' is silently eaten",
+    "deps": 11,
+    "uncertainty": "PINNED_DEFECT",
+    "score": 8.8,
+    "recommendation": "NEEDS-DISCUSSION",
+    "why": "Narrows M1-A-04, a rule four dedicated tests are devoted to; a blank-LOOKING line with a space in it survives, which is the tell."
+  },
+  {
+    "rank": 12,
+    "id": "R03",
+    "subject": "M1-C-003 / P03 \u2014 color(fromHex:) accepts '#+FFFFF'",
+    "deps": 8,
+    "uncertainty": "SHATTERED",
+    "score": 8.0,
+    "recommendation": "LATENT_DEFECT",
+    "why": "UInt32(_:radix:) accepts a leading '+' and the length check counts it; this is the SOLE gate on which swatches enter the model."
+  },
+  {
+    "rank": 13,
+    "id": "R22",
+    "subject": "M1-C-016 \u2014 an INDENTED '## Swatches' still opens a section",
+    "deps": 11,
+    "uncertainty": "LOW_UNHAMMERED",
+    "score": 6.6,
+    "recommendation": "NEEDS-DISCUSSION",
+    "why": "Indentation is the natural thing a writer tries after hitting the documented heading-in-body residual, and it does not work."
+  },
+  {
+    "rank": 14,
+    "id": "R12",
+    "subject": "M1-C-046 \u2014 a remote URL in imagePaths is mangled by relativize",
+    "deps": 6,
+    "uncertainty": "PINNED_DEFECT",
+    "score": 4.8,
+    "recommendation": "LATENT_DEFECT",
+    "why": "The parser is careful never to ADMIT a remote URL (M1-A-06); the renderer will happily emit one and collapse its scheme's '//'."
+  },
+  {
+    "rank": 15,
+    "id": "R13",
+    "subject": "M1-C-044 + M1-C-045 \u2014 a newline in title or note silently loses data",
+    "deps": 6,
+    "uncertainty": "PINNED_DEFECT",
+    "score": 4.8,
+    "recommendation": "NEEDS-DISCUSSION",
+    "why": "Title's remainder migrates into body; a note truncates at the newline. Same root question as R04: validate at init, or document as unreachable."
+  },
+  {
+    "rank": 16,
+    "id": "R18",
+    "subject": "M1-T-030 \u2014 'a string with non-hex digits returns nil'",
+    "deps": 8,
+    "uncertainty": "OVER_EXTRACTED",
+    "score": 4.4,
+    "recommendation": "INCIDENTAL-KILLABLE",
+    "why": "My extraction generalised a single assertion about '#GGGGGG' into a false universal; rewrite the claim to match the test, and let R03 carry the defect."
+  },
+  {
+    "rank": 17,
+    "id": "R07",
+    "subject": "M2-C-010 / P14 \u2014 find returns the FIRST pre-order match among duplicates",
+    "deps": 42,
+    "uncertainty": "HELD_HIGH",
+    "score": 4.2,
+    "recommendation": "RATIFY",
+    "why": "42 call sites; held over 20,000 forests with deliberately duplicated ids."
+  },
+  {
+    "rank": 18,
+    "id": "R06",
+    "subject": "M2-C-018 / P10 \u2014 collect descends through a failing parent",
+    "deps": 36,
+    "uncertainty": "HELD_HIGH",
+    "score": 3.6,
+    "recommendation": "RATIFY",
+    "why": "The single most load-bearing property of the second-most-called walker; held over 20,000 forests."
+  },
+  {
+    "rank": 19,
+    "id": "R19",
+    "subject": "M1-C-041 \u2014 template and render disagree on bytes",
+    "deps": 4,
+    "uncertainty": "PINNED_DEFECT",
+    "score": 3.2,
+    "recommendation": "NEEDS-DISCUSSION",
+    "why": "A new card changes bytes on its first save with no edit; harmless until any content-hash, sync or git-facing feature exists."
+  },
+  {
+    "rank": 20,
+    "id": "R17",
+    "subject": "M2-T-023 + M2-T-024 \u2014 the rewrite claims as I extracted them",
+    "deps": 3,
+    "uncertainty": "CONTRADICTED",
+    "score": 2.7,
+    "recommendation": "NEEDS-DISCUSSION",
+    "why": "True only for separator-free prefixes; neither my claim nor the doc comment carries the qualifier. Fix the code (R02) or add the precondition."
+  },
+  {
+    "rank": 21,
+    "id": "R11",
+    "subject": "M1-C-043 \u2014 an invalid swatch is written to the file, then silently lost",
+    "deps": 3,
+    "uncertainty": "PINNED_DEFECT",
+    "score": 2.4,
+    "recommendation": "NEEDS-DISCUSSION",
+    "why": "Asymmetric with the untagged-empty-note case (M1-T-042), which the renderer DOES skip; the file is written either way."
+  },
+  {
+    "rank": 22,
+    "id": "R21",
+    "subject": "M2-C-035 \u2014 idsByPath's ITERATION order is not stable across processes",
+    "deps": 3,
+    "uncertainty": "UNPINNABLE",
+    "score": 2.25,
+    "recommendation": "NEEDS-DISCUSSION",
+    "why": "The doc comment resolves the INSERTION contest and is silent on iteration; a caller that iterates rather than subscripts has a run-varying order."
+  },
+  {
+    "rank": 23,
+    "id": "R24",
+    "subject": "M1-C-040 + M1-C-042 \u2014 an exact render byte-string and an enum declaration order",
+    "deps": 5,
+    "uncertainty": "OVER_SPECIFIC",
+    "score": 2.25,
+    "recommendation": "NEEDS-DISCUSSION",
+    "why": "M1-C-042 should probably RATIFY (M1-B-04: the phone depends on the order); M1-C-040 is the brittle-pin specimen. Split them."
+  },
+  {
+    "rank": 24,
+    "id": "R08",
+    "subject": "M2-C-012 + M2-C-013 \u2014 mutate and remove apply to EVERY match",
+    "deps": 3,
+    "uncertainty": "LOW_UNHAMMERED",
+    "score": 1.8,
+    "recommendation": "NEEDS-DISCUSSION",
+    "why": "With a duplicated root id, remove empties the forest; tripwire 23 records that a mint collision has already happened once in this codebase."
+  },
+  {
+    "rank": 25,
+    "id": "R20",
+    "subject": "M1-A-20 \u2014 'MUST NOT admit an invalid swatch into a rendered file'",
+    "deps": 1,
+    "uncertainty": "HALLUCINATION",
+    "score": 0.9,
+    "recommendation": "INCIDENTAL-KILLABLE",
+    "why": "Falsified by M1-C-043; I flagged it LOW and predicted its death in Phase 3. Kill the clause; R11 carries the real question."
+  }
+]

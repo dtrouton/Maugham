@@ -249,6 +249,13 @@ A small `↺` icon button at the right edge of the row (next to the timestamp), 
 
 Click → posts the new `.maughamOpenRewind` notification with `userInfo: ["paragraph_id"-style: ..., "scrub_op_id": rowOpId]`. ProjectWindow's `.onReceive` handler opens the modal pre-positioned at the cursor.
 
+> **2026-08-08 amendment (M4-RW-002).** `scrub_op_id` is now the row op's **predecessor** in the
+> opId-ordered log, not the row op itself. `derive(upTo:)` is inclusive by contract, so posting the
+> row op landed the writer *after* the change they wanted gone — the opposite of the label. Ruled by
+> Denver (RULING-22 disposition): fix the behaviour, not the label. A row whose op has no
+> predecessor (the first op) offers no deep-link, because "before this" does not exist there —
+> `HistoryPane.predecessorIndex`, pinned by `HistoryPaneRewindTargetTests`.
+
 ### 4.4 Mental model for the writer
 
 - *Quick path:* HistoryPane → click `↺` on a recent burst → modal opens at that op → glance at preview → confirm Restore → done. ~4 clicks for a "go back 10 minutes" recovery.

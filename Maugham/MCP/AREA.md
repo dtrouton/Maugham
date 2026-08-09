@@ -108,7 +108,11 @@ Safety model — mutation is fenced to a throwaway workspace, never the owner's 
 - **Runtime guard:** every mutating tool resolves its target project URL through
   `TestWorkspace.require(url:)` (MaughamCore), which throws unless the path is under
   `~/Library/Application Support/Maugham Dev/TestWorkspace/`. Read-only inspect tools are not
-  workspace-restricted.
+  workspace-restricted. (Under XCTest the workspace root gains a per-worker
+  `xctest-worker-<pid>` leaf — `reset()` deletes the whole tree and seven parallel
+  workers share the machine, so a shared root meant one worker's reset ate another's
+  live fixture mid-test; see `TestWorkspace.swift` and `TestWorkspaceIsolationTests`.
+  The live app keeps the bare root described above.)
 
 Driving semantics: `test_apply_edit` routes through the **same** `Document` op-recording entry
 point the editor uses (`setFullText` + `recordEditorTextWrite`, mirroring `EditorHost`) — not a
