@@ -1,0 +1,138 @@
+[
+  {
+    "claim_id": "M8-IN-001",
+    "outcome": "VIOLATES",
+    "ruling": "RULING-7",
+    "clause_that_reaches_it": "Maugham never misrepresents a failure",
+    "why_in_scope": "a failed body write produces an empty research note reported as a successful promotion on both surfaces — the failure is not merely unmentioned, it is presented as its own opposite, and the capture's words survive only in a manifest history no surface shows",
+    "intent_expressed_when": "not at all",
+    "call_path": "InboxPane Promote to Research / MCP promote_inbox_entry",
+    "violation_or_enhancement": "violation — the write joins the throwing path before the flip"
+  },
+  {
+    "claim_id": "M8-IN-002",
+    "outcome": "VIOLATES",
+    "ruling": "RULING-7",
+    "clause_that_reaches_it": "Maugham never misrepresents a failure",
+    "why_in_scope": "the one promote sibling whose terminal flip is non-throwing, AND the one that removes the original first — so its failure is reported as success while the retry it invites is permanently dead (assetMissing). The sibling asymmetry is RULING-8's shape too (same question, three orderings), but the conviction rides the misrepresentation: the palette ordering exists in the same file and its doc comment already argues why it is right",
+    "intent_expressed_when": "not at all",
+    "call_path": "InboxPane Promote to Research / MCP promote_inbox_entry",
+    "violation_or_enhancement": "violation — adopt the palette ordering (copy → throwing flip → retire)"
+  },
+  {
+    "claim_id": "M8-IN-003",
+    "outcome": "VIOLATES",
+    "ruling": "RULING-8",
+    "clause_that_reaches_it": "a second code path may not answer the same question differently",
+    "why_in_scope": "'what does a retry after a failed flip do?' — the note arm converges (S8's dedup), the image arm duplicates. One operation, two arms, two answers; the S8 fix established convergence as the house answer and the image arm was left out",
+    "intent_expressed_when": "not at all",
+    "call_path": "pane or MCP palette promote, retried",
+    "violation_or_enhancement": "violation — byte-equal dedup against the well's images"
+  },
+  {
+    "claim_id": "M8-IN-004",
+    "outcome": "VIOLATES",
+    "ruling": "RULING-8",
+    "clause_that_reaches_it": "a second code path may not answer the same question differently",
+    "why_in_scope": "the same retry question on the third sibling: a second card lands. A promoted entry can never be re-sent (entryNotFound), so the ONLY reachable second send is the failed-flip retry — deriving the node id from the entry id makes it converge, the same shape as the canvas's own second-drop-reveals rule for research nodes",
+    "intent_expressed_when": "not at all",
+    "call_path": "Send to Canvas, retried",
+    "violation_or_enhancement": "violation — derive the capture node id; a re-send lands on the same node"
+  },
+  {
+    "claim_id": "M8-IN-005",
+    "outcome": "NO_RULING_REACHES",
+    "reason": "deliberate best-effort with the trade defended in place: the promotion has succeeded, the duplicate is a cost not a loss, and RULING-15's normalisation is already satisfied (the removal that replaced removeItem IS the trash move). The invisible-leftover residue is an absence of information, RULING-22's own out-of-scope note. Recorded, not stretched"
+  },
+  {
+    "claim_id": "M8-IN-006",
+    "outcome": "VIOLATES",
+    "ruling": "RULING-22",
+    "clause_that_reaches_it": "controls are unambiguous and DO WHAT THEY SAY",
+    "why_in_scope": "the writer clicks Trash, the row stays, and nothing says why — the expectation was formed by the control's own label and the outcome differs from it with only an os_log line as witness. The append doc comment records the missing throwing channel as a compromise, which is intent about the CHANNEL, not about the silence",
+    "intent_expressed_when": "the channel: contemporaneous. The silence: not at all",
+    "call_path": "any pane transition under a failing disk",
+    "violation_or_enhancement": "violation — the pane surfaces a failed transition through its existing alert"
+  },
+  {
+    "claim_id": "M8-IN-007",
+    "outcome": "NO_RULING_REACHES",
+    "reason": "a crash window between two writes on the phone: no report is possible at the moment of failure, the capture's words (text arm) are unaffected, and the orphan is bytes the writer never saw listed. RULING-4 reaches loss the writer would look for; an asset that never gained a row was never visible anywhere. Residual recorded: a sweep or row-first ordering would close it; neither is owed by a current ruling"
+  },
+  {
+    "claim_id": "M8-IN-008",
+    "outcome": "NO_RULING_REACHES",
+    "reason": "deliberate scope, recorded at the tool header (read + promote only): the MCP surface has no trash capability, so not resolving trashed entries is the scope holding, not two surfaces disagreeing about a fact. The refusal's 'already resolved' wording covers the trashed state honestly enough; sharpening it to name the pane's restore is an enhancement, not a defect"
+  },
+  {
+    "claim_id": "M8-IN-009",
+    "outcome": "COMPLIES",
+    "ruling": "RULING-4",
+    "clause_that_reaches_it": "words the writer authored are ALWAYS recoverable; nothing is lost without a trace",
+    "why_in_scope": "captures are authored words crossing devices: the monotonic writtenAt + last-wins merge is what keeps every device's writes recoverable through the sync — the smoke-caught infinite-retranscribe loop was exactly this clause failing before the +1ms stamp",
+    "intent_expressed_when": "contemporaneous — appendThrowing's doc comment",
+    "call_path": "every cross-device sync",
+    "violation_or_enhancement": "neither"
+  },
+  {
+    "claim_id": "M8-IN-010",
+    "outcome": "COMPLIES",
+    "ruling": "RULING-7",
+    "clause_that_reaches_it": "Maugham never misrepresents a failure; a refusal names its real cause",
+    "why_in_scope": "a failed transcription lands as .failed with its reason carried in transcriptionError and the draft preserved — the failure is represented AS a failure, named, and never silently retried",
+    "intent_expressed_when": "contemporaneous — the worker's doc comment",
+    "call_path": "every audio capture on Apple Silicon",
+    "violation_or_enhancement": "neither"
+  },
+  {
+    "claim_id": "M8-IN-011",
+    "outcome": "COMPLIES",
+    "ruling": "RULING-15",
+    "clause_that_reaches_it": "delete is normalised: nothing is unlinked; recovery is restore from trash",
+    "why_in_scope": "the capture trash is stricter than the ruling demands — nothing is ever disposed at all, and restore is a clean flip. The residue (trashed captures accumulate forever, unlike the project trash's 30-day sweep) is a RETENTION divergence the ruling does not reach; recorded as a gap candidate for a future sitting rather than stretched into a conviction",
+    "intent_expressed_when": "contemporaneous",
+    "call_path": "the pane's trash view",
+    "violation_or_enhancement": "neither"
+  },
+  {
+    "claim_id": "M8-IN-012",
+    "outcome": "VIOLATES",
+    "ruling": "RULING-7",
+    "clause_that_reaches_it": "Unreadable is never presented as empty",
+    "why_in_scope": "the clause verbatim: an unreadable device manifest reads as an empty list, and every capture from that device vanishes from the pane with nothing said — the same defect class the v0.8.0 integrity work surfaced for the op log's parse-skip, unhandled on the inbox path",
+    "intent_expressed_when": "not at all",
+    "call_path": "a permissions break, an iCloud stub, or any unreadable inbox file",
+    "violation_or_enhancement": "violation — refresh() records unreadable files and the pane says so"
+  },
+  {
+    "_summary": {
+      "reached": 9,
+      "complies": 3,
+      "violates": 6,
+      "no_ruling": 3,
+      "total": 12,
+      "coverage": "75%",
+      "by_ruling": {
+        "RULING-7": [
+          "M8-IN-001",
+          "M8-IN-002",
+          "M8-IN-010",
+          "M8-IN-012"
+        ],
+        "RULING-8": [
+          "M8-IN-003",
+          "M8-IN-004"
+        ],
+        "RULING-22": [
+          "M8-IN-006"
+        ],
+        "RULING-4": [
+          "M8-IN-009"
+        ],
+        "RULING-15": [
+          "M8-IN-011"
+        ]
+      }
+    }
+  }
+]

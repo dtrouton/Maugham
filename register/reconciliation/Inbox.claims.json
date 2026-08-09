@@ -1,0 +1,194 @@
+[
+  {
+    "claim_id": "M8-IN-001",
+    "scope": "InboxStore.promoteToResearch — text arm",
+    "kind": "POSTCONDITION",
+    "statement": "the research note's body write is a swallowed try?: a failed write produces an EMPTY note with the entry flipped .promoted and both surfaces told success — the capture's words then survive only in the promoted-hidden manifest history (and the write is skipped entirely when created.path is nil)",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "InboxCharacterization.test_theResearchTextPromoteBodyWriteIsSwallowed"
+    },
+    "warrant": "HIGH",
+    "intent": "UNKNOWN",
+    "reachability": "LIVE — InboxPane Promote to Research / MCP promote_inbox_entry",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M8-IN-002",
+    "scope": "InboxStore.promoteToResearch — asset arm ordering",
+    "kind": "POSTCONDITION",
+    "statement": "the asset arm trashes the inbox original BEFORE a NON-throwing status flip: a flip whose append fails still returns the created item (success on both surfaces), the entry stays .new in the pane, and every retry hits assetMissing permanently — the palette and canvas siblings both order copy → throwing flip → remove, so this is the one sibling that does not",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "InboxCharacterization.test_aResearchAssetPromoteWhoseFlipFailsReportsSuccessAndStrandsTheEntry"
+    },
+    "warrant": "HIGH",
+    "intent": "UNKNOWN — the sibling doc comments record the divergence without defending it",
+    "reachability": "LIVE — same two surfaces",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M8-IN-003",
+    "scope": "InboxStore.promoteToPaletteCard — image retry",
+    "kind": "POSTCONDITION",
+    "statement": "the palette NOTE arm converges on retry (last-note dedup, S8) while the palette IMAGE arm does not: a retry after a failed status flip appends a SECOND copy of the picture to the card's well",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "InboxCharacterization.test_aPaletteImageRetryAppendsASecondImage"
+    },
+    "warrant": "HIGH",
+    "intent": "UNKNOWN",
+    "reachability": "LIVE — pane or MCP palette promote, retried after a transient failure",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M8-IN-004",
+    "scope": "InboxStore.sendToCanvas — retry",
+    "kind": "POSTCONDITION",
+    "statement": "a retry after a failed status flip lands a SECOND card carrying the same capture's words — the canvas sibling has no convergence, though the node could be derived from the entry id (a promoted entry can never be re-sent, so the only second send IS the retry)",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "InboxCharacterization.test_aCanvasRetryLandsASecondNode"
+    },
+    "warrant": "HIGH",
+    "intent": "UNKNOWN",
+    "reachability": "LIVE — Send to Canvas command or drag, retried",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M8-IN-005",
+    "scope": "InboxStore.trashPromotedAsset",
+    "kind": "POSTCONDITION",
+    "statement": "the promoted original's retirement to the trash is best-effort and log-only by design — the content is already durably at its destination and a failure leaves a duplicate, never a loss; the residue: the leftover original is invisible forever, because .promoted rows are filtered from both pane lists",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "InboxCharacterization.test_theAssetRetirementIsBestEffortByDesign"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL — the helper's doc comment defends it",
+    "reachability": "LIVE",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M8-IN-006",
+    "scope": "InboxStore.updateStatus / updateTranscript — the pane transitions",
+    "kind": "POSTCONDITION",
+    "statement": "a pane transition (trash, restore, transcript edit) whose manifest append fails completes SILENTLY: the channel is non-throwing, the row springs back on refresh, and the only witness is an os_log line — nothing tells the writer why their click did not take",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "InboxCharacterization.test_aTrashClickWhoseAppendFailsIsSilent"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL-as-compromise — the append doc comment records the missing throwing channel",
+    "reachability": "LIVE — any pane transition under a failing disk",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M8-IN-007",
+    "scope": "InboxCaptureWriter (phone) — image/audio ingest order",
+    "kind": "INVARIANT",
+    "statement": "the phone writes the asset bytes BEFORE the manifest row, so a crash between the two leaves an orphan asset under .maugham/inbox/{images,audio}/ that no surface will ever list and nothing sweeps",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "InboxCharacterization.test_thePhoneIngestWritesTheAssetBeforeTheManifestRow"
+    },
+    "warrant": "HIGH",
+    "intent": "UNKNOWN",
+    "reachability": "crash-window only",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M8-IN-008",
+    "scope": "InboxTools — the trashed capture",
+    "kind": "POSTCONDITION",
+    "statement": "the MCP tools resolve entries against the .new list only, so a TRASHED capture — visible and restorable in the pane's trash view — answers 'not found or already resolved' through promote_inbox_entry; deliberate scope (read + promote only, no trash access), pinned so the divergence is a decision",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "InboxCharacterization.test_theMCPToolsCannotSeeATrashedCaptureThePaneCanRestore"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL — InboxTools' header records the scope",
+    "reachability": "LIVE — MCP against a trashed id",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M8-IN-009",
+    "scope": "InboxStore.refresh / appendThrowing — the cross-device merge",
+    "kind": "INVARIANT",
+    "statement": "the merge is last-wins by a writtenAt each writer stamps strictly monotonic (+1ms over the superseded row, both devices), so a future-dated row cannot out-rank its own supersession and no device's writes are silently lost to another's — pinned by the existing production suites",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "InboxMonotonicWrittenAtTests (3 pins); InboxStoreLastWinsTests (9 pins); InboxCaptureWriterTests.test_writtenAtIsMonotonicAfterCreatedAt"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — every cross-device sync",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M8-IN-010",
+    "scope": "InboxTranscriptionWorker — failure honesty",
+    "kind": "POSTCONDITION",
+    "statement": "a failed or empty transcription preserves the on-device draft, records the reason in transcriptionError, lands as .failed (never auto-retried), and a user edit during the transcribe await is not clobbered — pinned by the existing worker suite",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "InboxTranscriptionWorkerTests (9 pins); InboxRetranscribeTests (3 pins)"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — every audio capture on Apple Silicon",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M8-IN-011",
+    "scope": "InboxStore — the trashed state",
+    "kind": "INVARIANT",
+    "statement": "a trashed capture is an inbox-local soft state: a status flip only, the asset never leaves inbox/, the project Trash never sees it, no retention sweep reaches it, and restore is a clean flip back — strictly MORE conservative than the project trash (nothing is ever disposed), with the residue that trashed captures accumulate forever",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "InboxCharacterization.test_aTrashedCaptureIsAnInboxLocalStateTheProjectTrashNeverSees"
+    },
+    "warrant": "HIGH",
+    "intent": "INTENTIONAL",
+    "reachability": "LIVE — the pane's trash view",
+    "evidence": {
+      "property_test": null
+    }
+  },
+  {
+    "claim_id": "M8-IN-012",
+    "scope": "InboxStore.refresh — an unreadable device manifest",
+    "kind": "POSTCONDITION",
+    "statement": "an unreadable per-device manifest is presented as EMPTY (try? … ?? [] per file): every capture from that device vanishes from the pane and the trash view with nothing said anywhere — the captures are intact on disk, and no API carries the failure",
+    "source": {
+      "type": "CHARACTERIZATION",
+      "ref": "InboxCharacterization.test_anUnreadableDeviceManifestVanishesSilently"
+    },
+    "warrant": "HIGH",
+    "intent": "UNKNOWN",
+    "reachability": "LIVE — a permissions break, an iCloud stub, or any unreadable inbox file",
+    "evidence": {
+      "property_test": null
+    }
+  }
+]
