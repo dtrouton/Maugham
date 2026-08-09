@@ -44,6 +44,14 @@ public enum ProjectStoreError: Error, Equatable {
     /// Reported rather than swallowed — a failed destruction must never read as
     /// a completed one — and what survived is still in the pane.
     case trashNotEmptied(undestroyed: Int, total: Int)
+    /// Denver's ruling on a recorded collision: a shared-root research group
+    /// titled "Palette" mints `research/palette`, the same path as the
+    /// role-bearing Palette folder — its children then route to
+    /// `PaletteCardEditor` by the path-prefix rule and show "Card
+    /// unavailable". Refused at creation AND rename, never adopted or
+    /// redirected — matches `statementHasNoStorage`'s refuse-don't-redirect
+    /// precedent. `name` is the reserved title, for the message.
+    case researchNameReserved(name: String)
 }
 
 /// Human-readable messages so `error.localizedDescription` in the pane alerts
@@ -81,6 +89,8 @@ extension ProjectStoreError: LocalizedError {
             return "\(undestroyed) of \(total) item\(total == 1 ? "" : "s") could not be "
                 + "permanently deleted. \(undestroyed == 1 ? "It is" : "They are") "
                 + "still in the Trash."
+        case .researchNameReserved(let name):
+            return "“\(name)” is reserved for the Palette section. Choose a different name."
         }
     }
 }

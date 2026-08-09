@@ -39,9 +39,11 @@ extension ProjectStore {
             }
             return existing
         }
-        // addResearchItem(kind: nil) creates a group folder from the slugified
-        // title — "Palette" → research/palette.
-        let created = try await addResearchItem(
+        // addResearchItemUnchecked(kind: nil) creates a group folder from the
+        // slugified title — "Palette" → research/palette. Calls the UNCHECKED
+        // core directly: this is the one legitimate minter of that exact
+        // path, and the guarded `addResearchItem` would refuse it.
+        let created = try await addResearchItemUnchecked(
             parentId: nil, title: Self.paletteGroupTitle, kind: nil)
         try await stampRole(itemId: created.id, role: .paletteGroup)
         return findResearchItem(id: created.id, in: manifest.research) ?? created

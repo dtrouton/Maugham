@@ -191,8 +191,10 @@ final class ResearchMoveTests: XCTestCase {
     func test_roleItem_crossScope_refuses() async throws {
         let (_, store, ds, piece) = try await makeCollection()
         // Create the palette group via the convention, then stamp its role
-        // the way healRole does.
-        let group = try await store.addResearchItem(
+        // the way healRole does. `addResearchItemUnchecked` (not the guarded
+        // public `addResearchItem`, which now refuses this exact title/path)
+        // is how the palette convention is synthesized directly here.
+        let group = try await store.addResearchItemUnchecked(
             parentId: nil, title: PaletteConvention.groupTitle, kind: nil)
         store.mutateResearchItem(id: group.id) { $0.role = .paletteGroup }
 
@@ -215,7 +217,10 @@ final class ResearchMoveTests: XCTestCase {
         let (_, store, ds, _) = try await makeCollection()
         let host = try await store.addResearchItem(
             parentId: nil, title: "Shared Group", kind: nil)
-        let palette = try await store.addResearchItem(
+        // `addResearchItemUnchecked` (not the guarded public `addResearchItem`,
+        // which now refuses this exact title/path) is how the palette
+        // convention is synthesized directly for this role-guard test.
+        let palette = try await store.addResearchItemUnchecked(
             parentId: nil, title: PaletteConvention.groupTitle, kind: nil)
         store.mutateResearchItem(id: palette.id) { $0.role = .paletteGroup }
 
@@ -237,7 +242,10 @@ final class ResearchMoveTests: XCTestCase {
     func test_paletteGroup_topLevelReorder_stillWorks() async throws {
         let (_, store, ds, _) = try await makeCollection()
         _ = try await store.addResearchTextNote(parentId: nil, title: "First")
-        let palette = try await store.addResearchItem(
+        // `addResearchItemUnchecked` (not the guarded public `addResearchItem`,
+        // which now refuses this exact title/path) is how the palette
+        // convention is synthesized directly for this role-guard test.
+        let palette = try await store.addResearchItemUnchecked(
             parentId: nil, title: PaletteConvention.groupTitle, kind: nil)
         store.mutateResearchItem(id: palette.id) { $0.role = .paletteGroup }
 

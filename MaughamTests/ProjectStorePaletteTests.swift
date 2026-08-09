@@ -234,7 +234,10 @@ final class ProjectStorePaletteTests: XCTestCase {
     func test_legacyPaletteGroup_getsLazilyStamped() async throws {
         let (_, store, ds) = try await makeNovel()
         // Simulate a v0.19.0 project: group exists with path identity, no role.
-        let legacy = try await store.addResearchItem(parentId: nil, title: "Palette", kind: nil)
+        // `addResearchItemUnchecked` (not the guarded public `addResearchItem`,
+        // which now refuses this exact title/path) is how a pre-role legacy
+        // state is reconstructed for this test.
+        let legacy = try await store.addResearchItemUnchecked(parentId: nil, title: "Palette", kind: nil)
         XCTAssertNil(legacy.role)
         let found = store.paletteGroup()
         XCTAssertEqual(found?.id, legacy.id)
@@ -250,7 +253,10 @@ final class ProjectStorePaletteTests: XCTestCase {
     func test_eagerHeal_stampsLegacyPaletteRoleAtLoad_survivingPreOpenRename() async throws {
         let (url, store, ds) = try await makeNovel()
         // Simulate a v0.19.0 project: group exists by path identity, no role.
-        let legacy = try await store.addResearchItem(parentId: nil, title: "Palette", kind: nil)
+        // `addResearchItemUnchecked` (not the guarded public `addResearchItem`,
+        // which now refuses this exact title/path) is how a pre-role legacy
+        // state is reconstructed for this test.
+        let legacy = try await store.addResearchItemUnchecked(parentId: nil, title: "Palette", kind: nil)
         XCTAssertEqual(legacy.path, ProjectStore.paletteFolderPath)
         XCTAssertNil(legacy.role)
         await ds.close()
@@ -280,6 +286,77 @@ final class ProjectStorePaletteTests: XCTestCase {
         XCTAssertEqual(store.paletteGroupDisplayTitle, "Palette")
         try await store.updateResearchItem(id: group.id, title: "Moods")
         XCTAssertEqual(store.paletteGroupDisplayTitle, "Moods")
+        await ds.close()
+    }
+
+    // MARK: - Reserved name guard (research/palette collision)
+
+    /// Denver's ruling on a recorded collision: a shared-root research group
+    /// titled "Palette" mints `research/palette`, colliding with the
+    /// role-bearing palette folder. Refused at creation, not adopted —
+    /// matches `createStatement`'s `.statementHasNoStorage` refuse-don't-
+    /// redirect precedent.
+    func test_addResearchGroup_reservedPaletteName_atRoot_throws() async throws {
+        let (_, store, ds) = try await makeNovel()
+        do {
+            _ = try await store.addResearchItem(parentId: nil, title: "Palette", kind: nil)
+            XCTFail("expected .researchNameReserved")
+        } catch ProjectStoreError.researchNameReserved {
+            // ok
+        }
+        XCTAssertTrue(store.manifest.research.isEmpty, "refused creation leaves no orphan group")
+        await ds.close()
+    }
+
+    /// The filesystem is case-insensitive (APFS default), and so is the guard:
+    /// "PALETTE" slugifies to the same `research/palette` path.
+    func test_addResearchGroup_reservedPaletteName_caseInsensitive_throws() async throws {
+        let (_, store, ds) = try await makeNovel()
+        for variant in ["PALETTE", "PaLeTtE"] {
+            do {
+                _ = try await store.addResearchItem(parentId: nil, title: variant, kind: nil)
+                XCTFail("expected .researchNameReserved for \(variant)")
+            } catch ProjectStoreError.researchNameReserved {
+                // ok
+            }
+        }
+        await ds.close()
+    }
+
+    /// The second door: a rename that re-slugs an existing group onto the
+    /// reserved path is the same defect as creation.
+    func test_updateResearchItem_renameToReservedPaletteName_throws() async throws {
+        let (_, store, ds) = try await makeNovel()
+        let group = try await store.addResearchItem(parentId: nil, title: "Moods", kind: nil)
+        do {
+            try await store.updateResearchItem(id: group.id, title: "Palette")
+            XCTFail("expected .researchNameReserved")
+        } catch ProjectStoreError.researchNameReserved {
+            // ok
+        }
+        let unchanged = store.manifest.research.first(where: { $0.id == group.id })
+        XCTAssertEqual(unchanged?.title, "Moods", "refused rename leaves the group untouched")
+        await ds.close()
+    }
+
+    /// A NESTED group named "Palette" doesn't collide — its minted path is
+    /// `research/<parent>/palette`, not the reserved `research/palette`.
+    func test_addResearchGroup_nestedPaletteName_succeeds() async throws {
+        let (_, store, ds) = try await makeNovel()
+        let parent = try await store.addResearchItem(parentId: nil, title: "Moods", kind: nil)
+        let nested = try await store.addResearchItem(
+            parentId: parent.id, title: "Palette", kind: nil)
+        XCTAssertEqual(nested.title, "Palette")
+        XCTAssertEqual(nested.path, "research/moods/palette")
+        await ds.close()
+    }
+
+    /// Control: the guard must not refuse the REAL palette group's own
+    /// creation/heal path.
+    func test_ensurePaletteGroup_stillSucceeds_afterReservedNameGuard() async throws {
+        let (_, store, ds) = try await makeNovel()
+        let group = try await store.ensurePaletteGroup()
+        XCTAssertEqual(group.path, ProjectStore.paletteFolderPath)
         await ds.close()
     }
 }
