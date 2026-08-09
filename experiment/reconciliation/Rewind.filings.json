@@ -351,13 +351,23 @@
   "violation_or_enhancement": "neither"
  },
  {
+  "claim_id": "M4-RW-038",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-28",
+  "clause_that_reaches_it": "An operation that changes more than the writer asked about states the FULL set of collateral changes BEFORE they commit AND confirms what it actually did AFTER.",
+  "why_in_scope": "Both halves shipped from one mirror: the confirm sheet's summary names archives, reopens and re-accepts beside the word count, and the post-restore toast reports what happened — including the nearest-moment substitution with its Revert (RULING-27's notice clause, Denver's own). The `_ =` discard the ruling's settles clause named is gone.",
+  "intent_expressed_when": "contemporaneous — the Restore confirmation and its aftermath",
+  "call_path": "Rewind modal → confirm sheet (RewindImpact.confirmSummary) → Restore → RewindModifier toast (RewindImpact.toast)",
+  "violation_or_enhancement": "neither"
+ },
+ {
   "_summary": {
-   "reached": 20,
-   "complies": 19,
+   "reached": 21,
+   "complies": 20,
    "violates": 1,
    "no_ruling": 14,
-   "total": 34,
-   "coverage": "59%",
+   "total": 35,
+   "coverage": "60%",
    "by_ruling": {
     "RULING-19": [
      "M4-RW-003"
@@ -385,6 +395,9 @@
     "RULING-27": [
      "M4-RW-008",
      "M4-RW-022"
+    ],
+    "RULING-28": [
+     "M4-RW-038"
     ],
     "RULING-37": [
      "M4-RW-021"

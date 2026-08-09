@@ -252,9 +252,11 @@ struct RewindWindow: View {
             Button("Cancel") { onComplete(.cancel) }
             Button("Snapshot here…") { showingSnapshotPrompt = true }
                 .disabled(cursor == .now)
+            // RULING-37's view half: Restore is not offered when the restore
+            // would change nothing — no text delta, no task window to move.
             Button("Restore here…") { showingRestoreConfirm = true }
                 .buttonStyle(.borderedProminent)
-                .disabled(cursor == .now)
+                .disabled(cursor == .now || !impactPreview.changesAnything)
         }
         .padding(16)
     }
@@ -396,39 +398,18 @@ struct RewindWindow: View {
         }
     }
 
-    private var impactSummary: String {
-        let removed = Set(nowState.sequence).subtracting(Set(derivedState.sequence))
-        let words = removed.compactMap { nowState.paragraphs[$0] }
-            .map { $0.split { $0.isWhitespace || $0.isNewline }.count }
-            .reduce(0, +)
-        var summary = "Restoring would undo \(words) words / \(removed.count) paragraph\(removed.count == 1 ? "" : "s") written after this point."
-        let reopened = reopenedSuggestionCount
-        if reopened > 0 {
-            summary += " \(reopened) accepted suggestion\(reopened == 1 ? "" : "s") reopened."
+    /// The cursor's full collateral preview (RULING-28: the confirmation
+    /// states the complete set — archives, reopens, re-accepts, words — via
+    /// `RewindImpact`, the same mirror the after-toast renders from).
+    private var impactPreview: RewindImpact.Preview {
+        guard case .atOp(let targetOpId, _) = cursor else {
+            return RewindImpact.preview(ops: ops, cursorOpId: nil)
         }
-        return summary
+        return RewindImpact.preview(ops: ops, cursorOpId: targetOpId)
     }
 
-    /// Count of accepted suggestions whose `claudeAccept` lies past the scrub
-    /// target — restoring reverts their applied text and reopens them
-    /// (preview mirror of `Document.restoreToOp`'s stranded-accept scan).
-    private var reopenedSuggestionCount: Int {
-        guard case .atOp(let targetOpId, _) = cursor else { return 0 }
-        var latest: [String: Op] = [:]
-        for op in ops
-        where [.claudeAccept, .claudeReject, .claudeArchive,
-               .claudeAcceptRevert].contains(op.kind) {
-            guard let src = op.provenance?.sourceAnnotationId else { continue }
-            if let prior = latest[src], prior.opId > op.opId { continue }
-            latest[src] = op
-        }
-        let survivors = Set(derivedState.sequence)
-        return latest.values.filter { op in
-            op.kind == .claudeAccept
-                && op.opId > targetOpId
-                && !op.changes.isEmpty
-                && (op.changes.first?.paragraphId).map(survivors.contains) == true
-        }.count
+    private var impactSummary: String {
+        RewindImpact.confirmSummary(impactPreview)
     }
 
     private func color(for kind: OpKind) -> Color {

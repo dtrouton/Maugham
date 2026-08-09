@@ -545,5 +545,21 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M4-RW-038",
+  "scope": "RewindImpact + RewindWindow footer + RewindModifier toast",
+  "kind": "POSTCONDITION",
+  "statement": "the confirm-time preview and the after-toast derive from ONE source of numbers (RewindImpact): the preview mirrors every class restoreToOp acts on — sweep archives, return-journey reopens and re-accepts, stranded-accept reopens, words — naming each non-zero class and omitting zero ones; the toast renders the actual result (ProjectWindow no longer discards it) and always names a .nearest resolution with Revert in the notice; Restore is disabled when changesAnything is false",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MaughamTests/RewindImpactTests (pure preview/summary/toast pins; the overlay rendering is view glue over the pinned formatter)"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-28 both halves; RULING-27's notice; RULING-37's view half)",
+  "reachability": "LIVE — every Restore from the rewind modal",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]
