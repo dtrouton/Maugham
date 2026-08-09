@@ -356,11 +356,17 @@ final class AnnotationsCharacterization: XCTestCase {
                        "the invisible edit was real and surfaces on reopen")
     }
 
-    /// M5-AN-019 — the ⌘Z of an edit is DRIFT-GUARDED: the compensating edit is
-    /// appended only while the annotation still shows the body this action
-    /// wrote. If anything changed it since, the undo declines silently — the
-    /// menu item still reads "Undo Edit Annotation" and nothing happens.
-    func test_theEditUndoDeclinesSilentlyWhenTheAnnotationDrifted() async throws {
+    /// M5-AN-019 (fixed under RULING-22, 2026-08-09) — the ⌘Z of an edit is
+    /// DRIFT-GUARDED: the compensating edit is appended only while the
+    /// annotation still shows the body this action wrote. The guard is right,
+    /// and it no longer declines to the log alone — the menu item read "Undo
+    /// Edit Annotation", so the writer is told why it did not.
+    ///
+    /// Renamed from `…DeclinesSilentlyWhenTheAnnotationDrifted`: the silence
+    /// was the defect, and a name that still promised it would be the pin
+    /// arguing for the bug. The notice itself is pinned by
+    /// `DocumentNoticeTests.test_theAnnotationEditUndoDeclineReachesTheWriter`.
+    func test_theEditUndoDeclinesWhenTheAnnotationDrifted_andSaysSo() async throws {
         let h = try await makeHarness("Alpha.")
         let cid = try await h.doc.addReviewerAnnotation(
             kind: .comment, paragraphId: h.pid, span: nil, body: "original", authorName: "D")
@@ -376,10 +382,22 @@ final class AnnotationsCharacterization: XCTestCase {
             id: cid, newBody: "moved on", newSuggestedText: nil, authorName: "D")
 
         let before = opCount(h.doc)
+        var said: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let m = note.userInfo?[MaughamEvent.noticeMessageKey] as? String {
+                said.append(m)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
         um.undo()
         await h.doc.awaitPendingUndoWork()
         XCTAssertEqual(opCount(h.doc), before, "no compensating edit was appended")
         XCTAssertEqual(one(h.doc, cid)?.body, "moved on", "and nothing was clobbered")
+        XCTAssertEqual(said, [
+            "Couldn't undo the annotation edit — it changed on another device."],
+                       "and the writer is told, rather than only documentLog")
 
         // The control: an undrifted undo does revert.
         let h2 = try await makeHarness("Alpha.")
@@ -566,11 +584,13 @@ final class AnnotationsCharacterization: XCTestCase {
         XCTAssertEqual(one(h.doc, aid)?.userResponse, "second")
     }
 
-    /// M5-AN-028 — accepting a WITHDRAWN suggestion still rewrites the
-    /// manuscript. The creation op is in the mirror, so accept proceeds; the
-    /// annotation stays absent from the projection, so nothing on any surface
-    /// records that the paragraph was changed by a suggestion.
-    func test_acceptingAWithdrawnSuggestionStillRewritesTheManuscript() async throws {
+    /// M5-AN-028 (fixed under RULING-33, 2026-08-09) — accepting a WITHDRAWN
+    /// suggestion no longer rewrites the manuscript. The creation op is still
+    /// in the mirror, which is why accept used to proceed and splice while the
+    /// annotation stayed absent from every surface: no row to notice it, no
+    /// Revert to reach for. Withdrawal is an instruction with duration, so the
+    /// refusal is before the append — no accept op either.
+    func test_acceptingAWithdrawnSuggestionDoesNotRewriteTheManuscript() async throws {
         let h = try await makeHarness("Alpha.")
         let sid = try await h.doc.addReviewerAnnotation(
             kind: .suggestedChange, paragraphId: h.pid, span: nil, body: "s",
@@ -578,9 +598,40 @@ final class AnnotationsCharacterization: XCTestCase {
         try await h.doc.withdrawReviewerAnnotation(id: sid, authorName: "D")
         XCTAssertNil(one(h.doc, sid))
 
+        let before = opCount(h.doc)
+        try await h.doc.acceptAnnotation(id: sid)
+        XCTAssertEqual(h.doc.paragraphs[h.pid], "Alpha.", "the manuscript is untouched")
+        XCTAssertEqual(opCount(h.doc), before, "and nothing was appended")
+        XCTAssertNil(one(h.doc, sid), "still absent — as the writer left it")
+    }
+
+    /// The other half of RULING-33, at the level this file characterises: the
+    /// convergence rule. When a reject BEATS an accept whose text was already
+    /// applied, the status winner also decides the text. Full coverage — the
+    /// drift refusal, idempotence, the provenance stamp — lives in
+    /// `MaughamTests/OpLog/AnnotationConvergenceTests`, which is the production
+    /// pin; this is the claim's own witness that the two derivations agree.
+    func test_aRejectThatBeatsAnAcceptAlsoTakesItsTextBack() async throws {
+        let h = try await makeHarness("Alpha.")
+        let sid = try await h.doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: h.pid, body: "s",
+            suggestedText: "REPLACED.")
         try await h.doc.acceptAnnotation(id: sid)
         XCTAssertEqual(h.doc.paragraphs[h.pid], "REPLACED.")
-        XCTAssertNil(one(h.doc, sid), "still invisible — no row offers a Revert")
+
+        // A peer that never saw the accept rejects the suggestion; its op is
+        // newer, so it wins the status. Written to the shared log the way a
+        // synced file arrives.
+        try await OpLogStore(projectURL: h.url).append(
+            Op(opId: ULID.generate(), docId: h.doc.docId, at: Date(),
+               device: "peer-mac", session: "peer", kind: .claudeReject,
+               changes: [], sequence: nil,
+               provenance: Op.Provenance(sessionId: "peer", sourceAnnotationId: sid)))
+        try await h.doc.handleExternalLogChange()
+
+        XCTAssertEqual(status(h.doc, sid), .rejected)
+        XCTAssertEqual(h.doc.paragraphs[h.pid], "Alpha.",
+                       "the writer rejected a change and does not have it")
     }
 
     // MARK: - Drift and revert
@@ -734,20 +785,29 @@ final class AnnotationsCharacterization: XCTestCase {
         XCTAssertEqual(opCount(h.doc), before, "the husk refuses")
     }
 
-    /// M5-AN-036 — `annotationReopen` is ONE op kind serving TWO inverses, and
-    /// the deriver reads it as both. A reopen issued to undo a withdrawal also
-    /// cancels an earlier archive or reject, so ⌘Z on a withdraw over-restores:
-    /// the annotation comes back OPEN, not archived.
-    func test_oneReopenCancelsBothAWithdrawalAndAnEarlierResolution() async throws {
+    /// M5-AN-036 (fixed under RULING-22, 2026-08-09) — `annotationReopen` is
+    /// STILL one op kind serving two inverses, and the deriver still reads it
+    /// as both: a bare reopen after an archive-then-withdraw returns the
+    /// annotation OPEN. That is the mechanism, characterised as it is, and it
+    /// is correct for the pane's own Reopen and for the phone's, which is why
+    /// `AnnotationInverse` (cross-surface, tripwire 19) was left alone.
+    ///
+    /// What changed is the UNDO built on top of it. `withdrawReviewerAnnotation`
+    /// now captures the status the annotation had before the withdraw and
+    /// re-applies it after the reopen, so ⌘Z on "delete my annotation" no
+    /// longer cancels an archive the writer made separately — one ⌘Z, one
+    /// decision. Pinned in production by
+    /// `AnnotationLifecycleUndoTests.test_withdraw_undo_returnsAnArchivedNoteArchived`.
+    func test_oneReopenCancelsBothInversesButTheWithdrawUndoNoLongerDoes() async throws {
         let h = try await makeHarness("Alpha.")
         let cid = try await h.doc.addReviewerAnnotation(
             kind: .comment, paragraphId: h.pid, span: nil, body: "c", authorName: "D")
         try await h.doc.archiveAnnotation(id: cid)
         XCTAssertEqual(status(h.doc, cid), .archived)
         try await h.doc.withdrawReviewerAnnotation(id: cid, authorName: "D")
-        try await h.doc.reopenAnnotation(id: cid)          // the ⌘Z of the withdraw
+        try await h.doc.reopenAnnotation(id: cid)          // the BARE reopen
         XCTAssertEqual(status(h.doc, cid), .open,
-                       "the archive the writer never undid is gone too")
+                       "the op kind is still both inverses — unchanged, and fine here")
 
         // Same shape with a reject.
         let rid = try await h.doc.addReviewerAnnotation(
@@ -756,6 +816,19 @@ final class AnnotationsCharacterization: XCTestCase {
         try await h.doc.rejectAnnotation(id: rid, userResponse: "no")
         try await h.doc.reopenAnnotation(id: rid)
         XCTAssertEqual(status(h.doc, rid), .open)
+
+        // The undo, which is where the writer's two decisions were being
+        // collapsed into one keystroke.
+        let aid = try await h.doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: h.pid, span: nil, body: "a", authorName: "D")
+        try await h.doc.archiveAnnotation(id: aid)
+        let um = UndoManager()
+        try await h.doc.withdrawReviewerAnnotation(
+            id: aid, authorName: "D", undoManager: um)
+        um.undo()
+        await h.doc.awaitPendingUndoWork()
+        XCTAssertEqual(status(h.doc, aid), .archived,
+                       "⌘Z of the withdraw returns the note, and only the note")
     }
 
     /// M5-AN-037 — a reopen clears the writer's recorded reply and the
@@ -932,10 +1005,15 @@ final class AnnotationsCharacterization: XCTestCase {
 
     // MARK: - The orphan sweep
 
-    /// M5-AN-041 — sweep eligibility is EXACTLY `status == .open && kind !=
-    /// .craftNote && paragraphId ∈ reason.removed`. Accepted, rejected and
-    /// archived annotations on a removed paragraph are left in place, anchored
-    /// to a paragraph that no longer exists.
+    /// M5-AN-041 (fixed under RULING-32, 2026-08-09) — sweep eligibility is
+    /// EXACTLY `status == .open && kind != .craftNote && paragraphId ∈
+    /// reason.removed`. Accepted, rejected and archived annotations on a
+    /// removed paragraph are left in place, anchored to a paragraph that no
+    /// longer exists. The ELIGIBILITY was never the defect and is unchanged;
+    /// what was missing is that the writer was never told, and the sweep now
+    /// counts what it archived for the batched summary `flushBurstNow` reports
+    /// at the writing pause (`test_theSweepCountsWhatItArchivedForTheSummary`
+    /// below, and `DocumentNoticeTests` for the sentence itself).
     /// M5-AN-043 — the craft-note carve-out is redundant by construction: a
     /// craft note's paragraphId is always nil, so the anchor test already
     /// excludes it.
@@ -967,6 +1045,37 @@ final class AnnotationsCharacterization: XCTestCase {
         XCTAssertEqual(status(h.doc, arcId), .archived)
         XCTAssertEqual(status(h.doc, craftId), .open)
         XCTAssertEqual(status(h.doc, otherId), .open)
+    }
+
+    /// M5-AN-041's other half (RULING-32) — the sweep no longer returns Void
+    /// into silence. It accumulates what it archived on the Document, across
+    /// however many sweeps a burst window contains, and the burst boundary
+    /// spends the count on one quiet summary. The count is what makes the
+    /// summary a number the log agrees with rather than an estimate.
+    func test_theSweepCountsWhatItArchivedForTheSummary() async throws {
+        let h = try await makeHarness("Alpha.")
+        let openId = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pid, body: "open")
+        let arcId = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pid, body: "already archived")
+        try await h.doc.archiveAnnotation(id: arcId)
+        XCTAssertEqual(h.doc._sweptSinceLastReport, 0)
+
+        await h.doc.sweepOrphanedAnnotations(
+            reason: try XCTUnwrap(SweepReason.externalLog(removed: [h.pid])))
+        XCTAssertEqual(h.doc._sweptSinceLastReport, 1,
+                       "one open note archived — the already-archived one was "
+                       + "never eligible and must not be counted")
+        XCTAssertEqual(status(h.doc, openId), .archived)
+
+        // A second sweep in the same burst window ADDS to the running total:
+        // deleting four paragraphs before the writer pauses is one sentence.
+        let second = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pid, body: "another")
+        await h.doc.sweepOrphanedAnnotations(
+            reason: try XCTUnwrap(SweepReason.externalLog(removed: [h.pid])))
+        XCTAssertEqual(h.doc._sweptSinceLastReport, 2)
+        XCTAssertEqual(status(h.doc, second), .archived)
     }
 
     /// M5-AN-042 — the sweep trusts `reason.removed` and never consults

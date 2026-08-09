@@ -29,7 +29,17 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     ///
     /// 3 → 4 (M1A, the spine): the `statements` section. See its doc comment for
     /// why an additive, absent-tolerant section still needs the bump.
-    public static let currentSchemaVersion = 4
+    ///
+    /// 4 → 5 (RULING-33, the reject/accept convergence): `.claudeReject` became
+    /// a manuscript-affecting kind (`Deriver.appliesToManuscript`) so the
+    /// repair reject can carry the inverse of the accept it beat, and
+    /// `SynthesisSource` gained `.rejectConvergence` to stamp it. The bump is
+    /// load-bearing for the FIRST of those, not the second: an older build
+    /// reads the repair op's kind fine and folds none of its changes, so it
+    /// would show the suggestion's text under a `rejected` status — the exact
+    /// disagreement the repair exists to end. Refusing the project outright is
+    /// the honest answer.
+    public static let currentSchemaVersion = 5
 
     /// The filename used by every Maugham project for its manifest.
     /// Both the Mac app and the iOS companion look for this name in a

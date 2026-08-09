@@ -405,17 +405,18 @@
   "claim_id": "M4-RW-026",
   "scope": "Document.restoreToOpUndoable",
   "kind": "ERROR",
-  "statement": "when the text has drifted since the restore the undo DECLINES: it leaves the drifted text alone, does not restore forward, throws nothing to the caller, and writes only to documentLog — the writer presses ⌘Z on a menu item reading 'Undo Restore from History' and nothing happens",
+  "statement": "when the text has drifted since the restore the undo DECLINES: it leaves the drifted text alone, does not restore forward, and throws nothing to the caller — all deliberate (RULING-20's default-safe; History Rewind is the tool for that tangle). It is no longer silent to the WRITER: the fire-time guard posts a project-scoped `.maughamDocumentNotice` reading \"Couldn't undo the restore — the document has changed since. History Rewind can take you back.\", rendered in RewindModifier's existing toast. documentLog still gets its line",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "RewindCharacterization.test_undoOfARewind_declinesSilentlyWhenTextDriftedSince"
+   "ref": "RewindCharacterization.test_undoOfARewind_declinesWhenTextDriftedSince_andSaysWhy (renamed from …declinesSilentlyWhenTextDriftedSince) + production twin MaughamTests/OpLog/DocumentNoticeTests.test_theRewindUndoDeclineReachesTheWriter and its control test_aRewindUndoThatSucceedsIsSilent"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
   "reachability": "LIVE — a cross-device merge landing between the restore and the ⌘Z; directly exercised by the shipped RewindUndoTests.test_restore_undo_afterForeignOps_isLoudNoOp, where 'loud' means loud to the log",
   "evidence": {
    "property_test": null
-  }
+  },
+  "fix_history": "Pinned the silence — the shipped RewindUndoTests.test_restore_undo_afterForeignOps_isLoudNoOp called it 'loud' meaning loud to the LOG — until fixed PENDING on claude/spec-phase-2, 2026-08-09, under RULING-7"
  },
  {
   "claim_id": "M4-RW-029",

@@ -509,11 +509,15 @@ final class RewindCharacterization: XCTestCase {
                        "and it did NOT stamp a second .rewind")
     }
 
-    /// M4-RW-026 — when the text has drifted since the restore (the cross-device
-    /// case), the undo DECLINES: it leaves the drifted text alone and does not
-    /// restore forward. The decline is invisible — nothing is thrown to the
-    /// caller and nothing reaches a writer-facing surface.
-    func test_undoOfARewind_declinesSilentlyWhenTextDriftedSince() async throws {
+    /// M4-RW-026 (fixed under RULING-7, 2026-08-09) — when the text has drifted
+    /// since the restore (the cross-device case), the undo DECLINES: it leaves
+    /// the drifted text alone and does not restore forward. The DECLINE is
+    /// deliberate and unchanged — RULING-20's default-safe, and History Rewind
+    /// is the tool for that tangle. What changed is that it is no longer
+    /// invisible: the writer pressed ⌘Z on a menu item reading "Undo Restore
+    /// from History", so the refusal names its real cause and points at the
+    /// tool that can get them back. Still nothing thrown to the caller.
+    func test_undoOfARewind_declinesWhenTextDriftedSince_andSaysWhy() async throws {
         let h = try await makeHarness("Original sentence here.")
         let doc = h.doc, pid = h.pid
         doc.setFullText("Original sentence here.\n\nSecond.\n"); try await doc.flushBurstNow()
@@ -528,11 +532,24 @@ final class RewindCharacterization: XCTestCase {
         try await doc.flushBurstNow()
         let drifted = doc.materialize()
 
+        var said: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let m = note.userInfo?[MaughamEvent.noticeMessageKey] as? String {
+                said.append(m)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
         um.undo(); await doc.awaitPendingUndoWork()
 
         XCTAssertEqual(doc.materialize(), drifted, "the undo declined — nothing was clobbered")
         XCTAssertNotEqual(doc.sequence.compactMap { doc.paragraph(id: $0) }, preTipWords,
                           "and it did not restore forward either")
+        XCTAssertEqual(said, [
+            "Couldn't undo the restore — the document has changed since. "
+            + "History Rewind can take you back."],
+                       "and the writer hears the decline, not only documentLog")
     }
 
     /// M4-RW-031 — redo re-runs `restoreToOp` from scratch, so it can never

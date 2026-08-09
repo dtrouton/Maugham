@@ -29,15 +29,36 @@
 (***************************************************************************)
 EXTENDS Integers, FiniteSets
 
-CONSTANTS Devices, MaxTotalOps
+CONSTANTS Devices, MaxTotalOps, RejectCarriesInverse
 
 ASSUME MaxTotalOps \in Nat
+ASSUME RejectCarriesInverse \in BOOLEAN
 
 \* Lifecycle kinds, exactly AnnotationDeriver.isLifecycleKind:160.
 Kinds == {"accept", "reject", "archive", "revert", "reopen"}
 
-\* Ops that carry a manuscript `changes` payload.
-ChangeKinds == {"accept", "revert"}
+(***************************************************************************)
+(* THE FIX, as a constant rather than a second spec (BackupRetention's      *)
+(* IntactAwarePrune/IntactAwareSkip precedent). RULING-33: "the STATUS      *)
+(* WINNER ALSO DECIDES THE TEXT: a reject that beats an accept carries the  *)
+(* inverse". Modelled by admitting "reject" to the change-carrying kinds,   *)
+(* so the fold's latest-payload-wins rule puts the text back whenever a     *)
+(* reject is the newest thing to speak.                                    *)
+(*                                                                         *)
+(* FIDELITY NOTE. The implementation does not give the ORIGINAL reject a    *)
+(* payload -- it cannot: the device that rejects has not seen the accept.   *)
+(* `Document.repairRejectedButSplicedAnnotations` appends a FRESH reject    *)
+(* carrying the inverse after the merge, which is both the newest lifecycle *)
+(* op and the newest changes-carrying op. This spec checks the CONVERGED    *)
+(* state, where those two arrangements are the same state, so the constant  *)
+(* is faithful at the level the model works. The repair's own idempotence   *)
+(* (it fires only while the newest payload is an accept) is a Swift         *)
+(* concern, pinned by AnnotationConvergenceTests, not a temporal property   *)
+(* here.                                                                   *)
+(***************************************************************************)
+ChangeKinds == IF RejectCarriesInverse
+               THEN {"accept", "revert", "reject"}
+               ELSE {"accept", "revert"}
 
 VARIABLES
     log,        \* set of [id, dev, kind]
@@ -142,7 +163,9 @@ Spec == Init /\ [][Next]_vars
 Status == StatusOf(log)
 Spliced == TextSpliced(log)
 
-\* P1 — THE HEADLINE. Expected VIOLATED.
+\* P1 — THE HEADLINE. VIOLATED with RejectCarriesInverse = FALSE (the shipped
+\* behaviour, 137 states to the counterexample); HOLDS with it TRUE, which is
+\* the acceptance test for the RULING-33 fix.
 \* The annotation is resolved `rejected` while the manuscript holds the
 \* suggested text: the writer rejected a change and has it anyway.
 NoRejectedButSpliced == ~(Status = "rejected" /\ Spliced)
@@ -156,6 +179,14 @@ AcceptedImpliesSpliced == (Status = "accepted") => Spliced
 \* (:175) while carrying NO changes, so it can move the status off `accepted`
 \* without moving the text back. If this is violated, an annotation reads as
 \* unresolved while its change sits in the manuscript.
+\*
+\* VIOLATED IN BOTH MODES, deliberately. RULING-33 rules on a reject that beats
+\* an accept and says nothing about a reopen that does, and its revisit clause
+\* parks the rest at the collaboration milestone. The fix is scoped to what was
+\* ruled: the divergence-B trace (accept a / reject b / reopen b) survives with
+\* RejectCarriesInverse = TRUE through a DIFFERENT ordering — reject first, then
+\* a foreign accept, then the reopen — where no reject is the newest payload.
+\* This config staying red is the evidence that the fix did not overreach.
 NoOpenButSpliced == ~(Status = "open" /\ Spliced)
 
 \* NOT predicted either way. Archiving an ACCEPTED annotation legitimately

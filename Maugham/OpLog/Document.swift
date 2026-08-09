@@ -178,6 +178,15 @@ public final class Document {
     /// sweeps (gate on pending and never run sweep on legitimate deletions).
     internal var _pendingSweep: SweepReason? = nil
 
+    /// How many notes the sweep has archived since the last burst boundary
+    /// reported (RULING-32). The ruling asks for a BATCHED, quiet summary at
+    /// the writing pause — silent in the moment, never a prompt — so the count
+    /// accumulates across however many sweeps a burst window contains and
+    /// `flushBurstNow` says it once. Reset by that report, not by the sweep,
+    /// which is why it is a running total rather than the last sweep's size.
+    /// Per-instance, never persisted; a close() flush reports whatever is left.
+    internal var _sweptSinceLastReport: Int = 0
+
     /// One-shot: the next external buffer apply (`applyExternalText`) was
     /// produced by a document-local mutation that registered its own
     /// UndoManager action (accept/revert of a suggestion) — the editor must
@@ -852,6 +861,19 @@ public final class Document {
         recomputeDisplayText()
     }
 
+    /// Say something to the writer. `Document` has no view, so this is the
+    /// whole of its writer-facing surface: a project-scoped
+    /// `.maughamDocumentNotice` the open window renders in its toast
+    /// (`RewindModifier`). Used where the alternative was `documentLog` and
+    /// nothing else — a declined ⌘Z (RULING-7, RULING-22) or a batch of
+    /// auto-archived notes (RULING-32).
+    ///
+    /// `opStore.projectURL` is the project root, not this doc's file, so the
+    /// scope matches what `RewindModifier` subscribes with.
+    internal func notifyWriter(_ message: String) {
+        MaughamEvent.postNotice(message, projectURL: opStore.projectURL)
+    }
+
     public func flushBurstNow() async throws {
         let hadPending = !pending.isEmpty()
         // Emit an op when there are pending TEXT changes OR an ordering-only
@@ -943,6 +965,20 @@ public final class Document {
                 await sweepOrphanedAnnotations(reason: reason)
                 _pendingSweep = nil
             }
+        }
+
+        // RULING-32 — the batched summary, at the writing pause. This IS the
+        // burst boundary: the writer has stopped, so a quiet line costs them
+        // nothing, where the same line during the burst would interrupt
+        // typing. It is deliberately a report and not a prompt (the ruling
+        // chose the batched option over tell-at-the-time), and it counts every
+        // sweep since the last report rather than the last sweep alone —
+        // deleting four paragraphs in one burst is one sentence, not four.
+        if _sweptSinceLastReport > 0 {
+            let n = _sweptSinceLastReport
+            _sweptSinceLastReport = 0
+            notifyWriter(
+                "While you edited: \(n) \(n == 1 ? "note" : "notes") archived.")
         }
     }
 

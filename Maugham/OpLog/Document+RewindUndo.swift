@@ -130,7 +130,15 @@ extension Document {
                 // unwound; anything else — a cross-device merge — means decline
                 // (History Rewind is the tool for that tangle), never clobber.
                 guard doc.paragraphs == postParagraphs else {
+                    // RULING-7 / M4-RW-026. The decline is correct and stays;
+                    // what was wrong is that only the log heard it, while the
+                    // writer pressed ⌘Z on a menu item reading "Undo Restore
+                    // from History" and got silence. Name the real cause and
+                    // point at the tool that CAN get them back, because
+                    // declining is not the same as being unable to help.
                     documentLog.error("restoreToOpUndoable undo: text drifted since restore — ignoring")
+                    doc.notifyWriter(
+                        "Couldn't undo the restore — the document has changed since. History Rewind can take you back.")
                     return
                 }
                 // Buffer swap runs mid-undo: the clear is both forbidden and

@@ -84,6 +84,24 @@ log to a totally-ordered set, which is the contract `OpLogSync` established.
 | `AnnotationRace_NoOpenButSpliced` | **violated** — unresolved, yet the change is in the manuscript |
 | `AnnotationRace_AcceptedImpliesSpliced` | no violation (a useful negative — bounds the defect to the two shapes above) |
 | `AnnotationRace_NoArchivedButSpliced` | violated, and **not a bug** — archiving an accepted annotation legitimately leaves the text spliced. Asserted only to make the archive arm visible in a counterexample. |
+| `AnnotationRace_Fixed_NoRejectedButSpliced` | no violation — `RejectCarriesInverse = TRUE`, over the full 7,709-state space |
+| `AnnotationRace_Fixed_NoOpenButSpliced` | **violated**, deliberately — the fix is scoped to what RULING-33 ruled |
+
+**The `Fixed_` pair is RULING-33's acceptance test**, in BackupRetention's sense
+and by its pattern: one constant apart, same spec, no second `.tla`.
+`RejectCarriesInverse = FALSE` is the shipped-before behaviour the first row
+describes, so every pre-existing config now pins it explicitly and is still
+*meant* to exit 12. The Swift fix is
+`Document.repairRejectedButSplicedAnnotations`, and the constant models it
+faithfully because both arrangements — a reject born with the inverse, and a
+repair reject appended after the merge — reach the same **converged** state,
+which is the only state these properties are evaluated on.
+
+`Fixed_NoOpenButSpliced` is in the table because a fix that closed it too would
+be a fix that overreached. RULING-33 rules on a reject beating an accept and
+parks the rest at the collaboration milestone; TLC's counterexample under the
+fix is `reject a / accept b / reopen a` — an ordering in which no reject is the
+newest payload — so the row is evidence of scope, not of an incomplete job.
 
 Predictions were pre-registered in `PREDICTIONS-annotation.md` and committed
 before the model existed, so confirmation can be told from discovery. That file

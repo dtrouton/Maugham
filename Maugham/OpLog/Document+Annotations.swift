@@ -259,7 +259,14 @@ extension Document {
                       live.body == newBody,
                       newSuggestedText == nil || live.suggestedText == newSuggestedText
                 else {
+                    // RULING-22 / M5-AN-019. The guard is right — it stops a
+                    // concurrent edit being clobbered by capture-time state —
+                    // but the Edit menu said "Undo Edit Annotation" and the
+                    // writer pressed it. Declining to `documentLog` and to
+                    // nobody else is the control not doing what it says.
                     documentLog.error("editReviewerAnnotation undo: \(id, privacy: .public) drifted since edit — ignoring")
+                    doc.notifyWriter(
+                        "Couldn't undo the annotation edit — it changed on another device.")
                     return
                 }
                 let revert = AnnotationInverse.editRevertOp(
@@ -290,6 +297,21 @@ extension Document {
         authorId: String? = nil,
         undoManager: UndoManager? = nil
     ) async throws {
+        // RULING-22 / M5-AN-036: capture the status this annotation had BEFORE
+        // the withdraw, so ⌘Z can put it back. `annotationReopen` is one op
+        // kind serving two inverses and `AnnotationDeriver` honours it through
+        // both its passes, so the reopen that undoes a withdrawal also cancels
+        // an archive or a rejection the writer made separately and never asked
+        // to undo — one ⌘Z taking two of their decisions, the shape tripwire 32
+        // records on the canvas. The fix is here rather than in
+        // `AnnotationInverse.reopenOp`: the factory is cross-surface (tripwire
+        // 19) and the phone's Reopen means "reopen this", which is exactly what
+        // it does today. What differs is the UNDO's obligation, and the undo is
+        // the Mac's.
+        let priorStatus = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }?.status
+        let priorResponse = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }?.userResponse
         let op = Op(
             opId: ULID.generate(),
             docId: docId, at: Date(),
@@ -303,13 +325,39 @@ extension Document {
                 authorCollaboratorId: authorId))
         try await appendAnnotationOpInternal(op)
 
-        // ⌘Z: undo reopens (annotationReopen restores it to the projection);
-        // redo re-withdraws with the LIVE undo manager so ⇧⌘Z re-arms a fresh
+        // ⌘Z: undo reopens (annotationReopen restores it to the projection),
+        // then puts back the resolution the withdraw was sitting on top of —
+        // a status-only lifecycle op, the same shape the rewind undo's
+        // re-accept uses. Undoing "delete my annotation" returns the
+        // annotation, and nothing else. `.open` needs no second op; that is
+        // what the reopen already leaves.
+        // Redo re-withdraws with the LIVE undo manager so ⇧⌘Z re-arms a fresh
         // undo pair (accept's precedent).
         OpUndoRegistrar.register(
             undoManager, actionName: "Withdraw Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
-            undo: { doc in try? await doc.reopenAnnotation(id: id) },
+            undo: { doc in
+                try? await doc.reopenAnnotation(id: id)
+                switch priorStatus {
+                case .archived, .rejected, .accepted:
+                    // The reopen may itself have declined (a peer already
+                    // reopened it, the doc husked) — re-applying the prior
+                    // status regardless is still right: it is the status the
+                    // writer had, and the deriver takes the latest lifecycle
+                    // op either way.
+                    let kind: OpKind = priorStatus == .archived ? .claudeArchive
+                        : priorStatus == .rejected ? .claudeReject : .claudeAccept
+                    do {
+                        try await doc.appendLifecycleOp(
+                            kind: kind, sourceAnnotationId: id,
+                            userResponse: priorResponse)
+                    } catch {
+                        documentLog.error("withdrawReviewerAnnotation undo: restoring the prior \(String(describing: priorStatus), privacy: .public) status for \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public) — the note is back but open")
+                    }
+                case .open, nil:
+                    break
+                }
+            },
             redo: { [weak undoManager] doc in
                 try? await doc.withdrawReviewerAnnotation(
                     id: id, authorName: authorName, authorId: authorId,
@@ -325,6 +373,19 @@ extension Document {
         guard let creation = _opLogMirror.first(where: { $0.opId == id }),
               let kind = AnnotationKind.fromOpKind(creation.kind) else {
             return  // unknown id or non-annotation op — no-op
+        }
+        // RULING-22 / M5-AN-028: a WITHDRAWN annotation is one the writer
+        // deleted, and that instruction has duration. Accepting it anyway used
+        // to splice its replacement into the manuscript while the annotation
+        // stayed absent from every surface — no row to notice it, no Revert to
+        // reach for. The reachable path is a merge race (a second Mac's pane,
+        // rendered before the withdraw arrived, still offering Accept), so the
+        // guard belongs here rather than in the pane that can be stale.
+        // Silent to the writer by design: on the device that clicked, nothing
+        // they can see said this annotation existed.
+        if isWithdrawn(annotationId: id) {
+            documentLog.error("acceptAnnotation: \(id, privacy: .public) was withdrawn — refusing to rewrite the manuscript for a deleted annotation")
+            return
         }
 
         // Determine the changes payload. Only suggestedChange mutates the
@@ -730,17 +791,24 @@ extension Document {
     /// the deriver folds only `changes` for text, so an empty-changes accept is
     /// a pure status transition back to `.accepted`, the exact mirror of D3's
     /// empty-changes `claudeAcceptRevert` reopen.
+    ///
+    /// `changes` defaults to empty, which is what every writer-issued
+    /// resolution passes and what "status-only" means. The one caller that
+    /// supplies a payload is `repairRejectedButSplicedAnnotations` (RULING-33),
+    /// whose repair reject has to be both the newest lifecycle op and the
+    /// newest changes-carrying op to make status and manuscript agree.
     internal func appendLifecycleOp(
         kind: OpKind,
         sourceAnnotationId: String,
         userResponse: String?,
-        synthesisSource: SynthesisSource? = nil
+        synthesisSource: SynthesisSource? = nil,
+        changes: [Op.ParagraphChange] = []
     ) async throws {
         let op = Op(
             opId: ULID.generate(),
             docId: docId, at: Date(),
             device: device, session: session,
-            kind: kind, changes: [], sequence: nil,
+            kind: kind, changes: changes, sequence: nil,
             provenance: Op.Provenance(
                 sessionId: session,
                 synthesisSource: synthesisSource,
@@ -792,13 +860,151 @@ extension Document {
                 && (ann.paragraphId.map { removed.contains($0) } ?? false)
         }
         for orphan in orphans {
-            try? await appendLifecycleOp(
-                kind: .claudeArchive,
-                sourceAnnotationId: orphan.id,
-                userResponse: nil,
-                synthesisSource: reason.cause)
+            do {
+                try await appendLifecycleOp(
+                    kind: .claudeArchive,
+                    sourceAnnotationId: orphan.id,
+                    userResponse: nil,
+                    synthesisSource: reason.cause)
+                // RULING-32: count what was actually archived, so the summary
+                // at the next burst boundary reports a number the log agrees
+                // with. Incremented on SUCCESS only — a swallowed append that
+                // still bumped the count would tell the writer a note went
+                // away that is still open in front of them.
+                _sweptSinceLastReport += 1
+            } catch {
+                documentLog.error("sweepOrphanedAnnotations: archive append failed for \(orphan.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
         // appendLifecycleOp already invalidates the cache on each call;
         // no extra invalidation needed here.
+    }
+
+    // MARK: - Convergence: status and manuscript may not disagree (RULING-33)
+
+    /// True iff the writer has withdrawn (deleted) this annotation and not
+    /// reopened it — i.e. it is absent from the projection by their own
+    /// instruction rather than because the id is unknown. Latest-by-opId
+    /// between the withdraw/reopen pair, the same rule `AnnotationDeriver`'s
+    /// `withdrawState` pass uses; kept here rather than derived from
+    /// `annotations()` because a withdrawn annotation has no row to read.
+    internal func isWithdrawn(annotationId id: String) -> Bool {
+        let latest = _opLogMirror
+            .filter { ($0.kind == .annotationWithdraw || $0.kind == .annotationReopen)
+                      && $0.provenance?.sourceAnnotationId == id }
+            .max { $0.opId < $1.opId }
+        return latest?.kind == .annotationWithdraw
+    }
+
+    /// Undo the splice of an accept that a reject beat across a merge, so the
+    /// note's status and the manuscript stop disagreeing (RULING-33).
+    ///
+    /// THE RACE, from `formal/AnnotationRace.tla`: status derives from the
+    /// single latest LIFECYCLE op, text from a fold of every op's `changes`.
+    /// The two never consult each other. Accept on one Mac, reject on another
+    /// before it merged, reject wins the opId order — the annotation settles
+    /// `rejected` and the suggestion is in the manuscript anyway. TLC calls it
+    /// `NoRejectedButSpliced` and it is not transient: no amount of further
+    /// syncing repairs it, because neither reject nor reopen can move text.
+    ///
+    /// The ruling: THE STATUS WINNER ALSO DECIDES THE TEXT. So the repair is a
+    /// fresh `.claudeReject` carrying the inverse changes — one op that is
+    /// both the newest lifecycle op (status stays `rejected`, and the writer's
+    /// reason rides along) and the newest changes-carrying op (the text goes
+    /// back). That is why `Deriver.appliesToManuscript` now admits
+    /// `.claudeReject`; every reject a writer issues still carries nothing.
+    ///
+    /// Runs after a merge, which is the only thing that can create the state.
+    /// Idempotent by construction: once the repair op is the newest
+    /// changes-carrying op for the annotation, the `latestChange.kind ==
+    /// .claudeAccept` test is false and it never fires again — including when
+    /// both devices repair independently and the two repairs then merge, since
+    /// they write identical `next` text.
+    ///
+    /// DECLINES, loudly, when the paragraph has drifted since the accept.
+    /// Removing the suggestion then would mean writing over sentences the
+    /// writer has typed on top of it, and no convergence rule is worth that
+    /// (RULING-5's refusal-rather-than-guess, and the constitution's first
+    /// must). The disagreement survives, visibly, with a row to act on.
+    ///
+    /// Does NOT recompute display text — the merge path that calls it does
+    /// that once for everything, and its pure-append test wants the
+    /// pre-merge `displayText` intact until then.
+    @discardableResult
+    internal func repairRejectedButSplicedAnnotations() async -> Int {
+        var repaired = 0
+        for creation in _opLogMirror
+        where AnnotationKind.fromOpKind(creation.kind) == .suggestedChange {
+            let id = creation.opId
+            let forThis = _opLogMirror.filter {
+                $0.provenance?.sourceAnnotationId == id
+            }
+            // The status side: latest lifecycle op wins (AnnotationDeriver).
+            guard let latestLifecycle = forThis
+                    .filter({ Document.isLifecycleOpKind($0.kind) })
+                    .max(by: { $0.opId < $1.opId }),
+                  latestLifecycle.kind == .claudeReject else { continue }
+            // The text side: latest op carrying a payload for this annotation.
+            // A `.claudeAcceptRevert` or an earlier repair here means the text
+            // is already back and there is nothing to disagree about.
+            guard let latestChange = forThis
+                    .filter({ !$0.changes.isEmpty
+                              && Document.isLifecycleOpKind($0.kind) })
+                    .max(by: { $0.opId < $1.opId }),
+                  latestChange.kind == .claudeAccept,
+                  let applied = latestChange.changes.first else { continue }
+            let pid = applied.paragraphId
+            guard sequence.contains(pid) else {
+                documentLog.error("repairRejectedButSpliced: paragraph \(pid, privacy: .public) for \(id, privacy: .public) is gone — leaving the log alone")
+                continue
+            }
+            let live = paragraphs[pid] ?? ""
+            guard live == (applied.next ?? "") else {
+                documentLog.error("repairRejectedButSpliced: \(pid, privacy: .public) drifted since the accept for \(id, privacy: .public) — declining rather than writing over the writer's edit")
+                continue
+            }
+            let restored = applied.prior ?? ""
+            do {
+                try await appendLifecycleOp(
+                    kind: .claudeReject,
+                    sourceAnnotationId: id,
+                    // The winning reject's reason, carried onto the repair so
+                    // the row still shows why the writer said no. Dropping it
+                    // would make the repair look like a second, silent refusal.
+                    userResponse: latestLifecycle.provenance?.userResponse,
+                    synthesisSource: .rejectConvergence,
+                    changes: [.init(paragraphId: pid, prior: live, next: restored)])
+            } catch {
+                documentLog.error("repairRejectedButSpliced: append failed for \(id, privacy: .public): \(error.localizedDescription, privacy: .public) — the disagreement stands")
+                continue
+            }
+            paragraphs[pid] = restored
+            // Deliberately NOT `pending.recordChange` (which the sibling
+            // `revertAcceptedAnnotation` does): the repair op is already the
+            // durable record of this text, so a pending entry would re-emit it
+            // at the next burst as a `.typingBurst` — a change attributed to
+            // the writer that the writer did not make. Crash safety is
+            // unaffected for the same reason; the op is on disk before this
+            // line runs. The autosave is still scheduled so the derived `.md`
+            // catches up with `paragraphs`.
+            autosaveScheduler.schedule(())
+            repaired += 1
+        }
+        return repaired
+    }
+
+    /// The kinds `AnnotationDeriver` reads as lifecycle — the ops that can move
+    /// an annotation's status. Mirrors its private `isLifecycleKind`; the two
+    /// are read together by `repairRejectedButSplicedAnnotations`, whose whole
+    /// correctness is that it applies the deriver's own rule rather than a
+    /// second opinion about which op wins.
+    private static func isLifecycleOpKind(_ kind: OpKind) -> Bool {
+        switch kind {
+        case .claudeAccept, .claudeReject, .claudeArchive, .claudeAcceptRevert,
+             .annotationReopen:
+            return true
+        default:
+            return false
+        }
     }
 }

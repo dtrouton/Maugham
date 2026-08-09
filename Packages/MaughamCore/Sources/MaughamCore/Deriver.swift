@@ -59,9 +59,12 @@ public enum Deriver {
     /// claude_craft_note) carry a change entry purely as a paragraph anchor
     /// + priorText snapshot for stale detection — their `change.next` is
     /// empty (or the proposed text for suggestions) and MUST NOT overwrite
-    /// the live paragraph. Same for lifecycle ops (reject/archive) which
-    /// always carry empty changes. claude_accept of a suggested change DOES
-    /// mutate the manuscript and is included.
+    /// the live paragraph. Same for `claude_archive`, which always carries
+    /// empty changes. claude_accept of a suggested change DOES mutate the
+    /// manuscript and is included — and so, since RULING-33, does
+    /// `claude_reject`: the writer's own rejects still carry nothing, but the
+    /// post-merge convergence repair issues one carrying the inverse of the
+    /// accept it beat. See `appliesToManuscript`.
     public static func derive(ops: [Op]) -> DerivedState {
         var paragraphs: [String: String] = [:]
         var sequence: [String] = []
@@ -184,11 +187,21 @@ public enum Deriver {
     /// gate for future kinds (ADR 0015).
     static func appliesToManuscript(_ kind: OpKind) -> Bool {
         switch kind {
+        // `.claudeReject` is here for RULING-33 and for nothing else. Every
+        // reject a writer issues carries `changes: []`, so folding it is a
+        // no-op and this classification changes nothing for them. The one
+        // reject that carries a payload is the convergence repair
+        // (`Document.repairRejectedButSplicedAnnotations`): when a reject beats
+        // an accept whose text was already spliced, the STATUS WINNER DECIDES
+        // THE TEXT, which it can only do if a reject is allowed to move it.
+        // Manifest schemaVersion 5 is the gate that keeps an older build —
+        // which folds none of this — from opening such a project.
         case .typingBurst, .bootstrap, .externalEdit,
-             .checkpointRestore, .claudeAccept, .claudeAcceptRevert:
+             .checkpointRestore, .claudeAccept, .claudeAcceptRevert,
+             .claudeReject:
             return true
         case .checkpoint, .claudeSuggestion, .claudeComment,
-             .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive,
+             .claudeQuery, .claudeCraftNote, .claudeArchive,
              .annotationEdit, .annotationWithdraw, .annotationReopen,
              .taskCreate, .taskStatusChange, .taskPriorityChange,
              .taskParentChange, .taskBodyEdit, .taskArchive:

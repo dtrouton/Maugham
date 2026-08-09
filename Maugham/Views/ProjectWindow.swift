@@ -2176,6 +2176,22 @@ private struct RewindModifier: ViewModifier {
                     }
                 }
             }
+            .onProjectEvent(.maughamDocumentNotice,
+                            url: store?.url ?? url, window: window) { note in
+                // The Document's one writer-facing channel (RULING-7,
+                // RULING-22, RULING-32) rendered in the toast this modifier
+                // already owns, rather than a second overlay that could stack
+                // with a restore report. The message is composed at the post
+                // site; the view only shows it. No Revert — none of these
+                // notices has an action, and a stale manager from an earlier
+                // restore must not be left armed behind one.
+                guard let message =
+                    note.userInfo?[MaughamEvent.noticeMessageKey] as? String,
+                      !message.isEmpty else { return }
+                restoreToastOffersRevert = false
+                restoreToastUndoManager = nil
+                restoreToast = message
+            }
             .onProjectEvent(.maughamOpenRewind,
                             url: store?.url ?? url, window: window) { note in
                 // Project-scoped (ADR 0021): HistoryPane posts to
