@@ -55,6 +55,12 @@ final class PromotionStatementMarkTests: XCTestCase {
                            structure: store.manifest.structure)
     }
 
+    /// A novel with one chapter, for tests that need both.
+    private func makeNovelWithAChapter() async throws -> (TempDirectory, ProjectStore) {
+        let store = try await makeProject()
+        return (temp, store)
+    }
+
     // MARK: - The name
 
     /// The project's intent answers with the bare name — which is what shipped
@@ -164,5 +170,19 @@ final class PromotionStatementMarkTests: XCTestCase {
         let note = try await store.addResearchTextNote(parentId: nil, title: "The falls")
         XCTAssertNil(ProjectWindow.statementPane(forMark: note.id, in: store))
         XCTAssertNil(ProjectWindow.statementPane(forMark: "res-nope", in: store))
+    }
+
+    // MARK: - The enumeration
+
+    /// `statementTitlePairs()` returns the (id, composed title) pair for every
+    /// statement — the resolution-side spelling of "what a statement is called".
+    func test_statementTitlePairs_composeTheOneTitlePerStatement() async throws {
+        let (_, store) = try await makeNovelWithAChapter()   // chapter id "ch-1", title "Chapter 1"
+        let projectIntent = try await store.createStatement(kind: .intent, scope: .project)
+        let chapterIntent = try await store.createStatement(kind: .intent, scope: .document("ch-1"))
+        let pairs = store.statementTitlePairs()
+        XCTAssertEqual(Set(pairs.map(\.id)), [projectIntent.id, chapterIntent.id])
+        XCTAssertEqual(pairs.first { $0.id == projectIntent.id }?.title, "Craft Intent")
+        XCTAssertEqual(pairs.first { $0.id == chapterIntent.id }?.title, "Craft Intent · Chapter 1")
     }
 }

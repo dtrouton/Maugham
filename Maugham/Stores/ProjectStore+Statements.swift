@@ -83,6 +83,20 @@ extension ProjectStore {
         return derivedCache.displayText(forDocId: statement.id, in: url)
     }
 
+    /// `(id, composed title)` for every statement — the resolution-side spelling
+    /// of "what a statement is called". `ArtifactIndex.statementTitle` is the ONE
+    /// composer (its doc comment says why); this walks `structure` once, as
+    /// `ArtifactIndex.over` does, rather than per statement.
+    func statementTitlePairs() -> [(id: String, title: String)] {
+        let titlesByDocument = Dictionary(
+            TreeWalk.collect(in: manifest.structure, where: { _ in true })
+                .map { ($0.id, $0.title) },
+            uniquingKeysWith: { _, later in later })
+        return manifest.statements.map {
+            ($0.id, ArtifactIndex.statementTitle($0, documentTitle: { titlesByDocument[$0] }))
+        }
+    }
+
     // MARK: - Opening one, which is not the same as holding one
 
     /// Take exclusive right to OPEN a `Document` on this statement's path, and
