@@ -49,6 +49,12 @@ actor PublishMintGate {
 
 `PublishConfigValidator` gains a rule: `outputs.filename_template` must contain the literal token `{version}` — a validation ERROR, joining the existing traversal rules, so `set_publish_config` refuses it at write time and `Republisher`'s snapshot re-validation (`Republisher.swift:59-64`) refuses a legacy snapshot carrying one at replay time (loud, not a silent collision). The sweep's optional `{language}` warning is dropped: `OutputFilenameBuilder` already auto-suffixes `-<lang>` when the template lacks the token, so the collision it would warn about cannot occur.
 
+**Correction (2026-08-09, plan Task 3):** the validator has required `{version}`
+(with `{title}`/`{ext}`) since its creation (`28b6fed9`) — sweep finding P3 was
+wrong when filed. What was missing was the TEST pin; this task adds it. The
+snapshot-replay refusal described below already worked via `Republisher`'s
+re-validation.
+
 ### 2.4 P4 — delete the dead field
 
 Remove `ProjectStoreASTSource.allowStale` (property, init parameter, doc comment). The compiler surfaces the one construction site (`PublicationTools.swift:243`); both gate callers already read the right value from their own context. No behavior change — that is the point.

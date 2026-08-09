@@ -19,6 +19,13 @@ public struct CompileOrchestrator {
     public let publicationStore: PublicationStore
     public let snapshotStore: PublicationSnapshotStore
     public let jobManager: CompileJobManager
+    /// P2 (issue #25): the per-project gate that keeps two same-process
+    /// compiles of one (version, language, format) triple from both passing
+    /// the catalog guard and both minting. Defaulted so the many test call
+    /// sites each get their own isolated gate; production passes
+    /// `PublishingStores.mintGate` so every compile of a project contends on
+    /// the same one (censused by `PublishMintGateTests`).
+    public let mintGate: PublishMintGate
     public let maughamVersion: String
     public let tectonicVersion: String
 
@@ -29,6 +36,7 @@ public struct CompileOrchestrator {
         publicationStore: PublicationStore,
         snapshotStore: PublicationSnapshotStore,
         jobManager: CompileJobManager,
+        mintGate: PublishMintGate = PublishMintGate(),
         maughamVersion: String,
         tectonicVersion: String
     ) {
@@ -38,6 +46,7 @@ public struct CompileOrchestrator {
         self.publicationStore = publicationStore
         self.snapshotStore = snapshotStore
         self.jobManager = jobManager
+        self.mintGate = mintGate
         self.maughamVersion = maughamVersion
         self.tectonicVersion = tectonicVersion
     }
@@ -252,6 +261,85 @@ public struct CompileOrchestrator {
                 logExcerpt: "version_collision: \(effectiveVersion)/\(langLabel)/\(format.rawValue)")
         }
 
+        // P2 (issue #25): the catalog guard above answers "does this edition
+        // already exist"; this one answers "is one already in flight". Two
+        // concurrent calls both read a catalog without the other's row, so
+        // both pass the guard — the gate is what stops the second from
+        // minting a duplicate (and, on the source path, from grabbing the
+        // same `next_version`). Reserved AFTER the catalog guard so an
+        // already-published edition still gets the "already exists" refusal,
+        // which names the actual remedy.
+        //
+        // A dry run is EXEMPT (M1, whole-branch review): it answers "would this
+        // compile?" and returns before the snapshot, the compilers and the
+        // catalog append, so it mints nothing a concurrent compile could
+        // duplicate. Refusing it — or letting it hold the triple against a real
+        // compile — would be the gate charging a mutation's price for a
+        // question. The release below is paired to this same condition: a dry
+        // run that never reserved must never release, or it would hand back the
+        // in-flight compile's reservation.
+        let mintKey = PublishMintGate.Key(
+            version: effectiveVersion, language: language, format: format)
+        if !dryRun {
+            guard await mintGate.reserve(mintKey) else {
+                let langLabel = language ?? "source"
+                let diag = TectonicLogParser.Diagnostic(
+                    level: .error,
+                    file: nil, line: nil,
+                    message: "Publication v\(effectiveVersion) (\(langLabel), \(format.rawValue)) is already compiling; wait for it to finish.",
+                    contextLines: [
+                        "Another compile of the (version, language, format) triple '\(effectiveVersion)/\(langLabel)/\(format.rawValue)' is in flight in this app.",
+                        "Poll it with compile_status, or compile a different format/language."
+                    ])
+                await jobManager.fail(
+                    jobID: jobID,
+                    errors: [diag],
+                    logExcerpt: "mint_in_flight: \(effectiveVersion)/\(langLabel)/\(format.rawValue)")
+                return .failed(
+                    errors: [diag],
+                    logExcerpt: "mint_in_flight: \(effectiveVersion)/\(langLabel)/\(format.rawValue)")
+            }
+        }
+
+        // Everything past the reservation lives in `compileReserved` so the
+        // release has exactly TWO sites — the two below. Inline, the release
+        // would have to be repeated before each of the four remaining returns
+        // AND could not cover the half-dozen `try` calls that throw straight
+        // out of `compile` (snapshot capture/save, the compilers, the catalog
+        // append, the config save); a reservation leaked on a thrown error is
+        // permanent for the life of the process, which would be a worse
+        // failure than the duplicate this gate exists to prevent.
+        do {
+            let outcome = try await compileReserved(
+                format: format, label: label, language: language,
+                allowStale: allowStale, dryRun: dryRun, jobID: jobID,
+                config: config, effective: effective,
+                effectiveVersion: effectiveVersion,
+                emitSource: emitSource, excludedSectionIDs: excludedSectionIDs)
+            if !dryRun { await mintGate.release(mintKey) }
+            return outcome
+        } catch {
+            if !dryRun { await mintGate.release(mintKey) }
+            throw error
+        }
+    }
+
+    /// The compiling half of `compile`, run while its (version, language,
+    /// format) triple is reserved on the mint gate. Split out for the release
+    /// discipline only — see the call site.
+    private func compileReserved(
+        format: PublishConfig.Format,
+        label: String?,
+        language: String?,
+        allowStale: Bool,
+        dryRun: Bool,
+        jobID: String,
+        config: PublishConfig,
+        effective: PublishConfig,
+        effectiveVersion: String,
+        emitSource: ProjectASTBuilder.Source,
+        excludedSectionIDs: Set<String>
+    ) async throws -> Outcome {
         // Task 9: translation coverage gate. A translated edition
         // (`language != nil`) must not ship a book whose translation lags the
         // source. Reuse the astSource's own `ProjectStore` (the same one the
