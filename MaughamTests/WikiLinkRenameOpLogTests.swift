@@ -19,8 +19,14 @@ final class WikiLinkRenameOpLogTests: XCTestCase {
 
     /// Build a project with `manuscript/<id>.md` files from (id, title, body)
     /// tuples, through the real on-disk shape the production loader reads.
+    ///
+    /// `statements` are written into the manifest as-is and their files are the
+    /// caller's to create — the point of the seam is that a manifest entry can
+    /// name a file this project has no op log for at all (a freshly promoted
+    /// project's, whose `.maugham/` stayed behind).
     private func makeProject(
-        docs: [(id: String, title: String, body: String)]
+        docs: [(id: String, title: String, body: String)],
+        statements: [Statement] = []
     ) throws -> URL {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("WikiRenameOpLog-\(UUID().uuidString)")
@@ -43,7 +49,7 @@ final class WikiLinkRenameOpLogTests: XCTestCase {
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A",
             created: Date(), modified: Date(),
-            structure: structure, research: [])
+            structure: structure, research: [], statements: statements)
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         try enc.encode(manifest).write(
@@ -155,5 +161,210 @@ final class WikiLinkRenameOpLogTests: XCTestCase {
             "Rewriting an open doc must append an op, not bypass the op log.")
 
         await liveB.close()
+    }
+
+    // MARK: - Statements (S2)
+
+    /// S2 (2026-08-02 sweep): renaming a document silently flipped a statement's
+    /// `[[chapter]]` to unresolved while the graph tools kept listing it. The
+    /// statement is a `Document`; the rewrite must arrive as ops.
+    func test_renameRewritesLinksInsideAClosedStatement() async throws {
+        let root = try makeProject(docs: [
+            (id: "a", title: "Alpha", body: "The chapter."),
+            (id: "b", title: "Beta", body: "Another.")])
+        let store = try await ProjectStore.load(from: root)
+        let statement = try await store.createStatement(kind: .intent, scope: .project)
+        try await store.appendToStatement("Open with [[Alpha]].", to: statement,
+                                          session: "test")
+
+        try await store.renameStructureItem(id: "a", newTitle: "Omega")
+
+        XCTAssertTrue(store.statementText(of: statement).contains("[[Omega]]"),
+                      "the statement still says: \(store.statementText(of: statement))")
+        XCTAssertFalse(store.statementText(of: statement).contains("[[Alpha]]"))
+        let ops = OpLogStore.loadSyncMerged(forDocId: statement.id, in: root)
+        XCTAssertTrue(ops.contains { op in
+            op.changes.contains { $0.next.contains("[[Omega]]") }
+        }, "the rewrite must be IN the op log, not a raw file write")
+    }
+
+    /// The live-pane arm: a statement open in the Plan persona's right column
+    /// while the writer renames in the binder — an ordinary act, since Intent is
+    /// a pane of the persona whose centre column is the canvas and the binder is
+    /// its left one.
+    ///
+    /// The rewrite has to reach the `Document` **the pane is holding**. Loading
+    /// a second one on the same path costs the writer the rewrite rather than
+    /// merely duplicating work: each has its own `PendingBuffer`, and the pane's
+    /// next burst writes its own stale `[[Alpha]]` back out over the rewrite.
+    /// So the assertion is on the live instance first, and then on what the
+    /// statement says once that pane has typed again and flushed.
+    func test_renameRewritesLinksInsideAnOpenStatement() async throws {
+        let root = try makeProject(docs: [
+            (id: "a", title: "Alpha", body: "The chapter."),
+            (id: "b", title: "Beta", body: "Another.")])
+        let store = try await ProjectStore.load(from: root)
+        let ds = try await DocumentStore.open(url: root)
+        store.documentStore = ds
+        let statement = try await store.createStatement(kind: .intent, scope: .project)
+        try await store.appendToStatement("Open with [[Alpha]].", to: statement,
+                                          session: "test")
+
+        // Stand in for the Intent pane, through the store's own open seam
+        // rather than a bare load: the gate around the load and the
+        // registration is what `StatementEditorHost.load` does, and the
+        // registration is the only way anything else can find this `Document`
+        // (a statement is in no `DocumentStore` registry by design).
+        await store.lockStatementOpen(statement.id)
+        let pane = try await Document.load(
+            url: root.appendingPathComponent(statement.path),
+            device: MacDeviceID.current, session: "pane-test",
+            presenter: ds.presenter)
+        store.noteStatementDocumentOpened(pane, id: statement.id)
+        store.unlockStatementOpen(statement.id)
+
+        try await store.renameStructureItem(id: "a", newTitle: "Omega")
+
+        XCTAssertTrue(
+            pane.displayText.contains("[[Omega]]"),
+            "the rewrite went into a SECOND Document on this path — the pane "
+            + "cannot see it, so its next burst writes it out — found: "
+            + pane.displayText)
+
+        // The act that turns "merely odd" into lost work: the writer types on.
+        pane.setFullText(pane.displayText + "\n\nTyped after.")
+        try await pane.flushBurstNow()
+
+        let text = store.statementText(of: statement)
+        XCTAssertTrue(text.contains("[[Omega]]"),
+                      "the pane's next burst wrote the rename back out — "
+                      + "found: \(text)")
+        XCTAssertFalse(text.contains("[[Alpha]]"), "found: \(text)")
+        XCTAssertTrue(text.contains("Typed after."), "found: \(text)")
+
+        store.forgetStatementDocument(id: statement.id)
+        await pane.close()
+        await ds.close()
+    }
+
+    /// The statement whose PROSE is only in its file, and whose op log does not
+    /// exist yet — the shape a freshly promoted project arrives in
+    /// (`stagePromotedIntent` moves the `.md` and leaves `.maugham/` behind, so
+    /// the new project re-bootstraps from the rendered file on first open).
+    ///
+    /// The pre-check's derived read answers "" for it, and a pre-check that
+    /// skipped on emptiness alone would leave the writer's intent saying the old
+    /// name for ever — the manuscript loop has carried the same fall-through
+    /// since it was written, for the same reason.
+    func test_renameRewritesAStatementWhoseWordsAreOnlyInItsFile() async throws {
+        let root = try makeProject(
+            docs: [(id: "a", title: "Alpha", body: "The chapter.")],
+            statements: [Statement(id: "stmt-cold", kind: .intent,
+                                   scope: .project, path: "intent.md")])
+        try "Open with [[Alpha]].\n".write(
+            to: root.appendingPathComponent("intent.md"),
+            atomically: true, encoding: .utf8)
+        let store = try await ProjectStore.load(from: root)
+        let statement = try XCTUnwrap(store.manifest.statements.first)
+
+        // The premise, asserted rather than assumed: nothing has bootstrapped
+        // this statement, so the only text about it the pre-check can see is
+        // empty — and no pane holds a fresher one.
+        XCTAssertTrue(
+            store.derivedCache.displayText(forDocId: statement.id, in: root).isEmpty,
+            "this test is only about a COLD statement; the derive answered "
+            + "something, so it no longer reproduces the shape it is named for")
+
+        try await store.renameStructureItem(id: "a", newTitle: "Omega")
+
+        let text = store.statementText(of: statement)
+        XCTAssertTrue(text.contains("[[Omega]]"),
+                      "an empty derive skipped a statement whose file has "
+                      + "prose in it — found: \(text)")
+        XCTAssertFalse(text.contains("[[Alpha]]"), "found: \(text)")
+    }
+
+    // MARK: - Research notes (S2)
+
+    /// The research-note half — pre-existing since 1C-c2, and recorded rather
+    /// than fixed at the time (`Maugham/Canvas/AREA.md`): canvas promotion
+    /// writes `[[…]]` into a research note and never into a manuscript, so a
+    /// rename left exactly the links promotion had just made pointing nowhere.
+    ///
+    /// A research note is not op-logged, so the rewrite is a coordinated file
+    /// write behind a flush rather than an op.
+    func test_renameRewritesLinksInsideAResearchNoteBody() async throws {
+        let root = try makeProject(docs: [
+            (id: "a", title: "Alpha", body: "The chapter."),
+            (id: "b", title: "Beta", body: "Another.")])
+        let store = try await ProjectStore.load(from: root)
+        let ds = try await DocumentStore.open(url: root)
+        store.documentStore = ds
+
+        let note = try await store.addResearchTextNote(
+            parentId: nil, title: "Fog notes")
+        let notePath = try XCTUnwrap(note.path)
+        let noteURL = root.appendingPathComponent(notePath)
+        try "Promoted from the canvas. See [[Alpha]].\n".write(
+            to: noteURL, atomically: true, encoding: .utf8)
+
+        try await store.renameStructureItem(id: "a", newTitle: "Omega")
+
+        let body = try String(contentsOf: noteURL, encoding: .utf8)
+        XCTAssertTrue(body.contains("[[Omega]]"),
+                      "the research note still says: \(body)")
+        XCTAssertFalse(body.contains("[[Alpha]]"), "found: \(body)")
+
+        await ds.close()
+    }
+
+    // MARK: - Composed statement titles (S2)
+
+    /// The composed-title rule: a statement's NAME embeds its document's
+    /// (`ArtifactIndex.statementTitle`), so renaming the document moves the
+    /// statement's title too, and every `[[Craft Intent · Alpha]]` in the
+    /// project has to move with it.
+    ///
+    /// **The link is planted in the RENAMED document's own body, deliberately.**
+    /// The manuscript loop excludes the renamed document because its own
+    /// `[[Alpha]]` self-references are handled by the resolver's title match on
+    /// the next render — an argument about the document's OWN title, which says
+    /// nothing about the title of a statement about it. `[[Craft Intent ·
+    /// Alpha]]` resolves to nothing at all once the rename lands, wherever it
+    /// was written.
+    func test_renameRewritesComposedStatementTitleLinks() async throws {
+        let root = try makeProject(docs: [
+            (id: "a", title: "Alpha", body: "See [[Craft Intent · Alpha]]."),
+            (id: "b", title: "Beta", body: "Nothing here.")])
+        let store = try await ProjectStore.load(from: root)
+        _ = try await store.createStatement(kind: .intent, scope: .document("a"))
+
+        try await store.renameStructureItem(id: "a", newTitle: "Omega")
+
+        let rewritten = store.derivedCache.materialize(forDocId: "a", in: root)
+        XCTAssertTrue(rewritten.contains("[[Craft Intent · Omega]]"),
+                      "found: \(rewritten)")
+        XCTAssertFalse(rewritten.contains("[[Craft Intent · Alpha]]"),
+                       "found: \(rewritten)")
+    }
+
+    /// The other side of the same rule: the composed title moves in a document
+    /// that is NOT the renamed one either, and it moves alongside the plain
+    /// document-title rewrite rather than instead of it.
+    func test_composedTitleAndDocumentTitleBothMoveInAnotherDocument() async throws {
+        let root = try makeProject(docs: [
+            (id: "a", title: "Alpha", body: "The chapter."),
+            (id: "b", title: "Beta",
+             body: "See [[Alpha]] and [[Craft Intent · Alpha]].")])
+        let store = try await ProjectStore.load(from: root)
+        _ = try await store.createStatement(kind: .intent, scope: .document("a"))
+
+        try await store.renameStructureItem(id: "a", newTitle: "Omega")
+
+        let rewritten = store.derivedCache.displayText(forDocId: "b", in: root)
+        XCTAssertTrue(rewritten.contains("[[Omega]]"), "found: \(rewritten)")
+        XCTAssertTrue(rewritten.contains("[[Craft Intent · Omega]]"),
+                      "found: \(rewritten)")
+        XCTAssertFalse(rewritten.contains("Alpha"), "found: \(rewritten)")
     }
 }

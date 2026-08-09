@@ -157,6 +157,10 @@ struct ProjectWindow: View {
     /// diagnostics (the `.help()` tooltip), so the resolver stays the single
     /// read path.
     @State private var shareSnapshot: ShareMetadata?
+    /// What ⌘⌥Z has to say: the reason it refused a deletion it could not
+    /// return whole (RULING-40), or what a restore could not give back
+    /// (RULING-42). A refusal the writer never sees is the same as a silence.
+    @State private var restoreOutcome: String?
     /// Injected reader for the share metadata (real OS-backed Mac reader in
     /// production; substitutable in tests/previews).
     private let shareReader: ShareMetadataReading = ICloudShareMetadataReader()
@@ -364,6 +368,7 @@ struct ProjectWindow: View {
             showInspector: $showInspector,
             detailSegment: $detailSegment,
             persona: $persona,
+            restoreOutcome: $restoreOutcome,
             mcpBanner: mcpBanner))
         .modifier(CheckpointModifier(
             documentStore: documentStore,
@@ -623,6 +628,9 @@ struct ProjectWindow: View {
         /// send the writer to this persona's binder home; since stage 2b Task 1
         /// closing find moves nobody, so it no longer does.
         @Binding var persona: Persona
+        /// What ⌘⌥Z has to say when it cannot restore a deletion whole, or
+        /// when a restore gave back less than was deleted (RULING-40/42).
+        @Binding var restoreOutcome: String?
         let mcpBanner: MCPBannerModel
 
         func body(content: Content) -> some View {
@@ -694,7 +702,16 @@ struct ProjectWindow: View {
                 }
                 .onKeyWindowCommand(.maughamRestoreLastDeleted, window: window) { _ in
                     Task {
-                        try? await store?.restoreLastDeleted()
+                        do {
+                            // Nil report = nothing was armed: a silent no-op,
+                            // as it has always been.
+                            if let report = try await store?.restoreLastDeletion(),
+                               let message = report.message {
+                                restoreOutcome = message
+                            }
+                        } catch {
+                            restoreOutcome = error.localizedDescription
+                        }
                     }
                 }
                 .onKeyWindowCommand(.maughamToggleResearchPreview, window: window) { _ in
@@ -787,6 +804,13 @@ struct ProjectWindow: View {
                     Button("Cancel", role: .cancel) { }
                 } message: {
                     Text("Filenames in every group will be renumbered to fix gaps. This change is visible to other apps that read this folder.")
+                }
+                .alert("Restore",
+                       isPresented: Binding(get: { restoreOutcome != nil },
+                                            set: { if !$0 { restoreOutcome = nil } })) {
+                    Button("OK", role: .cancel) { restoreOutcome = nil }
+                } message: {
+                    Text(restoreOutcome ?? "")
                 }
         }
 
@@ -2187,6 +2211,39 @@ struct ProjectWindow: View {
         })
     }
 
+    /// What is already in a promotion destination — the read behind the sheet's
+    /// `linkAlreadyPresent`, and the one thing the sheet cannot answer from the
+    /// plain values it is handed.
+    ///
+    /// **`PromotionPerformer.writableDestination`'s order, one surface earlier,
+    /// and it is one surface rather than two by the same argument the performer
+    /// makes.** Research first, then a statement. Resolving `manifest.research`
+    /// alone — which is what shipped — answers nil for a line drawn from an
+    /// intent-marked card, so `linkAlreadyPresent` stayed false, the sheet
+    /// enabled Commit, and the performer's own dedupe threw the refusal into an
+    /// alert a second later. A preview that cannot see the destination is not a
+    /// preview.
+    ///
+    /// The statement arm reads `statementText(of:)` rather than the file beside
+    /// it: a statement is a `Document` with an op log and its `.md` is derived
+    /// output (tripwire 20), and it is the same reader the performer dedupes
+    /// against, so the sheet's promise and the write cannot disagree.
+    ///
+    /// Static and store-taking, like `artifactTitle` and `statementPane` above,
+    /// so the resolution is reachable from a test that hosts no window.
+    static func promotionDestinationBody(of itemID: String,
+                                         in store: ProjectStore) -> String? {
+        if let item = TreeWalk.find(id: itemID, in: store.manifest.research),
+           let path = item.path {
+            // The annotation sits ON the read's own line: the ADR 0018 grep
+            // matches per line and a marker one line above is not seen.
+            return try? String(contentsOf: // adr-0018-ok: a research note is not manuscript
+                                store.url.appendingPathComponent(path), encoding: .utf8)
+        }
+        return store.manifest.statements.first { $0.id == itemID }
+            .map { store.statementText(of: $0) }
+    }
+
     // MARK: - Helpers
 
     // MARK: - The subject boundary
@@ -2636,6 +2693,22 @@ private struct RewindModifier: ViewModifier {
                         restoreToast = nil
                     }
                 }
+            }
+            .onProjectEvent(.maughamDocumentNotice,
+                            url: store?.url ?? url, window: window) { note in
+                // The Document's one writer-facing channel (RULING-7,
+                // RULING-22, RULING-32) rendered in the toast this modifier
+                // already owns, rather than a second overlay that could stack
+                // with a restore report. The message is composed at the post
+                // site; the view only shows it. No Revert — none of these
+                // notices has an action, and a stale manager from an earlier
+                // restore must not be left armed behind one.
+                guard let message =
+                    note.userInfo?[MaughamEvent.noticeMessageKey] as? String,
+                      !message.isEmpty else { return }
+                restoreToastOffersRevert = false
+                restoreToastUndoManager = nil
+                restoreToast = message
             }
             .onProjectEvent(.maughamOpenRewind,
                             url: store?.url ?? url, window: window) { note in
@@ -3391,7 +3464,6 @@ struct CanvasPromotionModifier: ViewModifier {
         case .region(let id): source = .region(id)
         case .line(let id): source = .line(id)
         }
-        let root = store.url
         let research = store.manifest.research
         sheet = PromotionSheetModel(
             source: source, scene: model.scene, scraps: model.scraps,
@@ -3414,14 +3486,13 @@ struct CanvasPromotionModifier: ViewModifier {
             // table is read for it. The performer resolves it again at Commit,
             // because the plan is a snapshot and the manifest can move under it.
             piece: PromotionPiece.resolve(for: source, in: model.scene, store: store),
-            readBody: { itemID in
-                guard let item = TreeWalk.find(id: itemID, in: research),
-                      let path = item.path else { return nil }
-                // The annotation sits ON the read's own line: the ADR 0018 grep
-                // matches per line and a marker one line above is not seen.
-                return try? String(contentsOf: // adr-0018-ok: a research note is not manuscript
-                                    root.appendingPathComponent(path), encoding: .utf8)
-            })
+            // **The store rather than the captured manifest**, and it is the one
+            // value here that is read late by design: `readBody` is called from
+            // `select(_:)`, and a statement's text comes from `statementText(of:)`
+            // — the pane's live `Document` when there is one, which no snapshot
+            // taken at `begin()` can hold. The plain-values discipline above is
+            // about what the sheet is HANDED; this is a reader it calls.
+            readBody: { ProjectWindow.promotionDestinationBody(of: $0, in: store) })
     }
 
     private func commit(_ plan: PromotionPlan) {

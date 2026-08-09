@@ -2899,20 +2899,22 @@ final class TripwireGrepTests: XCTestCase {
     /// - `StatementEditorHost.swift:load` — the pane, which holds its `Document`
     ///   for as long as the scope is showing and releases the gate as soon as it
     ///   has registered.
-    /// - `ProjectStore+Statements.swift:mutateStatementText` — the transient
+    /// - `ProjectStore+Statements.swift:withStatementDocument` — the transient
     ///   writer's arm, which every out-of-band write reaches (a promotion, a
-    ///   dropped picture, a ruling). **This was `appendToStatement` until the
-    ///   declared world (Task 4) needed a whole-text transform a paragraph
-    ///   append cannot express; the append is now one call of it, so the arm
-    ///   moved and the gate did not.** `PromotionPerformer` is NOT a taker, and
-    ///   neither is `RulingPerformer`: both get here.
+    ///   dropped picture, a ruling, a wiki-link rename). The dance was
+    ///   extracted out of `appendToStatement` (origin's S2) precisely so the
+    ///   rename could not ship a second copy of it; the 2026-08-09 merge folded
+    ///   the second draft's throwing whole-text wrapper (`mutateStatementText`,
+    ///   which `appendToStatement` and `RulingPerformer` reach) onto the same
+    ///   arm, so the census moved with the `lockStatementOpen` call rather
+    ///   than gaining an entry. `PromotionPerformer` is NOT a taker.
     /// - `ProjectStore+StatementAdoption.swift:adopt` — the third opener, safe
     ///   by circumstance before it took the gate and no longer relying on that.
     /// - `ProjectStore+CollectionPieces.swift:promotePieceToProject` — takes the
     ///   gate while opening nothing, because it MOVES the file the gate is over.
     private static let statementOpenGateTakers: Set<String> = [
         "ProjectStore+Statements.swift:lockStatementOpen",
-        "ProjectStore+Statements.swift:mutateStatementText",
+        "ProjectStore+Statements.swift:withStatementDocument",
         "ProjectStore+StatementAdoption.swift:adopt",
         "ProjectStore+CollectionPieces.swift:promotePieceToProject",
         "StatementEditorHost.swift:load",

@@ -73,6 +73,22 @@ enum MaughamEvent {
     static let canvasScrapCountKey = "scrap_count"
     static let canvasRegionIDKey = "region_id"
 
+    /// Payload key for `.maughamDocumentNotice` — the finished sentence the
+    /// window puts in front of the writer. Same reason as `personaKey`: the
+    /// post sites live in `Maugham/OpLog/` and the receiver in
+    /// `ProjectWindow.swift`, so a rename must not quietly make the toast read
+    /// nil and show nothing, which is the very failure these notices exist to
+    /// end.
+    static let noticeMessageKey = "notice_message"
+
+    /// **The one spelling of the document-notice post.** `message` is a
+    /// finished sentence in the writer's language — the caller composes it,
+    /// because only the caller knows what it declined or swept.
+    static func postNotice(_ message: String, projectURL: URL) {
+        post(.maughamDocumentNotice, to: .project(for: projectURL),
+             payload: [noticeMessageKey: message])
+    }
+
     /// Ask the key window's right column to show `segment`.
     ///
     /// **The one spelling of this post**, because there are now two kinds of

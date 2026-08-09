@@ -31,12 +31,14 @@ lands; the queue detail lives in `START-HERE.md`, the numbers in the generated s
 tests — the violating config stays red against HEAD, green against the fix, falsification pair
 stays red):
 
-- **FM-1** checkpoints.jsonl + publications.jsonl unpartitioned shared JSONL (tripwire 17's own
-  defect) — LOCAL FIX, partitioning pattern exists. RULING-24 tier 1 territory: checkpoints are
-  the work's protection.
-- **FM-2** BackupWriter.prune orders by recency, recovery by intactness (+ latestSignature wedge)
-  — LOCAL FIX. Note: RULING-8's exact shape, single-device — characterisation of backups would
-  have caught it; the model got there first because backups aren't swept. Both true.
+- ~~**FM-1**~~ **DONE 2026-08-09** — per-device partitioning via PartitionedJSONLFile; the two
+  silent-regression traps (sidecar routing, backup-signature exclusion) closed with it. Residuals
+  deliberately not touched, from the findings: §8.2 (checkpoint outrunning its op → healthy
+  project refuses backups; needs the unpropagated-vs-lost design call) and §8.4 (conflictTwins
+  scans only ops/ — small, independent, now MORE worth doing).
+- ~~**FM-2**~~ **DONE 2026-08-09** — intactness-aware prune + skip-detection, STRICTER than
+  findings §10.5's prescription because the prescribed rule fails its own property (reasoned in
+  code and model). formal/ now lives on the branch as acceptance infrastructure.
 - **FM-3** accept+reject cross-device race: status and spliced text settle in disagreement —
   **GAP-A7, needs Denver**; do not fix ahead of the ruling. Same root the register pinned as
   M5-AN-028 and rewind's stranded-accept apparatus; the model proved the convergence case our
@@ -54,9 +56,11 @@ into one ruling question.
    research-protection milestone — the latter ROI-parked explicitly under PRINCIPLE-4.
 6. A trash-gap ruling sitting: the 6 remaining gaps, batched structured questions, mixed
    recommendation/no-recommendation, acceptance rate tracked.
-7. The `enforced_by` gradient: classify every RATIFIED ruling (test / tripwire / type /
-   prose-only); build mechanisms for enforceable prose-only ones — RULING-15 first (typed-mover
-   shape, already proven on user content).
+7. ~~The `enforced_by` gradient~~ **DONE 2026-08-09** — `_meta.enforcement`, rendered in
+   RULINGS.md. RULING-15 got its type (TrashSubject) in the trash batch. **Residual:** RULING-30
+   (blank means delete) is ruled but NOT re-filed — the presentation duty is unverified against
+   what the pane renders for a blank replacement (the original filing's honest premise gap);
+   verify-and-file is the next characterisation-adjacent task.
 
 *Exit: zero LIVE violations neither fixed nor explicitly parked.*
 

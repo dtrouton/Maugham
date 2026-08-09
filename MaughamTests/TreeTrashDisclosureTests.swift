@@ -511,7 +511,12 @@ private struct BinderToggleTrashProbeView: View {
         }
         .onKeyWindowCommand(.maughamRestoreLastDeleted, window: box.window) { _ in
             Task {
-                try? await store.restoreLastDeleted()
+                // Mirrors production's handler (ProjectWindow's
+                // .maughamRestoreLastDeleted arm) post-merge: the store verb is
+                // restoreLastDeletion() -> TrashRestoreReport?; the fixture
+                // discards the report because this suite asserts tree/row
+                // state, not the RULING-40/42 surfacing (production's toast).
+                _ = try? await store.restoreLastDeletion()
             }
         }
     }

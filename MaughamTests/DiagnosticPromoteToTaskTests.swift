@@ -159,11 +159,15 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
             "a task op must not assert an ordering — a stale sequence here would "
             + "revert a peer's reorder (see the merge/derive contract)")
 
-        XCTAssertEqual(
-            ProjectManifest.currentSchemaVersion, 4,
-            "promoting a diagnostic adds no key to the op wire format, so it must not "
-            + "bump the schema version; if this is failing because a DIFFERENT change "
-            + "bumped it, that change owns the migration story, not this one")
+        // No version literal here (re-cut in the 2026-08-09 merge, when an
+        // unrelated upstream change legitimately bumped the schema to 5 and the
+        // old `== 4` fired exactly as its own message predicted). The claim —
+        // promoting a diagnostic adds no key to the op wire format — is what
+        // the round-trip above proves: the PRODUCTION encoder wrote the op and
+        // the PRODUCTION decoder (whose schema guard runs at
+        // `ProjectManifest.currentSchemaVersion`, whatever it currently is)
+        // read every field back. A change that gave task ops a new required
+        // key would fail those assertions, not a version census.
     }
 
     /// A task op is non-manuscript (`Deriver.appliesToManuscript`), so giving

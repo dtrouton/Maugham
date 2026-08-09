@@ -214,6 +214,21 @@ public enum AnnotationDeriver {
         return result
     }
 
+    /// The one withdrawn-or-not rule, shared by every surface (tripwire 19):
+    /// an annotation is withdrawn iff the LATEST of its withdraw/reopen ops by
+    /// opId is a withdraw — the same latest-first resolution `derive` applies.
+    /// The Mac's accept guard and the phone's writer both call this; neither
+    /// restates it.
+    public static func isWithdrawn(annotationId: String, in ops: [Op]) -> Bool {
+        var latest: Op?
+        for op in ops {
+            guard op.kind == .annotationWithdraw || op.kind == .annotationReopen,
+                  op.provenance?.sourceAnnotationId == annotationId else { continue }
+            if latest.map({ op.opId > $0.opId }) ?? true { latest = op }
+        }
+        return latest?.kind == .annotationWithdraw
+    }
+
     // MARK: - Helpers
 
     /// The subset of an annotation op's `toolArgs` we read back — the

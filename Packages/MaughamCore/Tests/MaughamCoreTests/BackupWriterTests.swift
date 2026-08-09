@@ -127,6 +127,80 @@ final class BackupWriterTests: XCTestCase {
         XCTAssertEqual(try BackupWriter.generationIds(at: dest), [])
     }
 
+    // MARK: - FM-2: retention orders by recency, recovery orders by intactness
+
+    /// The defect `BackupRetention_NoCorruptRetainedOverIntact` describes: three
+    /// generations, the middle one rotted, retention 2. Ordering by recency alone
+    /// keeps `{01B corrupt, 01C intact}` and deletes `01A` — an intact generation
+    /// destroyed to make room for one nothing can be recovered from, so the
+    /// writer's effective protection is quietly 1 rather than the 2 they set.
+    /// Falsified against the model: green under
+    /// `BackupRetention_Fixed_NoCorruptRetainedOverIntact`, violated under its
+    /// partner `BackupRetention_NoCorruptRetainedOverIntact`.
+    func test_prune_neverDeletesAnIntactGenerationToKeepACorruptOne() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        for id in ["01A", "01B", "01C"] {
+            _ = try BackupWriter.write(source: source, to: dest, generationId: id, at: when)
+        }
+        try "ROT".write(to: dest.appendingPathComponent("01B/a.md"), atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(try BackupWriter.prune(destination: dest, keeping: 2), ["01B"])
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest), ["01A", "01C"])
+        XCTAssertEqual(BackupRestore.newestIntact(across: [dest])?.id, "01C")
+    }
+
+    /// Intactness only ever *rescues*. With everything verifying, the answer is
+    /// the recency answer — the retained set must not start reordering itself
+    /// around a check that has nothing to say.
+    func test_prune_isStillRecencyOrderedWhenEveryGenerationVerifies() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        for id in ["01A", "01B", "01C", "01D"] {
+            _ = try BackupWriter.write(source: source, to: dest, generationId: id, at: when)
+        }
+        XCTAssertEqual(try BackupWriter.prune(destination: dest, keeping: 2), ["01A", "01B"])
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest), ["01C", "01D"])
+    }
+
+    /// When there are fewer intact generations than slots, the corrupt ones top
+    /// the retained set up newest-first rather than being deleted — a corrupt
+    /// generation is still forensic evidence, and nothing intact is displaced by
+    /// keeping it.
+    func test_prune_fillsRemainingSlotsWithTheNewestCorruptGenerations() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        for id in ["01A", "01B", "01C", "01D"] {
+            _ = try BackupWriter.write(source: source, to: dest, generationId: id, at: when)
+        }
+        for id in ["01B", "01C", "01D"] {
+            try "ROT".write(to: dest.appendingPathComponent("\(id)/a.md"), atomically: true, encoding: .utf8)
+        }
+        // Only 01A verifies; the second slot goes to the newest corrupt one.
+        XCTAssertEqual(try BackupWriter.prune(destination: dest, keeping: 2), ["01B", "01C"])
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest), ["01A", "01D"])
+    }
+
+    /// A generation whose manifest cannot be read is not "unknown" — it is
+    /// not-intact, because the only property retention cares about is whether it
+    /// can be recovered from.
+    func test_prune_treatsAnUnreadableManifestAsNotIntact() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        for id in ["01A", "01B", "01C"] {
+            _ = try BackupWriter.write(source: source, to: dest, generationId: id, at: when)
+        }
+        try FileManager.default.removeItem(
+            at: dest.appendingPathComponent("01B").appendingPathComponent(BackupWriter.manifestName))
+
+        XCTAssertEqual(try BackupWriter.prune(destination: dest, keeping: 2), ["01B"])
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest), ["01A", "01C"])
+    }
+
     func test_verifyGeneration_cleanWhenUntouched() throws {
         let source = try makeTree(["a.md": "alpha", "sub/b.md": "beta"])
         let dest = destDir()

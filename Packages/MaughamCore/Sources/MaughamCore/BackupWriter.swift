@@ -105,12 +105,59 @@ public enum BackupWriter {
     /// "Newest" = highest-sorting ids (ULID ids sort chronologically). Negative
     /// `keeping` is treated as 0. Returns the removed ids (ascending). Generations are
     /// immutable, so pruning only ever deletes whole old generation directories.
+    ///
+    /// **Recency is the ordering, but intactness overrides it.** Retention orders by
+    /// id while recovery (`BackupRestore.newestIntact`) orders by *what verifies*, and
+    /// nothing used to reconcile the two: a recency-only prune deletes an intact
+    /// generation in order to keep a corrupt newer one, so the writer's effective
+    /// protection is `retention − (corrupt generations retained)` and prune actively
+    /// *prefers* the corrupt ones. Model-checked: `BackupRetention_NoCorruptRetainedOverIntact`
+    /// (violated by the recency-only rule) against its partner
+    /// `BackupRetention_Fixed_NoCorruptRetainedOverIntact` (green with this one) —
+    /// same spec, one constant. See `formal/BackupRetention.tla`.
+    ///
+    /// The rule: fill the retained slots with the newest generations that VERIFY, and
+    /// only top up with corrupt ones once the intact ones run out. An intact
+    /// generation can then never be deleted to make room for a corrupt one — if any
+    /// intact generation is dropped there were more than `keeping` of them, so every
+    /// slot is already taken by an intact one.
+    ///
+    /// Verification is a Merkle pass per generation, so it is done lazily and in the
+    /// order that makes the ordinary case cheap: the newest `keeping` are checked
+    /// first, and when they all verify the answer is identical to the recency-only
+    /// one and nothing older is read at all.
     @discardableResult
     public static func prune(destination: URL, keeping: Int) throws -> [String] {
         let keep = max(0, keeping)
         let ids = try generationIds(at: destination)
         guard ids.count > keep else { return [] }
-        let toRemove = Array(ids.dropLast(keep))
+
+        var verified: [String: Bool] = [:]
+        func isIntact(_ id: String) -> Bool {
+            if let known = verified[id] { return known }
+            // An unreadable manifest is not "unknown", it is not-intact: the
+            // generation cannot be recovered from, which is the only property
+            // retention cares about here.
+            let intact = ((try? verifyGeneration(id: id, at: destination)) ?? ["<unverifiable>"]).isEmpty
+            verified[id] = intact
+            return intact
+        }
+
+        let byRecency = Array(ids.suffix(keep))
+        let keptIds: [String]
+        if byRecency.allSatisfy(isIntact) {
+            keptIds = byRecency
+        } else {
+            let intact = ids.filter(isIntact)
+            var kept = Array(intact.suffix(keep))
+            if kept.count < keep {
+                kept += ids.filter { !isIntact($0) }.suffix(keep - kept.count)
+            }
+            keptIds = kept
+        }
+
+        let keptSet = Set(keptIds)
+        let toRemove = ids.filter { !keptSet.contains($0) }
         let fm = FileManager.default
         for id in toRemove {
             try fm.removeItem(at: destination.appendingPathComponent(id))

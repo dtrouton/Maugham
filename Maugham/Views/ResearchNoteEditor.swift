@@ -24,6 +24,10 @@ struct ResearchNoteEditor: View {
 
     @State private var documentText: String = ""
     @State private var loadedPath: String?
+    /// Why this note's file could not be read, when it could not. Non-nil
+    /// keeps the editor unmounted: a blank editor over an unreadable file is
+    /// one keystroke from replacing it (RULING-7).
+    @State private var loadFailure: String?
     @State private var researchCursor: Int? = nil
     /// Real EditorControl populated from userPreferences + project typography
     /// (ADR 0017). Research notes have no review posture — isReviewMode and
@@ -69,7 +73,17 @@ struct ResearchNoteEditor: View {
     @ViewBuilder
     private var editorContent: some View {
         Group {
-            if loadedPath == path {
+            if let loadFailure {
+                // No editor at all — mounting one would put a blank surface
+                // over bytes we could not read, and its binding setter saves
+                // on the first keystroke (RULING-7).
+                ContentUnavailableView {
+                    Label("This note can’t be read", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text("Maugham couldn’t read \(path). It has not been changed.\n\n\(loadFailure)")
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if loadedPath == path {
                 EditorSurface(
                     text: Binding(
                         get: { documentText },
@@ -129,9 +143,38 @@ struct ResearchNoteEditor: View {
         // Flush any pending file save before switching research notes.
         try? await documentStore.flushPendingSave()
         let url = store.url.appendingPathComponent(path)
-        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""  // adr-0018-ok: research-note read, not manuscript
-        documentText = text
+        switch ResearchNoteLoad.read(url) {
+        case .text(let text):
+            documentText = text
+            loadFailure = nil
+        case .unreadable(let reason):
+            documentText = ""
+            loadFailure = reason
+        }
         researchCursor = nil
         loadedPath = path
+    }
+}
+
+/// Reading a research note's file for editing. A read that FAILS is not an
+/// empty note (RULING-7: unreadable is never presented as empty) — and the
+/// distinction is load-bearing here rather than cosmetic, because the editor's
+/// binding setter schedules an atomic whole-file save on the first keystroke,
+/// so a note shown as blank is one character away from being replaced by that
+/// blank. Research notes have no op log to recover from.
+enum ResearchNoteLoad: Equatable {
+    case text(String)
+    case unreadable(String)
+
+    /// A file that is not there reads as empty, as it always has: there is
+    /// nothing at risk, and a note's file is written the moment it is created.
+    /// A file that IS there and cannot be decoded is reported as what it is.
+    static func read(_ url: URL) -> ResearchNoteLoad {
+        do {
+            return .text(try String(contentsOf: url, encoding: .utf8))  // adr-0018-ok: research-note read, not manuscript
+        } catch {
+            guard FileManager.default.fileExists(atPath: url.path) else { return .text("") }
+            return .unreadable(error.localizedDescription)
+        }
     }
 }

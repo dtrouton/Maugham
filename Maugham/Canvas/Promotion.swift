@@ -1017,10 +1017,19 @@ enum Promotion {
                   let toTitle = request.artifacts.title(of: toItem) else { return nil }
             let write = WikiLinkWrite(intoNode: line.from, intoItemID: fromItem,
                                       linkText: linkText(to: toTitle, label: line.label))
+            // **The noun is kind-aware, since F10's routed fix.** The from-end
+            // can be a craft-intent statement as easily as a research note —
+            // `performWikiLink`'s statement arm has written into one since Task
+            // 3 — and "the note" is simply false about a statement. Read off
+            // `request.artifacts`, the same index `performWikiLink` resolves
+            // the write against, so the sheet's promise and the write agree
+            // about what the destination is called.
+            let destinationNoun = request.artifacts.kind(of: fromItem) == .craftIntent
+                ? "the craft intent" : "the note"
             return PromotionPlan(
                 source: request.source, producedKind: request.target,
                 title: fromTitle, body: write.linkText,
-                destinationDescription: "the note “\(fromTitle)”",
+                destinationDescription: "\(destinationNoun) “\(fromTitle)”",
                 discards: [], offeredLinks: [], wikiLinkWrite: write,
                 mode: .new, paletteKind: request.paletteKind,
                 // Nobody: a line's artifact is text inside somebody else's note,

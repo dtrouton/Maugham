@@ -124,7 +124,7 @@ extension Document {
                     sourceCheckpoint: targetOpId,
                     synthesisSource: synthesisSource))
             try await opStore.append(markerOp)
-            _opLogMirror.append(markerOp)
+            appendToMirror(markerOp)
             self.paragraphs = targetState.paragraphs
             self.sequence = targetState.sequence
             recomputeDisplayText()
@@ -230,7 +230,7 @@ extension Document {
                     synthesisSource: .rewind,
                     sourceAnnotationId: src))
             try await opStore.append(resolutionOp)
-            _opLogMirror.append(resolutionOp)
+            appendToMirror(resolutionOp)
             strandedAcceptResolved = true
             if paragraphSurvives {
                 reopenedIds.append(src)
@@ -456,7 +456,7 @@ extension Document {
             sequence: target.sequence,
             provenance: baseOp.provenance)
         try await opStore.append(stampedOp)
-        _opLogMirror.append(stampedOp)
+        appendToMirror(stampedOp)
 
         // Update in-memory derived state to match the target.
         self.paragraphs = target.paragraphs

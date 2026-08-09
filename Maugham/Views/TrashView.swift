@@ -10,6 +10,10 @@ struct TrashView: View {
     @Bindable var store: ProjectStore
     @State private var pendingPermanentDelete: TrashEntry?
     @State private var pendingError: String?
+    /// What a restore could not give back — dropped rows, a name it had to
+    /// change, a folder it could not put the file back into. Shown at the
+    /// moment of the restore, because that is when it is true (RULING-42).
+    @State private var restoreShortfall: String?
 
     var body: some View {
         List(store.trashEntries) { entry in
@@ -21,24 +25,13 @@ struct TrashView: View {
             isPresented: Binding(
                 get: { pendingPermanentDelete != nil },
                 set: { if !$0 { pendingPermanentDelete = nil } }),
-            presenting: pendingPermanentDelete
-        ) { entry in
-            Button("Permanently Delete \(entry.displayTitle)", role: .destructive) {
-                Task {
-                    do {
-                        try await store.permanentlyDeleteTrashEntry(id: entry.id)
-                    } catch {
-                        pendingError = error.localizedDescription
-                    }
-                    pendingPermanentDelete = nil
-                }
-            }
-            Button("Cancel", role: .cancel) {
-                pendingPermanentDelete = nil
-            }
-        } message: { _ in
-            Text("This cannot be undone.")
-        }
+            presenting: pendingPermanentDelete,
+            actions: permanentDeleteActions,
+            message: { _ in Text("This cannot be undone.") })
+        // Origin's "Empty Trash?" dialog is deliberately NOT taken here: since
+        // stage 2b Task 2 the one Empty Trash affordance (button + confirm)
+        // lives on `TrashDisclosure`'s header below — a second spelling in the
+        // rows view is the duplication that restructure removed.
         .alert("Trash error",
                isPresented: Binding(
                 get: { pendingError != nil },
@@ -47,6 +40,35 @@ struct TrashView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(pendingError ?? "")
+        }
+        .alert("Restored",
+               isPresented: Binding(
+                get: { restoreShortfall != nil },
+                set: { if !$0 { restoreShortfall = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(restoreShortfall ?? "")
+        }
+    }
+
+    /// Extracted from the body's modifier chain: the inline closure tripped
+    /// the type-checker's reasonable-time budget (the REAL SourceKit
+    /// diagnostic class — see CLAUDE.md's build-flow notes).
+    @ViewBuilder
+    private func permanentDeleteActions(for entry: TrashEntry) -> some View {
+        Button("Permanently Delete \(entry.displayTitle)", role: .destructive) {
+            Task {
+                do {
+                    try await store.permanentlyDeleteTrashEntry(id: entry.id)
+                } catch {
+                    pendingError = error.localizedDescription
+                }
+                pendingPermanentDelete = nil
+            }
+        }
+        Button("Cancel", role: .cancel) {
+            pendingPermanentDelete = nil
         }
     }
 
@@ -63,7 +85,8 @@ struct TrashView: View {
             Button("Restore") {
                 Task {
                     do {
-                        try await store.restoreTrashEntry(id: entry.id)
+                        let report = try await store.restoreTrashEntry(id: entry.id)
+                        restoreShortfall = report.message
                     } catch {
                         pendingError = error.localizedDescription
                     }

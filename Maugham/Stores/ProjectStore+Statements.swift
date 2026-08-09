@@ -83,6 +83,20 @@ extension ProjectStore {
         return derivedCache.displayText(forDocId: statement.id, in: url)
     }
 
+    /// `(id, composed title)` for every statement — the resolution-side spelling
+    /// of "what a statement is called". `ArtifactIndex.statementTitle` is the ONE
+    /// composer (its doc comment says why); this walks `structure` once, as
+    /// `ArtifactIndex.over` does, rather than per statement.
+    func statementTitlePairs() -> [(id: String, title: String)] {
+        let titlesByDocument = Dictionary(
+            TreeWalk.collect(in: manifest.structure, where: { _ in true })
+                .map { ($0.id, $0.title) },
+            uniquingKeysWith: { _, later in later })
+        return manifest.statements.map {
+            ($0.id, ArtifactIndex.statementTitle($0, documentTitle: { titlesByDocument[$0] }))
+        }
+    }
+
     // MARK: - Opening one, which is not the same as holding one
 
     /// Take exclusive right to OPEN a `Document` on this statement's path, and
@@ -113,7 +127,8 @@ extension ProjectStore {
     /// has registered, so a writer that queues behind it finds the registry
     /// populated and takes the live-`Document` path instead of loading at all.
     /// That is why everyone who waits re-asks once it is inside, each its own
-    /// question: the transient arm re-asks the REGISTRY (`appendToStatement`),
+    /// question: the transient arm re-asks the REGISTRY
+    /// (`withStatementDocument`),
     /// and the pane re-asks its own text box (`StatementEditorHost.gateArrival`,
     /// which is what keeps its mint and its `reconcile` from binding one
     /// statement twice). Waiting alone is a delay; the re-ask is the fix.
@@ -220,33 +235,24 @@ extension ProjectStore {
 
     // MARK: - Writing into one
 
-    /// Put `text` at the end of a statement, **through its op log**, whoever
-    /// currently has it open.
-    ///
-    /// **Shared rather than promotion's own** (M1A Task 12 review, I1). It was
-    /// `PromotionPerformer.append(_:to:)`; visual language's picture ingest is
-    /// the second caller and arrives with the same problem — a destination named
-    /// by STATEMENT rather than by "whatever the pane is showing now", because
-    /// the caller may finish on a different scope than it started on. `session`
-    /// is the caller's, so the ops carry who wrote them.
-    ///
-    /// There is no read-back-from-disk and no flush dance here, and their
-    /// absence is the point: the op log is the source of truth (ADR 0019), so
-    /// the prior text is the `Document`'s own and a queued 750 ms save cannot
-    /// race an append the way it races a whole-file write.
+    /// Run `mutate` against a statement's `Document` — the one somebody already
+    /// has open when there is one, else one opened and closed for the purpose.
+    /// **The ONE statement open-and-mutate dance**, so that a second writer of
+    /// statements cannot ship a subtly different copy of it.
     ///
     /// **The live `Document` FIRST, and never a second one on the same path.**
     /// A statement's `Document` is deliberately in no `DocumentStore` registry
     /// (spec §8, `StatementEditorHost`), so `document(forDocId:)` cannot find an
     /// open statement — and `.intent` is a pane of the Plan persona, the persona
     /// the canvas lives in, so the writer really can have this statement open in
-    /// the right column while promoting a card in the centre. Two `Document`s on
-    /// one path each hold their own paragraph state and their own
-    /// `PendingBuffer`; whichever writes last decides the sequence, so the
-    /// promoted paragraph is written back out of the statement by the pane's
-    /// next burst. `ProjectStore.openStatementDocument(id:)` is the seam both
-    /// sides go through, and the lookup-plus-write below does not suspend, so
-    /// the pane cannot close its `Document` between them.
+    /// the right column while promoting a card in the centre, or rename a
+    /// chapter in the binder beside it. Two `Document`s on one path each hold
+    /// their own paragraph state and their own `PendingBuffer`; whichever writes
+    /// last decides the sequence, so the paragraph this call just wrote is
+    /// written back out of the statement by the pane's next burst.
+    /// `ProjectStore.openStatementDocument(id:)` is the seam both sides go
+    /// through, and the lookup-plus-mutate below does not suspend, so the pane
+    /// cannot close its `Document` between them.
     ///
     /// **The open pane redraws off the shared `Document` with no push from
     /// here, and that is measured rather than assumed** (2026-08-01). It is not
@@ -262,6 +268,7 @@ extension ProjectStore {
     /// promotion back out — so if that ever stops being true it goes red rather
     /// than the loss being silent.
     ///
+    /// `session` is the caller's, so the ops carry who wrote them, and
     /// `Document.load` stays the only construction path (hard invariant;
     /// `BootstrapWiringTests`).
     /// **"The end" means the end of the ESSAY, not the end of the file**
@@ -277,6 +284,11 @@ extension ProjectStore {
     /// language always — `carriesRulings` says intent alone has strata, so a
     /// `## Rulings` heading a writer typed in their visual language is ordinary
     /// prose and stays that way.
+    ///
+    /// (Merge 2026-08-09: origin's thin `appendToStatement` — a pre-rulings
+    /// wrapper over `withStatementDocument` — is superseded by this one, which
+    /// its callers get unchanged; without the essay split their append would
+    /// land below `## Rulings`, invisible.)
     func appendToStatement(_ text: String, to statement: Statement,
                            session: String) async throws {
         let splits = StatementEssay.carriesRulings(statement.kind)
@@ -302,8 +314,9 @@ extension ProjectStore {
     /// statement's whole markdown and hand back the whole markdown, so there is
     /// no suffix to append and nothing an append verb can express. So the append
     /// stays, expressed as one call of this, and there is exactly one copy of
-    /// the discipline below rather than two — the live-first lookup, the open
-    /// gate, the re-ask inside it, and the awaited close.
+    /// the discipline — the live-first lookup, the open gate, the re-ask inside
+    /// it, and the awaited close — in `withStatementDocument` below, which this
+    /// wraps.
     ///
     /// **`transform` may throw, and a throw writes nothing.** It is called with
     /// the text the write is about to be made from, so a caller whose act
@@ -311,19 +324,31 @@ extension ProjectStore {
     /// present) decides against the same string it edits, with no window between
     /// the check and the write for a peer's op or the writer's own keystroke to
     /// arrive in.
-    ///
-    /// Everything else — the live `Document` first, the gate over the opening,
-    /// the second ask inside it, the awaited close — is argued at length on
-    /// `appendToStatement` above; read that comment, not a shorter copy here.
     func mutateStatementText(
         of statement: Statement, session: String,
         transform: (String) throws -> String
     ) async throws {
+        try await withStatementDocument(statement, session: session) { document in
+            document.setFullText(try transform(document.displayText))
+        }
+    }
+
+    /// The ONE open/gate/transient dance for statement writes: the live
+    /// `Document` first, the gate over the opening, the second ask inside it,
+    /// and the awaited close. Origin's spelling (a `Document` closure, for
+    /// callers like the rename path that act on the document rather than its
+    /// text), upgraded in the 2026-08-09 merge to a THROWING closure carrying
+    /// the second draft's discipline: **a throw writes nothing**, and on the
+    /// transient arm the just-loaded `Document` is closed on the refusing path
+    /// too — left open it would outlive the gate the `defer` releases, and the
+    /// next opener would load a second one against it.
+    func withStatementDocument(_ statement: Statement, session: String,
+                               _ mutate: (Document) throws -> Void) async throws {
         if let live = openStatementDocument(id: statement.id) {
-            live.setFullText(try transform(live.displayText))
+            try mutate(live)
             // Durable now rather than on the pane's own debounce: a write
             // through here is an act the writer has committed to — a promotion
-            // they confirmed, a picture they dropped, a ruling they made — and
+            // they confirmed, a picture they dropped, a rename they typed — and
             // the surface says it landed.
             try? await live.flushBurstNow()
             return
@@ -339,7 +364,7 @@ extension ProjectStore {
         // Asked AGAIN inside the gate: a pane can have bound while we queued,
         // and its `Document` is the one that will still be live in a moment.
         if let live = openStatementDocument(id: statement.id) {
-            live.setFullText(try transform(live.displayText))
+            try mutate(live)
             try? await live.flushBurstNow()
             return
         }
@@ -352,7 +377,7 @@ extension ProjectStore {
         // outlives the gate released by the `defer` above, so the next opener
         // would load a second one against it.
         do {
-            document.setFullText(try transform(document.displayText))
+            try mutate(document)
         } catch {
             await document.close()
             throw error

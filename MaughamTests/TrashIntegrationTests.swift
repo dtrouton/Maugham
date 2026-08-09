@@ -41,10 +41,10 @@ final class TrashIntegrationTests: XCTestCase {
         XCTAssertEqual(store.trashEntries[0].displayTitle, "Chapter X")
     }
 
-    func test_restoreLastDeleted_bringsBackToOriginalPosition() async throws {
+    func test_restoreLastDeletion_bringsBackToOriginalPosition() async throws {
         let (project, store, chapter) = try await makeProjectWithChapter()
         try await store.deleteStructureItem(id: chapter.id)
-        try await store.restoreLastDeleted()
+        try await store.restoreLastDeletion()
 
         XCTAssertEqual(store.manifest.structure.count, 1)
         XCTAssertEqual(store.manifest.structure[0].id, chapter.id)
@@ -53,10 +53,10 @@ final class TrashIntegrationTests: XCTestCase {
         XCTAssertEqual(store.trashEntries.count, 0)
     }
 
-    func test_restoreLastDeleted_whenNothingTrashed_noOps() async throws {
+    func test_restoreLastDeletion_whenNothingTrashed_noOps() async throws {
         let (_, store, _) = try await makeProjectWithChapter()
         // Don't delete anything
-        try await store.restoreLastDeleted()  // Should not throw
+        try await store.restoreLastDeletion()  // Should not throw
         XCTAssertEqual(store.manifest.structure.count, 1)
     }
 }

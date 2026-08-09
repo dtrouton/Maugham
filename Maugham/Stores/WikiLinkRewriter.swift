@@ -49,4 +49,20 @@ public enum WikiLinkRewriter {
 
         return didReplace ? output : nil
     }
+
+    /// Every pair applied in order; nil when none replaced anything — the same
+    /// skip-the-write signal `rewrite` gives for one pair.
+    public static func rewriteAll(
+        body: String, pairs: [(old: String, new: String)]
+    ) -> String? {
+        var out = body
+        var changed = false
+        for pair in pairs {
+            if let r = rewrite(body: out, oldTitle: pair.old, newTitle: pair.new) {
+                out = r
+                changed = true
+            }
+        }
+        return changed ? out : nil
+    }
 }

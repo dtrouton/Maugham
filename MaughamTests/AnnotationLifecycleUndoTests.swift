@@ -212,6 +212,87 @@ final class AnnotationLifecycleUndoTests: XCTestCase {
         try bridge { await h.documentStore.close() }
     }
 
+    /// RULING-22 / M5-AN-036 — the withdraw's ⌘Z gives back the annotation and
+    /// NOTHING ELSE. `annotationReopen` is one op kind serving two inverses and
+    /// `AnnotationDeriver` honours it through both its passes, so undoing
+    /// "delete my annotation" used to cancel an archive the writer had made
+    /// separately and never asked to undo: one ⌘Z taking two of their
+    /// decisions. The note comes back ARCHIVED, which is how they left it.
+    func test_withdraw_undo_returnsAnArchivedNoteArchived() throws {
+        let h = try bridge { try await self.makeHarness(initialMd: "A single paragraph.") }
+        let doc = h.doc
+        let cid = try bridge {
+            try await doc.addReviewerAnnotation(
+                kind: .comment, paragraphId: h.pid, span: nil,
+                body: "reviewer note", authorName: "Denver")
+        }
+        try bridge { try await doc.archiveAnnotation(id: cid) }
+        XCTAssertEqual(annotation(doc, cid)?.status, .archived,
+                       "precondition: the writer archived it themselves")
+
+        let um = UndoManager()
+        try bridge { try await doc.withdrawReviewerAnnotation(
+            id: cid, authorName: "Denver", undoManager: um) }
+        pumpFor(0.25)  // fixed window: the event-group close
+        XCTAssertNil(annotation(doc, cid))
+
+        um.undo()
+        waitUntil { self.annotation(doc, cid) != nil }
+        XCTAssertEqual(annotation(doc, cid)?.status, .archived,
+                       "the archive the writer never undid is still theirs")
+
+        um.removeAllActions()
+        try bridge { await h.documentStore.close() }
+    }
+
+    /// Same rule for a rejection — and the reason they wrote comes back with
+    /// it, because a resolution restored without its reason is a different
+    /// resolution.
+    func test_withdraw_undo_returnsARejectedNoteRejected_withItsReason() throws {
+        let h = try bridge { try await self.makeHarness(initialMd: "A single paragraph.") }
+        let doc = h.doc
+        let cid = try bridge {
+            try await doc.addReviewerAnnotation(
+                kind: .comment, paragraphId: h.pid, span: nil,
+                body: "reviewer note", authorName: "Denver")
+        }
+        try bridge { try await doc.rejectAnnotation(
+            id: cid, userResponse: "not in this scene") }
+
+        let um = UndoManager()
+        try bridge { try await doc.withdrawReviewerAnnotation(
+            id: cid, authorName: "Denver", undoManager: um) }
+        pumpFor(0.25)
+
+        um.undo()
+        waitUntil { self.annotation(doc, cid) != nil }
+        XCTAssertEqual(annotation(doc, cid)?.status, .rejected)
+        XCTAssertEqual(annotation(doc, cid)?.userResponse, "not in this scene")
+
+        um.removeAllActions()
+        try bridge { await h.documentStore.close() }
+    }
+
+    /// The control, and the reason this is a status CAPTURE rather than a
+    /// change to the reopen factory: reopening an ARCHIVED annotation directly
+    /// — the pane's own Reopen, and the phone's — still means open. Only the
+    /// withdraw's undo carries the extra obligation, and only the Mac has
+    /// undo, so `AnnotationInverse` (cross-surface, tripwire 19) is untouched.
+    func test_aDirectReopenOfAnArchivedNoteStillOpensIt() throws {
+        let h = try bridge { try await self.makeHarness(initialMd: "A single paragraph.") }
+        let doc = h.doc
+        let cid = try bridge {
+            try await doc.addReviewerAnnotation(
+                kind: .comment, paragraphId: h.pid, span: nil,
+                body: "reviewer note", authorName: "Denver")
+        }
+        try bridge { try await doc.archiveAnnotation(id: cid) }
+        try bridge { try await doc.reopenAnnotation(id: cid) }
+        XCTAssertEqual(annotation(doc, cid)?.status, .open)
+
+        try bridge { await h.documentStore.close() }
+    }
+
     func test_edit_undo_restoresPriorBody() throws {
         let h = try bridge { try await self.makeHarness(initialMd: "A single paragraph.") }
         let doc = h.doc

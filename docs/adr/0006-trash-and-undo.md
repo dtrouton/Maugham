@@ -29,6 +29,62 @@ Two patterns were considered:
 - **The `.trash/` folder is hidden from binder views.** It's project-internal state, not a binder surface. A future polish could expose a "Trash" segment for browsing, but isn't part of this milestone.
 - **Orphan media on delete.** If a research item is deleted and its inline images live in the same folder, the images stay on disk. Cleanup heuristic noted as carry-forward; not yet implemented.
 
+## Amendment — 2026-08-09, the trash rulings (RULING-38/39/40/41/42/43/45, RULING-15)
+
+The behavioural specification took the trash apart and Denver ruled seven questions. What changed
+here, each traceable to a ruling in `experiment/RULINGS.md`:
+
+- **⌘⌥Z is scoped to the delete ACTION, not to one item** (RULING-40), and its label follows:
+  **"Restore Last Deletion"**. One gesture that deleted fifty rows comes back as fifty, or the
+  command refuses and says why — it never returns part of a deletion silently. `ProjectStore`
+  holds a `TrashDeletion` (the gesture's entries plus a label) rather than a single trash id.
+- **A blocked restore lands BESIDE the occupant** under a deduped filename (RULING-38) instead of
+  throwing Cocoa's "an item with the same name already exists" for ever. Nothing is overwritten.
+- **A restore that returns less says so** (RULING-42): `restoreTrashEntry` returns a
+  `TrashRestoreReport` naming dropped descendants and any item that could not come back as it was.
+- **The binder and the disk agree afterwards** (RULING-41): the destination is computed from where
+  the ROW is going, so a row that falls back to root takes its file with it and no folder the
+  writer deleted is re-created to hold an orphan.
+- **The sweep walks the trash directory** rather than `list()` (RULING-39), so an entry whose
+  `meta.json` never landed expires like everything else instead of being invisible and immortal.
+- **A trash entry records its SUBJECT** (`TrashSubject`, in `meta.json`, additive-optional).
+  Maugham's own safety copies (`.internalArtifact` — the per-piece style files) stay out of the
+  writer's Trash pane (RULING-43); a research row comes back to the research tree instead of
+  decoding as a `StructureItem` and landing in the manuscript binder; and an entry whose wiring
+  cannot be put back is refused loudly rather than "restored" into a success that means nothing.
+- **A research LINK is restorable** (RULING-45): it has no file, so the entry is its metadata
+  record (`recordManifestOnlyTrash`, `carriesFile: false`).
+- **A promoted capture's original goes to the trash, not off the disk** (RULING-15) — the three
+  `FileManager.removeItem` calls in `InboxStore`'s promote paths.
+
+### The five filed violations, closed (RULING-4 / RULING-7)
+
+The same sweep filed five `VIOLATES` rows that the seven rulings above did not settle. All five are
+fixed; each is pinned in `MaughamTests/Claims/TrashCharacterization.swift`.
+
+- **An entry folder name is a CLAIM, not a guess** (RULING-4, M3-TR-011/012). The name was the
+  timestamp plus the item's id, unique only to the second: two deletions sharing a metadata id in
+  one second landed in one folder, the second `meta.json` overwrote the first, and restoring the
+  survivor destroyed the other file outright. `mintEntryFolder` now creates with
+  `withIntermediateDirectories: false`, so the create *is* the claim, and a taken name takes the
+  next number. **The timestamp stays a prefix** — the sweep dates entries by parsing the folder
+  name, so a ULID or bare UUID would have silently taken RULING-39's fix away.
+- **An entry Maugham cannot read appears, labelled** (RULING-7, M3-TR-015). A crash between moving
+  the file in and writing the `meta.json` used to produce an entry that no surface could see while
+  the writer's chapter sat inside it — "unreadable presented as empty", in the ruling's own words.
+  It now lists as `TrashEntry.unreadableTitle`; restore refuses naming the real cause
+  (`entryMetadataUnreadable` / `trashEntryNotRewirable`), and disposal reaches it as before. Two
+  shapes still skip and both are deliberate: a folder whose NAME Maugham did not write is not
+  Maugham's entry (RULING-9), and a folder holding *nothing* has no contents to promise.
+- **"Empty Trash" reports what it could not destroy** (RULING-7, M3-TR-045). Per-entry failures
+  were swallowed by `try?` and the pane cleared unconditionally, which made `TrashView`'s catch
+  dead code — the one place the truth could have surfaced. `emptyTrash` now counts its failures and
+  throws `trashNotEmptied`, having re-listed what survived so the pane and the message agree.
+- **"Empty Trash" empties the DIRECTORY** (RULING-7, M3-TR-046). It iterated the cached
+  `trashEntries`, so an entry written straight through `TrashStore` — which is how the MCP
+  piece-style tools write one — survived an emptying that reported success. `entryFolderIds()` is
+  the disposal counterpart of the sweep's walk.
+
 ## References
 
 - [Research Polish spec](../superpowers/specs/2026-05-10-research-polish-design.md)

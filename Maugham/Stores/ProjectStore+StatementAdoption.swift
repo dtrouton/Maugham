@@ -76,7 +76,7 @@ extension ProjectStore {
         // `deleteResearchItems` arms the undo affordance as a side effect. A
         // migration is not something the writer just did, and a stray ⌘⌥Z on a
         // freshly opened project should not restore a note they never deleted.
-        lastDeletedTrashId = nil
+        lastDeletion = nil
     }
 
     // MARK: - Detection
