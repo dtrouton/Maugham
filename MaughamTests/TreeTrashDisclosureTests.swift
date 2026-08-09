@@ -257,6 +257,65 @@ final class TreeTrashDisclosureTests: XCTestCase {
                        "a ToolbarItem survives inside TrashView")
     }
 
+    // MARK: - Fix round 1: a relaunch-restored `.trash` must not duplicate
+
+    /// **The Critical, exhaustively, at the pure-function seam.** A writer who
+    /// last quit with Trash selected has `.trash` in persisted `UIState`.
+    /// `ProjectWindow.binderSegment(restoring:)`'s `.trash` arm now coerces to
+    /// the persona's home (see its doc comment); this asks the OTHER half of
+    /// the bug directly — that whatever it coerces to, handing it to
+    /// `BinderSegmentPicker.visibleSegments` as the current selection never
+    /// re-admits `.trash` as a phantom tab, over every persona × project type.
+    func test_aRelaunchRestoredTrashSegmentNeverPhantomsThePickerTab() {
+        for persona in Persona.allCases {
+            for type in ProjectType.allCases where type != .unknown {
+                let restored = ProjectWindow.binderSegment(
+                    restoring: .trash, persona: persona, projectType: type)
+                XCTAssertNotEqual(restored, .trash,
+                                  "\(persona)/\(type): the coercion must not "
+                                  + "hand back .trash itself")
+                let segments = BinderSegmentPicker.visibleSegments(
+                    persona: persona, projectType: type, hasTrash: false,
+                    including: restored)
+                XCTAssertFalse(segments.contains(.trash),
+                               "\(persona)/\(type): a phantom Trash tab must "
+                               + "not survive a relaunch restore")
+            }
+        }
+    }
+
+    /// **The Critical, mounted.** Compares a toggle mounted exactly the way
+    /// `ProjectWindow`'s load path would after the coercion against a control
+    /// that was never near `.trash` at all — the two must be
+    /// indistinguishable. Before fix round 1, the restored mount carried one
+    /// EXTRA `NSTableView`: the `.trash` switch arm's own (now headerless)
+    /// `TrashView`, rendered a second time in the main area alongside the
+    /// correct foot disclosure.
+    func test_aRelaunchRestoredTrashSegmentMountsNoDuplicateTable() async throws {
+        let (store, _) = try await novelWithOneTrashedChapter()
+        let persona = Persona.author
+        let restored = ProjectWindow.binderSegment(
+            restoring: .trash, persona: persona, projectType: store.manifest.type)
+
+        let restoredBox = ToggleProbeBox()
+        let restoredWindow = mountToggle(store: store, box: restoredBox, shell: .standard,
+                                         segment: restored, persona: persona)
+        let controlBox = ToggleProbeBox()
+        let controlWindow = mountToggle(
+            store: store, box: controlBox, shell: .standard,
+            segment: persona.binderHome(for: store.manifest.type), persona: persona)
+
+        XCTAssertEqual(tableViewCount(in: restoredWindow), tableViewCount(in: controlWindow),
+                       "a relaunch-restored .trash must mount exactly what a "
+                       + "normal persona-home mount does — an extra table is "
+                       + "the duplicate main-area TrashView the .trash switch "
+                       + "arm would render")
+        XCTAssertNotNil(try findButton(labeled: "Empty Trash", in: restoredWindow),
+                        "the foot disclosure itself must still be present — "
+                        + "non-empty trash, so it shows regardless of which "
+                        + "segment the restore landed on")
+    }
+
     // MARK: - Fixtures
 
     private func novelWithOneTrashedChapter() async throws -> (store: ProjectStore, chapterId: String) {
@@ -310,10 +369,13 @@ final class TreeTrashDisclosureTests: XCTestCase {
 
     private func mountToggle(store: ProjectStore, box: ToggleProbeBox,
                              shell: ProjectWindow.BinderShell,
+                             segment: BinderSegment = .manuscript,
+                             persona: Persona = .author,
                              keyed: Bool = false) -> NSWindow {
         let frame = CGRect(x: 0, y: 0, width: 320, height: 700)
         let hosting = NSHostingView(rootView: AnyView(
-            BinderToggleTrashProbeView(store: store, box: box, shell: shell)))
+            BinderToggleTrashProbeView(store: store, box: box, shell: shell,
+                                       initialSegment: segment, persona: persona)))
         hosting.frame = frame
         let window: NSWindow = keyed
             ? KeyTestWindow(contentRect: frame, styleMask: [.titled],
@@ -353,6 +415,18 @@ final class TreeTrashDisclosureTests: XCTestCase {
         var found: [NSTableView] = []
         collect(NSTableView.self, in: root, into: &found)
         return found.first
+    }
+
+    /// The duplicate-detector for fix round 1's Critical: a relaunch-restored
+    /// `.trash` that leaked back into `segment` would mount a SECOND
+    /// `NSTableView` (the `.trash` switch arm's own `TrashView`) alongside the
+    /// tree's own — a count comparison against a control mount catches that
+    /// without caring which table is which.
+    private func tableViewCount(in window: NSWindow) -> Int {
+        guard let root = window.contentView else { return 0 }
+        var found: [NSTableView] = []
+        collect(NSTableView.self, in: root, into: &found)
+        return found.count
     }
 
     private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {
@@ -463,10 +537,24 @@ private struct BinderToggleTrashProbeView: View {
     let store: ProjectStore
     let box: ToggleProbeBox
     let shell: ProjectWindow.BinderShell
-    @State private var segment: BinderSegment = .manuscript
+    let persona: Persona
+    @State private var segment: BinderSegment
     @State private var researchId: String?
     @State private var paletteCardId: String?
     @State private var renamingItemId: String?
+
+    /// `initialSegment` defaults to `.manuscript` (every existing call site's
+    /// premise) — fix round 1 widened this to take one, so the relaunch
+    /// regression test can mount exactly what `ProjectWindow`'s load path
+    /// would hand the toggle after `binderSegment(restoring:)` runs.
+    init(store: ProjectStore, box: ToggleProbeBox, shell: ProjectWindow.BinderShell,
+        initialSegment: BinderSegment = .manuscript, persona: Persona = .author) {
+        self.store = store
+        self.box = box
+        self.shell = shell
+        self.persona = persona
+        _segment = State(initialValue: initialSegment)
+    }
 
     private var subject: Binding<BinderSubject?> {
         Binding(get: { box.subject }, set: { box.subject = $0 })
@@ -485,7 +573,7 @@ private struct BinderToggleTrashProbeView: View {
                     projectType: store.manifest.type,
                     lastParsedScript: nil,
                     treeFindActive: .constant(false),
-                    persona: .author)
+                    persona: persona)
             case .collection:
                 CollectionBinderPaneToggle(
                     store: store,
@@ -498,7 +586,7 @@ private struct BinderToggleTrashProbeView: View {
                     activePiece: nil,
                     onAddSharedNote: {},
                     onAddPieceNote: {},
-                    persona: .author)
+                    persona: persona)
             }
         }
         .onKeyWindowCommand(.maughamRestoreLastDeleted, window: box.window) { _ in

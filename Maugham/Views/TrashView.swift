@@ -113,12 +113,17 @@ struct TrashDisclosure: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
+                // No `.disabled(store.trashEntries.isEmpty)` here (fix round
+                // 1's Minor): both toggles mount this whole view only while
+                // `!store.trashEntries.isEmpty`, so that condition is always
+                // false for as long as this button exists to press — a dead
+                // disable that reviewed as a leftover from `TrashView`'s old
+                // toolbar button, which had no such mount gate of its own.
                 Button("Empty Trash") {
                     showingEmptyTrashConfirm = true
                 }
                 .buttonStyle(.plain)
                 .font(.caption)
-                .disabled(store.trashEntries.isEmpty)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

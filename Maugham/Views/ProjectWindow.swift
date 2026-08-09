@@ -1182,6 +1182,16 @@ struct ProjectWindow: View {
     ///   the last quit was mid-search, and restoring it verbatim would put a
     ///   phantom Find segment in the strip over a pane that is now the tree.
     ///   This arm dies with the case in the kill task.
+    /// - `.trash`, since stage 2b Task 2 (fix round 1 — a review-caught
+    ///   Critical, not the original task's call, which had this restoring
+    ///   verbatim). Restoring it verbatim duplicates content rather than
+    ///   merely landing somewhere odd: `BinderSegmentPicker.visibleSegments`'
+    ///   own append-if-selected fallback re-adds a phantom Trash tab even with
+    ///   `hasTrash: false`, and both toggles' `.trash` switch arm renders the
+    ///   same rows a SECOND time in the main area — now headerless, since
+    ///   Empty Trash moved to the foot disclosure's header — right next to the
+    ///   foot disclosure showing the identical rows correctly. This arm dies
+    ///   with the case in the kill task, same as find's.
     ///
     /// Everything else IS restored verbatim, including a segment the restored
     /// persona does not offer: `BinderSegmentPicker.visibleSegments` appends the
@@ -1193,8 +1203,8 @@ struct ProjectWindow: View {
                               projectType: ProjectType) -> BinderSegment {
         switch saved {
         case .manuscript: return .documentHome(for: projectType)
-        case .find: return persona.binderHome(for: projectType)
-        case .tree, .scenes, .research, .palette, .canvas, .trash: return saved
+        case .find, .trash: return persona.binderHome(for: projectType)
+        case .tree, .scenes, .research, .palette, .canvas: return saved
         }
     }
 

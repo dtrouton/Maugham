@@ -343,22 +343,33 @@ final class TreeFindOverlayTests: XCTestCase {
     /// segment in the strip over a pane that is now the tree. Everything else
     /// must still restore as itself, out-of-persona selections included, which
     /// is the half a coercion is always in danger of eating.
-    func test_aSavedFindSegmentIsRestoredAsThePersonasHome() {
+    /// **`.trash` joined `.find` here in shell-finish stage 2b Task 2's fix
+    /// round 1** — a review-caught Critical, not the original task's call
+    /// (which restored it verbatim, same as every other still-itself
+    /// segment). Restoring it verbatim didn't just land the writer somewhere
+    /// odd, the way an inert `.find` fallback would have: the picker's own
+    /// append-if-selected fallback re-adds a phantom Trash tab even with
+    /// `hasTrash: false`, and both toggles' `.trash` switch arm renders the
+    /// same trashed rows a SECOND time in the main area — a duplicate, not
+    /// merely a stale destination.
+    func test_aSavedFindOrTrashSegmentIsRestoredAsThePersonasHome() {
         for persona in Persona.allCases {
             for type in ProjectType.allCases where type != .unknown {
-                XCTAssertEqual(
-                    ProjectWindow.binderSegment(restoring: .find, persona: persona,
-                                                projectType: type),
-                    persona.binderHome(for: type),
-                    "\(persona)/\(type): a legacy find segment must restore as "
-                    + "this persona's home")
+                for legacy in [BinderSegment.find, .trash] {
+                    XCTAssertEqual(
+                        ProjectWindow.binderSegment(restoring: legacy, persona: persona,
+                                                    projectType: type),
+                        persona.binderHome(for: type),
+                        "\(persona)/\(type): a legacy \(legacy) segment must "
+                        + "restore as this persona's home")
+                }
                 XCTAssertEqual(
                     ProjectWindow.binderSegment(restoring: .manuscript,
                                                 persona: persona, projectType: type),
                     .documentHome(for: type),
                     "\(persona)/\(type): the screenplay coercion still stands")
                 for saved in [BinderSegment.tree, .scenes, .research, .palette,
-                              .canvas, .trash] {
+                              .canvas] {
                     XCTAssertEqual(
                         ProjectWindow.binderSegment(restoring: saved, persona: persona,
                                                     projectType: type),
