@@ -211,9 +211,13 @@ manifest, no cross-writes).
   shared section: answering the "is it linked" question first (rather than
   "lift out of the group") is deliberate — the one line to flip in
   `TreeDropIntent.outOfScope` if a writer reports the other expectation.
-- `.find`/`.trash` now let a research subject take their centre too, rather
-  than staying manuscript-only — flagged for Denver's smoke, not decided
-  outright as a UX improvement.
+- `.find`/`.trash` do NOT let a research subject take their centre — the
+  final-review fix wave (`73e10dbd`) keyed placement on
+  `BinderSegment.leftPaneWritesTheSubject`, which returns both segments to
+  pre-branch centre behaviour. (T5 had briefly generalized them; the
+  generalization was what trapped a subject in `.canvas`/`.trash`, the
+  eighteenth branch Critical.) `.find` still writes the subject only for a
+  manuscript match — the asymmetry to revisit when 2b makes find an overlay.
 - **The palette-name collision is surfaced, not decided**: a research group
   titled "Palette" takes the path `research/palette` and collides with the
   palette folder itself (pre-existing, confirmed still live). Task 8 does
@@ -222,12 +226,24 @@ manifest, no cross-writes).
 
 ### Denver's smoke list for 2a
 
-- Palette card previews as raw markdown (front matter and all) in Plan's
-  right column when selected from the tree — works, not pretty; a compact
-  tile would read better.
+- A palette card selected from the tree in Plan shows the card EDITOR in
+  the right column (the fix wave routed the inspector half through
+  `researchCentreRoute`; the raw-markdown preview is gone) — check it
+  reads well beside the canvas.
 - The intent strip in Author still shows the project's line over a selected
   research note (no doc id to show instead) — true but worth a look.
-- `.find` and `.trash` now let a research subject take the centre.
+- ⌘⌥F in Author with a research item selected shows the document (the
+  research subject stands down in `.find`/`.trash` after the fix wave).
+- In Plan's Canvas segment, arrive carrying a research subject (select a
+  note in Structure, switch to Canvas): the canvas inspector must be
+  reachable and region/scrap clicks must work — the eighteenth Critical's
+  repro, now guarded.
+- Rename a linked note from a novel's SHARED section: exactly one rename
+  field opens (linked fold rows are read-only views — no Rename there,
+  deliberately; Duplicate/Delete remain).
+- Reorder inside a novel chapter's fold bounces (the fold renders link
+  order, which isn't settable until 2b's reorder API); reorder inside a
+  collection piece's fold works.
 - Live drag precedence (header vs. rows, novel fold vs. shared section) is
   unverifiable headless — needs a hands-on drag.
 - Drag a note between a piece's fold and the shared section, in both a
