@@ -10,13 +10,31 @@ import SwiftUI
 /// terracotta `ReviewModeIndicator` — a cooler, cautionary slate so it reads as
 /// "blocked", not "you are reviewing".
 struct ViewOnlyShareNotice: View {
+    /// The notice's one sentence, `static` so the test that measures how wide
+    /// it is asks production for the words rather than quoting them.
+    static let sentence =
+        "This share is view-only — ask the owner for edit access to leave comments."
+
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "lock.fill")
                 .font(.system(size: 11, weight: .semibold))
-            Text("This share is view-only — ask the owner for edit access to leave comments.")
+            // **No `fixedSize(horizontal: false, vertical: true)`, and the
+            // absence is load-bearing.** This banner is a
+            // `safeAreaInset(edge: .top)` on the window's WRITING column, so an
+            // unbreakable minimum height here grows that column, and
+            // `NSSplitView` then grows the binder and the right column with it
+            // — the whole window laid out taller than the window, which is what
+            // Denver's 2026-08-08 smoke found on the two `DiagnosticsPane`
+            // sites. Measured with the modifier restored, this banner alone
+            // took the split view to 866pt inside a 732pt window.
+            //
+            // **And it was protecting nothing**: the sentence is one 404pt line
+            // at 11pt against a writing column whose floor is 480, so the width
+            // at which the modifier would have done anything cannot occur. Both
+            // facts are pinned in `DetailPaneColumnHeightCensusTests`.
+            Text(Self.sentence)
                 .font(.system(size: 11, weight: .medium))
-                .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(Self.foreground)
         .padding(.horizontal, 12)
