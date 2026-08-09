@@ -98,7 +98,7 @@ final class BinderSegmentTreePaneTests: XCTestCase {
             for selected in BinderSegment.allCases {
                 let rendered = BinderSegmentPicker.visibleSegments(
                     persona: .plan, projectType: type,
-                    hasTrash: true, findActive: true, including: selected)
+                    hasTrash: true, including: selected)
                 let names = rendered.map { $0.displayName(for: type) }
                 XCTAssertEqual(Set(names).count, names.count,
                                "\(type) with \(selected) selected renders "

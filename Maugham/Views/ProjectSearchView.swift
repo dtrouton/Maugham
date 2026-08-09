@@ -1,8 +1,15 @@
 import SwiftUI
 
+/// Find in Project — **an overlay of the tree** since shell-finish stage 2b.
+///
+/// It no longer owns a flag of its own. `ProjectWindow.treeFindActive` is the
+/// one piece of state that says the overlay is up, and this view's only way
+/// down is `close()`: a post of `.maughamCloseFind`, which that window's handler
+/// answers by clearing the flag and the search results together. The ✕ and
+/// Escape are therefore not two routes out of one state — they are one call,
+/// twice.
 struct ProjectSearchView: View {
     @Bindable var store: ProjectStore
-    @Binding var isActive: Bool
 
     @State private var query: String = ""
     @State private var replacement: String = ""
@@ -21,6 +28,22 @@ struct ProjectSearchView: View {
         .onAppear {
             DispatchQueue.main.async { queryFocused = true }
         }
+        // **Escape's route out, and it is deliberately view-local.**
+        //
+        // Not `WindowEscapeArbiter`/`CanvasEscapeMonitor`: that mechanism's
+        // third refusal passes Escape straight through whenever a text
+        // responder is editing (`CanvasEscapeMonitor.isEditingText`), and the
+        // query field is editing for essentially the whole life of this
+        // overlay — the field autofocuses on appear. Not an app-wide menu key
+        // equivalent either; that alternative is argued down at
+        // `CanvasEscapeMonitor.swift`'s "rejected alternative" note, because it
+        // would take Escape from every sheet and field editor in the app.
+        //
+        // `.onExitCommand` rides the responder chain's `cancelOperation:`,
+        // which is where a focused field's Escape already goes.
+        // `TreeFindOverlayTests` drives a real Escape key event at a real
+        // focused field and pins how many presses it takes.
+        .onExitCommand { Self.close() }
         .onChange(of: query) { _, _ in scheduleSearch() }
         .onChange(of: options) { _, _ in scheduleSearch() }
         .confirmationDialog(
@@ -51,15 +74,14 @@ struct ProjectSearchView: View {
                     .font(.headline)
                 Spacer()
                 Button {
-                    isActive = false
-                    store.clearSearch()
-                    MaughamEvent.post(.maughamCloseFind, to: .keyWindow)
+                    Self.close()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Close find")
+                .help(Self.closeHelp)
+                .accessibilityLabel(Self.closeHelp)
             }
             HStack {
                 TextField("Find in project", text: $query)
@@ -191,6 +213,22 @@ struct ProjectSearchView: View {
         }
         return attr
     }
+
+    /// The overlay's one way down, called by the ✕ and by Escape.
+    ///
+    /// It posts rather than writing a binding because the flag it clears is the
+    /// WINDOW's (`ProjectWindow.treeFindActive`) and the results it clears are
+    /// the STORE's, and one handler owning both is what keeps the two from
+    /// drifting: `ProjectWindow.applyCloseFind` is the whole of it, and this
+    /// post is what reaches it. Key-window scope (ADR 0021) — the ✕ was clicked
+    /// in the key window, and a key event by definition arrived in one.
+    static func close() {
+        MaughamEvent.post(.maughamCloseFind, to: .keyWindow)
+    }
+
+    /// One spelling for the ✕'s tooltip and its accessibility label, so the
+    /// test that presses it and the writer who hovers it name the same button.
+    static let closeHelp = "Close find"
 
     private func scheduleSearch() {
         Task {

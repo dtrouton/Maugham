@@ -24,10 +24,8 @@ final class BinderSegmentProbe {
 @MainActor
 final class BinderPickerVisibilityProbe {
     var hasTrash: Bool
-    var findActive: Bool
-    init(hasTrash: Bool = false, findActive: Bool = false) {
+    init(hasTrash: Bool = false) {
         self.hasTrash = hasTrash
-        self.findActive = findActive
     }
 }
 
@@ -37,15 +35,13 @@ private struct PickerProbeView: View {
     let persona: Persona
     let projectType: ProjectType
     let hasTrash: Bool
-    let findActive: Bool
 
     var body: some View {
         BinderSegmentPicker(
             segment: Binding(get: { probe.segment }, set: { probe.segment = $0 }),
             persona: persona,
             projectType: projectType,
-            hasTrash: hasTrash,
-            findActive: findActive)
+            hasTrash: hasTrash)
         // The binder column's real width. The picker's `.padding(.horizontal, 10)`
         // is applied inside this, exactly as `BinderPaneToggle` mounts it.
         .frame(width: 240)
@@ -67,15 +63,13 @@ private struct PickerAloneProbeView: View {
     let persona: Persona
     let projectType: ProjectType
     let hasTrash: Bool
-    let findActive: Bool
 
     var body: some View {
         BinderSegmentPicker(
             segment: .constant(persona.binderHome(for: projectType)),
             persona: persona,
             projectType: projectType,
-            hasTrash: hasTrash,
-            findActive: findActive)
+            hasTrash: hasTrash)
         .frame(width: 240)
     }
 }
@@ -91,8 +85,7 @@ private struct VisibilityProbeView: View {
             segment: .constant(persona.binderHome(for: projectType)),
             persona: persona,
             projectType: projectType,
-            hasTrash: probe.hasTrash,
-            findActive: probe.findActive)
+            hasTrash: probe.hasTrash)
         .frame(width: 240)
     }
 }
@@ -122,7 +115,6 @@ private struct CallerShapeProbeView: View {
     let persona: Persona
     let projectType: ProjectType
     let hasTrash: Bool
-    let findActive: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -130,8 +122,7 @@ private struct CallerShapeProbeView: View {
                 segment: .constant(persona.binderHome(for: projectType)),
                 persona: persona,
                 projectType: projectType,
-                hasTrash: hasTrash,
-                findActive: findActive)
+                hasTrash: hasTrash)
             StandInContentView()
         }
         .frame(width: 240)
@@ -163,7 +154,6 @@ private struct HistoricalBuggyCallerShapeProbeView: View {
     let persona: Persona
     let projectType: ProjectType
     let hasTrash: Bool
-    let findActive: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -171,8 +161,7 @@ private struct HistoricalBuggyCallerShapeProbeView: View {
                 segment: .constant(persona.binderHome(for: projectType)),
                 persona: persona,
                 projectType: projectType,
-                hasTrash: hasTrash,
-                findActive: findActive)
+                hasTrash: hasTrash)
             Divider()
             StandInContentView()
         }
@@ -293,14 +282,14 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     func test_choicelessPickerReservesExactlyZeroHeight() async throws {
         let choiceless = try await fittingHeight(
             PickerAloneProbeView(persona: .author, projectType: .novel,
-                                 hasTrash: false, findActive: false))
+                                 hasTrash: false))
         XCTAssertEqual(choiceless, 0, accuracy: 0.5,
                        "a choiceless picker must reserve exactly zero height "
                        + "on its own")
 
         let shown = try await fittingHeight(
             PickerAloneProbeView(persona: .plan, projectType: .novel,
-                                 hasTrash: false, findActive: false))
+                                 hasTrash: false))
         XCTAssertGreaterThan(shown, 10,
                              "the control: a real picker (control + its own "
                              + "divider) must reserve visible height, or this "
@@ -323,7 +312,7 @@ final class BinderSegmentPickerMountTests: XCTestCase {
         let baseline = try await fittingHeight(ContentAloneProbeView())
         let fixedWrapper = try await fittingHeight(
             CallerShapeProbeView(persona: .author, projectType: .novel,
-                                 hasTrash: false, findActive: false))
+                                 hasTrash: false))
         XCTAssertEqual(fixedWrapper, baseline, accuracy: 0.5,
                        "the caller's wrapper, choiceless, must add nothing at "
                        + "all above its content — not even a 1pt hairline, or "
@@ -332,7 +321,7 @@ final class BinderSegmentPickerMountTests: XCTestCase {
         let buggyWrapper = try await fittingHeight(
             HistoricalBuggyCallerShapeProbeView(
                 persona: .author, projectType: .novel,
-                hasTrash: false, findActive: false))
+                hasTrash: false))
         XCTAssertGreaterThan(buggyWrapper, baseline + 0.5,
                              "the control: the pre-fix-round-1 shape (picker "
                              + "plus a caller's own unconditional Divider) "
@@ -378,7 +367,7 @@ final class BinderSegmentPickerMountTests: XCTestCase {
         XCTAssertEqual(many.segmentCount,
                        BinderSegmentPicker.visibleSegments(
                         persona: .plan, projectType: .novel,
-                        hasTrash: false, findActive: false).count,
+                        hasTrash: false).count,
                        "what is drawn and what `visibleSegments` says must agree")
         XCTAssertGreaterThan(many.segmentCount, fewer.segmentCount,
                              "premise: Plan has more segments than Author's "
@@ -419,7 +408,7 @@ final class BinderSegmentPickerMountTests: XCTestCase {
             let control = try await mount(persona: persona, on: selected, hasTrash: hasTrash)
             let expected = BinderSegmentPicker.visibleSegments(
                 persona: persona, projectType: .novel,
-                hasTrash: hasTrash, findActive: false, including: selected)
+                hasTrash: hasTrash, including: selected)
                 .map { $0.displayName(for: .novel) }
 
             let actual = (0..<control.segmentCount).map { control.toolTip(forSegment: $0) }
@@ -447,7 +436,7 @@ final class BinderSegmentPickerMountTests: XCTestCase {
         ] as [(Persona, BinderSegment, Bool)] {
             let expected = BinderSegmentPicker.visibleSegments(
                 persona: persona, projectType: .novel,
-                hasTrash: hasTrash, findActive: false).count
+                hasTrash: hasTrash).count
             let control = try await tryMount(persona: persona, on: selected, hasTrash: hasTrash)
             if expected <= 1 {
                 observedNilCount += 1
@@ -472,19 +461,24 @@ final class BinderSegmentPickerMountTests: XCTestCase {
                              + "\(observedCounts)")
     }
 
-    /// And the runtime-gated segments still reach a choiceless persona, so
-    /// Review mid-search is a two-segment picker rather than a stranded one —
-    /// unchanged by stage 1, since Trash+Find joining is exactly what makes a
-    /// choiceless list a real choice.
-    func test_theChoicelessPersonaStillGrowsForTrashAndFind() async throws {
+    /// And the runtime-gated segment still reaches a choiceless persona, so
+    /// Review with something in the trash is a two-segment picker rather than a
+    /// stranded one — unchanged by stage 1, since Trash joining is exactly what
+    /// makes a choiceless list a real choice.
+    ///
+    /// **Find was the other one until stage 2b Task 1** and is not a segment at
+    /// all now, so the count here fell from three to two — see
+    /// `TreeFindOverlayTests`, which asserts the overlay replaces this picker
+    /// rather than joining it.
+    func test_theChoicelessPersonaStillGrowsForTheTrash() async throws {
         let hidden = try await tryMount(persona: .review, on: .manuscript)
         XCTAssertNil(hidden, "premise: Review alone is choiceless")
 
         let control = try await mount(persona: .review, on: .manuscript,
-                                      hasTrash: true, findActive: true)
-        XCTAssertEqual(control.segmentCount, 3,
-                       "Trash and Find are persona-INDEPENDENT — a reviewer "
-                       + "mid-search keeps the Find segment")
+                                      hasTrash: true)
+        XCTAssertEqual(control.segmentCount, 2,
+                       "Trash is persona-INDEPENDENT — a reviewer who deleted "
+                       + "something keeps the Trash segment")
     }
 
     // MARK: - Transient joining and leaving, driven on one mount
@@ -512,15 +506,11 @@ final class BinderSegmentPickerMountTests: XCTestCase {
         XCTAssertNil(firstSegmentedControl(in: window),
                      "and trash leaving must make it disappear again")
 
-        probe.findActive = true
-        await pumpUntil(deadline: 2) { self.firstSegmentedControl(in: window) != nil }
-        XCTAssertNotNil(firstSegmentedControl(in: window),
-                        "find joining must also make the picker appear")
-
-        probe.findActive = false
-        await pumpUntil(deadline: 2) { self.firstSegmentedControl(in: window) == nil }
-        XCTAssertNil(firstSegmentedControl(in: window),
-                     "and find leaving must also make it disappear")
+        // **Find's half of this test went with stage 2b Task 1.** It was the
+        // second runtime-gated segment; it is an overlay of the whole left
+        // column now, so there is no gate left to open — see
+        // `TreeFindOverlayTests`, which asserts the picker is not involved at
+        // all.
     }
 
     // MARK: - A forced selection the persona does not offer still renders
@@ -566,7 +556,7 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     /// so cannot demonstrate the append at all.
     func test_plantedOffender_withoutTheAppendTheForcedSegmentIsNotThere() async throws {
         let withoutAppend = BinderSegmentPicker.visibleSegments(
-            persona: .author, projectType: .novel, hasTrash: false, findActive: false)
+            persona: .author, projectType: .novel, hasTrash: false)
         XCTAssertFalse(withoutAppend.contains(.research),
                        "the offender: no append, no Research")
         XCTAssertEqual(withoutAppend.count, 1,
@@ -586,7 +576,7 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     func test_clickingASegmentWritesThroughTheBinding() async throws {
         let probe = BinderSegmentProbe(.research)
         let control = try await mount(probe: probe, persona: .review, projectType: .novel,
-                                      hasTrash: false, findActive: false)
+                                      hasTrash: false)
         XCTAssertEqual(control.segmentCount, 2)
 
         control.selectedSegment = 0
@@ -603,20 +593,18 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     private func mount(persona: Persona,
                        on segment: BinderSegment,
                        projectType: ProjectType = .novel,
-                       hasTrash: Bool = false,
-                       findActive: Bool = false) async throws -> NSSegmentedControl {
+                       hasTrash: Bool = false) async throws -> NSSegmentedControl {
         try await mount(probe: BinderSegmentProbe(segment), persona: persona,
-                        projectType: projectType, hasTrash: hasTrash, findActive: findActive)
+                        projectType: projectType, hasTrash: hasTrash)
     }
 
     private func mount(probe: BinderSegmentProbe,
                        persona: Persona,
                        projectType: ProjectType,
-                       hasTrash: Bool,
-                       findActive: Bool) async throws -> NSSegmentedControl {
+                       hasTrash: Bool) async throws -> NSSegmentedControl {
         let window = mountWindow(PickerProbeView(probe: probe, persona: persona,
                                                  projectType: projectType,
-                                                 hasTrash: hasTrash, findActive: findActive))
+                                                 hasTrash: hasTrash))
         await pumpUntil(deadline: 5) { self.firstSegmentedControl(in: window) != nil }
         return try XCTUnwrap(firstSegmentedControl(in: window),
                              "the picker's NSSegmentedControl never reached the "
@@ -631,11 +619,10 @@ final class BinderSegmentPickerMountTests: XCTestCase {
     private func tryMount(persona: Persona,
                           on segment: BinderSegment,
                           projectType: ProjectType = .novel,
-                          hasTrash: Bool = false,
-                          findActive: Bool = false) async throws -> NSSegmentedControl? {
+                          hasTrash: Bool = false) async throws -> NSSegmentedControl? {
         let window = mountWindow(PickerProbeView(probe: BinderSegmentProbe(segment),
                                                  persona: persona, projectType: projectType,
-                                                 hasTrash: hasTrash, findActive: findActive))
+                                                 hasTrash: hasTrash))
         // Give a real render pass a chance to produce a control before
         // concluding there is none — the same budget `pumpUntil` uses
         // elsewhere, just tolerant of the condition never becoming true.
@@ -695,166 +682,14 @@ final class BinderSegmentPickerMountTests: XCTestCase {
 }
 
 // MARK: - AX: commands reach their segment even while the picker is hidden
-
-/// **Delivery-path check, not a structural one** (shell-finish stage 1 task
-/// 2's fourth contract). `⌘⌥F`'s handler
-/// (`ProjectWindow`'s `.onKeyWindowCommand(.maughamFindInProject)`) writes
-/// `binderSegment = .find` directly — it never touches the picker, clicks a
-/// segment, or consults `visibleSegments`. This mounts the real
-/// `BinderPaneToggle`, starts it in a choiceless persona (Author, no trash, no
-/// active find — the picker absent from the hierarchy), then drives the
-/// segment binding exactly the way that handler does and confirms Find still
-/// mounts. If the content pane depended on the picker being present to
-/// deliver a selection, this would find no search field.
-@MainActor
-final class BinderSegmentPickerAXReachabilityTests: XCTestCase {
-
-    private var temp: TempDirectory!
-    private var windows: [NSWindow] = []
-
-    override func setUp() async throws {
-        temp = TempDirectory()
-    }
-
-    override func tearDown() async throws {
-        for window in windows { window.contentView = NSView(frame: .zero) }
-        pump(0.05)
-        windows.removeAll()
-        temp.cleanup()
-        temp = nil
-    }
-
-    func test_findCommandStillReachesItsContentWhileThePickerIsHidden() async throws {
-        let store = try await project(of: .novel)
-        let box = TransientExitBox(segment: .manuscript, findActive: false)
-        let window = host(AXProbeView(store: store, box: box, persona: .author))
-
-        XCTAssertNil(firstSegmentedControl(in: window),
-                     "premise: Author, no trash, no find — the picker is hidden")
-        XCTAssertNil(firstTextField(placeholder: "Find in project", in: window),
-                     "premise: Find is not open yet")
-
-        // Mirrors `ProjectWindow`'s `.onKeyWindowCommand(.maughamFindInProject)`
-        // handler verbatim: a direct write to the bound segment, nothing routed
-        // through the picker or a click. It does not touch `findActive` either
-        // — the production handler never does — so this is exactly what the
-        // real command sends.
-        box.segment = .find
-        await waitOut(0.4)
-
-        XCTAssertNotNil(firstTextField(placeholder: "Find in project", in: window),
-                        "the Find command must still reach its content even "
-                        + "though nothing in the strip was clickable to get there")
-
-        // The picker itself is not the point of this contract (content
-        // reachability is), but it is worth confirming `visibleSegments`'
-        // append-the-current-selection rule still recovers a real choice on
-        // its own: Author's one segment plus the now-selected `.find` is a
-        // real second option, so the strip returns too.
-        guard let control = firstSegmentedControl(in: window) else {
-            return XCTFail("the picker should have grown a second segment "
-                           + "(Author's own, plus the now-selected Find) once "
-                           + "the command landed")
-        }
-        XCTAssertEqual(control.segmentCount, 2)
-        XCTAssertEqual(control.selectedSegment, 1,
-                       "Find must be the highlighted segment once it is the "
-                       + "current one")
-    }
-
-    // MARK: - Hosting
-
-    private func project(of type: ProjectType) async throws -> ProjectStore {
-        let name = "\(type.rawValue)-\(UUID().uuidString.prefix(6))"
-        let url = try await ProjectFactory.createNovelProject(named: name, in: temp.url)
-        let store = try await ProjectStore.load(from: url)
-        await store.wordCountPopulationTask?.value
-        return store
-    }
-
-    private func host(_ view: some View) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 600)
-        let hosting = NSHostingView(rootView: AnyView(view))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
-        windows.append(window)
-        pump(0.15)
-        return window
-    }
-
-    private func firstSegmentedControl(in window: NSWindow) -> NSSegmentedControl? {
-        guard let root = window.contentView else { return nil }
-        var found: [NSSegmentedControl] = []
-        collect(NSSegmentedControl.self, in: root, into: &found)
-        return found.first
-    }
-
-    private func firstTextField(placeholder: String, in window: NSWindow) -> NSTextField? {
-        guard let root = window.contentView else { return nil }
-        var found: [NSTextField] = []
-        collect(NSTextField.self, in: root, into: &found)
-        return found.first { $0.placeholderString == placeholder }
-    }
-
-    private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {
-        if let hit = view as? T { out.append(hit) }
-        for sub in view.subviews { collect(type, in: sub, into: &out) }
-    }
-
-    private func waitOut(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            pump(0.02)
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-    }
-
-    private func pump(_ seconds: TimeInterval = 0.15) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
-    }
-}
-
-/// The left column as `ProjectWindow.binderColumn` builds it, with the segment
-/// and find flag hoisted out so a test can drive them exactly as the real
-/// `.onKeyWindowCommand` handlers do. A local copy of
-/// `TransientSegmentReturnTests`' `TransientExitProbeView` rather than a
-/// shared one: that struct is `private` to its own file, and duplicating a
-/// dozen lines of harness is cheaper than widening another suite's visibility
-/// for one caller.
-@MainActor
-private struct AXProbeView: View {
-    let store: ProjectStore
-    let box: TransientExitBox
-    let persona: Persona
-    @State private var subject: BinderSubject?
-    @State private var researchId: String?
-    @State private var paletteCardId: String?
-
-    private var segment: Binding<BinderSegment> {
-        Binding(get: { box.segment }, set: { box.segment = $0 })
-    }
-
-    private var findActive: Binding<Bool> {
-        Binding(get: { box.findActive }, set: { box.findActive = $0 })
-    }
-
-    var body: some View {
-        BinderPaneToggle(
-            store: store,
-            segment: segment,
-            selectedSubject: $subject,
-            selectedResearchId: $researchId,
-            selectedPaletteCardId: $paletteCardId,
-            projectType: store.manifest.type,
-            lastParsedScript: nil,
-            findActive: findActive,
-            persona: persona)
-    }
-}
+//
+// **Re-homed to `TreeFindOverlayTests` by stage 2b Task 1.** The contract was
+// "⌘⌥F reaches find's content in a persona whose picker is absent from the
+// hierarchy", driven through a direct `binderSegment = .find` write because
+// that is what the handler did. The handler writes `treeFindActive` now and
+// find is not a segment, so the contract moved to the suite that owns the
+// overlay — where it is asserted in every persona rather than in Author
+// alone, and where the absent picker is asserted rather than assumed.
 
 // MARK: - Census: neither caller spells its own Divider() beside the picker
 

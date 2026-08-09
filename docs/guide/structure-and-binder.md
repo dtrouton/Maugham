@@ -51,4 +51,4 @@ Following a link to a manuscript document from **Plan** takes you to Author with
 ### Find
 
 - **⌘F** — find within the current document (standard AppKit find bar; ⌘G next, ⌘⇧G previous).
-- **⌘⌥F** — find across the whole project. Opens a panel with grouped results (per document), case-sensitive and whole-word toggles. Click a result to jump. Closing the panel puts the left column back on your current mode's own tab — the manuscript in Author, the canvas in Plan.
+- **⌘⌥F** — find across the whole project. The search panel takes over the left column, with grouped results (per document), case-sensitive and whole-word toggles. Click a result to jump: a manuscript hit opens the document, a research hit opens the note. **Escape** or the ✕ closes it, and the column you were in comes straight back — nothing moves while the panel is up.

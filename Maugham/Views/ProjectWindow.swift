@@ -89,7 +89,16 @@ struct ProjectWindow: View {
     @State private var lastParsedScript: FountainScript? = nil
     @State private var showingSyntaxHelp: Bool = false
     @State private var researchPreviewVisible: Bool = false
-    @State private var findActive: Bool = false
+    /// **Find in Project, as an overlay of the left column** (shell-finish
+    /// stage 2b Task 1). Window state rather than segment state: ⌘⌥F writes
+    /// this and nothing else, so the overlay rides through a persona switch
+    /// untouched and closing it reveals whatever column was underneath instead
+    /// of navigating anyone anywhere.
+    ///
+    /// It replaces `findActive`, which had zero true-writers — both of its
+    /// writers wrote `false` — and whose gates in the picker and both toggles
+    /// were dead code when they were deleted.
+    @State private var treeFindActive: Bool = false
     @State private var pendingPieceRenameId: String?
     @State private var detailSegment: DetailSegment = .inspector
     @State private var persona: Persona = .default
@@ -346,7 +355,7 @@ struct ProjectWindow: View {
             selectedSubject: $selectedSubject,
             selectedResearchId: $selectedResearchId,
             binderSegment: $binderSegment,
-            findActive: $findActive,
+            treeFindActive: $treeFindActive,
             pendingPieceRenameId: $pendingPieceRenameId,
             showingTidyAllConfirmation: $showingTidyAllConfirmation,
             showingSyntaxHelp: $showingSyntaxHelp,
@@ -589,7 +598,7 @@ struct ProjectWindow: View {
         @Binding var selectedSubject: BinderSubject?
         @Binding var selectedResearchId: String?
         @Binding var binderSegment: BinderSegment
-        @Binding var findActive: Bool
+        @Binding var treeFindActive: Bool
         @Binding var pendingPieceRenameId: String?
         @Binding var showingTidyAllConfirmation: Bool
         @Binding var showingSyntaxHelp: Bool
@@ -599,8 +608,9 @@ struct ProjectWindow: View {
         /// Written by `.maughamNavigateToDocument` alone, through
         /// `ManuscriptNavigation` — a navigation to a manuscript document moves
         /// the writer to Author when the persona they are in would not show it
-        /// (Denver, 2026-08-02). Read by `.maughamCloseFind`, which returns the
-        /// binder to THIS persona's home rather than to the document's.
+        /// (Denver, 2026-08-02). `.maughamCloseFind` used to read it too, to
+        /// send the writer to this persona's binder home; since stage 2b Task 1
+        /// closing find moves nobody, so it no longer does.
         @Binding var persona: Persona
         let mcpBanner: MCPBannerModel
 
@@ -687,68 +697,67 @@ struct ProjectWindow: View {
                         $0.researchPreviewVisible = researchPreviewVisible
                     }
                 }
+                // **⌘⌥F opens the overlay and moves nothing else.** It used to
+                // write `binderSegment = .find`, which is how find came to be a
+                // segment at all — a state wearing a surface's clothes. The
+                // overlay is the left column while it is up, in every persona,
+                // and the strip never mediated it even when there was one: this
+                // handler never consulted `visibleSegments` and never will
+                // (`TreeFindOverlayTests` mounts it in a persona whose picker is
+                // absent from the hierarchy entirely).
+                //
+                // Leaving `binderSegment` alone is also what keeps Denver's
+                // 2026-08-02 footer ruling true on the new basis: the footer
+                // follows the DOCUMENT in the centre column, opening find does
+                // not touch the centre column, so a writer who had the footer
+                // still has it.
                 .onKeyWindowCommand(.maughamFindInProject, window: window) { _ in
-                    binderSegment = .find
+                    treeFindActive = true
                 }
-                // **Closing Find returns the writer to THIS persona's home, not
-                // to the manuscript's.** Identical in Author, Review and
-                // Publish, whose binder home IS the document home; in Plan it
-                // is the canvas.
+                // **The one way down**, reached by both the ✕ and Escape —
+                // `ProjectSearchView.close()` is their single call site and this
+                // is its only receiver, so the two cannot come to disagree the
+                // way the flag-plus-post pair before it could.
                 //
-                // **It is deliberately not a `ManuscriptNavigation`.** Closing
-                // find names no document — it fires with no match ever clicked —
-                // so moving the writer to Author here would eject anyone who
-                // opened `⌘⌥F` in Plan and changed their mind. What it DID do
-                // was force `.manuscript` in Plan, which is the state Denver
-                // ruled out, so the fix is to stop forcing the manuscript
-                // rather than to follow it with a persona switch.
-                //
-                // `BinderPaneToggle` carries the same rule on
-                // `.onChange(of: findActive)` — this post and that flag are two
-                // routes out of one state and they must agree.
+                // **Closing find no longer moves the binder**, and that is the
+                // whole shape of the change: there is nowhere to send anyone.
+                // The overlay was covering a column that is still there, so
+                // dismissing it reveals that column. The old handler forced
+                // `persona.binderHome(for:)` because it had to undo its own
+                // `.find` write, and before slice 2 forced `.manuscript`, which
+                // put a writer who pressed ⌘⌥F in Plan and changed their mind
+                // into a text editor.
                 .onKeyWindowCommand(.maughamCloseFind, window: window) { _ in
-                    findActive = false
-                    binderSegment = persona.binderHome(
-                        for: store?.manifest.type ?? .novel)
+                    ProjectWindow.applyCloseFind(treeFindActive: &treeFindActive,
+                                                 store: store)
                 }
-                // **A KNOWN GAP, recorded here so it stops being rediscovered.**
-                // Found during slice 2 task 6 and again during task 5; it
-                // predates the persona shell entirely.
+                // **A match click writes the SUBJECT** — the recorded gap that
+                // sat here for two slices, closed by stage 2b Task 1.
                 //
-                // A RESEARCH match sets `selectedResearchId` and nothing else —
-                // and while the binder is on `.find` the centre column is
-                // `EditorHost` regardless (`existingEditorSwitch`'s
-                // `case .manuscript, .scenes, .find`), so clicking a research
-                // result shows the writer their manuscript. The selection only
-                // becomes visible if they switch to `.research` by hand.
-                //
-                // **Deliberately not fixed here.** Making it right means giving
-                // `.find` a centre column that follows the match's source, which
-                // is a redesign of find's routing rather than a line in this
-                // handler. And the obvious half-fix — landing on `.research`
-                // when find closes — would add a THIRD event route forcing
-                // `.research` in Author one commit after task 6 took research
-                // out of Author's registry on purpose (`Persona.swift`'s
-                // `.author` case names the other two).
-                //
-                // What task 5 DID remove is the way this compounded: closing
-                // find used to slam the binder onto the manuscript, so a writer
-                // in Plan who clicked a research result was left in a text
-                // editor. Closing find now returns to the persona's own home.
+                // A research match used to write `selectedResearchId` alone,
+                // and while the binder was on `.find` the centre column was
+                // `EditorHost` regardless, so clicking a research result showed
+                // the writer their manuscript. The fix was never a line in this
+                // handler — it needed find to stop taking the centre column
+                // hostage, which is what the overlay does: the segment
+                // underneath is untouched, so `researchSubjectPlacement` routes
+                // the subject the way stage 2a routes every other research
+                // selection (the centre in Author/Review/Publish, beside the
+                // canvas in Plan).
                 .onKeyWindowCommand(.maughamFindMatchSelected, window: window) { note in
                     guard let store,
-                          let match = note.userInfo?["match"] as? SearchMatch else { return }
-                    switch match.documentSource {
-                    case .manuscript:
-                        if let item = TreeWalk.first(
-                            in: store.manifest.structure) { $0.path == match.documentPath } {
-                            selectedSubject = .item(item.id)
-                        }
-                    case .research:
-                        if let item = TreeWalk.first(
-                            in: store.manifest.research) { $0.path == match.documentPath } {
-                            selectedResearchId = item.id
-                        }
+                          let match = note.userInfo?["match"] as? SearchMatch,
+                          let subject = ProjectWindow.matchSubject(match, in: store)
+                    else { return }
+                    selectedSubject = subject
+                    // **The second write dies with the panes that read it**
+                    // (kill task). `ResearchView` and `CollectionResearchPane`
+                    // still hold selections of their own this slice, and a note
+                    // found by search has to be findable from whichever of the
+                    // two the writer is looking at — `addSharedNoteAction`
+                    // carries the same pair for the same reason.
+                    if let researchID = subject.researchID {
+                        selectedResearchId = researchID
                     }
                 }
                 .onProjectEvent(.maughamMCPNoteAdded, url: url, window: window) { note in
@@ -951,7 +960,7 @@ struct ProjectWindow: View {
                 selectedSubject: $selectedSubject,
                 selectedResearchId: $selectedResearchId,
                 selectedPaletteCardId: $selectedPaletteCardId,
-                findActive: $findActive,
+                treeFindActive: $treeFindActive,
                 renamingItemId: $pendingPieceRenameId,
                 activePiece: activePiece(in: store),
                 onAddSharedNote: { Task { try? await addSharedNoteAction(store: store) } },
@@ -967,7 +976,7 @@ struct ProjectWindow: View {
                 selectedPaletteCardId: $selectedPaletteCardId,
                 projectType: store.manifest.type,
                 lastParsedScript: lastParsedScript,
-                findActive: $findActive,
+                treeFindActive: $treeFindActive,
                 persona: persona)
         }
     }
@@ -1126,9 +1135,14 @@ struct ProjectWindow: View {
         // `BinderSegment.showsManuscriptStatusFooter`, not the two equalities
         // that used to be written out here. The canvas and Plan's tree are both
         // deliberately absent — the footer reports manuscript metrics, and
-        // readiness stays silent about the canvas (umbrella §7, §9) — and the
-        // predicate's own doc comment records why `.find` is absent too, which
-        // is the case that stops this being "the centre column is a document".
+        // readiness stays silent about the canvas (umbrella §7, §9).
+        //
+        // **The predicate's `.find` arm is now unreachable** — find is an
+        // overlay of the left column, not a segment, so this gate sees whatever
+        // segment the overlay is covering and Denver's 2026-08-02 ruling holds
+        // by construction rather than by an entry in a switch: opening find
+        // does not touch the centre column, so it cannot take the footer away.
+        // Task 6 re-bases the whole predicate.
         guard Self.showsStatusFooter(binderSegment: binderSegment,
                                      subject: selectedSubject) else { return false }
         if isNoChromeOn { return false }
@@ -1151,6 +1165,44 @@ struct ProjectWindow: View {
         guard binderSegment.showsManuscriptStatusFooter else { return false }
         return researchSubjectPlacement(binderSegment: binderSegment,
                                         subject: subject).centreItemID == nil
+    }
+
+    /// **What the window is about after a search match is clicked**, as a pure
+    /// function, so the routing is drivable without a mounted window — the two
+    /// arms differ only in which tree the match's path is looked up in, and
+    /// that symmetry is exactly what was missing while the research arm wrote a
+    /// pane's private selection and the manuscript arm wrote the subject.
+    ///
+    /// `nil` when the match names a path no longer in the manifest (renamed or
+    /// deleted between the search and the click), which is a stale result rather
+    /// than a place to send anyone.
+    static func matchSubject(_ match: SearchMatch,
+                             in store: ProjectStore) -> BinderSubject? {
+        switch match.documentSource {
+        case .manuscript:
+            return TreeWalk.first(in: store.manifest.structure) {
+                $0.path == match.documentPath
+            }.map { .item($0.id) }
+        case .research:
+            return TreeWalk.first(in: store.manifest.research) {
+                $0.path == match.documentPath
+            }.map { .research($0.id) }
+        }
+    }
+
+    /// **Closing the find overlay, whole**, so the handler above is a call
+    /// rather than a rule and a test can drive the real thing.
+    ///
+    /// Two writes, and they belong together: the flag that says the overlay is
+    /// up, and the results it was showing. Clearing one without the other is
+    /// what leaves a reopened find sitting on the previous search — the ✕ used
+    /// to own the `clearSearch()` half while this handler owned the flag half,
+    /// and Escape would have had to remember both.
+    ///
+    /// It deliberately does NOT touch `binderSegment`: see the handler.
+    static func applyCloseFind(treeFindActive: inout Bool, store: ProjectStore?) {
+        treeFindActive = false
+        store?.clearSearch()
     }
 
     private var sessionWordsForFooter: Int {

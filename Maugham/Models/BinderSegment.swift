@@ -238,7 +238,14 @@ public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
     /// `BinderSegmentPicker.visibleSegments`'s append draw from, so the two
     /// cannot disagree — a future runtime-gated segment added to one and not
     /// the other would silently eject a writer from it on persona switch.
-    /// Today only `.trash` and `.find` qualify; nothing else does.
+    ///
+    /// **`.find` is a dead member since stage 2b Task 1** and goes with the case
+    /// in the kill task: find is an overlay of the whole left column now, not a
+    /// segment, so no picker offers it and no persona switch can reach it. Its
+    /// survive-a-persona-switch property survived the move —
+    /// `TreeFindOverlayTests.test_theOverlaySurvivesAPersonaSwitch` — but it is
+    /// window state that carries it, not this predicate. `.trash` is the live
+    /// member.
     public var isTransient: Bool {
         switch self {
         case .trash, .find: return true

@@ -9,13 +9,32 @@ struct BinderPaneToggle: View {
     @Binding var selectedPaletteCardId: String?
     let projectType: ProjectType
     let lastParsedScript: FountainScript?
-    @Binding var findActive: Bool
+    /// **Find, as an overlay of this column** (shell-finish stage 2b Task 1).
+    /// `ProjectWindow.treeFindActive` — window state, not segment state, which
+    /// is why ⌘⌥F no longer writes `segment` and why the overlay rides through
+    /// a persona switch untouched. While it is up, the search panel is the whole
+    /// left column; `ProjectSearchView.close()` is the only way down.
+    @Binding var treeFindActive: Bool
     /// The window's working mode — decides which segments the picker offers.
     /// Coercion onto this persona's list happens once, centrally, in
     /// `PersonaModifier`; this view only renders.
     let persona: Persona
 
     var body: some View {
+        if treeFindActive {
+            // **The overlay REPLACES the column, strip included** (spec: the
+            // results replace the tree; Escape restores it — the canvas-dim
+            // posture, deliberately entered and deliberately left). Not layered
+            // over it: find is no longer a segment, so a strip left visible
+            // underneath would offer the writer a way to change what is behind
+            // the panel while the panel is what they are looking at.
+            ProjectSearchView(store: store)
+        } else {
+            tree
+        }
+    }
+
+    private var tree: some View {
         VStack(spacing: 0) {
             // The divider beneath the strip is the picker's own, not this
             // caller's — see `BinderSegmentPicker.body`'s fix-round-1 note.
@@ -25,8 +44,7 @@ struct BinderPaneToggle: View {
                 segment: $segment,
                 persona: persona,
                 projectType: projectType,
-                hasTrash: !store.trashEntries.isEmpty,
-                findActive: findActive)
+                hasTrash: !store.trashEntries.isEmpty)
             Group {
                 switch segment {
                 case .manuscript:
@@ -62,7 +80,14 @@ struct BinderPaneToggle: View {
                 case .trash:
                     TrashView(store: store)
                 case .find:
-                    ProjectSearchView(store: store, isActive: $findActive)
+                    // **Unreachable since stage 2b Task 1** — nothing selects
+                    // `.find` any more; find is the overlay above. The arm
+                    // stays only because the case is still in the enum, and it
+                    // shows the tree rather than an `EmptyView` so a
+                    // mis-wiring would show a writer their manuscript rather
+                    // than a blank column. Both go in the kill task, with the
+                    // case.
+                    binderTree
                 }
             }
             // The Exports footer belongs under the project's manuscript tree and
@@ -90,30 +115,22 @@ struct BinderPaneToggle: View {
                 ExportsListView(projectURL: store.url)
             }
         }
-        // **Leaving a transient segment returns the writer to THIS PERSONA's
-        // home, not to the manuscript's.**
+        // **Leaving the trash returns the writer to THIS PERSONA's home, not to
+        // the manuscript's.**
         //
-        // Both of these fire when a state the writer was passing through ends —
-        // the trash emptied under them, find closed — and neither names a
-        // document. `.documentHome(for:)` was the same value in Author, Review
-        // and Publish, whose binder home IS the document home, and in Plan it
-        // put a text editor in the centre column of the persona §2 says does not
-        // draft: `⌘⌥F`, escape, and the writer is writing the manuscript in
-        // Plan. That is Denver's 2026-08-02 ruling, arrived at from the other
-        // side — and the answer here is to stop forcing the manuscript rather
-        // than to follow it with a persona switch, because a writer who opened
-        // find and changed their mind navigated to nothing.
+        // It fires when a state the writer was passing through ends — the trash
+        // emptied under them — and it names no document. `.documentHome(for:)`
+        // was the same value in Author, Review and Publish, whose binder home IS
+        // the document home, and in Plan it put a text editor in the centre
+        // column of the persona §2 says does not draft. That is Denver's
+        // 2026-08-02 ruling, arrived at from the other side.
         //
-        // `ProjectWindow`'s `.maughamCloseFind` handler carries the same rule:
-        // the ✕ button posts it AND clears the flag below, so the two routes out
-        // of find must agree.
+        // **Find's twin of this arm is gone with stage 2b Task 1**, and it is
+        // not a return any more: closing the overlay reveals the column that was
+        // always underneath it, so there is nowhere to send anyone. That is why
+        // ⌘⌥F no longer writes `segment` at all.
         .onChange(of: store.trashEntries.count) { _, newValue in
             if newValue == 0 && segment == .trash {
-                segment = persona.binderHome(for: projectType)
-            }
-        }
-        .onChange(of: findActive) { _, newValue in
-            if !newValue && segment == .find {
                 segment = persona.binderHome(for: projectType)
             }
         }

@@ -13,12 +13,17 @@ struct BinderSegmentPicker: View {
     let persona: Persona
     let projectType: ProjectType
     let hasTrash: Bool
-    let findActive: Bool
 
     /// Segments this picker shows, in order: the persona's own list, then the
-    /// two runtime-gated ones. Trash and Find are persona-INDEPENDENT — they
-    /// are transient states rather than surfaces, so a writer mid-search keeps
-    /// the Find segment in every mode.
+    /// runtime-gated one. Trash is persona-INDEPENDENT — it is a transient
+    /// state rather than a surface, so a writer who deleted something keeps the
+    /// Trash segment in every mode.
+    ///
+    /// **Find used to be the second of those, and is not a segment at all any
+    /// more** (stage 2b Task 1): it is an overlay of the whole left column, so
+    /// nothing selects `.find` and nothing offers it. The `findActive` parameter
+    /// that gated it was already dead when it was deleted — both of its writers
+    /// wrote `false` — which is why removing it changed no picker anywhere.
     ///
     /// `selected`, when supplied and not already present, is **appended**.
     /// Personas are lenses, not gates: several paths force a binder segment
@@ -31,15 +36,12 @@ struct BinderSegmentPicker: View {
     static func visibleSegments(persona: Persona,
                                 projectType: ProjectType,
                                 hasTrash: Bool,
-                                findActive: Bool,
                                 including selected: BinderSegment? = nil) -> [BinderSegment] {
         var segments = persona.binderSegments(for: projectType)
-        // `.trash`/`.find` are the two transient segments — see
-        // `BinderSegment.isTransient`, the single source shared with
-        // `PersonaModifier.applyPersonaChange`'s `keepBinder` whitelist so
-        // the two cannot disagree.
+        // `.trash` is a transient segment — see `BinderSegment.isTransient`, the
+        // single source shared with `PersonaModifier.applyPersonaChange`'s
+        // `keepBinder` whitelist so the two cannot disagree.
         if hasTrash, BinderSegment.trash.isTransient { segments.append(.trash) }
-        if findActive, BinderSegment.find.isTransient { segments.append(.find) }
         if let selected, !segments.contains(selected) { segments.append(selected) }
         return segments
     }
@@ -50,7 +52,6 @@ struct BinderSegmentPicker: View {
         Self.visibleSegments(persona: persona,
                              projectType: projectType,
                              hasTrash: hasTrash,
-                             findActive: findActive,
                              including: segment)
     }
 

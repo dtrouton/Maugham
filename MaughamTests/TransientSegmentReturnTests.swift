@@ -5,40 +5,39 @@ import Observation
 import MaughamCore
 @testable import Maugham
 
-/// The binder's segment and the find flag, outside the view, so a test can flip
-/// the one production flips and watch what the toggle writes back through the
-/// other. At file scope because `@Observable` cannot expand inside a `private`
-/// nested type.
+/// The binder's segment, outside the view, so a test can watch what the toggle
+/// writes back through it. At file scope because `@Observable` cannot expand
+/// inside a `private` nested type.
 @Observable
 @MainActor
 final class TransientExitBox {
     var segment: BinderSegment
-    var findActive: Bool
-    init(segment: BinderSegment, findActive: Bool) {
+    init(segment: BinderSegment) {
         self.segment = segment
-        self.findActive = findActive
     }
 }
 
 /// **Where does the writer land when a transient segment ends?**
 ///
-/// Find and Trash are states, not surfaces (`BinderSegment.isTransient`), and
-/// both toggles put the binder somewhere else the moment the state ends — find
-/// closed, or the trash emptied under the writer. Until slice 2 task 5 that
-/// somewhere was `BinderSegment.documentHome(for:)`, which is the same value as
-/// the binder home in Author, Review and Publish and is **the manuscript editor
-/// in Plan** — Denver's 2026-08-02 ruling arrived at from the other side:
-/// `⌘⌥F`, escape, and the writer is writing the manuscript in Plan.
+/// **The trash is the last one** (`BinderSegment.isTransient`): both toggles put
+/// the binder somewhere else the moment the writer's last deleted item goes.
+/// Until slice 2 task 5 that somewhere was `BinderSegment.documentHome(for:)`,
+/// which is the same value as the binder home in Author, Review and Publish and
+/// is **the manuscript editor in Plan** — Denver's 2026-08-02 ruling arrived at
+/// from the other side.
 ///
-/// **This is a return, not a navigation**, which is why it is not
-/// `ManuscriptNavigation`: closing find names no document (it fires with no
-/// match ever clicked), so nobody is moved to Author for it. The answer is the
-/// persona's own home.
+/// **Find used to be the other one, and stage 2b Task 1 took it out of this
+/// family entirely.** It is an overlay of the left column now rather than a
+/// segment, so closing it reveals the column that was underneath instead of
+/// returning anyone anywhere; there is nothing left to land on.
+/// `TreeFindOverlayTests` owns what is left of that contract. This suite kept
+/// its shape — the surviving arm is the same rule, and deleting the only
+/// mounted test of it because its sibling died would have left the rule with a
+/// source census and nothing driving it.
 ///
-/// **Driven through the flag production flips, on the real mounted toggle.** The
-/// `.onChange` under test cannot be reached from the view's data — it is a
-/// modifier on a `body` — and the ✕ button and `.maughamCloseFind` are two routes
-/// out of one state, so the toggle is where both of them land.
+/// **Driven through the state production flips, on the real mounted toggle.**
+/// The `.onChange` under test cannot be reached from the view's data — it is a
+/// modifier on a `body`.
 @MainActor
 final class TransientSegmentReturnTests: XCTestCase {
 
@@ -57,17 +56,17 @@ final class TransientSegmentReturnTests: XCTestCase {
         temp = nil
     }
 
-    // MARK: - Closing find
+    // MARK: - The trash emptying under the writer
 
     /// **The defect, in the persona it was in.** Plan's binder home is the
     /// canvas; the manuscript segment is not even in Plan's registry.
-    func test_closingFindInPlanReturnsToPlansHomeAndNotToTheManuscript() async throws {
+    func test_theTrashEmptyingInPlanReturnsToPlansHomeAndNotToTheManuscript() async throws {
         for type in ProjectType.allCases where type != .unknown {
-            let box = try await closeFind(persona: .plan, type: type,
-                                          landingOn: Persona.plan.binderHome(for: type))
+            let box = try await emptyTheTrash(persona: .plan, type: type,
+                                              landingOn: Persona.plan.binderHome(for: type))
             XCTAssertEqual(box.segment, Persona.plan.binderHome(for: type),
-                           "\(type): closing find in Plan must return to Plan's "
-                           + "own home")
+                           "\(type): the trash emptying in Plan must return to "
+                           + "Plan's own home")
             XCTAssertNotEqual(box.segment, .documentHome(for: type),
                               "\(type): landing on the document home puts a text "
                               + "editor in the centre of the persona that does "
@@ -80,11 +79,11 @@ final class TransientSegmentReturnTests: XCTestCase {
     /// the document home are the same segment and this change is invisible to
     /// them. If this ever goes red the fix has moved a writer who was already in
     /// the right place.
-    func test_closingFindEverywhereElseLandsExactlyWhereItAlwaysDid() async throws {
+    func test_theTrashEmptyingEverywhereElseLandsExactlyWhereItAlwaysDid() async throws {
         for persona in [Persona.author, .review, .publish] {
             for type in ProjectType.allCases where type != .unknown {
-                let box = try await closeFind(persona: persona, type: type,
-                                              landingOn: .documentHome(for: type))
+                let box = try await emptyTheTrash(persona: persona, type: type,
+                                                  landingOn: .documentHome(for: type))
                 XCTAssertEqual(box.segment, .documentHome(for: type),
                                "\(persona)/\(type): unchanged behaviour")
             }
@@ -93,8 +92,9 @@ final class TransientSegmentReturnTests: XCTestCase {
 
     // MARK: - Driving it
 
-    /// Mounts the binder shell production mounts for this type, sitting in Find,
-    /// then clears the flag the ✕ button clears.
+    /// Mounts the binder shell production mounts for this type, sitting in the
+    /// trash with one entry in it, then empties the entry out from under it —
+    /// the writer restoring their last deleted item, or the 30-day sweep.
     ///
     /// - Parameter landingOn: the segment the caller is about to assert on. Given
     ///   one, the wait for the `.onChange` ends the moment the exit lands there
@@ -102,17 +102,18 @@ final class TransientSegmentReturnTests: XCTestCase {
     ///   what reports a failure, and still reports it in its own words. Omitted,
     ///   the wait is a fixed window, which is what a caller asserting that the
     ///   binder did NOT move would need.
-    private func closeFind(persona: Persona,
-                           type: ProjectType,
-                           landingOn expected: BinderSegment? = nil)
+    private func emptyTheTrash(persona: Persona,
+                               type: ProjectType,
+                               landingOn expected: BinderSegment? = nil)
     async throws -> TransientExitBox {
         let store = try await project(of: type)
-        let box = TransientExitBox(segment: .find, findActive: true)
+        store.trashEntries = [Self.anEntry]
+        let box = TransientExitBox(segment: .trash)
         let window = host(TransientExitProbeView(store: store, box: box,
                                                  persona: persona))
-        XCTAssertEqual(box.segment, .find, "premise: the binder is in find")
+        XCTAssertEqual(box.segment, .trash, "premise: the binder is in the trash")
 
-        box.findActive = false
+        store.trashEntries = []
         if let expected {
             await pumpUntil(deadline: 5) { box.segment == expected }
         } else {
@@ -121,6 +122,14 @@ final class TransientSegmentReturnTests: XCTestCase {
         _ = window
         return box
     }
+
+    /// One trashed thing, so the count the toggle watches has somewhere to fall
+    /// FROM. Its contents are never read — `store.trashEntries.count` is the
+    /// whole of what the arm under test looks at.
+    private static let anEntry = TrashEntry(
+        id: "20260809-120000-ch-1", trashedAt: Date(),
+        originalRelativePath: "manuscript/ch-1.md",
+        displayTitle: "Chapter One", itemMetadata: Data())
 
     private func project(of type: ProjectType) async throws -> ProjectStore {
         let name = "\(type.rawValue)-\(UUID().uuidString.prefix(6))"
@@ -158,8 +167,8 @@ final class TransientSegmentReturnTests: XCTestCase {
 
 }
 
-/// The left column as `ProjectWindow.binderColumn` builds it, with the find flag
-/// hoisted out so a test can clear it.
+/// The left column as `ProjectWindow.binderColumn` builds it, with the segment
+/// hoisted out so a test can read where the exit arm sent it.
 @MainActor
 private struct TransientExitProbeView: View {
     let store: ProjectStore
@@ -174,10 +183,6 @@ private struct TransientExitProbeView: View {
         Binding(get: { box.segment }, set: { box.segment = $0 })
     }
 
-    private var findActive: Binding<Bool> {
-        Binding(get: { box.findActive }, set: { box.findActive = $0 })
-    }
-
     var body: some View {
         Group {
             switch ProjectWindow.BinderShell.shell(for: store.manifest.type) {
@@ -190,7 +195,7 @@ private struct TransientExitProbeView: View {
                     selectedPaletteCardId: $paletteCardId,
                     projectType: store.manifest.type,
                     lastParsedScript: nil,
-                    findActive: findActive,
+                    treeFindActive: .constant(false),
                     persona: persona)
             case .collection:
                 CollectionBinderPaneToggle(
@@ -199,7 +204,7 @@ private struct TransientExitProbeView: View {
                     selectedSubject: $subject,
                     selectedResearchId: $researchId,
                     selectedPaletteCardId: $paletteCardId,
-                    findActive: findActive,
+                    treeFindActive: .constant(false),
                     renamingItemId: $renamingItemId,
                     activePiece: nil,
                     onAddSharedNote: {},
@@ -212,12 +217,11 @@ private struct TransientExitProbeView: View {
 
 /// **The census: no site forces the binder onto the manuscript on its own.**
 ///
-/// Five sites force the binder home and the brief named three of them; the two
+/// Five sites forced the binder home and the brief named three of them; the two
 /// that were missed are the toggles' own `.onChange`s, which no persona write
 /// could ever have reached because they are inside a view with no `persona`
-/// binding — and one of them (`findActive`) fires on the SAME writer action as
-/// `.maughamCloseFind`, so a fix applied to one and not the other is two routes
-/// out of one state disagreeing.
+/// binding. Two of the five went with stage 2b Task 1 — find's `.onChange` in
+/// each toggle — because closing find no longer moves the binder at all.
 ///
 /// Both spellings are now unwritable in those files: a navigation goes through
 /// `ManuscriptNavigation`, which decides the persona too, and a transient exit

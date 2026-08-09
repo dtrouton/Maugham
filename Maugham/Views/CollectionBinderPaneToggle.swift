@@ -10,7 +10,9 @@ struct CollectionBinderPaneToggle: View {
     @Binding var selectedSubject: BinderSubject?
     @Binding var selectedResearchId: String?
     @Binding var selectedPaletteCardId: String?
-    @Binding var findActive: Bool
+    /// Find, as an overlay of this column — see `BinderPaneToggle`, whose
+    /// doc comment carries the whole reasoning and is not restated here.
+    @Binding var treeFindActive: Bool
     @Binding var renamingItemId: String?
     let activePiece: StructureItem?
     let onAddSharedNote: () -> Void
@@ -21,6 +23,16 @@ struct CollectionBinderPaneToggle: View {
     let persona: Persona
 
     var body: some View {
+        if treeFindActive {
+            // The overlay replaces the column, strip included — see
+            // `BinderPaneToggle` for why, which is not restated here.
+            ProjectSearchView(store: store)
+        } else {
+            tree
+        }
+    }
+
+    private var tree: some View {
         VStack(spacing: 0) {
             // `.collection` is a constant here rather than a property: this
             // toggle exists only for collection projects, and passing it is
@@ -33,8 +45,7 @@ struct CollectionBinderPaneToggle: View {
                 segment: $segment,
                 persona: persona,
                 projectType: .collection,
-                hasTrash: !store.trashEntries.isEmpty,
-                findActive: findActive)
+                hasTrash: !store.trashEntries.isEmpty)
             Group {
                 switch segment {
                 case .manuscript:
@@ -70,7 +81,9 @@ struct CollectionBinderPaneToggle: View {
                 case .trash:
                     TrashView(store: store)
                 case .find:
-                    ProjectSearchView(store: store, isActive: $findActive)
+                    // Unreachable since stage 2b Task 1 — see
+                    // `BinderPaneToggle`'s arm, which carries the reasoning.
+                    piecesTree
                 case .scenes:
                     // Collections don't surface a Scenes segment at the binder
                     // level (scenes are per-piece, derived from the active
@@ -89,18 +102,13 @@ struct CollectionBinderPaneToggle: View {
                 ExportsListView(projectURL: store.url)
             }
         }
-        // Leaving a transient segment returns the writer to this persona's home
-        // — see `BinderPaneToggle` for the whole reasoning, which is not
-        // restated here. `.manuscript` was the raw spelling of the same wrong
-        // answer: it is a Collection, so its document home is Pieces, and in
-        // Plan the writer landed in a piece editor.
+        // Leaving the trash returns the writer to this persona's home — see
+        // `BinderPaneToggle` for the whole reasoning, including why find's twin
+        // of this arm went with stage 2b Task 1. `.manuscript` was the raw
+        // spelling of the same wrong answer: it is a Collection, so its document
+        // home is Pieces, and in Plan the writer landed in a piece editor.
         .onChange(of: store.trashEntries.count) { _, newValue in
             if newValue == 0 && segment == .trash {
-                segment = persona.binderHome(for: .collection)
-            }
-        }
-        .onChange(of: findActive) { _, newValue in
-            if !newValue && segment == .find {
                 segment = persona.binderHome(for: .collection)
             }
         }

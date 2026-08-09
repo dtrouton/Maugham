@@ -181,7 +181,7 @@ final class PersonaBinderSegmentTests: XCTestCase {
             for persona in Persona.allCases {
                 let rendered = BinderSegmentPicker.visibleSegments(
                     persona: persona, projectType: type,
-                    hasTrash: false, findActive: false, including: .research)
+                    hasTrash: false, including: .research)
                 XCTAssertTrue(rendered.contains(.research),
                               "\(persona)/\(type): Open on a promoted card and "
                               + "Show on the MCP banner both land here")
@@ -194,12 +194,19 @@ final class PersonaBinderSegmentTests: XCTestCase {
 
     // MARK: - What the picker renders
 
-    func test_visibleSegments_appendsTheRuntimeGatedOnesInEveryPersona() {
+    /// **Trash alone, since stage 2b Task 1.** Find was the second runtime-gated
+    /// segment and is not a segment at all any more — it is an overlay of the
+    /// whole left column (`TreeFindOverlayTests`), so no persona offers it and
+    /// nothing selects it.
+    func test_visibleSegments_appendsTheRuntimeGatedOneInEveryPersona() {
         for persona in Persona.allCases {
             let segments = BinderSegmentPicker.visibleSegments(
-                persona: persona, projectType: .novel, hasTrash: true, findActive: true)
-            XCTAssertEqual(segments.suffix(2), [.trash, .find],
-                           "\(persona) must still offer Trash and Find")
+                persona: persona, projectType: .novel, hasTrash: true)
+            XCTAssertEqual(segments.last, .trash,
+                           "\(persona) must still offer Trash")
+            XCTAssertFalse(segments.contains(.find),
+                           "\(persona) offers Find as a segment — it is an "
+                           + "overlay now, and the strip never mediates it")
         }
     }
 
@@ -209,7 +216,7 @@ final class PersonaBinderSegmentTests: XCTestCase {
         // collapsed to the home segment". Plan is the only persona left whose
         // list has a shape to lose.
         let segments = BinderSegmentPicker.visibleSegments(
-            persona: .plan, projectType: .novel, hasTrash: false, findActive: false)
+            persona: .plan, projectType: .novel, hasTrash: false)
         XCTAssertEqual(segments, [.canvas, .tree, .research, .palette])
         XCTAssertFalse(segments.contains(.trash))
         XCTAssertFalse(segments.contains(.find))
@@ -220,7 +227,7 @@ final class PersonaBinderSegmentTests: XCTestCase {
         // navigation can land there. A picker with nothing highlighted is the
         // state this avoids.
         let segments = BinderSegmentPicker.visibleSegments(
-            persona: .review, projectType: .novel, hasTrash: false, findActive: false,
+            persona: .review, projectType: .novel, hasTrash: false,
             including: .palette)
         XCTAssertTrue(segments.contains(.palette))
         XCTAssertEqual(segments.first, Persona.review.binderHome(for: .novel),
@@ -241,7 +248,7 @@ final class PersonaBinderSegmentTests: XCTestCase {
                       "premise: the segment under test must be one Plan offers, "
                       + "or this exercises the append path instead")
         let segments = BinderSegmentPicker.visibleSegments(
-            persona: .plan, projectType: .novel, hasTrash: false, findActive: false,
+            persona: .plan, projectType: .novel, hasTrash: false,
             including: .palette)
         XCTAssertEqual(segments.filter { $0 == .palette }.count, 1)
     }
@@ -281,7 +288,7 @@ final class PersonaBinderSegmentTests: XCTestCase {
                 let offered = persona.binderSegments(for: type).contains(.palette)
                 let rendered = BinderSegmentPicker.visibleSegments(
                     persona: persona, projectType: type,
-                    hasTrash: false, findActive: false).contains(.palette)
+                    hasTrash: false).contains(.palette)
                 XCTAssertEqual(rendered, offered, "\(persona)/\(type)")
             }
         }
@@ -313,12 +320,12 @@ final class PersonaBinderSegmentTests: XCTestCase {
             XCTAssertTrue(
                 BinderSegmentPicker.visibleSegments(
                     persona: .plan, projectType: type,
-                    hasTrash: true, findActive: true).contains(.palette),
+                    hasTrash: true).contains(.palette),
                 "plan/\(type) cannot reach the palette wall")
             XCTAssertFalse(
                 BinderSegmentPicker.visibleSegments(
                     persona: .author, projectType: type,
-                    hasTrash: true, findActive: true).contains(.palette),
+                    hasTrash: true).contains(.palette),
                 "author/\(type) — the wall is one ⌘1 away, not a segment")
         }
 
@@ -359,7 +366,7 @@ final class PersonaBinderSegmentTests: XCTestCase {
             for persona in Persona.allCases {
                 let rendered = BinderSegmentPicker.visibleSegments(
                     persona: persona, projectType: type,
-                    hasTrash: false, findActive: false, including: .palette)
+                    hasTrash: false, including: .palette)
                 XCTAssertTrue(rendered.contains(.palette),
                               "\(persona)/\(type): a ui-state.json from before "
                               + "task 6b lands here")

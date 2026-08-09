@@ -306,7 +306,7 @@ private struct StructureCreationProbeView: View {
     @State private var researchId: String?
     @State private var paletteCardId: String?
     @State private var renamingItemId: String?
-    @State private var findActive = false
+    @State private var treeFindActive = false
 
     init(store: ProjectStore, persona: Persona, segment: BinderSegment) {
         self.store = store
@@ -326,7 +326,7 @@ private struct StructureCreationProbeView: View {
                     selectedPaletteCardId: $paletteCardId,
                     projectType: store.manifest.type,
                     lastParsedScript: nil,
-                    findActive: $findActive,
+                    treeFindActive: $treeFindActive,
                     persona: persona)
             case .collection:
                 CollectionBinderPaneToggle(
@@ -335,7 +335,7 @@ private struct StructureCreationProbeView: View {
                     selectedSubject: $subject,
                     selectedResearchId: $researchId,
                     selectedPaletteCardId: $paletteCardId,
-                    findActive: $findActive,
+                    treeFindActive: $treeFindActive,
                     renamingItemId: $renamingItemId,
                     activePiece: nil,
                     onAddSharedNote: {},

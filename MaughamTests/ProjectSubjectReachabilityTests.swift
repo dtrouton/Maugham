@@ -543,7 +543,7 @@ private struct BinderShellProbeView: View {
     @State private var segment: BinderSegment
     @State private var researchId: String?
     @State private var paletteCardId: String?
-    @State private var findActive = false
+    @State private var treeFindActive = false
     @State private var renamingItemId: String?
 
     /// - Parameter segment: which binder segment to mount. Defaults to the
@@ -574,7 +574,7 @@ private struct BinderShellProbeView: View {
                     selectedPaletteCardId: $paletteCardId,
                     projectType: store.manifest.type,
                     lastParsedScript: script,
-                    findActive: $findActive,
+                    treeFindActive: $treeFindActive,
                     persona: persona)
             case .collection:
                 CollectionBinderPaneToggle(
@@ -583,7 +583,7 @@ private struct BinderShellProbeView: View {
                     selectedSubject: subject,
                     selectedResearchId: $researchId,
                     selectedPaletteCardId: $paletteCardId,
-                    findActive: $findActive,
+                    treeFindActive: $treeFindActive,
                     renamingItemId: $renamingItemId,
                     activePiece: nil,
                     onAddSharedNote: {},
