@@ -194,38 +194,33 @@ final class PublicationsCharacterization: XCTestCase {
         XCTAssertTrue(inFlight.isEmpty, "the dry-run job is terminal")
     }
 
-    /// M7-PB-005, M7-PB-006 — the thrown half is NOT validate-first, and it is
-    /// silent about what it left. With the catalog append made to throw (a
-    /// directory squatting on this device's publications JSONL path), the
-    /// compile has already written the export AND the snapshot; the error that
-    /// reaches the caller names neither, and the job record stays
-    /// `.inProgress` forever — `compile_status` reports a dead compile as
-    /// still compiling.
-    func test_aThrowAfterMutationStrandsTheJobAndSaysNothingAboutWhatLanded() async throws {
+    /// M7-PB-005, M7-PB-006 — fixed under RULING-7 + RULING-52 (2026-08-09):
+    /// a failure after the first durable mutation surfaces as `.failed` with
+    /// the DurableProgress ledger naming what landed (the export, the
+    /// snapshot) and what did not, and the job record is terminal — never
+    /// stranded `.inProgress` about a dead compile.
+    func test_aFailureAfterMutationNamesWhatLandedAndTheJobIsTerminal() async throws {
         let (orch, cfg, _, jobs) = try await makeOrchestrator()
         try await cfg.save(PublishConfig(metadata: .init(title: "Pin", author: "T")))
-        // Sabotage: the device's own catalog file path becomes a directory.
+        // Injection: the device's own catalog file path becomes a directory,
+        // so the append throws AFTER the export and snapshot have landed.
         let catalogURL = PublicationStore.fileURL(
             deviceSlug: DeviceSlug.make(from: MacDeviceID.current), in: tmp)
         try FileManager.default.createDirectory(
             at: catalogURL, withIntermediateDirectories: true)
 
-        var thrown: Error?
-        do { _ = try await orch.compile(format: .epub, label: nil) }
-        catch { thrown = error }
-        let error = try XCTUnwrap(thrown, "the append must throw through compile")
-
-        XCTAssertEqual(try exportFiles().count, 1,
-                       "M7-PB-006: the export is already in Exports/")
-        XCTAssertEqual(try snapshotFiles().count, 1,
-                       "M7-PB-006: the snapshot is already persisted")
-        let message = String(describing: error)
-        XCTAssertFalse(message.contains("Exports"),
-                       "M7-PB-006: the error names nothing that landed — found: \(message)")
+        let outcome = try await orch.compile(format: .epub, label: nil)
+        guard case .failed(let errors, _) = outcome else {
+            return XCTFail("M7-PB-005: the thrown error surfaces as .failed, got \(outcome)")
+        }
+        XCTAssertEqual(try exportFiles().count, 1, "the export landed")
+        XCTAssertEqual(try snapshotFiles().count, 1, "the snapshot landed")
+        let context = (errors.first?.contextLines ?? []).joined(separator: "\n")
+        XCTAssertTrue(context.contains("Exports/") && context.lowercased().contains("snapshot"),
+                      "M7-PB-006: the failure names both — found: \(context)")
         let inFlight = await jobs.allInProgress()
-        XCTAssertEqual(inFlight.count, 1,
-                       "M7-PB-005: the job is stranded in_progress — a poller is "
-                       + "told a dead compile is still running")
+        XCTAssertTrue(inFlight.isEmpty,
+                      "M7-PB-005: the job is terminal — compile_status tells the truth")
     }
 
     /// M7-PB-007 — the commit order is append-then-bump, so a version-bump
@@ -250,47 +245,47 @@ final class PublicationsCharacterization: XCTestCase {
                       + "is gone, restate M7-PB-007 against whatever replaced it")
     }
 
-    /// M7-PB-009 — cancellation is advisory and the terminal write wins: a
-    /// cancelled job is reported cancelled, nothing polls the token
-    /// (`isCancelled` has no production caller), and a compile that finishes
-    /// anyway OVERWRITES `.cancelled` with `.completed` — the writer told
-    /// "cancelled" gets a publication.
-    func test_cancelIsAdvisoryAndTheFinishingCompileOverwritesIt() async throws {
+    /// M7-PB-009 — fixed under RULING-22 (2026-08-09): the writer's cancel
+    /// STANDS. A late terminal write never overwrites `.cancelled`, and the
+    /// token census now expects the two production pollers (the orchestrator's
+    /// and the republisher's pre-commit checks) that make "cancelled" mean
+    /// nothing was published.
+    func test_cancelStandsAndTheTokenHasItsPreCommitPollers() async throws {
         let jobs = CompileJobManager()
         let id = await jobs.register(phase: .renderingBody)
-        let result = await jobs.cancel(jobID: id)
-        XCTAssertEqual(result, .cancelled)
+        let cancelResult = await jobs.cancel(jobID: id)
+        XCTAssertEqual(cancelResult, .cancelled)
         await jobs.complete(jobID: id, outputPath: "/x", warnings: [], errors: [])
         let job = await jobs.get(jobID: id)
-        guard case .completed = try XCTUnwrap(job).status else {
-            return XCTFail("pin the overwrite: .cancelled was replaced by .completed")
+        guard case .cancelled = try XCTUnwrap(job).status else {
+            return XCTFail("a late complete overwrote .cancelled")
         }
-        // The census half: nothing in production polls the token.
+        // The census half: the token is polled where it matters — before the
+        // durable commit in BOTH pipelines.
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent()
         let grep = Process()
         grep.executableURL = URL(fileURLWithPath: "/usr/bin/grep")
-        grep.arguments = ["-rn", "isCancelled(jobID:", "--include=*.swift",
+        grep.arguments = ["-rl", "isCancelled(jobID:", "--include=*.swift",
                           root.appendingPathComponent("Maugham").path]
         let pipe = Pipe()
         grep.standardOutput = pipe
         try grep.run()
         grep.waitUntilExit()
-        let hits = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
-                          encoding: .utf8) ?? ""
-        let callers = hits.split(separator: "\n")
-            .filter { !$0.contains("CompileJobManager.swift") }
-        XCTAssertTrue(callers.isEmpty,
-                      "M7-PB-009's census: isCancelled has no production caller "
-                      + "beyond its own declaration — found: \(callers)")
+        let hits = (String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                           encoding: .utf8) ?? "")
+            .split(separator: "\n").map { ($0 as NSString).lastPathComponent }
+            .sorted()
+        XCTAssertEqual(hits, ["CompileJobManager.swift", "CompileOrchestrator.swift",
+                              "Republisher.swift"],
+                       "the declaration and its two pre-commit pollers — found: \(hits)")
     }
 
-    /// M7-PB-010 — a preview with no publish config fails its job and then
-    /// reports SUCCESS to its caller: `Result(outputPath: "", errors: [])`,
-    /// which the tool renders as {status: completed, output_path: ""} — the
-    /// "no config" reason never reaches the caller.
-    func test_aPreviewWithNoConfigFailsTheJobAndReportsSuccessToTheCaller() async throws {
+    /// M7-PB-010 — fixed under RULING-7 (2026-08-09): a preview with no
+    /// publish config carries its cause in `Result.errors`, so the tool
+    /// renders the failed shape — one call, one answer.
+    func test_aPreviewWithNoConfigReportsItsCauseAsAFailure() async throws {
         let jobs = CompileJobManager()
         let preview = PreviewCompiler(
             projectURL: tmp, astSource: Src(),
@@ -299,20 +294,20 @@ final class PublicationsCharacterization: XCTestCase {
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
         let result = try await preview.preview(format: .epub, sectionIDs: nil, maxPages: nil)
         XCTAssertEqual(result.outputPath, "")
-        XCTAssertTrue(result.errors.isEmpty,
-                      "the empty error list is what the tool reads as success")
+        XCTAssertTrue(result.errors.first?.message.contains("config") == true,
+                      "the cause reaches the caller — found: "
+                      + String(describing: result.errors.first?.message))
         let inFlight = await jobs.allInProgress()
-        XCTAssertTrue(inFlight.isEmpty, "while the JOB was failed — two answers "
-                      + "to one question, from one call")
+        XCTAssertTrue(inFlight.isEmpty, "and the job agrees: terminal, failed")
     }
 
-    /// M7-PB-008 — the compile path's delete-then-move: with a filename
-    /// template that omits {version}, a second source compile renders the SAME
-    /// filename and DELETES the first record's bytes before moving its own in
-    /// — falsifying M7-PB-001's byte-survival fact on that configuration. The
-    /// republish path refuses an occupied destination; the compile path does
-    /// not.
-    func test_aTemplateWithoutVersionLetsALaterCompileReplaceAnEarlierRecordsBytes() async throws {
+    /// M7-PB-008 — fixed under RULING-8 (2026-08-09): the compile path
+    /// refuses an occupied destination exactly as the republish path does,
+    /// so a template without {version} can no longer let a later compile
+    /// replace an earlier record's bytes. Previews keep overwriting their
+    /// own output — that half is deliberate and pinned in
+    /// `PreviewCompilerTests.testPreview_overwritesItsOwnPriorOutput`.
+    func test_anOccupiedDestinationRefusesAndTheEarlierRecordsBytesSurvive() async throws {
         let (orch, cfg, pubStore, _) = try await makeOrchestrator()
         var config = PublishConfig(metadata: .init(title: "Pin", author: "T"))
         config.outputs.filenameTemplate = "{title}.{ext}"
@@ -323,22 +318,22 @@ final class PublicationsCharacterization: XCTestCase {
         let firstURL = tmp.appendingPathComponent(first.outputPath)
         let firstBytes = try Data(contentsOf: firstURL)
 
-        guard case .completed(let second, _) = try await orch.compile(format: .epub, label: nil)
-        else { return XCTFail("second compile failed") }
-        XCTAssertEqual(second.outputPath, first.outputPath,
-                       "same filename — the template carries no {version}")
-        XCTAssertNotEqual(try Data(contentsOf: firstURL), firstBytes,
-                          "M7-PB-008: the first record's bytes were replaced — "
-                          + "its catalog row now points at the second edition's "
-                          + "bytes, the disagreement RULING-8 forbids")
+        let outcome = try await orch.compile(format: .epub, label: nil)
+        guard case .failed(let errors, _) = outcome else {
+            return XCTFail("expected the occupied refusal, got \(outcome)")
+        }
+        XCTAssertTrue(errors.first?.message.contains("refusing to overwrite") == true)
+        XCTAssertEqual(try Data(contentsOf: firstURL), firstBytes,
+                       "the first record's bytes survive — the catalog and the "
+                       + "disk keep agreeing")
         let catalog = try await pubStore.load()
-        XCTAssertEqual(catalog.count, 2, "two rows, one file")
+        XCTAssertEqual(catalog.count, 1, "and no second row was minted")
     }
 
-    /// M7-PB-011 — the completion event has ONE post site, in
-    /// `CompileOrchestrator`: a republish never posts it, so the Exports pane
-    /// refreshes after a compile and not after a republish.
-    func test_theCompletionEventIsPostedByTheOrchestatorOnly() throws {
+    /// M7-PB-011 — fixed under RULING-8 (2026-08-09): BOTH pipelines post the
+    /// completion event, so the Exports pane refreshes after a republish the
+    /// same as after a compile.
+    func test_theCompletionEventIsPostedByBothPipelines() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -362,8 +357,8 @@ final class PublicationsCharacterization: XCTestCase {
                 return content.contains("MaughamEvent.post(\n            .maughamPublicationCompleted")
                     || content.contains("MaughamEvent.post(.maughamPublicationCompleted")
             }
-        XCTAssertEqual(posters.map { ($0 as NSString).lastPathComponent },
-                       ["CompileOrchestrator.swift"],
-                       "M7-PB-011: one poster; Republisher is not it")
+        XCTAssertEqual(posters.map { ($0 as NSString).lastPathComponent }.sorted(),
+                       ["CompileOrchestrator.swift", "Republisher.swift"],
+                       "M7-PB-011: both pipelines post it")
     }
 }

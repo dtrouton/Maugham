@@ -53,6 +53,30 @@ final class CompileJobManagerTests: XCTestCase {
         XCTAssertEqual(cancel, .alreadyCompleted)
     }
 
+    /// RULING-22 (fix for M7-PB-009): the writer's cancel is the record that
+    /// stands — a compile that finishes anyway must not overwrite `.cancelled`
+    /// with `.completed` (or `.failed`, or `.dryRunPassed`).
+    func testCancel_survivesALateTerminalWrite() async {
+        let m = CompileJobManager()
+        let id = await m.register(phase: .renderingBody)
+        _ = await m.cancel(jobID: id)
+        await m.complete(jobID: id, outputPath: "/x", warnings: [], errors: [])
+        var job = await m.get(jobID: id)
+        if case .cancelled = job?.status {} else {
+            XCTFail("complete overwrote .cancelled: \(String(describing: job?.status))")
+        }
+        await m.fail(jobID: id, errors: [], logExcerpt: "late")
+        job = await m.get(jobID: id)
+        if case .cancelled = job?.status {} else {
+            XCTFail("fail overwrote .cancelled: \(String(describing: job?.status))")
+        }
+        await m.completeDryRun(jobID: id, warnings: [])
+        job = await m.get(jobID: id)
+        if case .cancelled = job?.status {} else {
+            XCTFail("completeDryRun overwrote .cancelled: \(String(describing: job?.status))")
+        }
+    }
+
     func testCancel_alreadyCompleted_returnsAlreadyCompleted() async {
         let mgr = CompileJobManager()
         let id = await mgr.register(phase: .compiling)

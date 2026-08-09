@@ -45,6 +45,12 @@ enum CompileResponseEncoder {
                 "status": "dry_run_passed",
                 "warnings": warnings.map { encode(diag: $0) }
             ], options: [.sortedKeys])
+        case .cancelled:
+            // The same shape compile_cancel and a cancelled compile_status
+            // report — the writer's instruction stood, nothing was published.
+            return try JSONSerialization.data(withJSONObject: [
+                "status": "cancelled"
+            ], options: [.sortedKeys])
         }
     }
 

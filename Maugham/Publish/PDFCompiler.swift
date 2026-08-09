@@ -20,6 +20,11 @@ public struct PDFCompiler {
     /// `\MaughamLanguage`) comes from `config.metadata`, which the orchestrator
     /// has already folded to the edition.
     public let language: String?
+    /// Whether an existing file at the destination is replaced. **False by
+    /// default — the compile path REFUSES an occupied destination** (RULING-8,
+    /// M7-PB-008), matching the republish path's rule; only previews pass
+    /// true, because a preview's whole flow reuses its own filenames.
+    public let replacesExistingOutput: Bool
 
     public init(
         projectURL: URL,
@@ -28,7 +33,8 @@ public struct PDFCompiler {
         jobManager: CompileJobManager,
         maughamVersion: String,
         jobID: String? = nil,
-        language: String? = nil
+        language: String? = nil,
+        replacesExistingOutput: Bool = false
     ) throws {
         self.projectURL = projectURL
         self.astSource = astSource
@@ -37,6 +43,7 @@ public struct PDFCompiler {
         self.maughamVersion = maughamVersion
         self.jobID = jobID
         self.language = language
+        self.replacesExistingOutput = replacesExistingOutput
     }
 
     /// Full PDF compile.
@@ -127,6 +134,13 @@ public struct PDFCompiler {
             at: exports, withIntermediateDirectories: true)
         let dest = exports.appendingPathComponent(filename)
         if FileManager.default.fileExists(atPath: dest.path) {
+            guard replacesExistingOutput else {
+                let diag = OutputFilenameBuilder.occupiedDestinationRefusal(
+                    destination: dest, projectURL: projectURL)
+                return Result(outputPath: "",
+                              warnings: warnings, errors: errors + [diag],
+                              logExcerpt: "output_path_occupied: \(dest.lastPathComponent)")
+            }
             try FileManager.default.removeItem(at: dest)
         }
         try FileManager.default.moveItem(at: generated, to: dest)

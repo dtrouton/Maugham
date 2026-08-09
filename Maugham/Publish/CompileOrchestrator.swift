@@ -1,6 +1,28 @@
 import Foundation
 import MaughamCore
 
+/// RULING-52's ledger (M7-PB-005/006/007): what a compile or republish has
+/// already durably changed, written down AS it lands so a failure after the
+/// first mutation can say what it did as well as what failed. Deliberately
+/// not tracking `build/` intermediates or the EMISSION.md refresh — both are
+/// regenerable app-owned artifacts (M7-PB-004's filing); this ledger carries
+/// only what the writer would need to know survived.
+final class DurableProgress: @unchecked Sendable {
+    private(set) var landed: [String] = []
+    func record(_ what: String) { landed.append(what) }
+
+    /// The RULING-52 sentence, as diagnostic context: what landed, and that
+    /// everything else did not.
+    var reportLines: [String] {
+        guard !landed.isEmpty else {
+            return ["Nothing durable had been written when this failed — the project is unchanged."]
+        }
+        return ["This failed partway. What already landed and SURVIVES:"]
+            + landed.map { "  • \($0)" }
+            + ["Everything not listed did not happen."]
+    }
+}
+
 public struct CompileOrchestrator {
 
     public enum Outcome: Sendable {
@@ -11,6 +33,11 @@ public struct CompileOrchestrator {
         /// bumped. Carries the same gate warnings a real compile would ride out
         /// on its success path.
         case dryRunPassed(warnings: [TectonicLogParser.Diagnostic])
+        /// RULING-22 (M7-PB-009): the writer cancelled while the compile was
+        /// rendering, and the cancel WON — nothing durable was committed. The
+        /// job record stays `.cancelled` (the terminal guard in
+        /// `CompileJobManager` keeps a late finish from overwriting it).
+        case cancelled
     }
 
     public let projectURL: URL
@@ -309,18 +336,34 @@ public struct CompileOrchestrator {
         // append, the config save); a reservation leaked on a thrown error is
         // permanent for the life of the process, which would be a worse
         // failure than the duplicate this gate exists to prevent.
+        let progress = DurableProgress()
         do {
             let outcome = try await compileReserved(
                 format: format, label: label, language: language,
                 allowStale: allowStale, dryRun: dryRun, jobID: jobID,
                 config: config, effective: effective,
                 effectiveVersion: effectiveVersion,
-                emitSource: emitSource, excludedSectionIDs: excludedSectionIDs)
+                emitSource: emitSource, excludedSectionIDs: excludedSectionIDs,
+                progress: progress)
             if !dryRun { await mintGate.release(mintKey) }
             return outcome
         } catch {
             if !dryRun { await mintGate.release(mintKey) }
-            throw error
+            // RULING-52 + RULING-7 (M7-PB-005/006/007): a thrown error used to
+            // escape as a raw internal_error with the job stranded
+            // .inProgress forever — a dead compile reported as still
+            // compiling, and nothing anywhere naming the export and snapshot
+            // that had already landed. The failure now says what it did as
+            // well as what failed, and the job is terminal.
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: String(describing: error),
+                contextLines: progress.reportLines)
+            await jobManager.fail(
+                jobID: jobID, errors: [diag],
+                logExcerpt: "thrown_after_start: \(error)")
+            return .failed(errors: [diag],
+                           logExcerpt: "thrown_after_start: \(error)")
         }
     }
 
@@ -338,7 +381,8 @@ public struct CompileOrchestrator {
         effective: PublishConfig,
         effectiveVersion: String,
         emitSource: ProjectASTBuilder.Source,
-        excludedSectionIDs: Set<String>
+        excludedSectionIDs: Set<String>,
+        progress: DurableProgress
     ) async throws -> Outcome {
         // Task 9: translation coverage gate. A translated edition
         // (`language != nil`) must not ship a book whose translation lags the
@@ -421,8 +465,23 @@ public struct CompileOrchestrator {
             return .failed(errors: errors, logExcerpt: logExcerpt)
         }
 
+        // RULING-22 (M7-PB-009): the last exit before anything durable is
+        // committed. A cancel that landed during rendering is honoured HERE —
+        // no snapshot, no catalog row, no event, no version bump; the output
+        // file the compiler already moved is below in `Exports/` only on the
+        // PDF/EPUB success path, and stopping before the catalog append is
+        // what keeps a cancelled compile from PUBLISHING. `isCancelled` had a
+        // zero-caller census before this line — the token existed and nothing
+        // polled it, so "cancelled" published anyway.
+        if await jobManager.isCancelled(jobID: jobID) {
+            try? FileManager.default.removeItem(atPath: outputPath)
+            return .cancelled
+        }
+        progress.record("the compiled output, at \(relativePath(outputPath, from: projectURL))")
+
         // Persist snapshot.
         try snapshotStore.save(snap)
+        progress.record("the publish snapshot \(snap.snapshotID) (under .maugham/publications/)")
 
         // Build Publication record.
         let pubIDSuffix = String(UUID().uuidString.lowercased().prefix(12))
@@ -448,6 +507,8 @@ public struct CompileOrchestrator {
         // two-phase commit or a "pending publication" record promoted on
         // success of both writes.
         try await publicationStore.append(pub)
+        progress.record("the catalog row: v\(effectiveVersion) \(format.rawValue) "
+                        + "(\(pub.publicationID)) — list_publications can see it")
 
         // Notify in-app surfaces (e.g. ExportsListView) that a new publication
         // landed so they can refresh. Project-scoped at the post (ADR 0021):
@@ -468,6 +529,7 @@ public struct CompileOrchestrator {
             nextConfig.nextVersion = PublishConfigValidator.bumpedNextVersion(
                 from: config.nextVersion)
             try await configStore.save(nextConfig)
+            progress.record("next_version advanced to \(nextConfig.nextVersion)")
         }
 
         // Gate warnings (allow_stale fallbacks + fountain drift) ride alongside

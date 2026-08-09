@@ -158,18 +158,34 @@ public struct Republisher {
         // own method so the release has exactly two sites and covers the
         // throwing calls (the compilers, the stage→Exports move, the snapshot
         // re-save, the catalog append) as well as the returns.
+        let progress = DurableProgress()
         do {
             let outcome = try await republishReserved(
                 snap: snap, format: format, label: label, jobID: jobID,
                 effective: effective, newVersion: newVersion,
                 priorVersion: priorVersion, language: language,
                 allowStale: allowStale, emitSource: emitSource,
-                excludedSectionIDs: excludedSectionIDs, stage: stage)
+                excludedSectionIDs: excludedSectionIDs, stage: stage,
+                progress: progress)
             await mintGate.release(mintKey)
             return outcome
         } catch {
             await mintGate.release(mintKey)
-            throw error
+            // RULING-52 + RULING-7 (M7-PB-005/006), the same conversion
+            // `CompileOrchestrator.compile` makes: the failure says what it
+            // did as well as what failed, and the job is terminal. Throws
+            // BEFORE the reservation (snapshot load, config validation, the
+            // stage extract) still propagate — nothing durable has moved and
+            // no job exists yet for the early ones.
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: String(describing: error),
+                contextLines: progress.reportLines)
+            await jobManager.fail(
+                jobID: jobID, errors: [diag],
+                logExcerpt: "thrown_after_start: \(error)")
+            return .failed(errors: [diag],
+                           logExcerpt: "thrown_after_start: \(error)")
         }
     }
 
@@ -189,7 +205,8 @@ public struct Republisher {
         allowStale: Bool,
         emitSource: ProjectASTBuilder.Source,
         excludedSectionIDs: Set<String>,
-        stage: URL
+        stage: URL,
+        progress: DurableProgress
     ) async throws -> Outcome {
         // Task 9 F1: the snapshot freezes config/templates only — `astSource`
         // still reads the LIVE ProjectStore for manuscript/translation content
@@ -253,6 +270,14 @@ public struct Republisher {
             return .failed(errors: errors, logExcerpt: logExcerpt)
         }
 
+        // RULING-22 (M7-PB-009), the same exit `CompileOrchestrator` takes:
+        // the compiled artifact so far exists only in the stage, which the
+        // caller's `defer` removes — so honouring the cancel here costs
+        // nothing durable and keeps a cancelled republish from publishing.
+        if await jobManager.isCancelled(jobID: jobID) {
+            return .cancelled
+        }
+
         // Move output from stage to real project's Exports/.
         let stageOutputURL = URL(fileURLWithPath: outputPath)
         let exports = projectURL.appendingPathComponent(
@@ -282,6 +307,7 @@ public struct Republisher {
             return .failed(errors: [diag], logExcerpt: "output_path_occupied: \(rel)")
         }
         try FileManager.default.moveItem(at: stageOutputURL, to: dest)
+        progress.record("the republished output, at \(relativePath(dest.path, from: projectURL))")
 
         // Re-persist snapshot (idempotent — the file already exists).
         try snapshotStore.save(snap)
@@ -302,6 +328,17 @@ public struct Republisher {
             language: language,
             allowStale: allowStale)
         try await publicationStore.append(pub)
+        progress.record("the catalog row: v\(newVersion) \(format.rawValue) (\(pub.publicationID))")
+
+        // The Exports pane refreshes on this event, and a republish lands a
+        // publication the same as a compile does — same post, same scope
+        // (RULING-8, M7-PB-011; before this the pane answered "does this
+        // edition exist?" differently from the catalog until something else
+        // triggered a rescan).
+        MaughamEvent.post(
+            .maughamPublicationCompleted,
+            to: .project(for: projectURL),
+            object: pub.publicationID)
 
         // Gate warnings (allow-stale fallbacks) ride alongside the
         // compiler's own warnings on the success path, matching
