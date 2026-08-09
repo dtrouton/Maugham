@@ -49,6 +49,17 @@ enum TreeSectionDerivation {
         let semantic: Semantic
 
         static let empty = PieceFold(items: [], semantic: .none)
+
+        /// Whether the tree draws this piece's row as a `DisclosureGroup`
+        /// (Task 6). **Two questions, and the tree asks both**: a document
+        /// that cannot fold at all (`.none`) and one that folds onto nothing
+        /// yet are different facts about the manifest, but they are the same
+        /// row on screen — a chevron opening onto nothing is noise, and on a
+        /// novel whose writer has linked no research it would be noise on
+        /// every chapter. The empty fold is not a dead end: the piece row
+        /// stays a drop target (Task 7), which is the affordance for the
+        /// first item.
+        var showsDisclosure: Bool { semantic != .none && !items.isEmpty }
     }
 
     /// Derives a document's fold from `ProjectStore.researchRouting`'s pure
@@ -68,9 +79,28 @@ enum TreeSectionDerivation {
         research: [ResearchItem],
         projectType: ProjectType
     ) -> PieceFold {
-        guard let item = TreeWalk.find(id: docId, in: structure),
-              let routing = try? ProjectStore.researchRouting(for: item, projectType: projectType)
-        else { return .empty }
+        guard let item = TreeWalk.find(id: docId, in: structure) else { return .empty }
+        return pieceFold(for: item, structure: structure,
+                         research: research, projectType: projectType)
+    }
+
+    /// The same fold, over an item the caller already has.
+    ///
+    /// **The binder tree draws one row per structure item and asks for that
+    /// item's fold**, so the by-id spelling above would walk the whole
+    /// structure to find the very item the row was handed — one walk becoming
+    /// N, on the window's body path. `ProjectStore.researchRouting` was split
+    /// for exactly this reason and records the same measurement; this is that
+    /// split carried one level up, so the tree's per-row cost is the fold's
+    /// own work and not a search for its subject.
+    static func pieceFold(
+        for item: StructureItem,
+        structure: [StructureItem],
+        research: [ResearchItem],
+        projectType: ProjectType
+    ) -> PieceFold {
+        guard let routing = try? ProjectStore.researchRouting(
+            for: item, projectType: projectType) else { return .empty }
 
         switch routing {
         case .pieceFolder(let pieceId):
@@ -78,9 +108,14 @@ enum TreeSectionDerivation {
                 forDocumentId: pieceId, structure: structure,
                 research: research, projectType: projectType)
             return PieceFold(items: items, semantic: .contained)
-        case .sharedPlusLink(let documentId):
-            let ids = ProjectStore.findItemLinks(documentId: documentId, in: structure) ?? []
-            let items = ids.compactMap { TreeWalk.find(id: $0, in: research) }
+        case .sharedPlusLink:
+            // The document's own `linkedResearchIds`, read off the item rather
+            // than through `ProjectStore.findItemLinks(documentId:in:)` — that
+            // helper is `TreeWalk.find(id:).linkedResearchIds`, so asking it
+            // here would walk the whole structure again to arrive back at the
+            // item this function was handed. Same list, one walk fewer per row.
+            let items = (item.linkedResearchIds ?? [])
+                .compactMap { TreeWalk.find(id: $0, in: research) }
             return PieceFold(items: items, semantic: .linked)
         case .sharedOnly:
             return .empty

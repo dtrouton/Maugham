@@ -178,6 +178,171 @@ final class TreeSectionDerivationTests: XCTestCase {
         XCTAssertEqual(fold, .empty)
     }
 
+    // MARK: - The two spellings are one derivation
+
+    /// **The trees call `pieceFold(for:)`, so a test that only ever calls the
+    /// by-id one is testing the spelling production does not use.** The by-id
+    /// entry finds the item and hands it over; this pins that they cannot come
+    /// apart, over both routings and a document the structure does not hold.
+    func test_pieceFold_theItemSpellingAndTheIdSpellingAgree() {
+        let sarah = asset("res-sarah", title: "Sarah")
+        let chapter = document(
+            "ch-1", title: "Chapter 1", path: "manuscript/c1.md",
+            linkedResearchIds: ["res-sarah"])
+        XCTAssertEqual(
+            TreeSectionDerivation.pieceFold(
+                for: chapter, structure: [chapter],
+                research: [sarah], projectType: .novel),
+            TreeSectionDerivation.pieceFold(
+                forDocumentId: "ch-1", structure: [chapter],
+                research: [sarah], projectType: .novel))
+
+        let piece = document(
+            "piece-alpha", title: "Alpha", path: "pieces/alpha/manuscript.md",
+            pieceKind: .loose)
+        let owned = asset(
+            "res-owned", title: "Owned", path: "pieces/alpha/research/note.md")
+        XCTAssertEqual(
+            TreeSectionDerivation.pieceFold(
+                for: piece, structure: [piece],
+                research: [owned], projectType: .collection),
+            TreeSectionDerivation.pieceFold(
+                forDocumentId: "piece-alpha", structure: [piece],
+                research: [owned], projectType: .collection))
+    }
+
+    /// An item the structure does not contain. The by-id spelling cannot find
+    /// it and answers `.empty`; the item spelling is handed the item and never
+    /// searches, so it answers from the item's own links. **The difference is
+    /// deliberate and unreachable from the tree** — a row is only ever drawn
+    /// for an item the structure holds — and it is asserted rather than left
+    /// implicit because it is what says the linked fold reads the item and not
+    /// the tree a second time.
+    func test_pieceFold_theItemSpellingOnAStrangerIsStillJustItsRouting() {
+        let stranger = document(
+            "ch-gone", title: "Deleted", path: "manuscript/gone.md",
+            linkedResearchIds: ["res-sarah"])
+        let sarah = asset("res-sarah", title: "Sarah")
+        XCTAssertEqual(
+            TreeSectionDerivation.pieceFold(
+                forDocumentId: "ch-gone", structure: [],
+                research: [sarah], projectType: .novel),
+            .empty)
+        XCTAssertEqual(
+            TreeSectionDerivation.pieceFold(
+                for: stranger, structure: [],
+                research: [sarah], projectType: .novel).items.map(\.id),
+            ["res-sarah"],
+            "the item spelling answers for the item it was given — the tree "
+            + "only ever hands it a row it is drawing")
+    }
+
+    // MARK: - showsDisclosure: which folds the tree draws a chevron for (Task 6)
+
+    /// **An empty fold gets no chevron.** The semantic and the emptiness are
+    /// two different questions — `.linked` with nothing linked yet is a real
+    /// fold with nothing in it — and the tree asks both before it draws a
+    /// disclosure triangle, because a chevron that opens onto nothing is noise
+    /// on every chapter of a novel whose writer has linked nothing.
+    func test_showsDisclosure_novelChapterWithLinks() {
+        let sarah = asset("res-sarah", title: "Sarah")
+        let chapter = document(
+            "ch-1", title: "Chapter 1", path: "manuscript/c1.md",
+            linkedResearchIds: ["res-sarah"])
+        let fold = TreeSectionDerivation.pieceFold(
+            forDocumentId: "ch-1", structure: [chapter],
+            research: [sarah], projectType: .novel)
+        XCTAssertTrue(fold.showsDisclosure)
+    }
+
+    func test_showsDisclosure_novelChapterWithNoLinksYet_isFalse() {
+        let chapter = document("ch-1", title: "Chapter 1", path: "manuscript/c1.md")
+        let fold = TreeSectionDerivation.pieceFold(
+            forDocumentId: "ch-1", structure: [chapter],
+            research: [], projectType: .novel)
+        XCTAssertEqual(fold.semantic, .linked, "still a fold — just an empty one")
+        XCTAssertFalse(fold.showsDisclosure,
+                       "a chevron onto nothing is noise on every chapter")
+    }
+
+    /// The link ids resolve to nothing — same answer as no links at all, and
+    /// the one the naive `!linkedResearchIds.isEmpty` spelling gets wrong.
+    func test_showsDisclosure_novelChapterWhoseLinksAllDangle_isFalse() {
+        let chapter = document(
+            "ch-1", title: "Chapter 1", path: "manuscript/c1.md",
+            linkedResearchIds: ["res-gone"])
+        let fold = TreeSectionDerivation.pieceFold(
+            forDocumentId: "ch-1", structure: [chapter],
+            research: [], projectType: .novel)
+        XCTAssertFalse(fold.showsDisclosure)
+    }
+
+    func test_showsDisclosure_collectionLoosePieceWithOwnResearch() {
+        let piece = document(
+            "piece-alpha", title: "Alpha", path: "pieces/alpha/manuscript.md",
+            pieceKind: .loose)
+        let owned = asset(
+            "res-owned", title: "Owned Note", path: "pieces/alpha/research/note.md")
+        let fold = TreeSectionDerivation.pieceFold(
+            forDocumentId: "piece-alpha", structure: [piece],
+            research: [owned], projectType: .collection)
+        XCTAssertTrue(fold.showsDisclosure)
+    }
+
+    func test_showsDisclosure_collectionLoosePieceWithNoResearchYet_isFalse() {
+        let piece = document(
+            "piece-alpha", title: "Alpha", path: "pieces/alpha/manuscript.md",
+            pieceKind: .loose)
+        let fold = TreeSectionDerivation.pieceFold(
+            forDocumentId: "piece-alpha", structure: [piece],
+            research: [], projectType: .collection)
+        XCTAssertFalse(fold.showsDisclosure)
+    }
+
+    /// A reference piece keeps its research in its own project, so there is
+    /// nothing here to unfold even when the collection is full of research.
+    func test_showsDisclosure_collectionReferencePiece_isFalse() {
+        let piece = document(
+            "piece-ref", title: "Reference", path: "pieces/ref/manuscript.md",
+            pieceKind: .reference)
+        let fold = TreeSectionDerivation.pieceFold(
+            forDocumentId: "piece-ref", structure: [piece],
+            research: [asset("res-1", title: "Note")], projectType: .collection)
+        XCTAssertFalse(fold.showsDisclosure)
+    }
+
+    /// Single-document types: everything in Research is already this
+    /// document's, so folding it under the document row would draw every note
+    /// twice. Asserted per project type because that is the contract's shape.
+    func test_showsDisclosure_shortStory_isFalse() {
+        let doc = document("doc-1", title: "Story", path: "manuscript/story.md")
+        let fold = TreeSectionDerivation.pieceFold(
+            forDocumentId: "doc-1", structure: [doc],
+            research: [asset("res-1", title: "Note")], projectType: .shortStory)
+        XCTAssertFalse(fold.showsDisclosure)
+    }
+
+    func test_showsDisclosure_screenplay_isFalse() {
+        let doc = document("doc-1", title: "Script", path: "manuscript/script.fountain")
+        let fold = TreeSectionDerivation.pieceFold(
+            forDocumentId: "doc-1", structure: [doc],
+            research: [asset("res-1", title: "Note")], projectType: .screenplay)
+        XCTAssertFalse(fold.showsDisclosure,
+                       "and so the scene navigator needs no fold work at all")
+    }
+
+    /// A structure GROUP is not a document, so it never folds — its own
+    /// disclosure triangle already belongs to its children.
+    func test_showsDisclosure_structureGroup_isFalse() {
+        let child = document("ch-1", title: "Chapter 1", path: "manuscript/c1.md",
+                             linkedResearchIds: ["res-1"])
+        let structureGroup = group("grp-1", title: "Act One", children: [child])
+        let fold = TreeSectionDerivation.pieceFold(
+            forDocumentId: "grp-1", structure: [structureGroup],
+            research: [asset("res-1", title: "Note")], projectType: .novel)
+        XCTAssertFalse(fold.showsDisclosure)
+    }
+
     // MARK: - pieceFold: edge cases the routing throws or can't find
 
     func test_pieceFold_unknownDocId_isNone() {

@@ -70,7 +70,7 @@ struct CollectionPiecesPane: View {
         List(selection: BinderTreeSelection.binding($selectedSubject)) {
             projectRow
             ForEach(store.manifest.structure) { piece in
-                pieceRow(for: piece)
+                pieceEntry(for: piece)
             }
             // Below the pieces — furniture at the foot of the column, with the
             // project row still row zero.
@@ -104,10 +104,13 @@ struct CollectionPiecesPane: View {
     /// `BinderView.row(for:)`'s shape, and Task 6 grows this same `ForEach`
     /// again with the per-piece research fold.
     ///
-    /// The `.tag` stays INSIDE, after the padding and before the context menu,
-    /// exactly where it was: the padding has to be part of the row the List
-    /// tags rather than a wrapper around it, and moving the tag to the call site
-    /// would have made this refactor a behaviour change.
+    /// **The `.tag` moved out to `pieceEntry(for:)` in Task 6, and only the
+    /// tag.** The padding stays inside — it has to be part of the row the List
+    /// tags rather than a wrapper around it, which is what the extraction was
+    /// careful about — but a folded piece is a `DisclosureGroup` whose LABEL is
+    /// this row, and the tag has to be on the group so its children move with
+    /// the row they belong to (`BinderView.outline` reached the same shape for
+    /// its structure groups). Tagging both would be two names for one row.
     private func pieceRow(for piece: StructureItem) -> some View {
         PieceRow(
             piece: piece,
@@ -124,11 +127,9 @@ struct CollectionPiecesPane: View {
                     targetId: piece.id,
                     position: position)
             })
-            // Inset under the project row above. Before the `.tag`, so
-            // the padding is part of the row the List tags rather than a
-            // wrapper around it.
+            // Inset under the project row above. Part of the row rather than a
+            // wrapper around it, so the List tags a row that is already inset.
             .padding(.leading, ProjectRowLabel.childIndent)
-            .tag(BinderSubject.item(piece.id))
             .contextMenu {
                 Button("Rename") {
                     renamingItemId = piece.id
@@ -145,6 +146,45 @@ struct CollectionPiecesPane: View {
                     }
                 }
             }
+    }
+
+    /// A piece's row, and — when the piece has research of its own — the fold
+    /// that research hangs in (stage-2a Task 6).
+    ///
+    /// **A loose piece's fold is CONTAINMENT**: those items live under
+    /// `pieces/<slug>/research/`, so a group in there is a group of this
+    /// piece's research and expands like one. A *reference* piece never folds —
+    /// its research lives in its own project — and that is not decided here:
+    /// `TreeSectionDerivation.pieceFold` asks `ProjectStore.researchRouting`,
+    /// the one rule, which refuses a reference piece outright.
+    ///
+    /// **An empty fold gets no chevron** (`PieceFold.showsDisclosure`) — a
+    /// triangle onto nothing on every piece of a new Collection. The row is
+    /// still where the first item lands (Task 7's drop target).
+    ///
+    /// Derived per render from the manifest, never cached (tripwire 4): the
+    /// cost is a manifest walk, not a read, and a cached fold would be a second
+    /// answer to what a piece's research is.
+    @ViewBuilder
+    private func pieceEntry(for piece: StructureItem) -> some View {
+        let fold = TreeSectionDerivation.pieceFold(
+            for: piece,
+            structure: store.manifest.structure,
+            research: store.manifest.research,
+            projectType: store.manifest.type)
+        if fold.showsDisclosure {
+            DisclosureGroup {
+                BinderPieceFold(store: store, state: treeState,
+                                selectedSubject: $selectedSubject,
+                                documentId: piece.id, fold: fold)
+            } label: {
+                pieceRow(for: piece)
+            }
+            .tag(BinderSubject.item(piece.id))
+        } else {
+            pieceRow(for: piece)
+                .tag(BinderSubject.item(piece.id))
+        }
     }
 
     /// Shown when the Collection holds no pieces — an overlay on the list rather

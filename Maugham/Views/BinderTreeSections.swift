@@ -173,21 +173,96 @@ struct BinderTreeSections: View {
 
     // MARK: - Actions
 
-    /// The one `ResearchTreeActions` bundle in the app's binder trees, wired to
-    /// the same `ProjectStore` APIs `ResearchView` and `CollectionResearchPane`
-    /// call.
+    /// The tree's verbs. See `BinderTreeVerbs` — they are a value rather than
+    /// something this view owns, because `BinderPieceFold` needs the same ones
+    /// and reaching into a `View` for them would make every fold look like a
+    /// fourth section host to `TripwireGrepTests`' pairing census.
+    var verbs: BinderTreeVerbs {
+        BinderTreeVerbs(store: store, state: state, selectedSubject: $selectedSubject)
+    }
+
+    /// The one `ResearchTreeActions` bundle in the app's binder trees.
     ///
-    /// **Scope is shared, always.** A tree's Research section is the project's
-    /// shared research in every project type; a collection piece's own research
-    /// is Task 6's fold under the piece row, and creating from this header must
-    /// not silently land there. `addResearchTextNote(parentId: nil)` is exactly
-    /// what `createResearchNote(scope: .shared)` routes to, so the two surfaces
-    /// cannot disagree.
     /// Not `private`: `BinderTreeSectionsTests` asks this bundle directly
     /// whether it accepts a drop. The drop verbs are the one thing here that a
     /// mounted test cannot drive — a real drag session is not synthesisable —
     /// so the refusal is asserted at the value the row actually returns.
-    var actions: ResearchTreeActions {
+    var actions: ResearchTreeActions { verbs.bundle }
+
+    private func addCard(kind: PaletteCard.Kind) {
+        verbs.create { try await store.addPaletteCard(
+            title: "New \(kind.rawValue)", kind: kind) }
+    }
+
+    private func refuseDrop(_ target: String, payload: String?) -> Bool {
+        verbs.refuseDrop(target, payload: payload)
+    }
+
+    private func findParentId(of childId: String) -> String? {
+        verbs.findParentId(of: childId)
+    }
+
+    /// What the Add Link sheet does with its answer — **a creation verb like any
+    /// other here, so it points the window at what it made** (fix round 1).
+    ///
+    /// A `static` taking the binding rather than a closure inside the sheet,
+    /// because the sheet's completion is not reachable from a test: the modifier
+    /// is private, a `ViewModifier`'s body cannot be driven headless, and there
+    /// is no synthesisable path from "the writer typed a URL and pressed Add" to
+    /// this code. It shipped discarding the created link, and nothing could have
+    /// caught that — this is the smallest shape that makes the write assertable
+    /// (`BinderTreeSectionsTests.test_addLinkPointsTheWindowAtTheLinkItMade`).
+    ///
+    /// Deliberately sets no `pendingRenameId`: the sheet already asked for the
+    /// title, and both old panes leave a new link out of rename mode for that
+    /// reason.
+    static func addLink(
+        title: String, url: String, parentId: String?,
+        store: ProjectStore, state: BinderTreeSectionsState,
+        selectedSubject: Binding<BinderSubject?>
+    ) async {
+        do {
+            let link = try await store.addResearchLink(
+                parentId: parentId, title: title, url: url)
+            selectedSubject.wrappedValue = .research(link.id)
+        } catch {
+            state.pendingError = error.localizedDescription
+        }
+    }
+}
+
+// MARK: - The verbs
+
+/// **The binder trees' research verbs, as a value.**
+///
+/// Every row in a tree's Research section — and, since Task 6, every row in a
+/// piece's fold — acts through one `ResearchTreeActions` bundle wired to one
+/// set of `ProjectStore` calls. Three copies of that wiring is exactly the
+/// shape CLAUDE.md means by *a copy drifts*.
+///
+/// **Why it is not a computed property on `BinderTreeSections`, where it
+/// started.** `BinderPieceFold` needs the same bundle, and the only way to ask
+/// a view for it is to construct the view — which put a `BinderTreeSections(`
+/// call in a file that mounts no section, and that is precisely the token
+/// `TripwireGrepTests.test_everyBinderTreeMountsBothHalvesOfTheSections` reads
+/// as *a host mounting rows without their presentations*. The census was right
+/// and the shape was wrong: verbs are a value, mounting is a view, and now the
+/// two cannot be confused for one another.
+///
+/// **Scope is shared, always, here.** A tree's Research section is the
+/// project's shared research in every project type; a collection piece's own
+/// research is the fold under its piece row, and creating from a section header
+/// must not silently land there. `addResearchTextNote(parentId: nil)` is
+/// exactly what `createResearchNote(scope: .shared)` routes to, so the two
+/// surfaces cannot disagree. `BinderPieceFold` re-routes the one verb for which
+/// that default is wrong — see its `actions`.
+@MainActor
+struct BinderTreeVerbs {
+    let store: ProjectStore
+    let state: BinderTreeSectionsState
+    @Binding var selectedSubject: BinderSubject?
+
+    var bundle: ResearchTreeActions {
         ResearchTreeActions(
             rename: { id, newTitle in
                 perform { try await store.updateResearchItem(id: id, title: newTitle) }
@@ -242,11 +317,6 @@ struct BinderTreeSections: View {
         perform { _ = try await store.importResearchFiles(urls, toParentId: parentId) }
     }
 
-    private func addCard(kind: PaletteCard.Kind) {
-        create { try await store.addPaletteCard(
-            title: "New \(kind.rawValue)", kind: kind) }
-    }
-
     /// Runs a store mutation, surfacing any failure in the alert the host
     /// attaches. Nothing here repairs the subject on a delete — the window's own
     /// sweep does that (`SubjectValidationModifier`, Task 2), and a second rule
@@ -266,7 +336,12 @@ struct BinderTreeSections: View {
     /// rename is deferred rather than set here — the row does not exist until
     /// the manifest change arrives, and `pendingRenameId` is committed by the
     /// host's `.onChange` when it does (the shape both old panes use).
-    private func create(_ work: @escaping () async throws -> ResearchItem) {
+    ///
+    /// Not `private`: `BinderPieceFold` re-routes exactly one creation verb
+    /// (Task 6) and calls this for the rest of what creating means, so the
+    /// tree's headers and its folds cannot come to disagree about what happens
+    /// after something is made.
+    func create(_ work: @escaping () async throws -> ResearchItem) {
         Task { @MainActor in
             do {
                 let item = try await work()
@@ -294,42 +369,14 @@ struct BinderTreeSections: View {
     /// (fix round 1).
     ///
     /// Returns `false`, always, and says why in the log.
-    private func refuseDrop(_ target: String, payload: String?) -> Bool {
+    func refuseDrop(_ target: String, payload: String?) -> Bool {
         _binderTreeSectionsLog.warning(
             "binder tree refused a drop on \(target, privacy: .public) with payload \(payload ?? "external", privacy: .public) — routing lands in stage-2a Task 7")
         return false
     }
 
-    private func findParentId(of childId: String) -> String? {
+    func findParentId(of childId: String) -> String? {
         store.findResearchParentId(of: childId, in: store.manifest.research, parent: nil)
-    }
-
-    /// What the Add Link sheet does with its answer — **a creation verb like any
-    /// other here, so it points the window at what it made** (fix round 1).
-    ///
-    /// A `static` taking the binding rather than a closure inside the sheet,
-    /// because the sheet's completion is not reachable from a test: the modifier
-    /// is private, a `ViewModifier`'s body cannot be driven headless, and there
-    /// is no synthesisable path from "the writer typed a URL and pressed Add" to
-    /// this code. It shipped discarding the created link, and nothing could have
-    /// caught that — this is the smallest shape that makes the write assertable
-    /// (`BinderTreeSectionsTests.test_addLinkPointsTheWindowAtTheLinkItMade`).
-    ///
-    /// Deliberately sets no `pendingRenameId`: the sheet already asked for the
-    /// title, and both old panes leave a new link out of rename mode for that
-    /// reason.
-    static func addLink(
-        title: String, url: String, parentId: String?,
-        store: ProjectStore, state: BinderTreeSectionsState,
-        selectedSubject: Binding<BinderSubject?>
-    ) async {
-        do {
-            let link = try await store.addResearchLink(
-                parentId: parentId, title: title, url: url)
-            selectedSubject.wrappedValue = .research(link.id)
-        } catch {
-            state.pendingError = error.localizedDescription
-        }
     }
 }
 

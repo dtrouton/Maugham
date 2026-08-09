@@ -49,9 +49,21 @@ struct ResearchTreeNode<Tag: Hashable>: View {
     /// (their `List` selects over `Set<String>`, unchanged); the binder tree
     /// (Task 4) tags `.research(item.id)` — a `BinderSubject` — instead.
     let tagFor: (ResearchItem) -> Tag
+    /// Whether a group row carries its own disclosure triangle. True
+    /// everywhere the node renders a *tree* — both research panes, and the
+    /// binder tree's Research section and its `.contained` piece folds, where a
+    /// group's children belong to the same piece its group does.
+    ///
+    /// **False for a novel chapter's `.linked` fold** (stage-2a Task 6). That
+    /// fold's rows are the chapter's `linkedResearchIds`, resolved — and a
+    /// group's children are not links, they are the group's. Expanding one
+    /// under the chapter would show the writer items as that chapter's research
+    /// on the strength of a link nothing recorded. Flat, the fold says exactly
+    /// what the manifest says.
+    var expandsGroups: Bool = true
 
     var body: some View {
-        if item.type == .group {
+        if item.type == .group, expandsGroups {
             DisclosureGroup {
                 AnyView(childNodes)
             } label: {

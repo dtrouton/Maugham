@@ -135,10 +135,52 @@ struct BinderView: View {
                 .padding(.leading, indent)
                 .tag(BinderSubject.item(item.id))
             } else {
-                row(for: item)
-                    .padding(.leading, indent)
-                    .tag(BinderSubject.item(item.id))
+                documentEntry(for: item, indent: indent)
             }
+        }
+    }
+
+    /// A document's row, and — when it has research of its own — the fold that
+    /// research hangs in (stage-2a Task 6).
+    ///
+    /// **The chevron belongs to the piece row, and the piece row is unchanged.**
+    /// `row(for:)` is the same `BinderRow` with the same context menu either
+    /// way, so a chapter that unfolds is still draggable, still renamable, and
+    /// still the subject when clicked. This is the shape the group branch above
+    /// already uses — the `.tag` and the inset go on the `DisclosureGroup` so
+    /// the children move with the row they belong to (see `outline`).
+    ///
+    /// **An empty fold gets no chevron** (`PieceFold.showsDisclosure`): a
+    /// triangle onto nothing is noise on every chapter of a novel whose writer
+    /// has linked nothing yet. The row is still where the first item lands —
+    /// Task 7 makes it a drop target.
+    ///
+    /// **Derived per render, from the manifest** (tripwire 4): the fold is a
+    /// manifest walk, never a read. Deliberately no cache — a parallel copy of
+    /// the manifest is a second source of truth for what a chapter's research
+    /// is, and `manifest.modified` is the key it would have to be built on if
+    /// profiling ever asks for one.
+    @ViewBuilder
+    private func documentEntry(for item: StructureItem, indent: CGFloat) -> some View {
+        let fold = TreeSectionDerivation.pieceFold(
+            for: item,
+            structure: store.manifest.structure,
+            research: store.manifest.research,
+            projectType: store.manifest.type)
+        if fold.showsDisclosure {
+            DisclosureGroup {
+                BinderPieceFold(store: store, state: treeState,
+                                selectedSubject: $selectedSubject,
+                                documentId: item.id, fold: fold)
+            } label: {
+                row(for: item)
+            }
+            .padding(.leading, indent)
+            .tag(BinderSubject.item(item.id))
+        } else {
+            row(for: item)
+                .padding(.leading, indent)
+                .tag(BinderSubject.item(item.id))
         }
     }
 
