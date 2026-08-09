@@ -1,5 +1,5 @@
 import XCTest
-import MaughamCore
+@testable import MaughamCore
 @testable import Maugham
 
 /// Task 14: the pure view-model logic behind the right-pane Translation segment.
@@ -142,5 +142,74 @@ final class TranslationReviewPaneLogicTests: XCTestCase {
         let anns = [query("1", language: "fr"), query("2", language: nil)]
         XCTAssertTrue(
             TranslationReviewPaneLogic.openQueries(anns, language: nil).isEmpty)
+    }
+
+    // MARK: - Orphans (Task 5)
+
+    func test_orphanRows_mapsIdAndText() {
+        let orphans = [
+            TranslationRecord(paragraphId: "zzzz", language: "es",
+                              text: "Huérfano", sourceHash: "x"),
+        ]
+        XCTAssertEqual(
+            TranslationReviewPaneLogic.orphanRows(from: orphans),
+            [TranslationReviewPaneLogic.OrphanRow(id: "zzzz", staleText: "Huérfano")])
+    }
+
+    func test_orphanRows_dropsTombstones() {
+        // Defensive: post-Phase-0 `TranslationDeriver.derive` already resolves
+        // orphans through `latestByParagraph` (tombstone removes), so this
+        // branch should be dead code by construction — kept as a backstop.
+        let orphans = [
+            TranslationRecord(paragraphId: "zzzz", language: "es",
+                              text: nil, sourceHash: "x"),
+        ]
+        XCTAssertTrue(TranslationReviewPaneLogic.orphanRows(from: orphans).isEmpty)
+    }
+
+    func test_purgeOrphans_emitsExactlyOneTombstonePerId_inOneBatch() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TRP-purge-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let slug = DeviceSlug.unsafeForTesting("maca-test")
+
+        try TranslationReviewPaneLogic.purgeOrphans(
+            ["zzzz", "yyyy"], docId: "doc1", language: "es",
+            deviceSlug: slug, projectURL: dir)
+
+        let url = TranslationStore.fileURL(
+            forDocId: "doc1", language: "es", deviceSlug: slug, in: dir)
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        let lines = contents.split(separator: "\n", omittingEmptySubsequences: true)
+        XCTAssertEqual(lines.count, 2, "one tombstone line per id, written in one batch")
+
+        let loaded = TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: dir)
+        XCTAssertEqual(loaded.count, 2)
+        XCTAssertTrue(loaded.allSatisfy { $0.text == nil })
+    }
+
+    func test_purgeOrphans_roundTrip_purgedOrphanIsAbsentFromNextDerivation() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TRP-purge-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let slug = DeviceSlug.unsafeForTesting("maca-test")
+
+        // Seed an orphan translation (its paragraph is not in `sequence`
+        // below), then purge it through the pane's action.
+        try TranslationStore.appendBatch(
+            [TranslationRecord(paragraphId: "zzzz", language: "es",
+                               text: "Huérfano", sourceHash: "x")],
+            forDocId: "doc1", language: "es", deviceSlug: slug, in: dir)
+        try TranslationReviewPaneLogic.purgeOrphans(
+            ["zzzz"], docId: "doc1", language: "es", deviceSlug: slug, projectURL: dir)
+
+        let records = TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: dir)
+        let derived = TranslationDeriver.derive(
+            records: records, sequence: ["aaaa"],
+            paragraphs: ["aaaa": "One"], language: "es")
+        XCTAssertTrue(derived.orphans.isEmpty,
+                      "the purged orphan must not reappear in the next derivation")
     }
 }

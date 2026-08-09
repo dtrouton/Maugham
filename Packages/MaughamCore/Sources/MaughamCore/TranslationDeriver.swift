@@ -71,7 +71,13 @@ public enum TranslationDeriver {
                                      status: isBlank ? .fresh : .missing, verbatim: false))
             }
         }
-        let orphans = records.filter { !inSequence.contains($0.paragraphId) }
+        // Resolved through the SAME latest-wins/tombstone-removes view `entries`
+        // comes from — never the raw record list. Otherwise a tombstone written
+        // for an orphan is itself counted as an orphan (a purge would INCREASE
+        // orphan_count), and a twice-translated deleted paragraph counts twice.
+        let orphans = latest.values
+            .filter { !inSequence.contains($0.paragraphId) }
+            .sorted { $0.paragraphId < $1.paragraphId }
         return TranslatedDocument(language: language, entries: entries, orphans: orphans)
     }
 }

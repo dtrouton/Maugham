@@ -46,6 +46,49 @@ enum TranslationReviewPaneLogic {
             $0.kind == .query && $0.status == .open && $0.language == language
         }
     }
+
+    // MARK: - Orphans (Task 5)
+
+    /// One orphaned translation row for display: the paragraph id its stale
+    /// translation was recorded against (a paragraph the manuscript no longer
+    /// has) and that translation's text.
+    struct OrphanRow: Identifiable, Equatable {
+        let id: String
+        let staleText: String
+    }
+
+    /// Map `TranslatedDocument.orphans` to display rows. Post Phase 0,
+    /// `TranslationDeriver.derive` resolves orphans through `latestByParagraph`
+    /// (latest wins, tombstone removes), so every record here already has
+    /// non-nil text — the nil-guard is a defensive backstop that should be
+    /// dead code by construction, not a load-bearing filter.
+    static func orphanRows(from orphans: [TranslationRecord]) -> [OrphanRow] {
+        orphans.compactMap { rec in
+            guard let text = rec.text else { return nil }
+            return OrphanRow(id: rec.paragraphId, staleText: text)
+        }
+    }
+
+    /// Build and persist the purge batch: one tombstone record per id, all in
+    /// a single `appendBatch` call (spec §2.2 — orphans are removed through
+    /// the same `TranslationStore` append path the rest of the Mac side uses,
+    /// never through MCP). `sourceHash` hashes the empty string: an orphan's
+    /// paragraph no longer exists, so there is no live source text to hash
+    /// against — mirrors `WriteTranslationTool`'s own delete-form record for
+    /// an id outside the current sequence (source lookup falls back to `""`).
+    static func purgeOrphans(
+        _ ids: [String], docId: String, language: String,
+        deviceSlug: DeviceSlug, projectURL: URL
+    ) throws {
+        guard !ids.isEmpty else { return }
+        let records = ids.map {
+            TranslationRecord(paragraphId: $0, language: language, text: nil,
+                              sourceHash: TranslationHash.hash(""))
+        }
+        try TranslationStore.appendBatch(
+            records, forDocId: docId, language: language,
+            deviceSlug: deviceSlug, in: projectURL)
+    }
 }
 
 /// The right-pane Translation segment (⌘⌥L). While translation review is
@@ -87,6 +130,10 @@ struct TranslationReviewPane: View {
             all, language: control.translationLanguage)
     }
 
+    private var orphanRows: [TranslationReviewPaneLogic.OrphanRow] {
+        TranslationReviewPaneLogic.orphanRows(from: control.translationBadges.orphans)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if control.translationLanguage == nil {
@@ -107,6 +154,10 @@ struct TranslationReviewPane: View {
                         sourceSection
                         Divider()
                         queriesSection
+                        if !orphanRows.isEmpty {
+                            Divider()
+                            orphansSection
+                        }
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -168,6 +219,70 @@ struct TranslationReviewPane: View {
                     TranslationQueryRow(annotation: ann) { querySheet = ann }
                     Divider()
                 }
+            }
+        }
+    }
+
+    // MARK: - Orphans (Task 5)
+
+    @ViewBuilder
+    private var orphansSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Orphans")
+                    .font(.caption.smallCaps())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Remove All") { purgeOrphans(orphanRows.map(\.id)) }
+                    .controlSize(.small)
+            }
+            ForEach(orphanRows) { row in
+                OrphanRowView(row: row) { purgeOrphans([row.id]) }
+                Divider()
+            }
+        }
+    }
+
+    /// Tombstone the given orphan ids in one batch and notify any live window
+    /// on this project so the translation surface re-derives (mirrors
+    /// `write_translation`'s own post-write notify). No confirmation sheet —
+    /// spec §2.2's deliberate choice: the data is derived-stale by
+    /// definition, recreatable by Claude, and tripwire 11's
+    /// delete-and-recreate spirit applies.
+    private func purgeOrphans(_ ids: [String]) {
+        guard let language = control.translationLanguage else { return }
+        let deviceSlug = DeviceSlug.make(from: MacDeviceID.current)
+        guard (try? TranslationReviewPaneLogic.purgeOrphans(
+            ids, docId: document.docId, language: language,
+            deviceSlug: deviceSlug, projectURL: document.opStore.projectURL)) != nil
+        else { return }
+        MaughamEvent.post(
+            .maughamTranslationDidUpdate,
+            to: .project(for: document.opStore.projectURL),
+            payload: ["document_id": document.docId, "language": language])
+    }
+}
+
+/// A single orphaned translation: the paragraph id it was translated against
+/// and the stale text, with a per-row Remove (no confirmation — see
+/// `TranslationReviewPane.purgeOrphans`).
+private struct OrphanRowView: View {
+    let row: TranslationReviewPaneLogic.OrphanRow
+    let onRemove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(row.id)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+            Text(row.staleText)
+                .font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+            HStack {
+                Spacer()
+                Button("Remove", action: onRemove)
+                    .controlSize(.small)
             }
         }
     }
