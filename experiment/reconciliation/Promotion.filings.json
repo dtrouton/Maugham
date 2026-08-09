@@ -1,0 +1,722 @@
+[
+ {
+  "claim_id": "M6-PR-002",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "the writer meets a card that cannot be promoted; what they are given is the cause in the performer's own words rather than an empty Name field over a dead button, which is what this surface shipped before blockedReason answered for it",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-003",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "a refusal, and the cause it names is the true one — the reference already exists as itself — rather than the empty-body sentence the fall-through would have produced about a picture",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-007",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "the same refusal one row down, and the noun is the region's own: 'There is nothing in this card to promote.' said over a region would misname what failed",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-008",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "the refusal states the real precedence rule (a line is scratch until both ends are durable) rather than reporting the empty target list as an unexplained absence",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-009",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "two states with two causes: a card that was never promoted and one whose artifact has been deleted are given different sentences, so neither writer is told to do what they already did",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-010",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "the refusal names the real constraint — a wiki-link joins two cards of text — rather than the generic promote-both-first sentence, which is false of an item node",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-028",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "a preview that read 'research/' for an association the router will refuse would state a destination that is not the real one; this states the real state of affairs instead",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-041",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "the refusal names the missing artifact by id and is thrown before any write, so the failure is reported as what it is",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-042",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "the refusal names what the artifact IS now and says explicitly that Maugham did not write over it — the cause, and the consequence, both true",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-043",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "a blank name is refused with the real cause at the moment of the act",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-050",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "the second link is refused against the live file with the true cause, and the destination is left byte-identical, so the refusal describes what happened",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-054",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "a plan with no picture refuses rather than substituting a file, and the sentence names the real cause",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-055",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "both refusals are true, and the order chosen is the one that names the cause the writer cannot work around — a missing file kills the promotion whatever card is picked",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-056",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "the subject of the sentence follows what the writer actually selected, so the refusal does not point at a card they never chose",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-066",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "the refusal is raised where the writer can act on it instead of letting ProjectStoreError's own sentence — which names an id and describes the store — reach them",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-067",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
+  "why_in_scope": "the second half of the refusal names only a control that exists on the arm the writer is looking at; offering a Piece picker an ItemInspector does not have would be a refusal whose stated remedy is false",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-013",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "the preview is the whole basis of the writer's expectation on this surface; it can only be honest if producing it changes nothing, and it changes nothing",
+  "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-025",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "the writer forms their expectation of WHERE this is filed from this sentence, and each row states the routing that will actually be taken (pinned end-to-end for the novel-chapter row by M6-PR-069)",
+  "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-026",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "a palette card is never routed, and the sentence promises a link only on the row that writes one — so the writer's expectation and the outcome cannot part company",
+  "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-027",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "the intent doc accumulates, and the destination says so before Commit rather than leaving 'it appends' discoverable by doing it twice",
+  "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-036",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "the confirmation is what the writer is left holding; each arm names the artifact produced, and the two arms whose destination is not a fresh artifact read the plan's own destination string rather than choosing a noun a second time",
+  "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-044",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "a Name field on a target that names nothing is a control that does not do what it says; this row does not ask for one",
+  "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-045",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "the destination said it would add to the end of what is already there, and that is what happens — the writer's accumulated intent is never replaced by one card",
+  "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-046",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "the preview for a stale or absent association reads 'the project's craft intent', and the project's craft intent is exactly where the words land; there is no mismatch to convict",
+  "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-068",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "a refusal that left an artifact behind would differ from what the writer understood by 'it refused'; validate-first means the refusal leaves nothing, and the row that is never routed is not blocked by an association it does not use",
+  "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-069",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "the sheet promised 'research/, linked to “Chapter 1”' and the note is filed in shared research with a link record on the chapter",
+  "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-070",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "the sheet promised the palette wall plus the link, and that is what the card gets",
+  "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-076",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "the confirmation counts what was written rather than what was offered; 'Linked 2 notes' over nothing written would be a success report differing from the outcome",
+  "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-038",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "R22's stated scope is exactly this shape: the writer formed an expectation from what Maugham LABELLED — the mode picker reads 'Rewrite “Fog, act II”' and the preview reads 'Goes to: the existing “Fog, act II”', both naming the note by the title the writer chose — and the outcome differs: the title is replaced by the card's first line and the file on disk is renamed to match. Nothing on the sheet says the name will move. The survey filed this SETTLED_BY_SUB under RULING-14; that is a scope error — R14 governs the ingestion boundary and licenses the WRITER to rename what they imported, it does not license a later promotion to rename it back.",
+  "intent_expressed_when": "earlier, and never withdrawn — the writer renamed that note deliberately and has not asked for it to be renamed again",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.update) → store.updateResearchItem(id:title:)",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M6-PR-039",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "the same defect seen at the sheet: three strings are on screen at once and the least prominent of them — the Name field, seeded from the card's first line and never re-seeded when the writer picks Rewrite — is the one that wins. A control whose two labels name one artifact and whose hidden third value renames it is not unambiguous. Filed as its own claim because a fix has to touch the seeding as well as the write; it is ONE defect with M6-PR-038.",
+  "intent_expressed_when": "earlier — see M6-PR-038",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M6-PR-040",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "R22's own settles-IN-SCOPE list names 'promotion duplicate' — this case, by name. The writer chose New and a new note is what they get, so the duplicate itself is honoured intent; what is not stated anywhere is that the card's mark MOVES to the new note, so the artifact they promoted last week silently stops being claimed by anything on the canvas and its stripe, its Rewrite offer and its inspector line now describe a different file. This is the most arguable filing in the set: if the mark is judged an internal bookkeeping field rather than something the writer reads, it retires to an enhancement under PRINCIPLE-2.",
+  "intent_expressed_when": "contemporaneous for the duplicate; not at all for the detachment",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.new) → mark",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M6-PR-075",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "what Maugham shows is an error — 'Maugham could not read what is already in research/…' — and the operation it is reporting on has already created the note, written its body, marked the region and stamped a contribution record on every member. The writer's expectation from a failure message is that the act did not happen; the outcome differs. The performer's own contract states the rule this breaks ('Validate first, write second. A refused promotion leaves nothing behind'), which is what makes it a defect rather than a design. RULING-7 also reaches (the survey's PROMO-D5 filed it there); R22 is the sharper because the failure REPORT is true — what is false is the 'nothing happened' the writer takes from it.",
+  "intent_expressed_when": "contemporaneous — the writer accepted the link offer and pressed Promote",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote → writeOfferedLinks → readBody",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M6-PR-077",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "the Edit menu reads 'Undo Promote Scrap' and what one ⌘Z takes back is the mark alone; the note it produced stays. A menu item that names the act and reverses a part of it is a control that does not do what it says. Flagged as the second most arguable filing: the scene-scoped boundary is ruled architecture (ADR 0026 §5) and the guide documents it — but a guide is not the surface, and RECONCILE's precedence says ADRs govern how it is built while rulings govern what the writer gets. A ruling could equally RATIFY this with a label that says what it will take back.",
+  "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z",
+  "call_path": "the canvas, after any promotion → Edit ▸ Undo",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M6-PR-029",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-24",
+  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
+  "why_in_scope": "the craft intent is excluded from the updatable set precisely so a promotion can never replace a whole accumulated intent statement with one card — the tier's protection of what the writer has built up, enforced by the offer never being made — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-030",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-24",
+  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
+  "why_in_scope": "the kind term is what stops a mark resolving for every updatable target; without it a research-note promotion would rename a palette card's backing file and write raw scrap text over its swatches, notes and image references — an unrecoverable loss of research — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-032",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-24",
+  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
+  "why_in_scope": "reading the contribution record here would let one member of a six-card region note replace the whole note with its own text; the artifact is research, and there is no route back once its body is overwritten — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-048",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-24",
+  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
+  "why_in_scope": "a rewrite that is about the prose takes the prose only: the swatches, sensory notes and image paths the writer built up on that card are carried across, so the act costs exactly what it says and no research is lost beside it — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-052",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-24",
+  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
+  "why_in_scope": "stamping the picture with the card's id would offer a Rewrite of that card on the next promotion, and taking it would replace a card holding other images and swatches with one photograph; the contribution record is what keeps that offer from ever being made — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-078",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-24",
+  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
+  "why_in_scope": "without the flush a queued 750ms save for the destination fires after the promotion and restores the pre-promotion prose — research overwritten by Maugham's own timing, with no version to recover from — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
+  "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-037",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-24",
+  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
+  "why_in_scope": "the tier states what research is OWED: recoverable, though not versioned. A Rewrite replaces the note's whole body through DocumentStore.performFileSave — an atomic whole-file write with no backup — and research notes have no op log (they are not Document actors), are not walked by CheckpointCapture (allDocIds comes from manifest.structure), and leave no trash copy. So an afternoon the writer spent developing that note in the research pane is gone, and there is no route back inside Maugham. The writer's consent is real and contemporaneous — they picked 'Rewrite' — but consent to an act is not a recovery route, and the same content deleted rather than rewritten WOULD be recoverable (RULING-15's trash). The tier is the promise this breaks; the survey (PROMO-D1) reached the same verdict through RULING-4, which R24 now scopes.",
+  "intent_expressed_when": "contemporaneous — the writer chose the Rewrite mode; but they were never told how much was in the note, and the preview shows only what will be written",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.update) → writeBody → DocumentStore.performFileSave",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M6-PR-018",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "Derived or transient material — a failed transcription, a superseded render, a cache — may be dropped, but the drop must be reported.",
+  "why_in_scope": "a region's lines and layout are the spatial thinking, which is derived material this design deliberately does not carry across; the ruling's requirement is that the drop be REPORTED, and the plan declares it before Commit",
+  "intent_expressed_when": "contemporaneous — the discard is shown in the preview, before the writer commits",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-058",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "Derived or transient material — a failed transcription, a superseded render, a cache — may be dropped, but the drop must be reported.",
+  "why_in_scope": "a rewrite cannot take the pictures, and rather than dropping them silently the plan declares the pictures discard in their place",
+  "intent_expressed_when": "contemporaneous — the discard is shown in the preview, before the writer commits",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-059",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "Derived or transient material — a failed transcription, a superseded render, a cache — may be dropped, but the drop must be reported.",
+  "why_in_scope": "a research note is prose and has nowhere to put a photograph; the region's plan says so instead of leaving the writer to find the picture missing",
+  "intent_expressed_when": "contemporaneous — the discard is shown in the preview, before the writer commits",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-035",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-1",
+  "clause_that_reaches_it": "Maugham MUST NOT accept, through any of its own entry points, content it cannot read back faithfully.",
+  "why_in_scope": "RULING-1's scope names canvas promotion as one of Maugham's own entry points. The card's words are written into the note verbatim and read back identically, so nothing entering research through this door can be eaten later.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-023",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "Where the same product question is answered in more than one place, it has one answer.",
+  "why_in_scope": "the writer's question is 'what is the thing this link is going into called?', and it is answered on three surfaces — the sheet's destination line, the confirmation banner and the already-present refusal. All three read one value, resolved once by the plan against the same index the write resolves against, so a line drawn from a craft-intent card cannot be previewed as a note and confirmed as a note while the words land in a statement.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-051",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-14",
+  "clause_that_reaches_it": "Once inside, the result is an ordinary project artifact — research item, palette note, canvas scrap — and is moved, renamed and deleted by the ordinary rules.",
+  "why_in_scope": "promotion is the ingestion boundary and this is a picture crossing it: the file is COPIED, so the canvas keeps its card and research gets an ordinary asset that the research tree then moves, renames and deletes by its own rules. Handing the file over instead would make promotion the one verb here that MOVES, and there is no reverse-promote to undo it with.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-033",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-20",
+  "clause_that_reaches_it": "Where their intent is unclear, we default SAFE.",
+  "why_in_scope": "which mode the writer wants is not knowable when the sheet opens, and the safe default is the one that creates rather than overwrites; .new is first in the list so a picker rendering them in order cannot leave 'rewrite the writer's note' under the cursor. No sub-ruling states the default-safe rule, so the root is the most specific reach.",
+  "intent_expressed_when": "not at all — this is the state before the writer has chosen",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-053",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-20",
+  "clause_that_reaches_it": "Where their intent is unclear, we default SAFE.",
+  "why_in_scope": "a .paletteCardImage request with no card is intent Maugham cannot complete, and what it does is NON-DESTRUCTIVE: no plan at all, so Promote is disabled and the picture does not land on whichever card sorted first. Default-safe, and the root is again the only reach.",
+  "intent_expressed_when": "not at all — the writer has not yet chosen a destination",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M6-PR-001",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "which targets §6's table offers is a spec decision about the feature's shape, not a case any ruling's stated scope reaches"
+ },
+ {
+  "claim_id": "M6-PR-004",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "the same: which rows an owned picture is offered, and the withholding of a target that could only ever produce 'there is nowhere to put this'"
+ },
+ {
+  "claim_id": "M6-PR-005",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "the absence of a refusal is not a refusal; nothing is misreported and no expectation is set"
+ },
+ {
+  "claim_id": "M6-PR-006",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "spec §6's table again"
+ },
+ {
+  "claim_id": "M6-PR-011",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "the positive case: a target is offered and nothing is refused"
+ },
+ {
+  "claim_id": "M6-PR-012",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "no writer path reaches it — recorded UNTRACED rather than filed. If it were reachable it would be RULING-7's (a refusal with no cause), which is why it is worth keeping pinned"
+ },
+ {
+  "claim_id": "M6-PR-014",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "how a title is derived from a body is string handling; the writer edits it in the sheet before committing"
+ },
+ {
+  "claim_id": "M6-PR-015",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "the shape of a card's plan — no ruling states what a promotion must NOT discard"
+ },
+ {
+  "claim_id": "M6-PR-016",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "reading order is a presentation choice about joined text; both orders would be defensible and no ruling reaches it"
+ },
+ {
+  "claim_id": "M6-PR-017",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "dropping an empty member is the same choice one level down"
+ },
+ {
+  "claim_id": "M6-PR-019",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "a fallback title for an unlabelled region — an internal naming convention the writer can change"
+ },
+ {
+  "claim_id": "M6-PR-020",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "which members can be offered a link is a consequence of what a link needs to point at"
+ },
+ {
+  "claim_id": "M6-PR-021",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "which end of a line a link is written into, and the padding around it, are format decisions"
+ },
+ {
+  "claim_id": "M6-PR-022",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "the em-dash separator is house voice"
+ },
+ {
+  "claim_id": "M6-PR-024",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "GAP — no ruling says what makes two wiki-links to one artifact the same link. The survey's PROMO-D7 also came back NOT_SETTLED. Stretching RULING-7 to it would be symptom-matching: the refusal's stated cause is true as far as it goes"
+ },
+ {
+  "claim_id": "M6-PR-031",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "not offering a rewrite against an artifact that is gone leaves the promotion to proceed as new; no ruling reaches the choice"
+ },
+ {
+  "claim_id": "M6-PR-034",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "a line has no artifact of its own to rewrite; a consequence of the feature's shape"
+ },
+ {
+  "claim_id": "M6-PR-047",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "which id a mark records is internal bookkeeping the writer never sees as an id"
+ },
+ {
+  "claim_id": "M6-PR-049",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "that a line writes into the from-end and marks nothing is the feature's shape; the sheet says which note it goes into (M6-PR-023)"
+ },
+ {
+  "claim_id": "M6-PR-057",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "which pictures a region carries onto a palette card is spec §6's amendment; the DISCARD it declares where it cannot carry them is what a ruling reaches (M6-PR-059)"
+ },
+ {
+  "claim_id": "M6-PR-060",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "the carried half is spec shape. The .empty half is a construction hazard rather than a behaviour: the one production call site names the argument and PromotionCommandTests censuses it, so I could trace no writer path that omits it — UNTRACED"
+ },
+ {
+  "claim_id": "M6-PR-061",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "the precedence rule itself is spec §6.2; what a ruling reaches is whether the writer is told where it sends things (M6-PR-025)"
+ },
+ {
+  "claim_id": "M6-PR-062",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "a citation not carrying a piece is the same spec rule"
+ },
+ {
+  "claim_id": "M6-PR-063",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "the same, for a region and a line"
+ },
+ {
+  "claim_id": "M6-PR-064",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "the same, for an owned picture"
+ },
+ {
+  "claim_id": "M6-PR-065",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "'inherited' is an internal predicate; where it reaches the writer it is inside the refusal, which is filed at M6-PR-067"
+ },
+ {
+  "claim_id": "M6-PR-071",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "that a region's promotion records who contributed is spec §6.3's own rule; no ruling states what a card must say about what it is part of"
+ },
+ {
+  "claim_id": "M6-PR-072",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "GAP — the same family: the re-record keeps the inspector's sentence true, and nothing in the ruling set says that sentence is owed"
+ },
+ {
+  "claim_id": "M6-PR-073",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "GAP — a card whose words are in two artifacts names only the later. Under RULING-22's own out-of-scope note this is an ABSENCE of information rather than a mismatch between expectation and outcome, so R22 does not reach it"
+ },
+ {
+  "claim_id": "M6-PR-074",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "the same family — and here the record that survives is the true one"
+ },
+ {
+  "_summary": {
+   "reached": 48,
+   "complies": 42,
+   "violates": 6,
+   "no_ruling": 30,
+   "specificity_sub_over_reached_pct": 81,
+   "distinct_defects": 5,
+   "pinned_against": "HEAD 5aa873af, branch claude/spec-phase-3",
+   "suite": "MaughamTests/Claims/PromotionCharacterization.swift (37 methods, 0 failures)",
+   "methodological_comparison": {
+    "metric": "specificity = settled/reached by a SUB-ruling, over everything the ruling set settles (the phase 19/22/24 definition; reproduced exactly against the published trash 0%, rewind 20% and promotion 75% survey figures)",
+    "survey_specificity_pct": 75,
+    "survey_basis": "sweep2/Promotion.json — 3 SETTLED_BY_SUB, 1 SETTLED_BY_ROOT_ONLY, 2 CONTRADICTS, 3 NOT_SETTLED",
+    "ledger_specificity_current_set_pct": 81,
+    "ledger_specificity_2026_08_02_set_pct": 84,
+    "ledger_reached_2026_08_02_set": 37,
+    "confound": "RULING-22 was authored partly FROM this module's survey — its settles_IN_SCOPE list names 'promotion duplicate' (PROMO-D3). 17 of my 48 reached filings cite it, so the current-set number is confounded upward and the 2026-08-02 number is the clean one.",
+    "verdict": "The sampling correction HOLDS in direction on the module chosen to falsify it (75 -> 84 against the ruling set that produced the 75). Its MAGNITUDE collapses: +9 points here against +47 for rewind and +79 for trash, which is what the sampling account predicts — a survey that already scored high has little residue-vs-measure gap left to recover. The new rulings move it the OTHER way for the first time (84 -> 81), because R24 is a ROOT and absorbs six cases RULING-4 would have caught as a sub."
+   },
+   "total": 78,
+   "coverage": "62%",
+   "by_ruling": {
+    "RULING-1": [
+     "M6-PR-035"
+    ],
+    "RULING-14": [
+     "M6-PR-051"
+    ],
+    "RULING-20": [
+     "M6-PR-033",
+     "M6-PR-053"
+    ],
+    "RULING-22": [
+     "M6-PR-013",
+     "M6-PR-025",
+     "M6-PR-026",
+     "M6-PR-027",
+     "M6-PR-036",
+     "M6-PR-038",
+     "M6-PR-039",
+     "M6-PR-040",
+     "M6-PR-044",
+     "M6-PR-045",
+     "M6-PR-046",
+     "M6-PR-068",
+     "M6-PR-069",
+     "M6-PR-070",
+     "M6-PR-075",
+     "M6-PR-076",
+     "M6-PR-077"
+    ],
+    "RULING-24": [
+     "M6-PR-029",
+     "M6-PR-030",
+     "M6-PR-032",
+     "M6-PR-037",
+     "M6-PR-048",
+     "M6-PR-052",
+     "M6-PR-078"
+    ],
+    "RULING-4": [
+     "M6-PR-018",
+     "M6-PR-058",
+     "M6-PR-059"
+    ],
+    "RULING-7": [
+     "M6-PR-002",
+     "M6-PR-003",
+     "M6-PR-007",
+     "M6-PR-008",
+     "M6-PR-009",
+     "M6-PR-010",
+     "M6-PR-028",
+     "M6-PR-041",
+     "M6-PR-042",
+     "M6-PR-043",
+     "M6-PR-050",
+     "M6-PR-054",
+     "M6-PR-055",
+     "M6-PR-056",
+     "M6-PR-066",
+     "M6-PR-067"
+    ],
+    "RULING-8": [
+     "M6-PR-023"
+    ]
+   }
+  }
+ }
+]
