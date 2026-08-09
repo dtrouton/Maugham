@@ -215,7 +215,23 @@ four things to know before editing in here:
   safety copies out of the writer's pane. Additive-optional on disk; an entry written before the
   field falls back to the old sniff and is REFUSED if it matches neither tree.
 - **`list()` is the writer's view and `entriesIncludingInternal()` is the whole of it.** The
-  disposal verbs and `restoreTrashEntry` use the second; the pane uses the first.
+  disposal verbs and `restoreTrashEntry` use the second; the pane uses the first. **Neither hides
+  an entry it cannot read** (RULING-7): a folder Maugham wrote whose `meta.json` is missing or
+  undecodable comes back as an `isUnreadable` entry titled `TrashEntry.unreadableTitle`, restore
+  refuses naming that as the cause, and disposal reaches it as normal. Two shapes still skip, each
+  for its own reason — a folder whose NAME Maugham did not write is not Maugham's entry (RULING-9),
+  and a folder holding *nothing* gets no row, because "contents preserved" over an empty folder is
+  the same misrepresentation pointing the other way.
+- **An entry folder name is claimed, not assumed.** `mintEntryFolder` creates with
+  `withIntermediateDirectories: false` so the create IS the claim; a taken name takes the next
+  number. **Keep the timestamp a PREFIX** — the sweep dates entries by parsing the folder name
+  (RULING-39), so an id scheme that buried or dropped the stamp (a ULID, a bare UUID) would take
+  that away with nothing failing.
+- **"Empty Trash" walks the DIRECTORY and reports what it could not destroy** (RULING-7).
+  `emptyTrash` uses `TrashStore.entryFolderIds()`, not the cached `trashEntries` — an entry written
+  straight through the store (MCP `set_piece_style`) is in no cache — and throws
+  `trashNotEmptied` after re-listing, so the pane and the message agree. Don't put a `try?` back in
+  that loop: `TrashView`'s catch was dead code for as long as one was there.
 - **The destination of a restore is the CALLER's decision**, passed as `restore(trashId:to:)`.
   `TrashStore` knows nothing about manifests, and only `ProjectStore` knows where the row is
   going to sit — which is the whole of RULING-41.

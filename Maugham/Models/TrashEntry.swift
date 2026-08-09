@@ -26,6 +26,20 @@ public struct TrashEntry: Identifiable, Equatable, Sendable {
     /// entry folder holds a `meta.json` and no file, by design.
     public let carriesFile: Bool
 
+    /// True for an entry Maugham wrote and cannot read back — the writer's file
+    /// is inside the folder but its `meta.json` is missing or undecodable
+    /// (a crash or write failure between the two writes). Such an entry is
+    /// LISTED, labelled `unreadableTitle`, rather than silently omitted while
+    /// its contents sit on disk (RULING-7): unreadable is never presented as
+    /// empty. Nothing in it describes where the row belongs, so a restore
+    /// refuses and names that as the cause; disposal reaches it as normal.
+    public let isUnreadable: Bool
+
+    /// What the Trash pane calls an entry whose record cannot be read. It says
+    /// both true things: Maugham cannot describe this deletion, and it has not
+    /// lost what was deleted.
+    public static let unreadableTitle = "Unreadable entry (contents preserved)"
+
     /// Where the file actually landed, project-relative. Set only on the entry
     /// returned by `TrashStore.restore` — it differs from
     /// `originalRelativePath` when the restore had to land beside an occupant
@@ -43,8 +57,10 @@ public struct TrashEntry: Identifiable, Equatable, Sendable {
         originalIndex: Int = 0,
         subject: TrashSubject? = nil,
         carriesFile: Bool = true,
+        isUnreadable: Bool = false,
         restoredRelativePath: String? = nil
     ) {
+        self.isUnreadable = isUnreadable
         self.id = id
         self.trashedAt = trashedAt
         self.originalRelativePath = originalRelativePath

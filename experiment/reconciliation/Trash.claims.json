@@ -163,14 +163,14 @@
   "claim_id": "M3-TR-011",
   "scope": "TrashStore.moveToTrash",
   "kind": "INVARIANT",
-  "statement": "two moveToTrash calls in the same second under the same metadata id collapse into ONE entry folder holding both files; the second meta.json overwrites the first and list() reports a single entry describing only the second item",
+  "statement": "two moveToTrash calls in the same second under the same metadata id get DISTINCT entry folders: the second claims a uniquified name (<stamp>-<id>-2), both meta.json files survive and list() reports both deletions",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "TrashCharacterization.test_moveToTrash_sameSecondSameId_collapseIntoOneEntry_andRestoreDestroysTheOther"
+   "ref": "TrashCharacterization.test_moveToTrash_sameSecondSameId_mintsSeparateEntries_andEachRestoresItsOwnFile"
   },
   "warrant": "HIGH",
-  "intent": "INCIDENTAL",
-  "reachability": "UNTRACED — production ids are minted unique elsewhere; the 'x' default (M3-TR-002) has no current caller. The guard is external to this module.",
+  "intent": "INTENTIONAL — ruled (RULING-4); fixed 2026-08-09",
+  "reachability": "UNTRACED — production ids are minted unique elsewhere; the guard is now local to this module as well",
   "evidence": {
    "property_test": null
   }
@@ -179,13 +179,13 @@
   "claim_id": "M3-TR-012",
   "scope": "TrashStore.restore",
   "kind": "POSTCONDITION",
-  "statement": "restoring a collided entry restores exactly one of the two files and destroys the other with the entry folder; which one survives is whatever the directory enumeration yields",
+  "statement": "restoring one of two same-second entries returns exactly its own file and leaves the other entry, folder and file untouched; each restore consumes only its own entry",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "TrashCharacterization.test_moveToTrash_sameSecondSameId_collapseIntoOneEntry_andRestoreDestroysTheOther"
+   "ref": "TrashCharacterization.test_moveToTrash_sameSecondSameId_mintsSeparateEntries_andEachRestoresItsOwnFile"
   },
   "warrant": "HIGH",
-  "intent": "INCIDENTAL",
+  "intent": "INTENTIONAL — ruled (RULING-4); fixed 2026-08-09",
   "reachability": "UNTRACED — reachable only through M3-TR-011",
   "evidence": {
    "property_test": null
@@ -227,14 +227,14 @@
   "claim_id": "M3-TR-015",
   "scope": "TrashStore.list",
   "kind": "POSTCONDITION",
-  "statement": "an entry whose meta.json is absent or undecodable is SILENTLY omitted from the list while its contents stay on disk; nothing distinguishes Maugham's own half-written entry from a stray folder",
+  "statement": "an entry whose meta.json is absent or undecodable is LISTED, labelled 'Unreadable entry (contents preserved)' with isUnreadable == true, and its contents stay on disk; a folder whose name Maugham did not write (M3-TR-016) and a folder holding nothing but unreadable metadata are still skipped",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "TrashCharacterization.test_list_silentlySkipsEveryEntryItCannotRead"
+   "ref": "TrashCharacterization.test_list_showsAnEntryItCannotRead_ratherThanHidingIt"
   },
   "warrant": "HIGH",
-  "intent": "INCIDENTAL",
-  "reachability": "LATENT — a crash, force-quit or write failure between the move (TrashStore.swift:151) and the meta write (:163) produces exactly this state",
+  "intent": "INTENTIONAL — ruled (RULING-7); fixed 2026-08-09",
+  "reachability": "LATENT — a crash, force-quit or write failure between the move and the meta write produces exactly this state",
   "evidence": {
    "property_test": null
   }
@@ -723,13 +723,13 @@
   "claim_id": "M3-TR-045",
   "scope": "ProjectStore.emptyTrash",
   "kind": "POSTCONDITION",
-  "statement": "emptyTrash swallows every per-entry failure (`try?`) and sets trashEntries = [] unconditionally; it is declared `throws` but cannot throw, so TrashView's catch can never fire and a failed destruction is reported as a completed one",
+  "statement": "emptyTrash attempts every entry, counts the ones it could not destroy and throws ProjectStoreError.trashNotEmptied(undestroyed:total:); trashEntries is re-listed from disk first, so what survived is still in the pane and TrashView's catch fires",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "TrashCharacterization.test_emptyTrash_swallowsEveryFailure_andClearsTheCacheRegardless"
+   "ref": "TrashCharacterization.test_emptyTrash_reportsWhatItCouldNotDestroy_andLeavesItListed"
   },
   "warrant": "HIGH",
-  "intent": "INCIDENTAL",
+  "intent": "INTENTIONAL — ruled (RULING-7); fixed 2026-08-09",
   "reachability": "LATENT for the I/O-failure half (permissions, an open handle, a sync daemon)",
   "evidence": {
    "property_test": null
@@ -739,13 +739,13 @@
   "claim_id": "M3-TR-046",
   "scope": "ProjectStore.emptyTrash",
   "kind": "POSTCONDITION",
-  "statement": "emptyTrash iterates only its CACHED trashEntries array, so an entry written to .trash/ behind ProjectStore's back survives an 'Empty Trash' that then reports the trash as empty",
+  "statement": "emptyTrash walks the trash DIRECTORY (TrashStore.entryFolderIds), so an entry written to .trash/ behind ProjectStore's back — including an internalArtifact the pane never showed — is destroyed with the rest and the emptied trash is empty on disk",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "TrashCharacterization.test_emptyTrash_leavesBehindAnyOnDiskEntryMissingFromItsCache"
+   "ref": "TrashCharacterization.test_emptyTrash_destroysEveryEntryOnDisk_notOnlyTheCachedOnes"
   },
   "warrant": "HIGH",
-  "intent": "INCIDENTAL",
+  "intent": "INTENTIONAL — ruled (RULING-7); fixed 2026-08-09",
   "reachability": "LIVE and needs no I/O failure — MCP set_piece_style writes straight through TrashStore without refreshing ProjectStore.trashEntries",
   "evidence": {
    "property_test": null
@@ -955,6 +955,70 @@
   "warrant": "HIGH",
   "intent": "INTENTIONAL — ruled (RULING-15)",
   "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-061",
+  "scope": "TrashStore.moveToTrash",
+  "kind": "INVARIANT",
+  "statement": "a uniquified entry id keeps the timestamp PREFIX, so TrashStore.parseTimestamp and ageOfEntry date a collided entry from its folder name rather than falling back to the filesystem",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "TrashCharacterization.test_aCollidedEntryFolderNameIsStillDateableFromItsName"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled; landed 2026-08-09",
+  "reachability": "RULING-4's fix must not cost RULING-39's: the sweep dates entries by parsing the folder name.",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-062",
+  "scope": "TrashStore.restore",
+  "kind": "POSTCONDITION",
+  "statement": "restoring an entry whose meta.json cannot be read throws TrashError.entryMetadataUnreadable naming the entry, and leaves the folder and its contents on disk; an id that is not in the trash at all still fails as a plain Cocoa error (M3-TR-029)",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "TrashCharacterization.test_restoringAnUnreadableEntry_refusesAndNamesTheRealCause"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled; landed 2026-08-09",
+  "reachability": "RULING-7: a refusal names its real cause, and the two refusals are different causes.",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-063",
+  "scope": "ProjectStore.restoreTrashEntry",
+  "kind": "POSTCONDITION",
+  "statement": "restoring an unreadable entry from the writer's surface throws trashEntryNotRewirable titled 'Unreadable entry (contents preserved)', saying Maugham's record cannot be read and the contents are still in the trash folder",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "TrashCharacterization.test_restoreTrashEntry_refusesAnUnreadableEntry_atTheProjectLevel"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled; landed 2026-08-09",
+  "reachability": "RULING-7 at the surface the writer's Restore actually reaches.",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-064",
+  "scope": "TrashStore.permanentlyDelete",
+  "kind": "POSTCONDITION",
+  "statement": "an unreadable entry is still permanently deletable by folder name; being visible does not make it immortal",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "TrashCharacterization.test_anUnreadableEntryCanStillBePermanentlyDeleted"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled; landed 2026-08-09",
+  "reachability": "RULING-39's bugs-are-still-bugs clause: a listed entry must still be disposable.",
   "evidence": {
    "property_test": null
   }

@@ -66,23 +66,37 @@
  },
  {
   "claim_id": "M3-TR-011",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-4",
-  "clause_that_reaches_it": "Words the writer authored are ALWAYS recoverable... Recovery is guaranteed only where the writer would look for it.",
-  "why_in_scope": "Two of the writer's deletions produce one Trash row. The second deletion's record overwrites the first's, so one deleted item is not where the writer would look for it — the clause's own test for whether recovery is guaranteed. The words are still on disk, but there is no route to them from inside Maugham. Filed as a violation per PRINCIPLE-4, which makes reachability a matter of priority rather than of whether it is a defect; the honest caveat is that the guard against it lives entirely outside this module.",
+  "clause_that_reaches_it": "Words the writer authored are ALWAYS recoverable... Recovery is guaranteed only where the writer would look for it. (as implemented)",
+  "why_in_scope": "Fixed: mintEntryFolder claims its folder with createDirectory(withIntermediateDirectories: false), so the create IS the claim and a taken name takes the next number. Two deletions in one second under one metadata id are now two entries, each where the writer would look for it. The timestamp stays a PREFIX so RULING-39's sweep can still date a collided entry from its name (pinned separately at M3-TR-061).",
+  "why_it_violated": "Two of the writer's deletions produce one Trash row. The second deletion's record overwrites the first's, so one deleted item is not where the writer would look for it — the clause's own test for whether recovery is guaranteed. The words are still on disk, but there is no route to them from inside Maugham. Filed as a violation per PRINCIPLE-4, which makes reachability a matter of priority rather than of whether it is a defect; the honest caveat is that the guard against it lives entirely outside this module.",
+  "fix": {
+   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-4 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_moveToTrash_sameSecondSameId_mintsSeparateEntries_andEachRestoresItsOwnFile"
+  },
   "intent_expressed_when": "contemporaneous",
   "call_path": "UNTRACED — no production caller mints two entries with one id in one second. The 'x' default (M3-TR-002) would open it; nothing supplies id-less metadata today.",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "neither"
  },
  {
   "claim_id": "M3-TR-012",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-4",
-  "clause_that_reaches_it": "Recoverability is owed against ACCIDENTS and against MAUGHAM'S OWN ACTIONS.",
-  "why_in_scope": "The scope clause makes recoverability owed against MAUGHAM'S OWN ACTIONS. Restoring one entry destroys a second file the writer deleted, in the same act, with no report — that is Maugham's own action destroying authored words, not the writer's deliberate deletion of them (which RULING-23 would excuse: they deleted it to TRASH, and the trash is where they would go to get it back).",
+  "clause_that_reaches_it": "Recoverability is owed against ACCIDENTS and against MAUGHAM'S OWN ACTIONS. (as implemented)",
+  "why_in_scope": "Fixed with M3-TR-011: there is no shared folder left to destroy. Each restore consumes its own entry and returns its own file; the other deletion's folder, meta.json and file are untouched. Maugham's own action no longer destroys authored words in the act of returning different ones.",
+  "why_it_violated": "The scope clause makes recoverability owed against MAUGHAM'S OWN ACTIONS. Restoring one entry destroys a second file the writer deleted, in the same act, with no report — that is Maugham's own action destroying authored words, not the writer's deliberate deletion of them (which RULING-23 would excuse: they deleted it to TRASH, and the trash is where they would go to get it back).",
+  "fix": {
+   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-4 — Denver 2026-08-08/09 ruling rounds",
+   "pinned_by": "TrashCharacterization.test_moveToTrash_sameSecondSameId_mintsSeparateEntries_andEachRestoresItsOwnFile"
+  },
   "intent_expressed_when": "contemporaneous — the writer asked to restore, not to destroy",
   "call_path": "UNTRACED — reachable only through M3-TR-011",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "neither"
  },
  {
   "claim_id": "M3-TR-013",
@@ -96,13 +110,20 @@
  },
  {
   "claim_id": "M3-TR-015",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-7",
-  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
-  "why_in_scope": "The Trash pane is a writer-facing surface (BinderSegment.trash, reached from BinderPaneToggle). An entry Maugham itself half-wrote — file moved, meta.json not yet landed — is presented as ABSENT, which is 'unreadable presented as empty' in the clause's own words: the pane says the trash is empty while the writer's chapter is in it. Note the same `continue` also correctly skips a stray folder a writer dropped into .trash/ by hand, which is RULING-9's territory and fine; the defect is that Maugham's own half-written entry is indistinguishable from it.",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause. (as implemented)",
+  "why_in_scope": "Fixed: an entry folder Maugham wrote whose meta.json cannot be read is LISTED as TrashEntry.unreadableTitle ('Unreadable entry (contents preserved)') with isUnreadable == true, rather than skipped while the writer's chapter sits inside it. Restore refuses naming the real cause (M3-TR-062/-063) and disposal still reaches it (M3-TR-064). Two shapes still skip and both were argued: a folder whose NAME Maugham did not write is not Maugham's entry to describe (M3-TR-016, RULING-9, unchanged), and a folder holding nothing but unreadable metadata gets no row, because 'contents preserved' over an empty folder is the same misrepresentation pointing the other way (this is M3-TR-009's refused-move litter, filed NO_RULING_REACHES for exactly that reason).",
+  "why_it_violated": "The Trash pane is a writer-facing surface (BinderSegment.trash, reached from BinderPaneToggle). An entry Maugham itself half-wrote — file moved, meta.json not yet landed — is presented as ABSENT, which is 'unreadable presented as empty' in the clause's own words: the pane says the trash is empty while the writer's chapter is in it. Note the same `continue` also correctly skips a stray folder a writer dropped into .trash/ by hand, which is RULING-9's territory and fine; the defect is that Maugham's own half-written entry is indistinguishable from it.",
+  "fix": {
+   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-7 — Denver, RATIFIED_BY_DEFAULT",
+   "pinned_by": "TrashCharacterization.test_list_showsAnEntryItCannotRead_ratherThanHidingIt"
+  },
   "intent_expressed_when": "contemporaneous — the writer is looking at the pane now",
   "call_path": "ProjectStore.load → TrashStore.list() → the entry is skipped → TrashView renders an empty pane. The half-written state comes from a crash, force-quit or write failure between TrashStore.swift:151 and :163.",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "neither"
  },
  {
   "claim_id": "M3-TR-016",
@@ -422,23 +443,37 @@
  },
  {
   "claim_id": "M3-TR-045",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-7",
-  "clause_that_reaches_it": "Maugham never misrepresents a failure.",
-  "why_in_scope": "The four examples in the clause are all one species — not lying about what happened — and a destruction that failed, reported as a destruction that completed, is that species. The surface is writer-facing: the confirmation sheet promises 'All N items will be permanently deleted' and 'This cannot be undone', and the pane then shows empty. The method's `throws` signature makes it worse rather than better: TrashView's catch is dead code, so the ONE place the truth could surface is structurally unreachable. The sibling single-entry path (M3-TR-047) proves the machinery exists and is simply not used here.",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. (as implemented)",
+  "why_in_scope": "Fixed: emptyTrash attempts every entry, counts what it could not destroy and throws ProjectStoreError.trashNotEmptied(undestroyed:total:) — TrashView's catch is live code again. trashEntries is re-listed from disk BEFORE the throw, so the pane and the message agree about what is left. Noted for the record: where a destruction fails only on the now-empty entry folder (its contents did go), the report over-states the failure. Over-reporting a failure is not R7's sin, and it is the default-safe direction under RULING-20.",
+  "why_it_violated": "The four examples in the clause are all one species — not lying about what happened — and a destruction that failed, reported as a destruction that completed, is that species. The surface is writer-facing: the confirmation sheet promises 'All N items will be permanently deleted' and 'This cannot be undone', and the pane then shows empty. The method's `throws` signature makes it worse rather than better: TrashView's catch is dead code, so the ONE place the truth could surface is structurally unreachable. The sibling single-entry path (M3-TR-047) proves the machinery exists and is simply not used here.",
+  "fix": {
+   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-7 — Denver, RATIFIED_BY_DEFAULT",
+   "pinned_by": "TrashCharacterization.test_emptyTrash_reportsWhatItCouldNotDestroy_andLeavesItListed"
+  },
   "intent_expressed_when": "contemporaneous — they just confirmed the sheet",
   "call_path": "BinderSegment.trash → TrashView toolbar 'Empty Trash' → confirmationDialog → ProjectStore.emptyTrash → per-entry `try?` → trashEntries = []",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "neither"
  },
  {
   "claim_id": "M3-TR-046",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-7",
-  "clause_that_reaches_it": "Maugham never misrepresents a failure.",
-  "why_in_scope": "Same clause, a different and worse mechanism: this half needs no I/O failure at all. An entry created behind ProjectStore's back is simply not in the loop, so 'Empty Trash' reports a completed destruction of content it never looked at. The writer emptied the trash to be rid of a draft they did not want on the machine; it is still in .trash/ and will travel into every backup of the project.",
+  "clause_that_reaches_it": "Maugham never misrepresents a failure. (as implemented)",
+  "why_in_scope": "Fixed: emptyTrash walks the trash DIRECTORY via TrashStore.entryFolderIds() — the disposal counterpart of RULING-39's sweep walk — instead of its cached array. An entry written straight through TrashStore (MCP set_piece_style) is destroyed with the rest, so an emptied trash is empty on disk. Deliberate consequence: the walk also reaches .internalArtifact entries the pane never showed, which is the behaviour AREA.md already states for the disposal verbs (a hidden entry must still be swept and still be permanently deletable).",
+  "why_it_violated": "Same clause, a different and worse mechanism: this half needs no I/O failure at all. An entry created behind ProjectStore's back is simply not in the loop, so 'Empty Trash' reports a completed destruction of content it never looked at. The writer emptied the trash to be rid of a draft they did not want on the machine; it is still in .trash/ and will travel into every backup of the project.",
+  "fix": {
+   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-7 — Denver, RATIFIED_BY_DEFAULT",
+   "pinned_by": "TrashCharacterization.test_emptyTrash_destroysEveryEntryOnDisk_notOnlyTheCachedOnes"
+  },
   "intent_expressed_when": "contemporaneous",
   "call_path": "MCP set_piece_style (PieceStyleTools.swift:80) writes a trash entry straight through TrashStore without refreshing ProjectStore.trashEntries → the writer opens the Trash pane and clicks Empty Trash before the next list() → the entry survives and the pane reports empty",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "neither"
  },
  {
   "claim_id": "M3-TR-047",
@@ -615,13 +650,77 @@
   }
  },
  {
+  "claim_id": "M3-TR-061",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-39",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "RULING-4's collision-proof id keeps RULING-39's sweep working: the timestamp is still a prefix, so a collided entry is dated from its folder name. Pinned because the obvious alternative fixes (a ULID, a bare UUID) would have removed that silently.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "trash pane / binder delete / Empty Trash — see the pin",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-39",
+   "pinned_by": "TrashCharacterization.test_aCollidedEntryFolderNameIsStillDateableFromItsName"
+  }
+ },
+ {
+  "claim_id": "M3-TR-062",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "'A refusal names its real cause.' An entry that is in the trash but whose record cannot be read is a different refusal from an id that is not there, and TrashError.entryMetadataUnreadable says which. The folder and the writer's file are left exactly as they were.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "trash pane / binder delete / Empty Trash — see the pin",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-7",
+   "pinned_by": "TrashCharacterization.test_restoringAnUnreadableEntry_refusesAndNamesTheRealCause"
+  }
+ },
+ {
+  "claim_id": "M3-TR-063",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "The same refusal at the surface the writer's Restore reaches. Refused BEFORE the metadata sniff, which would have said 'nothing in the project describes where it belongs' — a judgement about the writer's item rather than about Maugham's record.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "trash pane / binder delete / Empty Trash — see the pin",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-7",
+   "pinned_by": "TrashCharacterization.test_restoreTrashEntry_refusesAnUnreadableEntry_atTheProjectLevel"
+  }
+ },
+ {
+  "claim_id": "M3-TR-064",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-39",
+  "clause_that_reaches_it": "see the ruling's statement — implemented to its text",
+  "why_in_scope": "Making the unreadable entry visible must not make it immortal — the other half of RULING-39's bugs-are-still-bugs clause. Permanently Delete reaches it by folder name exactly as it reaches a readable one.",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "trash pane / binder delete / Empty Trash — see the pin",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "PENDING — uncommitted on branch claude/spec-phase-2 (2026-08-09)",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-39",
+   "pinned_by": "TrashCharacterization.test_anUnreadableEntryCanStillBePermanentlyDeleted"
+  }
+ },
+ {
   "_summary": {
-   "reached": 38,
-   "complies": 33,
-   "violates": 5,
+   "reached": 42,
+   "complies": 42,
+   "violates": 0,
    "no_ruling": 22,
-   "total": 60,
-   "coverage": "63%",
+   "total": 64,
+   "coverage": "66%",
    "by_ruling": {
     "RULING-15": [
      "M3-TR-003",
@@ -648,12 +747,15 @@
     "RULING-39": [
      "M3-TR-021",
      "M3-TR-052",
-     "M3-TR-053"
+     "M3-TR-053",
+     "M3-TR-061",
+     "M3-TR-064"
     ],
     "RULING-4": [
      "M3-TR-011",
      "M3-TR-012",
-     "M3-TR-032"
+     "M3-TR-032",
+     "M3-TR-061"
     ],
     "RULING-40": [
      "M3-TR-036",
@@ -682,7 +784,9 @@
      "M3-TR-029",
      "M3-TR-045",
      "M3-TR-046",
-     "M3-TR-047"
+     "M3-TR-047",
+     "M3-TR-062",
+     "M3-TR-063"
     ],
     "RULING-9": [
      "M3-TR-016"
@@ -695,7 +799,8 @@
     "M3-TR-030",
     "M3-TR-034"
    ],
-   "specificity": "19/24 = 79%"
+   "specificity": "19/24 = 79%",
+   "note_2026_08_09": "The five VIOLATES rows (M3-TR-011/-012/-015/-045/-046) are fixed and flipped to COMPLIES; M3-TR-061..-064 are the new pins that came with them. No VIOLATES row remains in this module. Every fix commit is PENDING — the work is uncommitted on claude/spec-phase-2 and the hashes must be written in when it lands."
   }
  }
 ]

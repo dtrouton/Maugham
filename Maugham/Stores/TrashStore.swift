@@ -48,10 +48,18 @@ public struct TrashStore {
         try await entriesIncludingInternal().filter { $0.subject != .internalArtifact }
     }
 
-    /// Every readable entry, the writer's and Maugham's alike. Used by the
+    /// Every entry, the writer's and Maugham's alike. Used by the
     /// disposal verbs (a hidden entry must still be swept and still be
     /// permanently deletable) and by `restore`, which refuses the internal ones
     /// by name rather than by not finding them.
+    ///
+    /// **An entry whose `meta.json` cannot be read is reported, not skipped**
+    /// (RULING-7). Maugham writes the file into the folder and the metadata
+    /// after it; a crash between the two leaves the writer's chapter in a folder
+    /// that used to be invisible to every surface, so the pane said the trash
+    /// was empty while it held their words. It now comes back as an
+    /// `isUnreadable` entry — see `unreadableEntry(at:trashedAt:)` for the two
+    /// shapes that are still, correctly, skipped.
     public func entriesIncludingInternal() async throws -> [TrashEntry] {
         let fm = FileManager.default
         guard fm.fileExists(atPath: trashRoot.path) else { return [] }
@@ -62,10 +70,17 @@ public struct TrashStore {
 
         var entries: [TrashEntry] = []
         for folder in folders where folder.hasDirectoryPath {
+            // A folder name Maugham did not write is not Maugham's entry, and
+            // describing it is not Maugham's business (RULING-9).
+            guard let trashedAt = Self.parseTimestamp(from: folder.lastPathComponent) else {
+                continue
+            }
             let metaURL = folder.appendingPathComponent("meta.json")
             guard let data = try? Data(contentsOf: metaURL),  // adr-0018-ok: trash metadata read, not manuscript
-                  let meta = try? JSONDecoder().decode(TrashMeta.self, from: data),
-                  let trashedAt = Self.parseTimestamp(from: folder.lastPathComponent) else {
+                  let meta = try? JSONDecoder().decode(TrashMeta.self, from: data) else {
+                if let unreadable = Self.unreadableEntry(at: folder, trashedAt: trashedAt) {
+                    entries.append(unreadable)
+                }
                 continue
             }
             entries.append(TrashEntry(
@@ -80,6 +95,48 @@ public struct TrashStore {
                 carriesFile: meta.carriesFile ?? true))
         }
         return entries.sorted { $0.trashedAt > $1.trashedAt }
+    }
+
+    /// The row for an entry Maugham wrote and cannot read back, or nil when the
+    /// folder holds NOTHING but its unreadable metadata.
+    ///
+    /// The empty case is the other half of the same duty: a refused or
+    /// interrupted move that never got as far as moving the file leaves an empty
+    /// folder, and a row promising "contents preserved" over it would be its own
+    /// misrepresentation. What is on disk decides, not what the folder is called.
+    static func unreadableEntry(at folder: URL, trashedAt: Date) -> TrashEntry? {
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: nil, options: [])) ?? []
+        guard contents.contains(where: { $0.lastPathComponent != "meta.json" }) else { return nil }
+        return TrashEntry(
+            id: folder.lastPathComponent,
+            trashedAt: trashedAt,
+            originalRelativePath: "",
+            displayTitle: TrashEntry.unreadableTitle,
+            itemMetadata: Data(),
+            subject: nil,
+            carriesFile: true,
+            isUnreadable: true)
+    }
+
+    /// Every entry FOLDER in `.trash/`, readable or not, named or not.
+    ///
+    /// The disposal counterpart of the sweep's walk (RULING-39): "Empty Trash"
+    /// means the trash directory, not one observer's cached view of it. An entry
+    /// written straight through this store — which is how the MCP piece-style
+    /// tools write one — is in here and in no cache.
+    ///
+    /// Throws when `.trash/` exists and cannot be enumerated, because a caller
+    /// that reported an emptied trash after silently seeing nothing would be
+    /// making exactly the claim this walk exists to keep honest. No `.trash/` at
+    /// all is not a failure — there is nothing to empty.
+    public func entryFolderIds() async throws -> [String] {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: trashRoot.path) else { return [] }
+        return try fm.contentsOfDirectory(
+            at: trashRoot, includingPropertiesForKeys: nil, options: [])
+            .filter(\.hasDirectoryPath)
+            .map(\.lastPathComponent)
     }
 
     /// Remove entries older than 30 days. Called from ProjectStore.load.
@@ -139,11 +196,21 @@ public struct TrashStore {
     /// numeric-suffix pattern is `addResearchTextNote`'s.
     @discardableResult
     public func restore(trashId: String, to preferredRelativePath: String? = nil) async throws -> TrashEntry {
+        let fm = FileManager.default
         let entryFolder = trashRoot.appendingPathComponent(trashId)
         let metaURL = entryFolder.appendingPathComponent("meta.json")
-        let metaData = try Data(contentsOf: metaURL)  // adr-0018-ok: trash metadata read, not manuscript
-        let meta = try JSONDecoder().decode(TrashMeta.self, from: metaData)
-        let fm = FileManager.default
+        let meta: TrashMeta
+        do {
+            let metaData = try Data(contentsOf: metaURL)  // adr-0018-ok: trash metadata read, not manuscript
+            meta = try JSONDecoder().decode(TrashMeta.self, from: metaData)
+        } catch {
+            // An id that is in the trash but whose record cannot be read is a
+            // different refusal from an id that is not there at all, and saying
+            // which is the whole of RULING-7's "a refusal names its real cause".
+            // The folder — and the writer's file in it — is left exactly as it is.
+            guard fm.fileExists(atPath: entryFolder.path) else { throw error }
+            throw TrashError.entryMetadataUnreadable(trashId: trashId, underlying: error)
+        }
 
         guard let trashedAt = Self.parseTimestamp(from: trashId) else {
             throw TrashError.malformedEntryId(trashId)
@@ -325,17 +392,51 @@ public struct TrashStore {
             carriesFile: false)
     }
 
-    /// `.trash/<yyyyMMdd-HHmmss>-<the metadata's id>/`, created.
+    /// `.trash/<yyyyMMdd-HHmmss>-<the metadata's id>/`, created — and a folder
+    /// NO other entry holds (RULING-4).
+    ///
+    /// The name used to be the timestamp and the id and nothing else, which is
+    /// unique only to the second: two deletions of rows sharing a metadata id in
+    /// one second landed in one folder, the second `meta.json` overwrote the
+    /// first, and the writer's first deletion was gone from every surface — then
+    /// destroyed outright when the surviving entry was restored. So the creation
+    /// IS the claim: `withIntermediateDirectories: false` fails if the name is
+    /// taken (where `true` silently shares it), and a taken name takes the next
+    /// number, the same `-2`, `-3` … dedupe `destinationBesideAnyOccupant` uses.
+    ///
+    /// **The timestamp stays a PREFIX.** The sweep dates an entry by parsing its
+    /// folder name (RULING-39), including entries it can read nothing else
+    /// about, so an id that buried or dropped the stamp — a ULID, a bare UUID —
+    /// would quietly cost that.
     private func mintEntryFolder(
         itemMetadata: Data, now: Date
     ) throws -> (id: String, folder: URL) {
         // Extract id from item metadata for folder naming (best-effort).
         struct IdProbe: Decodable { let id: String? }
         let originalId = ((try? JSONDecoder().decode(IdProbe.self, from: itemMetadata))?.id) ?? "x"
-        let entryId = "\(Self.timestampPrefix(for: now))-\(originalId)"
-        let folder = trashRoot.appendingPathComponent(entryId)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        return (entryId, folder)
+        let stem = "\(Self.timestampPrefix(for: now))-\(originalId)"
+        let fm = FileManager.default
+        try fm.createDirectory(at: trashRoot, withIntermediateDirectories: true)
+
+        func claim(_ entryId: String) throws -> (id: String, folder: URL)? {
+            let folder = trashRoot.appendingPathComponent(entryId)
+            do {
+                try fm.createDirectory(at: folder, withIntermediateDirectories: false)
+                return (entryId, folder)
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain
+                && error.code == NSFileWriteFileExistsError {
+                return nil
+            }
+        }
+
+        if let claimed = try claim(stem) { return claimed }
+        for n in 2...999 {
+            if let claimed = try claim("\(stem)-\(n)") { return claimed }
+        }
+        guard let claimed = try claim("\(stem)-\(UUID().uuidString)") else {
+            throw TrashError.couldNotMintEntry(stem)
+        }
+        return claimed
     }
 
     private func writeMeta(_ meta: TrashMeta, to entryFolder: URL) throws {
@@ -415,6 +516,14 @@ public struct TrashStore {
         case entryFileMissing(trashId: String, folderContents: [String])
         case malformedEntryId(String)
         case unsafeRelativePath(String, underlying: Error)
+        /// The entry is in the trash; its `meta.json` is missing or undecodable,
+        /// so nothing says where its contents belong. Distinct from an unknown
+        /// id, which fails at the read as a plain Cocoa error (RULING-7).
+        case entryMetadataUnreadable(trashId: String, underlying: Error)
+        /// Nothing could claim an entry folder name — 1,000 taken names and a
+        /// UUID. Unreachable in practice; a silent share of someone else's
+        /// folder is what this refuses to do instead.
+        case couldNotMintEntry(String)
 
         public var errorDescription: String? {
             switch self {
@@ -424,6 +533,11 @@ public struct TrashStore {
                 return "Trash entry id \(id) is malformed (no parseable timestamp)."
             case .unsafeRelativePath(let path, let underlying):
                 return "Trash relative path \"\(path)\" is unsafe: \(underlying.localizedDescription)"
+            case .entryMetadataUnreadable(let id, _):
+                return "Trash entry \(id) still holds what was deleted, but Maugham’s "
+                    + "record of what it was can’t be read."
+            case .couldNotMintEntry(let stem):
+                return "Maugham could not make a trash entry for \(stem)."
             }
         }
     }

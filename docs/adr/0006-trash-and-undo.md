@@ -57,6 +57,34 @@ here, each traceable to a ruling in `experiment/RULINGS.md`:
 - **A promoted capture's original goes to the trash, not off the disk** (RULING-15) — the three
   `FileManager.removeItem` calls in `InboxStore`'s promote paths.
 
+### The five filed violations, closed (RULING-4 / RULING-7)
+
+The same sweep filed five `VIOLATES` rows that the seven rulings above did not settle. All five are
+fixed; each is pinned in `MaughamTests/Claims/TrashCharacterization.swift`.
+
+- **An entry folder name is a CLAIM, not a guess** (RULING-4, M3-TR-011/012). The name was the
+  timestamp plus the item's id, unique only to the second: two deletions sharing a metadata id in
+  one second landed in one folder, the second `meta.json` overwrote the first, and restoring the
+  survivor destroyed the other file outright. `mintEntryFolder` now creates with
+  `withIntermediateDirectories: false`, so the create *is* the claim, and a taken name takes the
+  next number. **The timestamp stays a prefix** — the sweep dates entries by parsing the folder
+  name, so a ULID or bare UUID would have silently taken RULING-39's fix away.
+- **An entry Maugham cannot read appears, labelled** (RULING-7, M3-TR-015). A crash between moving
+  the file in and writing the `meta.json` used to produce an entry that no surface could see while
+  the writer's chapter sat inside it — "unreadable presented as empty", in the ruling's own words.
+  It now lists as `TrashEntry.unreadableTitle`; restore refuses naming the real cause
+  (`entryMetadataUnreadable` / `trashEntryNotRewirable`), and disposal reaches it as before. Two
+  shapes still skip and both are deliberate: a folder whose NAME Maugham did not write is not
+  Maugham's entry (RULING-9), and a folder holding *nothing* has no contents to promise.
+- **"Empty Trash" reports what it could not destroy** (RULING-7, M3-TR-045). Per-entry failures
+  were swallowed by `try?` and the pane cleared unconditionally, which made `TrashView`'s catch
+  dead code — the one place the truth could have surfaced. `emptyTrash` now counts its failures and
+  throws `trashNotEmptied`, having re-listed what survived so the pane and the message agree.
+- **"Empty Trash" empties the DIRECTORY** (RULING-7, M3-TR-046). It iterated the cached
+  `trashEntries`, so an entry written straight through `TrashStore` — which is how the MCP
+  piece-style tools write one — survived an emptying that reported success. `entryFolderIds()` is
+  the disposal counterpart of the sweep's walk.
+
 ## References
 
 - [Research Polish spec](../superpowers/specs/2026-05-10-research-polish-design.md)

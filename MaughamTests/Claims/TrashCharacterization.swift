@@ -220,17 +220,17 @@ final class TrashCharacterization: XCTestCase {
                        "the folder exists on disk and is invisible to list()")
     }
 
-    /// M3-TR-011 / M3-TR-012 — two entries minted in the same second under the
-    /// same metadata id share ONE folder. The second meta.json overwrites the
-    /// first, `list()` reports a single entry, and restoring it destroys the
-    /// other file along with the folder.
+    /// M3-TR-011 / M3-TR-012 — fixed under RULING-4, 2026-08-09. Two deletions
+    /// landing in the same second under the same metadata id no longer share an
+    /// entry folder: the second claims a uniquified name, both meta.json files
+    /// survive, `list()` shows both rows, and each restore returns ITS OWN file
+    /// and destroys nothing.
     ///
-    /// Reachability from a writer gesture is UNTRACED: production ids are minted
-    /// unique, and the `x` default is only produced by metadata with no `id`
-    /// field, which no current caller supplies. Pinned as a property of THIS
-    /// module, whose guard against it lives entirely elsewhere.
-    func test_moveToTrash_sameSecondSameId_collapseIntoOneEntry_andRestoreDestroysTheOther() async throws {
-        var collided: (URL, TrashEntry)?
+    /// The collision is provoked, not simulated: the two calls are made back to
+    /// back and the test only asserts once their timestamp prefixes match, which
+    /// is the exact condition that used to collapse them into one folder.
+    func test_moveToTrash_sameSecondSameId_mintsSeparateEntries_andEachRestoresItsOwnFile() async throws {
+        var collided: (project: URL, first: TrashEntry, second: TrashEntry)?
         for _ in 0..<8 {                       // retry: the two calls must land in one second
             let p = try project()
             try write("one", at: "manuscript/one.md", in: p)
@@ -245,27 +245,80 @@ final class TrashCharacterization: XCTestCase {
                 fileRelativePath: "manuscript/two.md", itemMetadata: metadata,
                 originalParentId: nil, originalIndex: 0, displayTitle: "Two",
             subject: .manuscriptItem)
-            if first.id == second.id { collided = (p, second); break }
+            if Self.stampPrefix(of: first.id) == Self.stampPrefix(of: second.id) {
+                collided = (p, first, second)
+                break
+            }
         }
-        let (p, entry) = try XCTUnwrap(collided, "could not land two moves in one second")
+        let (p, first, second) = try XCTUnwrap(collided, "could not land two moves in one second")
         let store = TrashStore(projectURL: p)
 
-        // One folder, holding BOTH files and one meta.json.
-        XCTAssertEqual(trashFolders(in: p), [entry.id])
-        XCTAssertTrue(exists(".trash/\(entry.id)/one.md", in: p))
-        XCTAssertTrue(exists(".trash/\(entry.id)/two.md", in: p))
+        // Two folders, one file each.
+        XCTAssertNotEqual(first.id, second.id)
+        XCTAssertEqual(trashFolders(in: p).count, 2)
+        XCTAssertTrue(exists(".trash/\(first.id)/one.md", in: p))
+        XCTAssertTrue(exists(".trash/\(second.id)/two.md", in: p))
 
-        // list() reports a single entry, describing only the second item.
+        // Both deletions are where the writer would look for them.
         let listed = try await store.list()
-        XCTAssertEqual(listed.count, 1)
-        XCTAssertEqual(listed[0].displayTitle, "Two")
+        XCTAssertEqual(Set(listed.map(\.displayTitle)), ["One", "Two"])
 
-        // Restoring it removes the folder — and with it the other writer's file.
-        _ = try await store.restore(trashId: entry.id)
-        XCTAssertFalse(exists(".trash/\(entry.id)", in: p))
-        let survivors = ["manuscript/one.md", "manuscript/two.md"].filter { exists($0, in: p) }
-        XCTAssertEqual(survivors.count, 1,
-                       "exactly one of the two files survives; the other is destroyed silently")
+        // And each restore gives back its own file, leaving the other alone.
+        _ = try await store.restore(trashId: first.id)
+        XCTAssertEqual(try String(contentsOf: p.appendingPathComponent("manuscript/one.md"),
+                                  encoding: .utf8), "one")
+        XCTAssertTrue(exists(".trash/\(second.id)/two.md", in: p),
+                      "the other deletion is untouched by the first's restore")
+
+        _ = try await store.restore(trashId: second.id)
+        XCTAssertEqual(try String(contentsOf: p.appendingPathComponent("manuscript/two.md"),
+                                  encoding: .utf8), "two")
+        let emptied = try await store.list()
+        XCTAssertTrue(emptied.isEmpty)
+    }
+
+    /// M3-TR-061 (RULING-4 + RULING-39) — the uniquified name keeps the
+    /// timestamp PREFIX, so the sweep can still date a collided entry from its
+    /// folder name rather than falling back to the filesystem. The two fixes
+    /// meet here: RULING-39's sweep walks the directory and dates by name, and
+    /// a collision-proof id that dropped the prefix would have quietly taken
+    /// that away.
+    func test_aCollidedEntryFolderNameIsStillDateableFromItsName() async throws {
+        var collided: (project: URL, first: TrashEntry, second: TrashEntry)?
+        for _ in 0..<8 {
+            let p = try project()
+            try write("one", at: "manuscript/one.md", in: p)
+            try write("two", at: "manuscript/two.md", in: p)
+            let store = TrashStore(projectURL: p)
+            let metadata = Data(#"{"id":"same"}"#.utf8)
+            let first = try await store.moveToTrash(
+                fileRelativePath: "manuscript/one.md", itemMetadata: metadata,
+                originalParentId: nil, originalIndex: 0, displayTitle: "One",
+                subject: .manuscriptItem)
+            let second = try await store.moveToTrash(
+                fileRelativePath: "manuscript/two.md", itemMetadata: metadata,
+                originalParentId: nil, originalIndex: 0, displayTitle: "Two",
+                subject: .manuscriptItem)
+            if Self.stampPrefix(of: first.id) == Self.stampPrefix(of: second.id) {
+                collided = (p, first, second)
+                break
+            }
+        }
+        let (p, first, second) = try XCTUnwrap(collided, "could not land two moves in one second")
+
+        let fromName = try XCTUnwrap(TrashStore.parseTimestamp(from: second.id),
+                                     "the uniquified id still parses as a timestamp")
+        XCTAssertEqual(fromName, TrashStore.parseTimestamp(from: first.id))
+        XCTAssertEqual(
+            TrashStore.ageOfEntry(at: p.appendingPathComponent(".trash/\(second.id)")),
+            fromName,
+            "and the sweep dates it from that name, not from the filesystem")
+    }
+
+    /// The first two dash-separated fields of an entry id — the timestamp the
+    /// folder name carries, which is what `TrashStore.parseTimestamp` reads.
+    private static func stampPrefix(of entryId: String) -> String {
+        entryId.split(separator: "-", maxSplits: 2).prefix(2).joined(separator: "-")
     }
 
     // MARK: - list
@@ -296,10 +349,19 @@ final class TrashCharacterization: XCTestCase {
         XCTAssertEqual(listed.map(\.originalIndex), [0, 5, 10])
     }
 
-    /// M3-TR-015 / M3-TR-016 / M3-TR-017 — every unreadable shape is skipped
-    /// SILENTLY: absent meta.json, undecodable meta.json, an unparseable folder
-    /// name, and a loose file at the `.trash` root.
-    func test_list_silentlySkipsEveryEntryItCannotRead() async throws {
+    /// M3-TR-015 — fixed under RULING-7, 2026-08-09. An entry Maugham itself
+    /// half-wrote — the writer's file moved into the folder, the meta.json never
+    /// landed — is no longer SILENTLY absent from the Trash while its contents
+    /// sit on disk. It appears, labelled as exactly what it is.
+    ///
+    /// Three shapes still skip, and each for its own reason:
+    /// - a folder whose NAME is not one Maugham writes, and a loose file at the
+    ///   `.trash` root — not Maugham's entries at all, so not Maugham's to
+    ///   describe (M3-TR-016 / M3-TR-017, ruled correct under RULING-9);
+    /// - an entry folder holding NOTHING (M3-TR-009's refused move) — there are
+    ///   no contents to preserve, and a row promising some would be the same
+    ///   misrepresentation pointing the other way.
+    func test_list_showsAnEntryItCannotRead_ratherThanHidingIt() async throws {
         let p = try project()
         let stamp = TrashStore.timestampPrefix(for: Date())
         try plantEntry(in: p, folderName: "\(stamp)-good",
@@ -309,6 +371,7 @@ final class TrashCharacterization: XCTestCase {
                        file: ("words.md", "the writer's only copy"))
         try plantEntry(in: p, folderName: "\(stamp)-badmeta", meta: "{ not json",
                        file: ("words.md", "the writer's only copy"))
+        try plantEntry(in: p, folderName: "\(stamp)-empty", meta: nil, file: nil)
         try plantEntry(in: p, folderName: "not-a-timestamp-at-all",
                        meta: metaJSON(path: "manuscript/x.md", title: "X"),
                        file: ("x.md", "x"))
@@ -316,11 +379,88 @@ final class TrashCharacterization: XCTestCase {
                           atomically: true, encoding: .utf8)
 
         let listed = try await TrashStore(projectURL: p).list()
-        XCTAssertEqual(listed.map(\.displayTitle), ["Good"])
-        // All four skipped shapes are still on disk, holding their contents.
-        XCTAssertEqual(trashFolders(in: p).count, 5)
+        XCTAssertEqual(
+            listed.map(\.displayTitle).sorted(),
+            ["Good", "Unreadable entry (contents preserved)",
+             "Unreadable entry (contents preserved)"],
+            "the two half-written entries are in the writer's Trash, named for what they are")
+        XCTAssertEqual(
+            Set(listed.filter(\.isUnreadable).map(\.id)),
+            ["\(stamp)-nometa", "\(stamp)-badmeta"])
+
+        // Nothing was disposed of by being listed: every shape is still on disk.
+        XCTAssertEqual(trashFolders(in: p).count, 6)
         XCTAssertTrue(exists(".trash/\(stamp)-nometa/words.md", in: p))
         XCTAssertTrue(exists(".trash/\(stamp)-badmeta/words.md", in: p))
+    }
+
+    /// M3-TR-062 (RULING-7) — an unreadable entry REFUSES to restore, and the
+    /// refusal names its real cause: Maugham's record of the deletion is what
+    /// cannot be read, and what was deleted is still on disk. Both surfaces say
+    /// so — the store, which knows the entry from an id that is simply not
+    /// there (M3-TR-029, still a plain Cocoa error), and the project, which is
+    /// where the writer's Restore lands.
+    func test_restoringAnUnreadableEntry_refusesAndNamesTheRealCause() async throws {
+        let p = try project()
+        let stamp = TrashStore.timestampPrefix(for: Date())
+        try plantEntry(in: p, folderName: "\(stamp)-nometa", meta: nil,
+                       file: ("words.md", "the writer's only copy"))
+        let store = TrashStore(projectURL: p)
+
+        do {
+            _ = try await store.restore(trashId: "\(stamp)-nometa")
+            XCTFail("expected a throw")
+        } catch let error as TrashStore.TrashError {
+            guard case .entryMetadataUnreadable(let id, _) = error else {
+                return XCTFail("wrong case: \(error)")
+            }
+            XCTAssertEqual(id, "\(stamp)-nometa")
+            XCTAssertTrue(error.localizedDescription.contains("still holds what was deleted"))
+        }
+
+        XCTAssertTrue(exists(".trash/\(stamp)-nometa/words.md", in: p),
+                      "the refusal costs the writer nothing")
+    }
+
+    /// M3-TR-063 (RULING-7) — the same refusal at the surface the writer's
+    /// Restore actually reaches, as a `trashEntryNotRewirable` the pane alerts.
+    func test_restoreTrashEntry_refusesAnUnreadableEntry_atTheProjectLevel() async throws {
+        let url = try makeNestedProject()
+        let store = try await ProjectStore.load(from: url)
+        let stamp = TrashStore.timestampPrefix(for: Date())
+        try plantEntry(in: url, folderName: "\(stamp)-nometa", meta: nil,
+                       file: ("words.md", "the writer's only copy"))
+
+        do {
+            _ = try await store.restoreTrashEntry(id: "\(stamp)-nometa")
+            XCTFail("expected a throw")
+        } catch let error as ProjectStoreError {
+            guard case .trashEntryNotRewirable(let title, let reason) = error else {
+                return XCTFail("wrong case: \(error)")
+            }
+            XCTAssertEqual(title, "Unreadable entry (contents preserved)")
+            XCTAssertTrue(reason.contains("still in the trash folder"), "observed: \(reason)")
+        }
+        XCTAssertTrue(exists(".trash/\(stamp)-nometa/words.md", in: url))
+    }
+
+    /// M3-TR-064 (RULING-7) — and the unreadable entry can still be disposed
+    /// of. Being visible is not the same as being immortal: "Permanently
+    /// Delete" reaches it by folder name exactly as it reaches a readable one.
+    func test_anUnreadableEntryCanStillBePermanentlyDeleted() async throws {
+        let p = try project()
+        let stamp = TrashStore.timestampPrefix(for: Date())
+        try plantEntry(in: p, folderName: "\(stamp)-nometa", meta: nil,
+                       file: ("words.md", "the writer's only copy"))
+        let store = TrashStore(projectURL: p)
+        let listed = try await store.list()
+        let entry = try XCTUnwrap(listed.first)
+
+        try await store.permanentlyDelete(trashId: entry.id)
+
+        XCTAssertFalse(exists(".trash/\(stamp)-nometa", in: p))
+        let remaining = try await store.list()
+        XCTAssertTrue(remaining.isEmpty)
     }
 
     // MARK: - sweep
@@ -979,28 +1119,59 @@ final class TrashCharacterization: XCTestCase {
 
     // MARK: - emptyTrash / permanentlyDelete
 
-    /// M3-TR-045 — `emptyTrash` cannot report a failure: it swallows every
-    /// per-entry error and clears the cached array unconditionally.
-    func test_emptyTrash_swallowsEveryFailure_andClearsTheCacheRegardless() async throws {
+    /// M3-TR-045 — fixed under RULING-7, 2026-08-09. `emptyTrash` no longer
+    /// swallows its per-entry failures behind a `try?` and reports a completed
+    /// destruction regardless: what it could not destroy is thrown to the
+    /// caller (TrashView alerts) and is STILL LISTED afterwards, so the pane and
+    /// the message agree about what is left.
+    ///
+    /// The failure is provoked the way a real one arrives — the entry cannot be
+    /// removed — by making the entry FOLDER unwritable, so the unlink of its
+    /// first child fails and the writer's file is still there afterwards to be
+    /// listed. (Making `.trash/` itself unwritable instead destroys the
+    /// contents and fails only on the empty folder: a different case, and not
+    /// the one this pins.)
+    func test_emptyTrash_reportsWhatItCouldNotDestroy_andLeavesItListed() async throws {
         let url = try makeNestedProject()
         let store = try await ProjectStore.load(from: url)
         let ch1 = try XCTUnwrap(store.manifest.structure
             .first { $0.title == "Act One" }?.children?.first { $0.title == "Chapter 1" })
         try await store.deleteStructureItem(id: ch1.id)
         let id = try XCTUnwrap(store.lastDeletion?.trashIds.first)
-        // Make the delete fail by removing the folder behind the store's back.
-        try FileManager.default.removeItem(at: url.appendingPathComponent(".trash/\(id)"))
 
-        try await store.emptyTrash()            // no throw
+        let entryFolder = url.appendingPathComponent(".trash/\(id)")
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o555], ofItemAtPath: entryFolder.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: entryFolder.path)
+        }
 
-        XCTAssertTrue(store.trashEntries.isEmpty)
+        do {
+            try await store.emptyTrash()
+            XCTFail("expected a throw — the entry could not be destroyed")
+        } catch let error as ProjectStoreError {
+            guard case .trashNotEmptied(let undestroyed, let total) = error else {
+                return XCTFail("wrong case: \(error)")
+            }
+            XCTAssertEqual(undestroyed, 1)
+            XCTAssertEqual(total, 1)
+            XCTAssertTrue(error.localizedDescription.contains("still in the Trash"),
+                          "observed: \(error.localizedDescription)")
+        }
+
+        XCTAssertEqual(store.trashEntries.map(\.id), [id],
+                       "what survived the emptying is still listed")
+        XCTAssertTrue(exists(".trash/\(id)/01-chapter-1.md", in: url),
+                      "and the writer's file is still in it")
     }
 
-    /// M3-TR-046 — `emptyTrash` only touches entries in its CACHED array. An
-    /// entry written to `.trash/` behind `ProjectStore`'s back (which is exactly
-    /// how the MCP piece-style tools write one) survives an "Empty Trash" that
-    /// then reports the trash as empty.
-    func test_emptyTrash_leavesBehindAnyOnDiskEntryMissingFromItsCache() async throws {
+    /// M3-TR-046 — fixed under RULING-7, 2026-08-09. `emptyTrash` empties the
+    /// trash DIRECTORY, not its cached array. An entry written to `.trash/`
+    /// behind `ProjectStore`'s back — which is exactly how the MCP piece-style
+    /// tools write one — is destroyed with the rest, so "the trash is empty" is
+    /// true at the moment the pane says it.
+    func test_emptyTrash_destroysEveryEntryOnDisk_notOnlyTheCachedOnes() async throws {
         let url = try makeNestedProject()
         let store = try await ProjectStore.load(from: url)
         let ch1 = try XCTUnwrap(store.manifest.structure
@@ -1024,9 +1195,9 @@ final class TrashCharacterization: XCTestCase {
 
         XCTAssertTrue(store.trashEntries.isEmpty, "the pane shows an empty trash")
         let onDiskAfter = try await store.trashStore.entriesIncludingInternal()
-        XCTAssertEqual(onDiskAfter.map(\.id), [side.id],
-                       "while one entry is still on disk")
-        XCTAssertTrue(exists(".trash/\(side.id)/x.tex", in: url))
+        XCTAssertTrue(onDiskAfter.isEmpty, "and the disk agrees with the pane")
+        XCTAssertFalse(exists(".trash/\(side.id)", in: url),
+                       "the entry ProjectStore never cached is destroyed too")
     }
 
     /// M3-TR-047 — the single-entry path DOES propagate its failure.

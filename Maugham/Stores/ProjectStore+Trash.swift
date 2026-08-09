@@ -175,6 +175,18 @@ extension ProjectStore {
     private func restoreRoute(for entry: TrashEntry?) throws -> RestoreRoute {
         guard let entry else { return .unknownEntry }
 
+        // An entry Maugham could not read is now VISIBLE (RULING-7), which means
+        // Restore is now a thing the writer can ask of it. It is refused here,
+        // naming the real cause, rather than at the sniff below — which would
+        // say "nothing in the project describes where it belongs" and sound like
+        // a judgement about their item instead of a failure of Maugham's record.
+        if entry.isUnreadable {
+            throw ProjectStoreError.trashEntryNotRewirable(
+                title: entry.displayTitle,
+                reason: "Maugham’s record of what it was and where it lived can’t be read. "
+                    + "What was deleted is still in the trash folder on disk.")
+        }
+
         func structureItem() -> StructureItem? {
             try? JSONDecoder().decode(StructureItem.self, from: entry.itemMetadata)
         }
@@ -452,12 +464,34 @@ extension ProjectStore {
         trashEntries = (try? await trashStore.list()) ?? trashEntries
     }
 
-    /// Permanently delete all trash entries for this project.
+    /// Permanently delete everything in this project's trash.
+    ///
+    /// **Empties the trash DIRECTORY, not the cached array** (RULING-7). An
+    /// entry written straight through `TrashStore` — which is exactly how the
+    /// MCP piece-style tools write one — is in no cache, and an "Empty Trash"
+    /// that skipped it reported a completed destruction of content it never
+    /// looked at. The writer emptied the trash to be rid of a draft; it was
+    /// still in `.trash/`, bound for every backup of the project.
+    ///
+    /// **A failure is reported, not swallowed.** Each entry is attempted, the
+    /// ones that could not be destroyed are counted, and the throw carries them
+    /// to `TrashView`'s alert — whose catch was dead code while this method
+    /// could not throw. Whatever survived is re-listed first, so the pane and
+    /// the message agree about what is left.
     public func emptyTrash() async throws {
-        for entry in trashEntries {
-            try? await trashStore.permanentlyDelete(trashId: entry.id)
+        let ids = try await trashStore.entryFolderIds()
+        var undestroyed = 0
+        for id in ids {
+            do {
+                try await trashStore.permanentlyDelete(trashId: id)
+            } catch {
+                undestroyed += 1
+            }
         }
-        trashEntries = []
+        trashEntries = (try? await trashStore.list()) ?? []
+        guard undestroyed == 0 else {
+            throw ProjectStoreError.trashNotEmptied(undestroyed: undestroyed, total: ids.count)
+        }
     }
 
     /// Drop `id` from the armed deletion once a RESTORE has consumed it — the
