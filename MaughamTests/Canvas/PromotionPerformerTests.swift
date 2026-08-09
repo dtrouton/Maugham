@@ -905,6 +905,67 @@ final class PromotionPerformerTests: XCTestCase {
                       "the link must be in the statement's OP LOG, not lost or on disk only")
     }
 
+    /// **The SHEET has to see a statement destination too** (whole-branch review,
+    /// Important 1). `ProjectWindow`'s `readBody` resolved `manifest.research`
+    /// alone, so for a line drawn from an intent-marked card the sheet's
+    /// `destinationBody` was nil, `linkAlreadyPresent` stayed false, Commit stayed
+    /// live — and the refusal below arrived a second later as an alert. That is
+    /// F1's own defect class one error case over: the preview and the write
+    /// disagreeing about a statement, on a surface whose whole promise is that you
+    /// can see what a command will do.
+    ///
+    /// It drives the PRODUCTION reader (`ProjectWindow.promotionDestinationBody`)
+    /// rather than a stub, because the stub is the thing that was right all along.
+    func test_theSheetSeesAStatementDestinationSoARepeatedLinkIsRefusedBeforeCommit()
+    async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(
+            plan(.scrap(a), .intentStatement, store: store, model: model))
+        _ = try await performer.perform(
+            plan(.scrap(b), .researchNote, store: store, model: model))
+        _ = try await performer.perform(plan(.line(l1), .wikiLink, store: store, model: model))
+
+        let sheet = sheetModel(over: .line(l1), store: store, model: model)
+        sheet.select(.wikiLink)
+        XCTAssertEqual(sheet.resolvedPlan?.linkAlreadyPresent, true,
+                       "the link is in the statement — the sheet read nil and "
+                       + "believed the destination was empty")
+        XCTAssertFalse(sheet.canCommit)
+        XCTAssertNotNil(sheet.refusal, "and it says so, before Commit rather than after")
+        _ = root
+    }
+
+    /// The control for that reader, on the arm that always worked: a repeated link
+    /// into a research NOTE is refused before Commit too. The statement arm is an
+    /// addition to `readBody`, not a replacement of it.
+    func test_theSheetStillSeesAResearchNoteDestination() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        try await promoteBothScraps(store, model)
+        _ = try await PromotionPerformer(store: store, model: model)
+            .perform(plan(.line(l1), .wikiLink, store: store, model: model))
+
+        let sheet = sheetModel(over: .line(l1), store: store, model: model)
+        sheet.select(.wikiLink)
+        XCTAssertEqual(sheet.resolvedPlan?.linkAlreadyPresent, true)
+        XCTAssertFalse(sheet.canCommit)
+        _ = root
+    }
+
+    /// The sheet as `CanvasPromotionModifier.begin` builds it — production's own
+    /// index and production's own destination reader, so a test about what the
+    /// writer is shown is not testing a stub.
+    private func sheetModel(over source: PromotionSource, store: ProjectStore,
+                            model: CanvasModel) -> PromotionSheetModel {
+        PromotionSheetModel(
+            source: source, scene: model.scene, scraps: model.scraps,
+            artifacts: index(store), items: ProjectWindow.canvasItemIndex(in: store),
+            piece: .none,
+            readBody: { ProjectWindow.promotionDestinationBody(of: $0, in: store) })
+    }
+
     /// The statement arm's dedupe must match the file arm's: same link twice is
     /// `linkAlreadyPresent`, read off the freshest text (`statementText(of:)`).
     func test_aRepeatedLineIntoTheStatementRefusesAsAlreadyPresent() async throws {
@@ -922,6 +983,84 @@ final class PromotionPerformerTests: XCTestCase {
         } catch PromotionFailure.linkAlreadyPresent {
             // expected
         }
+    }
+
+    /// **The refusal names what the link is already IN** (whole-branch review,
+    /// Important 2). It read "That link is already in the note." — the third
+    /// surface to hardcode that noun, and false about a statement the moment
+    /// `performWikiLink` learned to write into one. It reads the plan's own
+    /// `destinationDescription`, which is where the other two surfaces get their
+    /// noun (`PromotionPlan`'s line arm resolves it once, off the same index the
+    /// write resolves against).
+    ///
+    /// Both arms in one test, because the assertion that matters is that they
+    /// DIFFER: a fix that said "the craft intent" everywhere would pass the
+    /// statement half alone.
+    func test_theRepeatedLinkRefusalSaysWhatItIsAlreadyIn() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(
+            plan(.scrap(a), .intentStatement, store: store, model: model))
+        _ = try await performer.perform(
+            plan(.scrap(b), .researchNote, store: store, model: model))
+        _ = try await performer.perform(plan(.line(l1), .wikiLink, store: store, model: model))
+        do {
+            _ = try await performer.perform(plan(.line(l1), .wikiLink, store: store, model: model))
+            XCTFail("expected a refusal")
+        } catch let failure as PromotionFailure {
+            let sentence = try XCTUnwrap(failure.errorDescription)
+            XCTAssertTrue(sentence.contains("craft intent"),
+                          "the destination is the writer's intent, not a note — "
+                          + "found: \(sentence)")
+            XCTAssertFalse(sentence.contains("the note"), "found: \(sentence)")
+        }
+        _ = root
+    }
+
+    /// The control: a line into a research NOTE still says "note". The fix moved
+    /// the noun to the destination rather than swapping one hardcode for another.
+    func test_theRepeatedLinkRefusalStillSaysNoteForANote() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        try await promoteBothScraps(store, model)
+        let performer = PromotionPerformer(store: store, model: model)
+        let p = plan(.line(l1), .wikiLink, store: store, model: model)
+        _ = try await performer.perform(p)
+        do {
+            _ = try await performer.perform(p)
+            XCTFail("expected a refusal")
+        } catch let failure as PromotionFailure {
+            let sentence = try XCTUnwrap(failure.errorDescription)
+            XCTAssertTrue(sentence.contains("the note “The falls at night”"),
+                          "found: \(sentence)")
+        }
+        _ = root
+    }
+
+    /// **The sheet and the performer say the ONE sentence.** They are two surfaces
+    /// for one refusal — the sheet's before Commit, the performer's after — and
+    /// two spellings is how the writer comes to read a different noun depending on
+    /// which of them caught it.
+    func test_theSheetsRefusalIsThePerformersOwnSentence() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(
+            plan(.scrap(a), .intentStatement, store: store, model: model))
+        _ = try await performer.perform(
+            plan(.scrap(b), .researchNote, store: store, model: model))
+        _ = try await performer.perform(plan(.line(l1), .wikiLink, store: store, model: model))
+
+        let sheet = sheetModel(over: .line(l1), store: store, model: model)
+        sheet.select(.wikiLink)
+        do {
+            _ = try await performer.perform(plan(.line(l1), .wikiLink, store: store, model: model))
+            XCTFail("expected a refusal")
+        } catch let failure as PromotionFailure {
+            XCTAssertEqual(sheet.refusal, failure.errorDescription)
+        }
+        _ = root
     }
 
     /// Contract 7 (spec §4.3) for the LINE verb —

@@ -55,12 +55,6 @@ final class PromotionStatementMarkTests: XCTestCase {
                            structure: store.manifest.structure)
     }
 
-    /// A novel with one chapter, for tests that need both.
-    private func makeNovelWithAChapter() async throws -> (TempDirectory, ProjectStore) {
-        let store = try await makeProject()
-        return (temp, store)
-    }
-
     // MARK: - The name
 
     /// The project's intent answers with the bare name — which is what shipped
@@ -177,7 +171,7 @@ final class PromotionStatementMarkTests: XCTestCase {
     /// `statementTitlePairs()` returns the (id, composed title) pair for every
     /// statement — the resolution-side spelling of "what a statement is called".
     func test_statementTitlePairs_composeTheOneTitlePerStatement() async throws {
-        let (_, store) = try await makeNovelWithAChapter()   // chapter id "ch-1", title "Chapter 1"
+        let store = try await makeProject()   // chapter id "ch-1", title "Chapter 1"
         let projectIntent = try await store.createStatement(kind: .intent, scope: .project)
         let chapterIntent = try await store.createStatement(kind: .intent, scope: .document("ch-1"))
         let pairs = store.statementTitlePairs()

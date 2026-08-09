@@ -72,7 +72,15 @@ enum PromotionFailure: LocalizedError, Equatable {
     /// note".
     case emptyBody(source: PromotionSource)
     case missingWikiLinkWrite
-    case linkAlreadyPresent
+    /// The link is already where it would be written. **It carries the
+    /// DESTINATION rather than choosing a noun**, and it is the third surface to
+    /// need that: this said "already in the note", which is false about a
+    /// statement the moment `performWikiLink` learned to write into one (Task 3).
+    /// `PromotionResult.confirmation` and `PromotionSheet.refusal` both read
+    /// `PromotionPlan.destinationDescription`, resolved once by the plan's line
+    /// arm off the same index the write resolves against — so this reads it too
+    /// rather than being a fourth place the noun is decided.
+    case linkAlreadyPresent(destination: String)
     case artifactMissing(String)
     /// The mark names a real artifact of the WRONG kind — a palette card or a
     /// craft-intent doc where a research note was to be rewritten.
@@ -136,7 +144,8 @@ enum PromotionFailure: LocalizedError, Equatable {
         case .emptyBody(let source):
             return "There is nothing in this \(source.noun) to promote."
         case .missingWikiLinkWrite: return "This line has nothing to link."
-        case .linkAlreadyPresent: return "That link is already in the note."
+        case .linkAlreadyPresent(let destination):
+            return "That link is already in \(destination)."
         case .artifactMissing(let id):
             return "The artifact this card produced is no longer in the project (\(id))."
         case .artifactIsADifferentKind(_, let found):
@@ -343,7 +352,11 @@ struct PromotionPerformer {
             else { throw PromotionFailure.emptyBody(source: plan.source) }
         case .wikiLink:
             guard plan.wikiLinkWrite != nil else { throw PromotionFailure.missingWikiLinkWrite }
-            guard !plan.linkAlreadyPresent else { throw PromotionFailure.linkAlreadyPresent }
+            guard !plan.linkAlreadyPresent
+            else {
+                throw PromotionFailure.linkAlreadyPresent(
+                    destination: plan.destinationDescription)
+            }
         case .researchAsset, .paletteCardImage:
             // **A FILE rather than a body, and that is why these are their own
             // arms.** A picture has no prose: routed through the arm above, every
@@ -604,7 +617,10 @@ struct PromotionPerformer {
             let body = try readBody(atPath: path)
             // The plan's own check was against a SNAPSHOT taken when the sheet
             // opened. This one is against the file.
-            guard !body.contains(link.linkText) else { throw PromotionFailure.linkAlreadyPresent }
+            guard !body.contains(link.linkText) else {
+                throw PromotionFailure.linkAlreadyPresent(
+                    destination: plan.destinationDescription)
+            }
             try await write(body + link.appendedText, toPath: path)
             return PromotionResult(createdItemID: item.id, title: item.title, writtenLinks: [])
         case .statement(let statement):
@@ -620,7 +636,8 @@ struct PromotionPerformer {
             // reason — `statementAppending` owns the blank line between what is
             // there and what is arriving, so pre-padded text would double it.
             guard !store.statementText(of: statement).contains(link.linkText) else {
-                throw PromotionFailure.linkAlreadyPresent
+                throw PromotionFailure.linkAlreadyPresent(
+                    destination: plan.destinationDescription)
             }
             try await store.appendToStatement(link.linkText, to: statement,
                                               session: Self.promotionSession)
