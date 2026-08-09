@@ -261,6 +261,40 @@ final class PromotionSheetTests: XCTestCase {
                       + "at the moment the target was chosen")
     }
 
+    /// M6-PR-038/M6-PR-039, RULING-22, fixed 2026-08-09 — the sheet's third
+    /// string can no longer disagree with its other two.
+    ///
+    /// The Name field was seeded from the card's first line by `select(_:)` and
+    /// never re-seeded when the writer chose Rewrite. `resolvedPlan` writes that
+    /// field over `plan.title`, and the performer renamed the note (and its file)
+    /// to match — so the writer's own rename of that note in the research pane
+    /// was silently reverted by an act neither of the sheet's labels described.
+    func test_choosingRewriteWithdrawsTheNameFieldAndCarriesTheArtifactsOwnName() {
+        var s = scene()
+        s.setPromotedItem("res-a", for: a)
+        let m = model(.scrap(a), scene: s, artifacts: ["res-a": "Fog, act II"])
+        m.select(.researchNote)
+        XCTAssertTrue(m.namesTheArtifact, "a NEW note is the writer's to name")
+        XCTAssertEqual(m.editedTitle, "The falls", "seeded from the card's first line")
+
+        m.mode = .update(itemID: "res-a", title: "Fog, act II")
+        XCTAssertFalse(m.namesTheArtifact,
+                       "a rewrite writes into an artifact that is already named, and a "
+                       + "field that renames it is not a control the sheet described")
+        XCTAssertEqual(m.editedTitle, "Fog, act II",
+                       "and the name it carries to Commit is the artifact's own")
+        XCTAssertEqual(m.resolvedPlan?.title, "Fog, act II")
+        XCTAssertEqual(m.resolvedPlan?.destinationDescription, "the existing “Fog, act II”",
+                       "one name for one artifact — this is the value `title` now reads")
+        XCTAssertNil(m.refusal)
+        XCTAssertTrue(m.canCommit)
+
+        m.mode = .new
+        XCTAssertTrue(m.namesTheArtifact)
+        XCTAssertEqual(m.editedTitle, "The falls",
+                       "and a new promotion is seeded from the card again")
+    }
+
     func test_switchingToATargetThatCannotUpdateResetsTheMode() {
         var s = scene()
         s.setPromotedItem("res-a", for: a)

@@ -579,7 +579,7 @@
   "claim_id": "M6-PR-037",
   "scope": "PromotionPerformer.performResearchNote (.update)",
   "kind": "POSTCONDITION",
-  "statement": "a Rewrite REPLACES the note's whole body with the card's text: anything the writer wrote into that note afterwards is gone, with no trash copy, no version and no undo — canvas undo takes back only the mark",
+  "statement": "a Rewrite replaces the note's whole body — but the note's CURRENT file is sent to the project trash first (TrashSubject.priorVersion, visible in the Trash pane, restored as a file beside the live note), so the writer's earlier text is recoverable for the retention window: the standard a DELETED note already had. Still not versioned, and ⌘Z still takes back only the mark",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName"
@@ -595,7 +595,7 @@
   "claim_id": "M6-PR-038",
   "scope": "PromotionPerformer.performResearchNote (.update)",
   "kind": "POSTCONDITION",
-  "statement": "a Rewrite also reverts the writer's own RENAME of that note — the title goes back to the card's first line and the backing file is renamed on disk to match",
+  "statement": "a Rewrite does NOT rename: the artifact keeps the title the writer gave it and its backing file is not moved. The `.update` arm reads no name at all",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName"
@@ -611,7 +611,7 @@
   "claim_id": "M6-PR-039",
   "scope": "Promotion.plan (update) / destination",
   "kind": "POSTCONDITION",
-  "statement": "on a Rewrite the plan's destination names the artifact's LIVE title ('the existing “Fog, act II”') while the plan's title — the value that actually wins at Commit — is the card's first line; the sheet therefore shows two names for one artifact",
+  "statement": "on a Rewrite the plan's title and its destination are ONE value — the artifact's own name, resolved by `Promotion.plannedTitle` under the same guard `destination` uses — and the sheet re-seeds the Name field on a mode change and withholds it entirely on a rewrite, so one artifact has one name on screen",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName"
@@ -1187,7 +1187,7 @@
   "claim_id": "M6-PR-075",
   "scope": "PromotionPerformer.perform / writeOfferedLinks",
   "kind": "POSTCONDITION",
-  "statement": "a link-write failure (a member's note that exists and will not read as UTF-8) throws AFTER the artifact has been created, its body written, the region marked and every contribution record stamped — the writer is told only that it failed",
+  "statement": "a link-write failure is refused BEFORE any mutation: `precheckOfferedLinks` reads every offered member's note first, so a refusal leaves no artifact, no body, no mark and no contribution record — the performer's own 'validate first, write second' contract now holds for the link pass too",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "PromotionCharacterization.test_aLinkWriteFailureThrowsAfterTheArtifactExists"

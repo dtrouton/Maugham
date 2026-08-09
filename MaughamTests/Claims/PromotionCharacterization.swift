@@ -505,7 +505,15 @@ final class PromotionCharacterization: XCTestCase {
                        "Promoted to the note “The falls at night”.", "M6-PR-036")
     }
 
-    /// M6-PR-037, M6-PR-038, M6-PR-039 — what a Rewrite costs.
+    /// M6-PR-037, M6-PR-038, M6-PR-039 — what a Rewrite costs, and what it no
+    /// longer costs.
+    ///
+    /// **All three fixed 2026-08-09** — M6-PR-038/039 under RULING-22 (the
+    /// sheet's two labels named the artifact and its quietest field renamed it),
+    /// M6-PR-037 under RULING-24 (research is recoverable but not versioned, and
+    /// a rewrite left no route back at all). The body is still replaced — that is
+    /// what Rewrite says it does — but the previous text is in the trash for the
+    /// retention window, the standard a deleted note already had.
     func test_aRewriteReplacesTheNoteAndRevertsTheWritersName() async throws {
         let (root, store) = try await makeProject()
         let model = makeModel(at: root)
@@ -527,19 +535,44 @@ final class PromotionCharacterization: XCTestCase {
         model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
         let pl = try plan(.scrap(a), .researchNote, store: store, model: model, mode: existing)
         XCTAssertEqual(pl.destinationDescription, "the existing “Fog, act II”")
-        XCTAssertEqual(pl.title, "The falls at night",
-                       "M6-PR-039: the Name the plan carries is the card's first line, "
-                       + "while the destination names the artifact's live title")
+        XCTAssertEqual(pl.title, "Fog, act II",
+                       "M6-PR-039: fixed under RULING-22, 2026-08-09 — the Name the plan "
+                       + "carries is the artifact's own, the same value the destination "
+                       + "names, so the sheet shows one name for one artifact")
 
         _ = try await performer.perform(pl)
         XCTAssertEqual(try bodyOf(id, store: store, root: root),
                        "The falls at night\n\nRewritten on the canvas.",
-                       "M6-PR-037: the writer's afternoon of prose is replaced outright")
+                       "M6-PR-037: the body is still replaced — that is what Rewrite says")
         XCTAssertEqual(TreeWalk.find(id: id, in: store.manifest.research)?.title,
-                       "The falls at night", "M6-PR-038: their rename is reverted")
+                       "Fog, act II",
+                       "M6-PR-038: fixed under RULING-22, 2026-08-09 — their rename stands")
         XCTAssertEqual(TreeWalk.find(id: id, in: store.manifest.research)?.path,
-                       "research/the-falls-at-night.md",
-                       "M6-PR-038: and the file on disk is renamed back")
+                       "research/fog-act-ii.md",
+                       "M6-PR-038: and the file on disk is not renamed either")
+
+        // M6-PR-037: fixed under RULING-24, 2026-08-09 — the afternoon of prose
+        // is reachable for the trash's retention window, the same standard a
+        // DELETED note gets. The minimal bridge; not versioning (GAP-P1).
+        let entries = try await store.trashStore.list()
+        let preserved = try XCTUnwrap(entries.first { $0.subject == .priorVersion },
+                                      "M6-PR-037: the prior version is in the trash, and "
+                                      + "in the pane — `list()` is the writer's view")
+        XCTAssertEqual(preserved.displayTitle, "Fog, act II")
+        try await store.restoreTrashEntry(id: preserved.id)
+        let returned = try XCTUnwrap(
+            (try FileManager.default.contentsOfDirectory(
+                atPath: root.appendingPathComponent("research").path))
+                .first { $0.hasPrefix("fog-act-ii") && $0 != "fog-act-ii.md" },
+            "M6-PR-037: it comes back beside the live note rather than over it")
+        XCTAssertEqual(
+            try String(contentsOf: root.appendingPathComponent("research/\(returned)"),
+                       encoding: .utf8),
+            "The falls at night\n\nAn afternoon of my own prose.\n",
+            "M6-PR-037: with the writer's own words in it")
+        XCTAssertEqual(try bodyOf(id, store: store, root: root),
+                       "The falls at night\n\nRewritten on the canvas.",
+                       "M6-PR-037: and the rewritten note is untouched by the restore")
     }
 
     /// M6-PR-040 — a second `.new` promotion of a card that already produced one.
@@ -1096,7 +1129,10 @@ final class PromotionCharacterization: XCTestCase {
 
     // MARK: - H. What a failure leaves behind, and what ⌘Z takes back
 
-    /// M6-PR-075 — the promotion has already happened when it reports failure.
+    /// M6-PR-075 — fixed under RULING-22, 2026-08-09. The refusal now leaves
+    /// nothing behind, which is what this file's own contract ("validate first,
+    /// write second") always said and what a writer takes from a failure
+    /// message. The read that can fail is asked before anything is created.
     func test_aLinkWriteFailureThrowsAfterTheArtifactExists() async throws {
         let (root, store) = try await makeProject()
         let model = makeModel(at: root)
@@ -1114,15 +1150,13 @@ final class PromotionCharacterization: XCTestCase {
         XCTAssertEqual(thrown?.errorDescription,
                        "Maugham could not read what is already in \(memberPath), so it did "
                        + "not write over it.")
-        let created = try XCTUnwrap(model.scene.region(r1)?.promotedItemID,
-                                    "M6-PR-075: the region was marked before the throw")
-        XCTAssertNotNil(TreeWalk.find(id: created, in: store.manifest.research),
-                        "M6-PR-075: the artifact exists")
-        XCTAssertEqual(try bodyOf(created, store: store, root: root),
-                       "The falls at night\n\nSodium light on the spray.\n\nOctober's doctor",
-                       "M6-PR-075: with its body written")
-        XCTAssertEqual(model.scene.node(a)?.contributedToItemID, created,
-                       "M6-PR-075: and the contribution records stamped")
+        XCTAssertNil(model.scene.region(r1)?.promotedItemID,
+                     "M6-PR-075: the region is not marked")
+        XCTAssertEqual(TreeWalk.collect(in: store.manifest.research,
+                                        where: { $0.title.hasPrefix("Act II fog") }).count, 0,
+                       "M6-PR-075: no artifact was created")
+        XCTAssertNil(model.scene.node(a)?.contributedToItemID,
+                     "M6-PR-075: and no contribution record was stamped")
     }
 
     /// M6-PR-076 — the count reported is what was written, not what was offered.

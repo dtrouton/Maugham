@@ -281,23 +281,35 @@
  },
  {
   "claim_id": "M6-PR-038",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-22",
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "R22's stated scope is exactly this shape: the writer formed an expectation from what Maugham LABELLED — the mode picker reads 'Rewrite “Fog, act II”' and the preview reads 'Goes to: the existing “Fog, act II”', both naming the note by the title the writer chose — and the outcome differs: the title is replaced by the card's first line and the file on disk is renamed to match. Nothing on the sheet says the name will move. The survey filed this SETTLED_BY_SUB under RULING-14; that is a scope error — R14 governs the ingestion boundary and licenses the WRITER to rename what they imported, it does not license a later promotion to rename it back.",
+  "why_in_scope": "Unchanged in scope from the VIOLATES filing — the writer formed an expectation from what Maugham LABELLED. WHY_IT_VIOLATED: the mode picker read 'Rewrite \"Fog, act II\"' and the preview read 'Goes to: the existing \"Fog, act II\"', both naming the note by the title the writer chose, and committing replaced that title with the card's first line and renamed the file on disk to match. Nothing on the sheet said the name would move. (The survey's SETTLED_BY_SUB under RULING-14 was a scope error: R14 licenses the WRITER to rename what they imported, not a later promotion to rename it back.) As of the fix performResearchNote's .update arm no longer calls store.updateResearchItem at all — an update is about the body, the artifact is already named, and Promotion.plannedTitle carries the artifact's own name rather than the card's first line. ONE defect with M6-PR-039, fixed together.",
   "intent_expressed_when": "earlier, and never withdrawn — the writer renamed that note deliberately and has not asked for it to be renamed again",
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.update) → store.updateResearchItem(id:title:)",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "PENDING — uncommitted on branch claude/spec-phase-3 (2026-08-09)",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-22 — Denver 2026-08-08, verbatim; team-lead ruling 2026-08-09 directing both halves (the seeding and the write) be fixed",
+   "pinned_by": "MaughamTests/Claims/PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName (rewritten pin: title and path both stand) + MaughamTests/Canvas/PromotionSheetTests.test_choosingRewriteWithdrawsTheNameFieldAndCarriesTheArtifactsOwnName"
+  }
  },
  {
   "claim_id": "M6-PR-039",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-22",
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "the same defect seen at the sheet: three strings are on screen at once and the least prominent of them — the Name field, seeded from the card's first line and never re-seeded when the writer picks Rewrite — is the one that wins. A control whose two labels name one artifact and whose hidden third value renames it is not unambiguous. Filed as its own claim because a fix has to touch the seeding as well as the write; it is ONE defect with M6-PR-038.",
+  "why_in_scope": "Unchanged in scope from the VIOLATES filing — the same defect seen at the sheet. WHY_IT_VIOLATED: three strings were on screen at once and the least prominent of them — the Name field, seeded by select(_:) from the card's first line and never re-seeded when the writer picked Rewrite — is the one that won, because resolvedPlan writes editedTitle over plan.title. A control whose two labels name one artifact and whose hidden third value renames it is not unambiguous. As of the fix Promotion.plannedTitle answers off the same value and under the same guard as Promotion.destination, so the plan's title and its destination cannot drift; the sheet re-seeds editedTitle in mode's didSet, and PromotionSheetModel.namesTheArtifact withholds the Name field on a rewrite — an artifact that already has a name is not the writer's to rename here, and a field that changes nothing is the failure PromotionTarget.namesItsArtifact exists to prevent one row over. ONE defect with M6-PR-038, fixed together.",
   "intent_expressed_when": "earlier — see M6-PR-038",
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "PENDING — uncommitted on branch claude/spec-phase-3 (2026-08-09)",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-22 — Denver 2026-08-08, verbatim; team-lead ruling 2026-08-09",
+   "pinned_by": "MaughamTests/Canvas/PromotionSheetTests.test_choosingRewriteWithdrawsTheNameFieldAndCarriesTheArtifactsOwnName (the sheet half) + PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName (the plan half: pl.title == 'Fog, act II')"
+  }
  },
  {
   "claim_id": "M6-PR-040",
@@ -311,13 +323,19 @@
  },
  {
   "claim_id": "M6-PR-075",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-22",
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "what Maugham shows is an error — 'Maugham could not read what is already in research/…' — and the operation it is reporting on has already created the note, written its body, marked the region and stamped a contribution record on every member. The writer's expectation from a failure message is that the act did not happen; the outcome differs. The performer's own contract states the rule this breaks ('Validate first, write second. A refused promotion leaves nothing behind'), which is what makes it a defect rather than a design. RULING-7 also reaches (the survey's PROMO-D5 filed it there); R22 is the sharper because the failure REPORT is true — what is false is the 'nothing happened' the writer takes from it.",
+  "why_in_scope": "Unchanged in scope from the VIOLATES filing — what Maugham showed was a failure and the writer's expectation from a failure message is that the act did not happen. WHY_IT_VIOLATED: 'Maugham could not read what is already in research/…' was thrown by writeOfferedLinks, which runs LAST — the note had already been created, its body written, the region marked and a contribution record stamped on every member. The failure REPORT was true; what was false is the 'nothing happened' the writer takes from it, and the performer's own contract states the rule it broke ('Validate first, write second. A refused promotion leaves nothing behind'). As of the fix PromotionPerformer.precheckOfferedLinks runs immediately after validate and before any mutation: it resolves each offer through the same writableDestination the write uses and reads the file arm through the same readBody, after the same flush — so the one fallible part of that pass that can be asked early is asked early. A destination that is GONE is still skipped rather than refused (writeOfferedLinks' documented honest skip) and a statement is appended through its op log with nothing to read back, so nothing else in the pass can throw. RULING-7 also reaches (the survey's PROMO-D5); R22 is the sharper.",
   "intent_expressed_when": "contemporaneous — the writer accepted the link offer and pressed Promote",
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote → writeOfferedLinks → readBody",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "PENDING — uncommitted on branch claude/spec-phase-3 (2026-08-09)",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-22 — Denver 2026-08-08, verbatim; team-lead ruling 2026-08-09 directing pre-validation of everything the link pass needs",
+   "pinned_by": "MaughamTests/Claims/PromotionCharacterization.test_aLinkWriteFailureThrowsAfterTheArtifactExists (rewritten pin: the region is unmarked, no artifact was created, no contribution record stamped)"
+  }
  },
  {
   "claim_id": "M6-PR-077",
@@ -391,13 +409,20 @@
  },
  {
   "claim_id": "M6-PR-037",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-24",
   "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
-  "why_in_scope": "the tier states what research is OWED: recoverable, though not versioned. A Rewrite replaces the note's whole body through DocumentStore.performFileSave — an atomic whole-file write with no backup — and research notes have no op log (they are not Document actors), are not walked by CheckpointCapture (allDocIds comes from manifest.structure), and leave no trash copy. So an afternoon the writer spent developing that note in the research pane is gone, and there is no route back inside Maugham. The writer's consent is real and contemporaneous — they picked 'Rewrite' — but consent to an act is not a recovery route, and the same content deleted rather than rewritten WOULD be recoverable (RULING-15's trash). The tier is the promise this breaks; the survey (PROMO-D1) reached the same verdict through RULING-4, which R24 now scopes.",
+  "why_in_scope": "Unchanged in scope from the VIOLATES filing — the tier states what research is OWED. WHY_IT_VIOLATED: a Rewrite replaced the note's whole body through an atomic DocumentStore.performFileSave with no backup, and research notes have no op log, are not walked by CheckpointCapture (allDocIds comes from manifest.structure) and left no trash copy — so an afternoon the writer spent developing that note had no route back inside Maugham, while the same content DELETED would have been recoverable (RULING-15's trash). As of the fix PromotionPerformer.preservePriorVersion sends the note's current file to the project trash before the rewrite writes, under a new TrashSubject.priorVersion: visible in the Trash pane (unlike .internalArtifact, which RULING-43 hides because nothing would point at it again) and restoring as a file BESIDE the live note, so nothing is overwritten and the writer holds both texts. Recoverable, not versioned — exactly the tier, and no more. It is the MINIMAL bridge inside existing machinery and is expected to be superseded by GAP-P1 / research protection when research versioning is scoped.",
   "intent_expressed_when": "contemporaneous — the writer chose the Rewrite mode; but they were never told how much was in the note, and the preview shows only what will be written",
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.update) → writeBody → DocumentStore.performFileSave",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "PENDING — uncommitted on branch claude/spec-phase-3 (2026-08-09)",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-24 — Denver: 'the WORK … must be protected at all costs … Research can be recovered'; team-lead ruling 2026-08-09 directing the minimal within-machinery fix rather than the versioning milestone",
+   "pinned_by": "MaughamTests/Claims/PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName (rewritten pin: the prior version is in TrashStore.list(), restores beside the live note with the writer's words in it)",
+   "note": "the copy lives for the trash retention window and is then swept, exactly as RULING-23 says a deletion is"
+  }
  },
  {
   "claim_id": "M6-PR-018",
@@ -632,8 +657,8 @@
  {
   "_summary": {
    "reached": 48,
-   "complies": 42,
-   "violates": 6,
+   "complies": 46,
+   "violates": 2,
    "no_ruling": 30,
    "specificity_sub_over_reached_pct": 81,
    "distinct_defects": 5,

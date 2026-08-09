@@ -23,6 +23,23 @@ public enum TrashSubject: String, Codable, Sendable {
     /// the prior version of a per-piece style file. Never shown in the Trash
     /// pane: it is not the writer's deletion (RULING-43).
     case internalArtifact
+    /// The contents a file HAD, kept because Maugham was about to write over it
+    /// on the writer's behalf — today, the research note a canvas Rewrite
+    /// replaces (M6-PR-037, RULING-24, 2026-08-09).
+    ///
+    /// **Visible in the Trash pane, and that is the whole difference from
+    /// `internalArtifact`.** A style file's prior version is a paranoia copy
+    /// nothing would point at again, so RULING-43 hides it. This one is the
+    /// writer's own prose and it is the ONLY route back to it: research is
+    /// recoverable but not versioned (RULING-24's middle tier), and a note that
+    /// was *deleted* rather than rewritten would be sitting in this same pane.
+    /// Hiding it would give a rewrite a weaker guarantee than a delete.
+    ///
+    /// Restores as a FILE — there is no manifest row to rewire, because the row
+    /// still exists and points at the rewritten note. It lands beside the live
+    /// note under a deduped filename (`destinationBesideAnyOccupant`), so
+    /// nothing is overwritten and both are visible.
+    case priorVersion
 }
 
 /// Per-project trash directory operations. Lives at <projectURL>/.trash/

@@ -211,6 +211,13 @@ extension ProjectStore {
             return .research(item)
         case .captureAsset:
             return .fileOnly
+        case .priorVersion:
+            // The manifest row was never removed — it points at the rewritten
+            // note — so there is nothing to rewire and putting the file back is
+            // the whole restore. `TrashStore.restore` lands it beside the live
+            // note under a deduped name; the writer then has both texts and
+            // decides.
+            return .fileOnly
         case .internalArtifact:
             throw ProjectStoreError.trashEntryNotRewirable(
                 title: entry.displayTitle,
@@ -531,6 +538,57 @@ extension ProjectStore {
             originalIndex: 0,
             displayTitle: displayTitle,
             subject: .captureAsset)
+        trashEntries = (try? await trashStore.list()) ?? trashEntries
+        return entry
+    }
+
+    /// Keep what is at `relativePath` NOW, because Maugham is about to write
+    /// over it on the writer's behalf (M6-PR-037, RULING-24, 2026-08-09).
+    ///
+    /// **The minimal bridge, and deliberately not the versioning milestone.**
+    /// RULING-24 places research in the middle tier — recoverable, though not
+    /// versioned — and a canvas Rewrite replaced a research note's whole body
+    /// with no route back at all: research notes have no op log, checkpoints
+    /// walk `manifest.structure` and never `manifest.research`, and nothing was
+    /// left in the trash. The same note *deleted* would have been recoverable
+    /// for the retention window. This gives a rewrite the standard a delete
+    /// already has, using the machinery that already exists, and it is expected
+    /// to be superseded by GAP-P1 / research protection when research versioning
+    /// is actually scoped.
+    ///
+    /// The manifest is untouched: the row stays, pointing at the path this
+    /// entry's file has just left, and the caller writes the new body there.
+    /// Nothing arms ⌘⌥Z — the writer's last delete gesture is not what put this
+    /// here.
+    @discardableResult
+    func trashPriorVersion(at relativePath: String, displayTitle: String,
+                           id: String) async throws -> TrashEntry {
+        let metadata = try JSONSerialization.data(withJSONObject: ["id": id])
+        // Through the typed mover where there is one: a research note has a
+        // 750 ms debounced save behind it, and a queued `scheduleFileSave`
+        // landing after this move would re-create the note's PRE-rewrite text at
+        // the path the rewrite is about to write — tripwire 14 exactly, on the
+        // one path that reaches this. With no DocumentStore (load-only context)
+        // the discipline is a provable no-op.
+        let entry: TrashEntry
+        if let ds = documentStore {
+            entry = try await ds.trash(
+                relativePath: relativePath,
+                using: trashStore,
+                itemMetadata: metadata,
+                originalParentId: nil,
+                originalIndex: 0,
+                displayTitle: displayTitle,
+                subject: .priorVersion)
+        } else {
+            entry = try await trashStore.moveToTrash( // internal-move: no DocumentStore (no debounce to race)
+                fileRelativePath: relativePath,
+                itemMetadata: metadata,
+                originalParentId: nil,
+                originalIndex: 0,
+                displayTitle: displayTitle,
+                subject: .priorVersion)
+        }
         trashEntries = (try? await trashStore.list()) ?? trashEntries
         return entry
     }
