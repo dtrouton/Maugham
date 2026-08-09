@@ -56,7 +56,9 @@ public enum EmissionContract {
     /// Render the `body.tex` the emitter actually produces for a prose snippet.
     /// Builds a single-piece AST and calls the real config-threaded emitter.
     static func emittedProse(_ source: String) -> String {
-        let ast = ProjectASTBuilder.build(from: SinglePieceSource(
+        // try! is sound: SinglePieceSource is in-memory and cannot throw —
+        // the throwing requirement exists for op-log-backed sources (RULING-54).
+        let ast = try! ProjectASTBuilder.build(from: SinglePieceSource(
             pieceID: "ex01", title: "Example", mode: .prose, text: source))
         return LaTeXBodyEmitter.emit(ast, config: PublishConfig())
     }
@@ -64,7 +66,7 @@ public enum EmissionContract {
     /// Render the `body.tex` the emitter actually produces for a fountain
     /// snippet. Mirrors `emittedProse` with `mode: .fountain`.
     static func emittedFountain(_ source: String) -> String {
-        let ast = ProjectASTBuilder.build(from: SinglePieceSource(
+        let ast = try! ProjectASTBuilder.build(from: SinglePieceSource(
             pieceID: "ex01", title: "Example", mode: .fountain, text: source))
         return LaTeXBodyEmitter.emit(ast, config: PublishConfig())
     }

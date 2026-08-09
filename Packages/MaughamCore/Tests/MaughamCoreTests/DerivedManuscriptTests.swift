@@ -32,8 +32,8 @@ final class DerivedManuscriptTests: XCTestCase {
         let want = Materializer.materialize(
             paragraphs: Deriver.deriveWithSequenceFallback(ops: ops).paragraphs,
             sequence: Deriver.deriveWithSequenceFallback(ops: ops).sequence)
-        XCTAssertEqual(DerivedManuscript.materialize(forDocId: "doc-1", in: root), want)
-        XCTAssertTrue(DerivedManuscript.materialize(forDocId: "doc-1", in: root).contains("xg8q"))
+        XCTAssertEqual(try DerivedManuscript.materialize(forDocId: "doc-1", in: root), want)
+        XCTAssertTrue(try DerivedManuscript.materialize(forDocId: "doc-1", in: root).contains("xg8q"))
     }
 
     /// Legacy ops (no explicit sequence) still yield ordered, non-empty text — op-log-only.
@@ -41,7 +41,7 @@ final class DerivedManuscriptTests: XCTestCase {
         let ops = [op("01a", seq: nil, changes: [("aaaa", "Alpha.")]),
                    op("01b", seq: nil, changes: [("bbbb", "Beta.")])]
         let root = try makeProject(docId: "doc-1", ops: ops)
-        let text = DerivedManuscript.materialize(forDocId: "doc-1", in: root)
+        let text = try DerivedManuscript.materialize(forDocId: "doc-1", in: root)
         XCTAssertTrue(text.contains("Alpha.") && text.contains("Beta."),
             "legacy logs must still materialise, order synthesised from ops (never the .md)")
     }
@@ -50,7 +50,7 @@ final class DerivedManuscriptTests: XCTestCase {
     func test_derivedState_exposesParagraphsAndSequence() throws {
         let ops = [op("01a", seq: ["n5sg"], changes: [("n5sg", "Only.")])]
         let root = try makeProject(docId: "doc-1", ops: ops)
-        let s = DerivedManuscript.derivedState(forDocId: "doc-1", in: root)
+        let s = try DerivedManuscript.derivedState(forDocId: "doc-1", in: root)
         XCTAssertEqual(s.paragraphs["n5sg"], "Only.")
         XCTAssertEqual(s.sequence, ["n5sg"])
     }
@@ -92,6 +92,6 @@ final class DerivedManuscriptTests: XCTestCase {
     func test_materialize_noOps_isEmpty() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("dm-empty-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        XCTAssertEqual(DerivedManuscript.materialize(forDocId: "doc-x", in: root), "")
+        XCTAssertEqual(try DerivedManuscript.materialize(forDocId: "doc-x", in: root), "")
     }
 }

@@ -97,9 +97,9 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
         try await writeIdentityTranslation(fx, language: "es")
         // Doc is NOT registered → both sources take the closed-doc branch.
 
-        let sourceAST = ProjectASTBuilder.build(
+        let sourceAST = try ProjectASTBuilder.build(
             from: ProjectStoreASTSource(projectStore: fx.store))
-        let translatedAST = ProjectASTBuilder.build(
+        let translatedAST = try ProjectASTBuilder.build(
             from: ProjectStoreASTSource(projectStore: fx.store, language: "es"))
 
         XCTAssertFalse(sourceAST.sections.isEmpty, "fixture produced no sections")
@@ -132,9 +132,9 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
 
         try await writeIdentityTranslation(fx, language: "es")
 
-        let sourceAST = ProjectASTBuilder.build(
+        let sourceAST = try ProjectASTBuilder.build(
             from: ProjectStoreASTSource(projectStore: fx.store))
-        let translatedAST = ProjectASTBuilder.build(
+        let translatedAST = try ProjectASTBuilder.build(
             from: ProjectStoreASTSource(projectStore: fx.store, language: "es"))
 
         // Guard: the fixture really is a two-paragraph doc with a multi-line block.
@@ -169,9 +169,9 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
         try await writeIdentityTranslation(fx, language: "es")
         // Doc is NOT registered → both sources take the closed-doc branch.
 
-        let sourceAST = ProjectASTBuilder.build(
+        let sourceAST = try ProjectASTBuilder.build(
             from: ProjectStoreASTSource(projectStore: fx.store))
-        let translatedAST = ProjectASTBuilder.build(
+        let translatedAST = try ProjectASTBuilder.build(
             from: ProjectStoreASTSource(projectStore: fx.store, language: "es"))
 
         XCTAssertFalse(sourceAST.sections.isEmpty, "fixture produced no sections")
@@ -206,9 +206,9 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
 
         try await writeIdentityTranslation(fx, language: "es")
 
-        let sourceAST = ProjectASTBuilder.build(
+        let sourceAST = try ProjectASTBuilder.build(
             from: ProjectStoreASTSource(projectStore: fx.store))
-        let translatedAST = ProjectASTBuilder.build(
+        let translatedAST = try ProjectASTBuilder.build(
             from: ProjectStoreASTSource(projectStore: fx.store, language: "es"))
 
         // Guard: the fixture really includes the held-blank final paragraph.
@@ -242,7 +242,7 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
             rec, forDocId: fx.docId, deviceSlug: DeviceSlug.make(from: "test-mac"),
             in: fx.store.url)
 
-        let ast = ProjectASTBuilder.build(
+        let ast = try ProjectASTBuilder.build(
             from: ProjectStoreASTSource(projectStore: fx.store, language: "es"))
         let nodes = try XCTUnwrap(ast.sections.first?.nodes)
         XCTAssertEqual(nodes.count, 1)

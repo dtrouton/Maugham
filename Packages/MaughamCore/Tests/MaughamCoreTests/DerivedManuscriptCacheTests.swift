@@ -43,9 +43,9 @@ final class DerivedManuscriptCacheTests: XCTestCase {
             op("01a", seq: ["n5sg"], changes: [("n5sg", "First para.")])])
         let cache = DerivedManuscriptCache()
 
-        _ = cache.state(forDocId: "doc-1", in: root)
+        _ = try cache.state(forDocId: "doc-1", in: root)
         XCTAssertEqual(cache.deriveCount, 1)
-        let again = cache.state(forDocId: "doc-1", in: root)
+        let again = try cache.state(forDocId: "doc-1", in: root)
         XCTAssertEqual(cache.deriveCount, 1, "second call on an unchanged file must hit the cache")
         XCTAssertEqual(again.paragraphs["n5sg"], "First para.")
     }
@@ -55,13 +55,13 @@ final class DerivedManuscriptCacheTests: XCTestCase {
         let root = try seed(docId: "doc-1", ops: [
             op("01a", seq: ["n5sg"], changes: [("n5sg", "First.")])])
         let cache = DerivedManuscriptCache()
-        _ = cache.state(forDocId: "doc-1", in: root)
+        _ = try cache.state(forDocId: "doc-1", in: root)
         XCTAssertEqual(cache.deriveCount, 1)
 
         try seed(root: root, docId: "doc-1", ops: [
             op("01b", seq: ["n5sg", "xg8q"], changes: [("xg8q", "Second.")])])
 
-        let after = cache.state(forDocId: "doc-1", in: root)
+        let after = try cache.state(forDocId: "doc-1", in: root)
         XCTAssertEqual(cache.deriveCount, 2, "a grown op-log file must invalidate the cached line")
         XCTAssertEqual(after.paragraphs["xg8q"], "Second.")
     }
@@ -74,17 +74,17 @@ final class DerivedManuscriptCacheTests: XCTestCase {
             op("02a", doc: "doc-2", seq: ["bbbb"], changes: [("bbbb", "Two.")])])
         let cache = DerivedManuscriptCache()
 
-        _ = cache.state(forDocId: "doc-1", in: root)
-        _ = cache.state(forDocId: "doc-2", in: root)
+        _ = try cache.state(forDocId: "doc-1", in: root)
+        _ = try cache.state(forDocId: "doc-2", in: root)
         XCTAssertEqual(cache.deriveCount, 2)
 
         // Grow only doc-1's log.
         try seed(root: root, docId: "doc-1", ops: [
             op("01b", doc: "doc-1", seq: ["aaaa", "cccc"], changes: [("cccc", "More.")])])
 
-        _ = cache.state(forDocId: "doc-1", in: root)
+        _ = try cache.state(forDocId: "doc-1", in: root)
         XCTAssertEqual(cache.deriveCount, 3, "doc-1 changed → re-derive")
-        _ = cache.state(forDocId: "doc-2", in: root)
+        _ = try cache.state(forDocId: "doc-2", in: root)
         XCTAssertEqual(cache.deriveCount, 3, "doc-2 unchanged → still cached")
     }
 
@@ -95,12 +95,12 @@ final class DerivedManuscriptCacheTests: XCTestCase {
         let cache = DerivedManuscriptCache()
 
         XCTAssertEqual(
-            cache.materialize(forDocId: "doc-1", in: root),
-            DerivedManuscript.materialize(forDocId: "doc-1", in: root))
+            try cache.materialize(forDocId: "doc-1", in: root),
+            try DerivedManuscript.materialize(forDocId: "doc-1", in: root))
         XCTAssertEqual(
-            cache.displayText(forDocId: "doc-1", in: root),
+            try cache.displayText(forDocId: "doc-1", in: root),
             MarkdownDisplayFilter.stripAnchors(
-                DerivedManuscript.materialize(forDocId: "doc-1", in: root)))
+                try DerivedManuscript.materialize(forDocId: "doc-1", in: root)))
     }
 
     /// Explicit invalidation forces a re-derive even without a disk change.
@@ -108,10 +108,10 @@ final class DerivedManuscriptCacheTests: XCTestCase {
         let root = try seed(docId: "doc-1", ops: [
             op("01a", seq: ["n5sg"], changes: [("n5sg", "X.")])])
         let cache = DerivedManuscriptCache()
-        _ = cache.state(forDocId: "doc-1", in: root)
+        _ = try cache.state(forDocId: "doc-1", in: root)
         XCTAssertEqual(cache.deriveCount, 1)
         cache.invalidate(docId: "doc-1")
-        _ = cache.state(forDocId: "doc-1", in: root)
+        _ = try cache.state(forDocId: "doc-1", in: root)
         XCTAssertEqual(cache.deriveCount, 2)
     }
 
@@ -121,8 +121,8 @@ final class DerivedManuscriptCacheTests: XCTestCase {
             .appendingPathComponent("dmc-empty-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let cache = DerivedManuscriptCache()
-        XCTAssertEqual(cache.materialize(forDocId: "doc-x", in: root), "")
-        _ = cache.state(forDocId: "doc-x", in: root)
+        XCTAssertEqual(try cache.materialize(forDocId: "doc-x", in: root), "")
+        _ = try cache.state(forDocId: "doc-x", in: root)
         XCTAssertEqual(cache.deriveCount, 1, "empty-op-log state is cached on the empty file set")
     }
 }

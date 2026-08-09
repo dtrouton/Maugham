@@ -127,7 +127,7 @@ final class PromotionPerformerTests: XCTestCase {
     /// `test_thePromotedIntentArrivesAsOps` exists to catch.
     private func statementText(_ statement: Statement, in root: URL) -> String {
         let state = Deriver.deriveWithSequenceFallback(
-            ops: OpLogStore.loadSyncMerged(forDocId: statement.id, in: root))
+            ops: (try? OpLogStore.loadSyncMerged(forDocId: statement.id, in: root)) ?? [])
         return state.sequence
             .compactMap { state.paragraphs[$0] }
             .joined(separator: "\n\n")
@@ -526,7 +526,7 @@ final class PromotionPerformerTests: XCTestCase {
             .perform(plan(.scrap(a), .intentStatement, store: store, model: model))
 
         let statement = try intent(.project, in: store)
-        let ops = OpLogStore.loadSyncMerged(forDocId: statement.id, in: root)
+        let ops = try OpLogStore.loadSyncMerged(forDocId: statement.id, in: root)
         XCTAssertFalse(ops.isEmpty,
                        "nothing in .maugham/ops/\(statement.id)*.jsonl — the body "
                        + "was written straight to the file")

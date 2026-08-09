@@ -57,12 +57,12 @@ public final class DerivedManuscriptCache {
     /// Derived `paragraphs` + `sequence` for a CLOSED doc — cached when the
     /// op-log file set is unchanged since the last derive, else derived fresh
     /// (via `DerivedManuscript.derivedState`) and stored.
-    public func state(forDocId docId: String, in projectURL: URL) -> Deriver.DerivedState {
+    public func state(forDocId docId: String, in projectURL: URL) throws -> Deriver.DerivedState {
         let token = Self.token(forDocId: docId, in: projectURL)
         if let line = lines[docId], line.token == token {
             return line.state
         }
-        let state = DerivedManuscript.derivedState(forDocId: docId, in: projectURL)
+        let state = try DerivedManuscript.derivedState(forDocId: docId, in: projectURL)
         deriveCount &+= 1
         lines[docId] = Line(token: token, state: state)
         return state
@@ -70,15 +70,15 @@ public final class DerivedManuscriptCache {
 
     /// Anchored (materialised) text for a CLOSED doc — the `<!-- ¶id -->`
     /// form the compile + wiki-token readers want. See `DerivedManuscript.materialize`.
-    public func materialize(forDocId docId: String, in projectURL: URL) -> String {
-        let s = state(forDocId: docId, in: projectURL)
+    public func materialize(forDocId docId: String, in projectURL: URL) throws -> String {
+        let s = try state(forDocId: docId, in: projectURL)
         return Materializer.materialize(paragraphs: s.paragraphs, sequence: s.sequence)
     }
 
     /// Display (anchor-stripped) form for a CLOSED doc — what search and the
     /// Fountain scene parser want, matching an open doc's `displayText`.
-    public func displayText(forDocId docId: String, in projectURL: URL) -> String {
-        MarkdownDisplayFilter.stripAnchors(materialize(forDocId: docId, in: projectURL))
+    public func displayText(forDocId docId: String, in projectURL: URL) throws -> String {
+        MarkdownDisplayFilter.stripAnchors(try materialize(forDocId: docId, in: projectURL))
     }
 
     /// Drop a single doc's cached line. The mtime/size token already

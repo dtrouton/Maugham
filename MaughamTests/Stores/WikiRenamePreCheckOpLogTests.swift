@@ -67,7 +67,7 @@ final class WikiRenamePreCheckOpLogTests: XCTestCase {
             "Stale .md must not contain [[Alpha]] — test setup error")
 
         // Pre-condition: op log still has [[Alpha]] (the source of truth).
-        let opLogBody = DerivedManuscript.materialize(forDocId: "b", in: tmp)
+        let opLogBody = try DerivedManuscript.materialize(forDocId: "b", in: tmp)
         XCTAssertTrue(opLogBody.contains("[[Alpha]]"),
             "Op log must contain [[Alpha]] before the rename — test setup error")
 
@@ -84,7 +84,7 @@ final class WikiRenamePreCheckOpLogTests: XCTestCase {
         // incorrectly skips B, leaving [[Alpha]] untouched (FAIL before fix).
         // When the pre-check reads the op log it finds [[Alpha]] and correctly
         // proceeds, so the result must contain [[Omega]] (PASS after fix).
-        let result = DerivedManuscript.materialize(forDocId: "b", in: tmp)
+        let result = try DerivedManuscript.materialize(forDocId: "b", in: tmp)
         XCTAssertTrue(
             result.contains("[[Omega]]"),
             "Wiki-rename must not skip B because its stale .md lacks [[Alpha]]; " +

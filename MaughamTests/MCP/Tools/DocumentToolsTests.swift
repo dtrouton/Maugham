@@ -82,7 +82,7 @@ final class DocumentToolsTests: XCTestCase {
             ReadDocumentTool.DocumentContent.self, from: json)
         // Direct derive bypasses the cache entirely; the tool's cache-backed
         // read must match it exactly (anchored form).
-        let direct = DerivedManuscript.materialize(forDocId: "ch-1", in: url)
+        let direct = try DerivedManuscript.materialize(forDocId: "ch-1", in: url)
         XCTAssertFalse(direct.isEmpty, "op log should have bootstrap ops")
         XCTAssertEqual(doc.text, direct,
             "cache-backed closed-doc read must equal a direct materialize")

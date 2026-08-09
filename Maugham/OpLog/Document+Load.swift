@@ -80,6 +80,10 @@ extension Document {
         // log may exist only as `<docId>.<slug>.jsonl` with no legacy
         // `<docId>.jsonl`; check the whole globbed set, or a doc whose only
         // writer was a non-current device reads as "no log" and re-bootstraps.
+        // RULING-54: an ops directory that exists but cannot be listed throws
+        // HERE — falling through would read as "no log" and re-bootstrap a
+        // parallel history over the writer's intact one.
+        try OpLogStore.verifyOpsDirectoryListable(in: projectURL)
         let logExists = !OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL).isEmpty
         let storedBytes = (try? String(contentsOf: url, encoding: .utf8)) ?? ""  // adr-0018-ok: sanctioned manuscript site — stored bytes as bootstrap-import / divergence reference; op log is authoritative
         // Fountain docs preserve the two-space "held blank" dialogue pause inside

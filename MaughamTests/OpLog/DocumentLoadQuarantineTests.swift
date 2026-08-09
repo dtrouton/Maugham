@@ -100,4 +100,69 @@ final class DocumentLoadQuarantineTests: XCTestCase {
         XCTAssertTrue(entries.isEmpty,
                       "a clean load must not write any quarantine record")
     }
+    // MARK: - RULING-54: the document REFUSES rather than opening shorter
+
+    /// An unreadable-yet-present device op-log file refuses the whole load:
+    /// before this fix the file read as EMPTY with no diagnostics, the doc
+    /// opened SHORTER, and the writer's next autosave truncated the `.md` to
+    /// match — with the file's paragraphs superseded by the new sequence
+    /// keyframe when it came back. Pinned: the load throws, and the error
+    /// names the file.
+    func test_load_unreadableDeviceFile_refusesWithTheFileNamed() async throws {
+        let (project, docURL) = try makeTestProject(prefix: "DOCUNRD", initialMd: "Hello.\n")
+        let doc1 = try await Document.load(
+            url: docURL, device: "m", session: "s", presenter: nil)
+        let docId = doc1.docId
+        await doc1.close()
+
+        // A second device's file, present but unreadable (a directory squats
+        // on its path — the permissions/iCloud-stub failure shape).
+        let other = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: DeviceSlug.unsafeForTesting("phone"), in: project)
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+
+        do {
+            let doc = try await Document.load(
+                url: docURL, device: "m", session: "s", presenter: nil)
+            await doc.close()
+            XCTFail("the load must refuse — opening shorter is the forbidden shape")
+        } catch {
+            XCTAssertTrue(String(describing: error.localizedDescription)
+                            .contains(other.lastPathComponent),
+                          "the refusal names the file — found: \(error.localizedDescription)")
+        }
+    }
+
+    /// The directory half: an ops directory that exists but cannot be listed
+    /// refuses the load — falling through read as "no log yet" and sent
+    /// Bootstrap minting FRESH paragraph ids, a second parallel history over
+    /// the writer's intact one.
+    func test_load_unlistableOpsDirectory_refusesRatherThanRebootstrapping() async throws {
+        let (project, docURL) = try makeTestProject(prefix: "DOCDIR", initialMd: "Hello.\n")
+        let doc1 = try await Document.load(
+            url: docURL, device: "m", session: "s", presenter: nil)
+        await doc1.close()
+
+        let opsDir = project.appendingPathComponent(".maugham/ops")
+        let saved = try FileManager.default.attributesOfItem(atPath: opsDir.path)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: opsDir.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: saved[.posixPermissions] ?? 0o755],
+                ofItemAtPath: opsDir.path)
+        }
+
+        do {
+            let doc = try await Document.load(
+                url: docURL, device: "m", session: "s", presenter: nil)
+            await doc.close()
+            XCTFail("the load must refuse — re-bootstrapping mints a parallel history")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.lowercased().contains("history folder")
+                            || error.localizedDescription.contains(".maugham/ops"),
+                          "the refusal names the folder — found: \(error.localizedDescription)")
+        }
+    }
+
 }

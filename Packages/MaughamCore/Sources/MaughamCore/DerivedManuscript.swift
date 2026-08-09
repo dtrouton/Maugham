@@ -12,16 +12,20 @@ public enum DerivedManuscript {
 
     /// Anchored (materialised) manuscript text for `docId`, derived from the op
     /// log. Contains the inline `<!-- ¶id -->` anchors, exactly as autosave would
-    /// write the `.md`. Empty string when the doc has no ops.
-    public static func materialize(forDocId docId: String, in projectURL: URL) -> String {
-        let s = derivedState(forDocId: docId, in: projectURL)
+    /// write the `.md`. Empty string when the doc has no ops. THROWS when a
+    /// history file is unreadable-yet-present (RULING-54): a closed-doc reader
+    /// — MCP `read_document` included — must never hand back a manuscript
+    /// silently shortened by a file it could not read.
+    public static func materialize(forDocId docId: String, in projectURL: URL) throws -> String {
+        let s = try derivedState(forDocId: docId, in: projectURL)
         return Materializer.materialize(paragraphs: s.paragraphs, sequence: s.sequence)
     }
 
     /// The derived `paragraphs` map + `sequence`, for callers that need them
-    /// directly (task derivation, word count) without re-anchoring.
-    public static func derivedState(forDocId docId: String, in projectURL: URL) -> Deriver.DerivedState {
+    /// directly (task derivation, word count) without re-anchoring. Throws as
+    /// `materialize` does.
+    public static func derivedState(forDocId docId: String, in projectURL: URL) throws -> Deriver.DerivedState {
         Deriver.deriveWithSequenceFallback(
-            ops: OpLogStore.loadSyncMerged(forDocId: docId, in: projectURL))
+            ops: try OpLogStore.loadSyncMerged(forDocId: docId, in: projectURL))
     }
 }

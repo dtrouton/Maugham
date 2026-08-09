@@ -95,6 +95,12 @@ struct EditorHost: View {
     /// and it is correct whichever of the two returns first.
     @State private var loads = EditorHostLoadGeneration()
 
+    /// The load failure the writer is shown instead of an eternal "Loading…"
+    /// (RULING-7 + RULING-54): a document that REFUSES to open — an unreadable
+    /// op-log file, an unlistable ops directory — says why, in the load
+    /// error's own words, right where the manuscript would have been.
+    @State private var loadError: String? = nil
+
     /// The derived translated surface shown in read-only translation review
     /// (Task 11), or nil when the editor shows the source manuscript. This is
     /// DELIBERATE one-way threaded state (tripwire 6): it is recomputed ONLY on
@@ -228,7 +234,7 @@ struct EditorHost: View {
             } else if currentItem?.type == .group {
                 placeholder("Select a document inside this group to edit.")
             } else if currentItem?.type == .document {
-                placeholder("Loading…")
+                placeholder(loadError ?? "Loading…")
             } else {
                 placeholder("Select a document.")
             }
@@ -576,6 +582,7 @@ struct EditorHost: View {
             document = doc
             loadedItemId = item.id
             priorLoadedPath = path
+            loadError = nil
             // Metrics for the freshly-loaded doc are delivered by the new
             // EditorSurface's coordinator `attach` (immediate, non-debounced) —
             // no EditorHost-side mirror call.
@@ -587,6 +594,11 @@ struct EditorHost: View {
             document = nil
             loadedItemId = item.id
             priorLoadedPath = nil
+            // RULING-7 + RULING-54: the refusal is SHOWN — in the pane where
+            // the manuscript would be, and as a project notice — never an
+            // eternal "Loading…" placeholder over a real error.
+            loadError = error.localizedDescription
+            MaughamEvent.postNotice(error.localizedDescription, projectURL: store.url)
         }
     }
 

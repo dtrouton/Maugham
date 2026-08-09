@@ -220,7 +220,7 @@ public struct Republisher {
         // `fountainDriftWarnings` as a result).
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
         if let language, let source = astSource as? ProjectStoreASTSource {
-            let report = await TranslationCoverage.check(
+            let report = try await TranslationCoverage.check(
                 projectStore: source.projectStore, language: language,
                 excludedSectionIDs: excludedSectionIDs)
             switch TranslationCoverage.applyGate(

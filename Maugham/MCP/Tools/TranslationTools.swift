@@ -29,7 +29,7 @@ func currentParagraphState(
         throw MCPError.invalidArgument(
             "document_id not found in project manifest: \(documentId)")
     }
-    let state = entry.store.derivedCache.state(forDocId: documentId, in: entry.url)
+    let state = try entry.store.derivedCache.state(forDocId: documentId, in: entry.url)
     return (state.sequence, state.paragraphs, entry.url)
 }
 

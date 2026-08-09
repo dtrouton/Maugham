@@ -97,7 +97,7 @@ public enum ReadDocumentTool: MCPTool {
             // of once per call — the same cache search/links/tasks already ride.
             // Freshness is preserved: the cache's validity token is the op-log
             // file set's (path, mtime, size), so any append/seal/sync re-derives.
-            text = store.derivedCache.materialize(forDocId: item.id, in: projectURL)
+            text = try store.derivedCache.materialize(forDocId: item.id, in: projectURL)
         }
         let mode = Self.modeFor(path: path, projectType: store.manifest.type)
         // `text` is the ANCHORED body (so Claude can target `<!-- ¶id -->`

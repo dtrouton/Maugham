@@ -61,7 +61,7 @@ public enum ReadVisualLanguageTool: MCPTool {
         // ADR 0018's branches and is shared with `read_craft_intent`. The images
         // are scanned out of that same text, so a stale file cannot contribute a
         // picture either.
-        let markdown = entry.store.statementText(of: statement)
+        let markdown = try entry.store.statementText(of: statement)
         return try MCPResponseBudget.enforce(
             try JSONEncoder().encode(Result(
                 exists: true,
