@@ -8,7 +8,6 @@ final class UIStateTests: XCTestCase {
         XCTAssertEqual(s.schemaVersion, UIState.currentSchemaVersion)
         XCTAssertNil(s.selectedSubject)
         XCTAssertFalse(s.isNoChromeOn)
-        XCTAssertEqual(s.binderSegment, .manuscript)
     }
 
     func test_codable_roundTrip() throws {
@@ -106,25 +105,26 @@ final class UIStatePersonaTests: XCTestCase {
 
     func test_personaMemory_roundTripsThroughEncoding() throws {
         var state = UIState.empty
-        state.personaMemory.record(persona: .author,
-                                   binderSegment: .manuscript,
-                                   detailSegment: .history)
-        state.personaMemory.record(persona: .plan,
-                                   binderSegment: .palette,
-                                   detailSegment: .inbox)
+        state.personaMemory.record(persona: .author, detailSegment: .history)
+        state.personaMemory.record(persona: .plan, detailSegment: .inbox)
         let data = try JSONEncoder().encode(state)
         let decoded = try JSONDecoder().decode(UIState.self, from: data)
         XCTAssertEqual(decoded.personaMemory, state.personaMemory)
-        XCTAssertEqual(
-            decoded.personaMemory.restoredBinderSegment(for: .author, projectType: .novel),
-            .manuscript)
+        XCTAssertEqual(decoded.personaMemory.restoredDetailSegment(for: .author), .history)
         XCTAssertEqual(decoded.personaMemory.restoredDetailSegment(for: .plan), .inbox)
     }
 
     func test_decode_ofV4StateWithoutPersonaMemory_isEmptyNotAFailure() throws {
         // A project last opened by the first persona build has no
         // `personaMemory` key. It must decode, not throw, and every persona
-        // then lands on its own home.
+        // then lands on its own default pane.
+        //
+        // **The `binderSegment` key is still in this fixture on purpose**, and
+        // it is the point of the test as much as the missing one is: a file
+        // written before shell-finish stage 2b Task 7 carries a left-column
+        // choice this build has no field for, and a keyed container never asks
+        // for a key it has no case for. No migration (tripwire 11) — the value
+        // decodes away and is dropped on the next write.
         let json = Data("""
         {"schemaVersion":4,"isNoChromeOn":false,"binderSegment":"research",
          "researchPreviewVisible":false,"detailSegment":"inspector",
@@ -133,7 +133,36 @@ final class UIStatePersonaTests: XCTestCase {
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
         XCTAssertEqual(decoded.personaMemory, .empty)
         XCTAssertEqual(decoded.persona, .plan)
-        XCTAssertEqual(decoded.binderSegment, .research)
+        XCTAssertEqual(decoded.detailSegment, .inspector,
+                       "the fields this build still has come through beside the "
+                       + "one it no longer does")
+    }
+
+    /// **Every legacy `binderSegment` value meets a decoder with no field for
+    /// it, and none of them costs the writer anything else** (stage 2b Task 7).
+    ///
+    /// Asked over the whole set the old enum could write — including the two
+    /// (`find`, `trash`) that stopped being written a task or two earlier and
+    /// the one (`manuscript`) that was the default — because "unknown keys are
+    /// skipped" is a property of the container and a per-value assertion is what
+    /// makes it a property of THIS type. A hand-rolled decoder that grew a
+    /// `binderSegment` case again would fail here rather than in a writer's
+    /// window.
+    func test_everyLegacyBinderSegmentValueDecodesAwayWithoutCost() throws {
+        for legacy in ["manuscript", "tree", "research", "palette",
+                       "scenes", "canvas", "trash", "find"] {
+            let json = Data("""
+            {"schemaVersion":5,"isNoChromeOn":true,"binderSegment":"\(legacy)",
+             "researchPreviewVisible":false,"detailSegment":"tasks",
+             "outlineLayout":"table","isReviewModeOn":false,"persona":"review",
+             "selectedItemId":"doc-1"}
+            """.utf8)
+            let decoded = try JSONDecoder().decode(UIState.self, from: json)
+            XCTAssertEqual(decoded.persona, .review, legacy)
+            XCTAssertEqual(decoded.detailSegment, .tasks, legacy)
+            XCTAssertEqual(decoded.selectedSubject, .item("doc-1"), legacy)
+            XCTAssertTrue(decoded.isNoChromeOn, legacy)
+        }
     }
 
     func test_loadOrEmpty_rejectsStateFromANewerSchema() throws {

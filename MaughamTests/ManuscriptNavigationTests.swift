@@ -17,7 +17,7 @@ import MaughamCore
 /// centre column the test supplies**, because that is the only way to falsify it
 /// in an app whose four personas all agree with the shortcut. (Until
 /// shell-finish stage 2b Task 6 the supplied input was a binder-segment list;
-/// the basis moved because Task 7 deletes both the segment enum and the binder
+/// the basis moved because Task 7 deleted both the segment enum and the binder
 /// registries, and the falsification moved with it rather than being lost.)
 @MainActor
 final class ManuscriptNavigationTests: XCTestCase {
@@ -35,8 +35,9 @@ final class ManuscriptNavigationTests: XCTestCase {
     /// the discrimination survived the change.** It used to be a segment list
     /// this app does not ship (`[.canvas, .tree, .manuscript]`), because the
     /// rule was "does this persona's column offer the document home". Task 7
-    /// deletes both the segment enum and the binder registries, so that basis
-    /// could not be the one that survives; the rule now reads the centre column
+    /// deleted both the segment enum and the binder registries, so that basis
+    /// could not have been the one that survived; the rule now reads the centre
+    /// column
     /// (`Persona.centresTheCanvas`). What is asserted is unchanged in kind: the
     /// answer follows the input, and a persona name appears nowhere in it.
     func test_theRuleIsAboutTheCentreColumn_notAboutAnyParticularPersona() {
@@ -74,10 +75,10 @@ final class ManuscriptNavigationTests: XCTestCase {
 
     /// **And the answers themselves, so the two forms above cannot agree on a
     /// wrong table.** Plan plans; the other three are where a document is read
-    /// or written. Project type does not enter into it any more, which is the
-    /// one thing the re-base did change: the old rule asked `documentHome(for:)`
-    /// because a screenplay's home segment was `.scenes`, and there are no
-    /// segments in the answer now.
+    /// or written. Project type does not enter into it, which is the one thing
+    /// the re-base did change: the old rule asked `documentHome(for:)` because a
+    /// screenplay's home segment was `.scenes`, and there are no segments in the
+    /// answer now.
     func test_planIsTheOnlyPersonaWhoseCentreIsNotADocument() {
         XCTAssertFalse(Persona.plan.showsManuscriptDocuments)
         for persona in Persona.allCases where persona != .plan {
@@ -88,62 +89,27 @@ final class ManuscriptNavigationTests: XCTestCase {
 
     // MARK: - The four personas
 
-    /// **Plan moves; Review, Publish and Author do not** — in every project
-    /// type. Review is the case the ruling is written around: clicking an
-    /// annotation or a history row posts `.maughamNavigateToParagraph`, and
-    /// ejecting the reviewer into Author would take the notes off their screen.
+    /// **Plan moves; Review, Publish and Author do not.** Review is the case the
+    /// ruling is written around: clicking an annotation or a history row posts
+    /// `.maughamNavigateToParagraph`, and ejecting the reviewer into Author
+    /// would take the notes off their screen.
+    ///
+    /// **Project type left the question in stage 2b Task 7.** The loop used to
+    /// run over it because a screenplay's binder home was `.scenes` and a
+    /// novel's `.manuscript`, and getting that wrong dropped a screenplay writer
+    /// into a one-row novel binder (2026-07-02 smoke). There is no binder
+    /// position in a destination any more, so nothing here can be wrong about a
+    /// project type — and `TreePaneTests` is where the surviving half of that
+    /// question is asked.
     func test_onlyPlanIsMovedToAuthorAndTheOthersStayWhereTheyAre() {
-        for type in ProjectType.allCases where type != .unknown {
-            for persona in Persona.allCases {
-                let destination = ManuscriptNavigation.destination(
-                    from: persona,
-                    currentBinderSegment: persona.binderHome(for: type),
-                    currentDetailSegment: persona.defaultPane,
-                    projectType: type,
-                    memory: .empty)
-                let expected: Persona = persona == .plan ? .author : persona
-                XCTAssertEqual(destination.persona, expected,
-                               "\(persona)/\(type): expected to land in "
-                               + "\(expected)")
-            }
-        }
-    }
-
-    /// And the binder lands on the document home in every case — the behaviour
-    /// that was there before the persona move and must survive it.
-    func test_theBinderAlwaysLandsOnTheDocumentHome() {
-        for type in ProjectType.allCases where type != .unknown {
-            for persona in Persona.allCases {
-                let destination = ManuscriptNavigation.destination(
-                    from: persona,
-                    currentBinderSegment: persona.binderHome(for: type),
-                    currentDetailSegment: persona.defaultPane,
-                    projectType: type,
-                    memory: .empty)
-                XCTAssertEqual(destination.binderSegment,
-                               .documentHome(for: type),
-                               "\(persona)/\(type)")
-            }
-        }
-    }
-
-    /// **The plant against reusing `applyPersonaChange`'s own binder answer.**
-    /// That function deliberately carries a TRANSIENT segment through a persona
-    /// switch — a writer mid-search is not ejected — so a navigation that took
-    /// `Change.binderSegment` would leave the binder sitting in Find while the
-    /// window had just been told to show a document.
-    func test_aNavigationFromFindStillLandsOnTheDocument() {
-        for segment in BinderSegment.allCases where segment.isTransient {
+        for persona in Persona.allCases {
             let destination = ManuscriptNavigation.destination(
-                from: .plan,
-                currentBinderSegment: segment,
-                currentDetailSegment: .intent,
-                projectType: .novel,
+                from: persona,
+                currentDetailSegment: persona.defaultPane,
                 memory: .empty)
-            XCTAssertEqual(destination.binderSegment, .manuscript,
-                           "from \(segment): the navigation names a document, "
-                           + "so the binder must show one")
-            XCTAssertEqual(destination.persona, .author)
+            let expected: Persona = persona == .plan ? .author : persona
+            XCTAssertEqual(destination.persona, expected,
+                           "\(persona): expected to land in \(expected)")
         }
     }
 
@@ -153,6 +119,11 @@ final class ManuscriptNavigationTests: XCTestCase {
     /// position is recorded, so ⌘1 returns the writer to the tree they were
     /// arranging — verified by feeding the memory this navigation produces back
     /// through the real persona switch.
+    ///
+    /// **The left column left this test in stage 2b Task 7**, and what it used
+    /// to assert — ⌘1 returns the writer to the tree they were arranging —
+    /// survives by construction: every persona's left column IS that tree, so
+    /// coming back cannot land anywhere else.
     ///
     /// **The pane was `.visualLanguage` until §5.0's right-column re-cut, and
     /// the swap is worth reading rather than skipping.** `PersonaMemory`
@@ -170,42 +141,20 @@ final class ManuscriptNavigationTests: XCTestCase {
                           + "satisfied by the fallback")
         let destination = ManuscriptNavigation.destination(
             from: .plan,
-            currentBinderSegment: .tree,
             currentDetailSegment: .history,
-            projectType: .novel,
             memory: .empty)
         let memory = try XCTUnwrap(
             destination.memory,
             "the move must hand back a memory to persist, or ⌘1 lands on "
-            + "Plan's home and the writer's place in the tree is gone")
+            + "Plan's default pane and the writer's place is gone")
         let back = PersonaModifier.applyPersonaChange(
             to: .plan, from: destination.persona,
             currentSegment: destination.detailSegment,
-            currentBinderSegment: destination.binderSegment,
-            projectType: .novel,
             memory: memory)
         XCTAssertEqual(back.persona, .plan)
-        XCTAssertEqual(back.binderSegment, .tree,
-                       "⌘1 must return the writer to the structure they were "
-                       + "arranging, not to Plan's canvas home")
         XCTAssertEqual(back.segment, .history,
-                       "and to the pane they were reading it against")
-    }
-
-    /// A transient departure is not recorded — `PersonaMemory.record` refuses
-    /// it, and the navigation must not smuggle one past that by another route.
-    func test_aDepartureFromFindIsNotRememberedAsPlansPosition() {
-        let destination = ManuscriptNavigation.destination(
-            from: .plan,
-            currentBinderSegment: .find,
-            currentDetailSegment: .intent,
-            projectType: .novel,
-            memory: .empty)
-        let memory = destination.memory ?? .empty
-        XCTAssertEqual(memory.restoredBinderSegment(for: .plan, projectType: .novel),
-                       Persona.plan.binderHome(for: .novel),
-                       "a search is a state the writer passed through, not the "
-                       + "surface Plan works on")
+                       "⌘1 must return the writer to the pane they were reading "
+                       + "the structure against, not to Plan's default")
     }
 
     /// Nothing is persisted when nothing moved — a navigation inside Author must
@@ -214,9 +163,7 @@ final class ManuscriptNavigationTests: XCTestCase {
         for persona in [Persona.author, .review, .publish] {
             let destination = ManuscriptNavigation.destination(
                 from: persona,
-                currentBinderSegment: .manuscript,
                 currentDetailSegment: .inspector,
-                projectType: .novel,
                 memory: .empty)
             XCTAssertNil(destination.memory,
                          "\(persona): no persona change, nothing to record")
@@ -231,9 +178,7 @@ final class ManuscriptNavigationTests: XCTestCase {
     func test_theRightColumnLandsOnTheDestinationsOwnPane() {
         let destination = ManuscriptNavigation.destination(
             from: .plan,
-            currentBinderSegment: .tree,
             currentDetailSegment: .visualLanguage,
-            projectType: .novel,
             memory: .empty)
         XCTAssertEqual(destination.detailSegment, Persona.author.defaultPane)
         XCTAssertTrue(Persona.author.panes.contains(destination.detailSegment))
@@ -244,9 +189,7 @@ final class ManuscriptNavigationTests: XCTestCase {
     func test_aNonMovingNavigationLeavesTheRightColumnAlone() {
         let destination = ManuscriptNavigation.destination(
             from: .review,
-            currentBinderSegment: .manuscript,
             currentDetailSegment: .annotations,
-            projectType: .novel,
             memory: .empty)
         XCTAssertEqual(destination.persona, .review)
         XCTAssertEqual(destination.detailSegment, .annotations)

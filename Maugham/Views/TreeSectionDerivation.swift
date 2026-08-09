@@ -16,12 +16,13 @@ enum TreeSectionDerivation {
     /// `PaletteLookup` (falls back to the legacy `research/palette` path, so
     /// an un-healed project's group is still excluded; this is the
     /// first-ever palette filter on a research surface, since
-    /// `ResearchView.swift:19` still renders the group inline and is
+    /// the deleted `ResearchView` rendered the group inline and was
     /// untouched here) — and, for collections, every root under a loose
     /// piece's `pieces/…/research/` prefix
-    /// (`CollectionResearchPane.sharedItems()`'s rule, hoisted so the
-    /// collection pane and the tree agree on the same shape; both call
-    /// through here in Task 4, they don't re-derive it).
+    /// (the deleted `CollectionResearchPane.sharedItems()`'s rule, hoisted in
+    /// stage-2a Task 4 so the pane and the tree agreed on one shape rather
+    /// than re-deriving it; the pane went in stage 2b Task 7 and the rule
+    /// stayed).
     static func sharedResearchRoots(
         research: [ResearchItem], projectType: ProjectType
     ) -> [ResearchItem] {

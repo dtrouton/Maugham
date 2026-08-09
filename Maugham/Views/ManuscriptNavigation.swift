@@ -4,6 +4,13 @@ import MaughamCore
 /// **Where the window has to be for the writer to read the manuscript document
 /// something just navigated to.**
 ///
+/// One value now: the PERSONA. It carried a binder segment too until
+/// shell-finish stage 2b Task 7 — the routes below all forced the binder onto
+/// the project's document home, which was the half that made a screenplay's
+/// navigation different from a novel's. Every persona's left column is the
+/// project's own tree, so there is nowhere left to send the binder and no
+/// project-type question left to get wrong.
+///
 /// Denver's ruling, 2026-08-02: *"if I'm moving to the manuscript I'm moving to
 /// Author — I shouldn't be writing the manuscript in plan."* Every route that
 /// names a manuscript document and forces the binder onto its home can fire from
@@ -28,14 +35,14 @@ import MaughamCore
 /// way.** The receivers live in `ProjectWindow`'s `ViewModifier`s
 /// (`ProjectWindow.body` is at the type-checker ceiling, so window behaviour is
 /// split across modifiers), and a rule spelled once per receiver is a rule that
-/// comes to differ — which is the whole of `BinderSegment.centresTheCanvas`'s
-/// doc comment, one question over.
+/// comes to differ — which is the whole of `Persona.centresTheCanvas`'s doc
+/// comment, one question over.
 ///
-/// **What this is NOT.** It is not the answer for *leaving* a transient segment.
-/// Closing Find and emptying the Trash also force the binder home, and they are
-/// not navigations to anything: no document was named, so nobody should be moved
-/// to Author. Those return to `Persona.binderHome(for:)` instead — see
-/// `BinderPaneToggle`.
+/// **What this is NOT.** It was not the answer for *leaving* a transient
+/// segment: closing Find and emptying the Trash also forced the binder home, and
+/// neither is a navigation to anything — no document was named, so nobody should
+/// be moved to Author. Both of those exits are gone (find is an overlay, trash
+/// is a foot disclosure), which is why this is the only rule of its shape left.
 enum ManuscriptNavigation {
 
     /// One navigation, as a value — so the decision is assertable without
@@ -43,7 +50,6 @@ enum ManuscriptNavigation {
     /// (`PersonaModifier.Change`, `CanvasClaudeArrivalModifier.Destination`).
     struct Destination: Equatable {
         let persona: Persona
-        let binderSegment: BinderSegment
         let detailSegment: DetailSegment
         /// The memory to persist, with the departing persona's position already
         /// recorded — **nil when the persona did not move**, because a
@@ -56,22 +62,18 @@ enum ManuscriptNavigation {
 
     /// - Parameters:
     ///   - persona: where the window is now.
-    ///   - currentBinderSegment: what the departing persona will be remembered
-    ///     standing on (`PersonaMemory.record` drops it if it is transient).
-    ///   - currentDetailSegment: likewise for the right column.
+    ///   - currentDetailSegment: what the departing persona will be remembered
+    ///     standing on in the right column.
     static func destination(from persona: Persona,
-                            currentBinderSegment: BinderSegment,
                             currentDetailSegment: DetailSegment,
-                            projectType: ProjectType,
                             memory: PersonaMemory) -> Destination {
-        let home = BinderSegment.documentHome(for: projectType)
         // **The guard, and it is a question about the centre column rather than
         // a persona name** — see `Persona.showsManuscriptDocuments` for why that
         // distinction is the whole task, and why the basis moved off the binder
         // registry in stage 2b Task 6. Review and Publish both centre the
         // editor, so a reviewer clicking an annotation stays in Review.
         guard !persona.showsManuscriptDocuments else {
-            return Destination(persona: persona, binderSegment: home,
+            return Destination(persona: persona,
                                detailSegment: currentDetailSegment, memory: nil)
         }
         // **Author, because Author is where drafting happens** (spec §2). Not
@@ -80,15 +82,8 @@ enum ManuscriptNavigation {
         let change = PersonaModifier.applyPersonaChange(
             to: .author, from: persona,
             currentSegment: currentDetailSegment,
-            currentBinderSegment: currentBinderSegment,
-            projectType: projectType,
             memory: memory)
-        // **`home`, not `change.binderSegment`.** `applyPersonaChange` carries a
-        // TRANSIENT segment through a persona switch on purpose — a writer
-        // mid-search is not ejected — so taking its answer would leave the
-        // binder in Find on a window that had just been told to show a document
-        // (`ManuscriptNavigationTests.test_aNavigationFromFindStillLandsOnTheDocument`).
-        return Destination(persona: change.persona, binderSegment: home,
+        return Destination(persona: change.persona,
                            detailSegment: change.segment, memory: change.memory)
     }
 
@@ -106,10 +101,8 @@ enum ManuscriptNavigation {
     @MainActor
     static func go(to destination: Destination,
                    persona: Binding<Persona>,
-                   binderSegment: Binding<BinderSegment>,
                    detailSegment: Binding<DetailSegment>,
                    documentStore: DocumentStore?) {
-        binderSegment.wrappedValue = destination.binderSegment
         guard let memory = destination.memory else { return }
         persona.wrappedValue = destination.persona
         detailSegment.wrappedValue = destination.detailSegment

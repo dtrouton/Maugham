@@ -154,9 +154,9 @@ public extension Persona {
             //
             // **Plan lost Research, Palette, Intent and Visual Language in
             // §5.0's re-cut, because Plan AUTHORS all four.** Research and
-            // Palette already have their left segments here, so those two are
-            // moves. Intent and Visual Language do NOT yet: §5.0 parks their
-            // left-column home as a build (a `BinderSegment` case each, a
+            // Palette already have their homes in this persona's tree, so those
+            // two are moves. Intent and Visual Language do NOT yet: §5.0 parks
+            // their left-column home as a build (a section of the tree each, a
             // centre route, and a decision about what the left pane shows while
             // you edit), and until it ships **they are reachable in Plan by
             // ⌘⌥N and ⌘⌥V only**. That is a real cost, stated in §5.0 and
@@ -286,10 +286,9 @@ public extension Persona {
             // The real reason: **the Inspector is the only place in the app a
             // writer can set `StructureItem.status`** — the draft/revising/
             // final field that Review is *about*. In Review the left column is
-            // `binderHome` (`.manuscript`, or `.scenes` on a screenplay);
-            // and Review does not `centresTheCanvas`, so
-            // `ProjectWindow.inspectorRoute`
-            // returns `.collectionPiece` on a Collection and `.segment`
+            // the project's own tree (`TreePane`), and Review does not
+            // `centresTheCanvas`, so `ProjectWindow.inspectorRoute`
+            // returns `.collectionPiece` on a Collection and `.document`
             // otherwise, and both arms land on a status control:
             // `PieceInspector.statusSection` and `InspectorView`'s Status
             // picker. Those two are the only callers of
@@ -343,186 +342,17 @@ public extension Persona {
 
     /// Map a segment onto one this persona actually offers. Used when the
     /// writer switches persona while sitting on a pane the destination does
-    /// not have — the same shape as `BinderSegment.documentHome(for:)`, which
-    /// exists because re-deriving that check inline shipped a real bug
-    /// (2026-07-02 smoke finding).
+    /// not have — a named rule rather than an inline containment check at each
+    /// site, for `TreePane`'s reason one column over: re-deriving that kind of
+    /// check inline shipped a real bug (2026-07-02 smoke finding).
     func coerce(_ segment: DetailSegment) -> DetailSegment {
         panes.contains(segment) ? segment : defaultPane
     }
 }
 
-// MARK: - Left column
+// MARK: - The centre column
 
 public extension Persona {
-    /// Binder segments this persona offers, in picker order. The first is the
-    /// persona's `binderHome` — where entering the persona lands. `.trash` and
-    /// `.find` stay conditional on their existing runtime predicates and are
-    /// appended by `BinderSegmentPicker`, not listed here: they are transient
-    /// states, not persona surfaces.
-    ///
-    /// Manuscript-shaped entries go through `BinderSegment.documentHome(for:)`
-    /// and NEVER name `.manuscript` directly — a screenplay binder has no
-    /// Manuscript segment (the Scenes segment IS the slugline navigator inside
-    /// the single `.fountain`), and forcing `.manuscript` on one drops the
-    /// writer into a one-row `BinderView` (2026-07-02 smoke finding).
-    /// `PersonaBinderSegmentTests.test_screenplayPersonasNeverOfferManuscript`
-    /// pins that.
-    ///
-    /// Reconciled against the three-column table in §6.3 of
-    /// `docs/superpowers/specs/2026-07-25-mode-based-ux-redesign-design.md`,
-    /// which gives each persona a Left surface: Plan "Research tree", Author
-    /// "Binder", Review "Pieces by review state", Publish "Editions". One of
-    /// those four surfaces does not exist yet (M1D builds the editions list), so the deviations are recorded at their cases below.
-    ///
-    /// **THIS REGISTRY AND `panes` FAIL DIFFERENTLY, and §6.1 of
-    /// `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md` is
-    /// where that was finally written down.** Every right-hand pane has a
-    /// `⌘⌥`-letter in `MaughamApp`'s View menu, so dropping a pane from `panes`
-    /// is a DEMOTION — ⌘⌥O still opens Outline in every persona. **There is no
-    /// keyboard route to a `BinderSegment` at all**, so dropping a segment from
-    /// here is a REMOVAL: the only route back is switching persona. §8's
-    /// "personas are lenses, never gates" is therefore true of one of the two
-    /// registries, and every subtraction below is made knowing which.
-    func binderSegments(for projectType: ProjectType) -> [BinderSegment] {
-        let home = BinderSegment.documentHome(for: projectType)
-        switch self {
-        case .plan:
-            // §6.3 gives Plan a canvas centre column, so the canvas leads and is
-            // therefore `binderHome` — entering Plan lands on it. `.tree` is
-            // slice 2's addition and sits second (see below). Research and
-            // Palette follow: Research is §6.3's Left surface, and the binder is
-            // where a palette card is picked.
-            //
-            // **`.tree` is Plan's manuscript tree with the CANVAS still in the
-            // centre** (spec §3.1) — the structure segment. It closes §1's hole,
-            // which Denver hit within minutes of opening Plan on 2026-08-02:
-            // "the binder hasn't appeared in plan view."
-            //
-            // **The manuscript segment itself stays absent, and the reason
-            // recorded here before is now false.** It read: "the coercion rule
-            // keeps any segment the destination offers, so including it would
-            // let a writer entering Plan from the manuscript simply stay on it."
-            // **That rule no longer exists.** `PersonaMemory.restoredBinderSegment`
-            // replaced it: a persona switch restores the DESTINATION's own
-            // remembered position, so a writer arriving in Plan lands where they
-            // last stood in Plan and never on the segment they came from. The
-            // old argument could not survive that and does not need to.
-            //
-            // What is true now, and it is a different answer rather than a
-            // reversal of that one: `.manuscript` means "the editor in the
-            // centre", and §2 says Plan does not draft. `.tree` gives Plan the
-            // same TREE without the same CENTRE — which is precisely why it is a
-            // case of its own and not a reuse of the manuscript home (see
-            // `BinderSegment.tree`). Adding `.manuscript` here would put a text
-            // editor in Plan; adding `.tree` puts a structure surface there.
-            //
-            // Ordering is unchanged on purpose: `binderHome` is `.first`, so
-            // Plan still lands on the canvas, which is what §6.3 gives it and
-            // what every writer of it has opened into so far.
-            return [.canvas, .tree, .research, .palette]
-        case .author:
-            // §6.3 Left = "Binder", and after slice 2 that is all it is: the
-            // manuscript home, alone.
-            //
-            // `.research` LEFT in slice 2 task 6 of the persona shell (§6.1).
-            // The argument is not convenience — it is that **the right-hand
-            // registry already said research is not Review's or Publish's
-            // business** (at the time `.research` was a pane in Plan and Author
-            // and absent from both the others; §5.0's re-cut has since taken it
-            // off Plan too, on the grounds that Plan AUTHORS research — the
-            // same conclusion from the other side), so the left column was the
-            // half that disagreed. Editing research is making planning
-            // material, which is
-            // Plan's output under §2's rule, and Author keeps
-            // `LinkedResearchPane` on the right (⌘⌥R) for reading what the open
-            // chapter points at.
-            //
-            // **`.palette` followed in task 6b, on a WEAKER warrant — and the
-            // weaker one is what is written here.** Nothing disagreed: at the
-            // time palette was a left segment in Plan and Author and a right
-            // pane in Plan, Author and Review, so the left set was a strict
-            // SUBSET of the right set. (§5.0's re-cut has since taken the
-            // palette PANE off Plan and Review, so the two registries now read
-            // as complements — made on Plan's left, consulted on Author's
-            // right. That is the same conclusion arrived at from the other
-            // side, and it does not disturb this case.) This is §6.1's
-            // principle applied further, not a
-            // contradiction corrected. The principle: the left segment is
-            // `PaletteBinderList` and picking a card puts `PaletteCardEditor`
-            // in the CENTRE, which is making palette material; the right pane
-            // is `PalettePane`, "read-only images, swatches, and sensory notes
-            // beside the editor" by its own doc comment, which is consulting it
-            // while drafting. Making is Plan's, consulting is Author's, and
-            // ⌘⌥P is the route Author keeps
-            // (`PersonaBinderSegmentTests.test_theWallIsPlansAndTheCardIsStillAuthorsThroughTheRightColumn`).
-            // Overstating this as a contradiction would put a stronger reason
-            // in the code than the true one — §5.1's own lesson about a comment
-            // recording a WEAKER reason than the real one, running the other
-            // way.
-            //
-            // **THE ASYMMETRY THIS LEAVES, recorded because smoke meets it.**
-            // Two event routes still force `.research` in Author —
-            // `ProjectWindow.openResearchItem` (the **Open** button on a
-            // promoted canvas card) and `handleShowLatestMCPNote` (the **Show**
-            // button on the MCP note banner). And `loadProject` restores
-            // `UIState.binderSegment` VERBATIM — it filters `.manuscript` on a
-            // screenplay and nothing else — so a project last quit in Author on
-            // the palette wall reopens there once, on the build that takes the
-            // segment away. All three still render, highlighted, because
-            // `BinderSegmentPicker.visibleSegments` appends the current
-            // selection; that is the lens-not-gate half working. But Author now
-            // has NO picker route in and ⌘1 as the only way back out. Pinned by
-            // `test_aForcedResearchSegmentStillRendersInEveryPersona` and
-            // `test_aRestoredPaletteSegmentStillRendersInEveryPersona`.
-            return [home]
-        case .review:
-            // DELIBERATE DEVIATION: §6.3 Left = "Pieces by review state",
-            // which is not built. The ordinary binder stands in. Palette
-            // dropped out as a making surface rather than an adjudicating one,
-            // and `.research` followed it in slice 2 (§6.1) for the reason
-            // spelled at `.author` above — Review has no research pane on the
-            // right either, so nothing here disagrees with anything there.
-            //
-            // ONE SEGMENT, on purpose. The "a single button reads as broken
-            // chrome" worry recorded at `.publish` before is answered rather
-            // than ignored: this column is ALREADY a deviation standing in for
-            // an unbuilt surface, so a single entry makes the placeholder
-            // visible instead of disguising it, and M3 supplies the real second
-            // entry. Padding a picker with a segment that does not serve the
-            // persona is exactly what slice 1 refused to do for `.outline`.
-            return [home]
-        case .publish:
-            // DELIBERATE DEVIATION: §6.3 Left = "Editions", which M1D builds.
-            // Until then the binder stands in, alone — `.research` left in
-            // slice 2 (§6.1), and with it the reason recorded here before
-            // ("plus Research so the picker is a choice rather than a single
-            // button reading as broken chrome"), which §6.1 overrules by name.
-            // See `.review` above for why one segment is the honest shape for a
-            // column that is standing in for an unbuilt surface; M4 supplies
-            // Publish's real second entry.
-            return [home]
-        }
-    }
-
-    /// Where this persona lands when entered. Always the head of its own
-    /// segment list, so the offered set and the landing spot cannot disagree;
-    /// `PersonaBinderSegmentTests.test_everyPersonaBinderHome_isAmongItsOwnSegments`
-    /// pins that for every persona × project type.
-    func binderHome(for projectType: ProjectType) -> BinderSegment {
-        // `binderSegments` is never empty — every case above returns at least
-        // its own `home`, and `home` is what this falls back to anyway, so the
-        // two answers agree even if one day a case returns nothing.
-        //
-        // **There is no floor on THIS side and there deliberately is not one.**
-        // `PersonaPaneRegistryTests.test_everyPersona_offersAtLeastTwoPanes` is
-        // about the RIGHT-hand registry; slice 2 took Review, Publish AND
-        // Author to a single binder segment each on purpose (§6.1), so a ≥2
-        // assertion here would be asserting a coincidence that has already
-        // stopped being true — three times over, leaving Plan the only persona
-        // whose left column is a choice at all (§6.2, revisited after slice 7).
-        binderSegments(for: projectType).first ?? BinderSegment.documentHome(for: projectType)
-    }
-
     /// **Would this persona's centre column show a manuscript document?**
     ///
     /// The guard behind Denver's 2026-08-02 ruling — *"if I'm moving to the
@@ -533,9 +363,9 @@ public extension Persona {
     /// is asked of the centre column.** The old form was
     /// `binderSegments(for:).contains(documentHome(for:))` — a persona shows
     /// documents exactly when its own left column offers the segment whose
-    /// centre is the document. That basis is being deleted: Task 7 takes the
-    /// segment enum and both registries with it, and a rule resting on a list
-    /// that will not exist cannot be the one that survives.
+    /// centre is the document. Task 7 deleted that basis outright, enum and both
+    /// registries together, and a rule resting on a list that no longer exists
+    /// could not have been the one that survived.
     ///
     /// **What replaced it is still not a persona NAME.** A hardcoded
     /// `== .plan` reads identically today and ships the defect the moment
@@ -569,11 +399,7 @@ public extension Persona {
     static func showsManuscriptDocuments(centresTheCanvas: Bool) -> Bool {
         !centresTheCanvas
     }
-}
 
-// MARK: - The centre column
-
-public extension Persona {
     /// **The one spelling of "the centre column is the planning canvas".**
     ///
     /// The successor to `BinderSegment.centresTheCanvas` (shell-finish stage 2b
@@ -594,26 +420,5 @@ public extension Persona {
         case .plan: return true
         case .author, .review, .publish: return false
         }
-    }
-
-    /// **INTERIM — Task 7 deletes this method and every call to it becomes the
-    /// property above.**
-    ///
-    /// The persona is the whole answer once the binder strip is gone. It is not
-    /// the whole answer *yet*, because Plan's picker still offers `.research`
-    /// and `.palette`, and both of those put an OLD PANE in the centre column
-    /// rather than the board (`ProjectWindow.existingEditorSwitch`). Asking the
-    /// bare property at the seven sites that used to ask the segment would
-    /// therefore not be a re-base — it would turn the region inspector on over
-    /// a research note, enable `Promote…` over the palette wall, and mount the
-    /// canvas where `ResearchView`'s own selection belongs.
-    ///
-    /// So the segment survives here as a subtraction, named for what it is and
-    /// carrying its own expiry: `BinderSegment.interimTakesTheCentreFromTheCanvas`.
-    /// `PersonaCanvasBasisBridgeTests` proves the composite answers exactly what
-    /// the old segment predicate answered, over every pair a writer can reach,
-    /// and goes with this method.
-    func centresTheCanvas(interimSegment: BinderSegment) -> Bool {
-        centresTheCanvas && !interimSegment.interimTakesTheCentreFromTheCanvas
     }
 }

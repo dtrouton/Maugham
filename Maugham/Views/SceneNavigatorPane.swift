@@ -16,10 +16,9 @@ import MaughamCore
 /// `scriptRow`.
 ///
 /// **It carries the project row** (persona shell spec §3.3).
-/// `BinderSegment.documentHome(for: .screenplay)` is
-/// `.scenes` and no persona offers a screenplay the `.manuscript` segment, so
-/// `BinderView` — the row's other non-collection home — is never mounted for a
-/// screenplay at all: without a row here `BinderSubject.project` is
+/// `TreePane(for: .screenplay)` is
+/// `.sceneNavigator`, so `BinderView` — the row's other non-collection home —
+/// is never mounted for a screenplay at all: without a row here `BinderSubject.project` is
 /// **unconstructible in a screenplay**, and since slice 1 deleted
 /// `StatementPane`'s `[Chapter | Project]` switch that means project-scope Intent
 /// is unreachable. It can hide the writer's own prose, not just a blank pane:
@@ -138,7 +137,7 @@ struct SceneNavigatorPane: View {
     /// meant to end. And it is not a default the writer can move off:
     /// `ProjectStore.renameStructureItem` has one caller, `BinderView.rename`,
     /// and `BinderView` is never mounted for a screenplay
-    /// (`BinderSegment.documentHome(for: .screenplay)` is `.scenes`), so from
+    /// (`TreePane(for: .screenplay)` is `.sceneNavigator`), so from
     /// inside the app that title is permanent. So the row names the *kind* of
     /// thing, which a screenplay can do and no other project type can: there is
     /// exactly one script (the Phase 3d invariant). A fixed noun also guarantees

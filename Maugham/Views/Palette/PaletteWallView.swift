@@ -1,7 +1,9 @@
 import SwiftUI
 import MaughamCore
 
-/// The palette wall — center-pane surface for BinderSegment.palette.
+/// The palette wall — the centre-column surface the Palette tree section's
+/// "Open Wall" door opens (`ProjectWindow.showsPaletteWall`). It was a binder
+/// segment's centre until shell-finish stage 2b Tasks 5 and 7.
 /// Cards + thumbnails load once per manifest change (tripwire 4); tiles do
 /// no I/O in body. Thumbnail file reads are UI image loads, not manuscript
 /// text reads, so they don't cross the ADR-0018 boundary.

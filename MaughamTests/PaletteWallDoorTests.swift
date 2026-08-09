@@ -111,24 +111,6 @@ final class PaletteWallDoorTests: XCTestCase {
         }
     }
 
-    // MARK: - binderSegment(restoring:) coerces a legacy `.palette`
-
-    /// A `UIState` an earlier build wrote with the binder on `.palette` must
-    /// not restore verbatim — the segment's own inspector auto-hide died with
-    /// the re-key (`applyPaletteWallChange`'s doc comment), so a writer landed
-    /// there would get a segment that no longer behaves the way it used to.
-    func test_binderSegmentRestoring_coercesALegacyPaletteToThePersonasHome() {
-        for persona in Persona.allCases {
-            for type in ProjectType.allCases where type != .unknown {
-                XCTAssertEqual(
-                    ProjectWindow.binderSegment(restoring: .palette, persona: persona,
-                                                projectType: type),
-                    persona.binderHome(for: type),
-                    "\(persona)/\(type)")
-            }
-        }
-    }
-
     // MARK: - The header's door — mounted
 
     func test_theHeadersOpenWallButtonFiresTheClosureWhenEnabled() async throws {
@@ -215,35 +197,15 @@ final class PaletteWallDoorTests: XCTestCase {
                         + "update the doc comment above rather than just the assert")
     }
 
-    // MARK: - Census: nothing selects the legacy `.palette` segment
-
-    /// **The half a mounted probe cannot see.** The offending spelling is
-    /// asked for by name, with a planted offender proving the pattern still
-    /// matches something — `TreeFindOverlayTests.test_nothingInTheWindow
-    /// SelectsTheFindSegment`'s shape, one segment over.
-    func test_nothingWritesTheLegacyPaletteSegment() throws {
-        let pattern = #"(?:binderSegment|segment) = \.palette\b"#
-        XCTAssertNotNil(
-            "                    binderSegment = .palette"
-                .range(of: pattern, options: .regularExpression),
-            "the pattern no longer matches its own planted offender, so the "
-            + "census below is vacuous")
-
-        for path in ["Maugham/Views/ProjectWindow.swift",
-                     "Maugham/Views/BinderPaneToggle.swift",
-                     "Maugham/Views/CollectionBinderPaneToggle.swift"] {
-            let text = try source(path)
-            XCTAssertFalse(text.isEmpty, "\(path): read nothing")
-            let hits = text.split(separator: "\n").filter {
-                !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
-                    && $0.range(of: pattern, options: .regularExpression) != nil
-            }
-            XCTAssertTrue(hits.isEmpty,
-                          "\(path): something still selects the palette segment — "
-                          + "\(hits). The wall has its own door "
-                          + "(`showsPaletteWall`); nothing writes `.palette`.")
-        }
-    }
+    // **The census that stood here died with the strip it guarded** (stage
+    // 2b Task 7). It asked, by name and with a planted offender, that nothing
+    // in the window wrote `binderSegment = .palette` — the segment path the
+    // wall's door replaced. `BinderSegment` and the window's `binderSegment`
+    // state were deleted together, so the offender cannot be spelled and the
+    // compiler is the enforcement; a regex over three files that can no longer
+    // match anything is a guard in name only. What survives is everything
+    // above: the door is the one way in, and it is mounted, pressed and asked
+    // about its enablement rather than grepped for.
 
     /// The OLD wall mechanism compared segments against `.palette` directly
     /// (`applyPaletteSegmentChange`, `clearsPaletteStash`); both are re-keyed

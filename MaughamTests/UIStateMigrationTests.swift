@@ -24,7 +24,6 @@ final class UIStateMigrationTests: XCTestCase {
         XCTAssertEqual(loaded.schemaVersion, UIState.currentSchemaVersion)
         XCTAssertEqual(loaded.selectedSubject, .item("doc-1"))
         XCTAssertTrue(loaded.isNoChromeOn)
-        XCTAssertEqual(loaded.binderSegment, .manuscript)
     }
 
     func test_v2JSON_roundtrips() throws {
@@ -32,14 +31,14 @@ final class UIStateMigrationTests: XCTestCase {
             schemaVersion: 2,
             selectedSubject: .item("doc-9"),
             isNoChromeOn: false,
-            binderSegment: .research)
+            researchPreviewVisible: true)
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".json")
         try JSONEncoder().encode(original).write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
 
         let loaded = UIState.loadOrEmpty(from: url)
-        XCTAssertEqual(loaded.binderSegment, .research)
+        XCTAssertTrue(loaded.researchPreviewVisible)
         XCTAssertEqual(loaded.selectedSubject, .item("doc-9"))
     }
 
@@ -56,7 +55,15 @@ final class UIStateMigrationTests: XCTestCase {
         XCTAssertEqual(loaded, UIState.empty)
     }
 
-    func test_emptyUIState_hasManuscriptSegment() {
-        XCTAssertEqual(UIState.empty.binderSegment, .manuscript)
+    /// **The left column is not persisted at all since shell-finish stage 2b
+    /// Task 7**, so there is no default for it to have. Every persona shows the
+    /// project's own tree; a stale `binderSegment` in a file written by an older
+    /// build decodes away (`UIStateTests`).
+    func test_emptyUIState_persistsNoLeftColumnChoice() throws {
+        let json = try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(UIState.empty)) as? [String: Any]
+        XCTAssertNil(json?["binderSegment"],
+                     "a field nothing reads must not be written either — a "
+                     + "half-dropped field is one a later build restores")
     }
 }

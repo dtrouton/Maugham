@@ -119,5 +119,5 @@ Both hang off one configuration flag, `EditorSurfaceConfiguration.isSecondEditor
 - Document persistence — `Maugham/Stores/DocumentStore.swift`.
 - Op log mutation — `Maugham/OpLog/`.
 - Binder / outline / inspector UI — `Maugham/Views/`.
-- Find/replace data model — `Maugham/Stores/` (BinderSegment.find).
+- Find/replace data model — `Maugham/Stores/` (`ProjectStore.currentSearch`; ⌘⌥F is an overlay of the left column, not a binder segment).
 - Wiki-link resolution to other docs — `Maugham/Stores/ProjectStore` (WikiLink extension); the *hit-testing* (mouse over `[[…]]`) lives here but resolution doesn't.

@@ -9,9 +9,9 @@ import MaughamCore
 /// §2 says Plan is where structure is produced, and slice 2 put the manuscript
 /// tree in Plan's left column. `BinderView` carries its root context menu, its
 /// per-row menu and its empty-state buttons **attached to the view rather than
-/// gated on persona**, so mounting it at `.tree` ought to bring creation with
+/// gated on persona**, so mounting it in Plan ought to bring creation with
 /// it — which makes task 7 a verification task, and the verification is the
-/// deliverable. `BinderSegmentTreePaneTests` and
+/// deliverable. `TreePaneTests` and
 /// `ProjectSubjectReachabilityTests` prove the right PANE is mounted; neither
 /// presses anything, and "the pane is there" is not "the writer can make a
 /// chapter".
@@ -59,7 +59,7 @@ final class PlanTreeStructureCreationTests: XCTestCase {
             let store = try await emptyProject(of: type)
             XCTAssertTrue(store.manifest.structure.isEmpty, "\(type): fixture")
 
-            let window = host(store: store, persona: .plan, segment: .tree)
+            let window = host(store: store, persona: .plan)
             try await press("New Document", in: window,
                             until: { store.manifest.structure.count == 1 })
 
@@ -76,7 +76,7 @@ final class PlanTreeStructureCreationTests: XCTestCase {
     /// above.
     func test_aGroupCanBeMadeFromPlansTree() async throws {
         let store = try await emptyProject(of: .novel)
-        let window = host(store: store, persona: .plan, segment: .tree)
+        let window = host(store: store, persona: .plan)
         try await press("New Group", in: window,
                         until: { store.manifest.structure.first?.type == .group })
 
@@ -88,8 +88,7 @@ final class PlanTreeStructureCreationTests: XCTestCase {
     /// measuring the harness rather than Plan.
     func test_theSameAffordancesAreThereInAuthorsBinder() async throws {
         let store = try await emptyProject(of: .novel)
-        let window = host(store: store, persona: .author,
-                          segment: .documentHome(for: .novel))
+        let window = host(store: store, persona: .author)
         try await press("New Document", in: window,
                         until: { store.manifest.structure.count == 1 })
         XCTAssertEqual(store.manifest.structure.count, 1)
@@ -108,7 +107,7 @@ final class PlanTreeStructureCreationTests: XCTestCase {
     /// `CollectionPieceModifier`'s and are tested there.
     func test_theCollectionsAddControlReachesPlansTree() async throws {
         let store = try await emptyProject(of: .collection)
-        let window = host(store: store, persona: .plan, segment: .tree)
+        let window = host(store: store, persona: .plan)
 
         let found = try axDescriptors(in: window)
         XCTAssertTrue(found.contains("Add a piece"),
@@ -125,7 +124,7 @@ final class PlanTreeStructureCreationTests: XCTestCase {
     /// delete this test, which is the point.
     func test_aScreenplaysTreeOffersNoStructureCreationAndMustNotGainOne() async throws {
         let store = try await emptyProject(of: .screenplay)
-        let window = host(store: store, persona: .plan, segment: .tree)
+        let window = host(store: store, persona: .plan)
 
         let found = try axDescriptors(in: window)
         // The control: an empty tree would make every refusal below vacuous.
@@ -205,12 +204,10 @@ final class PlanTreeStructureCreationTests: XCTestCase {
 
     // MARK: - Hosting and pressing
 
-    private func host(store: ProjectStore, persona: Persona,
-                      segment: BinderSegment) -> NSWindow {
+    private func host(store: ProjectStore, persona: Persona) -> NSWindow {
         let frame = CGRect(x: 0, y: 0, width: 320, height: 600)
         let hosting = NSHostingView(rootView: AnyView(
-            StructureCreationProbeView(store: store, persona: persona,
-                                       segment: segment)))
+            StructureCreationProbeView(store: store, persona: persona)))
         hosting.frame = frame
         let window = NSWindow(contentRect: frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -296,23 +293,14 @@ final class PlanTreeStructureCreationTests: XCTestCase {
 }
 
 /// The left column as `ProjectWindow.binderColumn` builds it — same shell rule,
-/// same segment, and a persona the test chooses.
+/// and a persona the test chooses.
 @MainActor
 private struct StructureCreationProbeView: View {
     let store: ProjectStore
     let persona: Persona
-    @State private var segment: BinderSegment
     @State private var subject: BinderSubject?
-    @State private var researchId: String?
-    @State private var paletteCardId: String?
     @State private var renamingItemId: String?
     @State private var treeFindActive = false
-
-    init(store: ProjectStore, persona: Persona, segment: BinderSegment) {
-        self.store = store
-        self.persona = persona
-        _segment = State(initialValue: segment)
-    }
 
     var body: some View {
         Group {
@@ -320,10 +308,7 @@ private struct StructureCreationProbeView: View {
             case .standard:
                 BinderPaneToggle(
                     store: store,
-                    segment: $segment,
                     selectedSubject: $subject,
-                    selectedResearchId: $researchId,
-                    selectedPaletteCardId: $paletteCardId,
                     projectType: store.manifest.type,
                     lastParsedScript: nil,
                     treeFindActive: $treeFindActive,
@@ -331,15 +316,9 @@ private struct StructureCreationProbeView: View {
             case .collection:
                 CollectionBinderPaneToggle(
                     store: store,
-                    segment: $segment,
                     selectedSubject: $subject,
-                    selectedResearchId: $researchId,
-                    selectedPaletteCardId: $paletteCardId,
                     treeFindActive: $treeFindActive,
                     renamingItemId: $renamingItemId,
-                    activePiece: nil,
-                    onAddSharedNote: {},
-                    onAddPieceNote: {},
                     persona: persona)
             }
         }

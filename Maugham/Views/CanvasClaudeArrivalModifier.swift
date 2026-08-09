@@ -24,9 +24,9 @@ import AppKit
 /// than an oversight.** It is the right *shape* — a title, an accumulating count,
 /// an 8-second dismiss — and every noun is wrong: its `bump(title:latestId:)`
 /// increments the count by one per call, so a batch of six cards would announce
-/// one, and its `latestId` is a research id that `handleShowLatestMCPNote` takes
-/// to the Research segment. Sharing the model would mean one window state that
-/// two banners write and whose sentence is composed by the caller who got there
+/// one, and its `latestId` is a research id that `handleShowLatestMCPNote` makes
+/// the window's subject. Sharing the model would mean one window state that two
+/// banners write and whose sentence is composed by the caller who got there
 /// last. What IS shared is the view and the timing.
 struct CanvasClaudeArrivalModifier: ViewModifier {
 
@@ -43,7 +43,6 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
     /// existing).
     let model: CanvasModel
     @Binding var persona: Persona
-    @Binding var binderSegment: BinderSegment
     /// Forced open by Show — see `Destination.opensInspector`.
     @Binding var showInspector: Bool
     /// Where the persona lands durably. Nil while the project is still loading,
@@ -122,14 +121,14 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
     /// Where the window has to be for the writer to see what arrived — a value,
     /// so the jump is assertable without hosting SwiftUI.
     ///
-    /// **The persona is not optional.** `Persona.binderSegments(for:)` gives
-    /// `.canvas` to Plan and to nobody else, so setting the segment alone would
-    /// put the binder on a surface its own picker does not offer.
-    /// `handleShowLatestMCPNote` is the precedent for the rest of the shape: set
-    /// the segment, set the selection, dismiss.
+    /// **The persona is the whole of the jump.** Plan is the one persona whose
+    /// centre column is the board (`Persona.centresTheCanvas`), so it is where
+    /// the writer has to be for a revealed region to be on screen at all. It
+    /// used to carry a binder segment beside it, back when Plan's left column
+    /// was a picker and only two of its four tabs drew the board; Task 7 left
+    /// one left column per persona, so there is nothing else to set.
     struct Destination: Equatable {
         let persona: Persona
-        let binderSegment: BinderSegment
         let selection: CanvasSelection
         /// **A field rather than a bare `showInspector = true` in `show`**, so a
         /// test pins it. Every other navigation-to-a-pane in `ProjectWindow`
@@ -140,49 +139,41 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
         let opensInspector: Bool
     }
 
-    /// **A writer already looking at the canvas is not moved off it** (slice 2).
+    /// **A writer already looking at the canvas is not moved off it** (slice 2),
+    /// and since Task 7 that falls out rather than being arranged.
     ///
-    /// `.tree` and `.canvas` both put the canvas in the centre column and differ
-    /// only in the left one — the manuscript tree against the research tree. So
-    /// from `.tree` the whole of Show's promise is already kept by the selection
-    /// and the camera move below: the region is revealed on a canvas the writer
-    /// can see. Forcing `.canvas` as well would swap their left column out from
+    /// The rule used to have work to do: Plan offered two segments that drew the
+    /// board and two that did not, so "already there" had to be asked of the
+    /// pair — and answering it wrong swapped the writer's left column out from
     /// under them and cost them their place in the structure they were
-    /// arranging, which is the one thing Plan's tree exists for — a navigation
-    /// side effect nobody asked for, for no gain.
+    /// arranging, which is the one thing Plan's tree exists for. With one left
+    /// column per persona the destination is Plan and nothing else, so a writer
+    /// already in Plan is written the value they already hold.
     ///
-    /// From anywhere that does NOT centre the canvas — including the three
-    /// other personas, whose registries offer neither segment — `.canvas`
-    /// remains the answer, because there the writer has to be taken somewhere.
-    ///
-    /// **It takes the persona as well as the segment since stage 2b Task 6**,
-    /// and the pair is what the question needs: "is the writer already looking
-    /// at the board" is a fact about the whole window, and a segment that
-    /// answers `.tree` in Plan answers nothing at all in Author, where the
-    /// `.tree` segment is not offered and the centre is the editor.
-    static func destination(forRegion region: CanvasRegionID,
-                            from current: BinderSegment,
-                            in persona: Persona) -> Destination {
-        let alreadyThere = persona.centresTheCanvas(interimSegment: current)
-        return Destination(persona: .plan,
-                           binderSegment: alreadyThere ? current : .canvas,
-                           selection: .region(region), opensInspector: true)
+    /// **`.plan` unconditionally, and it is not a shortcut for
+    /// `centresTheCanvas`.** The predicate answers *"is the board the centre
+    /// column"*; this answers *"where must the writer be to see it"*, and only
+    /// one persona can be named as an answer to that. If a second persona ever
+    /// centres the board, this becomes a real choice and has to be made here
+    /// deliberately.
+    static func destination(forRegion region: CanvasRegionID) -> Destination {
+        Destination(persona: .plan, selection: .region(region),
+                    opensInspector: true)
     }
 
     /// **The jump does not go through `PersonaModifier`, and that is deliberate.**
     /// Its handler is a `.keyWindow` command carrying the persona-memory rules,
     /// and reaching it would mean posting `.maughamSetPersona` and then writing
-    /// `binderSegment` on top of the segment it restores — a correctness argument
-    /// resting on SwiftUI delivery order, which is tripwire 2's shape. The
+    /// the selection on top of whatever that handler restores — a correctness
+    /// argument resting on SwiftUI delivery order, which is tripwire 2's shape.
+    /// The
     /// remembered position is left alone: it records where the writer *chose* to
     /// be, and a jump they took to look at something Claude added is not that
     /// choice. The persona itself is persisted, or the next launch reopens in the
     /// old persona with the binder already on the canvas.
     private func show(_ arrival: Arrival) {
-        let to = Self.destination(forRegion: arrival.region,
-                                  from: binderSegment, in: persona)
+        let to = Self.destination(forRegion: arrival.region)
         persona = to.persona
-        binderSegment = to.binderSegment
         model.selection = to.selection
         if to.opensInspector { showInspector = true }
         // **And the camera, or Show shows nothing.**

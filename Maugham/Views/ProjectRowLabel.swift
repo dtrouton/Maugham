@@ -6,7 +6,7 @@ import SwiftUI
 /// **One definition because there are three of them.** `BinderView`,
 /// `CollectionPiecesPane` and `SceneNavigatorPane` each carry a project row,
 /// because each is the manuscript home of a different project type
-/// (`BinderSegment.documentHome(for:)` decides which), and a writer only ever
+/// (`TreePane(for:)` decides which), and a writer only ever
 /// sees one of the three. That is exactly the situation in which three copies
 /// drift apart unseen — the glyph, the truncation mode and the spacing here are
 /// the whole visual identity of *"this row is the project"*, and it must not

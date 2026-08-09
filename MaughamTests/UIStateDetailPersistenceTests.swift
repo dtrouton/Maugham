@@ -6,7 +6,6 @@ final class UIStateDetailPersistenceTests: XCTestCase {
         let state = UIState(
             selectedSubject: nil,
             isNoChromeOn: false,
-            binderSegment: .manuscript,
             detailSegment: .research,
             outlineLayout: .table)
         let data = try JSONEncoder().encode(state)
@@ -18,7 +17,6 @@ final class UIStateDetailPersistenceTests: XCTestCase {
         let state = UIState(
             selectedSubject: nil,
             isNoChromeOn: false,
-            binderSegment: .manuscript,
             detailSegment: .inspector,
             outlineLayout: .cards)
         let data = try JSONEncoder().encode(state)

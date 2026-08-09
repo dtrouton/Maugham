@@ -361,20 +361,31 @@ final class BinderTreeSectionsTests: XCTestCase {
             + "what tells the writer, rather than a file appearing elsewhere")
     }
 
-    /// The control, and it is what makes the assertion above mean something: the
-    /// two panes the tree is replacing DO accept, through the very same bundle
-    /// type. If `ResearchTreeActions` had simply become a type that always
-    /// refuses, the test above would pass while saying nothing.
-    func test_theOldPanesStillAcceptTheDropsTheyCanRoute() async throws {
-        let store = try await novel(notes: ["Ships"], cards: [])
+    /// **The anti-vacuity control, rebuilt on the tree's own verbs** (stage 2b
+    /// Task 7). It used to be built on `ResearchView` — one of the two panes the
+    /// tree replaced — because a control that genuinely ACCEPTS is what stops
+    /// "refuses" above being a property of `ResearchTreeActions` itself rather
+    /// than of the payload. Task 7 deleted the pane, and a resurrected one would
+    /// be a control that tests nothing the app still does.
+    ///
+    /// So the control is the same bundle with a routable payload: a real
+    /// research note, dragged onto a real research row in the same project. If
+    /// `ResearchTreeActions` had become a type that always refuses, this would
+    /// go red and the refusal above would stop meaning anything.
+    func test_theSameBundleAcceptsTheDropsItCanRoute() async throws {
+        let store = try await novel(notes: ["Ships", "Harbour"], cards: [])
         let target = try XCTUnwrap(researchNote(named: "Ships", in: store))
-        let pane = ResearchView(store: store, selectedResearchId: .constant(nil))
+        let dragged = try XCTUnwrap(researchNote(named: "Harbour", in: store))
+        let sections = BinderTreeSections(
+            store: store,
+            state: BinderTreeSectionsState(),
+            selectedSubject: .constant(nil))
 
         XCTAssertTrue(
-            pane.treeActions.internalDrop("some-other-id", .middle, target),
-            "control: ResearchView's routing is built and accepts — so "
-            + "'refuses' above is a property of the tree's stub, not of the "
-            + "type every caller shares")
+            sections.actions.internalDrop(dragged.id, .middle, target),
+            "control: an id the tree CAN place is accepted through the very "
+            + "same bundle — so 'refuses' above is a property of the payload, "
+            + "not of the type every caller shares")
     }
 
     // MARK: - Fixtures

@@ -25,15 +25,15 @@ private let _binderTreeSectionsLog = Logger(
 /// `ResearchTreeActions` bundle"; there is one bundle in the app, built here,
 /// which is that contract's stronger form. Three copies of ~150 lines of store
 /// wiring is precisely the shape CLAUDE.md means by *a copy drifts* — and stage
-/// 2b deletes `ResearchView` and `CollectionResearchPane`, which is far cheaper
-/// against one implementation than three.
+/// 2b Task 7 deleted `ResearchView` and `CollectionResearchPane`, which was far
+/// cheaper against one implementation than three.
 ///
 /// **Mounting takes two touchpoints, and the second is not optional.** The rows
 /// go inside the host's `List`; the presentations they need — the Add Link
 /// sheet, the error alert, the palette-card load, the deferred rename commit —
 /// go OUTSIDE it via `.binderTreeSections(store:state:selectedSubject:)`, which
-/// is where `CollectionResearchPane` puts the same two modifiers and for the same
-/// reason: a sheet attached to a row inside a lazy list is presented from a view
+/// is where the deleted `CollectionResearchPane` put the same two modifiers, for
+/// the same reason: a sheet attached to a row inside a lazy list is presented from a view
 /// the list may unmount. Forgetting the modifier is a live defect that no row
 /// count would catch, so `TripwireGrepTests` censuses the pairing.
 struct BinderTreeSections: View {
@@ -760,9 +760,9 @@ enum BinderTreeSelection {
 
     /// **The tree selects a SET, and the window's subject is derived from it.**
     ///
-    /// Stage 2b deletes `ResearchView` and `CollectionResearchPane`, which are
-    /// the only surfaces in the app that can act on more than one note at a
-    /// time — a "Delete 3 Items", a multi "Move to ▸", a batch drag. Those
+    /// Stage 2b Task 7 deleted `ResearchView` and `CollectionResearchPane`,
+    /// which were the only surfaces in the app that could act on more than one
+    /// note at a time — a "Delete 3 Items", a multi "Move to ▸", a batch drag. Those
     /// capabilities do not survive their panes unless the tree learns them, and
     /// the tree cannot learn them while its `List` selects one value.
     ///

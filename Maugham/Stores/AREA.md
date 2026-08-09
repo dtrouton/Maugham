@@ -8,7 +8,7 @@ The persistence and coordination layer: project structure, documents, recents, s
 - Document load/save/conflict-resolution coordination with NSFileCoordinator/Presenter (`DocumentStore`).
 - The `.maugham/` filesystem layout for everything derived.
 - Small focused stores: recents, sessions, trash, debounce scheduling.
-- Search across the binder (`BinderSegment.find`).
+- Search across the binder (`ProjectSearchView`, mounted as an overlay of the left column).
 
 ## Layout
 
@@ -29,7 +29,7 @@ The persistence and coordination layer: project structure, documents, recents, s
 - `DocumentStore.swift` — project-folder coordinator + Document registry. Owns the NSFilePresenter, manifest IO, session tracking, UI state, rename/copy/move orchestration, **and the typed user-content mover** (see below). Per-doc op-log, autosave, conflict-detection, and echo guard now live on `Document` (post-`milestone-document-first-class`); this file routes external presenter callbacks to the matching Document via the registry.
 - `MaughamSidecarPath.swift` — typed classification of project-relative file URLs into manifest / opLog / checkpoints / sessions / uiState / conflictBackup / scratch / pending / trash / unknownSidecar / otherProjectFile / outsideProject. `presenterDidChangeSubitem` dispatches via a switch on this enum — adding a new sidecar owner is a compile-error workflow. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `DebounceScheduler.swift`, `RecentsStore.swift`, `SessionLog.swift`, `TrashStore.swift` — small focused stores, well-bounded. **Use these as the model** for new stores; don't model new things after `ProjectStore`'s size.
-- `BinderSegment` files — search across documents (`⌘⌥F`) plus the regular binder slicing.
+- Cross-document search (`⌘⌥F`) — see `ProjectSearchView` and `ProjectWindow.applyCloseFind`.
 - ID-prefix helpers / generators — see ADR 0008.
 
 ## The `.maugham/` filesystem layout (canonical)

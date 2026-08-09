@@ -1580,11 +1580,14 @@ final class TripwireGrepTests: XCTestCase {
     /// indices — the binder rendered `Pieces | 🎨Research | 🎨`, and a persona
     /// with no Palette segment showed a palette icon that selected Research.
     ///
-    /// Both binder toggles share `BinderSegmentPicker`, and the right pane's
-    /// picker has the same shape, so both files are checked: inside the
-    /// `ForEach` that feeds a `Picker`, there must be no branch.
+    /// **One picker left, and it is the right pane's.** The binder's own
+    /// (`BinderSegmentPicker`) was the surface the defect was FOUND on, and it
+    /// died with the strip in shell-finish stage 2b Task 7 — every persona's
+    /// left column is the project's tree now, so there is nothing there to pick
+    /// between. `DetailPaneToggle` has the identical shape and the identical
+    /// exposure, which is why the rule outlives the file it was written for.
     func test_segmentedPickerForEachBodiesHaveNoConditionalChildren() throws {
-        for relative in ["Views/BinderSegmentPicker.swift", "Views/DetailPaneToggle.swift"] {
+        for relative in ["Views/DetailPaneToggle.swift"] {
             let content = try String(
                 contentsOf: sourceDir.appendingPathComponent(relative), encoding: .utf8)
             let lines = content.components(separatedBy: .newlines)
@@ -2382,25 +2385,23 @@ final class TripwireGrepTests: XCTestCase {
     ///
     /// - `Maugham/Canvas/CanvasView.swift` — the canvas's internal research drag
     ///   and its external photograph drop.
-    /// - `Maugham/Views/CollectionResearchPane.swift` — the same pairing **twice**
-    ///   (`sharedSection`, `pieceSection`); this census only sees the first of
-    ///   each token, which is why the swap was made in both.
     /// - `Maugham/Views/ResearchRow.swift` — has always had it right, and is the
     ///   only member whose order was ever validated by use.
     /// - `Maugham/Views/BinderTreeSections.swift`, `BinderRow.swift`,
     ///   `PieceRow.swift` — the tree's own three, as of stage-2b Task 4. The
-    ///   milestone deletes `ResearchView` and `CollectionResearchPane`, so the
+    ///   milestone deleted `ResearchView` and `CollectionResearchPane`, so the
     ///   external-drop capability moved onto the tree's targets; **the census's
-    ///   guarantee had to move with it**, which is why these are listed here in
-    ///   the same task that mounted them rather than after the next smoke finds
-    ///   the reversed order by hand. `CollectionResearchPane` stays a member
-    ///   until Task 7 deletes it — both surfaces are guaranteed for as long as
-    ///   both exist.
+    ///   guarantee had to move with it**, which is why these were listed here in
+    ///   the same task that mounted them rather than after the next smoke found
+    ///   the reversed order by hand. `CollectionResearchPane` was a member for
+    ///   as long as it existed — it carried the pairing **twice**
+    ///   (`sharedSection`, `pieceSection`), and this census only sees the first
+    ///   of each token, which is why the swap had to be made in both — and left
+    ///   the set when Task 7 deleted it.
     private static let bothDropKinds: Set<String> = [
         "BinderRow.swift",
         "BinderTreeSections.swift",
         "CanvasView.swift",
-        "CollectionResearchPane.swift",
         "PieceRow.swift",
         "ResearchRow.swift",
     ]
@@ -3035,10 +3036,11 @@ final class TripwireGrepTests: XCTestCase {
     /// closed this finding found the identical defect at FOUR older sites in
     /// `CollectionResearchPane.swift` — every call of its `sectionDropHandler`,
     /// discarding the same kind of `Bool` since the day they were written, so a
-    /// payload that pane's own guard rejects was accepted on screen and then
-    /// ignored. They are fixed and held here too; a census that covered only the
-    /// file the finding arrived in would have left the older instances to be
-    /// rediscovered.
+    /// payload that pane's own guard rejected was accepted on screen and then
+    /// ignored. They were fixed and held here too, and the file left this list
+    /// when stage 2b Task 7 deleted it; a census that had covered only the file
+    /// the finding arrived in would have left the older instances to be
+    /// rediscovered on a surface that outlived it.
     ///
     /// **The three ROWS joined the list in stage-2a Task 7**, when their
     /// handlers stopped being a formality. Until then `BinderRow` and `PieceRow`
@@ -3050,7 +3052,6 @@ final class TripwireGrepTests: XCTestCase {
     func test_everyDropDestinationInTheResearchSurfacesDeclaresItsBool() throws {
         var offenders: [String] = []
         for file in ["Views/BinderTreeSections.swift",
-                     "Views/CollectionResearchPane.swift",
                      "Views/BinderRow.swift",
                      "Views/PieceRow.swift",
                      "Views/ResearchRow.swift"] {

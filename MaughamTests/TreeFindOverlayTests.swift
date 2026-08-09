@@ -13,9 +13,7 @@ import MaughamCore
 @MainActor
 final class FindOverlayBox {
     var treeFindActive: Bool
-    var segment: BinderSegment
     var subject: BinderSubject?
-    var researchId: String?
     /// The mounted window, handed in by the test after `host()` builds it.
     ///
     /// **Not `WindowAccessor`**, which is how production resolves it: its
@@ -25,9 +23,8 @@ final class FindOverlayBox {
     /// real window in keeps the whole delivery path production — the post, the
     /// scope filter, the receiver helper — and stubs only the lookup.
     var window: NSWindow?
-    init(treeFindActive: Bool, segment: BinderSegment) {
+    init(treeFindActive: Bool) {
         self.treeFindActive = treeFindActive
-        self.segment = segment
     }
 }
 
@@ -37,9 +34,9 @@ final class FindOverlayBox {
 ///
 /// What that means, and what this suite holds:
 ///
-/// - `⌘⌥F` writes `treeFindActive` and nothing else. It used to write
-///   `binderSegment = .find`, which is how find came to be in the strip at all;
-///   nothing selects `.find` any more, in any persona.
+/// - `⌘⌥F` writes `treeFindActive` and nothing else. It used to write a `.find`
+///   binder segment, which is how find came to be in the strip at all; the
+///   strip and the segment are both gone (Task 7).
 /// - The overlay REPLACES the column while it is up — strip included, since a
 ///   strip left visible underneath would let the writer change what is behind
 ///   the panel they are looking at.
@@ -49,12 +46,12 @@ final class FindOverlayBox {
 ///   together. Closing moves the binder nowhere, because the column it was
 ///   covering is still there.
 /// - A match click writes the window's SUBJECT, research matches included. That
-///   was a recorded gap for two slices (`selectedResearchId` alone, over a
-///   centre column find had taken hostage), and the overlay is what closed it.
+///   was a recorded gap for two slices (an old pane's own selection alone, over
+///   a centre column find had taken hostage), and the overlay is what closed it.
 ///
 /// **The salvaged contract**, re-homed here from
 /// `BinderSegmentPickerMountTests`' AX reachability class: the command reaches
-/// find's content in a persona whose picker is not in the hierarchy at all. It
+/// find's content in a persona whose picker was not in the hierarchy at all. It
 /// is asserted in every persona here rather than in Author alone.
 @MainActor
 final class TreeFindOverlayTests: XCTestCase {
@@ -86,8 +83,7 @@ final class TreeFindOverlayTests: XCTestCase {
         for type in ProjectType.allCases where type != .unknown {
             let store = try await project(of: type)
             for persona in Persona.allCases {
-                let box = FindOverlayBox(treeFindActive: false,
-                                         segment: persona.binderHome(for: type))
+                let box = FindOverlayBox(treeFindActive: false)
                 let window = host(box, FindOverlayProbeView(
                     store: store, box: box, persona: persona))
                 XCTAssertNil(queryField(in: window),
@@ -103,15 +99,10 @@ final class TreeFindOverlayTests: XCTestCase {
                                 "\(persona)/\(type): the Find command did not "
                                 + "reach its content")
                 XCTAssertNil(segmentedControl(in: window),
-                             "\(persona)/\(type): the strip is still in the "
-                             + "hierarchy under the overlay — the overlay "
-                             + "replaces the column, strip included")
-                XCTAssertEqual(box.segment, persona.binderHome(for: type),
-                               "\(persona)/\(type): opening find moved the "
-                               + "binder segment. It must move nothing: that is "
-                               + "what keeps the status footer's ruling true, "
-                               + "and what makes closing a reveal rather than a "
-                               + "return")
+                             "\(persona)/\(type): a segmented control is in "
+                             + "the hierarchy under the overlay — the overlay "
+                             + "replaces the whole column, and since Task 7 "
+                             + "there is no strip for it to be replacing")
             }
         }
     }
@@ -120,40 +111,35 @@ final class TreeFindOverlayTests: XCTestCase {
     /// Denver's 2026-08-02 ruling — running `⌘⌥F` must not silently remove the
     /// goal capsule, the session words and the `¶id`/element readout — used to
     /// be carried by `BinderSegment.showsManuscriptStatusFooter`'s `.find` arm.
-    /// It holds by construction now: the gate's inputs are the persona, the
-    /// segment and the subject, and opening the overlay writes none of them.
-    /// (The predicate the `.find` arm lived on was deleted in stage 2b Task 6
-    /// and the gate re-based onto the persona; this assertion is what says the
-    /// ruling survived the move, because it never depended on the arm.)
+    /// It holds by construction now: the gate's inputs are the persona and the
+    /// subject, and opening the overlay writes neither. (The predicate the
+    /// `.find` arm lived on was deleted in stage 2b Task 6 and the gate re-based
+    /// onto the persona; the segment left the gate's inputs entirely in Task 7.
+    /// This assertion is what says the ruling survived both moves, because it
+    /// never depended on the arm.)
     func test_openingTheOverlayCannotTakeTheStatusFooterAway() async throws {
         let store = try await project(of: .novel)
         let subject = BinderSubject.item("ch-1")
         for persona in Persona.allCases {
-            let home = persona.binderHome(for: .novel)
-            let box = FindOverlayBox(treeFindActive: false, segment: home)
+            let box = FindOverlayBox(treeFindActive: false)
             box.subject = subject
             let window = host(box, FindOverlayProbeView(
                 store: store, box: box, persona: persona))
             let before = ProjectWindow.showsStatusFooter(
-                persona: persona, interimSegment: box.segment,
-                subject: box.subject)
+                persona: persona, subject: box.subject)
 
             box.treeFindActive = true
             await pumpUntil(deadline: 5) { self.queryField(in: window) != nil }
 
             let after = ProjectWindow.showsStatusFooter(
-                persona: persona, interimSegment: box.segment,
-                subject: box.subject)
+                persona: persona, subject: box.subject)
             XCTAssertEqual(before, after,
                            "\(persona): opening find changed the footer's "
-                           + "answer, so it moved one of the two inputs the "
-                           + "centre column is judged by")
+                           + "answer, so it moved one of the inputs the centre "
+                           + "column is judged by")
         }
         XCTAssertTrue(
-            ProjectWindow.showsStatusFooter(
-                persona: .author,
-                interimSegment: Persona.author.binderHome(for: .novel),
-                subject: subject),
+            ProjectWindow.showsStatusFooter(persona: .author, subject: subject),
             "premise: the case the ruling is about — a writer in Author with a "
             + "document in the centre — has a footer to lose in the first place")
     }
@@ -243,7 +229,7 @@ final class TreeFindOverlayTests: XCTestCase {
     // MARK: - It is window state, not segment state
 
     /// A writer mid-search who switches persona keeps their search. The old
-    /// `.find` segment rode through `applyPersonaChange` on the transient
+    /// `.find` segment rode through `applyPersonaChange` on a transient
     /// whitelist; the overlay is not in that pipeline at all, and this is what
     /// says so out loud — the pure change is applied exactly as `PersonaModifier`
     /// applies it, and the overlay is still up on the other side.
@@ -251,13 +237,10 @@ final class TreeFindOverlayTests: XCTestCase {
         let store = try await project(of: .novel)
         let (box, window) = try await openOverlay(on: store, persona: .plan)
 
-        let change = PersonaModifier.applyPersonaChange(
+        _ = PersonaModifier.applyPersonaChange(
             to: .author, from: .plan,
             currentSegment: .inspector,
-            currentBinderSegment: box.segment,
-            projectType: .novel,
             memory: .empty)
-        box.segment = change.binderSegment
         await waitOut(0.4)
 
         XCTAssertTrue(box.treeFindActive,
@@ -270,8 +253,8 @@ final class TreeFindOverlayTests: XCTestCase {
 
     // MARK: - A match click writes the subject
 
-    /// **The recorded gap, closed.** A research match used to write
-    /// `selectedResearchId` alone, and the centre column was the manuscript
+    /// **The recorded gap, closed.** A research match used to write an old
+    /// pane's private selection alone, and the centre column was the manuscript
     /// editor regardless, so clicking a research result showed the writer their
     /// manuscript. The subject is the answer, and the two arms now differ only
     /// in which tree the path is looked up in.
@@ -307,130 +290,80 @@ final class TreeFindOverlayTests: XCTestCase {
     /// the overlay, stage 2a's placement routes the research subject the way it
     /// routes every other research selection.
     ///
-    /// **Plan's `.canvas` is the one segment that still refuses, and it is not
-    /// this task's to change.** Its left pane is the research tree, which writes
-    /// its own `selectedResearchId` rather than the window's subject, so a
-    /// subject taking one of its columns would be a room with no door — the 2a
-    /// final review's Critical, guarded by
-    /// `BinderSegment.interimLeftPaneIsTheTree`. A match clicked there is still
-    /// visible: the second write puts the selection in that same tree, which is
-    /// what the writer sees when the overlay comes down. Plan's `.tree` — the
-    /// segment whose left column IS the subject-writing tree — routes it beside
-    /// the canvas, which is where the fix is felt in Plan.
+    /// **Plan refused a research subject entirely while its left column was a
+    /// picker, and Task 7 is what let it stop.** Two of Plan's four tabs put an
+    /// old pane in the left column, and neither of those panes wrote the
+    /// window's subject — so a subject taking one of Plan's columns would have
+    /// been a room with no door, which is the 2a final review's Critical. Every
+    /// persona's left column is the subject-writing tree now, so Plan routes the
+    /// note beside the board like every other research selection.
     func test_theResearchSubjectFromAMatchReachesAColumn() throws {
         let subject = BinderSubject.research("res-note")
         XCTAssertEqual(
             ProjectWindow.researchSubjectPlacement(
-                persona: .author,
-                interimSegment: Persona.author.binderHome(for: .novel),
-                subject: subject),
+                persona: .author, subject: subject),
             .takesTheCentre("res-note"),
             "in Author the note the writer just found must take the centre — "
             + "the whole of the gap was that it took nothing")
         XCTAssertEqual(
             ProjectWindow.researchSubjectPlacement(
-                persona: .plan, interimSegment: .tree, subject: subject),
+                persona: .plan, subject: subject),
             .besideTheCanvas("res-note"),
-            "on Plan's tree the canvas stays mounted and the right column "
-            + "previews it")
+            "in Plan the canvas stays mounted and the right column previews it")
         XCTAssertEqual(
             ProjectWindow.researchSubjectPlacement(
-                persona: .plan,
-                interimSegment: Persona.plan.binderHome(for: .novel),
-                subject: subject),
-            .segmentStands,
-            "Plan's canvas home still refuses a research subject, and must — "
-            + "its left pane cannot write the subject, so taking a column "
-            + "would strand the writer in a state they cannot clear")
+                persona: .author, subject: .item("ch-1")),
+            .nothingMoves,
+            "the control: a subject that names no research item moves neither "
+            + "column, or every answer above is the same answer")
     }
 
-    /// **The one place `.find` can still arrive from: a `UIState` written by an
-    /// earlier build.** `binderSegment` is persisted on every change, so a quit
-    /// taken mid-search under the old shape leaves `.find` on disk — Denver's
-    /// own machine included — and restoring it verbatim would put a phantom Find
-    /// segment in the strip over a pane that is now the tree. Everything else
-    /// must still restore as itself, out-of-persona selections included, which
-    /// is the half a coercion is always in danger of eating.
-    /// **`.trash` joined `.find` here in shell-finish stage 2b Task 2's fix
-    /// round 1** — a review-caught Critical, not the original task's call
-    /// (which restored it verbatim, same as every other still-itself
-    /// segment). Restoring it verbatim didn't just land the writer somewhere
-    /// odd, the way an inert `.find` fallback would have: the picker's own
-    /// append-if-selected fallback re-adds a phantom Trash tab even with
-    /// `hasTrash: false`, and both toggles' `.trash` switch arm renders the
-    /// same trashed rows a SECOND time in the main area — a duplicate, not
-    /// merely a stale destination.
-    ///
-    /// **`.palette` joined the two here in stage 2b Task 5** — same precedent,
-    /// different shape: the wall's inspector auto-hide no longer keys off this
-    /// segment (`applyPaletteWallChange`'s doc comment), so restoring it
-    /// verbatim would land the writer on a segment that no longer stashes the
-    /// inspector on entry. Unlike find and trash, the CASE itself survives
-    /// until Task 7 — only the restore coercion moved early.
-    func test_aSavedFindTrashOrPaletteSegmentIsRestoredAsThePersonasHome() {
-        for persona in Persona.allCases {
-            for type in ProjectType.allCases where type != .unknown {
-                for legacy in [BinderSegment.find, .trash, .palette] {
-                    XCTAssertEqual(
-                        ProjectWindow.binderSegment(restoring: legacy, persona: persona,
-                                                    projectType: type),
-                        persona.binderHome(for: type),
-                        "\(persona)/\(type): a legacy \(legacy) segment must "
-                        + "restore as this persona's home")
-                }
-                XCTAssertEqual(
-                    ProjectWindow.binderSegment(restoring: .manuscript,
-                                                persona: persona, projectType: type),
-                    .documentHome(for: type),
-                    "\(persona)/\(type): the screenplay coercion still stands")
-                for saved in [BinderSegment.tree, .scenes, .research, .canvas] {
-                    XCTAssertEqual(
-                        ProjectWindow.binderSegment(restoring: saved, persona: persona,
-                                                    projectType: type),
-                        saved,
-                        "\(persona)/\(type): \(saved) must restore as itself — "
-                        + "the picker appends an out-of-persona selection so it "
-                        + "renders highlighted, and coercing here is what ate "
-                        + "the writer's last explicit choice in the right pane")
-                }
-            }
-        }
-    }
+    // **The legacy-restore test died with the field it was about** (stage 2b
+    // Task 7). `UIState.binderSegment` was persisted on every change, so a quit
+    // taken mid-search under the old shape left `.find` on disk — Denver's own
+    // machine included — and `ProjectWindow.binderSegment(restoring:)` coerced
+    // that, `.trash` and `.palette` to the persona's home while restoring
+    // everything else verbatim. The field, the coercion and the enum are all
+    // gone: a `ui-state.json` carrying any of those values meets a decoder with
+    // no case for the key, so the value decodes away with no coercion to get
+    // wrong (`UIStateTests.test_everyLegacyBinderSegmentValueDecodesAwayWithoutCost`,
+    // which is where that guarantee lives now).
 
-    // MARK: - Census: nothing selects the segment any more
+    // MARK: - Census: ⌘⌥F writes the overlay flag and nothing else
 
     /// **The half a mounted probe cannot see.** The probe drives the write the
-    /// handler makes; this reads the handler. `⌘⌥F` writing `.find` again would
-    /// leave every test above green — the overlay would open AND the binder
-    /// would move — so the offending spelling is asked for by name, with a
-    /// planted offender proving the pattern still matches something.
-    func test_nothingInTheWindowSelectsTheFindSegment() throws {
-        let pattern = #"(?:binderSegment|segment) = \.find\b"#
-        XCTAssertNotNil(
-            "                    binderSegment = .find"
-                .range(of: pattern, options: .regularExpression),
-            "the pattern no longer matches its own planted offender, so the "
-            + "census below is vacuous")
-
-        for path in ["Maugham/Views/ProjectWindow.swift",
-                     "Maugham/Views/BinderPaneToggle.swift",
-                     "Maugham/Views/CollectionBinderPaneToggle.swift"] {
-            let text = try source(path)
-            XCTAssertFalse(text.isEmpty, "\(path): read nothing")
-            let hits = text.split(separator: "\n").filter {
-                !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
-                    && $0.range(of: pattern, options: .regularExpression) != nil
-            }
-            XCTAssertTrue(hits.isEmpty,
-                          "\(path): something still selects the find segment — "
-                          + "\(hits). Find is an overlay; ⌘⌥F writes "
-                          + "`treeFindActive` and nothing else.")
-        }
+    /// handler makes; this reads the handler. `⌘⌥F` writing a second piece of
+    /// window state would leave every test above green — the overlay would open
+    /// AND something else would move — so the handler's body is read for exactly
+    /// one write.
+    ///
+    /// **The offender this replaced cannot be spelled any more** (stage 2b Task
+    /// 7): it asked, with a planted offender, that nothing wrote
+    /// `binderSegment = .find`, and both the field and the enum are gone. The
+    /// question that outlives it is the one the segment write was an instance of
+    /// — *does opening find move anything but find?* — and it is asked of the
+    /// handler's own body rather than of a spelling.
+    func test_theFindCommandsHandlerWritesNothingButTheOverlayFlag() throws {
+        let text = try source("Maugham/Views/ProjectWindow.swift")
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let start = try XCTUnwrap(
+            lines.firstIndex(where: { $0.contains("(.maughamFindInProject,") }),
+            "no receiver for the Find command at all in ProjectWindow")
+        let body = lines[(start + 1)..<min(start + 6, lines.count)]
+            .prefix(while: { !$0.contains("}") })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("//") }
+        XCTAssertEqual(body, ["treeFindActive = true"],
+                       "⌘⌥F must write the overlay flag and nothing else. A "
+                       + "second write here is a writer taken somewhere they "
+                       + "did not ask to go — which is what the `.find` segment "
+                       + "write was, and what closing find then had to undo.")
     }
 
-    /// And the converse: the command's handler still opens the overlay. Deleting
-    /// the write outright leaves no wrong spelling for the census above to find
-    /// — `⌘⌥F` would simply stop doing anything.
+    /// And the positive half, spelled without the body slicing above so the two
+    /// cannot fail for the same reason: deleting the write outright leaves no
+    /// wrong spelling for any census to find — `⌘⌥F` would simply stop doing
+    /// anything.
     func test_theCommandsHandlerOpensTheOverlay() throws {
         let text = try source("Maugham/Views/ProjectWindow.swift")
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
@@ -465,9 +398,7 @@ final class TreeFindOverlayTests: XCTestCase {
     private func openOverlay(on store: ProjectStore,
                              persona: Persona) async throws
     -> (FindOverlayBox, NSWindow) {
-        let box = FindOverlayBox(
-            treeFindActive: true,
-            segment: persona.binderHome(for: store.manifest.type))
+        let box = FindOverlayBox(treeFindActive: true)
         let window = host(box, FindOverlayProbeView(store: store, box: box,
                                                     persona: persona))
         await pumpUntil(deadline: 5) { self.queryField(in: window) != nil }
@@ -631,12 +562,7 @@ private struct FindOverlayProbeView: View {
     let store: ProjectStore
     let box: FindOverlayBox
     let persona: Persona
-    @State private var paletteCardId: String?
     @State private var renamingItemId: String?
-
-    private var segment: Binding<BinderSegment> {
-        Binding(get: { box.segment }, set: { box.segment = $0 })
-    }
 
     private var treeFindActive: Binding<Bool> {
         Binding(get: { box.treeFindActive }, set: { box.treeFindActive = $0 })
@@ -646,20 +572,13 @@ private struct FindOverlayProbeView: View {
         Binding(get: { box.subject }, set: { box.subject = $0 })
     }
 
-    private var researchId: Binding<String?> {
-        Binding(get: { box.researchId }, set: { box.researchId = $0 })
-    }
-
     var body: some View {
         Group {
             switch ProjectWindow.BinderShell.shell(for: store.manifest.type) {
             case .standard:
                 BinderPaneToggle(
                     store: store,
-                    segment: segment,
                     selectedSubject: subject,
-                    selectedResearchId: researchId,
-                    selectedPaletteCardId: $paletteCardId,
                     projectType: store.manifest.type,
                     lastParsedScript: nil,
                     treeFindActive: treeFindActive,
@@ -667,15 +586,9 @@ private struct FindOverlayProbeView: View {
             case .collection:
                 CollectionBinderPaneToggle(
                     store: store,
-                    segment: segment,
                     selectedSubject: subject,
-                    selectedResearchId: researchId,
-                    selectedPaletteCardId: $paletteCardId,
                     treeFindActive: treeFindActive,
                     renamingItemId: $renamingItemId,
-                    activePiece: nil,
-                    onAddSharedNote: {},
-                    onAddPieceNote: {},
                     persona: persona)
             }
         }

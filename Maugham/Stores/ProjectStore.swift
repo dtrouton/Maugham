@@ -37,7 +37,7 @@ public enum ProjectStoreError: Error, Equatable {
 }
 
 /// Human-readable messages so `error.localizedDescription` in the pane alerts
-/// (`ResearchView`/`CollectionResearchPane`) renders real text rather than the
+/// (the binder tree's Research section) renders real text rather than the
 /// Foundation fallback "(Maugham.ProjectStoreError error N)". `fileSystemError`
 /// carries an already-composed message, so it renders its payload verbatim.
 extension ProjectStoreError: LocalizedError {

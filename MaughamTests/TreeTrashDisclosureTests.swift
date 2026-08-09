@@ -181,35 +181,15 @@ final class TreeTrashDisclosureTests: XCTestCase {
         XCTAssertEqual(store.manifest.structure.first?.id, chapterId)
     }
 
-    // MARK: - Census: nothing selects `.trash`, and the dead arms are gone
+    // MARK: - Census: the dead arms are gone
 
-    /// **The half a mounted probe cannot see.** `TreeFindOverlayTests`'
-    /// `test_nothingInTheWindowSelectsTheFindSegment` is the pattern: the
-    /// offending spelling is asked for by name, with a planted offender
-    /// proving the pattern still matches something.
-    func test_nothingWritesTheTrashSegment() throws {
-        let pattern = #"(?:binderSegment|segment) = \.trash\b"#
-        XCTAssertNotNil(
-            "                    binderSegment = .trash"
-                .range(of: pattern, options: .regularExpression),
-            "the pattern no longer matches its own planted offender, so the "
-            + "census below is vacuous")
-
-        for path in ["Maugham/Views/ProjectWindow.swift",
-                     "Maugham/Views/BinderPaneToggle.swift",
-                     "Maugham/Views/CollectionBinderPaneToggle.swift"] {
-            let text = try source(path)
-            XCTAssertFalse(text.isEmpty, "\(path): read nothing")
-            let hits = text.split(separator: "\n").filter {
-                !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
-                    && $0.range(of: pattern, options: .regularExpression) != nil
-            }
-            XCTAssertTrue(hits.isEmpty,
-                          "\(path): something still selects the trash segment — "
-                          + "\(hits). Trash is a foot disclosure; nothing writes "
-                          + "`.trash` any more.")
-        }
-    }
+    // **The spelling census that stood here died with the strip it guarded**
+    // (stage 2b Task 7). It asked, with a planted offender, that nothing wrote
+    // `binderSegment = .trash` across three files. `BinderSegment` and the
+    // window's `binderSegment` state were deleted together, so the offender
+    // cannot be spelled and the compiler is the enforcement. What survives is
+    // the half a spelling check never covered — the ARMS below, each of which
+    // could be deleted or resurrected without leaving a wrong spelling behind.
 
     /// The dead transient-exit arm, by name rather than by pattern: deleting
     /// it outright leaves no wrong spelling behind for the census above to
@@ -227,18 +207,24 @@ final class TreeTrashDisclosureTests: XCTestCase {
         }
     }
 
-    /// The picker's own half: it must never offer Trash again, in either
-    /// toggle — the disclosure is Trash's whole home now.
-    func test_thePickerNeverOffersTrash() throws {
+    /// The other dead arm: neither toggle may put a `TrashView` in the column
+    /// itself. That was the segment arm's job, and rendering it there beside the
+    /// foot disclosure is the duplicate that fix round 1 caught. The disclosure
+    /// is Trash's whole home now.
+    ///
+    /// **This replaces the picker's own half** (`hasTrash: false`, asked of both
+    /// call sites), which went with `BinderSegmentPicker` in Task 7.
+    func test_neitherToggleMountsTrashInTheColumnItself() throws {
         for path in ["Maugham/Views/BinderPaneToggle.swift",
                      "Maugham/Views/CollectionBinderPaneToggle.swift"] {
             let text = try source(path)
-            XCTAssertTrue(text.contains("hasTrash: false"),
-                          "\(path): the picker must be handed a constant `false` "
-                          + "for `hasTrash` — it never offers Trash any more")
-            XCTAssertFalse(text.contains("hasTrash: !store.trashEntries.isEmpty"),
-                           "\(path): the old live trash gate must not survive "
-                           + "alongside the constant one")
+            XCTAssertFalse(text.contains("TrashView("),
+                           "\(path): the column mounts TrashView directly again "
+                           + "— that is the duplicate main-area list fix round 1 "
+                           + "removed, beside the correct foot disclosure")
+            XCTAssertTrue(text.contains("TrashDisclosure("),
+                          "\(path): the foot disclosure is gone, so a writer "
+                          + "cannot reach their trash at all")
         }
     }
 
@@ -257,64 +243,24 @@ final class TreeTrashDisclosureTests: XCTestCase {
                        "a ToolbarItem survives inside TrashView")
     }
 
-    // MARK: - Fix round 1: a relaunch-restored `.trash` must not duplicate
+    // MARK: - Fix round 1's two restore tests, and where the guarantee went
 
-    /// **The Critical, exhaustively, at the pure-function seam.** A writer who
-    /// last quit with Trash selected has `.trash` in persisted `UIState`.
-    /// `ProjectWindow.binderSegment(restoring:)`'s `.trash` arm now coerces to
-    /// the persona's home (see its doc comment); this asks the OTHER half of
-    /// the bug directly — that whatever it coerces to, handing it to
-    /// `BinderSegmentPicker.visibleSegments` as the current selection never
-    /// re-admits `.trash` as a phantom tab, over every persona × project type.
-    func test_aRelaunchRestoredTrashSegmentNeverPhantomsThePickerTab() {
-        for persona in Persona.allCases {
-            for type in ProjectType.allCases where type != .unknown {
-                let restored = ProjectWindow.binderSegment(
-                    restoring: .trash, persona: persona, projectType: type)
-                XCTAssertNotEqual(restored, .trash,
-                                  "\(persona)/\(type): the coercion must not "
-                                  + "hand back .trash itself")
-                let segments = BinderSegmentPicker.visibleSegments(
-                    persona: persona, projectType: type, hasTrash: false,
-                    including: restored)
-                XCTAssertFalse(segments.contains(.trash),
-                               "\(persona)/\(type): a phantom Trash tab must "
-                               + "not survive a relaunch restore")
-            }
-        }
-    }
-
-    /// **The Critical, mounted.** Compares a toggle mounted exactly the way
-    /// `ProjectWindow`'s load path would after the coercion against a control
-    /// that was never near `.trash` at all — the two must be
-    /// indistinguishable. Before fix round 1, the restored mount carried one
-    /// EXTRA `NSTableView`: the `.trash` switch arm's own (now headerless)
-    /// `TrashView`, rendered a second time in the main area alongside the
-    /// correct foot disclosure.
-    func test_aRelaunchRestoredTrashSegmentMountsNoDuplicateTable() async throws {
-        let (store, _) = try await novelWithOneTrashedChapter()
-        let persona = Persona.author
-        let restored = ProjectWindow.binderSegment(
-            restoring: .trash, persona: persona, projectType: store.manifest.type)
-
-        let restoredBox = ToggleProbeBox()
-        let restoredWindow = mountToggle(store: store, box: restoredBox, shell: .standard,
-                                         segment: restored, persona: persona)
-        let controlBox = ToggleProbeBox()
-        let controlWindow = mountToggle(
-            store: store, box: controlBox, shell: .standard,
-            segment: persona.binderHome(for: store.manifest.type), persona: persona)
-
-        XCTAssertEqual(tableViewCount(in: restoredWindow), tableViewCount(in: controlWindow),
-                       "a relaunch-restored .trash must mount exactly what a "
-                       + "normal persona-home mount does — an extra table is "
-                       + "the duplicate main-area TrashView the .trash switch "
-                       + "arm would render")
-        XCTAssertNotNil(try findButton(labeled: "Empty Trash", in: restoredWindow),
-                        "the foot disclosure itself must still be present — "
-                        + "non-empty trash, so it shows regardless of which "
-                        + "segment the restore landed on")
-    }
+    // **Both died with `ProjectWindow.binderSegment(restoring:)`** (stage 2b
+    // Task 7). The Critical they pinned was a relaunch: a writer who last quit
+    // with Trash selected had `.trash` in persisted `UIState`, the picker's
+    // append-if-selected fallback re-admitted a phantom Trash tab even with
+    // `hasTrash: false`, and the `.trash` switch arm rendered the same rows a
+    // SECOND time in the main area beside the correct foot disclosure. One test
+    // asked the coercion over every persona × project type; the other mounted
+    // the restored toggle against a control and compared table counts.
+    //
+    // There is no persisted left-column choice left to restore, no picker to
+    // re-admit a tab into, and no switch arm to render a second list — the
+    // duplicate is not expressible. `UIStateTests`
+    // `.test_everyLegacyBinderSegmentValueDecodesAwayWithoutCost` is where the
+    // legacy value's fate is pinned now, and
+    // `test_neitherToggleMountsTrashInTheColumnItself` above is what stops the
+    // second list coming back by another route.
 
     // MARK: - Fixtures
 
@@ -369,13 +315,12 @@ final class TreeTrashDisclosureTests: XCTestCase {
 
     private func mountToggle(store: ProjectStore, box: ToggleProbeBox,
                              shell: ProjectWindow.BinderShell,
-                             segment: BinderSegment = .manuscript,
                              persona: Persona = .author,
                              keyed: Bool = false) -> NSWindow {
         let frame = CGRect(x: 0, y: 0, width: 320, height: 700)
         let hosting = NSHostingView(rootView: AnyView(
             BinderToggleTrashProbeView(store: store, box: box, shell: shell,
-                                       initialSegment: segment, persona: persona)))
+                                       persona: persona)))
         hosting.frame = frame
         let window: NSWindow = keyed
             ? KeyTestWindow(contentRect: frame, styleMask: [.titled],
@@ -538,23 +483,7 @@ private struct BinderToggleTrashProbeView: View {
     let box: ToggleProbeBox
     let shell: ProjectWindow.BinderShell
     let persona: Persona
-    @State private var segment: BinderSegment
-    @State private var researchId: String?
-    @State private var paletteCardId: String?
     @State private var renamingItemId: String?
-
-    /// `initialSegment` defaults to `.manuscript` (every existing call site's
-    /// premise) — fix round 1 widened this to take one, so the relaunch
-    /// regression test can mount exactly what `ProjectWindow`'s load path
-    /// would hand the toggle after `binderSegment(restoring:)` runs.
-    init(store: ProjectStore, box: ToggleProbeBox, shell: ProjectWindow.BinderShell,
-        initialSegment: BinderSegment = .manuscript, persona: Persona = .author) {
-        self.store = store
-        self.box = box
-        self.shell = shell
-        self.persona = persona
-        _segment = State(initialValue: initialSegment)
-    }
 
     private var subject: Binding<BinderSubject?> {
         Binding(get: { box.subject }, set: { box.subject = $0 })
@@ -566,10 +495,7 @@ private struct BinderToggleTrashProbeView: View {
             case .standard:
                 BinderPaneToggle(
                     store: store,
-                    segment: $segment,
                     selectedSubject: subject,
-                    selectedResearchId: $researchId,
-                    selectedPaletteCardId: $paletteCardId,
                     projectType: store.manifest.type,
                     lastParsedScript: nil,
                     treeFindActive: .constant(false),
@@ -577,15 +503,9 @@ private struct BinderToggleTrashProbeView: View {
             case .collection:
                 CollectionBinderPaneToggle(
                     store: store,
-                    segment: $segment,
                     selectedSubject: subject,
-                    selectedResearchId: $researchId,
-                    selectedPaletteCardId: $paletteCardId,
                     treeFindActive: .constant(false),
                     renamingItemId: $renamingItemId,
-                    activePiece: nil,
-                    onAddSharedNote: {},
-                    onAddPieceNote: {},
                     persona: persona)
             }
         }
