@@ -27,6 +27,7 @@ APP_MODULES = [
     ("Annotations", "`OpLog/Document+Annotations` (+`AnnotationDeriver`, `AnnotationInverse`)", "`28-annotations-reconciliation.md`"),
     ("Promotion", "`Canvas/Promotion*` (the falsification module)", "`29-promotion-falsification.md`"),
     ("Publications", "`Publish/Republisher` (+`CompileOrchestrator`)", "—"),
+    ("Inbox", "`Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings)", "—"),
 ]
 CORE_RECONCILED, CORE_TOTAL = 148, 169
 

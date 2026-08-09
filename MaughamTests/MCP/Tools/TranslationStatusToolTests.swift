@@ -186,6 +186,86 @@ final class TranslationStatusToolTests: XCTestCase {
         _ = try await AddQueryTool.handle(paramsJSON: data, registry: h.registry)
     }
 
+    // MARK: - M2: a query-first language (open .query, zero translation files)
+
+    /// A translator can ask a question about a language before any file for
+    /// it exists — the "ask first, translate later" workflow the `.query`
+    /// `language` tag exists for. Project-wide walk must surface that
+    /// language's row even though `TranslationStore.languages` (a filename
+    /// scan) never saw it.
+    func test_queryOnlyLanguageGetsARow() async throws {
+        let h = try await makeHarness()
+        let ids = h.doc1.sequence
+        // No fr translation records at all — only an open fr-tagged query.
+        try await addQuery(h, doc: h.doc1, paragraphId: ids[0],
+                           body: "formal register?", language: "fr")
+
+        let result = try await status(h, [
+            "project_id": h.projectId
+        ])
+
+        let frRow = result.rows.first { $0.document_id == "doc-1" && $0.language == "fr" }
+        XCTAssertNotNil(frRow, "a query-only language still gets a row")
+        XCTAssertEqual(frRow?.open_queries, 1)
+        XCTAssertEqual(frRow?.fresh, 0)
+        XCTAssertEqual(frRow?.stale, 0)
+        XCTAssertEqual(frRow?.missing, 0,
+                       "no file yet — coverage is absent, not 'every paragraph missing'")
+        XCTAssertEqual(frRow?.verbatim, 0)
+        XCTAssertEqual(frRow?.orphans, 0)
+
+        await h.documentStore.close()
+    }
+
+    /// The union must hold on both handler paths — project-wide walk AND the
+    /// explicit `document_id` path — since Task 3 touches both.
+    func test_bothPathsSeeIt() async throws {
+        let h = try await makeHarness()
+        let ids = h.doc1.sequence
+        try await addQuery(h, doc: h.doc1, paragraphId: ids[0],
+                           body: "formal register?", language: "fr")
+
+        let explicit = try await status(h, [
+            "project_id": h.projectId,
+            "document_id": "doc-1"
+        ])
+        let projectWide = try await status(h, [
+            "project_id": h.projectId
+        ])
+
+        for result in [explicit, projectWide] {
+            let frRow = result.rows.first { $0.document_id == "doc-1" && $0.language == "fr" }
+            XCTAssertNotNil(frRow, "query-only language visible via explicit document_id and project-wide")
+            XCTAssertEqual(frRow?.open_queries, 1)
+        }
+
+        await h.documentStore.close()
+    }
+
+    /// A language with BOTH translation files and open queries gets exactly
+    /// one row, with the file-derived coverage and the real open_queries
+    /// count — not a second query-only row.
+    func test_languageWithFilesAndQueriesNotDoubleCounted() async throws {
+        let h = try await makeHarness()
+        let ids = h.doc1.sequence
+        try await seed(h, doc: h.doc1, paragraphId: ids[0], language: "es", text: "a")
+        try await addQuery(h, doc: h.doc1, paragraphId: ids[0],
+                           body: "idiom or literal?", language: "es")
+
+        let result = try await status(h, [
+            "project_id": h.projectId,
+            "document_id": "doc-1"
+        ])
+
+        let esRows = result.rows.filter { $0.document_id == "doc-1" && $0.language == "es" }
+        XCTAssertEqual(esRows.count, 1, "one row per (document, language), not two")
+        XCTAssertEqual(esRows.first?.open_queries, 1)
+        XCTAssertEqual(esRows.first?.fresh, 1)
+        XCTAssertEqual(esRows.first?.missing, 1, "still the real file-derived coverage")
+
+        await h.documentStore.close()
+    }
+
     // MARK: - project-wide walk covers every manuscript doc
 
     func test_translationStatus_projectWide_covers2Docs() async throws {

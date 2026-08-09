@@ -34,6 +34,12 @@ final class InboxStore {
     /// `inbox/`), so `restore` is a clean status flip back to `.new`.
     private(set) var trashedEntries: [InboxEntry] = []
 
+    /// Device manifests `refresh()` could not read, by filename (RULING-7,
+    /// M8-IN-012: unreadable is never presented as empty — before this, an
+    /// unreadable file silently vanished every capture from that device). The
+    /// pane shows a notice when non-empty; the rows are intact on disk.
+    private(set) var unreadableManifests: [String] = []
+
     private let projectURL: URL
     private let inboxDir: URL
     /// This Mac's own device identifier — matches the op-log `device` (hostName)
@@ -59,12 +65,22 @@ final class InboxStore {
     func refresh() async {
         let urls = manifestURLs()
         var rows: [InboxEntry] = []
+        var unreadable: [String] = []
         for url in urls {
             // No dedupKey: we need every status-transition row, then collapse
             // last-wins ourselves (JSONLAppendStore's dedup keeps *first*).
             let store = JSONLAppendStore<InboxEntry>(fileURL: url)
-            rows.append(contentsOf: (try? await store.load()) ?? [])
+            do { rows.append(contentsOf: try await store.loadStrict()) }
+            catch {
+                // Unreadable is RECORDED, never presented as empty (RULING-7):
+                // the device's captures are intact in the file; the pane says
+                // so instead of showing nothing.
+                unreadable.append(url.lastPathComponent)
+                inboxStoreLog.error(
+                    "inbox manifest unreadable: \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
+        unreadableManifests = unreadable.sorted()
         // Last-wins by row-write time (writtenAt), across all files and all
         // rows for an id. createdAt is immutable across transition rows, so it
         // can't order them; writtenAt is stamped fresh on every append.
@@ -76,8 +92,24 @@ final class InboxStore {
         entries = collapsed
             .filter { $0.status == .new }
             .sorted { $0.createdAt > $1.createdAt }
-        trashedEntries = collapsed
-            .filter { $0.status == .trashed }
+        // RULING-53: the inbox trash keeps the project trash's retention — a
+        // trashed capture ages out at 30 days on RULING-39's quiet clock. The
+        // sweep disposes the ASSET and hides the row; the manifest row itself
+        // stays `.trashed`, because a new status value would decode as `.new`
+        // on an older phone build (ADR 0015's unknown-case tolerance) and
+        // resurrect the capture there. Age is `resolvedAt` (stamped at trash
+        // time, cleared by restore), falling back to the row's write time for
+        // legacy rows.
+        let cutoff = Date().addingTimeInterval(-30 * 86_400)
+        let trashed = collapsed.filter { $0.status == .trashed }
+        for expired in trashed where (expired.resolvedAt ?? writeTime(expired)) < cutoff {
+            if let asset = assetURL(for: expired),
+               FileManager.default.fileExists(atPath: asset.path) {
+                try? FileManager.default.removeItem(at: asset)
+            }
+        }
+        trashedEntries = trashed
+            .filter { ($0.resolvedAt ?? writeTime($0)) >= cutoff }
             .sorted { writeTime($0) > writeTime($1) }
     }
 
@@ -199,6 +231,36 @@ final class InboxStore {
         await updateStatus(id: id, to: .new, resolvedAt: nil)
     }
 
+    // MARK: - Throwing transition siblings (RULING-22, M8-IN-006)
+    //
+    // The pane's transitions used to ride the non-throwing channel: a trash
+    // click whose append failed completed silently, the row sprang back on
+    // refresh, and the only witness was an os_log line. The PANE now calls
+    // these and shows the failure; the worker's transcript write keeps the
+    // non-throwing channel deliberately (its retry loop is the next drain).
+
+    func trashThrowing(id: String) async throws {
+        try await updateStatusThrowing(id: id, to: .trashed)
+    }
+
+    func restoreThrowing(id: String) async throws {
+        try await updateStatusThrowing(id: id, to: .new, resolvedAt: nil)
+    }
+
+    /// Throwing sibling of `updateTranscript`, for the edit sheet.
+    func updateTranscriptThrowing(id: String, text: String,
+                                  state: InboxEntry.TranscriptionState,
+                                  error: String? = nil) async throws {
+        guard var next = currentEntry(id: id) else {
+            throw InboxError.entryNotFound(id)
+        }
+        next.transcript = text
+        next.transcriptionState = state
+        next.transcriptionError = error
+        try await appendThrowing(next)
+        await refresh()
+    }
+
     enum InboxError: Error, LocalizedError {
         case assetMissing(String)
         case entryNotFound(String)
@@ -227,14 +289,25 @@ final class InboxStore {
         _ entry: InboxEntry, projectStore: ProjectStore,
         scope: ResearchScope = .shared
     ) async throws -> ResearchItem {
+        // The ordering is the palette sibling's, adopted here under RULING-7
+        // (M8-IN-001/002, fixed 2026-08-09): every fallible write BEFORE the
+        // throwing flip, the original's retirement AFTER it. This was the one
+        // sibling whose terminal flip could not throw and whose original was
+        // trashed first — so a failed flip reported success on both surfaces
+        // while the entry sat `.new` with its asset gone, and every retry hit
+        // `assetMissing` permanently.
         let created: ResearchItem
+        var originalToRetire: URL?
         switch entry.kind {
         case .text:
             created = try await projectStore.createResearchNote(
                 scope: scope, title: promotionTitle(for: entry))
             if let path = created.path {
                 let dest = projectStore.url.appendingPathComponent(path)
-                try? (entry.inlineText ?? "").write(
+                // `try`, not `try?`: a failed body write used to leave an EMPTY
+                // note reported as a successful promotion, the capture's words
+                // surviving only in the promoted-hidden manifest history.
+                try (entry.inlineText ?? "").write(
                     to: dest, atomically: true, encoding: .utf8)
             }
         case .image, .audio:
@@ -242,15 +315,18 @@ final class InboxStore {
                   FileManager.default.fileExists(atPath: asset.path) else {
                 throw InboxError.assetMissing(entry.sourceFilename ?? entry.id)
             }
-            // createResearchAsset copies; send the inbox original to the trash
-            // to finish the move. RULING-15: Maugham does not delete a file —
-            // it moves it to trash, from which the writer can restore it and
-            // then re-ingest it (RULING-14 makes that sufficient).
+            // createResearchAsset copies; the inbox original goes to the trash
+            // AFTER the flip commits (RULING-15 for the trash, RULING-7 for
+            // the order — a failed flip leaves the original in place and the
+            // retry re-copies: a recoverable duplicate, never a stuck `.new`).
             created = try await projectStore.createResearchAsset(
                 scope: scope, fromURL: asset)
-            await trashPromotedAsset(asset, entry: entry, projectStore: projectStore)
+            originalToRetire = asset
         }
-        await updateStatus(id: entry.id, to: .promoted)
+        try await updateStatusThrowing(id: entry.id, to: .promoted)
+        if let originalToRetire {
+            await trashPromotedAsset(originalToRetire, entry: entry, projectStore: projectStore)
+        }
         return created
     }
 
@@ -301,9 +377,24 @@ final class InboxStore {
                   FileManager.default.fileExists(atPath: asset.path) else {
                 throw InboxError.assetMissing(entry.sourceFilename ?? entry.id)
             }
-            // addImage copies into the card's `<slug>_assets/` folder; the inbox
-            // original is removed only after the status flip commits (see above).
-            result = try await projectStore.addImage(toPaletteCard: cardId, fileURL: asset)
+            // Retry convergence, the note arm's dedup one kind over (RULING-8,
+            // M8-IN-003): if the well's most recent image is byte-identical to
+            // this asset, the previous attempt's copy landed even though its
+            // status flip failed — skip re-adding and retry only the flip.
+            if let card = projectStore.loadPaletteCards()
+                .first(where: { $0.researchItemId == cardId }),
+               let lastPath = card.imagePaths.last,
+               let existing = try? Data(contentsOf: // adr-0018-ok: palette image bytes for retry dedup, not manuscript
+                    projectStore.url.appendingPathComponent(lastPath)),
+               let incoming = try? Data(contentsOf: asset), // adr-0018-ok: inbox asset bytes for retry dedup, not manuscript
+               existing == incoming {
+                result = card
+            } else {
+                // addImage copies into the card's `<slug>_assets/` folder; the
+                // inbox original is removed only after the status flip commits
+                // (see above).
+                result = try await projectStore.addImage(toPaletteCard: cardId, fileURL: asset)
+            }
             originalToRemove = asset
         }
         // Throwing flip (S8): the note/image is already on the card, so a
@@ -391,7 +482,7 @@ final class InboxStore {
             content = .picture(path: try await projectStore.ingestCanvasAsset(fileURL: asset))
             originalToRemove = asset
         }
-        let node = CanvasCapture.send(content, placement,
+        let node = CanvasCapture.send(content, placement, captureID: entry.id,
                                       store: projectStore, projectRoot: projectStore.url)
         // Throwing flip (S8's lesson, one sibling over): the card is already on the
         // canvas, so a swallowed status-write failure would leave the entry `.new`

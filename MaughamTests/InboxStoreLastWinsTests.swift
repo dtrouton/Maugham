@@ -173,4 +173,74 @@ final class InboxStoreLastWinsTests: XCTestCase {
         let entry = try dec.decode(InboxEntry.self, from: json)
         XCTAssertEqual(entry.transcriptionState, .userEdited)
     }
+    /// RULING-7 (fix for M8-IN-012): an unreadable device manifest is never
+    /// presented as empty — `refresh()` records it, so the pane can say a
+    /// device's captures are unreadable rather than showing nothing.
+    func test_anUnreadableManifestIsRecordedNotSilentlyEmpty() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inbox-unreadable-\(UUID().uuidString)")
+        let url = dir
+        try FileManager.default.createDirectory(
+            at: url.appendingPathComponent(".maugham/inbox"),
+            withIntermediateDirectories: true)
+        let seedFile = url.appendingPathComponent(".maugham/inbox/inbox.seed.jsonl")
+        let s = JSONLAppendStore<InboxEntry>(fileURL: seedFile)
+        try await s.append(InboxEntry(
+            id: "t1", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "From the phone."))
+        let inbox = InboxStore(projectURL: url, deviceId: "mac")
+        await inbox.refresh()
+        XCTAssertEqual(inbox.entries.count, 1)
+        XCTAssertTrue(inbox.unreadableManifests.isEmpty)
+
+        try FileManager.default.removeItem(at: seedFile)
+        try FileManager.default.createDirectory(at: seedFile, withIntermediateDirectories: true)
+        await inbox.refresh()
+        XCTAssertEqual(inbox.unreadableManifests, ["inbox.seed.jsonl"],
+                       "the unreadable file is named, not silently empty")
+    }
+
+    // MARK: - RULING-53: the inbox trash keeps the project trash's retention
+
+    /// A trashed capture older than 30 days is swept — the asset is disposed
+    /// and the row leaves the trash view — on the same quiet clock as the
+    /// project trash (RULING-39's), while a fresh one survives untouched.
+    func test_aTrashedCaptureAgesOutAtThirtyDaysAndAFreshOneSurvives() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inbox-sweep-\(UUID().uuidString)")
+        let audioDir = url.appendingPathComponent(".maugham/inbox/audio")
+        try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+        try Data([0x01]).write(to: audioDir.appendingPathComponent("old.m4a"))
+        try Data([0x02]).write(to: audioDir.appendingPathComponent("fresh.m4a"))
+
+        let seedFile = url.appendingPathComponent(".maugham/inbox/inbox.seed.jsonl")
+        let store = JSONLAppendStore<InboxEntry>(fileURL: seedFile)
+        var old = InboxEntry(
+            id: "old", createdAt: Date().addingTimeInterval(-40 * 86_400),
+            deviceId: "phone", kind: .audio, sourceFilename: "old.m4a",
+            transcript: "stale")
+        old.status = .trashed
+        old.resolvedAt = Date().addingTimeInterval(-31 * 86_400)
+        var fresh = InboxEntry(
+            id: "fresh", createdAt: Date().addingTimeInterval(-40 * 86_400),
+            deviceId: "phone", kind: .audio, sourceFilename: "fresh.m4a",
+            transcript: "recent")
+        fresh.status = .trashed
+        fresh.resolvedAt = Date().addingTimeInterval(-2 * 86_400)
+        try await store.append(old)
+        try await store.append(fresh)
+
+        let inbox = InboxStore(projectURL: url, deviceId: "mac")
+        await inbox.refresh()
+
+        XCTAssertEqual(inbox.trashedEntries.map(\.id), ["fresh"],
+                       "the expired capture left the trash view; the fresh one stays")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: audioDir.appendingPathComponent("old.m4a").path),
+            "the expired capture's asset is disposed")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: audioDir.appendingPathComponent("fresh.m4a").path),
+            "the fresh capture's asset is untouched — restore still works")
+    }
+
 }

@@ -84,4 +84,51 @@ final class TranslationDeriverTests: XCTestCase {
                                             paragraphs: ["aaaa": "One"], language: "es")
         XCTAssertEqual(doc.entries[0].translatedText, "nueva")
     }
+
+    // MARK: - Orphans (Phase 0 — orphans resolved through latestByParagraph,
+    // never the raw record list, so a tombstone can't inflate orphan_count)
+
+    func test_derive_orphans_tombstonedOrphanIsAbsent() {
+        // "zzzz" is translated, then purged (a tombstone with text == nil).
+        // The raw record list still has two entries for it, but the resolved
+        // view has none — it must not appear in `orphans` at all.
+        let translate = TranslationRecord(paragraphId: "zzzz", language: "es",
+                                          text: "Huérfano", sourceHash: "x")
+        let tombstone = TranslationRecord(paragraphId: "zzzz", language: "es",
+                                          text: nil, sourceHash: "x")
+        let doc = TranslationDeriver.derive(
+            records: [translate, tombstone], sequence: ["aaaa"],
+            paragraphs: ["aaaa": "One"], language: "es")
+        XCTAssertTrue(doc.orphans.isEmpty,
+                      "a purged orphan must not still be reported as one")
+    }
+
+    func test_derive_orphans_twiceTranslatedOrphanCountedOnce() {
+        // "zzzz" is retranslated (two live records, no tombstone) — the raw
+        // list has two entries for it, but it is one orphan.
+        let first = TranslationRecord(paragraphId: "zzzz", language: "es",
+                                      text: "Huérfano", sourceHash: "x")
+        let second = TranslationRecord(paragraphId: "zzzz", language: "es",
+                                       text: "Huérfano otra vez", sourceHash: "x")
+        let doc = TranslationDeriver.derive(
+            records: [first, second], sequence: ["aaaa"],
+            paragraphs: ["aaaa": "One"], language: "es")
+        XCTAssertEqual(doc.orphans.count, 1)
+        XCTAssertEqual(doc.orphans.first?.paragraphId, "zzzz")
+        // The latest-wins text, not the first.
+        XCTAssertEqual(doc.orphans.first?.text, "Huérfano otra vez")
+    }
+
+    func test_derive_orphans_liveTombstoneIsNotAnOrphan() {
+        // "aaaa" is IN sequence and tombstoned — removed from the resolved
+        // view entirely (it derives `.missing` via the no-record branch), so
+        // it must not leak into `orphans` either.
+        let tombstone = TranslationRecord(paragraphId: "aaaa", language: "es",
+                                          text: nil, sourceHash: "x")
+        let doc = TranslationDeriver.derive(
+            records: [tombstone], sequence: ["aaaa"],
+            paragraphs: ["aaaa": "One"], language: "es")
+        XCTAssertTrue(doc.orphans.isEmpty)
+        XCTAssertEqual(doc.entries.map(\.status), [.missing])
+    }
 }

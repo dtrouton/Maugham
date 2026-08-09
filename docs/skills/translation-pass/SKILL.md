@@ -22,18 +22,30 @@ would pass the translation-coverage gate before committing to a full compile.
 1. **Coverage is derived, never assumed.** `translation_status` tells you how
    much of a document (or the whole project) is translated for a language,
    broken down by `fresh` / `stale` / `missing`, plus `orphans` (translations
-   whose source paragraph was deleted) and `open_queries`. Start every pass
-   here — it's the honest state of the work, not your memory of it.
+   whose source paragraph was deleted) and `open_queries`. A language row
+   shows up as soon as you or the writer opens a query against it, even
+   before any translation exists — coverage reads all-zero, `open_queries`
+   real. Start every pass here — it's the honest state of the work, not your
+   memory of it.
 2. **Work the gap, not the whole document.** `read_translation` with
    `status=stale` or `status=missing` returns exactly the paragraphs that
    need attention, each paired with its current source text. Retranslate
    those; leave `fresh` alone.
 3. **Write in batches with `write_translation`.** It's all-or-nothing — one
-   unknown paragraph id fails the whole batch, so pull ids fresh from
-   `read_document`/`read_translation` rather than reusing ones from an
-   earlier session. The server stamps each record with a hash of the source
-   paragraph at write time, so a later source edit is what flips a
-   translation to `stale` — you don't manage that yourself.
+   unknown paragraph id in a `text`/`verbatim` entry fails the whole batch,
+   so pull ids fresh from `read_document`/`read_translation` rather than
+   reusing ones from an earlier session. The server stamps each record with
+   a hash of the source paragraph at write time, so a later source edit is
+   what flips a translation to `stale` — you don't manage that yourself.
+   `delete: true` is the third entry form — it tombstones a paragraph's
+   translation, which is how an `orphans` count comes down. Unlike `text`/
+   `verbatim`, a `delete` entry's paragraph id is allowed to be unknown (an
+   orphan's id, by definition, no longer exists in the manuscript) — but
+   that exemption is per entry, not per batch: a `text`/`verbatim` entry
+   elsewhere in the same call still fails the whole thing if its id is
+   unknown. The writer can also clear orphans by hand from the Translation
+   Review pane, so don't assume every `orphans` count you see is yours to
+   fix.
 4. **The compile gate is the real finish line.** `compile` with `language`
    set refuses to produce a translated edition while paragraphs are stale or
    missing (an untranslated book mislabeled as an edition is worse than no
@@ -90,9 +102,9 @@ would pass the translation-coverage gate before committing to a full compile.
 
 `translation_status` (coverage summary, per-doc or project-wide) →
 `read_translation` (source + translated text + freshness `status`, filterable)
-→ `write_translation` (batched writes, `text` or `verbatim: true` per entry) →
-`compile` with `language` (produces the edition; the failure report *is* the
-worklist) → `add_query` with `language` (voice/register decisions that aren't
-yours to make). `republish` reproduces a prior edition exactly, including its
-original `language` and gate mode — use it to regenerate output, not to
-re-translate.
+→ `write_translation` (batched writes, one of `text`, `verbatim: true`, or
+`delete: true` per entry) → `compile` with `language` (produces the edition;
+the failure report *is* the worklist) → `add_query` with `language`
+(voice/register decisions that aren't yours to make). `republish` reproduces
+a prior edition exactly, including its original `language` and gate mode —
+use it to regenerate output, not to re-translate.
