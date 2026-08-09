@@ -633,7 +633,7 @@
    "ref": "PromotionCharacterization.test_aSecondNewPromotionDuplicatesAndMovesTheMark"
   },
   "warrant": "HIGH",
-  "intent": "INTENTIONAL",
+  "intent": "INTENTIONAL — RATIFIED as ruled (RULING-47, Denver 2026-08-09: the mark is a bookmark; latest wins)",
   "reachability": "LIVE — the same path, through the sheet's Promote button (CanvasPromotionModifier.commit)",
   "evidence": {
    "property_test": null

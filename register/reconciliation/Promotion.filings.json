@@ -313,13 +313,18 @@
  },
  {
   "claim_id": "M6-PR-040",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "R22's own settles-IN-SCOPE list names 'promotion duplicate' — this case, by name. The writer chose New and a new note is what they get, so the duplicate itself is honoured intent; what is not stated anywhere is that the card's mark MOVES to the new note, so the artifact they promoted last week silently stops being claimed by anything on the canvas and its stripe, its Rewrite offer and its inspector line now describe a different file. This is the most arguable filing in the set: if the mark is judged an internal bookkeeping field rather than something the writer reads, it retires to an enhancement under PRINCIPLE-2.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-47",
+  "clause_that_reaches_it": "promoting again as New moves it, latest wins, because re-promoting IS the writer deciding what the material now relates to. No warning is owed.",
+  "why_in_scope": "Ruled, not argued down by default: Denver took the bookmark reading verbatim ('I no longer see this as having that relationship, it's now this relationship'), with the revisit hook on multi-artifact mapping. The original conviction's reasoning is preserved in why_it_violated; the behaviour is unchanged and now correct BY RULING. Ratified 55da097048.",
   "intent_expressed_when": "contemporaneous for the duplicate; not at all for the detachment",
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.new) → mark",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "neither",
+  "ratified": {
+   "ruling": "RULING-47",
+   "date": "2026-08-09",
+   "commit": "55da0970482d7245dff9af3c06fcb47be78d40c4"
+  }
  },
  {
   "claim_id": "M6-PR-075",
@@ -339,13 +344,20 @@
  },
  {
   "claim_id": "M6-PR-077",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "the Edit menu reads 'Undo Promote Scrap' and what one ⌘Z takes back is the mark alone; the note it produced stays. A menu item that names the act and reverses a part of it is a control that does not do what it says. Flagged as the second most arguable filing: the scene-scoped boundary is ruled architecture (ADR 0026 §5) and the guide documents it — but a guide is not the surface, and RECONCILE's precedence says ADRs govern how it is built while rulings govern what the writer gets. A ruling could equally RATIFY this with a label that says what it will take back.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-46",
+  "clause_that_reaches_it": "The LABEL tells the truth about that scope: the undo action is named for the mark it takes back, never for the promotion it does not undo.",
+  "why_in_scope": "The behaviour was RATIFIED (scene-scoped canvas undo protects the project's files; the Trash is the artifact's disposal route) and the label convicted — the inverse of the rewind-label ruling. One honest name, every arm.",
   "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z",
   "call_path": "the canvas, after any promotion → Edit ▸ Undo",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "55da0970482d7245dff9af3c06fcb47be78d40c4",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-46 — Denver 2026-08-09, discussion",
+   "pinned_by": "PromotionCharacterization.test_undoTakesBackTheMarkAndNotTheArtifact + PromotionPerformerTests label pins",
+   "note": "ruled in discussion; behaviour kept, label fixed"
+  }
  },
  {
   "claim_id": "M6-PR-029",
@@ -664,8 +676,8 @@
  {
   "_summary": {
    "reached": 48,
-   "complies": 46,
-   "violates": 2,
+   "complies": 48,
+   "violates": 0,
    "no_ruling": 30,
    "specificity_sub_over_reached_pct": 81,
    "distinct_defects": 5,
@@ -702,7 +714,6 @@
      "M6-PR-036",
      "M6-PR-038",
      "M6-PR-039",
-     "M6-PR-040",
      "M6-PR-044",
      "M6-PR-045",
      "M6-PR-046",
@@ -710,8 +721,7 @@
      "M6-PR-069",
      "M6-PR-070",
      "M6-PR-075",
-     "M6-PR-076",
-     "M6-PR-077"
+     "M6-PR-076"
     ],
     "RULING-24": [
      "M6-PR-029",
@@ -726,6 +736,12 @@
      "M6-PR-018",
      "M6-PR-058",
      "M6-PR-059"
+    ],
+    "RULING-46": [
+     "M6-PR-077"
+    ],
+    "RULING-47": [
+     "M6-PR-040"
     ],
     "RULING-7": [
      "M6-PR-002",

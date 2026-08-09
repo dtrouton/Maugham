@@ -1269,7 +1269,9 @@ final class PromotionCharacterization: XCTestCase {
                        "M6-PR-076: no link sentence when none was written")
     }
 
-    /// M6-PR-077 — ⌘Z is scene-scoped by design (ADR 0026 §5).
+    /// M6-PR-077 (RULING-46, 2026-08-09) — ⌘Z is scene-scoped by design and
+    /// the label now says so: the undo is named for the MARK it takes back
+    /// ("Undo Promotion Mark"), never for the promotion it does not undo.
     func test_undoTakesBackTheMarkAndNotTheArtifact() async throws {
         let (root, store) = try await makeProject()
         let model = makeModel(at: root)
@@ -1278,7 +1280,7 @@ final class PromotionCharacterization: XCTestCase {
         let res = try await performer.perform(
             try plan(.scrap(a), .researchNote, store: store, model: model))
         let id = try XCTUnwrap(res.createdItemID)
-        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Scrap"),
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promotion Mark"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
         model.undo.undo()
         XCTAssertNil(model.scene.node(a)?.promotedItemID, "M6-PR-077")
