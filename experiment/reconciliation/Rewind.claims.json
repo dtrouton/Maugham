@@ -324,26 +324,27 @@
   "claim_id": "M4-RW-021",
   "scope": "Document.restoreToOpUndoable",
   "kind": "POSTCONDITION",
-  "statement": "um.removeAllActions() runs UNCONDITIONALLY before the restore, so a rewind that turns out to be a genuine no-op destroys the writer's whole typing-undo stack and registers nothing in its place — canUndo is false and the action name is empty afterwards",
+  "statement": "a rewind that would change nothing costs nothing: restoreToOpUndoable establishes the genuine-no-op (no text delta, no task window) BEFORE the undo-stack clear and returns without touching the writer's typing history — the clear→mutate→register contiguity of the real-change path is unchanged",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "RewindCharacterization.test_undoableRewind_aNoOpStillDestroysTheWritersUndoStack"
+   "ref": "RewindCharacterization.test_undoableRewind_aNoOpCostsNothing"
   },
   "warrant": "HIGH",
-  "intent": "INTENTIONAL",
+  "intent": "INTENTIONAL — ruled (RULING-37); fixed 2026-08-09",
   "reachability": "LIVE — the modal's Restore button is enabled on .atOp(latestOpId) by design, which is exactly this case, one click away",
   "evidence": {
    "property_test": null
-  }
+  },
+  "fix_history": "Pinned the unconditional removeAllActions (whole stack destroyed for a no-op, 'zero benefit' by the code's own comment) until fixed under RULING-37"
  },
  {
   "claim_id": "M4-RW-022",
   "scope": "Document.restoreToOpUndoable",
   "kind": "POSTCONDITION",
-  "statement": "a target that does not exist in the log destroys the typing-undo stack, changes nothing, and returns a success value",
+  "statement": "a target that does not exist in the log no longer costs the undo stack (RULING-37's guard answers true for it), but the SILENCE remains: it derives as the present and returns a normal no-op result with no signal the moment was not found — RULING-27's nearest-surviving-moment fix is pending",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "RewindCharacterization.test_undoableRewind_unknownTarget_destroysTheStackAndReportsSuccess"
+   "ref": "RewindCharacterization.test_undoableRewind_unknownTarget_costsNothing_butIsStillSilent"
   },
   "warrant": "HIGH",
   "intent": "INCIDENTAL",

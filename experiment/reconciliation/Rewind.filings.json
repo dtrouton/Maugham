@@ -173,13 +173,20 @@
  },
  {
   "claim_id": "M4-RW-021",
-  "outcome": "VIOLATES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "the writer forms an expectation from what Maugham showed, said or labelled, and the outcome differs from it",
-  "why_in_scope": "The writer scrubs, thinks better of it, and presses Restore on a point that turns out to be where they already were. What Maugham showed them was a preview of the state they are already in, so the expectation it created is 'nothing will change'. The outcome differs: the last stretch of per-keystroke ⌘Z granularity is gone, with no prompt and no notice, and nothing is registered in its place. That is R22's stated scope — expectation formed from what Maugham showed, outcome differing — and the module's own comment concedes the case ('this clear already discarded typing history for zero benefit'). THIS IS THE FILING IN THIS SET MOST LIKELY TO BE ARGUED DOWN: if undo granularity is judged something the writer is not owed, it retires to an enhancement under PRINCIPLE-2 and GAP-R3 stands in its place. The words themselves are never at risk (M4-RW-011), which is what keeps it out of RULING-24.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-37",
+  "clause_that_reaches_it": "A Restore that changes nothing costs the writer nothing: the undo-history clear happens only once the restore is certain to change something.",
+  "why_in_scope": "The ruling's headline case: the guard computes the no-op before the clear, so the writer's typing history survives a Restore to the current state. The not-offered half of RULING-37 (Restore disabled when there is nothing to do) is view-layer and rides the RULING-27+28 iteration.",
   "intent_expressed_when": "contemporaneous",
   "call_path": "HistoryPane 'Rewind…' → RewindWindow → the footer deliberately ENABLES 'Restore here…' on .atOp(latestOpId) (RewindCursor.swift documents this as intentional) → confirm → restoreToOpUndoable → removeAllActions → restoreToOp returns nil → the guard returns before registering",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "57a24a0692e0b7a6a17f6307f0a2fbece0bda61c",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-37 — Denver 2026-08-09, recommended option accepted",
+   "pinned_by": "RewindCharacterization.test_undoableRewind_aNoOpCostsNothing + test_undoableRewind_unknownTarget_costsNothing_butIsStillSilent",
+   "note": "fifth fix loop"
+  }
  },
  {
   "claim_id": "M4-RW-022",
@@ -189,7 +196,11 @@
   "why_in_scope": "The compound of the two settled entries: the moment the writer selected did not exist, so Restore lands on 'now' silently (R22's 'stale cursor silent no-op'), AND the cost is charged anyway — the typing stack is destroyed for an operation that did nothing. A control that reports success, changes nothing, and takes something away is the plainest reading of not doing what it says.",
   "intent_expressed_when": "contemporaneous",
   "call_path": "UNTRACED as a writer gesture — same trace as M4-RW-003",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "partial_fix": {
+   "date": "2026-08-09",
+   "note": "The undo-stack half was fixed under RULING-37 (see M4-RW-021's flip); the filing stays VIOLATES on the silent-success half alone, which RULING-27 now specifies the replacement for (nearest surviving moment, named, revertible) — fix pending."
+  }
  },
  {
   "claim_id": "M4-RW-023",
@@ -323,8 +334,8 @@
  {
   "_summary": {
    "reached": 20,
-   "complies": 15,
-   "violates": 5,
+   "complies": 16,
+   "violates": 4,
    "no_ruling": 14,
    "total": 34,
    "coverage": "59%",
@@ -333,7 +344,6 @@
      "M4-RW-002",
      "M4-RW-003",
      "M4-RW-008",
-     "M4-RW-021",
      "M4-RW-022",
      "M4-RW-023",
      "M4-RW-024",
@@ -352,6 +362,9 @@
     "RULING-26": [
      "M4-RW-035",
      "M4-RW-036"
+    ],
+    "RULING-37": [
+     "M4-RW-021"
     ],
     "RULING-7": [
      "M4-RW-026"
