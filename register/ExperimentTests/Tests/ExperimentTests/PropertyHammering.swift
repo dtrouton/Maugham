@@ -9,7 +9,7 @@ import MaughamCore
 /// counterexample so the result stays green and re-runnable. Every such case is
 /// labelled `// SHATTERED` and carried to the ruling sheet.
 ///
-/// Run:  swift test --package-path experiment/ExperimentTests --filter PropertyHammering
+/// Run:  swift test --package-path register/ExperimentTests --filter PropertyHammering
 final class PropertyHammering: XCTestCase {
 
     // =====================================================================

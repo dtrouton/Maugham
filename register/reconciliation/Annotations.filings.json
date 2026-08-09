@@ -180,7 +180,7 @@
   "independent_verification": {
    "date": "2026-08-09",
    "outcome": "CONFIRMED (blind, phase-2 round)",
-   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
+   "record": "register/reconciliation/Phase2.verification-2026-08-09.json"
   }
  },
  {
@@ -367,7 +367,7 @@
   "independent_verification": {
    "date": "2026-08-09",
    "outcome": "CONFIRMED (blind, phase-2 round)",
-   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
+   "record": "register/reconciliation/Phase2.verification-2026-08-09.json"
   }
  },
  {
@@ -474,7 +474,7 @@
   "independent_verification": {
    "date": "2026-08-09",
    "outcome": "CONFIRMED (blind, phase-2 round)",
-   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
+   "record": "register/reconciliation/Phase2.verification-2026-08-09.json"
   }
  },
  {

@@ -6,7 +6,7 @@ import MaughamCore
 /// written from what the code ACTUALLY does rather than from what I expected it
 /// to do. Kept in the repo so the observations are reproducible.
 ///
-/// Run just this:  swift test --package-path experiment/ExperimentTests --filter ObservationProbe
+/// Run just this:  swift test --package-path register/ExperimentTests --filter ObservationProbe
 final class ObservationProbe: XCTestCase {
 
     private func show(_ label: String, _ value: Any) {

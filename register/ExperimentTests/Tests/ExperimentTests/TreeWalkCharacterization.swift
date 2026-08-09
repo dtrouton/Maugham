@@ -6,7 +6,7 @@ import MaughamCore
 /// Every assertion here pins behaviour OBSERVED at HEAD `db1bea2c` via
 /// `ObservationProbe`, not behaviour I expected. Nothing here is a judgement
 /// that the behaviour is correct — warrant LOW, intent UNKNOWN. Claim ids
-/// (M2-C-xxx) match `experiment/01-claims-ledger.json`.
+/// (M2-C-xxx) match `register/01-claims-ledger.json`.
 final class TreeWalkCharacterization: XCTestCase {
 
     private func sample() -> [XNode] {
@@ -203,7 +203,7 @@ final class TreeWalkCharacterization: XCTestCase {
     // These three were found by a blind implementer reading the CLAIMS LEDGER
     // against itself — not by any test, and not by 240,160 property cases. Two of
     // them falsify claims I wrote in Phase 2; the third is a latent defect in
-    // production code. See experiment/10-regeneration-results.md.
+    // production code. See register/history/10-regeneration-results.md.
 
     func test_C024a_anEmptyOldPrefixALSORewritesEveryABSOLUTEPath() {
         // FALSIFIES the original M2-C-024 ("rewrites ONLY empty paths"). With an

@@ -107,9 +107,27 @@ final class PromotionSheetModel: Identifiable {
             // line into the performer, which renamed the note and its file to
             // match. `Promotion.plannedTitle` answers the artifact's own name on
             // a rewrite, so re-seeding from the plan is all this needs.
-            editedTitle = preview?.title ?? editedTitle
+            //
+            // **And the writer's own name is kept while it does** (whole-branch
+            // review, 2026-08-09). The re-seed above is one-way: a writer who
+            // typed a name, looked at Rewrite and came back to New found their
+            // name replaced by the card's first line, because the way back is
+            // the same assignment reading a `.new` plan. Typing is the one thing
+            // on this sheet the writer cannot get back by clicking again, so it
+            // is what the mode picker must not cost them.
+            if case .update = mode {
+                titleBeforeRewrite = editedTitle
+                editedTitle = preview?.title ?? editedTitle
+            } else {
+                editedTitle = titleBeforeRewrite ?? preview?.title ?? editedTitle
+                titleBeforeRewrite = nil
+            }
         }
     }
+
+    /// What the writer had typed when they switched to Rewrite, held for the
+    /// switch back. Nil whenever the mode is not `.update`.
+    private var titleBeforeRewrite: String?
 
     /// The destination's body as of the last `select(_:)`. A SNAPSHOT — the
     /// performer checks the live file again before it writes.
@@ -290,7 +308,17 @@ final class PromotionSheetModel: Identifiable {
         // one.** A wiki-link's title is the destination note's, and the intent
         // doc's is fixed — neither performer reads `plan.title` at all, so
         // requiring it disabled Promote for an act that names nothing.
-        if plan.producedKind.namesItsArtifact && plan.title.isEmpty { return false }
+        //
+        // **`namesTheArtifact`, which is what the REFUSAL reads** (whole-branch
+        // review, 2026-08-09). This asked the target alone, and a rewrite
+        // narrowed the other two halves without it: the Name field is withheld
+        // (`namesTheArtifact` is false in `.update`) and the refusal is gated on
+        // the same value, so a rewrite whose resolved title came back empty
+        // disabled Promote and said nothing at all — the dead sheet, arrived at
+        // by the two conditions disagreeing rather than by either being wrong.
+        // Reading one value is what makes them unable to disagree; the
+        // performers already fall back to the artifact's live name.
+        if namesTheArtifact && plan.title.isEmpty { return false }
         if pieceRefusal != nil { return false }
         return !plan.linkAlreadyPresent
     }

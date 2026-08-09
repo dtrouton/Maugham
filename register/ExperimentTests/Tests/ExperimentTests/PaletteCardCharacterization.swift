@@ -6,8 +6,8 @@ import MaughamCore
 /// Every assertion pins behaviour OBSERVED at HEAD `db1bea2c` via
 /// `ObservationProbe`. Warrant LOW, intent UNKNOWN. Several of these pin
 /// behaviour I believe is WRONG — pinning is not endorsement; the candidates are
-/// called out in `experiment/02-characterization-notes.md` and carried to the
-/// ruling sheet. Claim ids (M1-C-xxx) match `experiment/01-claims-ledger.json`.
+/// called out in `register/history/02-characterization-notes.md` and carried to the
+/// ruling sheet. Claim ids (M1-C-xxx) match `register/01-claims-ledger.json`.
 final class PaletteCardCharacterization: XCTestCase {
 
     private let dir = "research/palette"

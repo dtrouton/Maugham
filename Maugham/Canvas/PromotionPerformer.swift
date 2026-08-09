@@ -517,6 +517,18 @@ struct PromotionPerformer {
             itemID = existing
         }
         try await writeBody(plan.body, toItem: itemID)
+        if case .update = plan.mode {
+            // **The project was modified, and only this arm has to say so**
+            // (whole-branch review, 2026-08-09). `createResearchNote` stamps and
+            // saves the manifest on the `.new` arm; the rewrite arm used to
+            // reach `updateResearchItem`, which did the same, and when M6-PR-038
+            // took the rename away it took the stamp with it. A rewrite replaces
+            // a note's whole body — the largest edit this file makes — and left
+            // the project reading as untouched since the afternoon before, which
+            // is what the Recents list orders on and what a sync layer compares.
+            store.manifest.modified = Date()
+            try await store.saveManifest()
+        }
         let title = TreeWalk.find(id: itemID, in: store.manifest.research)?.title ?? plan.title
         // The mark BEFORE the offer: a link-write failure must not leave an
         // artifact the canvas has forgotten it produced, because the writer's
@@ -560,8 +572,37 @@ struct PromotionPerformer {
         // lose them to an update that was always about the prose.
         guard let current = store.loadPaletteCards().first(where: { $0.researchItemId == itemID })
         else { throw PromotionFailure.artifactMissing(itemID) }
+        if case .update = plan.mode, !current.body.trimmingCharacters(
+            in: .whitespacesAndNewlines).isEmpty {
+            // **The note arm's promise, on the card arm** (whole-branch review,
+            // 2026-08-09). M6-PR-037 gave a rewritten research note the
+            // recoverability RULING-24 owes it and stopped there; a palette card
+            // rewritten from the canvas replaced the writer's prose with no
+            // route back at all — the same loss, on the artifact a writer is
+            // most likely to have developed by hand, since a card is edited in
+            // the pane rather than generated.
+            //
+            // The TEXT rather than the file: a card's prose lives inside its
+            // card file beside the swatches, sensory notes and image references,
+            // and everything but the prose is deliberately kept by the write
+            // below. Moving the file would preserve a copy of the whole card and
+            // take the live one away from the writer.
+            //
+            // An empty body is not preserved: there is nothing to come back to,
+            // and an empty row in the Trash pane is a false claim that something
+            // was kept. Same reasoning as the note arm's "not on disk yet".
+            try await store.trashPriorVersionText(
+                text: current.body, displayTitle: current.title, id: itemID)
+        }
         try await store.updatePaletteCard(PaletteCard(
-            researchItemId: itemID, title: plan.title, kind: plan.paletteKind,
+            // **The card's own name when the plan carries none.** `canCommit`
+            // stopped requiring a title on a rewrite (the field is withheld, so
+            // requiring one is a dead button) — and a rewrite has never been
+            // about the name: M6-PR-038 is the note arm's version of exactly
+            // this. An empty `plan.title` here would rename the card to nothing.
+            researchItemId: itemID,
+            title: plan.title.isEmpty ? current.title : plan.title,
+            kind: plan.paletteKind,
             swatches: current.swatches, notes: current.notes,
             imagePaths: current.imagePaths, body: plan.body))
         // **The pictures in the region, AFTER that write and never before**

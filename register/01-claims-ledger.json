@@ -640,7 +640,7 @@
   ],
   "regeneration": {
    "module": "M2 MaughamCore.TreeNode / TreeWalk",
-   "brief": "experiment/08-regeneration-brief.md",
+   "brief": "register/history/08-regeneration-brief.md",
    "brief_contents": {
     "claims": 63,
     "intent_clauses": 26,
@@ -684,7 +684,7 @@
    "predictions_scored": {
     "correct": 3,
     "wrong": 4,
-    "see": "experiment/09-regeneration-predictions.md"
+    "see": "register/history/09-regeneration-predictions.md"
    }
   },
   "rulings": {
@@ -1279,10 +1279,10 @@
     "practical": "Before filing a defect, ask when the writer expressed the relevant intent — not whether they expressed it just now."
    },
    "the_handoff_artifact_dropped_a_reversing_clause": {
-    "what": "experiment/scripts extraction emitted only family/statement/basis for the three ROOT rulings; the extra-fields loop ran for SUB-rulings only. RULING-19's corollary_RULED — 'a repair firing at a lower layer means a guard above did not fire — that is a BUG' — was lost.",
+    "what": "register/history/scripts extraction emitted only family/statement/basis for the three ROOT rulings; the extra-fields loop ran for SUB-rulings only. RULING-19's corollary_RULED — 'a repair firing at a lower layer means a guard above did not fire — that is a BUG' — was lost.",
     "why_it_matters": "That clause REVERSES the ruling. Without it R19 LICENSES a silent lower-layer repair; with it a repair is a defect signal. A fresh session reconciling against the damaged file convicted a silent prune under R19 while quoting a clause the file did not contain — it needed the sentence and noticed it was missing.",
     "finding": "The artifact built to transfer the theory lost exactly the clause that flips a ruling's direction, and lost it silently. Statements survived the handoff; QUALIFICATIONS did not. That is the same failure mode as 'right verdict, wrong basis' — one level up, in the transport.",
-    "fixed": "2026-08-02, clauses restored to experiment/RULINGS.md"
+    "fixed": "2026-08-02, clauses restored to register/RULINGS.md"
    },
    "a_ruling_can_rest_on_a_false_belief_about_the_code": {
     "observed": 2,
@@ -1518,7 +1518,7 @@
   },
   "phase20_audit": {
    "headline": "The '32/32 settled, zero unsettled' figure was a MEASUREMENT ARTIFACT and must be withdrawn.",
-   "how_it_broke": "scripts/20-record-family-rulings.py matched with `any(k in r for k in keys)` against keyword lists I extracted from the very clusters being tested. I hand-clustered 32 rulings into 6 families, wrote the keywords from those clusters, then ran a script that 'discovered' all 32 matched. It could not have returned another answer.",
+   "how_it_broke": "history/scripts/20-record-family-rulings.py matched with `any(k in r for k in keys)` against keyword lists I extracted from the very clusters being tested. I hand-clustered 32 rulings into 6 families, wrote the keywords from those clusters, then ran a script that 'discovered' all 32 matched. It could not have returned another answer.",
    "scope_retest": {
     "RULING-5 bucket": "10 assigned; 2 clearly in scope, 1 arguable, 7 OUT OF SCOPE",
     "RULING-4 bucket": "6 assigned; ~5 in scope, 1 ('a promote must be undoable') REJECTED by RULING-14",
@@ -1748,7 +1748,7 @@
    }
   },
   "reconciliation": {
-   "protocol": "experiment/reconciliation/PROTOCOL.md — 6-field filing template, 4 disciplines, NO_RULING_REACHES is the expected outcome",
+   "protocol": "register/reconciliation/PROTOCOL.md — 6-field filing template, 4 disciplines, NO_RULING_REACHES is the expected outcome",
    "claims_reconciled": 148,
    "reached": 32,
    "complies": 31,
@@ -1787,10 +1787,10 @@
    "coverage": "47%",
    "specificity": "19/24 = 79% reached by a SUB-ruling",
    "files": {
-    "claims": "experiment/reconciliation/Trash.claims.json",
-    "filings": "experiment/reconciliation/Trash.filings.json",
-    "tests": "experiment/app-layer-tests/",
-    "report": "experiment/22-trash-reconciliation.md"
+    "claims": "register/reconciliation/Trash.claims.json",
+    "filings": "register/reconciliation/Trash.filings.json",
+    "tests": "register/history/app-layer-tests/",
+    "report": "register/history/22-trash-reconciliation.md"
    },
    "headline": "The sweep's 0%-specificity result for trash was a SAMPLING artefact, not a gap in RULING-15. sweep2 surveyed 13 hand-picked arguable DECISIONS; over 51 pinned CLAIMS the same module scores 79% specificity and RULING-15 is the tightest fit for three of them. A decision survey measures the residue a ruling set leaves; a claim ledger measures the ruling set. The two are 79 points apart on the same module and must not be compared.",
    "second_headline": "The comply/violate ratio INVERTS across the layers: MaughamCore's pure modules ran 31:1; the app layer runs 13:11. The earlier '97% of what a ruling reaches is already right' finding is a fact about pure, writer-distant code and must not be restated about the codebase.",
@@ -1808,7 +1808,7 @@
    "research-protection": {
     "status": "PROPOSED, not scheduled",
     "recorded": "2026-08-02",
-    "doc": "experiment/MILESTONE-research-protection.md",
+    "doc": "register/history/MILESTONE-research-protection.md",
     "belongs_in": "docs/roadmap.md — not moved, this experiment has changed 0 production files",
     "ruled_into_existence_by": "Denver: 'yes this is a real issue IMO, and I think this is pushing me to a research protection milestone in future, we should record that'",
     "root_finding": "RULING-24 made the protection tiers explicit; verification showed tier 2's stated safety net (⌘S) does not cover research at all. Research's only recovery is filesystem backups, outside Maugham.",
@@ -1853,10 +1853,10 @@
    "gaps": 6,
    "sharpest_gap": "GAP-R1 — RULING-24 is a ROOT that partitions protection into three named classes (the work / research / ingested-or-derived) and an ANNOTATION is none of them. It is the class this module damages most (M4-RW-019, a forward rewind returns the paragraph and the task but leaves the comment archived). A tiering root with a hole in the middle of its own domain.",
    "files": {
-    "claims": "experiment/reconciliation/Rewind.claims.json",
-    "filings": "experiment/reconciliation/Rewind.filings.json",
-    "tests": "experiment/app-layer-tests/",
-    "report": "experiment/24-rewind-reconciliation.md"
+    "claims": "register/reconciliation/Rewind.claims.json",
+    "filings": "register/reconciliation/Rewind.filings.json",
+    "tests": "register/history/app-layer-tests/",
+    "report": "register/history/24-rewind-reconciliation.md"
    }
   },
   "reverification_2026_08_08": {

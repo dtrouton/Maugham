@@ -5,7 +5,7 @@ import PackageDescription
 // experiment's generated tests. Deliberately separate from MaughamCore's own
 // test target so nothing in the shipping build depends on it and nothing here
 // can perturb the shipping suite. Run with:
-//   swift test --package-path experiment/ExperimentTests
+//   swift test --package-path register/ExperimentTests
 let package = Package(
     name: "ExperimentTests",
     platforms: [.macOS(.v14)],

@@ -577,12 +577,12 @@
  },
  {
   "claim_id": "M6-PR-037",
-  "scope": "PromotionPerformer.performResearchNote (.update)",
+  "scope": "PromotionPerformer.performResearchNote (.update) and performPaletteCard (.update)",
   "kind": "POSTCONDITION",
-  "statement": "a Rewrite replaces the note's whole body — but the note's CURRENT file is sent to the project trash first (TrashSubject.priorVersion, visible in the Trash pane, restored as a file beside the live note), so the writer's earlier text is recoverable for the retention window: the standard a DELETED note already had. Still not versioned, and ⌘Z still takes back only the mark",
+  "statement": "a Rewrite replaces the artifact's whole body — but what was there is kept first, as a TrashSubject.priorVersion entry visible in the Trash pane, so the writer's earlier text is recoverable for the retention window: the standard a DELETED note already had. Three parts. (1) The keep is a move-then-copy-back, not a move: ProjectStore.trashPriorVersion moves the file through the typed mover (for the flush discipline, tripwire 14) and then copies the entry's file straight back to the original path, so the LIVE file exists continuously and a rewrite whose body-write fails leaves the note exactly as it was rather than stranded in the trash. (2) A restore is VISIBLE: the .priorVersion arm mints a research row titled '<title> (previous version)' pointing at wherever TrashStore.restore landed the file (beside the live note), where routing it to .fileOnly put the writer's prose in research/ with no surface showing it. (3) The PALETTE-CARD rewrite arm is covered too, by trashPriorVersionText — a card's prose lives inside its card file beside swatches, notes and images, so the TEXT is written into the entry rather than the file moved. Still not versioned, and ⌘Z still takes back only the mark",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName"
+   "ref": "PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName, .test_keepingThePriorVersionLeavesTheNoteWhereItIs, .test_aPaletteRewriteKeepsThePriorProseWhereTheWriterCanReachIt"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",

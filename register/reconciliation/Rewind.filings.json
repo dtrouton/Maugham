@@ -24,7 +24,7 @@
    "date": "2026-08-08",
    "verifier": "fresh-context subagent given the ruling set, the claims and the code — NOT the original filings or fix narrative",
    "outcome": "CONFIRMED — same verdict, independently argued scope; pinning tests re-run green",
-   "record": "experiment/reconciliation/Rewind.verification-2026-08-08.json",
+   "record": "register/reconciliation/Rewind.verification-2026-08-08.json",
    "caveat": "Verifier notes the verdict is scope-reading-dependent: on the claim's declared module alone (a pure fold function, no writer surface) NO_RULING_REACHES is defensible under RULING-19's layering; COMPLIES stands because RULING-22's disposition rules on this claim BY ID. A future comparison run landing on NO_RULING_REACHES here is not evidence of drift."
   }
  },
@@ -176,7 +176,7 @@
    "date": "2026-08-08",
    "verifier": "fresh-context subagent given the ruling set, the claims and the code — NOT the original filings or fix narrative",
    "outcome": "CONFIRMED — same verdict, independently argued scope; pinning tests re-run green",
-   "record": "experiment/reconciliation/Rewind.verification-2026-08-08.json"
+   "record": "register/reconciliation/Rewind.verification-2026-08-08.json"
   }
  },
  {
@@ -265,7 +265,7 @@
   "independent_verification": {
    "date": "2026-08-09",
    "outcome": "CONFIRMED (blind, phase-2 round)",
-   "record": "experiment/reconciliation/Phase2.verification-2026-08-09.json"
+   "record": "register/reconciliation/Phase2.verification-2026-08-09.json"
   }
  },
  {
@@ -301,7 +301,7 @@
    "date": "2026-08-08",
    "verifier": "fresh-context subagent given the ruling set, the claims and the code — NOT the original filings or fix narrative",
    "outcome": "CONFIRMED — same verdict, independently argued scope; pinning tests re-run green",
-   "record": "experiment/reconciliation/Rewind.verification-2026-08-08.json"
+   "record": "register/reconciliation/Rewind.verification-2026-08-08.json"
   }
  },
  {
@@ -317,7 +317,7 @@
    "date": "2026-08-08",
    "verifier": "fresh-context subagent given the ruling set, the claims and the code — NOT the original filings or fix narrative",
    "outcome": "CONFIRMED — same verdict, independently argued scope; pinning tests re-run green",
-   "record": "experiment/reconciliation/Rewind.verification-2026-08-08.json"
+   "record": "register/reconciliation/Rewind.verification-2026-08-08.json"
   }
  },
  {
@@ -333,7 +333,7 @@
    "date": "2026-08-08",
    "verifier": "fresh-context subagent given the ruling set, the claims and the code — NOT the original filings or fix narrative",
    "outcome": "CONFIRMED — same verdict, independently argued scope; pinning tests re-run green",
-   "record": "experiment/reconciliation/Rewind.verification-2026-08-08.json"
+   "record": "register/reconciliation/Rewind.verification-2026-08-08.json"
   }
  },
  {

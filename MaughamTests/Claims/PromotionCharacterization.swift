@@ -573,6 +573,98 @@ final class PromotionCharacterization: XCTestCase {
         XCTAssertEqual(try bodyOf(id, store: store, root: root),
                        "The falls at night\n\nRewritten on the canvas.",
                        "M6-PR-037: and the rewritten note is untouched by the restore")
+
+        // And the restore is VISIBLE (whole-branch review, 2026-08-09). The
+        // entry used to restore as a file alone: correct about there being
+        // nothing to rewire, and it left the writer's afternoon in `research/`
+        // where no surface in Maugham looks. They had asked for it back and been
+        // told it came.
+        let restoredRow = try XCTUnwrap(
+            store.manifest.research.first { $0.title == "Fog, act II (previous version)" },
+            "the prior version comes back with a row of its own — the live note's "
+            + "row still points at the rewritten text, so this is a second artifact")
+        XCTAssertEqual(restoredRow.path, "research/\(returned)",
+                       "and the row points at where the file actually landed")
+    }
+
+    /// M6-PR-037's other half (whole-branch review, 2026-08-09) — keeping the
+    /// prior version must not be a window in which the note exists ONLY in the
+    /// trash.
+    ///
+    /// The keep is a move, for the typed mover's flush discipline (tripwire 14),
+    /// and the caller's next act — writing the new body — is fallible. Between
+    /// the two, the manifest row pointed at a path with no file at it: a failed
+    /// rewrite told the writer nothing had happened while their note had left
+    /// the research pane. Pinned as the property rather than by breaking the
+    /// write, because the property is what the fix owes: after the keep, the
+    /// live file is still there with the pre-rewrite words in it, and the trash
+    /// holds the same words.
+    func test_keepingThePriorVersionLeavesTheNoteWhereItIs() async throws {
+        let (root, store) = try await makeProject()
+        let item = try await store.addResearchTextNote(parentId: nil, title: "Fog, act II")
+        let path = try XCTUnwrap(item.path)
+        let afternoon = "The falls at night\n\nAn afternoon of my own prose.\n"
+        try afternoon.write(to: root.appendingPathComponent(path),
+                            atomically: true, encoding: .utf8)
+
+        _ = try await store.trashPriorVersion(at: path, displayTitle: item.title, id: item.id)
+
+        XCTAssertEqual(
+            try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8),
+            afternoon,
+            "the live note never stops existing — a rewrite that fails after this "
+            + "point leaves the writer's note exactly as it was")
+        let entries = try await store.trashStore.list()
+        let kept = try XCTUnwrap(entries.first { $0.subject == .priorVersion })
+        let inTheTrash = try XCTUnwrap(store.trashStore.entryFileURL(trashId: kept.id))
+        XCTAssertEqual(try String(contentsOf: inTheTrash, encoding: .utf8), afternoon,
+                       "and the trash holds the same words, which is the whole point of "
+                       + "the move this copies back from")
+    }
+
+    /// M6-PR-048's other half (whole-branch review, 2026-08-09) — a rewritten
+    /// PALETTE CARD's prose is recoverable too.
+    ///
+    /// M6-PR-037 gave a research note the standard RULING-24 owes it and stopped
+    /// there. The same Rewrite aimed at a palette card replaced the writer's
+    /// prose with no route back at all — and a card's prose is the more likely
+    /// of the two to be theirs by hand, since a card is developed in the pane
+    /// rather than generated.
+    func test_aPaletteRewriteKeepsThePriorProseWhereTheWriterCanReachIt() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        let res = try await performer.perform(
+            try plan(.scrap(a), .paletteCard, store: store, model: model))
+        let id = try XCTUnwrap(res.createdItemID)
+        let before = try XCTUnwrap(store.loadPaletteCards().first { $0.researchItemId == id })
+
+        model.setScrapText("The falls at night\n\nRewritten.", for: a)
+        _ = try await performer.perform(
+            try plan(.scrap(a), .paletteCard, store: store, model: model,
+                     mode: .update(itemID: id, title: before.title)))
+        XCTAssertEqual(
+            try XCTUnwrap(store.loadPaletteCards().first { $0.researchItemId == id }).body,
+            "The falls at night\n\nRewritten.",
+            "the body is still replaced — that is what Rewrite says it does")
+
+        let entries = try await store.trashStore.list()
+        let kept = try XCTUnwrap(entries.first { $0.subject == .priorVersion },
+                                 "the prose the rewrite replaced is in the trash, "
+                                 + "and in the pane")
+        XCTAssertEqual(kept.displayTitle, before.title)
+
+        // And it comes back as something the writer can open: a research note
+        // with their prose in it.
+        try await store.restoreTrashEntry(id: kept.id)
+        let row = try XCTUnwrap(
+            store.manifest.research.first { $0.title == "\(before.title) (previous version)" },
+            "a restore the writer cannot see is not a restore")
+        XCTAssertEqual(
+            try String(contentsOf: root.appendingPathComponent(try XCTUnwrap(row.path)),
+                       encoding: .utf8),
+            before.body,
+            "with the prose the rewrite took")
     }
 
     /// M6-PR-040 — a second `.new` promotion of a card that already produced one.

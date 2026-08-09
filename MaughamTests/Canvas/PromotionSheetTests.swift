@@ -295,6 +295,56 @@ final class PromotionSheetTests: XCTestCase {
                        "and a new promotion is seeded from the card again")
     }
 
+    /// Whole-branch review, 2026-08-09 — looking at Rewrite and coming back
+    /// must not cost the writer what they typed.
+    ///
+    /// The re-seed that fixed M6-PR-039 is one-way by construction: the way back
+    /// is the same assignment reading a `.new` plan, which answers with the
+    /// card's first line. So a writer who named their note, opened the mode
+    /// picker to see what Rewrite would do, and chose New again found their name
+    /// replaced. Typing is the one thing on this sheet that clicking again
+    /// cannot recover.
+    func test_aNameTheWriterTypedSurvivesALookAtRewriteAndBack() {
+        var s = scene()
+        s.setPromotedItem("res-a", for: a)
+        let m = model(.scrap(a), scene: s, artifacts: ["res-a": "Fog, act II"])
+        m.select(.researchNote)
+        m.editedTitle = "Sodium light on the spray"
+
+        m.mode = .update(itemID: "res-a", title: "Fog, act II")
+        XCTAssertEqual(m.editedTitle, "Fog, act II",
+                       "a rewrite still carries the artifact's own name (M6-PR-039)")
+
+        m.mode = .new
+        XCTAssertEqual(m.editedTitle, "Sodium light on the spray",
+                       "and the writer's own name is given back, not the card's first line")
+        XCTAssertEqual(m.resolvedPlan?.title, "Sodium light on the spray",
+                       "which is the value Commit would carry")
+    }
+
+    /// Whole-branch review, 2026-08-09 — `canCommit` and `refusal` read ONE
+    /// condition, so they cannot disagree.
+    ///
+    /// A rewrite withdraws the Name field (`namesTheArtifact` is false) and the
+    /// refusal is gated on that same value — but `canCommit` still asked the
+    /// TARGET, which says a research note is named. A rewrite whose resolved
+    /// title came back empty therefore disabled Promote and explained nothing:
+    /// the dead sheet, reached by two conditions drifting rather than by either
+    /// being wrong on its own.
+    func test_aRewriteNeverDisablesCommitWithoutSayingWhy() {
+        var s = scene()
+        s.setPromotedItem("res-a", for: a)
+        let m = model(.scrap(a), scene: s, artifacts: ["res-a": ""])
+        m.select(.researchNote)
+        m.mode = .update(itemID: "res-a", title: "")
+        XCTAssertEqual(m.editedTitle, "", "the artifact's own name, such as it is")
+        XCTAssertFalse(m.namesTheArtifact, "and no field on the sheet asks for one")
+        XCTAssertNil(m.refusal, "the sheet says nothing is wrong")
+        XCTAssertTrue(m.canCommit,
+                      "so Commit must be live — the performers fall back to the "
+                      + "artifact's live name, and a rewrite was never about the name")
+    }
+
     func test_switchingToATargetThatCannotUpdateResetsTheMode() {
         var s = scene()
         s.setPromotedItem("res-a", for: a)
