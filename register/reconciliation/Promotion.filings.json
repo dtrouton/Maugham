@@ -424,7 +424,7 @@
    "note": "the copy lives for the trash retention window and is then swept, exactly as RULING-23 says a deletion is"
   },
   "amendment": {
-   "commit": "PENDING — uncommitted on branch claude/spec-phase-3 (2026-08-09b)",
+   "commit": "ddc61982a939357779696551464e209dc6d5f71f",
    "date": "2026-08-09",
    "authorised_by": "whole-branch review of claude/spec-phase-3 — findings 1, 2 and 3, all inside RULING-24's own scope: the first fix bought recoverability and left a window in which the note existed only in the trash, a restore no surface showed, and a second rewrite arm with no protection at all",
    "pinned_by": "MaughamTests/Claims/PromotionCharacterization.test_keepingThePriorVersionLeavesTheNoteWhereItIs (the live file still holds the pre-rewrite words after the keep, and the trash holds the same words — the continuous-existence property the copy-back owes); .test_aRewriteReplacesTheNoteAndRevertsTheWritersName, extended (restoring mints a 'Fog, act II (previous version)' row pointing at where the file landed); .test_aPaletteRewriteKeepsThePriorProseWhereTheWriterCanReachIt (a palette rewrite leaves the prior prose in the trash, and restoring it lands a research note holding it)",
