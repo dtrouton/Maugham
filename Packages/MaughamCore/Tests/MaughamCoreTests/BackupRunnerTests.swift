@@ -129,6 +129,60 @@ final class BackupRunnerTests: XCTestCase {
         XCTAssertEqual(try BackupWriter.generationIds(at: d1), ["01B", "01C"])
     }
 
+    // MARK: - FM-2: a corrupt newest generation must not suppress backups
+
+    /// `BackupRetention_NoWedgedOnCorruptNewest`. The signature marker lives
+    /// INSIDE the generation directory it describes, so partial corruption — the
+    /// common kind — rots the content and leaves the marker readable. Answering
+    /// with that marker made every later run report `.skippedUnchanged`: the
+    /// system said "backed up", wrote nothing, and never replaced the corrupt
+    /// newest generation for as long as the writer did not edit.
+    func test_latestSignature_nilWhenTheNewestGenerationDoesNotVerify() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { [source, dest].forEach { try? FileManager.default.removeItem(at: $0) } }
+        _ = BackupRunner.run(projectURL: source,
+                             destinations: [BackupDestination(url: dest, retention: 5)],
+                             generationId: "01A", at: when)
+        XCTAssertNotNil(try BackupRunner.latestSignature(at: dest))
+
+        // Content only — the `.maugham-backup-signature` marker survives.
+        try "ROT".write(to: dest.appendingPathComponent("01A/a.md"), atomically: true, encoding: .utf8)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: dest.appendingPathComponent("01A")
+                .appendingPathComponent(BackupSignature.signatureName).path))
+
+        XCTAssertNil(try BackupRunner.latestSignature(at: dest))
+    }
+
+    /// The wedge itself, through `run`: with the source unchanged, the run that
+    /// follows the corruption must still WRITE, and exactly one such run is
+    /// needed before skip-detection resumes.
+    func test_run_doesNotSkipWhileTheNewestGenerationIsCorrupt() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { [source, dest].forEach { try? FileManager.default.removeItem(at: $0) } }
+        func run(_ id: String) -> BackupOutcome {
+            BackupRunner.run(projectURL: source,
+                             destinations: [BackupDestination(url: dest, retention: 5)],
+                             generationId: id, at: when)[0]
+        }
+        guard case .written = run("01A") else { return XCTFail("first run must write") }
+        guard case .skippedUnchanged = run("01B") else {
+            return XCTFail("an unchanged source over an intact newest must still skip")
+        }
+
+        try "ROT".write(to: dest.appendingPathComponent("01A/a.md"), atomically: true, encoding: .utf8)
+
+        guard case .written = run("01C") else {
+            return XCTFail("a corrupt newest generation must not suppress the backup")
+        }
+        // ...and the replacement is intact, so the next run goes back to skipping.
+        guard case .skippedUnchanged = run("01D") else {
+            return XCTFail("skip-detection must resume once the newest verifies again")
+        }
+    }
+
     func test_run_oneFailingDestinationDoesNotAbortOthers() throws {
         let source = try makeTree(["a.md": "alpha"])
         let good = destDir()

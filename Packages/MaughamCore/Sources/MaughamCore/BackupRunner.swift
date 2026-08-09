@@ -91,9 +91,35 @@ public enum BackupRunner {
     }
 
     /// The content signature recorded with the newest committed generation at
-    /// `destination`, or nil if there are none / it has no signature marker.
+    /// `destination`, or nil if there are none / it has no signature marker / **it
+    /// does not verify**.
+    ///
+    /// The signature marker lives *inside* the generation directory it describes, so
+    /// partial corruption — the common kind — rots the content while leaving the
+    /// marker readable. Answering with that marker made every later run return
+    /// `.skippedUnchanged`: the system reported "backed up", wrote nothing, and never
+    /// replaced the corrupt newest generation for as long as the source was
+    /// unedited. Returning nil forces exactly one write, after which the newest
+    /// generation is intact again and skip-detection resumes.
+    ///
+    /// **Only the newest generation is consulted, and it must verify.** Walking back
+    /// past a corrupt newest to an older intact marker — the shape findings §10.5
+    /// item 2 proposed — still admits a skip while the newest is corrupt, which is
+    /// what `NoWedgedOnCorruptNewest` forbids: the writer need only revert an edit for
+    /// an older marker to match again. Model-checked:
+    /// `BackupRetention_NoWedgedOnCorruptNewest` (violated by the unconditional read)
+    /// against `BackupRetention_Fixed_NoWedgedOnCorruptNewest` (green with this one).
+    /// See `formal/BackupRetention.tla`.
+    ///
+    /// **Cost: one Merkle pass over the newest generation per run per destination**,
+    /// on top of the source-tree hash `BackupSignature.compute` already does — call
+    /// it double. Both happen inside `BackupCoordinator`'s `Task.detached`, off the
+    /// main actor, once per ⌘S. Only the newest generation is ever read, so the cost
+    /// does not grow with retention.
     public static func latestSignature(at destination: URL) throws -> String? {
         guard let id = try BackupWriter.generationIds(at: destination).last else { return nil }
+        guard ((try? BackupWriter.verifyGeneration(id: id, at: destination)) ?? ["<unverifiable>"]).isEmpty
+        else { return nil }
         let url = destination.appendingPathComponent(id)
             .appendingPathComponent(BackupSignature.signatureName)
         guard let data = try? Data(contentsOf: url) else { return nil }  // adr-0018-ok: backup file bytes read for checksum, not manuscript-as-truth
