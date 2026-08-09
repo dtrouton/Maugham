@@ -589,4 +589,174 @@ final class RepublisherTests: XCTestCase {
         XCTAssertTrue(message.contains("action"), message)
         XCTAssertTrue(message.contains("character"), message)
     }
+
+    // MARK: - P1 (issue #25): republish must never wear the original's filename
+
+    /// P1 (issue #25): republish clobbered the ORIGINAL edition's artifact —
+    /// the staged filename came from snap.config's pinned nextVersion. The
+    /// original's bytes must survive a republish, verbatim.
+    func test_republishLeavesTheOriginalArtifactBytesUntouched() async throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hello.")]
+            }
+        }
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Durable", author: "T")))
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        // 1. Initial compile creates the original .epub publication.
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let initialPub, _) = initial else {
+            XCTFail("initial compile failed: \(initial)")
+            return
+        }
+        let originalURL = tmp.appendingPathComponent(initialPub.outputPath)
+        let originalBytes = try Data(contentsOf: originalURL)
+        XCTAssertFalse(originalBytes.isEmpty, "fixture sanity: original artifact must be non-empty")
+
+        // 2. Mutate the manuscript (the drift the finding is about) — a
+        //    republish still renders from the frozen snapshot, but before
+        //    the fix the STAGED FILENAME echoed the original's, so moving
+        //    it into Exports/ clobbered the original bytes regardless.
+        struct MutatedSrc: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hello, mutated world.")]
+            }
+        }
+
+        // 3. republish(snapshotID:, format: .epub, label: nil) — nil label
+        //    is the collision case (no label to disambiguate the filename).
+        let r = Republisher(
+            projectURL: tmp, astSource: MutatedSrc(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .completed(let republishedPub, _) = outcome else {
+            XCTFail("republish failed: \(outcome)")
+            return
+        }
+
+        // 4. The original outputPath must still exist AND its Data must
+        //    equal the recorded bytes — bytes, not just existence.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: originalURL.path),
+            "the original artifact must still exist after a republish")
+        let bytesAfter = try Data(contentsOf: originalURL)
+        XCTAssertEqual(bytesAfter, originalBytes,
+            "a republish must never overwrite the original edition's bytes")
+
+        // 5. The new Publication's outputPath must differ from the original's.
+        XCTAssertNotEqual(republishedPub.outputPath, initialPub.outputPath,
+            "the republished edition must land at a distinct path from the original")
+    }
+
+    /// Repeated republishes each get their own file — no shared clobber path.
+    func test_twoRepublishesProduceTwoNewDistinctFiles() async throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hello.")]
+            }
+        }
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Repeat", author: "T")))
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let initialPub, _) = initial else {
+            XCTFail("initial compile failed: \(initial)")
+            return
+        }
+
+        let r = Republisher(
+            projectURL: tmp, astSource: Src(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+
+        let first = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .completed(let firstPub, _) = first else {
+            XCTFail("first republish failed: \(first)")
+            return
+        }
+        let second = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .completed(let secondPub, _) = second else {
+            XCTFail("second republish failed: \(second)")
+            return
+        }
+
+        let allOutputPaths = [initialPub.outputPath, firstPub.outputPath, secondPub.outputPath]
+        XCTAssertEqual(Set(allOutputPaths).count, 3,
+            "each compile/republish must produce a distinct catalog outputPath, got \(allOutputPaths)")
+        for path in allOutputPaths {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: tmp.appendingPathComponent(path).path),
+                "expected a file on disk at \(path)")
+        }
+    }
+
+    /// The republished filename carries the republish version (the '{version}'
+    /// token expands from the EFFECTIVE config), so it says which catalog row
+    /// it is — and so it can never equal the original's name.
+    func test_republishedFilenameCarriesTheRepublishVersion() async throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hello.")]
+            }
+        }
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Stamp", author: "T")))
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let initialPub, _) = initial else {
+            XCTFail("initial compile failed: \(initial)")
+            return
+        }
+
+        let r = Republisher(
+            projectURL: tmp, astSource: Src(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .completed(let pub, _) = outcome else {
+            XCTFail("republish failed: \(outcome)")
+            return
+        }
+
+        XCTAssertTrue(pub.version.contains("-r"),
+            "expected the republish version to carry the '-r' infix, got \(pub.version)")
+        let filename = URL(fileURLWithPath: pub.outputPath).lastPathComponent
+        XCTAssertTrue(filename.contains(pub.version),
+            "expected the republished filename '\(filename)' to contain its own version '\(pub.version)'")
+    }
 }

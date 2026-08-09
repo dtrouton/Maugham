@@ -78,6 +78,17 @@ public struct Republisher {
         // language-suffix the filename and tag the catalog entry.
         let prior = try await publicationStore.publication(forSnapshotID: snapshotID)
         let priorVersion = prior?.version
+
+        // P1 (issue #25): the republish version is minted BEFORE compile and
+        // stamped through the config — filename, artifact-internal stamp and
+        // catalog row all agree, which is CompileOrchestrator's own stamp=row
+        // invariant (its `effective.nextVersion = effectiveVersion`) arriving on
+        // this path. Minted here, once: the append below must reuse this value.
+        let suffix = String(UUID().uuidString.prefix(4)).lowercased()
+        let newVersion = priorVersion.map { "\($0)-r\(suffix)" } ?? "republish-\(suffix)"
+        var effective = snap.config
+        effective.nextVersion = newVersion
+
         let language = prior?.language
         // Round 3: `republish` has no `allow_stale` parameter of its own — it
         // replays whichever gate mode the ORIGINAL compile used. `false` for
@@ -130,7 +141,7 @@ public struct Republisher {
         case .pdf:
             let pdf = try PDFCompiler(
                 projectURL: stage, astSource: emitSource,
-                config: snap.config, jobManager: jobManager,
+                config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion, jobID: jobID,
                 language: language)
             let r = try await pdf.compile(label: label)
@@ -141,7 +152,7 @@ public struct Republisher {
         case .epub:
             let e = EPUBCompiler(
                 projectURL: stage, astSource: emitSource,
-                config: snap.config, jobManager: jobManager,
+                config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion,
                 tectonicVersion: tectonicVersion, jobID: jobID,
                 language: language)
@@ -165,6 +176,9 @@ public struct Republisher {
             at: exports, withIntermediateDirectories: true)
         let dest = exports.appendingPathComponent(stageOutputURL.lastPathComponent)
         if FileManager.default.fileExists(atPath: dest.path) {
+            // Defensive only: with the republish version in the filename this can
+            // no longer collide with a SIBLING edition's file — it fires only when
+            // re-staging after a crashed prior move of this same republish.
             try FileManager.default.removeItem(at: dest)
         }
         try FileManager.default.moveItem(at: stageOutputURL, to: dest)
@@ -173,9 +187,6 @@ public struct Republisher {
         try snapshotStore.save(snap)
 
         // Append a Publication referencing the source snapshot.
-        let suffix = String(UUID().uuidString.prefix(4)).lowercased()
-        let newVersion = priorVersion.map { "\($0)-r\(suffix)" }
-            ?? "republish-\(suffix)"
         let pub = Publication(
             publicationID: "pub-" + String(UUID().uuidString.lowercased().prefix(12)),
             version: newVersion,
