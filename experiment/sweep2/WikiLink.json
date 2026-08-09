@@ -1,0 +1,205 @@
+{
+  "module": "Wiki links and rename propagation",
+  "loc": 105,
+  "files_read": [
+    "Maugham/Stores/ProjectStore+WikiLink.swift (34)",
+    "Maugham/Stores/WikiLinkRewriter.swift (52)",
+    "Maugham/Stores/WikiLinkProject.swift (19)",
+    "Maugham/Stores/ProjectStore+Structure.swift:292-464 (renameStructureItem + propagateWikiLinkRename — the only caller of the rewriter; unavoidable, the module is inert without it)",
+    "Maugham/Editor/Tokenizer/MarkdownTokenizer.swift:90-145 + addMatches (the OTHER answer to 'is this a wiki link')",
+    "Maugham/MCP/Tools/ListAllLinksTool.swift (the THIRD answer)",
+    "Maugham/Editor/EditorSurface.swift:343-395, EditorCoordinator.swift:682-721 (what a propagated rewrite does to an open editor)",
+    "Maugham/Canvas/Promotion.swift:267-279, PromotionPerformer.swift:532-546 (who else writes [[…]])",
+    "tests: WikiLinkRewriterTests, WikiLinkTokenizerTests, WikiLinkRenameOpLogTests, LinkedResearchTests, ProjectStoreInspectorTests:59"
+  ],
+  "product_decisions": [
+    {
+      "id": "WIKI-D1",
+      "question": "When a writer types `[[Some Note]]` naming a RESEARCH item, is that a link?",
+      "current_behaviour": "Three surfaces answer differently. The editor (`ProjectStore.resolveDocumentId(forTitle:)`) walks `manifest.structure` ONLY and matches `item.type == .document` — a research item can never be found, so `[[Sarah]]` paints as plain text and clicking it does nothing. `ListAllLinksTool` builds its `titleIndex` from `TreeWalk.collect(in: store.manifest.research)` AND documents, so the same string is reported to Claude as a resolved edge of kind `wiki` pointing at research item `res-sarah`. Rename propagation is a third answer again (see WIKI-D2/D3). The app's own guide pushes writers into exactly this shape: `docs/guide/getting-started.md:76` — 'A line can become a [[wiki-link]], written into the note the first card produced' — and `Promotion.swift:271-273` writes `[[Artifact title]]` where the artifact is a RESEARCH item, with the comment '`[[X]]` resolves against the manifest'. It resolves against half of it.",
+      "writer_visible_consequence": "The writer follows the Plan-persona workflow the guide describes, promotes a canvas line, gets a `[[Fog imagery]]` written into a research note — and it is dead text in the editor. Claude, asked for the reference graph, reports it as a live link. The writer and their collaborator are looking at the same characters and being told two different things about them.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Canvas → select a line → Promote… (⌘⇧↩) → PromotionPerformer.performWikiLink writes `[[<research title>]]` into a research note. Reader A: open that note in the editor → EditorHost(wikiLinkResolver:) → ProjectStore.resolveDocumentId → nil → ProseMode paints plain. Reader B: Claude calls list_all_links → ListAllLinksTool.handle → titleIndex hit on manifest.research → Edge(kind: \"wiki\"). Also reachable with no canvas at all: type `[[Sarah]]` in a chapter where Sarah is a research note."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-8",
+      "clause_that_does_the_work": "\"where the SAME writer question is answered in more than one place, it has ONE answer\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "RULING-8's own escape clause — 'Two situations that merely look alike may legitimately differ'. It would falsify this finding to show the editor and the reference graph are asking different questions: the editor asks 'can I navigate there?' and research items have no editor destination. But that defence fails on its own terms — the editor DOES open research notes (BinderSegment .research), so a destination exists; and the writer's question, 'does this link point at something?', is one question with a yes and a no."
+    },
+    {
+      "id": "WIKI-D2",
+      "question": "When a writer renames a RESEARCH item, do the `[[links]]` to it follow?",
+      "current_behaviour": "No, nowhere. `propagateWikiLinkRename` is called from exactly one place, `renameStructureItem`, and only under `if oldTitle != newTitle, item.type == .document` — a manuscript document in `manifest.structure`. The research rename path (`updateResearchItem` → `renameResearchPath`) moves the file and edits the manifest title and touches no body text at all. `Promotion.swift:540` describes the wiki-link layer as 'a layer with backlinks and rename propagation'; for the research half of that layer the claim is false.",
+      "writer_visible_consequence": "The writer renames 'Sarah' to 'Sarah Voss'. Every `[[Sarah]]` in the project — including the ones Maugham itself wrote there by promotion — goes from a `wiki` edge to a `wiki_unresolved` edge in everything Claude reads, silently and with nothing said. The writer is told nothing; the same act performed one pane to the left would have updated everything.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Research pane → inline rename a row → ResearchView.rename(id:to:) → ProjectStore.updateResearchItem(title:) → renameResearchPath (file move + manifest title) → return. No body scan on any branch."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-8",
+      "clause_that_does_the_work": "\"where the SAME writer question is answered in more than one place, it has ONE answer\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "RULING-8's escape clause is stronger here than in WIKI-D1: someone could argue a binder rename and a research rename are two situations that merely look alike. The rebuttal is that `list_all_links` has already ruled they are one target space — it resolves a single `[[X]]` against documents and research items from one dictionary — so the writer's question, 'if I rename this, do my links follow?', is genuinely one question. Falsify by showing a stated intent that research titles are not link targets; the guide's promotion workflow says the opposite."
+    },
+    {
+      "id": "WIKI-D3",
+      "question": "When a MANUSCRIPT document is renamed, are the `[[links]]` to it that live inside RESEARCH NOTES updated?",
+      "current_behaviour": "No. `propagateWikiLinkRename` iterates `Self.collectDocuments(in: manifest.structure)` — manuscript documents only. Research note bodies are never opened. This is the exact inverse of `ListAllLinksTool`, which grew a second loop specifically for research notes with the comment 'Canvas promotion (1C-c2) writes `[[…]]` into a research note and never into a manuscript document, so without this loop every link it produces is invisible here'. The reader was taught about research notes; the rewriter was not.",
+      "writer_visible_consequence": "Every wiki link Maugham itself authored — promotion writes them into research notes and nowhere else — is broken by the very rename mechanism that exists to keep wiki links working. The writer wrote none of these links and cannot be expected to know they need repair.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Canvas → line → Promote… → performWikiLink appends `[[Chapter 1]]` to research/03-fog.md. Later: Binder → rename 'Chapter 1' → BinderView.rename → renameStructureItem → propagateWikiLinkRename → collectDocuments(in: manifest.structure) — research/03-fog.md is not in that collection. The link is now stale."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-8",
+      "clause_that_does_the_work": "\"where the SAME writer question is answered in more than one place, it has ONE answer\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "This is the strongest of the three D1–D3 siblings because the escape clause cannot be reached: the writer's question is not even asked in two places here, it is asked once ('does renaming update the links to this document?') and answered yes for links in chapters and no for links in notes — with the same rename, the same title, and the same grammar. RULING-9 also reaches it as a root ('what Maugham does on their behalf is Maugham's'): Maugham wrote the link and Maugham broke it. Falsified only by evidence that promotion-authored links are considered a snapshot rather than a live reference — which `Promotion.swift:540`'s own 'rename propagation' claim contradicts."
+    },
+    {
+      "id": "WIKI-D4",
+      "question": "Does propagating a rename wipe the undo history of the document the writer is currently working in?",
+      "current_behaviour": "Yes. For an OPEN target, `propagateWikiLinkRename` calls `resolved.setFullText(rewritten)` on the live registered Document. That changes `doc.displayText`; the @Observable read in EditorHost's text binding drives `EditorSurface.updateNSView` → `reconcileTextBuffer`, whose guard `textView.string != text` now fails-through to `coordinator.applyExternalText(text, preserveUndoStack: false)` — there is no undo-coherent flag on this path, so `preserveUndoStack` is false. `applyExternalText` then calls `undoManager.removeAllActions()` and collapses the selection to a zero-length caret (`NSRange(location: min(oldSelection.location, …), length: 0)`).",
+      "writer_visible_consequence": "The writer is drafting Chapter 2, switches to the binder to rename Chapter 1, comes back, presses ⌘Z — and nothing happens. Their whole session's undo stack for a document they never touched is gone, along with whatever they had selected. `WikiLinkRenameOpLogTests.test_openTarget_liveDocumentReflectsRewriteWithoutClobber` asserts the model text is right; it never looks at the undo manager, so this is unguarded.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Binder → double-click a row to rename → BinderView.rename → renameStructureItem → propagateWikiLinkRename → documentStore.document(for: path) returns the open Chapter 2 → setFullText → EditorHost binding get → EditorSurface.updateNSView → reconcileTextBuffer → EditorCoordinator.applyExternalText(preserveUndoStack: false) → undoManager.removeAllActions(). Requires only that the open document contains a link to the renamed one."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "An edit Maugham makes to a document on the writer's behalf must not cost the writer anything they built themselves in that document — not their undo history, not their selection, not their place. If honouring the writer's own work means the edit has to wait until they leave the document, it waits.",
+      "confidence": "HIGH",
+      "what_would_falsify_it": "RULING-4 ('words the writer AUTHORED are always recoverable') nearly reaches and deliberately does not: the words ARE still recoverable, because the op log holds them and Rewind can reach them. So the ruling set is satisfied while the writer's ⌘Z is not — which is exactly the gap the proposal names. Falsify the proposal by establishing that op-log recoverability is the only recoverability the product promises, and that ⌘Z is explicitly not a durable guarantee; then this is an enhancement, not a defect (PRINCIPLE-2). Falsify the FINDING by showing `preserveUndoStack` is true on this path — it is not; the flag is set only by accept/revert."
+    },
+    {
+      "id": "WIKI-D5",
+      "question": "When two items share a title, may a rename of one repoint links that meant the other?",
+      "current_behaviour": "Yes, all of them. Nothing enforces title uniqueness — `renameStructureItem` dedupes the FILENAME slug (`dedupeSlug`) and never the title, and `mutableItem.title = newTitle` accepts any string. `resolveDocumentId` resolves a `[[X]]` to `findFirstByTitle` — the first depth-first match, arbitrary from the writer's point of view. `WikiLinkRewriter.rewrite` is title-matched, not id-matched: it rewrites EVERY `[[Interlude]]` in the project when ANY document titled 'Interlude' is renamed, with no notion of which one a given link meant.",
+      "writer_visible_consequence": "Two chapters called 'Interlude'. The writer's links meant the second. They rename the first to 'Interlude (cut)' and every link in the manuscript now reads `[[Interlude (cut)]]` and points at a chapter they discarded. The original text is gone from the visible manuscript and the intent is unrecoverable from it — Maugham silently redirected references the writer never touched.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Binder → New Document twice, both named 'Interlude' (no uniqueness check anywhere in ProjectStore+Structure) → type `[[Interlude]]` in a chapter → rename either one → propagateWikiLinkRename → WikiLinkRewriter.rewrite matches on normalised title with no id discrimination."
+      },
+      "classification": "SETTLED_BY_ROOT_ONLY",
+      "ruling": "RULING-20",
+      "clause_that_does_the_work": "\"where intent is unclear default SAFE\"",
+      "what_a_sub_ruling_would_need_to_say": "A sub-ruling would have to state that a rename may only rewrite a link whose target is UNAMBIGUOUS, and that when more than one item bears the old title Maugham leaves the writer's text alone and says why. As written, only the root reaches this, and the root reaches it by a stretch: 'intent is unclear' has to be read as covering Maugham's own inability to resolve, not the writer's ambiguity. That is a real gap — the ruling set has nothing at all to say about ambiguous targets, which is the single most common way a link-rewriting feature goes wrong.",
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "A stated product position that titles are required to be unique and duplicates are the writer's own risk (RULING-9's first half). Nothing in the code, the manifest schema, the binder UI or the guide says so, and `ListAllLinksTool:43-44` concedes the opposite in a comment ('caller should be using unique titles') without enforcing it — a comment is not a guard."
+    },
+    {
+      "id": "WIKI-D6",
+      "question": "Does the rewrite preserve the writer's own casing and spacing inside the brackets?",
+      "current_behaviour": "No. Matching is normalised (`trimmingCharacters` + `lowercased()`) and replacement is `\"[[\\(newTitle)]]\"` — the new title's exact casing with no padding. `test_caseInsensitiveMatch` asserts `[[chapter 1]]` and `[[CHAPTER 1]]` both become `[[The Opening]]`; `test_whitespaceInsideBracketsTrimmed` asserts `[[  Chapter 1  ]]` becomes `[[Opening]]`. Both are intentional. The sharpest instance is a case-ONLY rename: `oldTitle != newTitle` is a plain string comparison, so renaming 'chapter one' → 'Chapter One' fires propagation and rewrites the casing of every occurrence in the writer's prose while changing nothing else.",
+      "writer_visible_consequence": "A writer who wrote 'as we saw in [[chapter one]], the fog…' deliberately lower-case mid-sentence has their sentence recapitalised by a binder action. The link text is not metadata — it is the visible words of the paragraph, in the writer's voice.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Binder → rename → renameStructureItem (guard is `oldTitle != newTitle`, which a case change satisfies) → propagateWikiLinkRename → WikiLinkRewriter.rewrite → output.replaceSubrange(outerRange, with: \"[[\\(newTitle)]]\")."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "When Maugham repairs a link on the writer's behalf, it changes what the link POINTS AT and never how the writer wrote it. Casing and spacing the writer chose inside the brackets are the writer's prose and survive the repair; if a link's display form and its target must diverge, that is a feature to design, not a change to make silently.",
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "Three near-misses, all out of scope, which is why this is NOT_SETTLED and not a root finding. RULING-6 is about formatting CONVENTIONS (smart quotes, form conventions) — a link repair is not a formatting convention, so it does not reach. RULING-18 reaches the FACT of propagation (the guide at structure-and-binder.md:33 discloses it, so the writer opted in) but not the casing sub-decision, which is disclosed nowhere. RULING-4 is satisfied, not violated: routing through the op log (WikiLinkRenameOpLogTests) means the authored form is recoverable by rewind. Falsify the proposal by showing writers expect link text to track the target's canonical name — Obsidian's default does, and a reasonable owner could rule that way; that is precisely why this needs ruling rather than assuming."
+    },
+    {
+      "id": "WIKI-D7",
+      "question": "May a document title contain characters that make the link Maugham writes unreadable?",
+      "current_behaviour": "Yes, unchecked. `newTitle` comes straight from the binder's inline rename TextField with no validation, is stored verbatim in the manifest, and is interpolated verbatim into `\"[[\\(newTitle)]]\"`. Rename 'Chapter 1' → 'Notes [draft]' and the writer's prose now reads `[[Notes [draft]]]`, which neither grammar can read: the tokenizer's `\\[\\[([^\\[\\]\\n]+?)\\]\\]` cannot cross the inner `[`, so it is not a link and does not paint or click, and the rewriter's identical pattern cannot find it either — so a SECOND rename cannot repair it. The link is permanently orphaned by one keystroke. A title containing `]]` is worse: it splices, and can manufacture a bracket pair the writer never typed.",
+      "writer_visible_consequence": "Maugham writes into the writer's manuscript a string the writer did not type, which is not a link, which no longer navigates, and which no subsequent rename can undo. Recovery is manual, per occurrence, across every document.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Binder → double-click to rename → type any title containing `[`, `]` or a newline (nothing rejects it; Slugifier strips them for the FILENAME only, the title keeps them) → renameStructureItem → propagateWikiLinkRename → WikiLinkRewriter.rewrite line 46."
+      },
+      "classification": "SETTLED_BY_ROOT_ONLY",
+      "ruling": "RULING-20",
+      "clause_that_does_the_work": "\"where it cannot be parsed, be NON-DESTRUCTIVE and easy to recover from\"",
+      "what_a_sub_ruling_would_need_to_say": "A sub-ruling would have to say: Maugham never writes into the writer's manuscript a link it cannot read back, and a title that would produce one is refused at the field where it is typed, with the reason named. RULING-1 is one word away from reaching this and does not — its scope is content Maugham 'cannot read back faithfully' at an entry point, and Maugham CAN read the title back faithfully as a title; the thing it cannot read back is the link it derives from it later. That gap between 'the content I accepted' and 'the content I then wrote on your behalf' is what a sub-ruling has to close, and it is the same gap that lets WIKI-D5 through.",
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "If RULING-1's scope is read to include content derived from an entry point's input, it reaches and this is SETTLED_BY_SUB with a clean 'refusal visible at entry' remedy. I read it narrowly per discipline 1 (show the case is in scope) — the title itself round-trips. A ruling-set owner could rule either way, and which way they rule decides whether the fix is a validated rename field or an escaped rewriter."
+    },
+    {
+      "id": "WIKI-D8",
+      "question": "Is `[[Chapter 1]]` inside a code span a link, and may a rename edit it?",
+      "current_behaviour": "It is not a link, and a rename edits it anyway. `MarkdownTokenizer` runs the inline-code pass (line 90) BEFORE the wiki-link pass (line 133) and `addMatches` skips any candidate that intersects an already-claimed range — so in `` `[[Chapter 1]]` `` the bracket span is claimed as `.code`, no `.wikiLink` token is emitted, it does not paint as a link and `wikiLinkTitle(atCharacterIndex:)` returns nil so clicking does nothing. `WikiLinkRewriter` has no notion of code at all and rewrites it. (The two agree about FENCED blocks — the tokenizer does not handle fences either — so the disagreement is specific to inline code.)",
+      "writer_visible_consequence": "A writer who set a stretch of literal text in backticks — the deliberate way to say 'these characters, as characters' — has it silently edited by a rename. The one gesture Markdown offers for 'do not interpret this' is honoured by the surface that reads and ignored by the surface that writes.",
+      "reachability": {
+        "rating": "LATENT",
+        "call_path": "Editor → type `` `[[Chapter 1]]` `` in a manuscript document (traced: MarkdownTokenizer.tokenize → inline-code pass claims the range → addMatches overlap-skip drops the wikiLink token). Binder → rename Chapter 1 → propagateWikiLinkRename → WikiLinkRewriter.rewrite, which matches the same span. Rated LATENT rather than LIVE because literal backticked bracket text is uncommon in prose and screenplay manuscripts — the path is certain, the occasion is rare."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-8",
+      "clause_that_does_the_work": "\"where the SAME writer question is answered in more than one place, it has ONE answer\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "Discipline 2 is the live risk: are these the same question? I claim yes — 'is this text a wiki link?' — because the tokenizer's answer drives navigation as well as paint (EditorSurface:500 routes clicks through `wikiLinkTitle`), so it is a semantic ruling and not a styling one. Falsify by establishing that the tokenizer's code-span precedence is a rendering artefact rather than a decision about meaning, in which case the two paths answer different questions and may legitimately differ."
+    },
+    {
+      "id": "WIKI-D9",
+      "question": "When propagation fails for one document, is the writer told their rename was partial?",
+      "current_behaviour": "No. `propagateWikiLinkRename` is non-throwing by design; a `Document.load` failure is written to `projectStoreLog.error` and the loop `continue`s. Nothing propagates to the UI. `BinderView.rename` sets `pendingError` only from `renameStructureItem` throwing, which this cannot do. The rename completes, the row shows the new title, and the guide has already promised the writer that 'the wiki links in other documents update automatically'.",
+      "writer_visible_consequence": "A rename that half-worked is presented as a rename that worked. The writer has no way to learn that Chapter 9's links were left stale, and no list of what to check — the only record is in a log they will never read.",
+      "reachability": {
+        "rating": "LATENT",
+        "call_path": "Binder → rename → propagateWikiLinkRename → `Document.load` throws for one document (file removed out of band, iCloud eviction, permissions, a corrupt op log) → catch → projectStoreLog.error + continue → renameStructureItem returns normally → BinderView.rename's catch is never entered. Traced end to end; rated LATENT because it needs an I/O failure to occur."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-7",
+      "clause_that_does_the_work": "\"never misrepresent a failure … a refusal names its real cause. Scope: WRITER-FACING surfaces\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "RULING-19 pulls the other way and must be answered: 'lower layers protect the system and data silently'. If propagation is a lower layer, silence is correct. It is not — the binder rename is the entry point, it is writer-facing, and RULING-19's own parenthesis ('a lower-layer repair means a guard above did not fire') describes silent repair, not silent ABANDONMENT of promised work. Note also that the decision to skip rather than abort is right and should not be undone (one bad document must not unwind the rename); the finding is only about the silence. Falsify by showing a stated position that best-effort propagation is not part of what the rename promises — the guide says the opposite."
+    },
+    {
+      "id": "WIKI-D10",
+      "question": "Should the renamed document's OWN body be rewritten?",
+      "current_behaviour": "No — `propagateWikiLinkRename(excludeId: id, …)` skips it, justified in the comment at ProjectStore+Structure.swift:369-373: 'its body could contain self-references in either form, and the resolver's case-insensitive title match handles those naturally on the next render.' That justification does not hold. After the rename the document's title IS the new one, so a self-link still reading `[[Chapter 1]]` no longer matches it under any casing and resolves to nothing — or, worse, to a DIFFERENT document later given that title, since `findFirstByTitle` returns the first depth-first match with no id check.",
+      "writer_visible_consequence": "One document in the project is exempt from the repair, and it is the one the writer just acted on. Its self-links go dead; and if the writer later reuses the old title elsewhere, a link inside the renamed chapter silently starts pointing at a different chapter.",
+      "reachability": {
+        "rating": "LATENT",
+        "call_path": "Editor → type `[[Chapter 1]]` inside the document titled 'Chapter 1' (a scene index, a running note-to-self) → Binder → rename it → renameStructureItem → propagateWikiLinkRename(excludeId: id) skips it. The silent-repoint escalation needs a second rename giving another document the old title. Traced; rated LATENT because self-links are unusual."
+      },
+      "classification": "SETTLED_BY_SUB",
+      "ruling": "RULING-8",
+      "clause_that_does_the_work": "\"where the SAME writer question is answered in more than one place, it has ONE answer\"",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "The exclusion may well be defensible for a different reason than the one written down (the renamed document is often the one open and mid-edit — WIKI-D4's problem). If so the behaviour is right and the COMMENT is the defect. Falsify by producing that reason as a stated position; what cannot stand is the stated reason, which asserts a resolver behaviour the resolver does not have."
+    },
+    {
+      "id": "WIKI-D11",
+      "question": "May renaming one document cause Maugham to open, bootstrap and re-write every document in the project the writer has never opened?",
+      "current_behaviour": "Yes, and deliberately. The cheap pre-check reads `derivedCache.materialize(forDocId:in:)`, whose contract is 'Empty string when the doc has no ops' — so EVERY never-opened document materialises to \"\" regardless of what is in its file. The guard `if !preCheckBody.isEmpty, rewrite(…) == nil { continue }` therefore falls through for all of them into `Document.load`, which runs `Bootstrap.run` (minting `¶id` anchors and an op log) and then `close()`, which 'flushes the burst so the .md + op log are durable'. The comment names the trade honestly: skipping would 'silently miss the rename'.",
+      "writer_visible_consequence": "One rename touches every file in a 60-chapter imported manuscript — op logs appear under `.maugham/ops/` for documents never opened, and each `.md` is re-rendered from the derived form. For a writer whose manuscript folder is in git, Dropbox or Time Machine, a rename shows up as the whole book changing. Any imprecision in the derived render lands on all of them at once, in a single act, before the writer has ever looked at any of them.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Open an existing folder of .md chapters as a project → Binder → rename any one document → renameStructureItem → propagateWikiLinkRename → for each other doc: derivedCache.materialize returns \"\" (no ops) → falls through the isEmpty guard → Document.load (Bootstrap.run) → close(). Every never-opened document in the project, on every rename."
+      },
+      "classification": "SETTLED_BY_ROOT_ONLY",
+      "ruling": "RULING-9",
+      "clause_that_does_the_work": "\"what Maugham does on their behalf is Maugham's\"",
+      "what_a_sub_ruling_would_need_to_say": "A sub-ruling would have to say when Maugham may write to a file the writer has not asked it to touch — that bookkeeping arrives with the writer's attention, not ahead of it, or else that project-wide materialisation is an explicit act with its own moment. Note that RULING-11 does NOT reach this, though it is the obvious candidate: its scope is invisible bookkeeping ALTERING the writer's intent, and minting anchors at an unexpected moment alters nothing by itself. It would reach only if the derived re-render is lossy against the original hand-written file — which is another module's question and which I did not measure.",
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "PRINCIPLE-2 is the real test: if the re-render is faithful and the only cost is mtimes and sidecar growth, this violates no ruling and is CORRECT however unpleasant it looks in a git diff. Falsify by measuring a round-trip of a hand-authored .md through Bootstrap + close and finding it byte-identical — then this entry is a wish and should be struck. Note the design choice itself is sound: the alternative (trusting the empty pre-check) would silently miss renames, which is strictly worse."
+    }
+  ],
+  "notes": "ON THE HYPOTHESIS UNDER TEST. Eleven decisions: six reach a sub-ruling, three reach a root only, two are unsettled. The sub-rulings did real work — but almost all of it was done by ONE of them. RULING-8 alone settles five of the six (D1, D2, D3, D8, D10), which is worth flagging: this module is a rewriter and a resolver, and nearly every question it raises is 'the same writer question answered twice'. RULING-7 settles one, and RULING-8's own escape clause ('two situations that merely look alike may legitimately differ') is doing quiet load-bearing work against several — it is the clause a defender reaches for every time, and it has no stated test for when it applies. If one sub-ruling wants sharpening, it is that one.\n\nWHERE THE SET IS ACTUALLY THIN. The three root-only findings share a shape the sub-rulings never address: Maugham deriving new content FROM something the writer typed and writing it back into their prose. RULING-1 guards what comes IN at an entry point. RULING-11 guards bookkeeping that must not alter intent. Nothing guards the middle — a derived write, on the writer's behalf, into the writer's own words. D5 (ambiguous target), D7 (unreadable derived link) and D4 (collateral cost of the write) are all that same gap seen from three sides. A single sub-ruling about derived writes into authored text would settle all three, and it is the most valuable thing this module suggests adding.\n\nRULING-18 AND RULING-11, THE TWO THE TASK NAMED. Neither turned out to be the interesting one, and the reasons are worth recording. RULING-11 does not reach ANY finding here: its scope is invisible bookkeeping (anchors, structural framing), and wiki-link propagation is a disclosed product feature the writer invokes — not bookkeeping. Applying it here would be reasoning by symptom (both edit prose the writer did not edit) rather than by scope, which is discipline 1's exact failure mode. RULING-18 DOES reach, and settles less than it appears to: the guide discloses propagation (structure-and-binder.md:33, 'Rename Chapter 2 in the binder and the wiki links in other documents update automatically'), so the rewrite is the writer's edit and its EXISTENCE is not a defect. But 'the writer opted into X' cannot be stretched to cover every detail of how X behaves — they did not opt into casing normalisation (D6), into code spans being rewritten (D8), into ambiguous targets being repointed (D5), or into losing their undo stack (D4). RULING-18 legitimises the feature and settles none of its edges. That is a clean instance of the roots-explain-everything worry appearing one level down, in a sub-ruling.\n\nTHINGS THE CODE GETS RIGHT, recorded so they are not mistaken for gaps. (1) Routing the rewrite through the op log rather than a raw String.write is what keeps RULING-4 satisfied throughout — the authored form of every rewritten link is recoverable by rewind. WikiLinkRenameOpLogTests exists precisely to hold that line and it holds. (2) RULING-13 is NOT violated by the rewrite: `setFullText` → `RenderFilter.restorePairs` has a word-shingle tier below exact match, so a paragraph whose only change is a link title keeps its id and its annotations rather than going stale. (3) Skipping a failed document rather than aborting the whole rename is right; only the silence about it (D9) is wrong. (4) `propagateWikiLinkRename` being non-throwing is a deliberate and correct choice — an I/O hiccup must not unwind a completed rename.\n\nSCOPE NOTE. The three named files are 105 lines and inert on their own — `WikiLinkRewriter` is pure and has exactly one caller. Every product decision in this module lives at the seam between it and `ProjectStore+Structure.swift:369-464`, the tokenizer, and `ListAllLinksTool`. I read those but confined findings to behaviour the wiki-link layer determines."
+}

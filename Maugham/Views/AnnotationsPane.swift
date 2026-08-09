@@ -16,6 +16,11 @@ struct AnnotationsPane: View {
     @State private var rejectSheet: Annotation?
     @State private var querySheet: Annotation?
     @State private var staleConfirm: Annotation?
+    /// A suggestion whose accept was REFUSED because its quoted phrase is no
+    /// longer in the paragraph (RULING-5). Drives the told-why alert; the
+    /// refusal itself is `Document.acceptAnnotation`'s throw — this state only
+    /// makes it audible.
+    @State private var anchorLostNotice: Annotation?
     /// The accepted suggestion pending a revert confirmation — set when the
     /// paragraph's text drifted since the accept, so reverting would clobber
     /// the intervening edits (mirror of `staleConfirm` on the accept path).
@@ -117,7 +122,8 @@ struct AnnotationsPane: View {
         VStack(spacing: 0) {
             toolbar
             Divider()
-            if visibleAnnotations.isEmpty {
+            let deletedNotes = showResolved ? document.withdrawnAnnotations() : []
+            if visibleAnnotations.isEmpty && deletedNotes.isEmpty {
                 ContentUnavailableView(
                     "No annotations",
                     systemImage: "bubble.left.and.bubble.right",
@@ -125,10 +131,12 @@ struct AnnotationsPane: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
+                    let livePids = Set(document.sequence)
                     LazyVStack(spacing: 0) {
                         ForEach(visibleAnnotations) { ann in
                             AnnotationRow(
                                 annotation: ann,
+                                revertIsEnabled: AnnotationRowPolicy.revertEnabled(ann, livePids: livePids),
                                 showingStet: stetIds.contains(ann.id),
                                 isOwn: AnnotationOwnership.isOwn(
                                     ann, localName: userPreferences.collaboratorDisplayName),
@@ -139,8 +147,37 @@ struct AnnotationsPane: View {
                                 onEdit: { editSheet = ann },
                                 onWithdraw: { withdrawConfirm = ann },
                                 onRevert: { revert(ann) },
+                                onReopen: {
+                                    Task { try? await document.reopenAnnotation(id: ann.id, undoManager: undoManager) }
+                                },
                                 onJumpToParagraph: { jump(ann) })
                             Divider()
+                        }
+                        // RULING-34: delete is normalised for annotations too.
+                        // The writer's withdrawn notes are findable here and
+                        // restorable — not gone at one expired ⌘Z's mercy.
+                        if showResolved {
+                            let deleted = deletedNotes
+                            if !deleted.isEmpty {
+                                Text("Deleted")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12).padding(.top, 10)
+                                ForEach(deleted, id: \.id) { note in
+                                    HStack(spacing: 8) {
+                                        Text(note.body)
+                                            .font(.callout).foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                        Spacer()
+                                        Button("Restore") {
+                                            Task { try? await document.reopenAnnotation(id: note.id) }
+                                        }
+                                        .buttonStyle(.bordered).controlSize(.small)
+                                    }
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    Divider()
+                                }
+                            }
                         }
                     }
                 }
@@ -168,13 +205,23 @@ struct AnnotationsPane: View {
         ) {
             Button("Apply anyway") {
                 if let ann = staleConfirm {
-                    Task { try? await document.acceptAnnotation(id: ann.id, undoManager: undoManager) }
+                    Task { await performAccept(ann) }
                 }
                 staleConfirm = nil
             }
             Button("Cancel", role: .cancel) { staleConfirm = nil }
         } message: {
             Text("Applying this suggestion will replace the current paragraph text with the originally-proposed replacement.")
+        }
+        .alert(
+            "This suggestion can no longer be applied",
+            isPresented: Binding(
+                get: { anchorLostNotice != nil },
+                set: { if !$0 { anchorLostNotice = nil } })
+        ) {
+            Button("OK") { anchorLostNotice = nil }
+        } message: {
+            Text(anchorLostMessage)
         }
         .alert(
             "Paragraph has changed since this suggestion was accepted",
@@ -267,7 +314,33 @@ struct AnnotationsPane: View {
             staleConfirm = ann
             return
         }
-        Task { try? await document.acceptAnnotation(id: ann.id, undoManager: undoManager) }
+        Task { await performAccept(ann) }
+    }
+
+    private var anchorLostMessage: String {
+        let quoted: String
+        if let quote = anchorLostNotice?.span?.quote, !quote.isEmpty {
+            quoted = " (\u{201C}\(quote)\u{201D})"
+        } else {
+            quoted = ""
+        }
+        return "The passage it would replace\(quoted) is no longer in the "
+            + "paragraph, so applying it could put the replacement in the wrong "
+            + "place. The suggestion stays open — ask Claude for a fresh one "
+            + "against the current text."
+    }
+
+    /// The one accept executor for suggestion-capable paths: a refusal for a
+    /// lost span anchor (RULING-5) is surfaced, never swallowed — `try?` here
+    /// would be the M5-AN-050 silence back again.
+    private func performAccept(_ ann: Annotation) async {
+        do {
+            try await document.acceptAnnotation(id: ann.id, undoManager: undoManager)
+        } catch let error as AnnotationAcceptError where error == .suggestionAnchorLost {
+            anchorLostNotice = ann
+        } catch {
+            documentLog.error("acceptAnnotation failed for \(ann.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func reject(_ ann: Annotation, reason: String) {
@@ -364,8 +437,22 @@ struct AnnotationsPane: View {
 }
 
 @MainActor
+/// Row-level control policy — pure, so RULING-35's no-dead-controls rule is
+/// testable without mounting the pane.
+enum AnnotationRowPolicy {
+    /// Revert makes sense only for an accepted suggestion whose anchor
+    /// paragraph still exists — an enabled Revert that silently does nothing
+    /// was the M5-AN-030 defect.
+    static func revertEnabled(_ ann: Annotation, livePids: Set<String>) -> Bool {
+        guard ann.status == .accepted, ann.kind == .suggestedChange,
+              let pid = ann.paragraphId else { return true }
+        return livePids.contains(pid)
+    }
+}
+
 struct AnnotationRow: View {
     let annotation: Annotation
+    var revertIsEnabled: Bool = true
     var showingStet: Bool = false
     /// True iff this is the local reviewer's own human annotation — gates the
     /// Edit + Delete (withdraw) affordances. Claude's / other humans' rows
@@ -378,6 +465,9 @@ struct AnnotationRow: View {
     var onEdit: () -> Void = {}
     var onWithdraw: () -> Void = {}
     var onRevert: () -> Void = {}
+    /// RULING-29: resolution is the writer's to reverse, from the surface that
+    /// shows it — rendered for archived/rejected rows.
+    var onReopen: () -> Void = {}
     let onJumpToParagraph: () -> Void
 
     var body: some View {
@@ -386,6 +476,14 @@ struct AnnotationRow: View {
             Text(annotation.body)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
+            if let reason = annotation.previousRejectionReason, !reason.isEmpty {
+                // RULING-31: the writer's rejection reason is part of the
+                // note's history and stays visible after a reopen.
+                Text("Previously rejected: \(reason)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .italic()
+            }
             if annotation.kind == .suggestedChange {
                 diffCard
             }
@@ -522,6 +620,13 @@ struct AnnotationRow: View {
     @ViewBuilder
     private var actionRow: some View {
         HStack(spacing: 8) {
+            if annotation.status == .archived || annotation.status == .rejected {
+                // RULING-29: any archived or rejected annotation can be
+                // reopened from the pane. (An accepted suggestion keeps its
+                // Revert below — reopening it is Revert's job, text included.)
+                Button("Reopen", action: onReopen).buttonStyle(.bordered)
+                    .help("Return this to the open list — resolution is yours to reverse (⌘Z re-applies it)")
+            } else {
             switch annotation.kind {
             case .comment:
                 Button("Got it", action: onAccept).buttonStyle(.borderedProminent)
@@ -533,7 +638,10 @@ struct AnnotationRow: View {
                     // ⌘Z only reaches the MOST RECENT accept; this reaches
                     // any accepted suggestion at any time.
                     Button("Revert", action: onRevert).buttonStyle(.bordered)
-                        .help("Restore the pre-accept text and reopen this suggestion")
+                        .disabled(!revertIsEnabled)
+                        .help(revertIsEnabled
+                              ? "Restore the pre-accept text and reopen this suggestion"
+                              : "Its paragraph was deleted — there is nothing to revert into")
                 } else {
                     Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
                     Button("Reject\u{2026}", action: onReject).buttonStyle(.bordered)
@@ -546,6 +654,7 @@ struct AnnotationRow: View {
                 Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
                 Button("Reject\u{2026}", action: onReject).buttonStyle(.bordered)
                 Button("Archive", action: onArchive).buttonStyle(.bordered)
+            }
             }
             if isOwn {
                 Spacer(minLength: 4)

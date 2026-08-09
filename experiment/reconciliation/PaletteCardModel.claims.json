@@ -1,0 +1,282 @@
+[
+ {
+  "claim_id": "M1-T-018",
+  "scope": "PaletteCard",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "a card whose body contains a local inline image satisfies parse(render(card)) == card"
+ },
+ {
+  "claim_id": "M1-T-020",
+  "scope": "PaletteCard",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "a card whose body contains a remote inline image satisfies parse(render(card)) == card"
+ },
+ {
+  "claim_id": "M1-T-022",
+  "scope": "PaletteCard",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "leading indentation on body lines survives render->parse byte-for-byte"
+ },
+ {
+  "claim_id": "M1-T-023",
+  "scope": "PaletteCard",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "an interior run of more than one blank line inside body survives render->parse byte-for-byte"
+ },
+ {
+  "claim_id": "M1-T-024",
+  "scope": "PaletteCard",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "trailing spaces on body lines survive render->parse byte-for-byte"
+ },
+ {
+  "claim_id": "M1-T-025",
+  "scope": "PaletteCard",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "exactly one leading blank line is structural framing; a body starting with a blank line beyond that pair survives the round trip"
+ },
+ {
+  "claim_id": "M1-T-026",
+  "scope": "PaletteCard",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "exactly one trailing blank line is structural framing; a body ending with a blank line beyond that pair survives the round trip"
+ },
+ {
+  "claim_id": "M1-T-027",
+  "scope": "PaletteCard.color(fromHex:)",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "a well-formed 6-digit `#RRGGBB` string returns a non-nil triple"
+ },
+ {
+  "claim_id": "M1-T-028",
+  "scope": "PaletteCard.color(fromHex:)",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "a 3-digit `#RGB` string is accepted and expanded by digit doubling; hex digits are case-insensitive"
+ },
+ {
+  "claim_id": "M1-T-029",
+  "scope": "PaletteCard.color(fromHex:)",
+  "kind": "PRECONDITION",
+  "warrant": "HIGH",
+  "statement": "a string without a leading `#` returns nil"
+ },
+ {
+  "claim_id": "M1-T-030",
+  "scope": "PaletteCard.color(fromHex:)",
+  "kind": "PRECONDITION",
+  "warrant": "CONTRADICTED",
+  "statement": "a string with non-hex digits returns nil"
+ },
+ {
+  "claim_id": "M1-T-031",
+  "scope": "PaletteCard.color(fromHex:)",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "channels are normalised to 0...1 by dividing the byte by 255, so `#FF0000` yields r == 1.0"
+ },
+ {
+  "claim_id": "M1-T-032",
+  "scope": "PaletteCard",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "a fully-populated card (title, kind, swatches, tagged+untagged notes, in- and out-of-directory images, multi-paragraph body) satisfies parse(render(card)) == card"
+ },
+ {
+  "claim_id": "M1-T-033",
+  "scope": "PaletteCard",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "a card with every collection empty and an empty body satisfies parse(render(card)) == card"
+ },
+ {
+  "claim_id": "M1-T-034",
+  "scope": "PaletteCardRenderer.render",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "an image path under cardDirectory is emitted card-relative with a `./` prefix"
+ },
+ {
+  "claim_id": "M1-T-035",
+  "scope": "PaletteCardRenderer.render",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "the rendered markdown never contains the project-relative form of an image path"
+ },
+ {
+  "claim_id": "M1-T-036",
+  "scope": "PaletteCardRenderer.render",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "swatch hex is normalised to uppercase on render regardless of the model's case"
+ },
+ {
+  "claim_id": "M1-T-037",
+  "scope": "PaletteCard",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "a body containing an UNKNOWN `## ` heading round-trips: the parser must not truncate body at a heading-like line"
+ },
+ {
+  "claim_id": "M1-T-038",
+  "scope": "PaletteCard",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "a body line spelling `kind: ...` round-trips as body text"
+ },
+ {
+  "claim_id": "M1-T-040",
+  "scope": "PaletteCard",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "a body line beginning `- ` round-trips as body prose and is not captured as a list item"
+ },
+ {
+  "claim_id": "M1-T-043",
+  "scope": "PaletteCardRenderer.render",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "dropping an untagged-empty note does not disturb the surviving notes' order or content"
+ },
+ {
+  "claim_id": "M1-T-044",
+  "scope": "PaletteCardRenderer.render",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "a TAGGED note with empty text is kept, rendered as `- <sense>: `, and round-trips"
+ },
+ {
+  "claim_id": "M1-T-045",
+  "scope": "PaletteCardRenderer.relativize",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "a path under `directory` becomes `./` + the remainder"
+ },
+ {
+  "claim_id": "M1-T-046",
+  "scope": "PaletteCardRenderer.relativize",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "a path outside `directory` gets one `../` per uncommon trailing directory component"
+ },
+ {
+  "claim_id": "M1-T-047",
+  "scope": "PaletteCard.Sense",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "Sense.allCases raw values are the single sense vocabulary; downstream surfaces derive from it rather than hard-coding a literal, so adding a case propagates automatically"
+ },
+ {
+  "claim_id": "M1-T-048",
+  "scope": "PaletteCard.Sense",
+  "kind": "INVARIANT",
+  "warrant": "MEDIUM",
+  "statement": "the DECLARATION ORDER of Sense is sight, sound, smell, touch, taste, and that order is load-bearing for downstream grouping/display"
+ },
+ {
+  "claim_id": "M1-C-001",
+  "scope": "PaletteCard.color(fromHex:)",
+  "kind": "PRECONDITION",
+  "warrant": "LOW",
+  "statement": "hex bodies of any length other than 3 or 6 characters are rejected"
+ },
+ {
+  "claim_id": "M1-C-002",
+  "scope": "PaletteCard.color(fromHex:)",
+  "kind": "PRECONDITION",
+  "warrant": "LOW",
+  "statement": "surrounding or interior whitespace is not tolerated and yields nil"
+ },
+ {
+  "claim_id": "M1-C-004",
+  "scope": "PaletteCard.color(fromHex:)",
+  "kind": "PRECONDITION",
+  "warrant": "LOW",
+  "statement": "a leading '-' is rejected"
+ },
+ {
+  "claim_id": "M1-C-005",
+  "scope": "PaletteCard.color(fromHex:)",
+  "kind": "PRECONDITION",
+  "warrant": "LOW",
+  "statement": "non-ASCII digit forms (fullwidth, Arabic-Indic) are rejected"
+ },
+ {
+  "claim_id": "M1-C-006",
+  "scope": "PaletteCard.color(fromHex:)",
+  "kind": "PRECONDITION",
+  "warrant": "LOW",
+  "statement": "the empty string is rejected"
+ },
+ {
+  "claim_id": "M1-C-007",
+  "scope": "PaletteCard.color(fromHex:)",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "the 3-digit form expands by digit doubling and agrees exactly with the equivalent 6-digit form, case-insensitively"
+ },
+ {
+  "claim_id": "M1-C-040",
+  "scope": "PaletteCardRenderer.render",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "the canonical render of an empty card is a fixed byte string with two blank lines between empty sections"
+ },
+ {
+  "claim_id": "M1-C-042",
+  "scope": "PaletteCard.Sense",
+  "kind": "INVARIANT",
+  "warrant": "LOW",
+  "statement": "Sense declaration order is [sight, sound, smell, touch, taste] and Kind is [location, character, motif, other]"
+ },
+ {
+  "claim_id": "M1-C-047",
+  "scope": "PaletteCard",
+  "kind": "INVARIANT",
+  "warrant": "LOW",
+  "statement": "a body spelling a KNOWN section heading loses that body on the first pass (claimed by section detection, any inline image harvested) and is stable from the second pass on"
+ },
+ {
+  "claim_id": "M1-C-048",
+  "scope": "PaletteCardRenderer.relativize",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "a path EQUAL to the directory climbs out and comes back in ('research/palette' from 'research/palette' -> '../palette')"
+ },
+ {
+  "claim_id": "M1-C-049",
+  "scope": "PaletteCardRenderer.relativize",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "an empty path produces a bare climb ('../../')"
+ },
+ {
+  "claim_id": "M1-C-050",
+  "scope": "PaletteCardRenderer.relativize",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "an empty directory yields the './' form"
+ },
+ {
+  "claim_id": "M1-C-051",
+  "scope": "PaletteCardRenderer.relativize",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "one '../' is emitted per uncommon directory component"
+ },
+ {
+  "claim_id": "M1-C-052",
+  "scope": "PaletteCardRenderer.relativize",
+  "kind": "INVARIANT",
+  "warrant": "LOW",
+  "statement": "a sibling directory sharing a textual prefix ('research/paletteX') is not confused for the directory itself"
+ }
+]

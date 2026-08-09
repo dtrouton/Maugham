@@ -140,6 +140,14 @@ Follow this without asking — the user has answered these questions enough time
 
 `InboxStore` owns `.maugham/inbox/` (per-device `inbox.<slug>.jsonl`, monotonic `writtenAt`). `InboxPane` is ⌘⌥B. `InboxTranscriptionWorker` runs an injected `Transcriber`; production is `WhisperKitTranscriber` (Apple-Silicon only). MCP scope is **read + promote only** (no add/trash from MCP).
 
+## Behavioural claims + rulings (`experiment/`)
+
+The behavioural specification is two layers under `experiment/` (start at `experiment/START-HERE.md`): **claims** — verified facts about what the code does, each pinned by a passing test — and **rulings** — Denver's product decisions about what *should* be true (`experiment/RULINGS.md`, generated; the ledger `experiment/01-claims-ledger.json` is the source of truth). `experiment/reconciliation/<Module>.{claims,filings}.json` covers `TrashStore` and `Document+Rewind`; MaughamCore's PaletteCard/TreeWalk claims run in CI as the `behavioural-claims` job, and the app-layer claim suites are **permanent residents of the Mac suite** at `MaughamTests/Claims/` — a red `TrashCharacterization`/`RewindCharacterization` test means pinned behaviour changed, and the register (not just the test) must move with it.
+
+- **Before changing behaviour in a module that has a claims file, read its filings.** A `VIOLATES` row is a known defect with a ruling behind it; a `COMPLIES` row is behaviour a ruling protects — do not "fix" it away.
+- **Fixing a filed defect means closing the loop in the same branch**: the fix plus a pinned production test, then update the claim and flip its filing `VIOLATES→COMPLIES` citing the fix commit. First exercised on M4-RW-002 ("Rewind to before this…" now lands before the op).
+- **Rulings are the operational refinement of `docs/constitution.md`** — scoped, falsifiable case-settling decisions under its principles; the precedence rule is in `experiment/RECONCILE.md`.
+
 ## Outstanding correctness concerns
 
 - **Watch for stray `project.pbxproj` edits in diffs.** `Maugham.xcodeproj/` is generated and gitignored; a pbxproj in a diff is a red flag.

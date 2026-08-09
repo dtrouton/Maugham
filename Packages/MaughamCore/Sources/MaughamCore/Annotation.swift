@@ -31,6 +31,11 @@ public struct Annotation: Equatable, Sendable, Identifiable {
     public let span: SpanAnchor?                 // sub-paragraph anchor, if any
     public let resolvedSpanRange: Range<Int>?    // re-resolved against live text
     public let language: String?                 // .query only: translation-pass language tag
+    /// RULING-31: after a reopen, the most recent rejection's written reason
+    /// stays part of the note's record — the pane shows it as
+    /// "previously rejected: …". Nil when the note was never rejected or is
+    /// not currently open.
+    public let previousRejectionReason: String?
 
     public init(
         id: String, kind: AnnotationKind, paragraphId: String?,
@@ -40,7 +45,8 @@ public struct Annotation: Equatable, Sendable, Identifiable {
         resolvedAt: Date?, isStale: Bool,
         author: AnnotationAuthor? = nil, span: SpanAnchor? = nil,
         resolvedSpanRange: Range<Int>? = nil,
-        language: String? = nil
+        language: String? = nil,
+        previousRejectionReason: String? = nil
     ) {
         self.id = id; self.kind = kind; self.paragraphId = paragraphId
         self.body = body; self.suggestedText = suggestedText
@@ -51,6 +57,7 @@ public struct Annotation: Equatable, Sendable, Identifiable {
         self.author = author; self.span = span
         self.resolvedSpanRange = resolvedSpanRange
         self.language = language
+        self.previousRejectionReason = previousRejectionReason
     }
 }
 

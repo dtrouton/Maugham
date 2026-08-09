@@ -1,0 +1,565 @@
+[
+ {
+  "claim_id": "M4-RW-001",
+  "scope": "Deriver.derive(ops:upTo:)",
+  "kind": "POSTCONDITION",
+  "statement": "cursor .now returns the full fold of every op",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_deriveUpTo_atOpIsInclusiveOfTheTargetOp"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — the modal opens on .now",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-002",
+  "scope": "Deriver.derive(ops:upTo:)",
+  "kind": "POSTCONDITION",
+  "statement": "cursor .atOp(id) derives the prefix THROUGH that op — the target op's own effect is APPLIED, not excluded",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_deriveUpTo_atOpIsInclusiveOfTheTargetOp"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — RewindWindow scrub positions; since the M4-RW-002 fix (7e5e486610, 2026-08-08) HistoryPane's 'Rewind to before this…' posts the PREDECESSOR op, so the inclusive boundary composes with the label instead of contradicting it",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-003",
+  "scope": "Deriver.derive(ops:upTo:)",
+  "kind": "POSTCONDITION",
+  "statement": "a cursor whose op id is not present in `ops` silently returns the FULL derivation — the requested moment is replaced by the present, with no signal of any kind",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_deriveUpTo_unknownOpId_silentlyReturnsThePresent"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LOWER LAYER ONLY since 6b15e905d8 (2026-08-09): restoreToOp resolves a vanished target to the nearest surviving moment before deriving, and RewindWindow's scrub only feeds loaded ops — no writer path reaches the deriver's defensive full-fold fallback",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-004",
+  "scope": "Deriver.derive(ops:upTo:)",
+  "kind": "POSTCONDITION",
+  "statement": "an empty op array derives an empty state under either cursor",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_deriveUpTo_emptyLog_isEmptyUnderEitherCursor"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — a freshly created document",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-005",
+  "scope": "Document.restoreToOp",
+  "kind": "POSTCONDITION",
+  "statement": "restoring to op X leaves X's own effect present in the document — the method's contract is 'the state it had immediately AFTER the op was applied', and the code matches its doc comment exactly",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_restoreToOp_landsAfterTheTargetOp_andStampsItsProvenance"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-006",
+  "scope": "Document.restoreToOp",
+  "kind": "POSTCONDITION",
+  "statement": "the appended op is a .checkpointRestore stamped provenance.synthesisSource = .rewind with sourceCheckpoint = the target op id (the field is overloaded: a past op id, not a checkpoint id)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_restoreToOp_landsAfterTheTargetOp_andStampsItsProvenance"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-007",
+  "scope": "Document.restoreToOp",
+  "kind": "POSTCONDITION",
+  "statement": "when the target IS the tip the restore is a genuine no-op: restoreOp is nil, the counts are equal, and the log is not extended",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_restoreToOp_targetIsTheTip_isAGenuineNoOp"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — RewindWindow deliberately ENABLES Restore on .atOp(latestOpId); RewindCursor.swift documents that as intentional",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-008",
+  "scope": "Document.restoreToOp",
+  "kind": "INVARIANT",
+  "statement": "a vanished target is DISTINGUISHABLE: the result's targetResolution carries .nearest(requested, restoredTo) and the restore lands on the greatest opId at-or-before the request — never silently on the present",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_restoreToOp_unknownTarget_isDistinguishableAndResolvesNearest + test_restoreToOp_vanishedMidHistoryTarget_restoresToNearestBefore"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-27); fixed 2026-08-09",
+  "reachability": "UNTRACED as a writer gesture — same trace as M4-RW-003",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-009",
+  "scope": "Document.restoreToOp",
+  "kind": "POSTCONDITION",
+  "statement": "the result reports priorSequenceCount, newSequenceCount and the removed paragraph ids",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_restoreToOp_landsAfterTheTargetOp_andStampsItsProvenance"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-010",
+  "scope": "Document.restoreToOp",
+  "kind": "INVARIANT",
+  "statement": "the op log is append-only across a rewind: every pre-rewind op survives and the log strictly grows; nothing is truncated or compacted",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_rewind_isAppendOnly_andThePreRewindWordsStayDerivable"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — every rewind",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-011",
+  "scope": "Document.restoreToOp",
+  "kind": "INVARIANT",
+  "statement": "every word the rewind took away stays derivable at the pre-rewind tip: Deriver.derive(ops:upTo: preTip) reproduces the pre-rewind paragraphs exactly",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_rewind_isAppendOnly_andThePreRewindWordsStayDerivable"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-012",
+  "scope": "Document.restoreToOp",
+  "kind": "POSTCONDITION",
+  "statement": "rewinding FORWARD again returns the live document to the exact pre-rewind words",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_rewind_forwardAgain_returnsTheExactWords"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-013",
+  "scope": "Document.restoreToOp",
+  "kind": "POSTCONDITION",
+  "statement": "the orphan sweep archives every OPEN annotation anchored to a paragraph the rewind removed, and reports their op ids in archivedAnnotationOpIds",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_rewind_archivesOpenAnnotationsOnRemovedParagraphs_only"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — any rewind past the creation of an annotated paragraph",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-014",
+  "scope": "Document.restoreToOp",
+  "kind": "POSTCONDITION",
+  "statement": "an annotation on a paragraph that SURVIVES the rewind is untouched",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_rewind_archivesOpenAnnotationsOnRemovedParagraphs_only"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-015",
+  "scope": "Document.sweepOrphanedAnnotations",
+  "kind": "INVARIANT",
+  "statement": "the `ann.kind != .craftNote` carve-out cannot change any outcome: a craft note has NO paragraph anchor, so the `removed.contains` term is already false. Three independent sites force it doc-scoped — add_craft_note's MCP schema has no paragraph_id property and passes nil, Document.addAnnotation writes `changes: []` for .craftNote, and AnnotationDeriver forces paragraphId = nil for that kind regardless",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_craftNoteCarveOut_isUnreachableBecauseCraftNotesHaveNoAnchor"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "NOT REACHABLE — there is no surface that can give a craft note a paragraph anchor",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-016",
+  "scope": "Document.restoreToOp",
+  "kind": "INVARIANT",
+  "statement": "a document that has never had an annotation op gets no sweep flagged, and no stale removed-set leaks into an annotation created after a later rewind",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_rewind_onADocumentWithNoAnnotations_leavesNoStaleSweep"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-017",
+  "scope": "Document.restoreToOp",
+  "kind": "POSTCONDITION",
+  "statement": "an accepted suggestion whose changes-carrying accept lies PAST the target, on a paragraph that SURVIVES, is returned to .open by a changes-free .claudeAcceptRevert and reported in reopenedAnnotationOpIds — so the annotation's status and the manuscript text agree again",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_rewind_reopensAnAcceptWhoseParagraphSurvives"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — accept a suggestion, then rewind past the accept",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-018",
+  "scope": "Document.restoreToOp",
+  "kind": "POSTCONDITION",
+  "statement": "the same accept on a paragraph the rewind REMOVED is archived instead (a .claudeArchive), reported in archivedAnnotationOpIds — an open suggestion on a nonexistent paragraph would not be actionable",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_rewind_archivesAnAcceptWhoseParagraphWasRemoved"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-019",
+  "scope": "Document.restoreToOp",
+  "kind": "INVARIANT",
+  "statement": "rewinding FORWARD past the moment a paragraph was created brings the paragraph, the pane task AND the sweep-archived annotation back: the restore appends a `.rewind`-stamped `.annotationReopen` for every annotation whose latest lifecycle op is a rewind-stamped archive from an open status and whose anchor paragraph exists in the target state (RULING-25)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_forwardRewind_returnsTextTasks_andReopensWhatTheSweepArchived (copy, re-verified in place 2026-08-08) + production twin MaughamTests/Integration/RewindTravelReopenTests.test_forwardRewind_reopensTheCommentTheRewindArchived"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-25, Denver 2026-08-08)",
+  "reachability": "LIVE — two consecutive Restores from the rewind modal, the second targeting a later op",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Pinned the ASYMMETRY (comment stayed archived, permanently and silently) until fixed at 12d763c95a, 2026-08-08, under RULING-25"
+ },
+ {
+  "claim_id": "M4-RW-020",
+  "scope": "Document.restoreToOp",
+  "kind": "POSTCONDITION",
+  "statement": "rewoundTaskOps is true when task-lifecycle ops lie after the target and false on a forward rewind",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_forwardRewind_returnsTextAndTasks_butNotArchivedAnnotations"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-021",
+  "scope": "Document.restoreToOpUndoable",
+  "kind": "POSTCONDITION",
+  "statement": "a rewind that would change nothing costs nothing: restoreToOpUndoable establishes the genuine-no-op (no text delta, no task window) BEFORE the undo-stack clear and returns without touching the writer's typing history — the clear→mutate→register contiguity of the real-change path is unchanged",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_undoableRewind_aNoOpCostsNothing"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-37); fixed 2026-08-09",
+  "reachability": "LIVE — the modal's Restore button is enabled on .atOp(latestOpId) by design, which is exactly this case, one click away",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Pinned the unconditional removeAllActions (whole stack destroyed for a no-op, 'zero benefit' by the code's own comment) until fixed under RULING-37"
+ },
+ {
+  "claim_id": "M4-RW-022",
+  "scope": "Document.restoreToOpUndoable",
+  "kind": "POSTCONDITION",
+  "statement": "a target that does not exist in the log costs nothing (RULING-37) AND says so (RULING-27): the stack survives and the result names the nearest surviving moment it resolved to",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_undoableRewind_unknownTarget_costsNothing_andSaysSo"
+  },
+  "warrant": "HIGH",
+  "intent": "INCIDENTAL",
+  "reachability": "UNTRACED as a writer gesture — same trace as M4-RW-003",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-023",
+  "scope": "Document.restoreToOpUndoable",
+  "kind": "POSTCONDITION",
+  "statement": "a rewind that changes something leaves exactly ONE undo action, named 'Restore from History'",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_undoableRewind_leavesExactlyOneUndoAction"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-024",
+  "scope": "Document.restoreToOpUndoable",
+  "kind": "POSTCONDITION",
+  "statement": "one ⌘Z of that action returns the whole rewind — text, reopened accepts and sweep-archived annotations together",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_undoableRewind_leavesExactlyOneUndoAction"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-025",
+  "scope": "Document.restoreToOpUndoable",
+  "kind": "POSTCONDITION",
+  "statement": "the compensating restore is stamped .undoRewind, never .rewind, so it is invisible to TaskDeriver's rewind-window matcher and no second .rewind stamp appears",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_undoOfARewind_stampsItsCompensatingRestoreUndoRewind"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-026",
+  "scope": "Document.restoreToOpUndoable",
+  "kind": "ERROR",
+  "statement": "when the text has drifted since the restore the undo DECLINES: it leaves the drifted text alone, does not restore forward, throws nothing to the caller, and writes only to documentLog — the writer presses ⌘Z on a menu item reading 'Undo Restore from History' and nothing happens",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_undoOfARewind_declinesSilentlyWhenTextDriftedSince"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — a cross-device merge landing between the restore and the ⌘Z; directly exercised by the shipped RewindUndoTests.test_restore_undo_afterForeignOps_isLoudNoOp, where 'loud' means loud to the log",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-029",
+  "scope": "RewindRestoreResult",
+  "kind": "POSTCONDITION",
+  "statement": "the result carries every collateral effect the rewind caused — the removed paragraphs, the annotations archived, the ones reopened, whether tasks were rewound, and the sequence counts either side",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_theResultCarriesEveryCollateralEffectTheRewindCaused"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-030",
+  "scope": "Document.restoreToOp",
+  "kind": "POSTCONDITION",
+  "statement": "a rewind whose manuscript text is unchanged but whose range contains task-lifecycle ops still appends a marker .checkpointRestore with empty changes, so TaskDeriver can slice at the boundary and the pane task disappears",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_restoreToOp_textUnchangedButTaskOpsPast_appendsAMarkerAndRewindsTheTask"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-031",
+  "scope": "Document.restoreToOpUndoable",
+  "kind": "POSTCONDITION",
+  "statement": "redo re-runs restoreToOp from scratch rather than replaying, so a redo can never disagree with a fresh rewind",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RewindCharacterization.test_redoOfARewind_reRunsTheRestoreFromScratch"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-032",
+  "scope": "HistoryPane.predecessorIndex + the 'Rewind to before this…' deep-link",
+  "kind": "POSTCONDITION",
+  "statement": "'Rewind to before this…' resolves to the row op's immediate predecessor in the opId-ordered log, so the opened cursor derives state EXCLUDING the selected op's effect; the first op (no predecessor) offers no deep-link",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MaughamTests/Views/HistoryPaneRewindTargetTests.test_rewindBeforeThis_excludesTheTargetOpsOwnEffect — a PERMANENT production test, not an experiment copy: the fix's own regression net"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-22 disposition, Denver 2026-08-08)",
+  "reachability": "LIVE — every History row with a manuscript-mutating op and a predecessor",
+  "evidence": {
+   "property_test": null
+  },
+  "out_of_module_note": "Lives in Maugham/Views, not the three rewind files — added here because it is the composition claim that makes M4-RW-002's flipped filing honest"
+ },
+ {
+  "claim_id": "M4-RW-033",
+  "scope": "Document.restoreToOp — the return journey's scope guard",
+  "kind": "INVARIANT",
+  "statement": "an annotation the WRITER archived (no synthesisSource on the archive op) stays archived across a full backward-and-forward travel; only Maugham's own rewind-stamped archives reopen",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MaughamTests/Integration/RewindTravelReopenTests.test_writersOwnArchive_staysArchivedAcrossTravel"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — RULING-25's scope clause verbatim",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-034",
+  "scope": "Document.restoreToOpUndoable × the return journey",
+  "kind": "POSTCONDITION",
+  "statement": "undoing a forward travel re-archives what the travel reopened — via the compensating restore's own step-7 sweep, no bespoke undo work; redo re-runs the forward restore and reopens again. The return journey is gated to `.rewind` restores so the `.undoRewind` compensating restore never double-acts",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MaughamTests/Integration/RewindTravelReopenTests.test_undoOfTheForwardRewind_reArchivesWhatItReopened"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — ⌘Z after a forward Restore",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-035",
+  "scope": "Document.restoreToOp — step 9's accepted branch",
+  "kind": "POSTCONDITION",
+  "statement": "an accepted suggestion archived by the stranded-accept resolution returns to .accepted when a .rewind restore's target lies at-or-after its changes-carrying accept — via a status-only .rewind-stamped .claudeAccept preserving the original userResponse; the applied text is back via the restore fold",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MaughamTests/Integration/RewindTravelReopenTests.test_forwardTravelPastTheAccept_restoresTheSuggestionToAccepted"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-26, Denver 2026-08-08)",
+  "reachability": "LIVE — any forward Restore past a previously-rewound accept",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-036",
+  "scope": "Document.restoreToOp — step 9's accepted branch, the before-accept arm",
+  "kind": "POSTCONDITION",
+  "statement": "the same archived-accepted suggestion reopens to .open instead when the restore target lies after the paragraph's creation but BEFORE the accept — the change was unapplied at the travelled-to moment, and the manuscript at that target does not contain it",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MaughamTests/Integration/RewindTravelReopenTests.test_travelToBeforeTheAccept_reopensTheSuggestionToOpen"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-26's principle clause)",
+  "reachability": "LIVE — scrub anywhere in the creation→accept window",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-038",
+  "scope": "RewindImpact + RewindWindow footer + RewindModifier toast",
+  "kind": "POSTCONDITION",
+  "statement": "the confirm-time preview and the after-toast derive from ONE source of numbers (RewindImpact): the preview mirrors every class restoreToOp acts on — sweep archives, return-journey reopens and re-accepts, stranded-accept reopens, words — naming each non-zero class and omitting zero ones; the toast renders the actual result (ProjectWindow no longer discards it) and always names a .nearest resolution with Revert in the notice; Restore is disabled when changesAnything is false",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MaughamTests/RewindImpactTests (pure preview/summary/toast pins; the overlay rendering is view glue over the pinned formatter)"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-28 both halves; RULING-27's notice; RULING-37's view half)",
+  "reachability": "LIVE — every Restore from the rewind modal",
+  "evidence": {
+   "property_test": null
+  }
+ }
+]

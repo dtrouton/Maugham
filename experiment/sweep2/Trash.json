@@ -1,0 +1,228 @@
+{
+  "module": "Trash and restore",
+  "loc": 504,
+  "product_decisions": [
+    {
+      "id": "TRASH-D1",
+      "question": "When a restore's original location is now occupied by a different file, what happens to the writer's trashed item?",
+      "current_behaviour": "TrashStore.restore resolves meta.originalRelativePath and calls fm.moveItem(at:to:), which throws when the destination exists. The throw lands before removeItem(entryFolder), so the trash entry survives intact. TrashView surfaces the raw Cocoa string ('“02-chapter-3.md” couldn't be moved … because an item with the same name already exists'). There is no 'restore alongside', no rename-on-restore, no offer to reveal the trashed copy. Every subsequent Restore click fails identically.",
+      "writer_visible_consequence": "The writer deletes Chapter 3, writes a replacement, then decides they want the old one back. Restore refuses forever. Their words are on disk under .trash/ but there is no route to them from inside Maugham — only Finder, and .trash is a hidden dotfolder.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "BinderView.deleteItem → ProjectStore.deleteStructureItem → DocumentStore.trash → TrashStore.moveToTrash. Then binder 'New Document' → FileNaming.nextDocumentFilename: nextNN is max(existing NN)+1 over CURRENT siblings, and uniqueSlug only avoids CURRENT siblings — both the number and the slug of a just-deleted last item are free again, so a same-titled replacement lands on exactly the trashed path. Then TrashView row → Restore → ProjectStore.restoreTrashEntry → TrashStore.restore → fm.moveItem throws."
+      },
+      "classification": "SETTLED_BY_ROOT_ONLY",
+      "ruling": "RULING-20",
+      "clause_that_does_the_work": "where intent is unclear default SAFE; where it cannot be parsed, be NON-DESTRUCTIVE and easy to recover from",
+      "what_a_sub_ruling_would_need_to_say": "RULING-15 stops at 'moves it to trash, restorable' — it asserts the destination is restorable but says nothing about a restore that cannot complete. A sub-ruling would have to say: 'a restore blocked by something now standing in the deleted item's place must still hand the writer their item — restored beside the occupant under a distinguishing name, with both visible — never left as a refusal the writer has no way past.' The behaviour today is non-destructive (root's first half honoured) but not easy to recover from (root's second half not).",
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "Finding a UI affordance I missed that offers a rename-on-restore or a Reveal-in-Finder for a trash entry; or establishing that filename reuse cannot occur (it can — FileNaming.nextNN is computed from surviving siblings only)."
+    },
+    {
+      "id": "TRASH-D2",
+      "question": "When the keyboard command 'Restore Last Deleted Item' (⌘⌥Z) fails, is the writer told?",
+      "current_behaviour": "ProjectWindow.swift:574 is `try? await store?.restoreLastDeleted()`. Every error is discarded: a destination collision (D1), a missing entry file (TrashError.entryFileMissing), an unsafe originalRelativePath (TrashError.unsafeRelativePath), a malformed id. The command also silently no-ops when lastDeletedTrashId is nil (ProjectStore+Trash.swift:11, `guard let id … else { return }`). The same operation invoked from the Trash pane's context menu DOES show an alert (TrashView.swift:88).",
+      "writer_visible_consequence": "The writer presses ⌘⌥Z expecting their chapter back and nothing happens at all — no chapter, no message, no indication whether Maugham tried and failed or had nothing to restore. The three TrashError cases carry hand-written LocalizedError strings that name the real cause; the menu path throws every one of them away.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "MaughamApp.swift:267 Button('Restore Last Deleted Item', ⌘⌥Z) → MaughamEvent.post(.maughamRestoreLastDeleted, to: .keyWindow) → ProjectWindow.swift:572 onKeyWindowCommand → `try? await store?.restoreLastDeleted()`. Any of D1, D4 or D7 puts a real error on that path."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-7",
+      "clause_that_does_the_work": "never misrepresent a failure — unreadable is never shown as empty; a refusal names its real cause. Scope: WRITER-FACING surfaces",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "If a menu-command failure is judged not to be a 'refusal' in RULING-7's sense — but the three TrashError cases exist precisely to name a cause, and the sibling context-menu path shows them, which is also RULING-8 evidence that this is one writer question with two answers."
+    },
+    {
+      "id": "TRASH-D3",
+      "question": "After deleting five selected items in one gesture, what does 'Restore Last Deleted Item' bring back?",
+      "current_behaviour": "deleteResearchItems(ids:) trashes every effective id in a loop but keeps only `lastEntry`, and sets lastDeletedTrashId to that single entry (ProjectStore+Research.swift:488-497). ⌘⌥Z restores one item of the five. There is no batch token and no 'restore group'.",
+      "writer_visible_consequence": "The writer multi-selects five research notes, deletes them, realises immediately, presses ⌘⌥Z — one note reappears. The other four are recoverable only by finding each in the Trash pane, and nothing tells the writer that four are still missing.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "ResearchView.swift:129 (multi-selection delete) → ProjectStore.deleteResearchItems(ids:) → loop of trashResearchItemCore → lastDeletedTrashId = lastEntry.id. Then MaughamApp ⌘⌥Z → restoreLastDeleted → one entry. Same shape at CollectionResearchPane.swift:277."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "One delete gesture is one undo. Whatever the writer removed in a single action — one item or fifty — 'Restore Last Deleted Item' brings all of it back, or refuses and says why; it never returns part of a deletion and reports nothing about the rest.",
+      "confidence": "HIGH",
+      "what_would_falsify_it": "If the interview treated ⌘⌥Z as an explicit shortcut to a single most-recent entry rather than as undo-of-my-last-action. The menu wording ('Restore Last Deleted **Item**', singular) is weak evidence for that reading; the ⌘⌥Z binding, adjacent to ⌘Z, is stronger evidence against it."
+    },
+    {
+      "id": "TRASH-D4",
+      "question": "After deleting something that leaves no trash entry, what does 'Restore Last Deleted Item' act on?",
+      "current_behaviour": "trashResearchItemCore returns nil for link items and path-less items — they are removed from the manifest with no file move and no trash entry (ProjectStore+Research.swift:440, 465-466). deleteResearchItems then runs `if let lastEntry { lastDeletedTrashId = lastEntry.id }` — on nil it leaves lastDeletedTrashId at whatever earlier deletion set it. ⌘⌥Z then restores that earlier, unrelated item.",
+      "writer_visible_consequence": "The writer deletes a research link, immediately presses ⌘⌥Z, and a completely different item they deleted an hour ago reappears in the binder — while the link stays deleted. The undo acted on the wrong object and said nothing.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "ResearchView.swift:284 → deleteResearchItem(id:) on a `.link` item → deleteResearchItems → trashResearchItemCore returns nil → lastDeletedTrashId untouched. ⌘⌥Z → restoreLastDeleted → restoreTrashEntry(id: <stale id>). Requires one earlier file-backed delete in the same session; ProjectStore.load does not seed lastDeletedTrashId, so a fresh window is safe."
+      },
+      "classification": "SETTLED_BY_ROOT_ONLY",
+      "ruling": "RULING-20",
+      "clause_that_does_the_work": "honour the writer's intent",
+      "what_a_sub_ruling_would_need_to_say": "No sub-ruling reaches a stale undo target. RULING-8 is close but not in scope — this is not two places answering one question differently, it is one place answering about the wrong object. A sub-ruling would have to say: 'an undo-delete acts on the writer's most recent deletion or it refuses — it never acts on an earlier one.'",
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "Finding that lastDeletedTrashId is cleared on every delete regardless of outcome — it is not; it is only ever cleared in restoreTrashEntry, permanentlyDeleteTrashEntry, restoreLastDeleted and emptyTrash. Or establishing that deleting a link cannot follow a file-backed delete in one session."
+    },
+    {
+      "id": "TRASH-D5",
+      "question": "Is a research LINK recoverable after deletion, the way every other binder item is?",
+      "current_behaviour": "`if let path = item.path, !path.isEmpty, item.kind != .link` — link items are excluded from trashing by kind and removed straight from the manifest (removeResearchItem). No trash entry, no Trash-pane row, no ⌘⌥Z. The doc comment justifies it on filesystem grounds (a synthetic .link path has no backing file, so moveItem would throw), which is true of the FILE and not of the item.",
+      "writer_visible_consequence": "The writer deletes a saved URL with its title and its place in the research tree — something they typed — and it is gone at once and permanently, from the same tree, with the same command and the same absence of a confirmation as a note that is fully recoverable. Nothing distinguishes the two rows before the writer presses delete.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "ResearchView.swift:284 context-menu Delete on a `.link` research row → deleteResearchItem → deleteResearchItems → trashResearchItemCore → the `item.kind != .link` guard is false → removeResearchItem(id:) → saveManifest. No TrashEntry is ever created."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-8",
+      "clause_that_does_the_work": "where the SAME writer question is answered in more than one place, it has ONE answer",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "RULING-8's own second sentence — 'Two situations that merely look alike may legitimately differ.' If the interview held that a link is a pointer rather than content, deleting it is a different question from deleting a note and the divergence is legitimate. I read the writer's question as 'can I get this row back?', asked identically of two rows sitting side by side in one tree under one Delete command, which makes it the same question. Note that RULING-15's literal clause ('never unlinks a FILE') does NOT reach this — there is no file — which is exactly why RULING-8 is the one that does."
+    },
+    {
+      "id": "TRASH-D6",
+      "question": "When a writer deletes a GROUP while a document inside it is open, is that document's text safe?",
+      "current_behaviour": "DocumentStore.trash calls closeFlushAndUnregister(affectedPaths: [relativePath]) with a SINGLE path, and that helper does an exact-key lookup `openDocuments[path]`. openDocuments is keyed by each document's own file path; a group is trashed by its FOLDER path. So no descendant Document is closed, flushed or unregistered — the folder moves into .trash/ with the child's Document object still live and still registered at the old path. The codebase knows folder operations need descendant paths: ProjectStore+Research.swift:606 builds a multi-path `affected` array for a folder RENAME, and DocumentStore.swift:582 documents the requirement ('for a folder move, pass the open manuscript path(s) inside it'). Trash is the one folder-moving caller that passes only the folder.",
+      "writer_visible_consequence": "This is tripwire 14's stated failure mode: the 750ms autosave lands at the old path after the move and re-creates a phantom file, so the writer's most recent sentences end up in a resurrected folder no binder row owns while the trashed copy holds the pre-edit text. Worse for restore: the re-created folder now occupies the group's original path, so restoring the group hits D1's collision and the whole subtree becomes unrestorable from inside Maugham.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Binder: click Chapter 2 (EditorHost.loadDocumentIfNeeded → DocumentStore registers openDocuments['manuscript/01-act-one/02-chapter-2.md']), then right-click the enclosing 'Act One' group → Delete → BinderView.deleteItem → ProjectStore.deleteStructureItem(id:) with path 'manuscript/01-act-one' → DocumentStore.trash(relativePath: 'manuscript/01-act-one') → closeFlushAndUnregister(['manuscript/01-act-one']) → openDocuments['manuscript/01-act-one'] is nil → nothing closed. The unregistered-open-Document state is certain on this path; the phantom-file consequence additionally needs a save to fire after the move, which is what the 750ms debounce and any further keystroke provide. Same gap for research groups at ProjectStore+Research.swift:449."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-4",
+      "clause_that_does_the_work": "words the writer AUTHORED are always recoverable",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "A test or code path I did not find that closes descendant Documents on structure removal — I grepped .close()/unregister across Stores and BinderView and found only the exact-path helper, the app-teardown loop (DocumentStore.swift:228-231) and transient-document closes. Also falsified if EditorHost tears its Document down on binder selection change before the delete can be issued — but the ordinary gesture is delete-while-still-selected, not select-away-then-delete. RULING-15's 'restorable' reaches the second half of this independently."
+    },
+    {
+      "id": "TRASH-D7",
+      "question": "A trash folder whose meta.json cannot be read — does the writer learn it exists?",
+      "current_behaviour": "TrashStore.list() uses `guard let data = try? Data(...), let meta = try? JSONDecoder().decode(...), let trashedAt = Self.parseTimestamp(...) else { continue }` — an unreadable, undecodable or absent meta.json makes the entry vanish from the list. It is therefore invisible in the Trash pane, unreachable by restore, and never reached by sweep() (which iterates list()), so it also never expires. moveToTrash creates the folder and MOVES THE FILE first, then writes meta.json last (TrashStore.swift:137-163) — a crash, quit or write failure in that window produces exactly this state, and because moveToTrash throws, deleteStructureItem never runs removeFromStructure, so the binder row also survives pointing at a file that is no longer there.",
+      "writer_visible_consequence": "The Trash pane says the trash is empty. The binder shows a chapter whose file is gone. The chapter's words are sitting in .trash/<id>/ and Maugham reports nothing — unreadable shown as empty, which is the exact wording RULING-7 forbids.",
+      "reachability": {
+        "rating": "LATENT",
+        "call_path": "ProjectStore.deleteStructureItem → DocumentStore.trash → TrashStore.moveToTrash: createDirectory (line 138) → SafeRelativePath.resolve → fm.moveItem (line 151) → encoder.encode(meta).write(to:options:.atomic) (line 163). A power loss, force-quit or write failure (full volume, sandbox denial) between 151 and 163 leaves the folder with the file and no meta. Then ProjectStore.load → trashStore.list() skips it. Needs an abnormal termination or an I/O failure, so LATENT rather than LIVE — but the ordering is what makes the window exist at all, and the write-meta-first ordering would close it."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-7",
+      "clause_that_does_the_work": "unreadable is never shown as empty",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "If the Trash pane is not judged a writer-facing surface (it is: BinderSegment.trash, labelled 'Trash', reached from BinderPaneToggle). Note the same `continue` also correctly skips a stray non-Maugham directory a writer dropped into .trash/ by hand — that half is RULING-9 territory and is fine; the defect is that Maugham's own half-written entry is indistinguishable from it."
+    },
+    {
+      "id": "TRASH-D8",
+      "question": "When 'Empty Trash' cannot delete something, is the writer told it is still there?",
+      "current_behaviour": "emptyTrash() loops the CACHED `trashEntries` with `try? await trashStore.permanentlyDelete(...)` — each failure is swallowed — then unconditionally sets `trashEntries = []`. TrashView's `do/catch` around the call can never fire because emptyTrash never throws. Two ways content survives a reported-successful empty: a removeItem failure (permissions, an open file handle, a sync daemon), and any on-disk entry absent from the cached array (D7's invisible entries; a style-file entry written by MCP set_piece_style since the last list()).",
+      "writer_visible_consequence": "The writer empties the trash to be rid of a draft they do not want on the machine. Maugham shows an empty pane. The draft is still in .trash/ — and will be picked up by whatever backs the folder up. The single-entry 'Permanently Delete' path is correct here (it propagates the throw and TrashView alerts); only the bulk path lies.",
+      "reachability": {
+        "rating": "LATENT",
+        "call_path": "BinderSegment.trash → TrashView toolbar 'Empty Trash' → confirmationDialog → store.emptyTrash() → per-entry `try?` → trashEntries = []. The stale-cache half is reachable without any I/O failure: MCP set_piece_style (PieceStyleTools.swift:80) writes a trash entry directly through TrashStore without refreshing ProjectStore.trashEntries, so an entry created by Claude between the pane's last refresh and the empty is not in the loop and survives."
+      },
+      "classification": "CONTRADICTS",
+      "ruling": "RULING-7",
+      "clause_that_does_the_work": "never misrepresent a failure",
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "If RULING-7's scope is read as covering only failures that DENY the writer something, not failures that falsely report a destruction as complete. The confirmation sheet's own words — 'All N items will be permanently deleted', 'This cannot be undone' — are what make the misreport writer-visible, and they are as much a promise as a refusal is."
+    },
+    {
+      "id": "TRASH-D9",
+      "question": "Should Maugham destroy the writer's deleted work automatically after 30 days, and if so should it say so first?",
+      "current_behaviour": "ProjectStore.load calls `try? await trashStore.sweep()` on every open (ProjectStore.swift:274). sweep() removes every entry older than 30 days with `try? removeItem`. No confirmation, no notification, no record, no per-project setting, and the failure is discarded. The only place the policy is ever stated to the writer is a caption inside the Trash pane ('sweep in N days'), which the writer sees only if they visit that pane. Nothing warns on the last day.",
+      "writer_visible_consequence": "A writer who abandons a project for six weeks and comes back to look for a chapter they deleted in a bad mood finds that the act of opening the project is what destroyed it. Two reasonable people plainly disagree about the retention period, about whether expiry should be announced, and about whether an unvisited trash should expire at all.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Any project open: ProjectStore.load(from:) → TrashStore(projectURL:) → `try? await trashStore.sweep()` → list() → for entry where trashedAt < now-30d → removeItem. Runs before the window is on screen."
+      },
+      "classification": "SETTLED_BY_ROOT_ONLY",
+      "ruling": "RULING-9",
+      "clause_that_does_the_work": "what Maugham does on their behalf is Maugham's",
+      "what_a_sub_ruling_would_need_to_say": "RULING-15 is the sub-ruling nearest to this and it stops one clause short: 'delete is normalised — Maugham never unlinks a file, it moves it to trash, restorable' says where a delete goes and says nothing about how long 'restorable' lasts or who ends it. A sub-ruling would have to state the retention contract in product terms: how long deleted work is kept, whether that clock can expire without the writer present, and whether the writer is told before the last copy goes — e.g. 'Maugham never destroys the writer's work on its own initiative without telling them first; the trash expires only after the writer has been shown that it is about to.'",
+      "proposed_ruling": null,
+      "confidence": "HIGH",
+      "what_would_falsify_it": "Finding the 30-day figure ruled on in the interview (I only find it in code comments and the pane caption). If it was ruled on, this becomes an accepted limit per PRINCIPLE-4 rather than an unsettled question — though the silence of the expiry would still be separately unruled."
+    },
+    {
+      "id": "TRASH-D10",
+      "question": "After 'Permanently Delete' and 'This cannot be undone', is the writer's text actually gone from the project?",
+      "current_behaviour": "permanentlyDelete / sweep / emptyTrash remove only the .trash/<id>/ folder. A trashed document's op log at .maugham/ops/<docId>.jsonl is never moved, never trashed and never removed — by the project's own hard invariant that log, not the .md, is the source of truth and holds every word the writer ever typed into that document plus its full edit history. Nothing in Stores or OpLog deletes an op log (the only removeItem calls there are PendingBuffer's and Document+ExternalChange's stale-file cleanup). This cuts both ways: it is also why restore works so well — the restored row keeps its id, so the .md re-materialises from the surviving log rather than from whatever was sitting in .trash/.",
+      "writer_visible_consequence": "The confirmation sheet says 'This cannot be undone' and the writer believes the chapter is gone. Every word of it remains in the project folder indefinitely, unreferenced by any binder row, and travels with the project into every backup, every zip and every sync. For a writer deleting something they wanted gone — a real name, a passage about someone living — that is the opposite of what they were told.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "TrashView row → 'Permanently Delete' → confirmationDialog ('This cannot be undone') → ProjectStore.permanentlyDeleteTrashEntry → TrashStore.permanentlyDelete → removeItem(.trash/<id>). The op log at .maugham/ops/<docId>.jsonl is untouched by that call and by every other call in this module. Whether the writer NOTICES is a different matter — it needs them to look in .maugham/ops/ or notice project size — which is why I record the retention as LIVE and say plainly that the discovery is not."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "'Permanently delete' means the writer's words are no longer in the project — the derived file and the record it was rendered from both go. If Maugham intends to keep the history anyway, it must not tell the writer the deletion cannot be undone; it must say what it is keeping and offer a way to destroy that too.",
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "If the interview ruled that the op log is inviolable — append-only, never truncated, on the grounds that losing history is worse than keeping it. That is a defensible position and would make the retention correct; the confirmation sheet's wording would still be wrong, and that half stands either way. Also falsified if some path outside Stores/OpLog prunes op logs on permanent delete — I grepped both directories and found none."
+    },
+    {
+      "id": "TRASH-D11",
+      "question": "When a restore cannot bring back everything that was deleted, is the writer told what did not come back?",
+      "current_behaviour": "restoreTrashEntry runs pruneStructureMissingFromDisk / pruneResearchMissingFromDisk over the restored subtree, dropping every descendant row whose recorded path has no file at the restored location, and every descendant beneath it. The code comments say so outright — 'A missing descendant is silently dropped rather than producing a dangling binder row.' Nothing is returned, logged, or shown. The restore reports success and the writer's group comes back with fewer chapters in it than it had.",
+      "writer_visible_consequence": "The writer restores 'Act One' and gets Act One back with two chapters instead of three. No message. Unless they remember the count, they will not know that Maugham decided a chapter was unrecoverable — and the pruning also means the surviving trash record of it, if any, is now the only trace.",
+      "reachability": {
+        "rating": "LATENT",
+        "call_path": "TrashView Restore → restoreTrashEntry → pruneStructureMissingFromDisk. Reaching a missing descendant requires the file to be absent under the restored subtree, which within Maugham means it was never written or was removed from inside .trash/ from outside the app. TrashRestoreNestingTests.test_restore_subtreeWithMissingDescendant_dropsDanglingRow constructs it by deleting the file out of the trash folder by hand. RULING-9 makes that provenance the writer's risk — the defect is not the drop, it is the silence."
+      },
+      "classification": "SETTLED_BY_ROOT_ONLY",
+      "ruling": "RULING-19",
+      "clause_that_does_the_work": "lower layers protect the system and data silently (but a lower-layer repair means a guard above did not fire — that is a bug)",
+      "what_a_sub_ruling_would_need_to_say": "The prune is a textbook lower-layer repair — it exists to stop a dangling binder row reaching the UI — and there is no guard above it, so by RULING-19's parenthesis it is a bug, but the root tells you only that, not what to do. RULING-4's 'DERIVED material may be dropped but the drop must be reported' has the right shape and the wrong subject: a binder row is arrangement the writer authored, not derived material, so the clause does not reach it by scope. A sub-ruling would have to say: 'a restore that returns less than was deleted names what it could not return, at the moment of the restore.'",
+      "proposed_ruling": null,
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "If a binder row with no file is judged pure bookkeeping rather than authored arrangement, RULING-11's scope would arguably reach it instead and the silent repair would be correct. I read the tree the writer built — order, nesting, titles — as authored, which puts it outside RULING-11's 'invisible bookkeeping'."
+    },
+    {
+      "id": "TRASH-D12",
+      "question": "When the group an item was deleted from no longer exists, where does the item come back to?",
+      "current_behaviour": "The ROW is re-inserted at the binder root (originalParentId no longer resolves → targetParentId = nil). The FILE is restored to meta.originalRelativePath — inside the deleted group's folder — and `createDirectory(withIntermediateDirectories: true)` RE-CREATES that folder on disk to receive it. The restored row keeps its original nested path. Nothing reconciles the two.",
+      "writer_visible_consequence": "The chapter reappears at the top of the binder, which is the right thing to show. On disk it is sitting inside a resurrected 'Act One' folder that no binder row owns and Maugham has no other handle on. If the writer later restores the real Act One group, D1's collision fires because that folder now exists; if they rename or reorder around the root row, RenamePlan reasons about a path whose parent directory has no manifest node.",
+      "reachability": {
+        "rating": "LATENT",
+        "call_path": "Exactly TrashRestoreNestingTests.test_restore_whenOriginalParentDeleted_fallsBackToRoot: delete Chapter 1, then delete its parent Act One, then restore Chapter 1. The test asserts the row appears somewhere and the file exists — both true — and asserts nothing about where the file is. Reaching it needs the parent deleted after the child, in that order, before the restore."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "When a restored item cannot go back where it came from, Maugham puts it somewhere the writer can see AND leaves the folder on disk matching what the binder shows — it does not re-create a folder the writer deleted in order to hold a file the binder says is elsewhere.",
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "If the product position is that on-disk layout is the writer's business only in Finder and the binder is the sole truth, then a ghost folder is cosmetic and this is an enhancement, not a defect (PRINCIPLE-2). The D1 interaction is what argues it is more than cosmetic — the resurrected folder is what blocks the parent group's own later restore."
+    },
+    {
+      "id": "TRASH-D13",
+      "question": "A trash entry that is not a binder item at all — what does its 'Restore' button promise?",
+      "current_behaviour": "MCP set_piece_style and clear_piece_style write trash entries directly through TrashStore with itemMetadata `{\"id\":\"style-<name>\"}` (PieceStyleTools.swift:80, 171). These appear in the writer's Trash pane as ordinary rows with a Restore button. restoreTrashEntry decodes as StructureItem, else ResearchItem, else FALLS OFF THE END — there is no else branch — so TrashStore.restore has already moved the .tex back and deleted the entry, then nothing happens: the publish config's style_file wiring is not restored. For the set_piece_style overwrite case the current .tex still occupies the path, so the restore instead fails with D1's collision.",
+      "writer_visible_consequence": "The writer opens Trash and sees a row called 'chapter-one.tex' they never deleted. Clicking Restore makes the row disappear and changes nothing they can observe — the piece still is not styled. Clicking Restore on the other variant produces an 'already exists' error about a file they have never heard of. Either way the Trash pane is showing the writer a bookkeeping artifact of Claude's and offering an action on it that does not do what the word means.",
+      "reachability": {
+        "rating": "LIVE",
+        "call_path": "Claude calls set_piece_style twice for one piece (second call overwrites) → PieceStyleTools.swift:77-86 → TrashStore(projectURL:).moveToTrash(fileRelativePath: '.maugham/publish/pieces/<name>.tex', displayTitle: '<name>.tex'). Next ProjectStore.load, or any delete that refreshes trashEntries, puts the row in the pane → TrashView row → Restore → restoreTrashEntry → neither decode matches → saveManifest, refresh, return."
+      },
+      "classification": "NOT_SETTLED",
+      "ruling": null,
+      "clause_that_does_the_work": null,
+      "what_a_sub_ruling_would_need_to_say": null,
+      "proposed_ruling": "The Trash pane shows the writer things the writer deleted. Maugham's own safety copies of its internal files either do not appear there, or appear labelled as what they are with a Restore that puts the piece back the way it was — wiring included — not just the file.",
+      "confidence": "MEDIUM",
+      "what_would_falsify_it": "If a style file is judged to be writer content (Claude wrote it at the writer's request, and it does shape their book's typesetting) then showing it in Trash is right and only the incomplete restore is the defect. Note the shape of this generalises: restoreTrashEntry's missing else branch means ANY future non-binder trash entry restores its file with no manifest consequence and reports success — style files are just the one caller that exists today."
+    }
+  ],
+  "notes": "Things that did not fit the schema.\n\n(1) WHAT THE MODULE GETS RIGHT, since a register of violations reads unfairly otherwise. Restore is genuinely non-destructive: fm.moveItem never overwrites, and the throw lands before removeItem(entryFolder), so a failed restore always leaves the trash entry whole. originalParentId/originalIndex are recorded and honoured with a clamp. Both relative paths — the caller-supplied one on the way in and the sidecar-supplied one on the way out — go through SafeRelativePath, and the three TrashError cases carry hand-written LocalizedError strings that name a real cause. The single-entry Permanently Delete path propagates its throw and TrashView alerts on it. D2 and D8 are failures to USE that machinery, not absences of it.\n\n(2) RULING-15 did less work here than its billing suggested. It is quoted about this area, and yet across thirteen findings it was the tightest fit for none: it settles the destination of a delete and stops there. It says nothing about how long trash lasts (D9), what 'permanently' destroys (D10), what happens when a restore is blocked (D1), or whether an item with no file is inside its scope at all (D5, where RULING-8 had to do the work instead). That looks like the sweep's hypothesis holding in a specific way — the sub-ruling is real and specific, and it is specific about the wrong half of the lifecycle. Everything after the move to trash is unruled.\n\n(3) The root/sub split, tallied honestly: 5 SETTLED_BY_SUB-or-CONTRADICTS against a named sub-ruling (D2, D5, D6, D7, D8), 3 reaching only a root (D1, D4, D9, plus D11), 4 reaching nothing (D3, D10, D12, D13). RULING-7 carried three of the five on its own — it is the load-bearing ruling in this module, and notably all three are the same shape: an operation that fails or half-succeeds and says nothing. RULING-20 and RULING-9 were reached only where I could not find a sub-ruling, which is what the instructions asked me to report rather than paper over.\n\n(4) Two things I judged NOT product decisions under the stated bar, recorded so the exclusion is visible rather than silent. (a) TrashStore.timestampFormatter has format 'yyyyMMdd-HHmmss' with TimeZone.current and no zone in the string, so a folder written in one zone parses as a different instant in another; the drift is bounded by the UTC offset and can move a sweep or a 'days remaining' caption by at most a day. Real, but no writer arbitrates a question at that resolution. (b) Trash lives at <project>/.trash/ while CLAUDE.md's invariant routes everything derived under .maugham/ — a hygiene and layout inconsistency (MaughamSidecarPath already routes it), not a behaviour two people would disagree about.\n\n(5) One thing I could not settle and am flagging rather than guessing. moveToTrash's entry-folder name is '<yyyyMMdd-HHmmss>-<id from itemMetadata, defaulting to \"x\">'. Two entries minted in the same second with the same id would collide into one folder — createDirectory(withIntermediateDirectories: true) succeeds on an existing directory, the second meta.json overwrites the first, and restore's `contents.first(where: != meta.json)` would then return whichever file the directory enumeration happened to yield, restoring one item's content to the other item's recorded path. I could not construct a reachable case: StructureItem and ResearchItem ids are minted unique, and the 'x' default needs metadata with no id field — which only PieceStyleTools produces, and it always supplies one. Recording it as reachability: UNTRACED, because the guard against it is the uniqueness of ids minted elsewhere rather than anything this module does, and a future caller supplying id-less metadata would open it."
+}

@@ -1,0 +1,158 @@
+{
+  "module": "FileNaming",
+  "loc": 119,
+  "claims": [
+    {
+      "id": "FILENAMING-1",
+      "scope": "FileNaming.nextDocumentFilename",
+      "kind": "POSTCONDITION",
+      "statement": "Returns a string of the form \"<NN>-<slug>.<ext>\", where <slug> is Slugifier.slug(from: title) possibly with a collision suffix appended, and <ext> is the caller-supplied extension verbatim.",
+      "evidenced_by": "source; test:FileNamingTests.test_documentInEmptyFolder_getsNN01, test:FileNamingTests.test_fountainExtension_supportedForScreenplay",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "FILENAMING-2",
+      "scope": "FileNaming.nextGroupFolderName",
+      "kind": "POSTCONDITION",
+      "statement": "Returns \"<NN>-<slug>\" with no extension and no trailing dot.",
+      "evidenced_by": "test:FileNamingTests.test_groupFolderName_emptyFolder_getsNN01, test:FileNamingTests.test_groupFolderName_followsSamePattern",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "FILENAMING-3",
+      "scope": "FileNaming.nextNN",
+      "kind": "POSTCONDITION",
+      "statement": "NN is (max existing NN) + 1, not the lowest unused value. Gaps left by deletion are never filled: siblings [01, 04] yield 05.",
+      "evidenced_by": "test:FileNamingTests.test_documentWithGapInNN_skipsToMaxPlusOne",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "FILENAMING-4",
+      "scope": "FileNaming.nextNN",
+      "kind": "POSTCONDITION",
+      "statement": "With an empty sibling list, NN is \"01\".",
+      "evidenced_by": "test:FileNamingTests.test_documentInEmptyFolder_getsNN01, test:FileNamingTests.test_groupFolderName_emptyFolder_getsNN01",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "FILENAMING-5",
+      "scope": "FileNaming.nextNN",
+      "kind": "PRECONDITION",
+      "statement": "A sibling contributes to the NN maximum only if its name begins with exactly two decimal digits followed by a dash (regex ^(\\d{2})-). Names that do not (\".DS_Store\", \"notes.txt\", and also any name with a three-digit prefix) are skipped silently.",
+      "evidenced_by": "source; test:FileNamingTests.test_unrelatedFiles_areIgnoredForNNComputation (covers the .DS_Store and notes.txt instances only)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "FILENAMING-6",
+      "scope": "FileNaming.nextNN",
+      "kind": "POSTCONDITION",
+      "statement": "NN is formatted with String(format: \"%02d\", …), which is a minimum width, not a maximum: once the maximum parsed NN reaches 99 the returned prefix is three characters (\"100\"). No test covers a sibling count above 2.",
+      "evidenced_by": "source; measured by running the real FileNaming.swift + Slugifier.swift against 99 siblings",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "FILENAMING-7",
+      "scope": "FileNaming",
+      "kind": "INVARIANT",
+      "statement": "A name the module PRODUCES with a three-digit NN is a name the module cannot subsequently PARSE: both ^(\\d{2})- (nextNN) and ^\\d{2}-(.+?)(\\.[^.]+)?$ (uniqueSlug) fail on \"100-chapter-100.md\", so such a file is invisible to both the NN computation and the slug-collision computation on every later call.",
+      "evidenced_by": "source; measured",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "FILENAMING-8",
+      "scope": "FileNaming.nextDocumentFilename",
+      "kind": "POSTCONDITION",
+      "statement": "The documented guarantee \"returns a name guaranteed not to collide\" does not hold once 99 two-digit-prefixed siblings exist: two calls with the same title, same extension and the same sibling list (the second list including the first result) both return \"100-chapter-100.md\" — the identical string.",
+      "evidenced_by": "measured against the real source; contradicts the doc comment at FileNaming.swift:9",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "FILENAMING-9",
+      "scope": "FileNaming.uniqueSlug",
+      "kind": "POSTCONDITION",
+      "statement": "Collision is decided against BASE slugs — each sibling's slug with a trailing \"-N\" (N >= 2) stripped — while the chosen suffix is the lowest N >= 2 not present among the FULL slugs.",
+      "evidenced_by": "source; test:FileNamingTests.test_documentWithSlugCollision_getsSuffix, test:FileNamingTests.test_documentWithMultipleSlugCollisions_getsSequentialSuffix",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "FILENAMING-10",
+      "scope": "FileNaming.uniqueSlug",
+      "kind": "POSTCONDITION",
+      "statement": "Because collision is decided on the stripped base, a title can be declared colliding with a slug that no file actually bears: title \"Chapter\" against the single sibling \"01-chapter-2.md\" yields \"02-chapter-3.md\", though no \"…-chapter.md\" and no \"…-chapter-3.md\" exists.",
+      "evidenced_by": "measured against the real source; no test covers this",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "FILENAMING-11",
+      "scope": "FileNaming.uniqueSlug",
+      "kind": "POSTCONDITION",
+      "statement": "The slug-collision namespace is scoped by extension for documents (a \".fountain\" sibling does not suppress the same slug for a \".md\" document, measured) and to extension-less names for folders. NN, by contrast, is shared across documents and folders alike.",
+      "evidenced_by": "source; measured; test:FileNamingTests.test_groupFolderName_followsSamePattern (NN sharing only)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "FILENAMING-12",
+      "scope": "FileNaming",
+      "kind": "PRECONDITION",
+      "statement": "The module performs no filesystem access. It trusts the caller-supplied sibling list entirely; a name on disk that the caller omits from the list is not defended against.",
+      "evidenced_by": "source; callers pass FileManager.contentsOfDirectory (ProjectStore+Structure.swift:36, :527) or [] (ProjectFactory.swift:178)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "FILENAMING-13",
+      "scope": "FileNaming.nextDocumentFilename",
+      "kind": "POSTCONDITION",
+      "statement": "The slug is produced wholly by Slugifier, so a title that slugs to nothing — empty, whitespace-only, punctuation-only, or written in a script with no Latin transliteration — becomes \"untitled\", and repeats then take the collision suffix (\"untitled-2\"). Titles longer than 40 slug characters are truncated at 40.",
+      "evidenced_by": "source (Slugifier.slug); measured: \"\", \"...\" and \"???\" all yield untitled/untitled-2; two 45-char titles differing only after char 40 yield \"…aaaa.md\" and \"…aaaa-2.md\"",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "FILENAMING-14",
+      "scope": "FileNaming.uniqueSlug",
+      "kind": "POSTCONDITION",
+      "statement": "Suffix search starts at 2 and increments without bound; suffixes are never reused after a delete, since the search only skips values currently present.",
+      "evidenced_by": "source",
+      "confidence": "HIGH"
+    }
+  ],
+  "product_decisions": [
+    {
+      "id": "FILENAMING-D1",
+      "question": "When Maugham cannot compute a fresh filename for a new binder item, may it hand back a name something else already occupies?",
+      "current_behaviour": "Past 99 items in one folder, nextNN returns \"100\", and a three-digit-prefixed name matches neither of the module's own parsers. So every later call ignores those files: the same title returns the identical filename a second time (measured: \"100-chapter-100.md\" twice). The create path then does `try Data().write(to: newURL)` with no existence check (ProjectStore+Structure.swift:53), which truncates the file already there. Two manifest items are left pointing at one path.",
+      "writer_visible_consequence": "A novelist with 100 chapters in one manuscript folder adds another chapter with a repeated title and a finished chapter becomes an empty file — no error, no dialogue, nothing in the binder to see. Short of that, every item past the 99th is prefixed \"100\", so Finder/git ordering and the binder ordering diverge permanently, and the move/tidy renumbering paths (which drop exactly 3 characters as \"NN-\") turn \"100-chapter.md\" into \"05--chapter.md\".",
+      "classification": "NOVEL",
+      "reasoning": "Neither ruling reaches it. RULING-1 governs content Maugham accepts and cannot read back — here the content that is lost is a NEIGHBOUR's, and the thing being accepted (a new empty document) is round-tripped perfectly. RULING-2 governs files arriving from outside; this file was made by Maugham. It is nonetheless the same constitutional root, 'the words are safe', and is the most severe finding in this module. It is reachable by ordinary use: a hundred chapters in one folder is not an abusive input, and no test in the suite passes more than two siblings.",
+      "proposed_ruling": "Maugham must never give a new item a name that something the writer already has is using. If it cannot produce a name that is certainly free, it must refuse the creation visibly rather than write — and it must never destroy existing content as a side effect of creating something new. A writer's folder must remain correct at any number of items they can plausibly make."
+    },
+    {
+      "id": "FILENAMING-D2",
+      "question": "Does 'this title is already taken in this folder' mean the same thing when a writer creates an item as when a writer renames one?",
+      "current_behaviour": "Two implementations answer it differently. FileNaming.uniqueSlug tests the new slug against sibling slugs with a trailing '-N' (N>=2) STRIPPED; ProjectStore.dedupeSlug (used by renameStructureItem, ProjectStore+Structure.swift:468, comment: 'Mirrors FileNaming's collision logic') tests against the FULL sibling slugs. Measured divergence: with one sibling \"01-chapter-2.md\", creating an item titled \"Chapter\" produces \"02-chapter-3.md\"; renaming an item to \"Chapter\" produces \"NN-chapter.md\".",
+      "writer_visible_consequence": "The same title in the same folder lands on disk under two different names depending on how the writer got there — typed into the New Document sheet, or typed into the binder's inline rename. Neither name is the one they typed, and the create path's is the stranger of the two: a chapter called \"Chapter\" saved as chapter-3 with no chapter-1 or chapter-2 of that name in sight.",
+      "classification": "INCONSISTENT",
+      "reasoning": "One product question, two answers, in two files, with a comment asserting they agree. The base-stripping in uniqueSlug is also wrong on its own terms independent of the divergence — it treats a numeric tail the writer chose ('Scene 2', 'Part 3') as a collision marker the app added, which is why 'Chapter' collides with 'chapter-2'. CLAUDE.md records this exact pattern (one question answered twice) as having already produced two real defects.",
+      "proposed_ruling": "Whether a name is taken is one question with one answer, and creating an item and renaming an item must give the same answer. A number a writer puts at the end of their own title is part of the title, not a disambiguator Maugham added, and must not be read as one."
+    },
+    {
+      "id": "FILENAMING-D3",
+      "question": "Should the numbers on disk track the order of the binder, and who repairs them when they drift?",
+      "current_behaviour": "Three paths answer differently. Adding uses max+1, so deletion leaves permanent gaps (01, 04, 05). Moving renumbers the whole destination folder contiguously and automatically. tidyFilenames renumbers contiguously but only when the writer invokes it.",
+      "writer_visible_consequence": "A writer who deletes chapter 2 and adds a new one sees 01, 03, 04 in Finder and in git while the binder shows three chapters numbered 1, 2, 3. If they then drag one chapter, the numbers silently snap back to contiguous and every file in the folder shows up renamed in the next commit.",
+      "classification": "NOVEL",
+      "reasoning": "Genuinely writer-visible — the plain-text-on-disk invariant means these names are part of the product, not an implementation detail — and reasonable people disagree: stable names are friendlier to git and to external tools, contiguous names are friendlier to Finder. The existence of tidyFilenames shows a partial answer was already made ('gaps are tolerable, repair on demand'), but that answer is contradicted by move renumbering without being asked. Lower stakes than D1 and D2: nothing is lost either way.",
+      "proposed_ruling": "The numbers in filenames either follow binder order always or follow it only when the writer asks; they must not do one on some actions and the other on others. If Maugham renames a writer's files as a side effect of an action they did not aim at renaming, that is a change they should be able to see."
+    },
+    {
+      "id": "FILENAMING-D4",
+      "question": "When a writer's title cannot be expressed in the filename alphabet, what should the file be called?",
+      "current_behaviour": "The slug keeps only [a-z0-9-] after diacritic folding, truncates at 40 characters, and falls back to \"untitled\" when nothing survives. Collisions among the fallbacks are then numbered: untitled, untitled-2, untitled-3. The full title is preserved faithfully in the manifest and shown in the binder.",
+      "writer_visible_consequence": "A novelist writing in Russian, Japanese, Greek or Hebrew gets a manuscript folder of 01-untitled.md … 40-untitled-40.md — every file indistinguishable outside the app. A writer with long chapter titles gets files differing only in a trailing -2. The binder looks right; Finder, git and any external tool do not.",
+      "classification": "NOVEL",
+      "reasoning": "Not covered by RULING-1: the title itself IS read back faithfully — it lives in the manifest — and the filename is a derived artifact, the same relationship the .md has to the op log. So there is no fidelity breach at the entry point, which is exactly why the ruling does not bite and a separate one is needed. Two reasonable people disagree: modern filesystems accept Unicode filenames, and the writer's own script would be more useful than 'untitled'; against that, ASCII slugs are portable and diff-friendly. Overlaps the Slugifier module — the alphabet and fallback are its decisions; what belongs to FileNaming is the choice to number the collisions rather than to treat 'this title produced no name' as worth telling the writer about.",
+      "proposed_ruling": "A writer working in a non-Latin script must be able to tell their chapters apart outside Maugham. Either the filename carries their title in their own script, or Maugham derives something distinguishing from it — but a folder of files all called 'untitled' is not an acceptable rendering of a manuscript."
+    }
+  ],
+  "notes": "Method: I ran the real FileNaming.swift and Slugifier.swift, plus a copy of ProjectStore.dedupeSlug/dedupedName, as a script to check every edge case rather than reasoning about the regexes; every claim marked 'measured' is output I observed, not inference. Verified benign and therefore not raised as decisions: an all-punctuation or empty title (handled, becomes untitled/untitled-2); a sibling with no NN prefix at all, e.g. a hand-added 'chapter-1.md' (invisible to the module, but cannot be overwritten, since every name the module produces begins with digits — the >99 case in D1 is the one exception, and that is why it is the severe one); a .md and a .fountain sharing a slug (different NN keeps them distinct). One loose end outside this module's scope: duplicateStructureItem derives ext from the source path's pathExtension, so duplicating a document with no extension yields a name ending in a bare '.' — I did not trace whether such an item can exist. The module has 9 tests and none passes more than two siblings, which is why the whole >99 class is untested.",
+  "output_written_by": "sweep-filenaming"
+}

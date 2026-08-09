@@ -32,11 +32,19 @@ extension Document {
     /// `applyRestore` call and the task-marker fallback); the orphan sweep and
     /// the stranded-accept resolution keep their fixed `.rewind` semantics.
     public func restoreToOp(
-        opId targetOpId: String,
+        opId requestedOpId: String,
         synthesisSource: SynthesisSource = .rewind
     ) async throws -> RewindRestoreResult {
         // 1. Flush any pending burst so the rewind boundary is clean.
         try await flushBurstNow()
+
+        // 1b. Resolve the target (RULING-27): a requested moment that is not
+        //     in the log restores to the NEAREST SURVIVING MOMENT at-or-before
+        //     it — never silently to the present, which is what the deriver's
+        //     defensive full-fold fallback used to produce here (the
+        //     M4-RW-003/008/022 silent no-op family). The result names the
+        //     substitution so the caller can tell the writer and offer Revert.
+        let (targetOpId, resolution) = resolveRestoreTarget(requestedOpId)
 
         // 2. Derive the current and target states from the in-memory mirror.
         let currentOps = _opLogMirror
@@ -98,7 +106,8 @@ extension Document {
                     priorSequenceCount: priorCount,
                     newSequenceCount: newCount,
                     reopenedAnnotationOpIds: [],
-                    rewoundTaskOps: false)
+                    rewoundTaskOps: false,
+                    targetResolution: resolution)
             }
 
             // Emit a task-rewind marker checkpoint_restore with empty changes,
@@ -234,6 +243,85 @@ extension Document {
             invalidateAnnotationsCache()
         }
 
+        // 9. The return journey (RULING-25: symmetric travel). An annotation
+        //    Maugham itself archived during a rewind — latest lifecycle op is
+        //    a `.rewind`-stamped `.claudeArchive`, from an OPEN status —
+        //    reopens when a restore lands on a state where its paragraph
+        //    exists. Mirrors the step-7 sweep exactly: same append mechanism,
+        //    same `.rewind` provenance, opposite direction. Gated to `.rewind`
+        //    restores: the `.undoRewind` compensating restore must not act
+        //    here — undo's lifecycle choreography lives in
+        //    `restoreToOpUndoable`, and its backward leg re-archives these
+        //    through the step-7 sweep without any bespoke work.
+        //
+        //    The accepted-then-archived case (the step-8 removed-paragraph
+        //    branch) follows RULING-26: the status the annotation had AT THE
+        //    TRAVELLED-TO MOMENT returns. Target at-or-after the accept → a
+        //    status-only `.claudeAccept` (the rewind-undo's own instrument),
+        //    because the restore already re-applied the text. Target after
+        //    the paragraph existed but before the accept → reopen to `.open`,
+        //    because the change was unapplied at that moment.
+        var travelReopenedIds: [String] = []
+        var travelReacceptedIds: [String] = []
+        if synthesisSource == .rewind {
+            let statusKinds: Set<OpKind> = [
+                .claudeAccept, .claudeReject, .claudeArchive,
+                .claudeAcceptRevert, .annotationReopen
+            ]
+            var lifecycleBySource: [String: [Op]] = [:]
+            for op in _opLogMirror where statusKinds.contains(op.kind) {
+                if let src = op.provenance?.sourceAnnotationId {
+                    lifecycleBySource[src, default: []].append(op)
+                }
+            }
+            let archived = annotations(filter: AnnotationFilter(statuses: [.archived]))
+            for ann in archived.sorted(by: { $0.id < $1.id }) {
+                guard let pid = ann.paragraphId, newIds.contains(pid) else { continue }
+                let lifecycle = (lifecycleBySource[ann.id] ?? [])
+                    .sorted { $0.opId < $1.opId }
+                guard let last = lifecycle.last,
+                      last.kind == .claudeArchive,
+                      last.provenance?.synthesisSource == .rewind else { continue }
+                let beforeArchive = lifecycle.dropLast().last
+                let wasOpen = beforeArchive == nil
+                    || beforeArchive?.kind == .claudeAcceptRevert
+                    || beforeArchive?.kind == .annotationReopen
+                if wasOpen {
+                    try await appendLifecycleOp(
+                        kind: .annotationReopen,
+                        sourceAnnotationId: ann.id,
+                        userResponse: nil,
+                        synthesisSource: .rewind)
+                    travelReopenedIds.append(ann.id)
+                } else if beforeArchive?.kind == .claudeAccept {
+                    // RULING-26. The latest changes-carrying accept dates the
+                    // moment the change was applied; the target's position
+                    // against it (opId order) decides which status the
+                    // travelled-to moment held.
+                    guard let textAccept = _opLogMirror
+                        .filter({ $0.kind == .claudeAccept
+                                      && $0.provenance?.sourceAnnotationId == ann.id
+                                      && !$0.changes.isEmpty })
+                        .max(by: { $0.opId < $1.opId }) else { continue }
+                    if targetOpId >= textAccept.opId {
+                        try await appendLifecycleOp(
+                            kind: .claudeAccept,
+                            sourceAnnotationId: ann.id,
+                            userResponse: textAccept.provenance?.userResponse,
+                            synthesisSource: .rewind)
+                        travelReacceptedIds.append(ann.id)
+                    } else {
+                        try await appendLifecycleOp(
+                            kind: .annotationReopen,
+                            sourceAnnotationId: ann.id,
+                            userResponse: nil,
+                            synthesisSource: .rewind)
+                        travelReopenedIds.append(ann.id)
+                    }
+                }
+            }
+        }
+
         return RewindRestoreResult(
             restoreOp: stampedOp,
             archivedAnnotationOpIds: archivedIds,
@@ -241,7 +329,58 @@ extension Document {
             priorSequenceCount: priorCount,
             newSequenceCount: newCount,
             reopenedAnnotationOpIds: reopenedIds,
-            rewoundTaskOps: hasTaskOpsAfterTarget)
+            rewoundTaskOps: hasTaskOpsAfterTarget,
+            travelReopenedAnnotationIds: travelReopenedIds,
+            travelReacceptedAnnotationIds: travelReacceptedIds,
+            targetResolution: resolution)
+    }
+
+    /// Resolve a requested restore target against the log (RULING-27): the
+    /// requested id itself when present; otherwise the NEAREST SURVIVING
+    /// MOMENT — the greatest opId at-or-before the request (ULID order is the
+    /// timeline), falling back to the earliest op when the request sorts
+    /// before everything. An empty log resolves to the request itself, which
+    /// the deriver folds to the (empty) present exactly as before.
+    internal func resolveRestoreTarget(
+        _ requestedOpId: String
+    ) -> (opId: String, resolution: RewindRestoreResult.TargetResolution) {
+        let ops = _opLogMirror
+        if ops.contains(where: { $0.opId == requestedOpId }) {
+            return (requestedOpId, .exact)
+        }
+        guard let nearest = ops.last(where: { $0.opId <= requestedOpId }) ?? ops.first else {
+            return (requestedOpId, .exact)
+        }
+        return (nearest.opId,
+                .nearest(requested: requestedOpId, restoredTo: nearest.opId))
+    }
+
+    /// True when a restore to `targetOpId` would change neither the text nor
+    /// the task window — RULING-37's precondition: an action that changes
+    /// nothing costs nothing, so `restoreToOpUndoable` skips its undo-stack
+    /// clear entirely. An UNKNOWN target also answers true today (it derives
+    /// as the present), so a vanished moment no longer costs the stack either;
+    /// its silent-success half remains RULING-27's territory.
+    internal func restoreWouldBeGenuineNoOp(targetOpId requestedOpId: String) -> Bool {
+        // Resolve exactly as restoreToOp will (RULING-27), or a vanished
+        // mid-history target would read as "derives to the present, no-op"
+        // here while the actual restore then moves text without the undo
+        // clear+registration ever having run.
+        let (targetOpId, _) = resolveRestoreTarget(requestedOpId)
+        let ops = _opLogMirror
+        let current = Deriver.derive(ops: ops)
+        let target = Deriver.derive(ops: ops, upTo: .atOp(opId: targetOpId, at: Date()))
+        guard current.paragraphs == target.paragraphs,
+              current.sequence == target.sequence else { return false }
+        let taskKinds: Set<OpKind> = [
+            .taskCreate, .taskStatusChange, .taskPriorityChange,
+            .taskParentChange, .taskBodyEdit, .taskArchive
+        ]
+        let targetIdx = ops.firstIndex(where: { $0.opId == targetOpId })
+        let hasTaskOpsAfterTarget = targetIdx.map { idx in
+            ops.dropFirst(idx + 1).contains { taskKinds.contains($0.kind) }
+        } ?? false
+        return !hasTaskOpsAfterTarget
     }
 
     /// Fold the document to `target` by appending a `.checkpointRestore` op

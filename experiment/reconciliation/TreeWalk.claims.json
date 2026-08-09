@@ -1,0 +1,429 @@
+[
+ {
+  "claim_id": "M2-T-001",
+  "scope": "TreeWalk.find",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "find returns the node whose id matches, at any depth"
+ },
+ {
+  "claim_id": "M2-T-002",
+  "scope": "TreeWalk.find",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "find returns nil when no node in the forest carries that id"
+ },
+ {
+  "claim_id": "M2-T-003",
+  "scope": "TreeWalk.contains",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "contains is true when a node with that id exists at any depth"
+ },
+ {
+  "claim_id": "M2-T-004",
+  "scope": "TreeWalk.contains",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "contains is false for an id present nowhere in the forest"
+ },
+ {
+  "claim_id": "M2-T-005",
+  "scope": "TreeWalk.collectIds",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "collectIds returns every id in pre-order: a parent before its children, siblings in array order"
+ },
+ {
+  "claim_id": "M2-T-006",
+  "scope": "TreeWalk.leaves",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "leaves omits every node with a non-empty children array"
+ },
+ {
+  "claim_id": "M2-T-007",
+  "scope": "TreeWalk.leaves",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "descendants of an omitted branch still surface in the result"
+ },
+ {
+  "claim_id": "M2-T-008",
+  "scope": "TreeWalk.leaves",
+  "kind": "POSTCONDITION",
+  "warrant": "MEDIUM",
+  "statement": "returned leaves are in pre-order (document order of the flattened tree)"
+ },
+ {
+  "claim_id": "M2-T-009",
+  "scope": "TreeWalk.leaves",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "leaf-ness is by children-EMPTINESS, not node type: a node with an empty (non-nil) children array IS returned as a leaf"
+ },
+ {
+  "claim_id": "M2-T-010",
+  "scope": "TreeWalk.first",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "first returns the first node satisfying the predicate, searching at any depth"
+ },
+ {
+  "claim_id": "M2-T-011",
+  "scope": "TreeWalk.first",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "first returns nil when the predicate matches nothing"
+ },
+ {
+  "claim_id": "M2-T-012",
+  "scope": "TreeWalk.first",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "first is pre-order: when both a parent and its descendant match, the PARENT is returned"
+ },
+ {
+  "claim_id": "M2-T-013",
+  "scope": "TreeWalk.collect",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "collect returns every node satisfying the predicate, in pre-order"
+ },
+ {
+  "claim_id": "M2-T-014",
+  "scope": "TreeWalk.collect",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "collect with an always-true predicate flattens the whole forest, producing the same order as collectIds"
+ },
+ {
+  "claim_id": "M2-T-015",
+  "scope": "TreeWalk.collect",
+  "kind": "INVARIANT",
+  "warrant": "MEDIUM",
+  "statement": "a node failing the predicate is still DESCENDED INTO \u2014 filtering a parent out does not prune its matching children"
+ },
+ {
+  "claim_id": "M2-T-016",
+  "scope": "TreeWalk.mutate",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "mutate applies the body closure to the node whose id matches"
+ },
+ {
+  "claim_id": "M2-T-017",
+  "scope": "TreeWalk.mutate",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "nodes not matching the id are returned unchanged"
+ },
+ {
+  "claim_id": "M2-T-018",
+  "scope": "TreeWalk.mutate",
+  "kind": "POSTCONDITION",
+  "warrant": "MEDIUM",
+  "statement": "mutate returns a NEW tree and leaves the input forest untouched"
+ },
+ {
+  "claim_id": "M2-T-019",
+  "scope": "TreeWalk.mutate",
+  "kind": "INVARIANT",
+  "warrant": "MEDIUM",
+  "statement": "children are transformed BEFORE the parent match is tested, so the body closure sees a node whose children have already been rewritten"
+ },
+ {
+  "claim_id": "M2-T-020",
+  "scope": "TreeWalk.remove",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "remove drops the node whose id matches"
+ },
+ {
+  "claim_id": "M2-T-021",
+  "scope": "TreeWalk.remove",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "remove drops the removed node's entire subtree with it"
+ },
+ {
+  "claim_id": "M2-T-022",
+  "scope": "TreeWalk.remove",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "nodes outside the removed subtree survive"
+ },
+ {
+  "claim_id": "M2-T-023",
+  "scope": "TreeWalk.rewritePaths",
+  "kind": "POSTCONDITION",
+  "warrant": "CONTRADICTED",
+  "statement": "a descendant path of form oldPrefix + \"/\" + rest becomes newPrefix + \"/\" + rest \u2014 no double slash, no eaten character"
+ },
+ {
+  "claim_id": "M2-T-024",
+  "scope": "TreeWalk.rewritePaths",
+  "kind": "POSTCONDITION",
+  "warrant": "CONTRADICTED",
+  "statement": "a path exactly EQUAL to oldPrefix becomes exactly newPrefix"
+ },
+ {
+  "claim_id": "M2-T-025",
+  "scope": "TreeWalk.rewritePaths",
+  "kind": "INVARIANT",
+  "warrant": "HIGH",
+  "statement": "a non-boundary prefix match (`old/groupie` against prefix `old/group`) must NOT be rewritten"
+ },
+ {
+  "claim_id": "M2-T-026",
+  "scope": "TreeWalk.rewritePaths",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "an unrelated path is left untouched"
+ },
+ {
+  "claim_id": "M2-T-027",
+  "scope": "TreeWalk.idsByPath",
+  "kind": "POSTCONDITION",
+  "warrant": "HIGH",
+  "statement": "idsByPath maps every non-nil path to its node's id at all depths, and nodes with a nil path are excluded from the map entirely"
+ },
+ {
+  "claim_id": "M2-C-001",
+  "scope": "TreeWalk.find",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "find on an empty forest returns nil rather than trapping"
+ },
+ {
+  "claim_id": "M2-C-002",
+  "scope": "TreeWalk.contains",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "contains on an empty forest is false"
+ },
+ {
+  "claim_id": "M2-C-003",
+  "scope": "TreeWalk.collectIds",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "collectIds on an empty forest returns an empty array"
+ },
+ {
+  "claim_id": "M2-C-004",
+  "scope": "TreeWalk.leaves",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "leaves on an empty forest returns an empty array"
+ },
+ {
+  "claim_id": "M2-C-005",
+  "scope": "TreeWalk.collect",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "collect on an empty forest returns an empty array without invoking the predicate"
+ },
+ {
+  "claim_id": "M2-C-006",
+  "scope": "TreeWalk.first",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "first on an empty forest returns nil without invoking the predicate"
+ },
+ {
+  "claim_id": "M2-C-007",
+  "scope": "TreeWalk.mutate",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "mutate on an empty forest returns an empty forest"
+ },
+ {
+  "claim_id": "M2-C-008",
+  "scope": "TreeWalk.remove",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "remove on an empty forest returns an empty forest"
+ },
+ {
+  "claim_id": "M2-C-009",
+  "scope": "TreeWalk.idsByPath",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "idsByPath on an empty forest returns an empty map"
+ },
+ {
+  "claim_id": "M2-C-010",
+  "scope": "TreeWalk.find",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "when several nodes share an id, find returns the first in pre-order (shallowest, then leftmost)"
+ },
+ {
+  "claim_id": "M2-C-011",
+  "scope": "TreeWalk.collectIds",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "collectIds emits duplicate ids once per occurrence; it does not deduplicate"
+ },
+ {
+  "claim_id": "M2-C-012",
+  "scope": "TreeWalk.mutate",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "mutate applies the body to EVERY node whose id matches, not just the first"
+ },
+ {
+  "claim_id": "M2-C-013",
+  "scope": "TreeWalk.remove",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "remove drops EVERY node whose id matches; with duplicated root ids the forest can empty entirely"
+ },
+ {
+  "claim_id": "M2-C-014",
+  "scope": "TreeWalk.contains",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "contains is true when any duplicate matches"
+ },
+ {
+  "claim_id": "M2-C-015",
+  "scope": "TreeWalk.mutate",
+  "kind": "INVARIANT",
+  "warrant": "LOW",
+  "statement": "children are transformed before the parent's body closure runs, so the body observes already-rewritten children"
+ },
+ {
+  "claim_id": "M2-C-016",
+  "scope": "TreeWalk.mutate",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "mutate with an absent id is the identity and never invokes the body closure"
+ },
+ {
+  "claim_id": "M2-C-017",
+  "scope": "TreeWalk.remove",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "remove with an absent id is the identity"
+ },
+ {
+  "claim_id": "M2-C-018",
+  "scope": "TreeWalk.collect",
+  "kind": "INVARIANT",
+  "warrant": "LOW",
+  "statement": "collect descends into a node that FAILS the predicate; a filtered-out parent does not prune its matching children"
+ },
+ {
+  "claim_id": "M2-C-019",
+  "scope": "TreeWalk.collect",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "a collected node carries its ENTIRE original subtree, including descendants that failed the predicate"
+ },
+ {
+  "claim_id": "M2-C-020",
+  "scope": "TreeWalk.first",
+  "kind": "INVARIANT",
+  "warrant": "LOW",
+  "statement": "first is depth-first, not breadth-first: a deep match under an earlier sibling beats a shallow match at a later one"
+ },
+ {
+  "claim_id": "M2-C-021",
+  "scope": "TreeWalk.collect",
+  "kind": "INVARIANT",
+  "warrant": "LOW",
+  "statement": "collect with an always-true predicate agrees with collectIds even in the presence of duplicate ids"
+ },
+ {
+  "claim_id": "M2-C-022",
+  "scope": "TreeWalk.leaves",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "a chain terminating in an empty children array yields exactly that terminal node as the single leaf"
+ },
+ {
+  "claim_id": "M2-C-023",
+  "scope": "TreeWalk.leaves",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "leaves preserves pre-order across sibling subtrees"
+ },
+ {
+  "claim_id": "M2-C-024",
+  "scope": "TreeWalk.rewritePaths",
+  "kind": "POSTCONDITION",
+  "warrant": "CORRECTED",
+  "statement": "an empty oldPrefix rewrites every ABSOLUTE path (the descendant arm reads \"\" + \"/\") and every empty path, but not relative paths"
+ },
+ {
+  "claim_id": "M2-C-025",
+  "scope": "TreeWalk.rewritePaths",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "oldPrefix == newPrefix is the identity"
+ },
+ {
+  "claim_id": "M2-C-026",
+  "scope": "TreeWalk.rewritePaths",
+  "kind": "INVARIANT",
+  "warrant": "LOW",
+  "statement": "a node with a nil path is never assigned one"
+ },
+ {
+  "claim_id": "M2-C-028",
+  "scope": "TreeWalk.rewritePaths",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "the walk descends into the children of a node whose own path did not match"
+ },
+ {
+  "claim_id": "M2-C-030",
+  "scope": "TreeWalk.rewritePaths",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "the exact-match node and its descendants are both rewritten in a single pass"
+ },
+ {
+  "claim_id": "M2-C-031",
+  "scope": "TreeWalk.idsByPath",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "when two nodes share a path, the LAST visited in pre-order wins"
+ },
+ {
+  "claim_id": "M2-C-032",
+  "scope": "TreeWalk.idsByPath",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "when a parent and child share a path, the CHILD wins"
+ },
+ {
+  "claim_id": "M2-C-033",
+  "scope": "TreeWalk.idsByPath",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "an empty-string path is a valid key, distinct from an absent (nil) path"
+ },
+ {
+  "claim_id": "M2-C-034",
+  "scope": "TreeWalk",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "every walker is unbounded recursion with no depth guard, and survives a 1,000-deep chain"
+ },
+ {
+  "claim_id": "M2-C-035",
+  "scope": "TreeWalk.idsByPath",
+  "kind": "POSTCONDITION",
+  "warrant": "LOW",
+  "statement": "the ITERATION ORDER of the returned Dictionary is not stable across processes (Swift seeds its hasher per process); any caller that iterates rather than subscripts gets a run-varying order"
+ },
+ {
+  "claim_id": "M2-C-036",
+  "scope": "TreeWalk",
+  "kind": "PRECONDITION",
+  "warrant": "LOW",
+  "statement": "the recursion depth at which the walkers overflow the stack is environment-dependent (thread stack size, optimisation level) and has no guard in the code"
+ }
+]

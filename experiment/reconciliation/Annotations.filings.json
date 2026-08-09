@@ -1,0 +1,454 @@
+[
+ {
+  "claim_id": "M5-AN-001",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A closed enum's membership. Not a product decision."
+ },
+ {
+  "claim_id": "M5-AN-002",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A library default. The pane exposes both views with a labelled toggle ('Showing all statuses · click to show only open'), so no writer question is answered twice or wrongly."
+ },
+ {
+  "claim_id": "M5-AN-003",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Filter composition. Not a product decision."
+ },
+ {
+  "claim_id": "M5-AN-004",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Sort order in a list. No ruling addresses annotation ordering."
+ },
+ {
+  "claim_id": "M5-AN-005",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The mechanism, not the surface. Filed on its own it is a cache-invalidation policy; the writer-facing consequence is M5-AN-050, which is where the ruling reaches. Recorded separately so the fix has a mechanism claim to flip."
+ },
+ {
+  "claim_id": "M5-AN-006",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-1",
+  "clause_that_reaches_it": "Maugham MUST NOT accept, through any of its own entry points, content it cannot read back faithfully. The refusal must be visible at the point of entry rather than discovered later.",
+  "why_in_scope": "RULING-1's stated scope names MCP writes among 'every entry point Maugham itself offers'. An annotation anchored to a paragraph id not in the sequence cannot be read back as an anchored annotation — the staleness check has nothing to compare against and no surface can place it. The refusal happens before any append, and it is a structured tool error naming the id and the paragraph count, which is a refusal visible AT the entry point rather than a row discovered later. This is R1 working exactly as written.",
+  "intent_expressed_when": "contemporaneous — Claude is asking to attach a note to a paragraph in this call",
+  "call_path": "Claude Desktop → MCP add_comment / add_query / add_suggested_change → AnnotationCreationTools → withAnnotationDocument → Document.addAnnotation → MCPError.paragraphNotFound → tools/call result with isError=true",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M5-AN-007",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No entry point supplies a paragraph id for a craft note — add_craft_note's schema has no such property and no other caller passes one. UNTRACED, so no ruling has a case to reach."
+ },
+ {
+  "claim_id": "M5-AN-008",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The op payload shape. Not a product decision."
+ },
+ {
+  "claim_id": "M5-AN-009",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "An internal storage-grain choice (bare vs spliced), invisible to the writer; the grain question the writer DOES see is settled at accept (M5-AN-026)."
+ },
+ {
+  "claim_id": "M5-AN-010",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No ruling reaches it, and this is the sharpest of the gaps. RULING-1's scope is content Maugham cannot read back faithfully — an empty replacement reads back exactly as it was written. RULING-7's 'an empty replacement reads as a deletion' is about not misrepresenting, and I did not verify what the pane renders for a blank replacement, so a filing on that clause would rest on an unverified premise (REW-D9's lesson). Raised as GAP-A1 instead."
+ },
+ {
+  "claim_id": "M5-AN-011",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "An empty body is a caller's choice and reads back as what it is."
+ },
+ {
+  "claim_id": "M5-AN-012",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Provenance stamping. The product question it serves — telling Claude's notes from a person's — is answered once, by this field."
+ },
+ {
+  "claim_id": "M5-AN-013",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "UNTRACED: the editor derives a span from the live selection, so a production span resolves at creation by construction. RULING-5's scope is APPLYING a suggestion whose phrase is gone, not creating an annotation whose phrase was never there."
+ },
+ {
+  "claim_id": "M5-AN-014",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A tolerant decode of an optional tag. RULING-7's 'never misrepresent a failure' does not reach an absent optional."
+ },
+ {
+  "claim_id": "M5-AN-015",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Append-only edit semantics. Not a product decision."
+ },
+ {
+  "claim_id": "M5-AN-016",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A parameter's nil-means-unchanged convention."
+ },
+ {
+  "claim_id": "M5-AN-017",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "UNTRACED — no surface can name an id the projection did not produce. The op is inert (M5-AN-033)."
+ },
+ {
+  "claim_id": "M5-AN-018",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Editing a resolved annotation is the writer editing their own words; no ruling restricts it. The withdrawn arm is UNTRACED."
+ },
+ {
+  "claim_id": "M5-AN-019",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "R22's stated scope is 'the writer forms an expectation from what Maugham showed, said or labelled, and the outcome differs from it', and its settled-in-scope list already contains a silent no-op of exactly this shape ('stale cursor silent no-op'). The Edit menu shows 'Undo Edit Annotation' — Maugham labelling an action — and pressing it appends nothing and says nothing. The guard itself is right (it stops a concurrent edit being clobbered by capture-time state); what violates is that it declines to the log rather than to the writer. RULING-19's corollary agrees from the other direction: this guard sits at an ENTRY POINT (⌘Z), and an entry-point guard must fail and TELL. R22 is the sub and is cited per the root-is-decoration discipline.",
+  "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z asking for that edit back",
+  "call_path": "AnnotationsPane pencil → EditAnnotationSheet → Document.editReviewerAnnotation(undoManager:) → OpUndoRegistrar registers → a cross-device merge or a phone edit moves the annotation on → ⌘Z → the drift guard returns after documentLog.error. Reachability is a race window; PRINCIPLE-4 applies.",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M5-AN-020",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "RULING-29 explicitly places this out of scope: 'reopening a withdrawn annotation stays out of scope (withdraw is absence from the projection, a different act)'. That a ruling has looked at the case and declined it is not the same as a ruling reaching it. Raised as GAP-A2, because the writer-facing shape — the one Delete in Maugham with no trash and no restore — is a different question from the reopen mechanism Denver was ruling on."
+ },
+ {
+  "claim_id": "M5-AN-021",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-24",
+  "clause_that_reaches_it": "THE WORK — the prose, the screenplay, the thing being created — is protected AT ALL COSTS and is version-controlled: every change to it is retained.",
+  "why_in_scope": "R24 partitions by asset class, and the manuscript paragraph is squarely THE WORK. Deleting an annotation is an act on the annotation layer; letting it silently un-apply a manuscript change the writer had already accepted would let an annotation-layer gesture rewrite the work without going through the work's own version-controlled path. Leaving the applied text alone keeps the two layers separate, which is what the tier requires. Cited as a root because no sub-ruling partitions the annotation layer against the manuscript in this direction — RULING-25 does so only for time travel.",
+  "intent_expressed_when": "earlier — the writer accepted the suggestion, and that intent persists past their deleting the note about it",
+  "call_path": "AnnotationsPane → own row → trash affordance → Document.withdrawReviewerAnnotation on an already-accepted suggestion",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M5-AN-022",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Merge resolution. The opId-ordered latest-wins rule is the op log's contract, not a product decision."
+ },
+ {
+  "claim_id": "M5-AN-023",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "UNTRACED — see M5-AN-017."
+ },
+ {
+  "claim_id": "M5-AN-024",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "UNTRACED — every production caller passes an id the projection produced. No writer gesture reaches the guard, so no control is silently doing nothing."
+ },
+ {
+  "claim_id": "M5-AN-025",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Which kinds mutate the manuscript on accept is settled by the kind's definition; no ruling addresses it."
+ },
+ {
+  "claim_id": "M5-AN-026",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-5",
+  "clause_that_reaches_it": "Maugham never guesses where an AI-authored change belongs.",
+  "why_in_scope": "R5's subject is exactly the placement of an AI-authored replacement inside the writer's paragraph. Re-resolving the span against the paragraph's CURRENT text at accept time — rather than against the text captured when the suggestion was authored — is Maugham refusing to guess: it places the change where the anchor still points, so a one-word suggestion replaces one word even after the paragraph moved under it. This is the half of R5 that IS honoured; M5-AN-049 is the half that is not.",
+  "intent_expressed_when": "contemporaneous — the writer clicked Accept on this suggestion",
+  "call_path": "AnnotationsPane → Accept → Document.acceptAnnotation → SuggestionSplice.apply(suggestion:span:to: current paragraph)",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M5-AN-027",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The pane renders Accept / 'Got it' on resolved rows deliberately, under a labelled 'show all statuses' view; a button that marks a note accepted when clicked does what it says. No ruling requires resolution to be one-way."
+ },
+ {
+  "claim_id": "M5-AN-028",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "R22's scope is an expectation Maugham itself created being contradicted by an outcome. Deleting your own annotation is Maugham telling the writer it is gone — it vanishes from every surface, at every status. Accepting it afterwards nonetheless splices its replacement into the manuscript, and because the annotation is still absent from the projection there is no row to notice it happened and no Revert to reach for. Intent has duration (discipline 2): the withdrawal was not withdrawn. The scope test is easy to write honestly here; what is hard is the call path, which is a cross-device race rather than a single-device gesture, so PRINCIPLE-4's reachability-governs-priority clause applies and the priority is low.",
+  "intent_expressed_when": "earlier — the writer deleted the annotation, and that instruction persists",
+  "call_path": "UNTRACED single-device. Cross-device: Mac B's pane rendered before Mac A's withdraw merged still shows the row; clicking Accept inside the sync window reaches Document.acceptAnnotation with a withdrawn id and the creation op still in Mac B's mirror.",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M5-AN-029",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Where an action is complex or its consequences are confusing, that warrants an additional confirmation prompt.",
+  "why_in_scope": "R22's escalation clause is the one that reaches a confirm-or-not question. Reverting an accepted suggestion over a paragraph the writer has since edited destroys those edits — a consequence the button's label cannot carry — and `acceptedTextDrifted` is precisely the test that decides when to escalate to the confirm. Whitespace-exact comparison against the accept op's own `next` means the escalation fires on any real divergence rather than on a heuristic.",
+  "intent_expressed_when": "contemporaneous — the writer is about to click Revert",
+  "call_path": "AnnotationsPane → Revert → acceptedTextDrifted → revertConfirm alert",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M5-AN-030",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-35",
+  "clause_that_reaches_it": "its dead actions are DISABLED with the reason ('its paragraph was deleted'). Nothing renders an enabled control that silently does nothing.",
+  "why_in_scope": "The ruling's sentence implemented as a pure row policy (AnnotationRowPolicy.revertEnabled) so the no-dead-controls rule is testable without mounting the pane; the stale mark was already derived (paragraphStale) and stays.",
+  "intent_expressed_when": "contemporaneous — the writer clicked a button asking for their text back",
+  "call_path": "AnnotationsPane → 'show all statuses' → an accepted suggestion whose paragraph was deleted → Revert → Document.revertAcceptedAnnotation → `sequence.contains(pid)` guard → documentLog.error, return",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "870ef2f30f2d9e593cec967f8098f2b2fd63dac7",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-35 — Denver 2026-08-08, recommended option accepted",
+   "pinned_by": "AnnotationsCharacterization.test_revertIsDisabledWhenTheParagraphIsGone",
+   "note": "seventh loop, part two"
+  }
+ },
+ {
+  "claim_id": "M5-AN-031",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Where an action is complex or its consequences are confusing, that warrants an additional confirmation prompt.",
+  "why_in_scope": "The behaviour itself — restoring the pre-accept text over whatever is there now — is destructive of intervening edits, which is the confusing consequence R22's escalation clause is about. It is gated behind a confirm whose message states that consequence in the writer's terms ('Edits made since the accept will be lost'). The dropped userResponse is the same shape as M5-AN-037 and is carried there rather than here.",
+  "intent_expressed_when": "contemporaneous — the writer confirmed the alert",
+  "call_path": "AnnotationsPane → Revert → revertConfirm ('Revert anyway') → Document.revertAcceptedAnnotation",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M5-AN-032",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The archived→rejected arm is a labelled button doing what it says on a row the pane deliberately renders. The junk-id arms are UNTRACED and inert (M5-AN-033); op-log noise is not a ruled cost."
+ },
+ {
+  "claim_id": "M5-AN-033",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Decoder tolerance for a malformed op. RULING-2's scope is files arriving from outside, not the app's own ops."
+ },
+ {
+  "claim_id": "M5-AN-034",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "UNTRACED today — reopen has no non-undo caller (M5-AN-039). Becomes rulable the day RULING-29's pane action ships, at which point .accepted's exclusion needs to compose with the Revert affordance that already serves it."
+ },
+ {
+  "claim_id": "M5-AN-035",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A lower layer refusing to operate on a husked instance. RULING-19 assigns lower layers the duty to protect and explicitly does not oblige them to communicate; no writer control is involved."
+ },
+ {
+  "claim_id": "M5-AN-036",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "The Edit menu reads 'Undo Withdraw Annotation'. What it does is undo the withdrawal AND cancel an archive the writer performed separately and never asked to undo, because `annotationReopen` is one op kind serving two inverses and `AnnotationDeriver` reads every reopen through both the withdraw-state pass and the lifecycle pass. One ⌘Z therefore takes two of the writer's decisions. This is the same defect shape CLAUDE.md's tripwire 32 records for the canvas ('a ⌘Z aimed at a sentence takes something else with it') arriving in the annotation layer, and the scope test is straightforward: the writer's expectation came from the menu item's own wording.",
+  "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z once, for one action",
+  "call_path": "AnnotationsPane → own row → Archive → trash affordance ('Delete your annotation') → ⌘Z → Document.reopenAnnotation → AnnotationInverse.reopenOp(undoing: .annotationWithdraw) → one annotationReopen op that both passes of the deriver honour",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M5-AN-037",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No ruling reaches it as filed. On the ⌘Z path dropping the reply is correct undo semantics — undoing a rejection should undo the reply that was part of it. RULING-4's 'words the writer authored are always recoverable' has the scope clause 'recoverable FROM ACCIDENTS AND FROM MAUGHAM'S OWN ACTIONS', and this is neither. It becomes a live question the day RULING-29's Reopen ships, because a deliberate reopen is not an undo. Raised as GAP-A3."
+ },
+ {
+  "claim_id": "M5-AN-038",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-25",
+  "clause_that_reaches_it": "The writer's own archive/resolve actions are their intent (RULING-23's shape) and are untouched by this ruling.",
+  "why_in_scope": "R25 scopes symmetric travel to 'Maugham closing an annotation on ITS OWN initiative during history travel', and the boundary has to be drawn in the data somewhere. The unstamped reopen is where it is drawn: step 9 reopens only annotations whose latest lifecycle op is a `.rewind`-stamped archive, so a reopen the writer issued by hand carries no stamp and cannot be mistaken for Maugham's, in either direction. Without this asymmetry R25's scope boundary would be unenforceable.",
+  "intent_expressed_when": "contemporaneous — the writer's own reopen is their intent, recorded unstamped",
+  "call_path": "Document.reopenAnnotation → appendAnnotationOpInternal with AnnotationInverse's op (no synthesisSource), vs Document+Rewind step 9 → appendLifecycleOp(synthesisSource: .rewind)",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M5-AN-039",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-29",
+  "clause_that_reaches_it": "Any archived or rejected annotation can be reopened by the writer from the annotations pane. Resolution is the writer's to reverse — whether Maugham made it or they did. A single undo immediately afterwards is not a recovery route; it expires. The pane action does not.",
+  "why_in_scope": "The ruling implemented verbatim: the Reopen affordance on every archived/rejected row, backed by the undoable wrapper whose ⌘Z re-applies the prior resolution with its reason intact (RULING-31 riding the same fix, filed at M5-AN-055). The recorded traps were respected: the reopen op is the factory's own kind (M5-AN-036's double-inverse untouched) and the rejection reason survives (GAP-A3 closed by design, not lost by accident).",
+  "intent_expressed_when": "contemporaneous — the writer is looking at a resolved note they want back",
+  "call_path": "AnnotationsPane → 'show all statuses' → any archived or rejected row → no affordance exists. `reopenAnnotation` is reachable only via ⌘Z immediately after the resolution, which RULING-29 states is not a recovery route because it expires.",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "5ea5b8604eeaf4beeac0a3d353d6be4523be9375",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-29 — Denver 2026-08-08, no recommendation marked",
+   "pinned_by": "AnnotationsCharacterization census + undoable-reopen tests",
+   "note": "seventh loop, part one"
+  }
+ },
+ {
+  "claim_id": "M5-AN-040",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A pure factory's decision table. The product decisions it encodes are ruled elsewhere (RULING-29 for what is reopenable; the accept/claudeAcceptRevert split predates the ruling set)."
+ },
+ {
+  "claim_id": "M5-AN-041",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer.",
+  "why_in_scope": "R22's settled-in-scope list names 'unmentioned auto-archive' directly, and the scope test holds independently of that bullet: the writer deleted a paragraph, and Maugham additionally closed every open note attached to it — an outcome beyond what the deletion said it would do, delivered with no notice of any kind. `sweepOrphanedAnnotations` returns Void; the only record is an op in the log and a row that stops appearing in the pane's default view. The eligibility rule itself is defensible (only open, only anchored, only on ids observed being removed); what violates is that the writer is never told. Note the asymmetry with rewind, where the same sweep's output IS carried back as `RewindRestoreResult.archivedAnnotationOpIds` — RULING-28 rules that half must be reported; the typing half has no equivalent.",
+  "intent_expressed_when": "contemporaneous — the writer deleted a paragraph and expected a paragraph to be deleted",
+  "call_path": "editor → delete a paragraph carrying an open note → setFullText populates SweepReason.userTyped → flushBurstNow → Document.sweepOrphanedAnnotations → appendLifecycleOp(.claudeArchive, synthesisSource: .paragraphDeleted) → nothing surfaced",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M5-AN-042",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A deliberate, documented defence against a known regression (a transient Document's reconstructed sequence mass-archiving a live editor's notes). RULING-19 assigns lower layers exactly this duty and does not oblige them to communicate."
+ },
+ {
+  "claim_id": "M5-AN-043",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A redundant clause in a filter. Worth pinning because it falsifies any finding that rests on a paragraph-anchored craft note — REW-D9's failure mode — but it is not a product decision."
+ },
+ {
+  "claim_id": "M5-AN-044",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Forensic provenance on a synthesised op. It is the discriminator RULING-25 and RULING-26 depend on, but the decision they encode is ruled there, not here."
+ },
+ {
+  "claim_id": "M5-AN-045",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Set union and a most-recent-wins field. Not a product decision."
+ },
+ {
+  "claim_id": "M5-AN-046",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The mechanism. An in-memory array's ordering discipline is not a product decision; the writer-facing consequence is M5-AN-047. Recorded separately so a fix has a mechanism claim to flip."
+ },
+ {
+  "claim_id": "M5-AN-047",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "R22's scope is an expectation Maugham created being contradicted by the outcome, and its settled list already contains a rewind case ('stale cursor silent no-op') on the same control. The rewind scrubber names a moment and promises the document as it was then; over an unsorted mirror it renders a state the document never held — the peer's later text shown at the writer's own earlier moment — with no signal. `Deriver.derive(ops:upTo:)`'s refusal to re-sort is correct and documented (a timeline prefix must respect its caller's order); the broken party is the premise it is handed, stated in `currentFoldBasis`'s own comment as an invariant that does not hold. Filing this on the annotations module rather than on rewind because the appends that break the ordering are this module's, and because it is the thread the Rewind verifier left unchased. Reachability needs a second Mac whose clock is ahead; PRINCIPLE-4 governs the priority, and AREA.md's existing acceptance of a clock-skew inversion is about which BOOTSTRAP wins, not about this premise.",
+  "intent_expressed_when": "contemporaneous — the writer scrubbed to a moment and asked to see it",
+  "call_path": "second Mac appends an op with a leading ULID → NSFilePresenter → handleExternalLogChange replaces the mirror (sorted) → any local append (a typing burst, an annotation, a lifecycle op) pushes a lower ULID onto the end → RewindWindow reads doc.opLog() → Deriver.derive(ops:upTo:)",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M5-AN-048",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "UNTRACED — a Document is abandoned by contract after close() and no production reader touches one. The ops are persisted correctly, so no data is at risk; the inconsistency is a maintenance hazard, not a writer-facing one."
+ },
+ {
+  "claim_id": "M5-AN-049",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-5",
+  "clause_that_reaches_it": "A suggestion whose quoted phrase can no longer be found in the writer's paragraph MUST NOT be applied. It is refused, the writer is told why, and they may ask again. Maugham never guesses where an AI-authored change belongs.",
+  "why_in_scope": "The headline case verbatim: the span no longer resolves against the current paragraph, and the accept now refuses at the layer that computes the splice — before any op is appended — with the refusal surfaced on the pane and mirrored on the phone through the same shared SuggestionSplice.attempt. The ruling's consequence clause ('a suggestion the writer still wants becomes unusable after any nearby edit — accepted deliberately') is now the shipped behaviour.",
+  "intent_expressed_when": "contemporaneous — the writer clicked Accept",
+  "call_path": "MCP add_suggested_change with a quote → AnnotationsPane row → the writer rewrites the sentence → Accept (via the stale confirm's 'Apply anyway', or with no confirm at all inside the burst window, M5-AN-050) → Document.acceptAnnotation → SuggestionSplice.apply → SpanAnchorResolver returns nil → `return bare`",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "2d458c8f304a06eee4f887b8a10aeeb63271fbfe",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-5 (RATIFIED_STRICT) — the ruling predates the defect's discovery; no new ruling was needed",
+   "pinned_by": "AnnotationsCharacterization.test_aLostSpanAnchorRefusesTheAccept + phone AnnotationWriterTests.test_makeAccept_lostSpanAnchor_isRefused + core SuggestionSpliceTests.test_attempt_unresolvableSpan_isRefused",
+   "note": "fourth fix loop; the register's most serious find, closed"
+  }
+ },
+ {
+  "claim_id": "M5-AN-050",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-5",
+  "clause_that_reaches_it": "It is refused, the writer is told why, and they may ask again.",
+  "why_in_scope": "The gate half: the staleness cache still lags (M5-AN-005's mechanism, deliberately untouched) but the lag is now advisory — the accept re-resolves against CURRENT text whatever the cache says, and the pane's performAccept surfaces the refusal rather than try?-swallowing it. RULING-19's layering: the entry point tells, the lower layer protects.",
+  "intent_expressed_when": "contemporaneous — the writer clicked Accept moments after editing the paragraph",
+  "call_path": "AnnotationsPane renders (cache warm) → writer types (setFullText, no invalidation) → pane re-renders, isStale still false → Accept → no staleConfirm → Document.acceptAnnotation",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "2d458c8f304a06eee4f887b8a10aeeb63271fbfe",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-5 + RULING-19's layered duties",
+   "pinned_by": "AnnotationsCharacterization.test_theStaleCacheLagCannotCostProseAnymore"
+  }
+ },
+ {
+  "claim_id": "M5-AN-051",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Cross-device merge bookkeeping. The sticky flag is an optimisation; that a peer's annotation appears is the op log's merge contract, ruled nowhere."
+ },
+ {
+  "claim_id": "M5-AN-052",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Merge correctness — 'two devices with identical logs must derive identical text' is an architectural invariant (AREA.md), not a product decision. Recorded because it is what confines M5-AN-047's damage to rewind."
+ },
+ {
+  "claim_id": "M5-AN-053",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "RULING-13's scope is a paragraph whose IDENTITY is not recovered, where annotations move with the text and are marked stale. A deleted paragraph is not that — there is no text to move with. The deriver does mark these stale, which is R13's shape applied by coincidence rather than by reach. Raised as GAP-A5, and note it is what makes M5-AN-030's dead Revert reachable."
+ },
+ {
+  "claim_id": "M5-AN-055",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-31",
+  "clause_that_reaches_it": "the written rejection reason stays visible on the annotation as part of its record ('previously rejected: …')",
+  "why_in_scope": "The ruling's sentence implemented in the shared deriver (both surfaces inherit) and rendered by the pane. Fixed at 5ea5b8604e.",
+  "intent_expressed_when": "earlier — the writer wrote the reason at rejection; keeping it is honouring that authorship",
+  "call_path": "reject with reason → pane Reopen → row shows 'Previously rejected: …'",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "5ea5b8604eeaf4beeac0a3d353d6be4523be9375",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-31",
+   "pinned_by": "AnnotationsCharacterization.test_reopeningARejectedNote_keepsTheReasonAsHistory"
+  }
+ },
+ {
+  "claim_id": "M5-AN-056",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-34",
+  "clause_that_reaches_it": "A deleted (withdrawn) annotation is recoverable later: it lands in a findable Deleted view in the pane and can be restored.",
+  "why_in_scope": "The ruling implemented verbatim; the op log already retained everything, so this is surfacing, not new storage — exactly as the ruling's basis argued. Fixed at 870ef2f30f.",
+  "intent_expressed_when": "earlier — the delete was intent; recoverability honours RULING-15's single meaning of delete",
+  "call_path": "own annotation → Delete → resolved view → Deleted section → Restore",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "870ef2f30f2d9e593cec967f8098f2b2fd63dac7",
+   "date": "2026-08-09",
+   "authorised_by": "RULING-34",
+   "pinned_by": "AnnotationsCharacterization.test_aWithdrawnNoteIsListedAndRestorable"
+  }
+ },
+ {
+  "_summary": {
+   "reached": 17,
+   "complies": 12,
+   "violates": 5,
+   "no_ruling": 38,
+   "total": 55,
+   "coverage": "31%",
+   "by_ruling": {
+    "RULING-1": [
+     "M5-AN-006"
+    ],
+    "RULING-22": [
+     "M5-AN-019",
+     "M5-AN-028",
+     "M5-AN-029",
+     "M5-AN-031",
+     "M5-AN-036",
+     "M5-AN-041",
+     "M5-AN-047"
+    ],
+    "RULING-24": [
+     "M5-AN-021"
+    ],
+    "RULING-25": [
+     "M5-AN-038"
+    ],
+    "RULING-29": [
+     "M5-AN-039"
+    ],
+    "RULING-31": [
+     "M5-AN-055"
+    ],
+    "RULING-34": [
+     "M5-AN-056"
+    ],
+    "RULING-35": [
+     "M5-AN-030"
+    ],
+    "RULING-5": [
+     "M5-AN-026",
+     "M5-AN-049",
+     "M5-AN-050"
+    ]
+   },
+   "reached_by_a_root_only": [
+    "M5-AN-021"
+   ],
+   "specificity_current_ruling_set": "14/15 = 93%",
+   "distinct_defects": "9 violations over 7 distinct defects — M5-AN-049 and M5-AN-050 are two faces of the lost-anchor accept (applied at all; applied with no warning) and are counted once; M5-AN-046/047 are mechanism and consequence of the unsorted mirror and are counted once, the mechanism filed NO_RULING_REACHES. None fixed.",
+   "pinned_by": "MaughamTests/Claims/AnnotationsCharacterization.swift (41 test methods, all passing at HEAD ea4f4662)"
+  }
+ }
+]

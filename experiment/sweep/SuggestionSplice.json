@@ -1,0 +1,209 @@
+{
+  "module": "SuggestionSplice",
+  "loc": 92,
+  "claims": [
+    {
+      "id": "SPLICE-1",
+      "scope": "SuggestionSplice.apply(suggestion:span:to:)",
+      "kind": "POSTCONDITION",
+      "statement": "With span == nil, returns `bare` verbatim — the whole paragraph passed in is discarded regardless of its length or content.",
+      "evidenced_by": "source; test:SuggestionSpliceTests.test_apply_noSpan_replacesWholeParagraph; test:SuggestionSpliceGrainTests.test_noSpan_bareIsWholeParagraph_unchangedBehavior",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SPLICE-2",
+      "scope": "SuggestionSplice.apply(suggestion:span:to:)",
+      "kind": "POSTCONDITION",
+      "statement": "With a span that resolves against the paragraph and a `bare` not detected as whole-paragraph grain, returns prefix + bare + suffix, where prefix/suffix are the character slices of the SAME paragraph argument outside the resolved range.",
+      "evidenced_by": "source; test:SuggestionSpliceTests.test_apply_spliceReplacesOnlyTheSpan; test:SuggestionSpliceTests.test_apply_longParagraph_onlySpanChanges; test:SuggestionSpliceGrainTests.test_correctGrain_splicesSpanOnly",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SPLICE-3",
+      "scope": "SuggestionSplice.apply(suggestion:span:to:)",
+      "kind": "POSTCONDITION",
+      "statement": "When a span is present but SpanAnchorResolver cannot resolve it against the paragraph, returns `bare` as the ENTIRE paragraph — every character of the writer's paragraph outside the (unfindable) span is dropped. Evidenced only for the case where the quote's text is absent from the paragraph; the source makes no other distinction.",
+      "evidenced_by": "source; test:SuggestionSpliceTests.test_apply_unresolvableSpan_fallsBackToWholeParagraph (\"x\" replaces \"abc def\"); test:SuggestionSpliceGrainTests.test_unresolvableSpan_fallsBackToBare_unchangedBehavior",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SPLICE-4",
+      "scope": "SuggestionSplice.apply → SpanAnchorResolver.resolve",
+      "kind": "POSTCONDITION",
+      "statement": "A span whose `quote` is the empty string resolves to nil, so apply takes the same path as SPLICE-3: `bare` becomes the whole paragraph.",
+      "evidenced_by": "source (SpanAnchorResolver.resolve early return); test:SpanAnchorResolverTests.test_emptyQuote_isParagraphLevel_returnsNil",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SPLICE-5",
+      "scope": "SuggestionSplice.apply(suggestion:span:to:)",
+      "kind": "INVARIANT",
+      "statement": "The span is re-resolved against the `paragraph` argument supplied at CALL time — never against the text the suggestion was authored against. Both production callers pass the live paragraph (Mac: `paragraphs[pid] ?? orig.prior ?? \"\"`; phone: `currentParagraph ?? annotation.priorText ?? \"\"`), so the fallback to the authoring-time text happens only when the live paragraph is absent from the map.",
+      "evidenced_by": "source; Maugham/OpLog/Document+Annotations.swift:334-338; MaughamPhone/Annotations/AnnotationWriter.swift:126-129",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SPLICE-6",
+      "scope": "SuggestionSplice.isWholeParagraphGrain(bare:prefix:suffix:)",
+      "kind": "POSTCONDITION",
+      "statement": "Returns true when the trimmed `bare` both starts with the trimmed prefix and ends with the trimmed suffix AND their combined trimmed lengths are >= 12; apply then returns `bare` verbatim instead of splicing.",
+      "evidenced_by": "source; test:SuggestionSpliceGrainTests.test_wholeParagraphBare_bothContextsPresent_replacesWholeParagraph; test:SuggestionSpliceGrainTests.test_wholeGrain_longCombinedContext_bothShortSides",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SPLICE-7",
+      "scope": "SuggestionSplice.isWholeParagraphGrain(bare:prefix:suffix:)",
+      "kind": "POSTCONDITION",
+      "statement": "One-sided salvage: a trimmed suffix of >= 12 characters that `bare` ends with is by itself sufficient to treat `bare` as whole-paragraph grain. The symmetric prefix-only branch exists in source but has no direct test — only the suffix-only branch is test-evidenced.",
+      "evidenced_by": "source (both branches); test:SuggestionSpliceGrainTests.test_wholeParagraphBare_spanAtStart_longSuffixMatch_replacesWholeParagraph (suffix branch only)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SPLICE-8",
+      "scope": "SuggestionSplice.apply(suggestion:span:to:)",
+      "kind": "POSTCONDITION",
+      "statement": "When the context match is below the 12-character floor the salvage does NOT fire and the bare text is spliced, producing duplicated surrounding text in the writer's manuscript. Two tests assert this doubled output as the expected result: \"Hello world. Farewell..\" (doubled period) and \"She She waved..\" (doubled \"She\" and doubled period).",
+      "evidenced_by": "test:SuggestionSpliceGrainTests.test_shortSuffixCoincidence_doesNotTriggerSalvage; test:SuggestionSpliceGrainTests.test_shortBothSidesCoincidence_doesNotTriggerSalvage",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SPLICE-9",
+      "scope": "SuggestionSplice.isWholeParagraphGrain(bare:prefix:suffix:)",
+      "kind": "INVARIANT",
+      "statement": "Grain is inferred entirely from the CONTENT of the suggestion (does it repeat the paragraph's surroundings?). Nothing recorded at authoring time declares the grain, so the decision is a heuristic over prose and can go either way on text the author never intended as evidence.",
+      "evidenced_by": "source (Op.Provenance carries span fields but no grain flag; AddSuggestedChangeTool states the grain in prose only)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SPLICE-10",
+      "scope": "SuggestionSplice.spanAnchor(from:)",
+      "kind": "POSTCONDITION",
+      "statement": "Returns nil for a nil provenance, a nil `spanQuote`, or an empty `spanQuote`; otherwise builds a SpanAnchor substituting \"\" for a missing prefix/suffix and 0 for a missing posHint.",
+      "evidenced_by": "source; test:SuggestionSpliceTests.test_spanAnchor_fromProvenance",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SPLICE-11",
+      "scope": "SuggestionSplice.apply(suggestion:span:to:)",
+      "kind": "INVARIANT",
+      "statement": "apply is total: it never throws, never returns nil, and returns no indication of which of its three branches ran. A caller cannot distinguish a clean splice from a whole-paragraph fallback (SPLICE-3) or a grain salvage (SPLICE-6) by inspecting the return value.",
+      "evidenced_by": "source (return type String, no error path)",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SPLICE-12",
+      "scope": "SuggestionSplice.apply — cross-surface",
+      "kind": "INVARIANT",
+      "statement": "Mac (`Document.acceptAnnotation`) and phone (`AnnotationWriter.makeAccept`) compute the accept op's `next` through this same function, so given the same paragraph text, span and bare text the materialised paragraph is identical on both surfaces. The GATING around the call is not shared (see SPLICE-15).",
+      "evidenced_by": "source (both call sites); test:MaughamPhoneTests/AnnotationWriterTests.test_makeAccept_spanSuggestion_splicesOnlyTheSpan; test:MaughamTests/AnnotationFlowTests.test_spanSuggestion_acceptReplacesOnlyTheSpan",
+      "confidence": "HIGH"
+    },
+    {
+      "id": "SPLICE-13",
+      "scope": "SpanAnchorResolver.resolve (tier 2, fuzzy)",
+      "kind": "POSTCONDITION",
+      "statement": "When no exact normalized occurrence exists, a character window scoring >= 0.6 bigram overlap against the quote resolves as the span — so a span the writer has since edited can still be found and replaced. Evidenced for one single-character misspelling inside a 16-character quote; a fully rewritten span returns nil. The general tolerance boundary between those two points is not test-pinned.",
+      "evidenced_by": "source (fuzzyThreshold 0.6); test:SpanAnchorResolverTests.test_minorEditInsideSpan_stillAnchors; test:SpanAnchorResolverTests.test_spanFullyRewritten_goesStale",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "SPLICE-14",
+      "scope": "SpanAnchorResolver.fuzzyWindow → SuggestionSplice.apply",
+      "kind": "POSTCONDITION",
+      "statement": "A fuzzy match returns an arbitrary character window (lengths quote.count-2 … quote.count+2 at every start offset) with no word-boundary constraint, so the range apply overwrites can begin or end mid-word. No test covers the boundary shape of a fuzzy result.",
+      "evidenced_by": "source (SpanAnchorResolver.fuzzyWindow)",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "SPLICE-15",
+      "scope": "SuggestionSplice.apply — call sites",
+      "kind": "PRECONDITION",
+      "statement": "apply assumes `paragraph` is in the same text space the anchor was captured in. It is not, on the Mac: anchors are captured against anchor-STRIPPED display text (`AnnotationToolHelpers.resolveSpanAnchor`, `ReviewSpanCapture`), staleness is computed against stripped display text (`AnnotationDeriver`), but `Document.acceptAnnotation` passes the RAW `paragraphs[pid]`, which may carry inline `<!--t-XXXXXX-->` task anchors. SpanText.normalize does not remove HTML comments.",
+      "evidenced_by": "source (AnnotationDeriver.swift:106-107 strips; Document+Annotations.swift:334 does not; SpanText.normalize)",
+      "confidence": "MEDIUM"
+    },
+    {
+      "id": "SPLICE-16",
+      "scope": "SuggestionSplice.apply — empty suggestion",
+      "kind": "POSTCONDITION",
+      "statement": "An empty `bare` is applied like any other: with a resolvable span it deletes the span, with no span it replaces the paragraph with the empty string. Nothing in apply, in either accept path, or in AddSuggestedChangeTool's schema rejects an empty suggested text (the phone's `malformedSuggestion` guard tests for nil, not empty).",
+      "evidenced_by": "source (SuggestionSplice.apply; AnnotationWriter.makeAccept guard; AddSuggestedChangeTool.inputSchemaJSON)",
+      "confidence": "HIGH"
+    }
+  ],
+  "product_decisions": [
+    {
+      "id": "SPLICE-D1",
+      "question": "When Claude proposed a change to a phrase, and that phrase can no longer be found in the paragraph, what should accepting do?",
+      "current_behaviour": "The bare replacement becomes the WHOLE paragraph. A one-word suggestion whose anchor is lost replaces the writer's entire paragraph with that one word. The source comment calls this \"the safe fallback for a lost anchor\".",
+      "writer_visible_consequence": "A paragraph the writer has been working on is replaced by a fragment. On the Mac a generic confirm (\"Paragraph has changed since this suggestion\") stands in front of it, whose message — \"will replace the current paragraph text with the originally-proposed replacement\" — is technically true here but reads as a routine drift warning rather than 'you are about to lose this paragraph'. On the phone there is no confirm at all.",
+      "classification": "NOVEL",
+      "reasoning": "Neither ruling reaches it. RULING-1 is about content Maugham cannot READ BACK faithfully at an entry point; this is content Maugham cannot PLACE faithfully, and it resolves the ambiguity by destroying text rather than by refusing. RULING-2's tolerance is for files arriving from outside; an accept is a person acting inside the app, which is RULING-1's side of the shape, and RULING-1's instinct — refuse visibly at the point of entry — points the opposite way from what the code does.",
+      "proposed_ruling": "When a suggestion was made about a specific phrase and that phrase can no longer be found in the writer's paragraph, Maugham must not apply it. Accepting must fail visibly, keep the paragraph untouched, and offer the proposed text to the writer to place by hand."
+    },
+    {
+      "id": "SPLICE-D2",
+      "question": "Should accepting a suggestion whose paragraph has changed since it was written require confirmation?",
+      "current_behaviour": "The Mac answers yes: `AnnotationsPane.accept` routes a stale `.suggestedChange` to a confirmation alert with an \"Apply anyway\" button. The phone answers no: `AnnotationDetailView.performAccept` calls the writer immediately; staleness appears only as a small \"stale\" badge in the header.",
+      "writer_visible_consequence": "The same suggestion on the same manuscript is guarded on the Mac and unguarded on the phone. A writer reviewing on the phone can apply, with one tap and no warning, exactly the change the Mac would have stopped to ask about — including the whole-paragraph-loss case in D1.",
+      "classification": "INCONSISTENT",
+      "reasoning": "One question — 'is a drifted suggestion safe to apply unprompted?' — answered two different ways in two places, over a deliberately SHARED splice. The sharing makes it worse rather than better: the two surfaces agree exactly on what to write and disagree on whether to ask.",
+      "proposed_ruling": "Whether a suggestion is safe to apply is a property of the suggestion, not of the device. If applying a drifted suggestion needs the writer's confirmation on one surface, it needs it on every surface."
+    },
+    {
+      "id": "SPLICE-D3",
+      "question": "Must the before/after a writer approves be the change that actually lands?",
+      "current_behaviour": "It need not be, in two ways. (a) `SuggestionDisplay.before` resolves the span against `annotation.priorText` — the paragraph as it was when the suggestion was authored — while `SuggestionSplice.apply` resolves against the paragraph as it is now; the two can pick different text or disagree on whether the span resolves at all. (b) The \"+\" side of the diff is the bare suggested text, never the resulting paragraph, so the whole-paragraph replacement of D1 previews as a one-word change.",
+      "writer_visible_consequence": "The writer reads `very angry → furious`, presses Accept, and the paragraph becomes \"furious\". The preview was accurate about the suggestion and silent about the consequence.",
+      "classification": "INCONSISTENT",
+      "reasoning": "The grain question is asked in two places against two different texts, with a source comment in SuggestionDisplay claiming they agree (\"Mirror SuggestionSplice.apply's grain decision so the previewed diff is exactly what accept will do\") — a claim the choice of `priorText` breaks whenever the paragraph has drifted, which is precisely the situation the mirror exists for. This is the same pattern the sweep brief names as having already produced two real defects.",
+      "proposed_ruling": "What a writer is shown before accepting must be computed from the same text the accept will act on, and must show the resulting paragraph whenever more than the quoted phrase will change."
+    },
+    {
+      "id": "SPLICE-D4",
+      "question": "What should Maugham do when Claude's suggestion does not match the grain it declared — when a replacement for one phrase arrives carrying the whole paragraph around it?",
+      "current_behaviour": "Maugham guesses from the text. If the suggestion repeats >= 12 characters of the paragraph's surroundings it is used verbatim as the whole paragraph; below that floor it is spliced anyway, duplicating the repeated context. Two tests assert the duplicated output as correct: \"Hello world. Farewell..\" and \"She She waved..\".",
+      "writer_visible_consequence": "Below the floor, visibly mangled prose lands in the manuscript (\"She She waved..\"). Above it, a suggestion the writer read as a phrase change silently replaces the whole paragraph. Which of the two happens turns on the length of the writer's own surrounding words — nothing the writer can see or predict.",
+      "classification": "NOVEL",
+      "reasoning": "Neither ruling covers a mis-declared grain. It rhymes with RULING-1's shape (refuse what you cannot handle faithfully, visibly, at the point of entry) but RULING-1 is scoped to content Maugham cannot read back, and the entry point here is `add_suggested_change` accepting a payload that contradicts its own `quote` argument — a validation that could happen at authoring time, when Claude is still present to be told.",
+      "proposed_ruling": "A suggestion that contradicts the grain it declared is malformed. Maugham should reject it when it arrives — while the proposer can still fix it — rather than guess at accept time; and it must never write text into the manuscript that it has detected as ambiguous."
+    },
+    {
+      "id": "SPLICE-D5",
+      "question": "How much may the writer have rewritten a phrase before Claude's replacement for it stops applying?",
+      "current_behaviour": "A 60% bigram-overlap fuzzy match. A phrase the writer edited still anchors, and Claude's replacement overwrites the writer's newer words. The matched window is an arbitrary character range, not word-aligned, so the overwritten extent can begin or end mid-word.",
+      "writer_visible_consequence": "The writer fixes a phrase themselves, later accepts a suggestion they read as being about the old wording, and their own newer sentence is the thing that disappears. There is no signal in the review card that the suggestion is being applied to text that has moved.",
+      "classification": "NOVEL",
+      "reasoning": "This is the choice between two failures — losing the writer's edit versus losing the suggestion — and reasonable people disagree about where 'close enough' sits. Neither ruling addresses reconciliation between a stored proposal and text that has since changed. Note it interacts with D2: a fuzzy match resolves, so `spanIsStale` is FALSE and the Mac's confirm does not fire; only a whole-paragraph text difference (`paragraphStale`) catches it.",
+      "proposed_ruling": "Where the writer's own words and a stored suggestion conflict, the writer's words win by default. A suggestion may only be applied silently to text that still matches what was quoted; anything less exact must be shown to the writer as a changed target before it is applied."
+    },
+    {
+      "id": "SPLICE-D6",
+      "question": "Is 'this span still exists' decided on the same text that the replacement is written into?",
+      "current_behaviour": "No. The anchor is captured against anchor-stripped display text, staleness is computed by `AnnotationDeriver` against anchor-stripped display text, but `Document.acceptAnnotation` hands `SuggestionSplice.apply` the RAW paragraph, inline `<!--t-…-->` task anchors included. `SpanText.normalize` does not remove them.",
+      "writer_visible_consequence": "For a paragraph carrying an inline task anchor near or inside the quoted phrase, the suggestion can read as not-stale (no badge, no confirm on either surface) and still fail to resolve at accept — which is D1's whole-paragraph replacement arriving with no warning in front of it at all. The Mac's one guard against D1 is bypassed exactly when the paragraph carries an anchor.",
+      "classification": "INCONSISTENT",
+      "reasoning": "The same question — 'does this anchor resolve?' — is answered against stripped text in one place and raw text in another. I reached this by reading the two call sites rather than by running it, and no test covers a task anchor inside a suggested span, so the frequency is unmeasured; the divergence itself is plain in source. It may well be a straight defect rather than a decision, but its consequence is a writer losing a paragraph with no prompt, so it belongs on the decision surface.",
+      "proposed_ruling": "Whether a suggestion still fits the writer's paragraph must be judged on exactly the text it will be written into. A suggestion that looks current in the review pane must never be discovered to be lost only at the moment it is applied."
+    },
+    {
+      "id": "SPLICE-D7",
+      "question": "May accepting a suggestion result in the paragraph, or the quoted phrase, becoming nothing at all?",
+      "current_behaviour": "Yes. An empty suggested text is applied like any other — deleting the span, or emptying the paragraph when there is no span. `add_suggested_change` requires the field to be present but not non-empty, and the phone's `malformedSuggestion` guard tests for nil rather than empty.",
+      "writer_visible_consequence": "A paragraph or phrase vanishes on accept with no confirmation and nothing in the review card that reads as a deletion — the '+' side of the diff is simply blank.",
+      "classification": "NOVEL",
+      "reasoning": "Deletion may be a legitimate suggestion (cut this line), so this is not automatically a bug — which is exactly why it is a decision rather than a defect. Neither ruling covers it. It sits alongside D4: the surrounding code is careful to fail loud on a MALFORMED suggestion, and treats an empty one as well-formed.",
+      "proposed_ruling": "A suggestion to delete is a legitimate suggestion, but it must read as one: an empty replacement must be presented to the writer as a deletion of specific words, not as a blank line in a diff."
+    },
+    {
+      "id": "SPLICE-D8",
+      "question": "What should accepting a suggestion do when the paragraph it was about has been deleted since?",
+      "current_behaviour": "The accept proceeds. The Mac falls back to `orig.prior` (the paragraph as it was when the suggestion was written), splices into that, and appends a change against the deleted paragraph's id; the phone falls back to `annotation.priorText` the same way. The annotation is marked accepted either way.",
+      "writer_visible_consequence": "The suggestion moves to the accepted list — the writer's record says the change was applied — while nothing appears in the manuscript, because the paragraph the id refers to is no longer part of the document. The Mac's confirm does fire here (the paragraph is stale), but its wording says the paragraph 'has changed', not that it is gone; the phone shows nothing.",
+      "classification": "NOVEL",
+      "reasoning": "Neither ruling covers the disappearance of the target. Note the asymmetry inside the phone's own code: `AnnotationDetailView` has an explicit gone-paragraph guard on the REVERT path ('the paragraph this accept applied to no longer exists — decline') and none on the accept path. I have not traced whether the Materializer resurrects the paragraph from the accept op or drops it as absent from `sequence`; either outcome — a silently reappearing deleted paragraph, or an accept that records success and does nothing — is a writer-visible answer someone should choose deliberately.",
+      "proposed_ruling": "A suggestion about a paragraph the writer has since deleted can no longer be applied. Accepting it must say so and leave the manuscript alone, rather than recording an accepted change the writer will never see."
+    }
+  ],
+  "notes": "Scope: SuggestionSplice.swift is 92 lines, but it is the last 92 lines before AI-proposed text lands in a manuscript, so I read its two production callers (Maugham/OpLog/Document+Annotations.swift:311-343, MaughamPhone/Annotations/AnnotationWriter.swift:115-135), the two review surfaces that gate them (Maugham/Views/AnnotationsPane.swift:265-271 and 400-478, MaughamPhone/Annotations/AnnotationDetailView.swift:149-196 and 412-427), SuggestionDisplay.swift, SpanAnchorResolver.swift, SpanText.swift and AnnotationDeriver.swift:85-112, where staleness is computed.\n\nThe module's three branches are individually defensible; nearly every decision above is about a SEAM rather than about apply() itself — what the writer was shown (D3), what stopped them (D2, D6), what the text meant when it was captured (D6). apply()'s totality (SPLICE-11) is what makes those seams load-bearing: because it always returns a plausible String, no caller can tell that the safe path was not taken, and every guard has to be reconstructed independently at each call site. Both real cross-surface divergences (D2, D3) are of that shape.\n\nA thing I could not settle from source: `Document.acceptAnnotation` reads `orig.next ?? \"\"` where `Op.ParagraphChange.next` is a non-optional String (Op.swift:19), and the same dead coalesce appears at Document+Annotations.swift:458 and :508 on `.next`/`.prior`. Harmless as written; it reads as leftover from a schema in which `next` was optional, and it is the kind of thing that hides a real nil-handling question if the field ever becomes optional again. Not a product decision — recorded here because it sits directly on the accept path.\n\nOn over-generalising: I have kept SPLICE-7 weak (only the suffix-only branch is tested, not the symmetric prefix-only one) and SPLICE-13 weak (one misspelling inside one 16-character quote is evidence for tolerance at that point, not for the shape of the 0.6 boundary). SPLICE-14, SPLICE-15 and D6 come from reading two call sites against each other, not from running anything; I have marked them MEDIUM and said so in D6."
+}

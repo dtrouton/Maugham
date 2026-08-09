@@ -47,24 +47,45 @@ extension Document {
             }
         }
 
+        // RULING-37: an action that changes nothing costs nothing. Before the
+        // destructive clear below, establish whether this restore would be a
+        // genuine no-op — no text delta, no task window to move. The burst is
+        // flushed first so the answer is computed against the live text
+        // (restoreToOp re-flushes; flushBurstNow is idempotent), and the
+        // clear→mutate→register contiguity for the REAL-change path is
+        // untouched: the guard runs entirely before the clear, and a keystroke
+        // landing during ITS await merely re-runs the derive inside
+        // restoreToOp as before.
+        try await flushBurstNow()
+        var precomputedResult: RewindRestoreResult?
+        if restoreWouldBeGenuineNoOp(targetOpId: targetOpId) {
+            let r = try await restoreToOp(opId: targetOpId)
+            if r.restoreOp == nil { return r }
+            // The prediction raced a keystroke that landed inside the await
+            // and turned the no-op real (branch review). Register the undo
+            // below WITHOUT the stack clear — clearing now would eat the very
+            // keystroke that caused the race; stale native actions above the
+            // registration are the lesser harm than an unregistered restore.
+            documentLog.error("restoreToOpUndoable: no-op prediction raced a keystroke — registering without the clear")
+            precomputedResult = r
+        }
+
         // D1: drop stale native typing actions BEFORE the buffer-replacing
         // restore (clear → mutate → register, contiguous — accept's ordering).
         // Skipped mid-undo/redo (NSUndoManager forbids removeAllActions there).
-        //
-        // Known-minor D1 artifact: if the restore turns out to be a genuine
-        // no-op (restoreOp == nil below), this clear already discarded typing
-        // history for zero benefit. Accepted — deferring the clear past the
-        // await would break the contiguous clear→mutate→register ordering (a
-        // keystroke could land in the gap), which is the regression-scarred
-        // invariant; a no-op restore (rewinding to the current state) is rare.
-        if let um = undoManager, !um.isUndoing, !um.isRedoing {
+        if precomputedResult == nil, let um = undoManager, !um.isUndoing, !um.isRedoing {
             um.removeAllActions()
         }
         // D2: flag the apply undo-coherent so the editor's flag-preserved
         // buffer replace doesn't wipe the registration below.
         _undoCoherentApplyPending = true
 
-        let result = try await restoreToOp(opId: targetOpId)
+        let result: RewindRestoreResult
+        if let precomputedResult {
+            result = precomputedResult
+        } else {
+            result = try await restoreToOp(opId: targetOpId)
+        }
         // Nothing was appended (genuine no-op) — no state changed, so there is
         // nothing to reverse; skip the registration entirely. Note this is
         // NOT the marker-only rewind: a text-unchanged rewind past task ops

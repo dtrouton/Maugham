@@ -2110,10 +2110,48 @@ private struct RewindModifier: ViewModifier {
     let selectedItemId: String?
     @State private var showingRewindModal: Bool = false
     @State private var rewindInitialCursor: RewindCursor = .now
+    /// The post-restore report (RULING-28's after half) — rendered from
+    /// `RewindImpact.toast(for:)`, auto-dismissing; carries Revert when the
+    /// restore resolved a vanished moment to the nearest surviving one
+    /// (RULING-27's notice).
+    @State private var restoreToast: String?
+    @State private var restoreToastOffersRevert: Bool = false
+    @State private var restoreToastUndoManager: UndoManager?
     @Environment(\.undoManager) private var undoManager
 
     func body(content: Content) -> some View {
         content
+            .overlay(alignment: .bottom) {
+                if let toast = restoreToast {
+                    HStack(spacing: 12) {
+                        Text(toast).font(.callout)
+                        if restoreToastOffersRevert {
+                            Button("Revert") {
+                                restoreToastUndoManager?.undo()
+                                restoreToast = nil
+                            }
+                            .buttonStyle(.bordered).controlSize(.small)
+                        }
+                        Button {
+                            restoreToast = nil
+                        } label: {
+                            Image(systemName: "xmark").font(.caption2)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .task(id: toast) {
+                        // A notice with an action lingers; a plain report
+                        // dismisses itself.
+                        try? await Task.sleep(nanoseconds: restoreToastOffersRevert
+                                              ? 12_000_000_000 : 6_000_000_000)
+                        restoreToast = nil
+                    }
+                }
+            }
             .onProjectEvent(.maughamOpenRewind,
                             url: store?.url ?? url, window: window) { note in
                 // Project-scoped (ADR 0021): HistoryPane posts to
@@ -2165,8 +2203,29 @@ private struct RewindModifier: ViewModifier {
                             .maughamCheckpointAdded, to: .project(for: store.url))
                     case .restoreHere(let opId):
                         Task { @MainActor in
-                            _ = try? await documentStore.document(forDocId: docId)?
+                            // The result is RENDERED, not discarded (RULING-28's
+                            // after half — this `_ =` discard was the defect the
+                            // type's own doc comment described): the toast
+                            // reports what the restore actually did, and a
+                            // `.nearest` resolution carries Revert right in the
+                            // notice (RULING-27, the clause Denver added).
+                            guard let result = try? await documentStore
+                                .document(forDocId: docId)?
                                 .restoreToOpUndoable(opId: opId, undoManager: um)
+                            else { return }
+                            restoreToast = RewindImpact.toast(for: result)
+                            // Revert is the surfaced undo — offered only when
+                            // the restore actually registered one. A .nearest
+                            // resolution that changed nothing has no undo, and
+                            // a Revert that pops the writer's own typing stack
+                            // would be silent prose loss (branch review).
+                            if case .nearest = result.targetResolution,
+                               result.restoreOp != nil {
+                                restoreToastOffersRevert = true
+                            } else {
+                                restoreToastOffersRevert = false
+                            }
+                            restoreToastUndoManager = um
                         }
                     }
                 })
