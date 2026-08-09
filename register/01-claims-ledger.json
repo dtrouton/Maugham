@@ -1259,6 +1259,24 @@
         "settles": "GAP-P6. Filings gain a clause to cite when an operation can fail after its first write: either it validates first so a refusal leaves nothing behind (promotion's route), or its failure report names what it already did (this ruling's route). Silence about a partial change is a defect on sight.",
         "ruled_by": "Denver, structured question, recommended option",
         "date": "2026-08-09"
+      },
+      "RULING-53": {
+        "family": "J — delete is normalised (RULING-15's family)",
+        "verdict": "RATIFIED_FROM_OPTIONS",
+        "statement": "The inbox trash keeps the project trash's retention: a trashed capture ages out on the same 30-day clock, swept with the same quietness RULING-39 ratified — one retention story for every trash surface. The sweep disposes the ASSET and hides the row; the manifest row itself stays .trashed (a new status value would decode as .new on older phone builds and resurrect the capture — ADR 0015's own tolerance turned against it).",
+        "basis": "Denver, 2026-08-09, structured question GAP-I1: chose the recommended 'Parity — 30-day sweep' over route-to-project-trash and keep-forever, with the mechanics (status-flip trash, unbounded audio accumulation, two trashes answering one question differently) presented first.",
+        "settles": "GAP-I1 (recorded in M8-IN-011's filing as the retention divergence). The two-trash divergence closes: both age out at 30 days.",
+        "ruled_by": "Denver, structured question, recommended option",
+        "date": "2026-08-09"
+      },
+      "RULING-54": {
+        "family": "B — never misrepresent (RULING-7's family)",
+        "verdict": "RATIFIED_FROM_OPTIONS",
+        "statement": "A reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty; lenient reads are opt-in with a recorded reason. RULING-7's 'unreadable is never presented as empty' becomes the DEFAULT contract for storage readers, not a per-surface conviction. The four existing lenient consumers of JSONLAppendStore.load (op log, checkpoints, publications, tasks) get a scheduled sweep, OP LOG FIRST — an unreadable op-log file at document load presenting the manuscript as shorter than it is would be the forbidden shape at the highest-stakes surface.",
+        "basis": "Denver, 2026-08-09, structured question GAP-I2: chose the recommended 'Rule it generally' over op-log-only-now and case-by-case.",
+        "settles": "GAP-I2 (the Inbox filings' shared-layer residual). The inbox's loadStrict fix (6955c2d8) becomes the pattern; the sweep of the four consumers is queued in START-HERE, op log first, each with its own characterised loop because the surfacing UX differs per consumer.",
+        "ruled_by": "Denver, structured question, recommended option",
+        "date": "2026-08-09"
       }
     },
     "schema_note": "`warrant` = how well evidenced a claim is. `verdict` = whether the behaviour is WANTED. They are independent: a HIGH-warrant claim can be a DEFECT (well-proven wrong behaviour), and a LOW-warrant claim can be RATIFIED. The Phase 10 regeneration reproduced a defect faithfully because this field did not exist.",

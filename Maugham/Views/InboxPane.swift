@@ -57,6 +57,21 @@ struct InboxPane: View {
         VStack(spacing: 0) {
             header
             Divider()
+            if !store.unreadableManifests.isEmpty {
+                // RULING-7 (M8-IN-012): an unreadable device manifest used to
+                // read as EMPTY — every capture from that device silently gone
+                // from this pane. The rows are intact in the file; say so.
+                Label(
+                    "Some captures can’t be read (\(store.unreadableManifests.joined(separator: ", "))). "
+                    + "They are still in the file — check permissions or iCloud sync.",
+                    systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
             if let sentToCanvas {
                 sentStrip(sentToCanvas)
                 Divider()
@@ -96,7 +111,12 @@ struct InboxPane: View {
                                 errorNote: entry.transcriptionError) { newText in
                 // A manual edit makes the writer the owner: mark .userEdited so the
                 // transcription worker never overwrites it with a later Whisper result.
-                Task { await store.updateTranscript(id: entry.id, text: newText, state: .userEdited) }
+                Task {
+                    do {
+                        try await store.updateTranscriptThrowing(
+                            id: entry.id, text: newText, state: .userEdited)
+                    } catch { promoteError = error.localizedDescription }
+                }
             }
         }
         .alert("Couldn’t promote", isPresented: Binding(
@@ -179,6 +199,13 @@ struct InboxPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Days until RULING-53's 30-day sweep disposes this capture, floored at 0.
+    private func daysUntilSweep(_ entry: InboxEntry) -> Int {
+        let basis = entry.resolvedAt ?? entry.writtenAt ?? entry.createdAt
+        let elapsed = Date().timeIntervalSince(basis)
+        return max(0, 30 - Int(elapsed / 86_400))
+    }
+
     @ViewBuilder
     private var trashList: some View {
         if store.trashedEntries.isEmpty {
@@ -193,14 +220,31 @@ struct InboxPane: View {
                     Image(systemName: icon(for: entry.kind))
                         .foregroundStyle(.secondary)
                         .frame(width: 18)
-                    Text(title(for: entry)).lineLimit(2)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title(for: entry)).lineLimit(2)
+                        // RULING-53: the same clock the project trash shows —
+                        // the writer sees the window they were given.
+                        Text("sweeps in \(daysUntilSweep(entry)) days")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                     Spacer(minLength: 0)
-                    Button("Restore") { Task { await store.restore(id: entry.id) } }
+                    Button("Restore") {
+                        Task {
+                            do { try await store.restoreThrowing(id: entry.id) }
+                            catch { promoteError = error.localizedDescription }
+                        }
+                    }
                         .buttonStyle(.borderless)
                 }
                 .padding(.vertical, 2)
                 .contextMenu {
-                    Button("Restore") { Task { await store.restore(id: entry.id) } }
+                    Button("Restore") {
+                        Task {
+                            do { try await store.restoreThrowing(id: entry.id) }
+                            catch { promoteError = error.localizedDescription }
+                        }
+                    }
                 }
             }
             .listStyle(.inset)
@@ -312,7 +356,10 @@ struct InboxPane: View {
             }
             Divider()
             Button("Trash", role: .destructive) {
-                Task { await store.updateStatus(id: entry.id, to: .trashed) }
+                Task {
+                    do { try await store.trashThrowing(id: entry.id) }
+                    catch { promoteError = error.localizedDescription }
+                }
             }
         }
     }

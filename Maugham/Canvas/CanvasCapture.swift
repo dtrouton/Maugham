@@ -114,8 +114,14 @@ enum CanvasCapture {
     /// by `CanvasView.rebuildLayouts` on the next pass — inside the same bracket.
     static func plan(_ content: Content,
                      _ placement: Placement,
+                     captureID: String,
                      in scene: CanvasScene) -> Landing {
-        let id = CanvasInteraction.newNodeID(in: scene)
+        // DERIVED from the capture, never minted (RULING-8, M8-IN-004): a
+        // promoted entry can never be re-sent (`entryNotFound`), so the only
+        // reachable second send is the retry after a failed status flip — and
+        // a derived id makes it land on the SAME card instead of a second one,
+        // the shape the canvas already uses for a research row's second drop.
+        let id = CanvasNodeID("cap-" + captureID)
         let origin: CGPoint
         let joins: Bool
         switch placement {
@@ -192,11 +198,15 @@ enum CanvasCapture {
     @discardableResult
     static func send(_ content: Content,
                      _ placement: Placement,
+                     captureID: String,
                      store: ProjectStore,
                      projectRoot: URL) -> CanvasNodeID {
         let model: CanvasModel? = CanvasClaudeWrite.liveModel(of: store)
         if let model {
-            let landing = plan(content, placement, in: model.scene)
+            let landing = plan(content, placement, captureID: captureID, in: model.scene)
+            // The retry: the capture's derived node is already on the scene, so
+            // there is nothing to write — the caller retries only the flip.
+            if model.scene.node(landing.node.id) != nil { return landing.node.id }
             model.mutateFromInspector(undoStepName, scrapTexts: landing.scrapTexts) {
                 apply(landing, to: &$0)
             }
@@ -210,7 +220,8 @@ enum CanvasCapture {
         // persona. `CanvasClaudeWrite`'s second arm, for its reasons.
         let sidecar = CanvasStore(projectRoot: projectRoot)
         var (scene, scraps) = sidecar.load()
-        let landing = plan(content, placement, in: scene)
+        let landing = plan(content, placement, captureID: captureID, in: scene)
+        if scene.node(landing.node.id) != nil { return landing.node.id }
         apply(landing, to: &scene)
         scraps.merge(landing.scrapTexts) { _, new in new }
         // `save` and not `scheduleSave`: this store is transient and nothing would
