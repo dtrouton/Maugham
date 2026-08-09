@@ -61,6 +61,27 @@ struct ResearchTreeNode<Tag: Hashable>: View {
     /// on the strength of a link nothing recorded. Flat, the fold says exactly
     /// what the manifest says.
     var expandsGroups: Bool = true
+    /// Whether this row can go into inline rename.
+    ///
+    /// **False for a novel chapter's `.linked` fold** (final-review finding I2),
+    /// and it is not a policy about linked notes — it is about there being TWO
+    /// rows. A linked note is a SHARED research item, so in a novel it is drawn
+    /// once in the tree's Research section and again in every fold that links
+    /// it, in one `List`, off one `renamingItemId`. Both rows matched the id and
+    /// both mounted a `TextField`, each running `claimFocus()`'s 30ms deferral
+    /// against the other — tripwire 16's exact race, with a second field in the
+    /// same list eating the writer's typing.
+    ///
+    /// **The fix is a read-only fold, not a filtered section.** Hiding linked
+    /// notes from the shared section would misplace notes nested inside groups
+    /// (they are not roots) and would take them out of the section where they
+    /// actually live. So the fold — which is a VIEW of the chapter's links —
+    /// stops offering the verb, and the shared row keeps it. Selection, opening
+    /// and dragging out to unlink are untouched.
+    ///
+    /// A `.contained` fold keeps rename: those items live in the piece's own
+    /// folder and are drawn exactly once.
+    var offersRename: Bool = true
 
     var body: some View {
         if item.type == .group, expandsGroups {
@@ -81,14 +102,24 @@ struct ResearchTreeNode<Tag: Hashable>: View {
                 renamingItemId: $renamingItemId,
                 findParentId: findParentId,
                 actions: actions,
-                tagFor: tagFor))
+                tagFor: tagFor,
+                offersRename: offersRename))
         }
+    }
+
+    /// The binding the row renames through — **a dead one where the row does not
+    /// offer rename**, so the `TextField` branch cannot mount at all. Hiding
+    /// only the menu item would leave the duplicate field to be opened by the
+    /// other path that sets this id: `pendingRenameId`, committed for every
+    /// newly created note (`BinderTreeVerbs.create`).
+    private var renameBinding: Binding<String?> {
+        offersRename ? $renamingItemId : .constant(nil)
     }
 
     private var row: some View {
         ResearchRow(
             item: item,
-            renamingItemId: $renamingItemId,
+            renamingItemId: renameBinding,
             onRename: actions.rename,
             onDrop: { draggedId, position in
                 actions.internalDrop(draggedId, position, item)
@@ -123,7 +154,12 @@ struct ResearchTreeNode<Tag: Hashable>: View {
                     }
                 } else {
                     Button("Duplicate") { actions.duplicate(item.id) }
-                    Button("Rename") { renamingItemId = item.id }
+                    // Absent on a `.linked` fold row: renaming there opens a
+                    // second field over the row's shared-section twin. The
+                    // writer renames it where it lives — see `offersRename`.
+                    if offersRename {
+                        Button("Rename") { renamingItemId = item.id }
+                    }
                     Button("Delete", role: .destructive) { actions.delete(item.id) }
                 }
             }

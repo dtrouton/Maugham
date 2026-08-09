@@ -249,6 +249,72 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         XCTAssertEqual(probe.subject, .project)
     }
 
+    // MARK: - The way out of a research subject (stage-2a final review, C)
+
+    /// **Every segment that lets a research subject stand must also be able to
+    /// clear it.**
+    ///
+    /// The missing class of test, and the one the Critical fell through. Task 5
+    /// asked *which column does a research subject take* and answered it
+    /// exhaustively; nobody asked *and how does the writer get back*. `.canvas`
+    /// and `.trash` took a column apiece from a subject their left panes cannot
+    /// write — `ResearchView` writes `selectedResearchId`, `TrashView` writes
+    /// nothing — so in Plan's Canvas segment the region, scrap, line and item
+    /// inspectors were replaced with no control anywhere in the window to give
+    /// them back, and the subject persists through `UIState` into the next
+    /// launch.
+    ///
+    /// **Driven through the real binder shell**, at each segment, with the
+    /// subject seeded the way a persona or segment switch delivers it: if
+    /// selecting the head row of the left column cannot move the subject off the
+    /// research item, the segment is a trap. Row 0 is the project row in every
+    /// tree that has one, which is exactly the population this loop is about.
+    func test_everySegmentThatLetsAResearchSubjectStandCanAlsoClearIt() async throws {
+        let stuck = BinderSubject.research("r1")
+        for segment in BinderSegment.allCases {
+            let placement = ProjectWindow.researchSubjectPlacement(
+                binderSegment: segment, subject: stuck)
+            guard placement != .segmentStands else { continue }
+
+            let type = Self.projectType(hosting: segment)
+            let store = try await project(of: type)
+            let (window, probe) = try await host(
+                store: store, script: nil, segment: segment,
+                persona: segment.centresTheCanvas ? .plan : .author,
+                subject: stuck)
+            let table = try XCTUnwrap(
+                firstTableView(in: window),
+                "\(segment) lets a research subject take a column "
+                + "(\(placement)) and its left pane puts no List in the "
+                + "hierarchy at all — there is no row to select, so nothing can "
+                + "clear the subject and the segment's own columns never come "
+                + "back")
+
+            await select(row: 0, in: table, until: { probe.subject != stuck })
+
+            XCTAssertNotEqual(
+                probe.subject, stuck,
+                "\(segment): a research subject takes a column here "
+                + "(\(placement)), so some control in a visible column has to be "
+                + "able to write the subject away again. The head row of the "
+                + "left column wrote nothing — this is the trap: it survives a "
+                + "relaunch, and in Plan `binderHome` is `.canvas`, so the "
+                + "writer reopens into it")
+        }
+    }
+
+    /// The project type each segment is a real state in — a screenplay for
+    /// `.scenes` (no other type's picker offers it) and a novel for the rest.
+    /// Named rather than defaulted so a segment that is only real in a
+    /// Collection has somewhere to say so.
+    private static func projectType(hosting segment: BinderSegment) -> ProjectType {
+        switch segment {
+        case .scenes: return .screenplay
+        case .manuscript, .tree, .research, .palette, .canvas, .trash, .find:
+            return .novel
+        }
+    }
+
     // MARK: - Clicking a slugline in Plan (slice 2 review, F2)
 
     /// **A slugline click on Plan's Structure tab really does post the
@@ -379,12 +445,18 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     /// segment production lands it on. The two `switch`es below are the whole
     /// point of the file: they are exhaustive, so a new shell or a new project
     /// type cannot be added without answering this question for it.
+    /// - Parameter subject: the window's subject before the first render, for
+    ///   the census that asks whether a segment can CLEAR one. Seeded rather
+    ///   than clicked, because the whole question is about a subject no click in
+    ///   that segment could have produced.
     private func host(store: ProjectStore,
                       script: FountainScript?,
                       segment: BinderSegment? = nil,
-                      persona: Persona = .author)
+                      persona: Persona = .author,
+                      subject: BinderSubject? = nil)
     async throws -> (NSWindow, BinderSubjectProbe) {
         let probe = BinderSubjectProbe()
+        probe.subject = subject
         let frame = CGRect(x: 0, y: 0, width: 320, height: 600)
         let hosting = NSHostingView(
             rootView: AnyView(

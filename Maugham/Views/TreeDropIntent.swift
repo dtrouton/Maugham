@@ -75,6 +75,19 @@ enum TreeDropIntent {
         case notAResearchTarget
         /// The drop would change nothing.
         case alreadyThere
+        /// A note already linked to this chapter, dropped on a row inside that
+        /// chapter's fold — a reorder of a fold that has no order to set.
+        ///
+        /// **The refusal is the truth, not a stub.** A `.linked` fold renders
+        /// the document's `linkedResearchIds`, and the only reorder the tree can
+        /// perform is `ProjectStore.moveResearchItem`, which reorders SHARED
+        /// research. So accepting this drop moved rows the writer was not
+        /// looking at, in a section they had not aimed at, and left the fold
+        /// exactly as it was — an accepted drag that visibly did nothing here
+        /// and invisibly did something there. Setting a chapter's link order
+        /// needs a `linkedResearchIds` reorder the store does not have; that
+        /// API is stage 2b's, and until it exists a bounce is what is honest.
+        case linkedFoldHasNoOrder
         /// A novel note linked to more than one chapter, dragged to the shared
         /// section. The payload is a bare id and says nothing about which fold
         /// it came from, so unlinking one (or all) would delete a link the
@@ -90,6 +103,8 @@ enum TreeDropIntent {
             case .notAResearchTarget: return "not a research scope target"
             case .alreadyThere: return "already there — the drop changes nothing"
             case .ambiguousSource: return "linked to more than one document"
+            case .linkedFoldHasNoOrder:
+                return "a linked chapter's research has no order of its own to set"
             }
         }
     }
@@ -157,16 +172,25 @@ enum TreeDropIntent {
             return into(documentId: documentId, dragged: dragged,
                         structure: structure, research: research,
                         projectType: projectType,
-                        whenAlreadyThere: .refuse(.alreadyThere))
+                        whenAlreadyLinked: .refuse(.alreadyThere),
+                        whenAlreadyContained: .refuse(.alreadyThere))
 
         case .foldRow(let rowId, let documentId):
             guard rowId != dragged.id else { return .refuse(.sameRow) }
-            // Already this document's: there is nothing left to say about
-            // scope, so the drop is the ordinary reorder rather than a bounce.
+            // Already this document's — and what that means depends on which
+            // KIND of fold the writer is inside, which is why the two arms are
+            // separate parameters rather than one (the final review's I1).
+            //
+            // A CONTAINED fold (a Collection piece) is a real tree in the
+            // piece's own `research/`, so the rows have an order and the
+            // ordinary reorder sets it. A LINKED fold (a novel chapter) draws
+            // `linkedResearchIds`, whose order nothing here can change — see
+            // `Reason.linkedFoldHasNoOrder`.
             return into(documentId: documentId, dragged: dragged,
                         structure: structure, research: research,
                         projectType: projectType,
-                        whenAlreadyThere: .researchReorder)
+                        whenAlreadyLinked: .refuse(.linkedFoldHasNoOrder),
+                        whenAlreadyContained: .researchReorder)
 
         case .researchRow(let targetId):
             guard targetId != dragged.id else { return .refuse(.sameRow) }
@@ -196,13 +220,24 @@ enum TreeDropIntent {
     /// A research item dropped **onto** a document — the piece row, or a row in
     /// its fold. What that means is the document's own research routing, asked
     /// rather than restated.
+    ///
+    /// - Parameters:
+    ///   - whenAlreadyLinked: the answer when the document already links the
+    ///     dragged item (`.sharedPlusLink`).
+    ///   - whenAlreadyContained: the answer when the item already lives in the
+    ///     document's own research folder (`.pieceFolder`).
+    ///
+    /// **Two parameters rather than one**, because the two already-there cases
+    /// are not the same act: a contained fold has an order the tree can set and
+    /// a linked one does not.
     private static func into(
         documentId: String,
         dragged: ResearchItem,
         structure: [StructureItem],
         research: [ResearchItem],
         projectType: ProjectType,
-        whenAlreadyThere: Intent
+        whenAlreadyLinked: Intent,
+        whenAlreadyContained: Intent
     ) -> Intent {
         guard let document = TreeWalk.find(id: documentId, in: structure) else {
             return .refuse(.unknownId)
@@ -216,7 +251,7 @@ enum TreeDropIntent {
             return .refuse(.sharedOnly)
         case .sharedPlusLink(let docId):
             guard !(document.linkedResearchIds ?? []).contains(dragged.id) else {
-                return whenAlreadyThere
+                return whenAlreadyLinked
             }
             // The note does not move: a novel chapter's research is a LINK, so
             // the item stays exactly where it lives in shared research.
@@ -224,7 +259,7 @@ enum TreeDropIntent {
         case .pieceFolder(let pieceId):
             guard owningPieceId(of: dragged.id, structure: structure,
                                 research: research) != pieceId else {
-                return whenAlreadyThere
+                return whenAlreadyContained
             }
             // Containment: the file moves into `pieces/<slug>/research/`.
             return .rescope(ids: [dragged.id], to: .piece(pieceId))

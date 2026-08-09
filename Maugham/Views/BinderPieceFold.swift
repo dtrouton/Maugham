@@ -47,8 +47,23 @@ struct BinderPieceFold: View {
                 // A folded row is a subject of the window exactly like a row in
                 // the Research section below — same case, same id. Nothing here
                 // knows it is inside a fold.
+                //
+                // **In a novel that is the SAME tag twice in one `List`**, on
+                // this row and on its twin in the shared Research section, and
+                // that is intended: both rows are the one subject, so selecting
+                // either highlights both and the writer sees where the note
+                // they picked also lives. What the duplicate must NOT be
+                // allowed to duplicate is a control — see `offersRename` below
+                // and `ResearchTreeNode.offersRename` for the rename field that
+                // did.
                 tagFor: { BinderSubject.research($0.id) },
-                expandsGroups: fold.semantic == .contained)
+                expandsGroups: fold.semantic == .contained,
+                // A linked fold is a view of the chapter's links; its rows are
+                // drawn a second time in the shared section, and one
+                // `renamingItemId` matching two rows mounts two rename fields
+                // (finding I2). A contained fold's rows are drawn once and keep
+                // the verb.
+                offersRename: fold.semantic == .contained)
         }
     }
 

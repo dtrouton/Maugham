@@ -334,7 +334,170 @@ final class BinderPieceFoldTests: XCTestCase {
         XCTAssertEqual(children.map(\.title), ["Untitled Note"])
     }
 
+    // MARK: - One note, two rows, one rename field (final review, I2)
+
+    /// **A linked note is drawn TWICE in one `List`** — once in the shared
+    /// Research section, where it lives, and once in the fold of every chapter
+    /// that links it — and both rows read the same `renamingItemId`. So Rename
+    /// used to mount two `TextField`s in one list, each running tripwire 16's
+    /// 30ms `claimFocus()` deferral against the other: the writer's typing goes
+    /// to whichever won, and the other field sits over the row it names.
+    ///
+    /// The fix is that a `.linked` fold is a VIEW of the chapter's links and
+    /// offers no rename of its own. The note is renamed where it lives.
+    func test_renamingALinkedNoteOpensExactlyOneFieldInTheWholeTree() async throws {
+        let store = try await novel()
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Tides")
+        try await store.linkResearch(researchId: note.id, toDocumentId: chapter.id)
+
+        let state = BinderTreeSectionsState()
+        let (window, probe) = try await hostFoldAndSections(store: store, state: state,
+                                                            documentId: chapter.id)
+        let outline = try XCTUnwrap(outlineView(in: window))
+        let before = outline.numberOfRows
+        try expandRow(0, in: outline)
+        XCTAssertEqual(outline.numberOfRows, before + 1,
+                       "precondition: the chapter's fold draws the linked note")
+
+        // **The two rows, named by what they select.** SwiftUI draws a row's
+        // label into a hosting view rather than an `NSTextField`, so a row is
+        // identified here the way every test in this file identifies one: by the
+        // subject it writes. Row 1 is inside the fold, row 3 is in the shared
+        // Research section, and both are this note.
+        for row in [1, 3] {
+            probe.subject = .project
+            await select(row: row, in: outline,
+                         until: { probe.subject == .research(note.id) })
+            XCTAssertEqual(probe.subject, .research(note.id),
+                           "precondition: row \(row) is the note — it is drawn "
+                           + "in the chapter's fold AND in the shared section")
+        }
+
+        state.renamingItemId = note.id
+        pump(0.3)
+
+        XCTAssertEqual(
+            renameFields(in: window, titled: note.title).count, 1,
+            "one rename request must open one field. Two fields in one list "
+            + "race for focus (tripwire 16) and the writer types into whichever "
+            + "won, over a row that is not the one they asked to rename")
+    }
+
+    /// The same claim on the path that actually opens a rename without a menu:
+    /// creating a note from inside a novel chapter's fold. `BinderTreeVerbs.create`
+    /// sets `pendingRenameId`, the presentations modifier commits it once the row
+    /// exists, and the new note — a shared note linked to the chapter — is
+    /// immediately in both places at once.
+    func test_aNoteMadeFromANovelChaptersFoldEndsWithOneRenameField() async throws {
+        let store = try await novel()
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let existing = try await store.addResearchTextNote(parentId: nil, title: "Tides")
+        try await store.linkResearch(researchId: existing.id, toDocumentId: chapter.id)
+        let before = store.manifest.research.count
+
+        let state = BinderTreeSectionsState()
+        let (window, _) = try await hostFoldAndSections(store: store, state: state,
+                                                        documentId: chapter.id)
+        fold(for: chapter.id, in: store, state: state).actions.newNote(nil)
+        _ = await pumpUntil(deadline: 5) { store.manifest.research.count > before }
+        pump(0.3)
+
+        let outline = try XCTUnwrap(outlineView(in: window))
+        try expandRow(0, in: outline)
+        XCTAssertEqual(
+            outline.numberOfRows, 8,
+            "precondition — the chapter row, its fold's TWO linked notes, the "
+            + "Research header and the same two notes under it, then the "
+            + "Palette header and its placeholder. The note the writer just "
+            + "made is in the fold they asked from and in the shared section it "
+            + "lives in")
+        XCTAssertEqual(
+            renameFields(in: window, titled: "Untitled Note").count, 1,
+            "creating a note opens ONE rename field — the shared section's")
+    }
+
+    /// **The control: a contained fold keeps the verb.** A Collection piece's
+    /// research lives in that piece's own folder and is drawn exactly once, so
+    /// there is no twin to race with and nothing to take away. Without this,
+    /// removing rename from every fold would pass the two tests above.
+    func test_aNoteInACollectionPiecesFoldStillRenamesInPlace() async throws {
+        let store = try await collection()
+        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let owned = try await store.addPieceResearchNote(
+            pieceId: piece.id, title: "Alpha's Note")
+
+        let state = BinderTreeSectionsState()
+        let (window, _) = try await hostFoldAndSections(store: store, state: state,
+                                                        documentId: piece.id)
+        let outline = try XCTUnwrap(outlineView(in: window))
+        try expandRow(0, in: outline)
+        XCTAssertEqual(
+            outline.numberOfRows, 6,
+            "precondition — the piece row, its fold's one note, the Research "
+            + "header and its EMPTY placeholder, then the Palette header and "
+            + "its placeholder. A contained note is drawn once: it is not in "
+            + "shared research at all")
+
+        state.renamingItemId = owned.id
+        pump(0.3)
+
+        XCTAssertEqual(
+            renameFields(in: window, titled: owned.title).count, 1,
+            "the fold row is where this note is renamed: it is the only row it "
+            + "has")
+    }
+
+    /// **The menu half**, which no headless test can open: a context menu is not
+    /// synthesisable, so the assertion is that the row's Rename button is gated
+    /// on the same value the field is, and that the fold hands that value the
+    /// semantic. If either drifts, a writer gets a menu item that opens a field
+    /// on the row's twin.
+    func test_theRenameMenuItemIsGatedOnTheSameValueTheFieldIs() throws {
+        let node = try source(of: "Maugham/Views/ResearchTree.swift")
+        XCTAssertTrue(
+            node.contains("if offersRename {"),
+            "the Rename button must be behind `offersRename` — the field and the "
+            + "menu item are one decision, and a menu that offers what the row "
+            + "cannot do is worse than no menu")
+        XCTAssertTrue(
+            node.contains("offersRename ? $renamingItemId : .constant(nil)"),
+            "…and the row's binding must be dead where it does not offer "
+            + "rename, or `pendingRenameId` opens the field the menu no longer "
+            + "can")
+
+        let foldSource = try source(of: "Maugham/Views/BinderPieceFold.swift")
+        XCTAssertTrue(
+            foldSource.contains("offersRename: fold.semantic == .contained"),
+            "a fold offers rename exactly where its rows are drawn once")
+    }
+
+    /// **What the probe above assumes, asserted.** The two tests that count
+    /// rename fields mount a fold and the shared sections over ONE
+    /// `BinderTreeSectionsState`; if a host ever gave its folds a state of their
+    /// own, the duplicate rename could not happen there and the probe would be
+    /// testing a shape production does not have. Both hosts own a single
+    /// `treeState` and pass that value to both.
+    func test_theHostsGiveTheirFoldsAndTheirSectionsOneState() throws {
+        for host in ["Maugham/Views/BinderView.swift",
+                     "Maugham/Views/CollectionPiecesPane.swift"] {
+            let text = try source(of: host)
+            XCTAssertEqual(
+                text.components(separatedBy: "BinderTreeSectionsState()").count - 1, 1,
+                "\(host) must own exactly one sections state")
+            XCTAssertTrue(text.contains("BinderTreeSections(store: store, state: treeState"),
+                          "\(host): the sections take it")
+            XCTAssertTrue(text.contains("BinderPieceFold(store: store, state: treeState"),
+                          "\(host): and so does every fold — one rename request, "
+                          + "one field, is only true while there is one state")
+        }
+    }
+
     // MARK: - Fixtures
+
+    private func source(of relativePath: String) throws -> String {
+        try CanvasSourceCensus.source(at: relativePath)
+    }
 
     private func novel() async throws -> ProjectStore {
         let url = try await ProjectFactory.createNovelProject(
@@ -372,10 +535,14 @@ final class BinderPieceFoldTests: XCTestCase {
 
     /// The fold view for a document, as its host mounts it — the same value,
     /// so the bundle these tests ask is the bundle the rows carry.
-    private func fold(for documentId: String, in store: ProjectStore) -> BinderPieceFold {
+    /// - Parameter state: the host's sections state. `nil` gives the fold one of
+    ///   its own, which is right for the tests that only ask its verbs a
+    ///   question; the rename tests pass the state their mounted list is over.
+    private func fold(for documentId: String, in store: ProjectStore,
+                      state: BinderTreeSectionsState? = nil) -> BinderPieceFold {
         BinderPieceFold(
             store: store,
-            state: BinderTreeSectionsState(),
+            state: state ?? BinderTreeSectionsState(),
             selectedSubject: .constant(nil),
             documentId: documentId,
             fold: TreeSectionDerivation.pieceFold(
@@ -414,6 +581,34 @@ final class BinderPieceFoldTests: XCTestCase {
         let window = try await mount(AnyView(FoldNavigatorProbeView(
             store: store, probe: probe, documentID: documentID)))
         return (window, probe)
+    }
+
+    /// **A fold and the shared sections in ONE list, over ONE
+    /// `BinderTreeSectionsState`** — which is the condition the I2 tests are
+    /// about and exactly what every host does: `BinderView` and
+    /// `CollectionPiecesPane` each own a single `treeState` and hand the same
+    /// value to `BinderTreeSections` and to every `BinderPieceFold`
+    /// (`test_theHostsGiveTheirFoldsAndTheirSectionsOneState` pins that).
+    ///
+    /// The state is the caller's so a test can open a rename the way production
+    /// does — through `renamingItemId`/`pendingRenameId` — since a context menu
+    /// is not synthesisable headless.
+    private func hostFoldAndSections(
+        store: ProjectStore, state: BinderTreeSectionsState, documentId: String
+    ) async throws -> (NSWindow, BinderSubjectProbe) {
+        let probe = BinderSubjectProbe()
+        let window = try await mount(AnyView(FoldAndSectionsProbeView(
+            store: store, probe: probe, state: state, documentId: documentId)))
+        return (window, probe)
+    }
+
+    /// The inline rename fields showing `title` — **editable** text fields, which
+    /// is what tells `ResearchRow`'s rename branch from the label branch.
+    private func renameFields(in window: NSWindow, titled title: String) -> [NSTextField] {
+        guard let root = window.contentView else { return [] }
+        var fields: [NSTextField] = []
+        collect(NSTextField.self, in: root, into: &fields)
+        return fields.filter { $0.isEditable && $0.stringValue == title }
     }
 
     private func mount(_ root: AnyView) async throws -> NSWindow {
@@ -506,6 +701,43 @@ private struct FoldCollectionProbeView: View {
     }
 }
 
+/// One `List` holding a document's fold and the shared sections, over one
+/// state — `BinderView`'s own shape, reduced to the two things the I2 tests are
+/// about. The views inside it are production's.
+@MainActor
+private struct FoldAndSectionsProbeView: View {
+    let store: ProjectStore
+    let probe: BinderSubjectProbe
+    let state: BinderTreeSectionsState
+    let documentId: String
+
+    var body: some View {
+        let subject = Binding(get: { probe.subject }, set: { probe.subject = $0 })
+        List(selection: BinderTreeSelection.binding(subject)) {
+            DisclosureGroup {
+                BinderPieceFold(
+                    store: store, state: state, selectedSubject: subject,
+                    documentId: documentId,
+                    // Derived per render from the manifest, as the hosts do —
+                    // a fold captured once would not show the note a test just
+                    // asked the store to make.
+                    fold: TreeSectionDerivation.pieceFold(
+                        forDocumentId: documentId,
+                        structure: store.manifest.structure,
+                        research: store.manifest.research,
+                        projectType: store.manifest.type))
+            } label: {
+                Text(TreeWalk.find(id: documentId, in: store.manifest.structure)?.title
+                     ?? documentId)
+            }
+            .tag(BinderSubject.item(documentId))
+            BinderTreeSections(store: store, state: state, selectedSubject: subject)
+        }
+        .listStyle(.sidebar)
+        .binderTreeSections(store: store, state: state, selectedSubject: subject)
+    }
+}
+
 @MainActor
 private struct FoldNavigatorProbeView: View {
     let store: ProjectStore
@@ -537,3 +769,4 @@ private struct OptionalSubjectValidation: ViewModifier {
             store: store, selectedSubject: $selectedSubject))
     }
 }
+

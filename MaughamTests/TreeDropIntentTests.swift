@@ -76,7 +76,12 @@ final class TreeDropIntentTests: XCTestCase {
                          ]),
             ResearchItem(id: "pieceNote", title: "A's own", type: .asset,
                          kind: .document,
-                         path: "pieces/01-a/research/own.md")
+                         path: "pieces/01-a/research/own.md"),
+            // A second note in the SAME piece folder, so a reorder within one
+            // contained fold has two rows to be about (finding I1's control).
+            ResearchItem(id: "pieceNote2", title: "A's other", type: .asset,
+                         kind: .document,
+                         path: "pieces/01-a/research/other.md")
         ]
     }
 
@@ -261,13 +266,32 @@ final class TreeDropIntentTests: XCTestCase {
             + "the same thing: this belongs to that chapter")
     }
 
-    func test_aNoteAlreadyInThatFoldJustReorders() {
+    /// **A reorder inside a novel chapter's fold is refused** (final-review
+    /// finding I1). It used to be `.researchReorder`, and the reorder the tree
+    /// performs is `ProjectStore.moveResearchItem` over SHARED research — while
+    /// the fold draws the chapter's `linkedResearchIds`, whose order that call
+    /// cannot touch. So the drop was accepted, the fold did not move, and rows
+    /// the writer was not looking at were reordered in the section below.
+    func test_aNoteAlreadyLinkedToThatChapterRefusesARowLevelReorder() {
         XCTAssertEqual(
             classify("linked", on: .foldRow(rowId: "note", documentId: "ch1"),
                      in: Novel.self),
+            .refuse(.linkedFoldHasNoOrder),
+            "a linked fold has no order of its own to set — accepting this "
+            + "reorders shared research behind the writer's back and leaves the "
+            + "fold exactly as it was")
+    }
+
+    /// The other half, and what stops the refusal above being a blanket "folds
+    /// don't reorder": a Collection piece's fold is real containment, its rows
+    /// live in the piece's own `research/`, and their order is the tree's to
+    /// set.
+    func test_aNoteAlreadyInACollectionPiecesFoldStillReorders() {
+        XCTAssertEqual(
+            classify("pieceNote", on: .foldRow(rowId: "pieceNote2", documentId: "pA"),
+                     in: Collection.self),
             .researchReorder,
-            "already linked: nothing to say about scope, so the drop is the "
-            + "ordinary reorder rather than a bounce")
+            "a contained fold has an order and `moveResearchItem` sets it")
     }
 
     func test_aSharedNoteDroppedInsideACollectionPiecesFoldJoinsThePiece() {

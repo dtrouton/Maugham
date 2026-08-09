@@ -25,8 +25,11 @@ extension ProjectWindow {
     ///   centre-column branch costs: the camera back to origin at zoom 1, every
     ///   scrap layout re-measured, the thumbnail cache emptied — on every
     ///   research click.
-    /// - `segmentStands` — nothing changes. Either the subject is not research,
-    ///   or the segment keeps a research selection of its own.
+    /// - `segmentStands` — nothing changes. The subject is not research, or the
+    ///   segment keeps a research selection of its own, or — the case the final
+    ///   review found — its left pane cannot write the subject, so a research
+    ///   item taking one of its columns would be a room with no door
+    ///   (`BinderSegment.leftPaneWritesTheSubject`).
     enum ResearchSubjectPlacement: Equatable {
         case takesTheCentre(String)
         case besideTheCanvas(String)
@@ -65,7 +68,16 @@ extension ProjectWindow {
         binderSegment: BinderSegment, subject: BinderSubject?
     ) -> ResearchSubjectPlacement {
         guard let id = subject?.researchID else { return .segmentStands }
+        // **Two guards, and they ask different questions.** The first is about
+        // the segment's own centre column (a transitional pane with a research
+        // selection of its own); the second is about whether the writer can get
+        // back out — a segment whose left pane cannot write the subject offers
+        // no control that clears it, so a research item taking one of its
+        // columns is a trap that survives a relaunch (`.canvas`, `.trash`; the
+        // final review's Critical). They agree on every case today and are held
+        // together by an asserted containment rather than by luck.
         guard !binderSegment.keepsItsOwnResearchSelection else { return .segmentStands }
+        guard binderSegment.leftPaneWritesTheSubject else { return .segmentStands }
         return binderSegment.centresTheCanvas
             ? .besideTheCanvas(id) : .takesTheCentre(id)
     }
@@ -183,6 +195,14 @@ struct ResearchSubjectCentre: View {
 /// The two halves are given no heights of their own. Both grow, so they split
 /// the column between them — a number here would be a guess about a column the
 /// writer can drag.
+///
+/// **The preview half goes through `researchCentreRoute`, like the centre half**
+/// (final-review finding I3). It mounted `ResearchPreview` for everything, so in
+/// Plan — the one placement where this column is the writer's only view of the
+/// item — a palette card previewed as the raw markdown of its source, which is
+/// the very rendering `researchCentreRoute` was extracted to stop the window
+/// showing. The function exists so the two columns cannot answer differently;
+/// having one of them not call it is the drift it was built against.
 struct ResearchSubjectInspector: View {
     let store: ProjectStore
     /// Optional for `ResearchSubjectCentre.itemID`'s reason — the segment arm's
@@ -194,7 +214,7 @@ struct ResearchSubjectInspector: View {
         if let itemID, let item = TreeWalk.find(id: itemID, in: store.manifest.research) {
             if showsPreview {
                 VStack(spacing: 0) {
-                    ResearchPreview(projectURL: store.url, item: item)
+                    preview(of: item)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     Divider()
                     InspectorResearchPanel(store: store, item: item)
@@ -206,6 +226,40 @@ struct ResearchSubjectInspector: View {
             ContentUnavailableView(
                 "Select an item",
                 systemImage: "info.circle")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// **A card as a card; everything else as itself.**
+    ///
+    /// `.note` and `.preview` both reach `ResearchPreview`, which is the read-only
+    /// rendering this column has always shown and the right one for a preview:
+    /// the writer is looking at the item beside a canvas, not editing it.
+    ///
+    /// `.paletteCard` reaches `PaletteCardEditor`, and that choice is the one
+    /// worth defending. There is no read-only card rendering to reuse —
+    /// `PaletteCardTile` takes a loaded `PaletteCard` and a pre-loaded
+    /// thumbnail, neither of which this column has, and giving it a loader of
+    /// its own would be per-render I/O in a column that re-renders with the
+    /// window (tripwire 4). `PaletteCardEditor` owns that load (`.task(id:
+    /// cardId)`) and its debounced save, and it is the app's one card surface.
+    /// It is never mounted twice for one card: this half is shown only where the
+    /// placement is `.besideTheCanvas`, and there the centre column is the
+    /// canvas.
+    @ViewBuilder
+    private func preview(of item: ResearchItem) -> some View {
+        switch ProjectWindow.researchCentreRoute(id: item.id,
+                                                 in: store.manifest.research) {
+        case .paletteCard(let cardID):
+            PaletteCardEditor(store: store, cardId: cardID)
+        case .note(let item, _), .preview(let item):
+            ResearchPreview(projectURL: store.url, item: item)
+        case .missing:
+            // Unreachable — the caller found this item in the same manifest the
+            // route reads, so the route cannot fail to find it. Kept because the
+            // switch is exhaustive and the compiler asks, and pointed at the
+            // same empty state the body's own `else` shows.
+            ContentUnavailableView("Select an item", systemImage: "info.circle")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
