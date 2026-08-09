@@ -163,6 +163,33 @@ public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
         }
     }
 
+    /// **Does this segment's centre column answer to a research selection of
+    /// its OWN?**
+    ///
+    /// Two do, and both are transitional: `.research` still mounts
+    /// `ResearchView` over `ProjectWindow`'s `selectedResearchId`, and
+    /// `.palette` mounts the wall over `selectedPaletteCardId`. Neither writes
+    /// the window's subject, so a `.research` SUBJECT reaching over them would
+    /// leave a writer clicking rows in the old pane while the centre column
+    /// showed whatever the tree had named last — two controls disagreeing about
+    /// what the window is about, which is the shape the subject type exists to
+    /// remove.
+    ///
+    /// **It is not `centresTheCanvas` inverted and not its complement.** That
+    /// one answers *"is the canvas the centre"*; this answers *"is this centre
+    /// already about a research item"*, and `.canvas`/`.tree` say no to both.
+    ///
+    /// This is the one predicate stage 2b deletes outright: with `ResearchView`
+    /// and `CollectionResearchPane` gone, every segment answers `false` and the
+    /// subject is the only research selection there is. Exhaustive with no
+    /// `default:` for `centresTheCanvas`'s reason.
+    var keepsItsOwnResearchSelection: Bool {
+        switch self {
+        case .research, .palette: return true
+        case .manuscript, .tree, .scenes, .canvas, .trash, .find: return false
+        }
+    }
+
     /// Runtime-gated, persona-independent segments that survive a persona
     /// switch: a writer mid-search or looking at the trash must not be
     /// ejected by switching persona. This is the single source both

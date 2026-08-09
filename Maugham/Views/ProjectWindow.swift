@@ -1129,9 +1129,28 @@ struct ProjectWindow: View {
         // readiness stays silent about the canvas (umbrella §7, §9) — and the
         // predicate's own doc comment records why `.find` is absent too, which
         // is the case that stops this being "the centre column is a document".
-        guard binderSegment.showsManuscriptStatusFooter else { return false }
+        guard Self.showsStatusFooter(binderSegment: binderSegment,
+                                     subject: selectedSubject) else { return false }
         if isNoChromeOn { return false }
         return true
+    }
+
+    /// **The segment's answer, and then what the centre column actually holds.**
+    ///
+    /// `showsManuscriptStatusFooter` says the footer follows the DOCUMENT in the
+    /// centre rather than the shape of the left column — and until stage-2a Task
+    /// 5 the segment was a complete answer to that, because `.manuscript` and
+    /// `.scenes` could hold nothing else. A research subject can now take the
+    /// centre in either of them, and the footer's four readings are all about a
+    /// manuscript document: a goal capsule, the live session words, the `¶id`
+    /// under the cursor and the current element. Over a research note the first
+    /// is about a different thing and the last two are blank, so the strip is a
+    /// row of claims the centre column cannot support.
+    static func showsStatusFooter(binderSegment: BinderSegment,
+                                  subject: BinderSubject?) -> Bool {
+        guard binderSegment.showsManuscriptStatusFooter else { return false }
+        return researchSubjectPlacement(binderSegment: binderSegment,
+                                        subject: subject).centreItemID == nil
     }
 
     private var sessionWordsForFooter: Int {
@@ -1191,7 +1210,16 @@ struct ProjectWindow: View {
             binderSegment: binderSegment,
             projectType: store.manifest.type,
             selectedPieceIsReference: selectedPieceIsReference(in: store))
-        if route == .canvas {
+        // **Above `editorRoute` and never inside it**, because the canvas
+        // branch below must stay the one the canvas is mounted from: a
+        // `.research` subject in Plan resolves to `.besideTheCanvas` and never
+        // reaches here, so the board keeps its identity and the RIGHT column
+        // takes the item (`researchSubjectPlacement`).
+        if let id = Self.researchSubjectPlacement(
+            binderSegment: binderSegment, subject: selectedSubject).centreItemID {
+            ResearchSubjectCentre(store: store, documentStore: documentStore,
+                                  itemID: id, previewVisible: researchPreviewVisible)
+        } else if route == .canvas {
             canvasCentre(store: store, documentStore: documentStore)
         } else if route == .collectionReference,
                   let id = activeItemID,
@@ -1252,31 +1280,13 @@ struct ProjectWindow: View {
             // same shape, one column over.
             canvasCentre(store: store, documentStore: documentStore)
         case .research:
-            if let id = selectedResearchId,
-               let item = TreeWalk.find(
-                    id: id, in: store.manifest.research) {
-                if item.kind == .document,
-                   item.path?.hasPrefix(ProjectStore.paletteFolderPath + "/") == true {
-                    // A palette card selected in the research tree edits through the
-                    // visual editor — never ResearchNoteEditor, whose stale open text
-                    // would clobber the model on the next re-render (lost update).
-                    PaletteCardEditor(store: store, cardId: item.id)
-                } else if item.kind == .document, let path = item.path {
-                    ResearchNoteEditor(
-                        store: store,
-                        documentStore: documentStore,
-                        path: path,
-                        itemId: item.id,
-                        previewVisible: researchPreviewVisible)
-                } else {
-                    ResearchPreview(projectURL: store.url, item: item)
-                }
-            } else {
-                ContentUnavailableView(
-                    "Select an item to preview",
-                    systemImage: "doc.text.magnifyingglass")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            // The old pane's own selection, through the SAME view the subject
+            // arm mounts (`editorPane`) — the palette-card rule and the lost
+            // update it exists for are `researchCentreRoute`'s, spelled once.
+            // This arm dies with `ResearchView` in stage 2b.
+            ResearchSubjectCentre(store: store, documentStore: documentStore,
+                                  itemID: selectedResearchId,
+                                  previewVisible: researchPreviewVisible)
         case .palette:
             if let cardId = selectedPaletteCardId,
                store.paletteCardItems().contains(where: { $0.id == cardId }) {
@@ -1848,6 +1858,40 @@ struct ProjectWindow: View {
             },
             assistant: assistant
         ) {
+            researchOrSegment(store: store)
+        }
+        // Entering translation review surfaces the Translation segment so the
+        // source text + translator queries are one glance away. Exiting leaves
+        // the segment in place (it shows a "not in review" empty state) rather
+        // than yanking the pane out from under the writer.
+        .onChange(of: editorControl.translationLanguage) { _, lang in
+            if lang != nil { detailSegment = .translation }
+        }
+    }
+
+    /// **The right column's outermost question: is the window about a research
+    /// item?**
+    ///
+    /// It sits ABOVE `inspectorRoute` — including above the canvas — because
+    /// that is the whole of Plan's half of the contract: the canvas keeps the
+    /// centre, so a research click that did not reach this column would change
+    /// nothing anywhere and the tree's Research section would be a list that
+    /// does not do anything. `inspectorRoute` and `canvasCollapse` are
+    /// deliberately left alone: the ⌘\ collapse is a question about the SEGMENT
+    /// and must not start answering differently because a row is selected.
+    ///
+    /// A method rather than more `ProjectWindow.body`: the inspector closure is
+    /// inside `DetailPaneToggle`'s trailing builder, which is already the
+    /// heaviest expression in this file.
+    @ViewBuilder
+    private func researchOrSegment(store: ProjectStore) -> some View {
+        let placement = Self.researchSubjectPlacement(
+            binderSegment: binderSegment, subject: selectedSubject)
+        if let id = placement.inspectedItemID {
+            ResearchSubjectInspector(
+                store: store, itemID: id,
+                showsPreview: placement.previewsInTheRightColumn)
+        } else {
             switch Self.inspectorRoute(binderSegment: binderSegment,
                                        projectType: store.manifest.type) {
             case .canvas:
@@ -1857,13 +1901,6 @@ struct ProjectWindow: View {
             case .segment:
                 existingInspectorSwitch(store: store)
             }
-        }
-        // Entering translation review surfaces the Translation segment so the
-        // source text + translator queries are one glance away. Exiting leaves
-        // the segment in place (it shows a "not in review" empty state) rather
-        // than yanking the pane out from under the writer.
-        .onChange(of: editorControl.translationLanguage) { _, lang in
-            if lang != nil { detailSegment = .translation }
         }
     }
 
@@ -1920,16 +1957,12 @@ struct ProjectWindow: View {
             // it routes to the same place so the two cannot drift.
             canvasInspector(store: store)
         case .research:
-            if let id = selectedResearchId,
-               let item = TreeWalk.find(
-                    id: id, in: store.manifest.research) {
-                InspectorResearchPanel(store: store, item: item)
-            } else {
-                ContentUnavailableView(
-                    "Select an item",
-                    systemImage: "info.circle")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            // The old pane's selection, through the same view the subject arm
+            // mounts. `showsPreview: false` — this segment's centre column IS
+            // the item (`existingEditorSwitch`'s `.research` arm), so a second
+            // copy of it here would be noise. Dies with `ResearchView` in 2b.
+            ResearchSubjectInspector(
+                store: store, itemID: selectedResearchId, showsPreview: false)
         case .palette:
             ContentUnavailableView("Palette", systemImage: "paintpalette")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2253,11 +2286,11 @@ struct ProjectWindow: View {
 
     /// Whether the window's subject resolves to a manuscript document (the
     /// only selection kind for which the EditorCoordinator delivers metrics).
+    /// The rule itself is the static in `ResearchSubjectColumns.swift`, where a
+    /// test can reach it without a mounted window.
     private func selectionIsDocument(_ subject: BinderSubject?) -> Bool {
-        guard let store, let id = subject?.itemID,
-              let item = TreeWalk.find(id: id, in: store.manifest.structure)
-        else { return false }
-        return item.type == .document && item.path != nil
+        guard let store else { return false }
+        return Self.selectionIsDocument(subject, in: store.manifest.structure)
     }
 
     private var goalIndicatorState: GoalIndicatorState {
