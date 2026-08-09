@@ -136,7 +136,12 @@ struct IntentStrip: View {
         // is going for, and an itemized decision is not that. This resolver
         // only ever sees an intent (`effectiveIntent`), which is the one kind
         // that has strata at all.
-        return line(from: StatementEssay.half(of: store.statementText(of: statement)))
+        // RULING-54: `statementText` throws on an unreadable file. The strip
+        // is the fringe-est reader of all — one quoted line of chrome — so an
+        // unreadable statement shows no line, exactly as an absent one does;
+        // the Intent pane's editor owns surfacing the refusal.
+        guard let text = try? store.statementText(of: statement) else { return nil }
+        return line(from: StatementEssay.half(of: text))
     }
 
     // MARK: - The line rule (pure)
