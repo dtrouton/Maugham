@@ -3564,106 +3564,6 @@ final class TripwireGrepTests: XCTestCase {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory
             .appendingPathComponent("tripwire-deadstrip-selfcheck-\(UUID().uuidString)")
-    // MARK: - Canvas zoom rendering guard (tripwire 25, ADR 0026)
-
-    /// The forbidden zoom-rendering call shapes. `.scaleEffect(` blurs text,
-    /// reports unscaled geometry to SwiftUI, and breaks `NSCursor` tracking;
-    /// `NSScrollView.magnification` puts the canvas's zoom outside SwiftUI's
-    /// coordinate space entirely — the same `.global` frame is reported at
-    /// every zoom level, so at 2x and above a translated click point falls
-    /// outside the view and clicks stop registering (measured 2026-07-25,
-    /// macOS 26.5). Both failure modes are SILENT: no crash, no assertion
-    /// elsewhere fires — which is why tripwire 25 had zero grep-level
-    /// recurrence protection until this test. The camera's zoom is a manual
-    /// CTM (`CanvasCamera`); nothing in `Maugham/Canvas/` should assign to
-    /// `.magnification` or call `.scaleEffect(`.
-    static let tw25ScaleEffectPattern = ".scaleEffect("
-    static let tw25MagnificationPatterns = [
-        ".magnification(", "magnification =", "setMagnification(", "allowsMagnification",
-    ]
-
-    /// Recurrence-tripper: scoped to PRODUCTION `.swift` under
-    /// `Maugham/Canvas/`, plus `Views/CanvasClaudeArrivalModifier.swift` by
-    /// name — canvas view code that lives outside `Maugham/Canvas/` proper
-    /// (it's an animation-shaped `ViewModifier` for arriving Claude-written
-    /// scraps, exactly the kind of file where a stray `.scaleEffect(` would
-    /// naturally be reached for). Named explicitly rather than widening the
-    /// scan to all of `Views/`, which would pull in unrelated UI code. Test
-    /// files under `MaughamTests/Canvas/` legitimately name these tokens in
-    /// prose/assertions (e.g. `CanvasViewMountingSurfaceTests.swift` discusses
-    /// the `.scaleEffect` alternative it deliberately does NOT use) and are
-    /// excluded by scanning `sourceDir` (which is `Maugham/`, not
-    /// `MaughamTests/`) rather than by an allowlist. As of this writing there
-    /// are zero legitimate production uses to exclude — the guard is a flat
-    /// ban.
-    func test_noCanvasZoomViaScaleEffectOrMagnification() throws {
-        let canvasDir = sourceDir.appendingPathComponent("Canvas", isDirectory: true)
-        let viewsDir = sourceDir.appendingPathComponent("Views", isDirectory: true)
-        var offenders = try grepSwift(
-            in: canvasDir,
-            patterns: [Self.tw25ScaleEffectPattern] + Self.tw25MagnificationPatterns,
-            excludeLine: { Self.isCommentLine($0) }
-        )
-        offenders += try grepSwift(
-            in: viewsDir,
-            files: ["CanvasClaudeArrivalModifier.swift"],
-            patterns: [Self.tw25ScaleEffectPattern] + Self.tw25MagnificationPatterns,
-            excludeLine: { Self.isCommentLine($0) }
-        )
-        XCTAssertTrue(offenders.isEmpty,
-            "`.scaleEffect(` or a `.magnification` assignment found in "
-            + "Maugham/Canvas/ production code. Canvas zoom MUST go through the "
-            + "manual camera transform (CTM) — SwiftUI's coordinate space is "
-            + "unaware of NSScrollView.magnification (clicks stop registering at "
-            + "2x and above) and .scaleEffect blurs text, reports unscaled "
-            + "geometry, and breaks NSCursor tracking. Both failures are SILENT "
-            + "(tripwire 25; ADR 0026; "
-            + "docs/superpowers/notes/2026-07-25-canvas-rendering-spike.md). "
-            + "Offenders:\n" + offenders.joined(separator: "\n"))
-    }
-
-    /// Self-check: prove the tripwire FIRES on a planted `.scaleEffect(` call.
-    /// A ban that never matches and a scan that reads nothing look identical
-    /// from the outside.
-    func test_tw25TripwireFiresOnPlantedScaleEffectOffender() throws {
-        let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
-            .appendingPathComponent("tripwire-tw25-selfcheck-\(UUID().uuidString)")
-        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: tmp) }
-
-        try """
-        struct BadCanvasZoom: View {
-            let camera: CanvasCamera
-            var content: some View { EmptyView() }
-            var body: some View {
-                // A doc comment naming .scaleEffect( must not count.
-                content.scaleEffect(camera.zoom)
-            }
-        }
-        """.write(to: tmp.appendingPathComponent("BadCanvasZoom.swift"),
-                  atomically: true, encoding: .utf8)
-
-        let offenders = try grepSwift(
-            in: tmp,
-            patterns: [Self.tw25ScaleEffectPattern] + Self.tw25MagnificationPatterns,
-            excludeLine: { Self.isCommentLine($0) }
-        )
-        XCTAssertEqual(offenders.count, 1,
-            "Self-check expected exactly the planted content.scaleEffect(camera.zoom) "
-            + "call to fire (and the doc comment above it to be excluded). Got:\n"
-            + offenders.joined(separator: "\n"))
-        XCTAssertTrue(offenders.first?.contains("content.scaleEffect(camera.zoom)") == true,
-            "Self-check: the planted scaleEffect call should be the one caught.")
-    }
-
-    /// Self-check: prove the tripwire FIRES on a planted `.magnification`
-    /// assignment (the other forbidden shape — a raw `NSScrollView` zoom
-    /// rather than `.scaleEffect`).
-    func test_tw25TripwireFiresOnPlantedMagnificationOffender() throws {
-        let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
-            .appendingPathComponent("tripwire-tw25-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
 
@@ -3794,35 +3694,6 @@ final class TripwireGrepTests: XCTestCase {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory
             .appendingPathComponent("tripwire-persona-decision-selfcheck-\(UUID().uuidString)")
-        final class BadScrollZoom: NSScrollView {
-            /// A doc comment naming magnification = must not count.
-            func zoomTo(_ level: CGFloat) {
-                magnification = level
-            }
-        }
-        """.write(to: tmp.appendingPathComponent("BadScrollZoom.swift"),
-                  atomically: true, encoding: .utf8)
-
-        let offenders = try grepSwift(
-            in: tmp,
-            patterns: [Self.tw25ScaleEffectPattern] + Self.tw25MagnificationPatterns,
-            excludeLine: { Self.isCommentLine($0) }
-        )
-        XCTAssertEqual(offenders.count, 1,
-            "Self-check expected exactly the planted `magnification = level` "
-            + "assignment to fire (and the doc comment above it to be excluded). Got:\n"
-            + offenders.joined(separator: "\n"))
-        XCTAssertTrue(offenders.first?.contains("magnification = level") == true,
-            "Self-check: the planted magnification assignment should be the one caught.")
-    }
-
-    /// Self-check: prove the tripwire FIRES on a planted `setMagnification(`
-    /// call — AppKit's setter-method spelling of the same forbidden zoom,
-    /// distinct from both the property assignment above and `.scaleEffect(`.
-    func test_tw25TripwireFiresOnPlantedSetMagnificationOffender() throws {
-        let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
-            .appendingPathComponent("tripwire-tw25-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
 
@@ -3878,6 +3749,145 @@ final class TripwireGrepTests: XCTestCase {
             ["static func go() { persona.wrappedValue = .author }"],
             "the sanctioned file still reports its own write — the closed-set "
             + "test is what allows it, not this census")
+    }
+
+    // MARK: - Canvas zoom rendering guard (tripwire 25, ADR 0026)
+
+    /// The forbidden zoom-rendering call shapes. `.scaleEffect(` blurs text,
+    /// reports unscaled geometry to SwiftUI, and breaks `NSCursor` tracking;
+    /// `NSScrollView.magnification` puts the canvas's zoom outside SwiftUI's
+    /// coordinate space entirely — the same `.global` frame is reported at
+    /// every zoom level, so at 2x and above a translated click point falls
+    /// outside the view and clicks stop registering (measured 2026-07-25,
+    /// macOS 26.5). Both failure modes are SILENT: no crash, no assertion
+    /// elsewhere fires — which is why tripwire 25 had zero grep-level
+    /// recurrence protection until this test. The camera's zoom is a manual
+    /// CTM (`CanvasCamera`); nothing in `Maugham/Canvas/` should assign to
+    /// `.magnification` or call `.scaleEffect(`.
+    static let tw25ScaleEffectPattern = ".scaleEffect("
+    static let tw25MagnificationPatterns = [
+        ".magnification(", "magnification =", "setMagnification(", "allowsMagnification",
+    ]
+
+    /// Recurrence-tripper: scoped to PRODUCTION `.swift` under
+    /// `Maugham/Canvas/`, plus `Views/CanvasClaudeArrivalModifier.swift` by
+    /// name — canvas view code that lives outside `Maugham/Canvas/` proper
+    /// (it's an animation-shaped `ViewModifier` for arriving Claude-written
+    /// scraps, exactly the kind of file where a stray `.scaleEffect(` would
+    /// naturally be reached for). Named explicitly rather than widening the
+    /// scan to all of `Views/`, which would pull in unrelated UI code. Test
+    /// files under `MaughamTests/Canvas/` legitimately name these tokens in
+    /// prose/assertions (e.g. `CanvasViewMountingSurfaceTests.swift` discusses
+    /// the `.scaleEffect` alternative it deliberately does NOT use) and are
+    /// excluded by scanning `sourceDir` (which is `Maugham/`, not
+    /// `MaughamTests/`) rather than by an allowlist. As of this writing there
+    /// are zero legitimate production uses to exclude — the guard is a flat
+    /// ban.
+    func test_noCanvasZoomViaScaleEffectOrMagnification() throws {
+        let canvasDir = sourceDir.appendingPathComponent("Canvas", isDirectory: true)
+        let viewsDir = sourceDir.appendingPathComponent("Views", isDirectory: true)
+        var offenders = try grepSwift(
+            in: canvasDir,
+            patterns: [Self.tw25ScaleEffectPattern] + Self.tw25MagnificationPatterns,
+            excludeLine: { Self.isCommentLine($0) }
+        )
+        offenders += try grepSwift(
+            in: viewsDir,
+            files: ["CanvasClaudeArrivalModifier.swift"],
+            patterns: [Self.tw25ScaleEffectPattern] + Self.tw25MagnificationPatterns,
+            excludeLine: { Self.isCommentLine($0) }
+        )
+        XCTAssertTrue(offenders.isEmpty,
+            "`.scaleEffect(` or a `.magnification` assignment found in "
+            + "Maugham/Canvas/ production code. Canvas zoom MUST go through the "
+            + "manual camera transform (CTM) — SwiftUI's coordinate space is "
+            + "unaware of NSScrollView.magnification (clicks stop registering at "
+            + "2x and above) and .scaleEffect blurs text, reports unscaled "
+            + "geometry, and breaks NSCursor tracking. Both failures are SILENT "
+            + "(tripwire 25; ADR 0026; "
+            + "docs/superpowers/notes/2026-07-25-canvas-rendering-spike.md). "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the tripwire FIRES on a planted `.scaleEffect(` call.
+    /// A ban that never matches and a scan that reads nothing look identical
+    /// from the outside.
+    func test_tw25TripwireFiresOnPlantedScaleEffectOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-tw25-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct BadCanvasZoom: View {
+            let camera: CanvasCamera
+            var content: some View { EmptyView() }
+            var body: some View {
+                // A doc comment naming .scaleEffect( must not count.
+                content.scaleEffect(camera.zoom)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("BadCanvasZoom.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: [Self.tw25ScaleEffectPattern] + Self.tw25MagnificationPatterns,
+            excludeLine: { Self.isCommentLine($0) }
+        )
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected exactly the planted content.scaleEffect(camera.zoom) "
+            + "call to fire (and the doc comment above it to be excluded). Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.first?.contains("content.scaleEffect(camera.zoom)") == true,
+            "Self-check: the planted scaleEffect call should be the one caught.")
+    }
+
+    /// Self-check: prove the tripwire FIRES on a planted `.magnification`
+    /// assignment (the other forbidden shape — a raw `NSScrollView` zoom
+    /// rather than `.scaleEffect`).
+    func test_tw25TripwireFiresOnPlantedMagnificationOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-tw25-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        final class BadScrollZoom: NSScrollView {
+            /// A doc comment naming magnification = must not count.
+            func zoomTo(_ level: CGFloat) {
+                magnification = level
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("BadScrollZoom.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: [Self.tw25ScaleEffectPattern] + Self.tw25MagnificationPatterns,
+            excludeLine: { Self.isCommentLine($0) }
+        )
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected exactly the planted `magnification = level` "
+            + "assignment to fire (and the doc comment above it to be excluded). Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.first?.contains("magnification = level") == true,
+            "Self-check: the planted magnification assignment should be the one caught.")
+    }
+
+    /// Self-check: prove the tripwire FIRES on a planted `setMagnification(`
+    /// call — AppKit's setter-method spelling of the same forbidden zoom,
+    /// distinct from both the property assignment above and `.scaleEffect(`.
+    func test_tw25TripwireFiresOnPlantedSetMagnificationOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-tw25-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
         final class BadScrollZoom: NSScrollView {
             /// A doc comment naming setMagnification( must not count.
             func zoomTo(_ level: CGFloat) {
