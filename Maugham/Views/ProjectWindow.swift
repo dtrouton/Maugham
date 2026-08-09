@@ -1508,8 +1508,10 @@ struct ProjectWindow: View {
     /// range the column replaced, on a display of any size, self-sealing across
     /// relaunches because drag-end persisted the starved value. Found by
     /// whole-branch review, 2026-08-08, in the seam between two of this task's
-    /// own fix rounds; `test_aFreshProjectOnAWideDisplayCanDragPastTheFallback`
-    /// is the regression, and it goes through this guard rather than around it.
+    /// own fix rounds; `test_aFreshProjectCanDragPastTheUnmeasuredFallback` is
+    /// the regression, and it goes through this guard rather than around it —
+    /// on a window merely wider than the floor, since asserting the ceiling was
+    /// the range's own 480 made it a claim about the developer's monitor.
     ///
     /// The persisted width is not a parameter any more, so the shape that caused
     /// this cannot be spelled here again.
