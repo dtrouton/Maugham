@@ -6,6 +6,17 @@ import MaughamCore
 /// (*"Restored. 3 annotations auto-archived."*) and assert the effect in
 /// tests without rummaging through the op log post-hoc.
 public struct RewindRestoreResult: Equatable, Sendable {
+    /// How the requested target op resolved against the log (RULING-27):
+    /// `.exact` when it was present; `.nearest` when it had vanished and the
+    /// restore landed on the closest surviving moment at-or-before it instead.
+    /// A missing moment is never quietly replaced by the present — this field
+    /// is the channel the notice (and its Revert) renders from, and it is what
+    /// makes a vanished-target result distinguishable from an honest no-op
+    /// (the old `==` collapse was M4-RW-008).
+    public enum TargetResolution: Equatable, Sendable {
+        case exact
+        case nearest(requested: String, restoredTo: String)
+    }
     /// The appended `.checkpointRestore` op recording the rewind, or
     /// `nil` when the rewind was a no-op (target state equals current —
     /// e.g. rewinding to the latest op in the log). A nil here means
@@ -54,6 +65,8 @@ public struct RewindRestoreResult: Equatable, Sendable {
     /// travelled-to moment. A target before the accept lands in
     /// `travelReopenedAnnotationIds` instead — the change was unapplied then.
     public let travelReacceptedAnnotationIds: [String]
+    /// See `TargetResolution`.
+    public let targetResolution: TargetResolution
 
     public init(
         restoreOp: Op?,
@@ -64,7 +77,8 @@ public struct RewindRestoreResult: Equatable, Sendable {
         reopenedAnnotationOpIds: [String],
         rewoundTaskOps: Bool = false,
         travelReopenedAnnotationIds: [String] = [],
-        travelReacceptedAnnotationIds: [String] = []
+        travelReacceptedAnnotationIds: [String] = [],
+        targetResolution: TargetResolution = .exact
     ) {
         self.restoreOp = restoreOp
         self.archivedAnnotationOpIds = archivedAnnotationOpIds
@@ -75,5 +89,6 @@ public struct RewindRestoreResult: Equatable, Sendable {
         self.rewoundTaskOps = rewoundTaskOps
         self.travelReopenedAnnotationIds = travelReopenedAnnotationIds
         self.travelReacceptedAnnotationIds = travelReacceptedAnnotationIds
+        self.targetResolution = targetResolution
     }
 }

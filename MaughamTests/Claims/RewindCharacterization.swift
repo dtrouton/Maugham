@@ -149,21 +149,52 @@ final class RewindCharacterization: XCTestCase {
     /// `Equatable`, and the two compare equal: the caller cannot distinguish
     /// "there was nothing to do" from "the moment you asked for does not
     /// exist". Nothing throws.
-    func test_restoreToOp_unknownTarget_isIndistinguishableFromAGenuineNoOp() async throws {
+    /// M4-RW-008 (fixed under RULING-27, 2026-08-09) — a vanished target is now
+    /// DISTINGUISHABLE: the result carries `targetResolution`, so a caller can
+    /// tell "your moment is gone; this is the nearest" from an honest no-op.
+    func test_restoreToOp_unknownTarget_isDistinguishableAndResolvesNearest() async throws {
         let (h, marks) = try await makeThreeParagraphDoc()
         let doc = h.doc
         let textBefore = doc.materialize()
-        let countBefore = try await doc.opLog().count
 
         let legitimate = try await doc.restoreToOp(opId: marks[2])       // tip: nothing to do
-        let vanished = try await doc.restoreToOp(opId: "01THISOPNEVEREXISTED")
+        let vanished = try await doc.restoreToOp(opId: "99THISOPNEVEREXISTED")
 
-        XCTAssertEqual(legitimate, vanished,
-                       "the two results are equal — there is no channel carrying the difference")
-        XCTAssertNil(vanished.restoreOp)
-        XCTAssertEqual(doc.materialize(), textBefore, "the document did not move")
-        let countAfter = try await doc.opLog().count
-        XCTAssertEqual(countAfter, countBefore)
+        XCTAssertEqual(legitimate.targetResolution, .exact)
+        guard case .nearest(let requested, let restoredTo) = vanished.targetResolution else {
+            return XCTFail("a vanished target must say so — got \(vanished.targetResolution)")
+        }
+        XCTAssertEqual(requested, "99THISOPNEVEREXISTED")
+        XCTAssertEqual(restoredTo, marks[2],
+                       "nearest surviving = the greatest opId at or before the requested moment")
+        XCTAssertNotEqual(legitimate, vanished,
+                          "the channel exists — the two results no longer compare equal")
+        XCTAssertEqual(doc.materialize(), textBefore,
+                       "nearest here IS the tip, so the text did not move")
+    }
+
+    /// RULING-27's substantive half: a vanished target that sorts into the
+    /// MIDDLE of history restores to the nearest surviving moment at-or-before
+    /// it — the writer's intent ('go back to roughly then') honoured
+    /// approximately, never silently replaced by the present.
+    func test_restoreToOp_vanishedMidHistoryTarget_restoresToNearestBefore() async throws {
+        let (h, marks) = try await makeThreeParagraphDoc()
+        let doc = h.doc
+
+        // A fabricated id sorting between marks[1] (the burst that added
+        // "Two.") and marks[2]: take marks[1] and bump its last character.
+        var midId = marks[1]
+        midId += "0"
+
+        let r = try await doc.restoreToOp(opId: midId)
+
+        guard case .nearest(_, let restoredTo) = r.targetResolution else {
+            return XCTFail("expected .nearest, got \(r.targetResolution)")
+        }
+        XCTAssertEqual(restoredTo, marks[1])
+        XCTAssertTrue(doc.materialize().contains("Two"))
+        XCTAssertFalse(doc.materialize().contains("Three"),
+                       "restored to the moment before 'Three.' existed — the nearest one")
     }
 
     /// M4-RW-030 — a rewind whose TEXT is unchanged but whose range contains
@@ -414,12 +445,11 @@ final class RewindCharacterization: XCTestCase {
                        "the writer's own stack is exactly as they left it")
     }
 
-    /// M4-RW-022 (stack half fixed under RULING-37, 2026-08-09) — a target that
-    /// does not exist in the log: nothing is done and the writer's undo stack
-    /// SURVIVES. The remaining defect is the silent success (a vanished moment
-    /// still derives as the present and reports normally) — that half awaits
-    /// RULING-27's nearest-surviving-moment fix and stays filed VIOLATES.
-    func test_undoableRewind_unknownTarget_costsNothing_butIsStillSilent() async throws {
+    /// M4-RW-022 (fully fixed: RULING-37 + RULING-27, 2026-08-09) — a target
+    /// that does not exist in the log costs nothing AND says so: the stack
+    /// survives, and the result names the nearest surviving moment it resolved
+    /// to instead of reporting a plain success.
+    func test_undoableRewind_unknownTarget_costsNothing_andSaysSo() async throws {
         let (h, _) = try await makeThreeParagraphDoc()
         let doc = h.doc
         let textBefore = doc.materialize()
@@ -427,13 +457,14 @@ final class RewindCharacterization: XCTestCase {
         um.registerUndo(withTarget: self) { _ in }
         um.setActionName("Typing")
 
-        let r = try await doc.restoreToOpUndoable(opId: "01NOSUCHOPATALL", undoManager: um)
+        let r = try await doc.restoreToOpUndoable(opId: "99NOSUCHOPATALL", undoManager: um)
 
-        XCTAssertNil(r.restoreOp)
+        XCTAssertNil(r.restoreOp, "nearest here is the tip — nothing to change")
         XCTAssertEqual(doc.materialize(), textBefore)
         XCTAssertTrue(um.canUndo, "no change, no cost (RULING-37)")
-        // Still pinned AS A DEFECT: the caller gets a normal no-op result with
-        // no signal that the requested moment was not found (M4-RW-003/008).
+        guard case .nearest = r.targetResolution else {
+            return XCTFail("the vanished moment must be named, not silently absorbed")
+        }
     }
 
     /// M4-RW-023 / M4-RW-024 — a real rewind leaves exactly ONE undo action,

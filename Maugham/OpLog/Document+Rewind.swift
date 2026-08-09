@@ -32,11 +32,19 @@ extension Document {
     /// `applyRestore` call and the task-marker fallback); the orphan sweep and
     /// the stranded-accept resolution keep their fixed `.rewind` semantics.
     public func restoreToOp(
-        opId targetOpId: String,
+        opId requestedOpId: String,
         synthesisSource: SynthesisSource = .rewind
     ) async throws -> RewindRestoreResult {
         // 1. Flush any pending burst so the rewind boundary is clean.
         try await flushBurstNow()
+
+        // 1b. Resolve the target (RULING-27): a requested moment that is not
+        //     in the log restores to the NEAREST SURVIVING MOMENT at-or-before
+        //     it — never silently to the present, which is what the deriver's
+        //     defensive full-fold fallback used to produce here (the
+        //     M4-RW-003/008/022 silent no-op family). The result names the
+        //     substitution so the caller can tell the writer and offer Revert.
+        let (targetOpId, resolution) = resolveRestoreTarget(requestedOpId)
 
         // 2. Derive the current and target states from the in-memory mirror.
         let currentOps = _opLogMirror
@@ -98,7 +106,8 @@ extension Document {
                     priorSequenceCount: priorCount,
                     newSequenceCount: newCount,
                     reopenedAnnotationOpIds: [],
-                    rewoundTaskOps: false)
+                    rewoundTaskOps: false,
+                    targetResolution: resolution)
             }
 
             // Emit a task-rewind marker checkpoint_restore with empty changes,
@@ -322,7 +331,28 @@ extension Document {
             reopenedAnnotationOpIds: reopenedIds,
             rewoundTaskOps: hasTaskOpsAfterTarget,
             travelReopenedAnnotationIds: travelReopenedIds,
-            travelReacceptedAnnotationIds: travelReacceptedIds)
+            travelReacceptedAnnotationIds: travelReacceptedIds,
+            targetResolution: resolution)
+    }
+
+    /// Resolve a requested restore target against the log (RULING-27): the
+    /// requested id itself when present; otherwise the NEAREST SURVIVING
+    /// MOMENT — the greatest opId at-or-before the request (ULID order is the
+    /// timeline), falling back to the earliest op when the request sorts
+    /// before everything. An empty log resolves to the request itself, which
+    /// the deriver folds to the (empty) present exactly as before.
+    internal func resolveRestoreTarget(
+        _ requestedOpId: String
+    ) -> (opId: String, resolution: RewindRestoreResult.TargetResolution) {
+        let ops = _opLogMirror
+        if ops.contains(where: { $0.opId == requestedOpId }) {
+            return (requestedOpId, .exact)
+        }
+        guard let nearest = ops.last(where: { $0.opId <= requestedOpId }) ?? ops.first else {
+            return (requestedOpId, .exact)
+        }
+        return (nearest.opId,
+                .nearest(requested: requestedOpId, restoredTo: nearest.opId))
     }
 
     /// True when a restore to `targetOpId` would change neither the text nor
@@ -331,7 +361,12 @@ extension Document {
     /// clear entirely. An UNKNOWN target also answers true today (it derives
     /// as the present), so a vanished moment no longer costs the stack either;
     /// its silent-success half remains RULING-27's territory.
-    internal func restoreWouldBeGenuineNoOp(targetOpId: String) -> Bool {
+    internal func restoreWouldBeGenuineNoOp(targetOpId requestedOpId: String) -> Bool {
+        // Resolve exactly as restoreToOp will (RULING-27), or a vanished
+        // mid-history target would read as "derives to the present, no-op"
+        // here while the actual restore then moves text without the undo
+        // clear+registration ever having run.
+        let (targetOpId, _) = resolveRestoreTarget(requestedOpId)
         let ops = _opLogMirror
         let current = Deriver.derive(ops: ops)
         let target = Deriver.derive(ops: ops, upTo: .atOp(opId: targetOpId, at: Date()))
