@@ -11,8 +11,7 @@ these" block into the next session's start.*
 146 commits, fast-forward) on Denver's word after his live smoke.** The
 paired Mac + phone RELEASE (the M1A manifest-bump gate) remains separate
 and untagged — that is the next release decision, not this push's.
-What the line contains: What
-they contain, in order: the 2a plan + milestone (the tree — sections,
+What the line contains, in order: the 2a plan + milestone (the tree — sections,
 widened subject, one sweep, folds, drag-is-scope; merged `1cf19122`); the
 2b plan + milestone (the strip's true death — find overlay, trash
 disclosure, multiselect, external input, the wall's door, the kill; merged
@@ -37,11 +36,10 @@ signal; if that silence matters, the closure wants a throwing signature
 discriminated by name every time — see "Flakes" below).
 
 **Two-clone topology**: the behavioural-spec/register sessions work in
-`~/src/experiments/Maugham`, a SEPARATE clone. Their pushes cannot carry this
-clone's work. When Denver gives the push word here, this clone's main is
-already reconciled through origin `cfc7c859`; if origin has moved again,
-merge it first and **run `./gen.sh` before the gate if the merge adds Swift
-files** (this session ate one all-red gate learning that).
+`~/src/experiments/Maugham`, a SEPARATE clone; coordinate merges over the
+sockets as this session did. Standing rule either way: **run `./gen.sh`
+before the gate if a merge adds Swift files** (this session ate one
+all-red gate learning that).
 
 ## Read these, in this order (next session)
 
