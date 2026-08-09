@@ -116,13 +116,17 @@ struct CollectionPiecesPane: View {
     /// `BinderView.row(for:)`'s shape, and Task 6 grows this same `ForEach`
     /// again with the per-piece research fold.
     ///
-    /// **The `.tag` moved out to `pieceEntry(for:)` in Task 6, and only the
-    /// tag.** The padding stays inside — it has to be part of the row the List
-    /// tags rather than a wrapper around it, which is what the extraction was
-    /// careful about — but a folded piece is a `DisclosureGroup` whose LABEL is
-    /// this row, and the tag has to be on the group so its children move with
-    /// the row they belong to (`BinderView.outline` reached the same shape for
-    /// its structure groups). Tagging both would be two names for one row.
+    /// **The `.tag` AND the inset live on `pieceEntry(for:)`, not here.** Task 6
+    /// moved the tag out and left the padding behind, on the reasoning that it
+    /// had to be part of the row the List tags rather than a wrapper around it —
+    /// and that shipped the indentation bug Denver smoked on 2026-08-08. A
+    /// folded piece is a `DisclosureGroup` whose LABEL is this row, and a `List`
+    /// propagates a modifier on the GROUP to the rows it unfolds to but not one
+    /// on the group's label: with the inset here, the fold's children lost the
+    /// piece's 14pt and gained only the outline's 12pt level step, landing 2pt
+    /// to the LEFT of the row they belong to. `BinderView.outline` records the
+    /// same finding for its structure groups, and `BinderTreeIndentationTests`
+    /// is the measurement.
     private func pieceRow(for piece: StructureItem) -> some View {
         PieceRow(
             piece: piece,
@@ -159,9 +163,6 @@ struct CollectionPiecesPane: View {
                     providers: providers, position: position,
                     target: .pieceRow(piece.id))
             })
-            // Inset under the project row above. Part of the row rather than a
-            // wrapper around it, so the List tags a row that is already inset.
-            .padding(.leading, ProjectRowLabel.childIndent)
             .contextMenu {
                 Button("Rename") {
                     renamingItemId = piece.id
@@ -197,6 +198,13 @@ struct CollectionPiecesPane: View {
     /// Derived per render from the manifest, never cached (tripwire 4): the
     /// cost is a manifest walk, not a read, and a cached fold would be a second
     /// answer to what a piece's research is.
+    ///
+    /// **The inset under the project row goes on the whole entry**, so a
+    /// folded piece's research moves with the piece it belongs to — see
+    /// `pieceRow(for:)` for the measurement, and `BinderView.outline` for the
+    /// same shape in the manuscript tree. It is applied here exactly once: a
+    /// piece is always at the top level of a Collection, and the fold's own
+    /// rows are stepped by the outline's per-level indent on top of this one.
     @ViewBuilder
     private func pieceEntry(for piece: StructureItem) -> some View {
         let fold = TreeSectionDerivation.pieceFold(
@@ -212,9 +220,11 @@ struct CollectionPiecesPane: View {
             } label: {
                 pieceRow(for: piece)
             }
+            .padding(.leading, ProjectRowLabel.childIndent)
             .tag(BinderSubject.item(piece.id))
         } else {
             pieceRow(for: piece)
+                .padding(.leading, ProjectRowLabel.childIndent)
                 .tag(BinderSubject.item(piece.id))
         }
     }
