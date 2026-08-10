@@ -1166,9 +1166,11 @@ struct ProjectWindow: View {
         // (`test_openingTheOverlayCannotTakeTheStatusFooterAway`) rather than
         // adding a parameter that could not change an answer, and the re-base
         // onto the persona inherits the same shape.
-        guard Self.showsStatusFooter(persona: persona,
-                                     subject: selectedSubject,
-                                     showsPaletteWall: showsPaletteWall) else { return false }
+        guard Self.showsStatusFooter(
+            persona: persona,
+            subject: selectedSubject,
+            showsPaletteWall: showsPaletteWall,
+            structure: store?.manifest.structure ?? []) else { return false }
         if isNoChromeOn { return false }
         return true
     }
@@ -1210,14 +1212,66 @@ struct ProjectWindow: View {
     /// `persona` nor `subject` nor `showsPaletteWall`
     /// (`TreeFindOverlayTests.test_openingTheOverlayCannotTakeTheStatusFooterAway`),
     /// so Denver's 2026-08-02 find ruling holds unchanged by construction.
+    /// **The altitude term, since stage 3a Task 2.** The clause below it asks
+    /// only whether a RESEARCH item took the centre, so it answered TRUE for the
+    /// project, a group and a dangling id — every subject that now draws the
+    /// altitude view — and the word count floated over a corkboard. The
+    /// argument is the one this comment already makes: a goal capsule, the live
+    /// session words, the `¶id` under the cursor and the current element are
+    /// four readings about a document, and at altitude there is no document for
+    /// them to be about.
+    ///
+    /// It is asked LAST of the four deliberately. Each clause above it decides
+    /// some input alone — the research clause still owns the research subject,
+    /// which this one would otherwise answer for on its way past — so no clause
+    /// here is a restatement of another.
     static func showsStatusFooter(persona: Persona,
                                   subject: BinderSubject?,
-                                  showsPaletteWall: Bool) -> Bool {
+                                  showsPaletteWall: Bool,
+                                  structure: [StructureItem]) -> Bool {
         guard persona.showsManuscriptDocuments else { return false }
         guard !showsPaletteWallCentre(showsPaletteWall: showsPaletteWall,
                                       persona: persona) else { return false }
-        return researchSubjectPlacement(persona: persona,
-                                        subject: subject).centreItemID == nil
+        guard researchSubjectPlacement(persona: persona,
+                                       subject: subject).centreItemID == nil
+        else { return false }
+        return !subjectShowsAltitude(persona: persona, subject: subject,
+                                     structure: structure)
+    }
+
+    /// **Does the centre column show the project at altitude rather than a
+    /// document?** (shell-finish stage 3a Task 2.)
+    ///
+    /// Four subject shapes resolve to no single document — no subject at all,
+    /// the project itself, a group, and an `.item` that names nothing in the
+    /// manifest (or a document with no path). Every one of them used to leave
+    /// the centre column showing `EditorHost`'s *"Select a document."*, which is
+    /// the degrade this replaces: the writer who clicks the project's own head
+    /// row now gets the corkboard or the table.
+    ///
+    /// **Written as the complement of `selectionIsDocument` rather than as a
+    /// switch of its own**, because that is already the window's one question
+    /// about whether a subject resolves to a manuscript document — the question
+    /// the `EditorCoordinator`'s metrics turn on. Two switches over the same
+    /// four cases are two answers free to disagree about what a document is.
+    ///
+    /// `persona.showsManuscriptDocuments` first: Plan's centre column is the
+    /// board, and altitude is what the manuscript personas show INSTEAD of a
+    /// document, never a fifth surface competing for the centre.
+    ///
+    /// **`.research` is not this function's question, and it deliberately does
+    /// not re-guard it.** `editorPane` asks `researchSubjectPlacement` above the
+    /// editor arm, so in every persona that reaches here the research item has
+    /// already taken the centre; in the one that does not (Plan) this function
+    /// has already refused on the persona. `ProjectAltitudeCentreTests` asserts
+    /// that pair over `Persona.allCases` — a guard written here would be a
+    /// second place the research routing is decided, and the one that never runs
+    /// is the one that goes quietly wrong.
+    static func subjectShowsAltitude(persona: Persona,
+                                     subject: BinderSubject?,
+                                     structure: [StructureItem]) -> Bool {
+        guard persona.showsManuscriptDocuments else { return false }
+        return !selectionIsDocument(subject, in: structure)
     }
 
     /// **What the window is about after a search match is clicked**, as a pure

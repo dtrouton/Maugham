@@ -298,12 +298,14 @@ final class ResearchSubjectRoutingTests: XCTestCase {
             XCTAssertTrue(
                 ProjectWindow.showsStatusFooter(persona: persona,
                                                 subject: .item("doc1"),
-                                                showsPaletteWall: false),
+                                                showsPaletteWall: false,
+                                                structure: Self.oneDocument),
                 "control: \(persona) over a manuscript document still reports")
             XCTAssertFalse(
                 ProjectWindow.showsStatusFooter(persona: persona,
                                                 subject: .research("r1"),
-                                                showsPaletteWall: false),
+                                                showsPaletteWall: false,
+                                                structure: Self.oneDocument),
                 "\(persona) with a research item in the centre has no document "
                 + "for the footer to be about")
         }
@@ -315,7 +317,8 @@ final class ResearchSubjectRoutingTests: XCTestCase {
             XCTAssertFalse(
                 ProjectWindow.showsStatusFooter(persona: persona,
                                                 subject: .item("doc1"),
-                                                showsPaletteWall: false),
+                                                showsPaletteWall: false,
+                                                structure: Self.oneDocument),
                 "\(persona): a document subject cannot conjure a footer over a "
                 + "centre column that is not a document")
         }
@@ -338,18 +341,21 @@ final class ResearchSubjectRoutingTests: XCTestCase {
             XCTAssertFalse(
                 ProjectWindow.showsStatusFooter(persona: persona,
                                                 subject: .item("doc1"),
-                                                showsPaletteWall: true),
+                                                showsPaletteWall: true,
+                                                structure: Self.oneDocument),
                 "\(persona): the wall is centred over the document — the "
                 + "footer's four readings have nothing under them to report on")
             XCTAssertTrue(
                 ProjectWindow.showsStatusFooter(persona: persona,
                                                 subject: .item("doc1"),
-                                                showsPaletteWall: false),
+                                                showsPaletteWall: false,
+                                                structure: Self.oneDocument),
                 "control: \(persona) with the wall closed still reports")
         }
         XCTAssertFalse(
             ProjectWindow.showsStatusFooter(persona: .plan, subject: .item("doc1"),
-                                            showsPaletteWall: true),
+                                            showsPaletteWall: true,
+                                            structure: Self.oneDocument),
             "Plan never shows the footer regardless — its centre is the board, "
             + "not a document, wall or no wall")
     }
@@ -361,6 +367,17 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         Persona.allCases.filter(\.showsManuscriptDocuments)
     static let centresThatHoldNoDocument: [Persona] =
         Persona.allCases.filter { !$0.showsManuscriptDocuments }
+
+    /// The structure the footer's `doc1` subject is looked up in. Since
+    /// shell-finish stage 3a Task 2 the footer resolves the subject against the
+    /// manifest — a subject that names no document draws the altitude view, and
+    /// the footer's four readings have nothing to be about — so a bare id with
+    /// no structure behind it would read as dangling and every "control: still
+    /// reports" assertion above would be inverted.
+    static let oneDocument: [StructureItem] = [
+        StructureItem(id: "doc1", title: "Chapter One", type: .document,
+                      path: "manuscript/chapter-1.md")
+    ]
 
     /// The anti-vacuity control both loops above need: neither set is empty, so
     /// neither loop is asserting nothing.

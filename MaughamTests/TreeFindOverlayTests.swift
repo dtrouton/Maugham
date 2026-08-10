@@ -124,20 +124,30 @@ final class TreeFindOverlayTests: XCTestCase {
     /// `test_theManuscriptStatusFooterIsSilentUnderThePaletteWall`.
     func test_openingTheOverlayCannotTakeTheStatusFooterAway() async throws {
         let store = try await project(of: .novel)
-        let subject = BinderSubject.item("ch-1")
+        // The project's OWN first chapter, not a made-up id: since stage 3a Task
+        // 2 the gate resolves the subject against the manifest, and a subject
+        // naming nothing is the altitude view — which has no footer to lose, so
+        // the premise below would pass vacuously for the wrong reason.
+        let structure = store.manifest.structure
+        let document = try XCTUnwrap(
+            TreeWalk.first(in: structure, where: { $0.type == .document }),
+            "fixture precondition: a novel opens with a chapter")
+        let subject = BinderSubject.item(document.id)
         for persona in Persona.allCases {
             let box = FindOverlayBox(treeFindActive: false)
             box.subject = subject
             let window = host(box, FindOverlayProbeView(
                 store: store, box: box, persona: persona))
             let before = ProjectWindow.showsStatusFooter(
-                persona: persona, subject: box.subject, showsPaletteWall: false)
+                persona: persona, subject: box.subject, showsPaletteWall: false,
+                structure: structure)
 
             box.treeFindActive = true
             await pumpUntil(deadline: 5) { self.queryField(in: window) != nil }
 
             let after = ProjectWindow.showsStatusFooter(
-                persona: persona, subject: box.subject, showsPaletteWall: false)
+                persona: persona, subject: box.subject, showsPaletteWall: false,
+                structure: structure)
             XCTAssertEqual(before, after,
                            "\(persona): opening find changed the footer's "
                            + "answer, so it moved one of the inputs the centre "
@@ -145,7 +155,8 @@ final class TreeFindOverlayTests: XCTestCase {
         }
         XCTAssertTrue(
             ProjectWindow.showsStatusFooter(persona: .author, subject: subject,
-                                            showsPaletteWall: false),
+                                            showsPaletteWall: false,
+                                            structure: structure),
             "premise: the case the ruling is about — a writer in Author with a "
             + "document in the centre — has a footer to lose in the first place")
     }
