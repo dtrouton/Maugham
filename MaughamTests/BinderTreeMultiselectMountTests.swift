@@ -479,8 +479,8 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
 /// A host reduced to the two touchpoints a host has: the sections' rows inside
 /// one `List` bound the way production binds it, and the presentations outside
 /// it. The state is the TEST's, which is the only reason the acting set is
-/// readable at all — the three real hosts own theirs privately, and the tests
-/// that use them read the table instead.
+/// readable at all — the three real hosts take one from the window (stage-3a
+/// Task 4), and the tests that mount a whole host read the table instead.
 @MainActor
 private struct SectionsOnlyProbeView: View {
     let store: ProjectStore
@@ -503,10 +503,13 @@ private struct MultiselectBinderProbeView: View {
     let store: ProjectStore
     let probe: BinderSubjectProbe
 
+    let treeState = BinderTreeSectionsState()
+
     var body: some View {
         BinderView(store: store,
                    selectedSubject: Binding(get: { probe.subject },
-                                            set: { probe.subject = $0 }))
+                                            set: { probe.subject = $0 }),
+                   treeState: treeState)
     }
 }
 
@@ -515,13 +518,15 @@ private struct MultiselectCollectionProbeView: View {
     let store: ProjectStore
     let probe: BinderSubjectProbe
     @State private var renaming: String?
+    let treeState = BinderTreeSectionsState()
 
     var body: some View {
         CollectionPiecesPane(
             store: store,
             selectedSubject: Binding(get: { probe.subject },
                                      set: { probe.subject = $0 }),
-            renamingItemId: $renaming)
+            renamingItemId: $renaming,
+            treeState: treeState)
     }
 }
 
@@ -530,6 +535,7 @@ private struct MultiselectNavigatorProbeView: View {
     let store: ProjectStore
     let probe: BinderSubjectProbe
     let documentID: String?
+    let treeState = BinderTreeSectionsState()
 
     var body: some View {
         SceneNavigatorPane(
@@ -539,6 +545,7 @@ private struct MultiselectNavigatorProbeView: View {
             selectedSubject: Binding(get: { probe.subject },
                                      set: { probe.subject = $0 }),
             documentID: documentID,
+            treeState: treeState,
             onSelect: { _ in })
     }
 }

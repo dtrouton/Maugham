@@ -486,6 +486,7 @@ private struct BinderBesideThePaneProbeView: View {
     let documentStore: DocumentStore
     let subjectProbe: BinderSubjectProbe
     let paneProbe: StatementProbeModel
+    let treeState = BinderTreeSectionsState()
 
     @State private var outlineLayout: OutlineLayout = .table
 
@@ -499,7 +500,8 @@ private struct BinderBesideThePaneProbeView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            BinderView(store: store, selectedSubject: subject)
+            BinderView(store: store, selectedSubject: subject,
+                       treeState: treeState)
                 .frame(width: 260)
             DetailPaneToggle(
                 store: store,

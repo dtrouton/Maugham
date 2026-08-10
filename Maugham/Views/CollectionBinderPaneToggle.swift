@@ -11,6 +11,9 @@ struct CollectionBinderPaneToggle: View {
     /// Find, as an overlay of this column — see `BinderPaneToggle`.
     @Binding var treeFindActive: Bool
     @Binding var renamingItemId: String?
+    /// The sections' state, on its way from the window to the pieces tree — see
+    /// `BinderView.treeState` (stage-3a Task 4).
+    let treeState: BinderTreeSectionsState
     /// The window's working mode — see `BinderPaneToggle`'s twin.
     let persona: Persona
     /// Opens the palette wall in the centre column — see `BinderPaneToggle`'s
@@ -78,6 +81,7 @@ struct CollectionBinderPaneToggle: View {
             store: store,
             selectedSubject: $selectedSubject,
             renamingItemId: $renamingItemId,
+            treeState: treeState,
             canOpenPaletteWall: canOpenPaletteWall,
             onOpenPaletteWall: onOpenPaletteWall)
     }

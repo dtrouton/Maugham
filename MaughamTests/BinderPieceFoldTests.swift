@@ -476,21 +476,45 @@ final class BinderPieceFoldTests: XCTestCase {
     /// rename fields mount a fold and the shared sections over ONE
     /// `BinderTreeSectionsState`; if a host ever gave its folds a state of their
     /// own, the duplicate rename could not happen there and the probe would be
-    /// testing a shape production does not have. Both hosts own a single
-    /// `treeState` and pass that value to both.
+    /// testing a shape production does not have. Each host takes a single
+    /// `treeState` and passes that value to both.
+    ///
+    /// **The state moved OUT of the hosts in stage-3a Task 4** — the window owns
+    /// it now, because the tree's sections learned to close and
+    /// `ProjectWindow.openResearchItem` has to be able to open the one holding a
+    /// revealed item. So a host owning a state of its own is the defect this
+    /// census reads for in both directions: it must take one and construct none,
+    /// or the window's reveal writes a flag no mounted tree is reading.
     func test_theHostsGiveTheirFoldsAndTheirSectionsOneState() throws {
         for host in ["Maugham/Views/BinderView.swift",
                      "Maugham/Views/CollectionPiecesPane.swift"] {
             let text = try source(of: host)
             XCTAssertEqual(
-                text.components(separatedBy: "BinderTreeSectionsState()").count - 1, 1,
-                "\(host) must own exactly one sections state")
+                text.components(separatedBy: "BinderTreeSectionsState()").count - 1, 0,
+                "\(host) must construct no sections state of its own — the "
+                + "window owns it, and a private one is a tree the reveal "
+                + "cannot open")
+            XCTAssertTrue(text.contains("let treeState: BinderTreeSectionsState"),
+                          "\(host) takes exactly one, and takes it undefaulted "
+                          + "so the compiler asks every caller")
             XCTAssertTrue(text.contains("BinderTreeSections(store: store, state: treeState"),
                           "\(host): the sections take it")
             XCTAssertTrue(text.contains("BinderPieceFold(store: store, state: treeState"),
                           "\(host): and so does every fold — one rename request, "
                           + "one field, is only true while there is one state")
         }
+        // The third host has no folds, so it is absent above — but it must take
+        // the window's state on the same terms, or a screenplay's writer is the
+        // one whose tree the reveal cannot reach.
+        let navigator = try source(of: "Maugham/Views/SceneNavigatorPane.swift")
+        XCTAssertEqual(
+            navigator.components(separatedBy: "BinderTreeSectionsState()").count - 1, 0)
+        XCTAssertTrue(navigator.contains("let treeState: BinderTreeSectionsState"))
+        // And the window owns exactly one, for all three of them.
+        let window = try source(of: "Maugham/Views/ProjectWindow.swift")
+        XCTAssertEqual(
+            window.components(separatedBy: "BinderTreeSectionsState()").count - 1, 1,
+            "one window, one tree, one state")
     }
 
     // MARK: - Fixtures
@@ -674,11 +698,13 @@ final class BinderPieceFoldTests: XCTestCase {
 private struct FoldBinderProbeView: View {
     let store: ProjectStore
     let probe: BinderSubjectProbe
+    let treeState = BinderTreeSectionsState()
 
     var body: some View {
         BinderView(store: store,
                    selectedSubject: Binding(get: { probe.subject },
-                                            set: { probe.subject = $0 }))
+                                            set: { probe.subject = $0 }),
+                   treeState: treeState)
     }
 }
 
@@ -690,12 +716,14 @@ private struct FoldCollectionProbeView: View {
     /// where it lives in production, so a pane mounted alone does not carry it.
     let sweeping: Bool
     @State private var renaming: String?
+    let treeState = BinderTreeSectionsState()
 
     var body: some View {
         let subject = Binding(get: { probe.subject },
                               set: { probe.subject = $0 })
         CollectionPiecesPane(store: store, selectedSubject: subject,
-                             renamingItemId: $renaming)
+                             renamingItemId: $renaming,
+                             treeState: treeState)
             .modifier(OptionalSubjectValidation(
                 store: sweeping ? store : nil, selectedSubject: subject))
     }
@@ -746,6 +774,7 @@ private struct FoldNavigatorProbeView: View {
     let store: ProjectStore
     let probe: BinderSubjectProbe
     let documentID: String?
+    let treeState = BinderTreeSectionsState()
 
     var body: some View {
         SceneNavigatorPane(
@@ -755,6 +784,7 @@ private struct FoldNavigatorProbeView: View {
             selectedSubject: Binding(get: { probe.subject },
                                      set: { probe.subject = $0 }),
             documentID: documentID,
+            treeState: treeState,
             onSelect: { _ in })
     }
 }

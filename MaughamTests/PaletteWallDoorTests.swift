@@ -541,9 +541,11 @@ private struct DoorProbeView: View {
     let canOpenPaletteWall: Bool
     let onOpenPaletteWall: () -> Void
     @State private var subject: BinderSubject?
+    let treeState = BinderTreeSectionsState()
 
     var body: some View {
         BinderView(store: store, selectedSubject: $subject,
+                   treeState: treeState,
                    canOpenPaletteWall: canOpenPaletteWall,
                    onOpenPaletteWall: onOpenPaletteWall)
     }

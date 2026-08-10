@@ -581,6 +581,8 @@ private struct BinderToggleTrashProbeView: View {
         Binding(get: { box.subject }, set: { box.subject = $0 })
     }
 
+    let treeState = BinderTreeSectionsState()
+
     var body: some View {
         Group {
             switch shell {
@@ -590,6 +592,7 @@ private struct BinderToggleTrashProbeView: View {
                     selectedSubject: subject,
                     projectType: store.manifest.type,
                     lastParsedScript: nil,
+                    treeState: treeState,
                     treeFindActive: .constant(false),
                     persona: persona)
             case .collection:
@@ -598,6 +601,7 @@ private struct BinderToggleTrashProbeView: View {
                     selectedSubject: subject,
                     treeFindActive: .constant(false),
                     renamingItemId: $renamingItemId,
+                    treeState: treeState,
                     persona: persona)
             }
         }

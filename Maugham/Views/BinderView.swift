@@ -4,6 +4,15 @@ import MaughamCore
 struct BinderView: View {
     @Bindable var store: ProjectStore
     @Binding var selectedSubject: BinderSubject?
+    /// **The Research and Palette sections' state, owned by the WINDOW**
+    /// (stage-3a Task 4). It was `@State` here until the sections learned to be
+    /// opened and closed: `ProjectWindow.openResearchItem` and its Show twin
+    /// have to open the section a revealed item lives in, and a flag held
+    /// privately by whichever tree happens to be mounted is a flag the window
+    /// cannot reach. Taken rather than defaulted so the compiler asks every
+    /// host — a default would allocate a fresh state per body pass and lose the
+    /// writer's disclosure and selection on the next render.
+    let treeState: BinderTreeSectionsState
     /// Threaded to `BinderTreeSections`' Palette header — see its own doc
     /// comment (stage 2b Task 5). Defaulted for the mounted-tree fixtures that
     /// do not care about the wall's door.
@@ -13,9 +22,6 @@ struct BinderView: View {
     @State private var pendingError: String?
     @State private var pendingTidyParentId: String?
     @State private var showingTidyConfirmation: Bool = false
-    /// The Research and Palette sections' own state (stage-2a Task 4). Owned
-    /// here because their presentations hang off this view, outside the `List`.
-    @State private var treeState = BinderTreeSectionsState()
 
     var body: some View {
         // One `List`, always — including when the structure is empty. The empty

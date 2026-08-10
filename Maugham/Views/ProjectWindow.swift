@@ -105,6 +105,22 @@ struct ProjectWindow: View {
     /// writers wrote `false` — and whose gates in the picker and both toggles
     /// were dead code when they were deleted.
     @State private var treeFindActive: Bool = false
+    /// **The tree's own state, owned by the window** (stage-3a Task 4): its
+    /// `List` selection, its inline-rename request, its loaded palette cards
+    /// and — new in this task — which of its sections and research groups are
+    /// open.
+    ///
+    /// It was `@State` inside each of the three tree hosts until the sections
+    /// learned to close. `openResearchItem` and `handleShowLatestMCPNote` name
+    /// an item the writer may not be looking at, and making that item's row
+    /// visible means opening the section it lives in — which a flag held
+    /// privately by whichever host is mounted is not reachable to do. One
+    /// window, one tree, one state; the hosts take it and none of them owns it.
+    ///
+    /// It also outlives the host now, which the find overlay makes visible:
+    /// ⌘⌥F replaces the whole left column, so the tree used to come back with
+    /// its multi-selection and its open groups reset.
+    @State private var treeState = BinderTreeSectionsState()
     @State private var pendingPieceRenameId: String?
     @State private var detailSegment: DetailSegment = .inspector
     @State private var persona: Persona = .default
@@ -1008,6 +1024,7 @@ struct ProjectWindow: View {
                 selectedSubject: $selectedSubject,
                 treeFindActive: $treeFindActive,
                 renamingItemId: $pendingPieceRenameId,
+                treeState: treeState,
                 persona: persona,
                 onOpenPaletteWall: { showsPaletteWall = true },
                 onRestoreOutcome: { restoreOutcome = $0 }
@@ -1018,6 +1035,7 @@ struct ProjectWindow: View {
                 selectedSubject: $selectedSubject,
                 projectType: store.manifest.type,
                 lastParsedScript: lastParsedScript,
+                treeState: treeState,
                 treeFindActive: $treeFindActive,
                 persona: persona,
                 onOpenPaletteWall: { showsPaletteWall = true },
@@ -2284,14 +2302,16 @@ struct ProjectWindow: View {
     /// board in Plan, so **Open** now works from Plan — where the old pair could
     /// only work by dragging the writer's left column out from under them.
     ///
-    /// **Selecting without revealing, deliberately.** The Research section is a
-    /// `Section` of whichever tree is up, and expanding it means reaching into
-    /// that host's disclosure state from the window — a fourth writer of state
-    /// three views already share, for a row the writer may not even be looking
-    /// at. The subject is what the two columns read, so the item opens either
-    /// way; the tree highlights it when the section is open. Recorded rather
-    /// than left as an oversight — it is the one thing the old force did that
-    /// this does not.
+    /// **And the tree opens far enough to show the row** (stage-3a Task 4).
+    /// This was the one thing the old segment force did that the subject write
+    /// did not, and it was recorded here as a gap for a slice: the item lived
+    /// inside a `Section` — and possibly inside a research group — whose
+    /// open/closed flag SwiftUI held privately, so the window could point every
+    /// column at a note and still leave its row undrawn. The flags are
+    /// `BinderTreeSectionsState`'s now (the window owns the object and the trees
+    /// take it), and `reveal` opens the section plus every group between the item
+    /// and the root. It only ever opens, so a writer's other groups are left
+    /// alone; an id the manifest does not hold opens nothing at all.
     ///
     /// Reached from a promoted card's **Open** button (1C-c2), through
     /// `openPromotedArtifact`. The craft-intent inspector affordance was the
@@ -2304,6 +2324,7 @@ struct ProjectWindow: View {
     /// observer's reveal and this one ask the same function the same question.
     private func openResearchItem(_ itemId: String) {
         selectedSubject = .research(itemId)
+        treeState.reveal(itemId, research: store?.manifest.research ?? [])
         Self.revealResearchColumn(persona: persona, subject: selectedSubject,
                                   showInspector: &showInspector,
                                   detailSegment: &detailSegment)
@@ -2656,6 +2677,9 @@ struct ProjectWindow: View {
     private func handleShowLatestMCPNote() {
         guard let id = mcpBanner.latestId else { return }
         selectedSubject = .research(id)
+        // The tree opens far enough to draw the note's row — `openResearchItem`
+        // carries why this is a call here and not an observer of the subject.
+        treeState.reveal(id, research: store?.manifest.research ?? [])
         Self.revealResearchColumn(persona: persona, subject: selectedSubject,
                                   showInspector: &showInspector,
                                   detailSegment: &detailSegment)

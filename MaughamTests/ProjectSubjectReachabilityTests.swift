@@ -609,6 +609,8 @@ private struct BinderShellProbeView: View {
         Binding(get: { probe.subject }, set: { probe.subject = $0 })
     }
 
+    let treeState = BinderTreeSectionsState()
+
     var body: some View {
         Group {
             switch ProjectWindow.BinderShell.shell(for: store.manifest.type) {
@@ -618,6 +620,7 @@ private struct BinderShellProbeView: View {
                     selectedSubject: subject,
                     projectType: store.manifest.type,
                     lastParsedScript: script,
+                    treeState: treeState,
                     treeFindActive: $treeFindActive,
                     persona: persona)
             case .collection:
@@ -626,6 +629,7 @@ private struct BinderShellProbeView: View {
                     selectedSubject: subject,
                     treeFindActive: $treeFindActive,
                     renamingItemId: $renamingItemId,
+                    treeState: treeState,
                     persona: persona)
             }
         }

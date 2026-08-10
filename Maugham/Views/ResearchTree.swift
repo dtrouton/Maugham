@@ -82,17 +82,51 @@ struct ResearchTreeNode<Tag: Hashable>: View {
     /// A `.contained` fold keeps rename: those items live in the piece's own
     /// folder and are drawn exactly once.
     var offersRename: Bool = true
+    /// **Where a group row's open/closed flag lives** — the ids that are OPEN,
+    /// held by whoever mounts the tree (stage-3a Task 4).
+    ///
+    /// `nil` keeps SwiftUI's own private flag, and that is what the per-piece
+    /// folds pass: nothing outside a fold ever needs to open one of its groups,
+    /// and state nobody writes is surface without a customer. The tree's
+    /// Research section passes `BinderTreeSectionsState.expandedResearchGroups`,
+    /// because `reveal` has to be able to open the groups between a revealed
+    /// item and the root.
+    var expandedGroups: Binding<Set<String>>? = nil
 
     var body: some View {
         if item.type == .group, expandsGroups {
-            DisclosureGroup {
-                AnyView(childNodes)
-            } label: {
-                row
+            // Two spellings of one row, because the two initialisers are
+            // genuinely different views: a `.constant` binding would make a
+            // fold's groups permanently closed, and there is no binding that
+            // means "hold it yourself".
+            if let isExpanded = expansion(of: item.id) {
+                DisclosureGroup(isExpanded: isExpanded) {
+                    AnyView(childNodes)
+                } label: {
+                    row
+                }
+            } else {
+                DisclosureGroup {
+                    AnyView(childNodes)
+                } label: {
+                    row
+                }
             }
         } else {
             row
         }
+    }
+
+    /// One group's flag, projected out of the set of open ids — `nil` where the
+    /// caller holds no set and SwiftUI keeps its own.
+    private func expansion(of id: String) -> Binding<Bool>? {
+        guard let expandedGroups else { return nil }
+        return Binding(
+            get: { expandedGroups.wrappedValue.contains(id) },
+            set: { open in
+                if open { expandedGroups.wrappedValue.insert(id) }
+                else { expandedGroups.wrappedValue.remove(id) }
+            })
     }
 
     private var childNodes: some View {
@@ -103,7 +137,11 @@ struct ResearchTreeNode<Tag: Hashable>: View {
                 findParentId: findParentId,
                 actions: actions,
                 tagFor: tagFor,
-                offersRename: offersRename))
+                offersRename: offersRename,
+                // A nested group is reached by opening its parent, so the whole
+                // subtree reads the same set — a reveal names every ancestor and
+                // one of them may be three levels down.
+                expandedGroups: expandedGroups))
         }
     }
 

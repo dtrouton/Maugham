@@ -14,6 +14,9 @@ struct BinderPaneToggle: View {
     @Binding var selectedSubject: BinderSubject?
     let projectType: ProjectType
     let lastParsedScript: FountainScript?
+    /// The sections' state, on its way from the window to whichever tree this
+    /// shell puts up — see `BinderView.treeState` (stage-3a Task 4).
+    let treeState: BinderTreeSectionsState
     /// **Find, as an overlay of this column** (shell-finish stage 2b Task 1).
     /// `ProjectWindow.treeFindActive` — window state, not segment state, which
     /// is why ⌘⌥F moves nothing else and why the overlay rides through a persona
@@ -108,6 +111,7 @@ struct BinderPaneToggle: View {
     /// literal is how the two would come to differ.
     private var binderTree: some View {
         BinderView(store: store, selectedSubject: $selectedSubject,
+                   treeState: treeState,
                    canOpenPaletteWall: canOpenPaletteWall,
                    onOpenPaletteWall: onOpenPaletteWall)
     }
@@ -127,6 +131,7 @@ struct BinderPaneToggle: View {
             documentID: TreeWalk.first(
                 in: store.manifest.structure,
                 where: { $0.type == .document })?.id,
+            treeState: treeState,
             onSelect: { lineLocation in
                 MaughamEvent.post(
                     .maughamNavigateToScene, to: .keyWindow,

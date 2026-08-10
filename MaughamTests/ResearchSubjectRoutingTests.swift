@@ -851,6 +851,7 @@ private struct ResearchRoutingProbeView: View {
     let canvasLoads: CanvasLoadCounter
 
     @State private var renaming: String?
+    let treeState = BinderTreeSectionsState()
 
     private var subject: Binding<BinderSubject?> {
         Binding(get: { probe.subject }, set: { probe.subject = $0 })
@@ -873,15 +874,18 @@ private struct ResearchRoutingProbeView: View {
     private var treeColumn: some View {
         switch tree {
         case .binder:
-            BinderView(store: store, selectedSubject: subject)
+            BinderView(store: store, selectedSubject: subject,
+                       treeState: treeState)
         case .collection:
             CollectionPiecesPane(store: store, selectedSubject: subject,
-                                 renamingItemId: $renaming)
+                                 renamingItemId: $renaming,
+                                 treeState: treeState)
         case .navigator:
             SceneNavigatorPane(store: store, script: script,
                                projectTitle: store.manifest.title,
                                selectedSubject: subject,
                                documentID: documentID,
+                               treeState: treeState,
                                onSelect: { _ in })
         }
     }

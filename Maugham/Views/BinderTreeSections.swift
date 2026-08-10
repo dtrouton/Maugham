@@ -65,7 +65,12 @@ struct BinderTreeSections: View {
     // MARK: - Research
 
     private var researchSection: some View {
-        Section {
+        // **`isExpanded:` since stage-3a Task 4** — see
+        // `BinderTreeSectionsState.researchSectionExpanded`. What the writer
+        // clicks is unchanged; what is new is that the reveal can open a section
+        // the writer closed, which is what made **Open** and **Show** able to
+        // point at a row nothing was drawing.
+        Section(isExpanded: $state.researchSectionExpanded) {
             let roots = TreeSectionDerivation.sharedResearchRoots(
                 research: store.manifest.research,
                 projectType: store.manifest.type)
@@ -85,7 +90,12 @@ struct BinderTreeSections: View {
                         // The one difference from the old panes: their `List`s
                         // select over `Set<String>` and tag bare ids; the tree's
                         // selection is the WINDOW's subject.
-                        tagFor: { BinderSubject.research($0.id) })
+                        tagFor: { BinderSubject.research($0.id) },
+                        // The section's groups open out of the shared state, so
+                        // `reveal` can open the ones between a revealed item and
+                        // the root. The piece folds pass nothing and keep
+                        // SwiftUI's own — see `ResearchTreeNode.expandedGroups`.
+                        expandedGroups: $state.expandedResearchGroups)
                 }
             }
         } header: {
@@ -133,7 +143,8 @@ struct BinderTreeSections: View {
     /// `.binderTreeSections(store:state:selectedSubject:)` — tripwire 4: a row
     /// that reads its own card off disk turns a binder click into N file reads.
     private var paletteSection: some View {
-        Section {
+        // Its twin above carries why this takes a binding.
+        Section(isExpanded: $state.paletteSectionExpanded) {
             if state.cards.isEmpty {
                 // The palette's placeholder refuses: a card is MADE (the
                 // header's `+` menu), never dragged into being, and the
@@ -682,6 +693,73 @@ final class BinderTreeSectionsState {
     /// The window's subject is DERIVED from this and never stored twice — see
     /// `BinderTreeSelection`.
     var selection: Set<BinderSubject> = []
+
+    /// **Whether the Research section is open** (stage-3a Task 4), and its
+    /// Palette twin below it.
+    ///
+    /// Until this task the tree's expansion state did not exist anywhere: both
+    /// `Section`s and every research group took the no-binding initialisers, so
+    /// SwiftUI held the flags privately and nothing outside a mouse click could
+    /// move them. `ProjectWindow.openResearchItem` recorded that as its one
+    /// declared gap — it could point the window at a note and not make the note's
+    /// row visible.
+    ///
+    /// It lives here for `selection`'s reason exactly, and the reason is stronger
+    /// for this one: the value has FOUR writers — the two `Section`s the writer
+    /// clicks, the reveal, and the window that calls it — and three of them are
+    /// in different files from the fourth. `true` is what SwiftUI drew before
+    /// this existed, so a fresh window looks the same as it always did.
+    var researchSectionExpanded: Bool = true
+    var paletteSectionExpanded: Bool = true
+    /// **The research groups that are OPEN**, by id — never the closed ones.
+    ///
+    /// A set of open ids makes the empty set mean "everything closed", which is
+    /// what a binding-less `DisclosureGroup` already did, so converting the rows
+    /// changed nothing a writer sees. The inverse spelling would have had to
+    /// enumerate every group in the manifest to say the same thing, and would
+    /// have to be swept as groups come and go — this one lets a stale id sit
+    /// harmlessly, exactly as `selection` does and for the same reason (a row
+    /// nothing draws reads nothing).
+    var expandedResearchGroups: Set<String> = []
+
+    /// **Open whatever it takes for `itemId`'s row to be on screen** — the
+    /// section that holds it and every group between it and the root.
+    ///
+    /// The window's two forced entries call this beside their subject write:
+    /// **Open** on a promoted card and **Show** on Claude's banner both name an
+    /// item the writer is not necessarily looking at, and selecting a row inside
+    /// a closed section highlights nothing. Everything else in the tree is
+    /// already visible when it is clicked, which is why this is a call at two
+    /// sites rather than an observer of the subject (a subject can also arrive
+    /// from a restore, and a restore may not move the writer's tree).
+    ///
+    /// **It only ever opens.** A reveal is an addition to what is visible; a
+    /// writer's other open groups are none of its business.
+    ///
+    /// The ancestor walk is `TreeWalk`'s — a group is an ancestor when it
+    /// CONTAINS the item, which is `ResearchSelectionSync.moveTargets`' own
+    /// spelling of the same question. No tree-walking code of its own lives here.
+    func reveal(_ itemId: String, research: [ResearchItem]) {
+        // An id no tree holds names no row. Opening the Research section on it
+        // anyway would move the writer's tree for a Show banner naming a note
+        // that has since been deleted.
+        guard TreeWalk.contains(id: itemId, in: research) else { return }
+        // A card is a research item under the palette group — but the Palette
+        // section draws its cards FLAT, so the group is not an ancestor anything
+        // shows. Role-first, through the one lookup `sharedResearchRoots` filters
+        // with, so the two cannot disagree about what the palette group is.
+        if let palette = PaletteLookup.paletteGroup(in: research),
+           palette.id == itemId
+            || TreeWalk.contains(id: itemId, in: palette.children ?? []) {
+            paletteSectionExpanded = true
+            return
+        }
+        researchSectionExpanded = true
+        for group in TreeWalk.collect(in: research, where: { $0.type == .group })
+        where TreeWalk.contains(id: itemId, in: group.children ?? []) {
+            expandedResearchGroups.insert(group.id)
+        }
+    }
 
     init() {}
 }

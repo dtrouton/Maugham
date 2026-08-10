@@ -13,6 +13,7 @@ private struct SceneNavigatorProbeView: View {
     let probe: BinderSubjectProbe
     let documentID: String?
     let onSelect: (Int) -> Void
+    let treeState = BinderTreeSectionsState()
 
     var body: some View {
         SceneNavigatorPane(
@@ -22,6 +23,7 @@ private struct SceneNavigatorProbeView: View {
             selectedSubject: Binding(get: { probe.subject },
                                      set: { probe.subject = $0 }),
             documentID: documentID,
+            treeState: treeState,
             onSelect: onSelect)
     }
 }

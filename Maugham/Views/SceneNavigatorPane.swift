@@ -46,6 +46,9 @@ struct SceneNavigatorPane: View {
     /// which case there is no script row and a scene click has nothing to
     /// restore to, so the subject is left alone.
     let documentID: String?
+    /// The sections' state, owned by the window — see `BinderView.treeState`,
+    /// whose doc comment carries the reasoning (stage-3a Task 4).
+    let treeState: BinderTreeSectionsState
     /// Called with the line range location when the user clicks a scene.
     let onSelect: (Int) -> Void
     /// Threaded to `BinderTreeSections`' Palette header — see its own doc
@@ -53,10 +56,6 @@ struct SceneNavigatorPane: View {
     /// do not care about the wall's door.
     var canOpenPaletteWall: Bool = true
     var onOpenPaletteWall: () -> Void = {}
-
-    /// The Research and Palette sections' own state (stage-2a Task 4). Owned
-    /// here because their presentations hang off this pane, outside the `List`.
-    @State private var treeState = BinderTreeSectionsState()
 
     var body: some View {
         // Compute every scene's page number + length in ONE O(document) pass,

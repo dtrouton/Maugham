@@ -301,6 +301,7 @@ private struct StructureCreationProbeView: View {
     @State private var subject: BinderSubject?
     @State private var renamingItemId: String?
     @State private var treeFindActive = false
+    let treeState = BinderTreeSectionsState()
 
     var body: some View {
         Group {
@@ -311,6 +312,7 @@ private struct StructureCreationProbeView: View {
                     selectedSubject: $subject,
                     projectType: store.manifest.type,
                     lastParsedScript: nil,
+                    treeState: treeState,
                     treeFindActive: $treeFindActive,
                     persona: persona)
             case .collection:
@@ -319,6 +321,7 @@ private struct StructureCreationProbeView: View {
                     selectedSubject: $subject,
                     treeFindActive: $treeFindActive,
                     renamingItemId: $renamingItemId,
+                    treeState: treeState,
                     persona: persona)
             }
         }

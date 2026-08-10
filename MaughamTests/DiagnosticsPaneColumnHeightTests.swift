@@ -23,6 +23,7 @@ private struct ThreeColumnHarness<Detail: View>: View {
     let detailWidth: Double
     @ViewBuilder let detail: () -> Detail
     @State private var renaming: String?
+    let treeState = BinderTreeSectionsState()
 
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
@@ -30,7 +31,8 @@ private struct ThreeColumnHarness<Detail: View>: View {
                 store: store,
                 selectedSubject: Binding(get: { probe.subject },
                                          set: { probe.subject = $0 }),
-                renamingItemId: $renaming)
+                renamingItemId: $renaming,
+                treeState: treeState)
                 .navigationSplitViewColumnWidth(
                     min: ProjectWindow.binderColumnFloor, ideal: 240)
         } content: {

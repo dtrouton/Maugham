@@ -589,6 +589,8 @@ private struct FindOverlayProbeView: View {
         Binding(get: { box.subject }, set: { box.subject = $0 })
     }
 
+    let treeState = BinderTreeSectionsState()
+
     var body: some View {
         Group {
             switch ProjectWindow.BinderShell.shell(for: store.manifest.type) {
@@ -598,6 +600,7 @@ private struct FindOverlayProbeView: View {
                     selectedSubject: subject,
                     projectType: store.manifest.type,
                     lastParsedScript: nil,
+                    treeState: treeState,
                     treeFindActive: treeFindActive,
                     persona: persona)
             case .collection:
@@ -606,6 +609,7 @@ private struct FindOverlayProbeView: View {
                     selectedSubject: subject,
                     treeFindActive: treeFindActive,
                     renamingItemId: $renamingItemId,
+                    treeState: treeState,
                     persona: persona)
             }
         }

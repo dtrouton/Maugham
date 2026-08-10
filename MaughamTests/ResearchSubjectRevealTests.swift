@@ -152,6 +152,143 @@ final class ResearchSubjectRevealTests: XCTestCase {
                        + "column has nothing it must reveal")
     }
 
+    // MARK: - The tree opens far enough to draw the row (stage-3a Task 4)
+
+    /// **The gap `openResearchItem` recorded, closed.** Until this task the tree
+    /// had no expansion state at all — both `Section`s and every research group
+    /// took the no-binding initialisers, so SwiftUI held the flags privately and
+    /// the window could point every column at a note whose row was not drawn.
+    ///
+    /// Driven through row COUNTS rather than row text: a SwiftUI list row's
+    /// subtree carries no `NSTextField` and no accessibility label in this test
+    /// host (`BinderProjectRowTests`' measurement), so *the row exists* is
+    /// counted, not read.
+    func test_showOpensAResearchSectionTheWriterHadClosed() async throws {
+        let store = try await novel(notes: ["Ships", "Tides"])
+        let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
+
+        let mount = try await host(store: store, persona: .plan, subject: .project)
+        let table = try XCTUnwrap(firstTableView(in: mount.window))
+        let open = table.numberOfRows
+
+        mount.probe.treeState.researchSectionExpanded = false
+        await pumpUntil(deadline: 5) { table.numberOfRows == open - 2 }
+        XCTAssertEqual(table.numberOfRows, open - 2,
+                       "precondition: a closed Research section draws its header "
+                       + "and neither note")
+
+        mount.probe.show(note.id, in: store)
+        await pumpUntil(deadline: 5) { table.numberOfRows == open }
+
+        XCTAssertEqual(table.numberOfRows, open,
+                       "Show must open the section it named an item in — a "
+                       + "subject whose row nothing draws is the selection "
+                       + "landing nowhere the writer can see")
+        XCTAssertTrue(mount.probe.treeState.researchSectionExpanded)
+        await pumpUntil(deadline: 5) {
+            self.textFields(in: mount.window).contains { $0.stringValue == note.title }
+        }
+        XCTAssertTrue(
+            textFields(in: mount.window).contains { $0.stringValue == note.title },
+            "and the right column still reveals as it did before — opening the "
+            + "tree is an addition to that rule, not a replacement for it")
+    }
+
+    /// **Every group between the item and the root**, not just the section over
+    /// it. A note three levels down inside closed groups is exactly as invisible
+    /// as one inside a closed section.
+    func test_theRevealOpensEveryGroupBetweenTheItemAndTheRoot() async throws {
+        let store = try await novel(notes: [])
+        let outer = try await store.addResearchItem(
+            parentId: nil, title: "World", kind: nil)
+        let inner = try await store.addResearchItem(
+            parentId: outer.id, title: "Maps", kind: nil)
+        let note = try await store.addResearchTextNote(
+            parentId: inner.id, title: "Harbour")
+
+        let mount = try await host(store: store, persona: .plan, subject: .project)
+        let table = try XCTUnwrap(firstTableView(in: mount.window))
+        let closed = table.numberOfRows
+
+        mount.probe.show(note.id, in: store)
+        await pumpUntil(deadline: 5) { table.numberOfRows == closed + 2 }
+
+        XCTAssertEqual(table.numberOfRows, closed + 2,
+                       "the inner group's row and the note's row both appear — "
+                       + "opening only the outermost group would leave the note "
+                       + "as undrawn as it was")
+        XCTAssertEqual(mount.probe.treeState.expandedResearchGroups,
+                       [outer.id, inner.id])
+    }
+
+    /// **Closing a section is not a navigation** — the trash disclosure's own
+    /// discipline. The rows inside it leave the `List`, and the selected one may
+    /// be among them; `BinderTreeSelection`'s refusal of a `nil` write is what
+    /// keeps the window pointed where the writer left it.
+    func test_closingASectionMovesNeitherTheSubjectNorThePane() async throws {
+        let store = try await novel(notes: ["Ships"])
+        let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
+
+        let mount = try await host(store: store, persona: .plan, subject: .project)
+        let table = try XCTUnwrap(firstTableView(in: mount.window))
+        await select(row: 1 + store.manifest.structure.count + 1, in: table,
+                     until: { mount.probe.subject == .research(note.id) })
+        XCTAssertEqual(mount.probe.subject, .research(note.id),
+                       "precondition: the note is the window's subject")
+        let pane = mount.probe.detailSegment
+
+        mount.probe.treeState.researchSectionExpanded = false
+        pump(0.4)
+
+        XCTAssertEqual(mount.probe.subject, .research(note.id),
+                       "collapsing a section takes the selected row off screen; "
+                       + "it must not take the window's subject with it")
+        XCTAssertEqual(mount.probe.detailSegment, pane,
+                       "and the centre and right columns stay where they were")
+    }
+
+    /// **The mirror above, pinned to production.** `openResearchItem` and
+    /// `handleShowLatestMCPNote` are private to a view no test can mount, so the
+    /// probe re-spells their two writes — and a mirror is worth exactly as much
+    /// as the census that says production still looks like it.
+    func test_theWindowsTwoForcedEntriesBothOpenTheTree() throws {
+        let source = try Self.windowSource()
+        for entry in ["private func openResearchItem(_ itemId: String) {",
+                      "private func handleShowLatestMCPNote() {"] {
+            let body = try XCTUnwrap(Self.declaration(named: entry, in: source),
+                                     "\(entry) must still exist")
+            // The bound, checked: an unterminated scan reads the rest of the
+            // file and every assertion below it passes for free.
+            XCTAssertFalse(body.contains("private func load() async {"),
+                           "\(entry): the extracted body must stop at its own "
+                           + "closing brace")
+            XCTAssertTrue(
+                body.contains("treeState.reveal("),
+                "\(entry) must open the tree beside its subject write — a "
+                + "forced entry names an item the writer is not looking at, and "
+                + "selecting a row inside a closed section highlights nothing")
+        }
+    }
+
+    /// **The converse**: the observer must NOT reveal, because a subject can also
+    /// arrive from a restore and a restore may not move the writer's tree.
+    func test_theSubjectObserverOpensNothingOnItsOwn() throws {
+        let source = try String(
+            contentsOf: Self.appSource.appendingPathComponent(
+                "Views/ResearchRevealModifier.swift"), encoding: .utf8)
+        XCTAssertFalse(
+            source.contains("BinderTreeSectionsState"),
+            "the tree's reveal belongs at the two forced entries, not on the "
+            + "subject observer: the observer also sees `load()`'s restored "
+            + "subject, and opening the tree there would move a writer's "
+            + "sections on every reopen. Holding the tree's state is what would "
+            + "make that possible, so the modifier must not hold one")
+        XCTAssertTrue(
+            source.contains("guard previous != nil else { return }"),
+            "control: the restore case this suite already pins is still the "
+            + "reason the observer is the wrong place for a tree reveal")
+    }
+
     // MARK: - The rule itself
 
     func test_theRevealIsThePlacementsOwnAnswer_askedNotRespelled() {
@@ -196,6 +333,31 @@ final class ResearchSubjectRevealTests: XCTestCase {
         XCTAssertTrue(showInspector,
                       "the pane was already the inspector; what was missing was "
                       + "the column being visible at all")
+    }
+
+    // MARK: - Reading the source
+
+    /// This file sits in `MaughamTests/`, so it resolves the app's source
+    /// directory itself — `CanvasSourceCensus` is reserved for the suites beside
+    /// it in `MaughamTests/Canvas/`.
+    private static let appSource = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()   // MaughamTests/
+        .deletingLastPathComponent()   // repo root
+        .appendingPathComponent("Maugham", isDirectory: true)
+
+    private static func windowSource() throws -> String {
+        try String(contentsOf: appSource.appendingPathComponent("Views/ProjectWindow.swift"),
+                   encoding: .utf8)
+    }
+
+    /// A method body, from its opening line to the closing brace at member
+    /// indentation — bounded, or a scan over it is a scan over the rest of the
+    /// file.
+    private static func declaration(named header: String, in source: String) -> String? {
+        guard let start = source.range(of: header) else { return nil }
+        let rest = source[start.lowerBound...]
+        guard let end = rest.range(of: "\n    }\n") else { return String(rest) }
+        return String(rest[..<end.upperBound])
     }
 
     // MARK: - Fixtures
@@ -292,6 +454,26 @@ final class ResearchRevealProbe {
     var subject: BinderSubject?
     var detailSegment: DetailSegment = .inbox
     var showInspector = true
+    /// The tree's state — the window's since stage-3a Task 4, and this probe
+    /// stands in for the window. Held here rather than inside the probe VIEW so
+    /// a test can close a section before the tree is ever drawn.
+    let treeState = BinderTreeSectionsState()
+
+    /// **What `handleShowLatestMCPNote` and `openResearchItem` do**, in the
+    /// order they do it: the subject, then the tree opened far enough to draw
+    /// the row. The third write — the column reveal — is production's own
+    /// `ResearchRevealModifier`, mounted by the probe view, which is why it is
+    /// not spelled here.
+    ///
+    /// Mirrored rather than called because both window methods are private to a
+    /// view that cannot be mounted headless; the mirror is only as good as the
+    /// census that pins it
+    /// (`test_theWindowsTwoForcedEntriesBothOpenTheTree`).
+    func show(_ itemId: String, in store: ProjectStore) {
+        subject = .research(itemId)
+        treeState.reveal(itemId, research: store.manifest.research)
+    }
+
     init() {}
 }
 
@@ -330,7 +512,8 @@ private struct ResearchRevealProbeView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            BinderView(store: store, selectedSubject: subject)
+            BinderView(store: store, selectedSubject: subject,
+                       treeState: probe.treeState)
                 .frame(width: 280)
             centre.frame(maxWidth: .infinity, maxHeight: .infinity)
             // `ProjectWindow.detailColumn` renders nothing while the column is

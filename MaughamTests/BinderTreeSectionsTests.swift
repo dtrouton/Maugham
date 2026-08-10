@@ -490,6 +490,111 @@ final class BinderTreeSectionsTests: XCTestCase {
             + "not of the type every caller shares")
     }
 
+    // MARK: - The disclosure state (stage-3a Task 4)
+
+    /// **Both sections start open**, which is the shape the tree shipped with:
+    /// before this task neither `Section` took a binding at all and SwiftUI drew
+    /// them expanded. The state exists so something can CLOSE them and something
+    /// else can open them again — not to change what a writer sees on a fresh
+    /// window.
+    ///
+    /// Groups start closed for the same reason: a `DisclosureGroup` with no
+    /// binding is closed, and `expandedResearchGroups` holding the OPEN ids is
+    /// what keeps an empty set meaning exactly what SwiftUI's own default meant.
+    func test_theSectionsStartOpenAndTheGroupsStartClosed() {
+        let state = BinderTreeSectionsState()
+        XCTAssertTrue(state.researchSectionExpanded)
+        XCTAssertTrue(state.paletteSectionExpanded)
+        XCTAssertTrue(state.expandedResearchGroups.isEmpty)
+    }
+
+    /// **A reveal opens the section AND every group between the item and the
+    /// root.** Opening the section alone would leave a nested note as invisible
+    /// as it was — the ancestors are the whole of what a writer would otherwise
+    /// have to click through by hand.
+    func test_revealOpensTheSectionAndEveryAncestorGroup() async throws {
+        let store = try await novel(notes: [], cards: [])
+        let outer = try await store.addResearchItem(
+            parentId: nil, title: "World", kind: nil)
+        let inner = try await store.addResearchItem(
+            parentId: outer.id, title: "Maps", kind: nil)
+        let note = try await store.addResearchTextNote(
+            parentId: inner.id, title: "Harbour")
+
+        let state = BinderTreeSectionsState()
+        state.researchSectionExpanded = false
+
+        state.reveal(note.id, research: store.manifest.research)
+
+        XCTAssertTrue(state.researchSectionExpanded,
+                      "the section holding the item opens")
+        XCTAssertEqual(state.expandedResearchGroups, [outer.id, inner.id],
+                       "and so does every group between the item and the root — "
+                       + "an item inside a closed group is not revealed by "
+                       + "opening the section over it")
+    }
+
+    /// A card is a research item under the palette group, and the Palette
+    /// section is where it is drawn — so revealing one opens THAT section and
+    /// leaves the Research section exactly as the writer left it.
+    func test_revealingACardOpensThePaletteSectionAndNotTheResearchOne() async throws {
+        let store = try await novel(notes: ["Ships"], cards: ["Harbour"])
+        let card = try XCTUnwrap(researchNote(named: "Harbour", in: store))
+
+        let state = BinderTreeSectionsState()
+        state.researchSectionExpanded = false
+        state.paletteSectionExpanded = false
+
+        state.reveal(card.id, research: store.manifest.research)
+
+        XCTAssertTrue(state.paletteSectionExpanded, "the card's own section")
+        XCTAssertFalse(state.researchSectionExpanded,
+                       "and not the other one — a reveal opens what holds the "
+                       + "item, not everything")
+        XCTAssertTrue(state.expandedResearchGroups.isEmpty,
+                      "the palette group is not an ancestor the Research "
+                      + "section draws: its cards are flat rows of their own "
+                      + "section, so opening it would open a group nothing shows")
+    }
+
+    /// An id the manifest does not hold names no row, so there is nothing to
+    /// reveal and nothing to open. Asserted rather than left to fall out: the
+    /// alternative shape — open the Research section on anything — would move a
+    /// writer's tree for a stale id arriving from a deleted note's Show banner.
+    func test_revealingSomethingTheManifestDoesNotHoldOpensNothing() async throws {
+        let store = try await novel(notes: ["Ships"], cards: [])
+        let state = BinderTreeSectionsState()
+        state.researchSectionExpanded = false
+        state.paletteSectionExpanded = false
+
+        state.reveal("no-such-item", research: store.manifest.research)
+
+        XCTAssertFalse(state.researchSectionExpanded)
+        XCTAssertFalse(state.paletteSectionExpanded)
+        XCTAssertTrue(state.expandedResearchGroups.isEmpty)
+    }
+
+    /// **The reveal only ever opens.** A second reveal of a note in one group
+    /// must not close the group the writer opened for another — the state is a
+    /// set of open ids, and revealing is an insert, never an assignment.
+    func test_revealNeverClosesWhatTheWriterOpened() async throws {
+        let store = try await novel(notes: [], cards: [])
+        let first = try await store.addResearchItem(
+            parentId: nil, title: "World", kind: nil)
+        let second = try await store.addResearchItem(
+            parentId: nil, title: "People", kind: nil)
+        let note = try await store.addResearchTextNote(
+            parentId: second.id, title: "Harbour")
+
+        let state = BinderTreeSectionsState()
+        state.expandedResearchGroups = [first.id]
+
+        state.reveal(note.id, research: store.manifest.research)
+
+        XCTAssertEqual(state.expandedResearchGroups, [first.id, second.id],
+                       "the group the writer had open is still open")
+    }
+
     // MARK: - Fixtures
 
     private static let twoScenes = FountainTokenizer().parse(
@@ -619,10 +724,13 @@ private struct BinderSectionsProbeView: View {
     let store: ProjectStore
     let probe: BinderSubjectProbe
 
+    let treeState = BinderTreeSectionsState()
+
     var body: some View {
         BinderView(store: store,
                    selectedSubject: Binding(get: { probe.subject },
-                                            set: { probe.subject = $0 }))
+                                            set: { probe.subject = $0 }),
+                   treeState: treeState)
     }
 }
 
@@ -631,13 +739,15 @@ private struct CollectionSectionsProbeView: View {
     let store: ProjectStore
     let probe: BinderSubjectProbe
     @State private var renaming: String?
+    let treeState = BinderTreeSectionsState()
 
     var body: some View {
         CollectionPiecesPane(
             store: store,
             selectedSubject: Binding(get: { probe.subject },
                                      set: { probe.subject = $0 }),
-            renamingItemId: $renaming)
+            renamingItemId: $renaming,
+            treeState: treeState)
     }
 }
 
@@ -647,6 +757,7 @@ private struct NavigatorSectionsProbeView: View {
     let probe: BinderSubjectProbe
     let script: FountainScript?
     let documentID: String?
+    let treeState = BinderTreeSectionsState()
 
     var body: some View {
         SceneNavigatorPane(
@@ -656,6 +767,7 @@ private struct NavigatorSectionsProbeView: View {
             selectedSubject: Binding(get: { probe.subject },
                                      set: { probe.subject = $0 }),
             documentID: documentID,
+            treeState: treeState,
             onSelect: { _ in })
     }
 }

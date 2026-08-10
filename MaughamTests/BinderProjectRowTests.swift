@@ -20,12 +20,14 @@ final class BinderSubjectProbe {
 private struct BinderProbeView: View {
     let store: ProjectStore
     let probe: BinderSubjectProbe
+    let treeState = BinderTreeSectionsState()
 
     var body: some View {
         BinderView(
             store: store,
             selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }))
+                                     set: { probe.subject = $0 }),
+            treeState: treeState)
     }
 }
 
