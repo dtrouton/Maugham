@@ -196,8 +196,12 @@ public extension Persona {
             //
             // `.outline` left in slice 1 (Plan is where structure gets built,
             // and a read-only outline was not that) and the case itself is
-            // gone as of stage 3a Task 6 — the project row's own centre-column
-            // altitude view is Plan's structure surface now (Tasks 1-3).
+            // gone as of stage 3a Task 6. The altitude view built in Tasks 1-3
+            // is NOT Plan's structure surface — `subjectShowsAltitude` refuses
+            // Plan on the persona guard (`showsManuscriptDocuments`), so
+            // Plan's project row keeps showing the undimmed board
+            // (`test_planNeverShowsAltitudeWhateverTheSubject`). Plan's
+            // structure surfaces are still the tree and the canvas.
             return [.inbox, .tasks, .history, .inspector]
         case .author:
             // Diagnostics · Intent · References · Tasks · History · Inspector.

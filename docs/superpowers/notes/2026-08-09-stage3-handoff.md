@@ -197,8 +197,10 @@ smoke (its handoff, top section) and the M2-era remainders (same file,
 *Written at the end of stage 3a's seven-task plan
 (`docs/superpowers/plans/2026-08-10-shell-finish-stage3a-altitude.md`),
 merged unpushed on `claude/shell-finish-3a-altitude`
-(`6871db10..19092ce1`). This is the addendum stage 3's own section above
-promised — read it alongside that section rather than in place of it.*
+(`0a301058..the branch tip`, this fix-wave commit — a whole-branch review's
+fix wave lands in the same range). This is the addendum stage 3's own
+section above promised — read it alongside that section rather than in
+place of it.*
 
 ### What 3a built
 
@@ -224,8 +226,12 @@ promised — read it alongside that section rather than in place of it.*
 - **The keyspace re-points** (Task 5): ⌘⌥O now sets `selectedSubject =
   .project` (the altitude view's entry point) instead of opening a pane;
   ⌘⌥R/⌘⌥P now expand the tree's Research/Palette sections instead of opening
-  one. All three are refused (no-op, no crash) while `treeFindActive` covers
-  the tree. `docs/guide/reference.md` rows 34/35/39 carry the new meanings.
+  one. ⌘⌥R/⌘⌥P refuse (no-op, no crash) while `treeFindActive` covers the
+  tree; ⌘⌥O still acts while the overlay is up, because selecting the
+  project row is subject navigation rather than tree-section manipulation
+  and the overlay never covers the centre
+  (`AltitudeKeyspaceTests.test_cmdOptOStillActsWhileFindCoversTheColumn`).
+  `docs/guide/reference.md` rows 34/35/39 carry the new meanings.
 - **The kill** (Task 6): `DetailSegment.outline`/`.research`/`.palette`,
   `LinkedResearchPane.swift`, and `Palette/PalettePane.swift` are deleted
   outright — not demoted. Author's registry drops to `[.diagnostics, .intent,
@@ -242,18 +248,21 @@ promised — read it alongside that section rather than in place of it.*
   centre, the disclosure owner, and the keyspace re-points; `Persona.swift`'s
   Author-case narrative no longer describes Research/Palette as live panes.
 
-### A finding along the way, not fixed in this task
+### A finding along the way, closed by the whole-branch review's fix wave
 
 `Maugham/Views/ResearchLinkPickerSheet.swift` — the picker sheet that used to
-offer "Link Research…" from `LinkedResearchPane`'s **+** button — has **zero
-production callers** after Task 6's deletion. Linking an *existing* shared
-research item to a document is still possible (drag its row from the tree's
-Research section onto the document's own row — `BinderTreeDrops.swift` calls
-`ProjectStore.linkResearch`; promoting a canvas card/region into a novel
-chapter also links it), but the picker-sheet affordance itself is dead code
-with no path to it. Worth a decision: wire it somewhere (a document row's
-context menu?) or delete it. Docs were written against what's reachable
-(the drag), not against the orphaned sheet.
+offer "Link Research…" from `LinkedResearchPane`'s **+** button — had **zero
+production callers** after Task 6's deletion, and the fix wave deleted it.
+Linking an *existing* shared research item to a document is still possible
+(drag its row from the tree's Research section onto the document's own row —
+`BinderTreeDrops.swift` calls `ProjectStore.linkResearch`; promoting a
+canvas card/region into a novel chapter also links it; MCP's `link_research`
+aside), but **the searchable, click/keyboard route to linking research is
+gone** — at HEAD the only in-app UI route to `linkResearch` is the tree
+drag. For a large research tree, or a keyboard/VoiceOver writer, that is a
+modality narrowing, not a wash: 3b should decide whether a document row's
+context menu owes a "Link Research…" verb. Docs were written against what's
+reachable (the drag), not against the orphaned sheet.
 
 ### 3b — owed, recorded decisions verbatim (Denver, 2026-08-10)
 
@@ -279,6 +288,18 @@ these are the decisions already made, not open questions:
   navigates through the centre; a research match's posture (select vs. full
   navigation) needs re-deriving against the altitude view now that the centre
   can show something other than a document.
+- **Expanding a section does not scroll the tree to it**: ⌘⌥R/⌘⌥P (and
+  Claude's Show) expand whatever it takes for a row to be on screen, but no
+  `ScrollViewReader` exists in any tree host, so a section or group that
+  expands off-screen leaves the writer to scroll to it by hand. A
+  scroll-to-section is 3b's if it's wanted.
+- **The reveal cannot open a Collection PIECE FOLD**: a piece-scoped research
+  id passes the manifest guard, so Show opens the shared Research section
+  (which does not hold the row) while the fold's `DisclosureGroup`s keep
+  SwiftUI-private state the reveal has no handle on. The item still takes
+  the centre/right column — not a trap — but the tree move is spurious. 3b
+  either narrows the guard to shared-section membership or gives folds
+  bound (non-private) disclosure state.
 
 ### Denver's 3a smoke (recorded for the next session to run)
 
