@@ -1031,7 +1031,7 @@ final class TripwireGrepTests: XCTestCase {
     /// Recurrence-tripper: every `ContentUnavailableView(` in Maugham/Views/
     /// must chain `.frame(maxWidth: .infinity` within the next
     /// `contentUnavailableViewFrameWindow` lines. Canonical examples:
-    /// HistoryPane, AnnotationsPane, OutlinePane (CLAUDE.md tripwire 15).
+    /// HistoryPane, AnnotationsPane, ProjectAltitudePane (CLAUDE.md tripwire 15).
     func test_contentUnavailableViewAlwaysChainsFullFrame() throws {
         // **`Maugham/`, not `Maugham/Views`.** 1C-c1's docs sweep found the scan
         // pointed at one directory while the panes it protects had spread out of
@@ -1049,7 +1049,7 @@ final class TripwireGrepTests: XCTestCase {
             + "SwiftUI sizes ContentUnavailableView to intrinsic content, so an "
             + "unframed one lets the enclosing pane's toolbar float to window "
             + "center — this has recurred 4+ times. Canonical examples: "
-            + "HistoryPane, AnnotationsPane, OutlinePane. Offenders:\n"
+            + "HistoryPane, AnnotationsPane, ProjectAltitudePane. Offenders:\n"
             + offenders.joined(separator: "\n"))
     }
 

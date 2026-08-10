@@ -122,7 +122,7 @@ final class ProjectSubjectReachesThePanesTests: XCTestCase {
 
 }
 
-/// `OutlinePane` with the window's subject held outside it.
+/// `ProjectAltitudePane` with the window's subject held outside it.
 @MainActor
 private struct OutlineProbeView: View {
     let store: ProjectStore
@@ -130,10 +130,11 @@ private struct OutlineProbeView: View {
     @State var layout: OutlineLayout
 
     var body: some View {
-        OutlinePane(
+        ProjectAltitudePane(
             store: store,
             layout: $layout,
             selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }))
+                                     set: { probe.subject = $0 }),
+            title: store.manifest.title)
     }
 }

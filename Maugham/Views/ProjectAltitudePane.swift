@@ -1,10 +1,11 @@
 import SwiftUI
 import MaughamCore
 
-struct OutlinePane: View {
+struct ProjectAltitudePane: View {
     @Bindable var store: ProjectStore
     @Binding var layout: OutlineLayout
     @Binding var selectedSubject: BinderSubject?
+    let title: String
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,7 +35,7 @@ struct OutlinePane: View {
 
     private var header: some View {
         HStack {
-            Text("Outline").font(.headline)
+            Text(title).font(.headline)
             Spacer()
             Picker("Layout", selection: $layout) {
                 Image(systemName: "list.bullet").tag(OutlineLayout.table)

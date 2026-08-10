@@ -396,10 +396,11 @@ struct DetailPaneToggle<Inspector: View>: View {
             if hideOutline {
                 inspectorContent()
             } else {
-                OutlinePane(
+                ProjectAltitudePane(
                     store: store,
                     layout: $outlineLayout,
-                    selectedSubject: $selectedSubject)
+                    selectedSubject: $selectedSubject,
+                    title: store.manifest.title)
             }
         case .history:
             historyPane
