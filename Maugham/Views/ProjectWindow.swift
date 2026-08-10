@@ -1425,27 +1425,56 @@ struct ProjectWindow: View {
     /// still be reached did: mount the editor on whatever document the tree
     /// names. A screenplay reaches it too; its tree is the slugline navigator,
     /// and the underlying `.fountain` is the same file.
+    ///
+    /// **And the project at altitude, as of stage 3a Task 2 — layered INSIDE
+    /// this arm rather than beside it.** When the tree names no single document
+    /// the host has nothing to open and shows *"Select a document."*; that
+    /// placeholder is what the altitude view covers. A sixth arm in `editorPane`
+    /// would have been the obvious spelling and is the wrong one: two ViewBuilder
+    /// branches are two view identities, so every project ↔ chapter hop — the
+    /// gesture this task exists to create — would unmount `EditorHost`, and its
+    /// `.onDisappear` is `doc.close()` + `documentStore.unregister(path:)` +
+    /// `loads.abandon()`, not a cleanup. Layered, the host keeps its identity
+    /// and its Document across the hop and the overlay is the only thing that
+    /// comes and goes. `ProjectAltitudeCentreTests` counts the host's lifetimes
+    /// over the round trip, and drives the rejected shape as its control.
+    ///
+    /// The overlay is opaque and fills the column on purpose: the placeholder is
+    /// still mounted underneath it.
     private func manuscriptEditor(
         store: ProjectStore, documentStore: DocumentStore
     ) -> some View {
-        EditorHost(
-            store: store,
-            documentStore: documentStore,
-            selectedItemId: activeItemID,
-            onMetricsChanged: { metrics = $0 },
-            onElementChanged: { currentElement = $0 },
-            wikiLinkResolver: { title in
-                store.resolveDocumentId(forTitle: title) != nil
-            },
-            wikiLinkClickResolver: { title in
-                store.resolveDocumentId(forTitle: title)
-            },
-            // Role-driven posture flows entirely through the EditorControl
-            // model (ADR 0017): an author's manual ⌘⌥⇧R drives the render; a
-            // reviewer/unknown is FORCED into review render AND hard-locked
-            // (lockEditing) via `effectivePosture` mirrored into the control.
-            control: editorControl
-        )
+        ZStack {
+            EditorHost(
+                store: store,
+                documentStore: documentStore,
+                selectedItemId: activeItemID,
+                onMetricsChanged: { metrics = $0 },
+                onElementChanged: { currentElement = $0 },
+                wikiLinkResolver: { title in
+                    store.resolveDocumentId(forTitle: title) != nil
+                },
+                wikiLinkClickResolver: { title in
+                    store.resolveDocumentId(forTitle: title)
+                },
+                // Role-driven posture flows entirely through the EditorControl
+                // model (ADR 0017): an author's manual ⌘⌥⇧R drives the render; a
+                // reviewer/unknown is FORCED into review render AND hard-locked
+                // (lockEditing) via `effectivePosture` mirrored into the control.
+                control: editorControl
+            )
+            if Self.subjectShowsAltitude(persona: persona,
+                                         subject: selectedSubject,
+                                         structure: store.manifest.structure) {
+                ProjectAltitudePane(
+                    store: store,
+                    layout: $outlineLayout,
+                    selectedSubject: $selectedSubject,
+                    title: store.manifest.title)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(nsColor: .windowBackgroundColor))
+            }
+        }
     }
 
     /// **The one place the canvas is mounted in production.**
