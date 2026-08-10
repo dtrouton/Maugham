@@ -334,6 +334,26 @@ struct ProjectWindow: View {
         .onKeyWindowCommand(.maughamToggleInspector, window: window) { _ in
             showInspector.toggle()
         }
+        // shell-finish stage-3a Task 5: ⌘⌥O's new meaning. The same write
+        // Escape and the canvas's own `selectTheProjectRow` closure already
+        // make (spec §4.1) — the key is a second door onto it, not a second
+        // write.
+        .onKeyWindowCommand(.maughamSelectProjectRow, window: window) { _ in
+            selectedSubject = .project
+        }
+        // ⌘⌥R's new meaning: open the tree's own Research section if the
+        // writer had closed it. Refused while the find overlay covers the
+        // column — the overlay is the tree's replacement, not its sibling,
+        // and `BinderTreeSections` isn't even mounted underneath it.
+        .onKeyWindowCommand(.maughamRevealResearchSection, window: window) { _ in
+            guard !treeFindActive else { return }
+            treeState.researchSectionExpanded = true
+        }
+        // ⌘⌥P's twin, for the Palette section.
+        .onKeyWindowCommand(.maughamRevealPaletteSection, window: window) { _ in
+            guard !treeFindActive else { return }
+            treeState.paletteSectionExpanded = true
+        }
         .onGlobalEvent(.maughamAppWillTerminate) { _ in
             // Best-effort flush. Task is fire-and-forget; NSApplication may
             // give us only ~100ms before terminating us.

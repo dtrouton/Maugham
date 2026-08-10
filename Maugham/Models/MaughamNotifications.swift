@@ -121,6 +121,23 @@ extension Notification.Name {
     public static let maughamFindMatchSelected = Notification.Name("maugham.find.match.selected")
     public static let maughamFindInProject = Notification.Name("maugham.find.in.project")
     public static let maughamCloseFind = Notification.Name("maugham.close.find")
+    /// Posted by ⌘⌥O (shell-finish stage-3a Task 5). The outline is no longer
+    /// a right-pane segment — it is the project row's altitude view (Tasks
+    /// 1–3), so the shortcut's new job is to land the writer on that row: the
+    /// same `selectedSubject = .project` write Escape and the canvas's own
+    /// `selectTheProjectRow` closure already make (spec §4.1), not a second
+    /// write invented for the key. Scope: .keyWindow.
+    public static let maughamSelectProjectRow = Notification.Name("maugham.select.project.row")
+    /// Posted by ⌘⌥R (shell-finish stage-3a Task 5). Research stopped being a
+    /// right-pane segment when shell-finish stage 2a gave every persona's tree
+    /// its own Research section — so the shortcut's new job is opening that
+    /// section if the writer had closed it, not showing a pane. Refused while
+    /// `treeFindActive` covers the column: the overlay is the tree's
+    /// replacement, not its sibling. Scope: .keyWindow.
+    public static let maughamRevealResearchSection = Notification.Name("maugham.reveal.research.section")
+    /// ⌘⌥P's twin, for the tree's Palette section. Same task, same refusal.
+    /// Scope: .keyWindow.
+    public static let maughamRevealPaletteSection = Notification.Name("maugham.reveal.palette.section")
     public static let maughamSetDetailSegment = Notification.Name("maugham.set.detail.segment")
     /// Scope: .keyWindow — payload ["persona": Persona.rawValue].
     /// Only the focused project window switches; other windows keep their own

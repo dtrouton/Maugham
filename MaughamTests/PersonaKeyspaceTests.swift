@@ -37,10 +37,27 @@ final class PersonaKeyspaceTests: XCTestCase {
         // literal `"segment": "<rawValue>"` string only exists once, inside
         // that helper — the per-segment guard here checks the call site
         // instead: `postSegment(.<rawValue>)`.
+        //
+        // **`.research`/`.outline`/`.palette` are the re-pointed three**
+        // (shell-finish stage-3a Task 5): their menu items still carry their
+        // old letters, but no longer dispatch through `postSegment` — the
+        // segment is retiring under them (Task 6 deletes the cases outright)
+        // while the tree/altitude surfaces the keys now reach have taken
+        // over. Each gets its own dedicated event instead.
         let app = try source("Maugham/MaughamApp.swift")
+        let repointed: [DetailSegment: String] = [
+            .research: "maughamRevealResearchSection",
+            .outline: "maughamSelectProjectRow",
+            .palette: "maughamRevealPaletteSection",
+        ]
         for segment in DetailSegment.allCases {
-            XCTAssertTrue(app.contains("postSegment(.\(segment.rawValue))"),
-                          "no View-menu item posts \(segment.rawValue)")
+            if let event = repointed[segment] {
+                XCTAssertTrue(app.contains("MaughamEvent.post(.\(event), to: .keyWindow)"),
+                              "no View-menu item posts the re-pointed event for \(segment.rawValue)")
+            } else {
+                XCTAssertTrue(app.contains("postSegment(.\(segment.rawValue))"),
+                              "no View-menu item posts \(segment.rawValue)")
+            }
         }
     }
 
@@ -48,18 +65,20 @@ final class PersonaKeyspaceTests: XCTestCase {
     /// persona shell's slice 2 (§6.1): the binder's Palette segment is Plan's
     /// now, and `PalettePane` on the right is what a drafting writer consults.
     ///
-    /// `test_everyDetailSegmentHasAMenuShortcut` above proves a menu item posts
-    /// `.palette`, and `DocSyncTests` proves every ⌘⌥ token in this file appears
-    /// in `reference.md`'s table — but neither pairs the letter with the
-    /// segment, so a swap between two items would satisfy both. This asserts the
-    /// pairing for the one item that is now a persona's sole route.
-    /// Read as "the first `.keyboardShortcut` after the item that posts
-    /// `segment`", rather than a whitespace-exact literal — indentation is not
-    /// what this is guarding.
+    /// Re-pointed by shell-finish stage-3a Task 5 to open the tree's own
+    /// Palette section instead — `test_everyDetailSegmentHasAMenuShortcut`
+    /// above proves a menu item posts the new event, and `DocSyncTests` proves
+    /// every ⌘⌥ token in this file appears in `reference.md`'s table — but
+    /// neither pairs the letter with the event, so a swap between two items
+    /// would satisfy both. This asserts the pairing for the one item that is
+    /// now a persona's sole route. Read as "the first `.keyboardShortcut` after
+    /// the item that posts the event", rather than a whitespace-exact literal —
+    /// indentation is not what this is guarding.
     func test_thePaletteMenuItemIsTheOneBoundToCommandOptionP() throws {
         let app = try source("Maugham/MaughamApp.swift")
-        let item = try XCTUnwrap(app.range(of: "postSegment(.palette)"),
-                                 "no View-menu item posts .palette")
+        let item = try XCTUnwrap(
+            app.range(of: "MaughamEvent.post(.maughamRevealPaletteSection, to: .keyWindow)"),
+            "no View-menu item posts .maughamRevealPaletteSection")
         let after = app[item.upperBound...]
         let shortcut = try XCTUnwrap(after.range(of: ".keyboardShortcut("),
                                      "the Palette item carries no shortcut at all")

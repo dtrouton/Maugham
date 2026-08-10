@@ -227,9 +227,21 @@ struct MaughamApp: App {
                 // silently no-opped with the column closed.
                 Button("Inspector") { postSegment(.inspector) }
                     .keyboardShortcut("i", modifiers: [.command, .option])
-                Button("Research") { postSegment(.research) }
+                // ⌘⌥R re-pointed (shell-finish stage-3a Task 5): Research
+                // stopped being a right-pane segment when every tree grew its
+                // own Research section (stage 2a) — the shortcut now opens
+                // that section rather than a pane. `postSegment` stays the
+                // spelling for every case still routed that way.
+                Button("Research") {
+                    MaughamEvent.post(.maughamRevealResearchSection, to: .keyWindow)
+                }
                     .keyboardShortcut("r", modifiers: [.command, .option])
-                Button("Outline") { postSegment(.outline) }
+                // ⌘⌥O re-pointed (stage-3a Task 5): the outline is now the
+                // project row's altitude view (Tasks 1–3) — the shortcut
+                // selects that row instead of opening a pane.
+                Button("Outline") {
+                    MaughamEvent.post(.maughamSelectProjectRow, to: .keyWindow)
+                }
                     .keyboardShortcut("o", modifiers: [.command, .option])
                 Button("Annotations") { postSegment(.annotations) }
                     .keyboardShortcut("a", modifiers: [.command, .option])
@@ -239,7 +251,11 @@ struct MaughamApp: App {
                     .keyboardShortcut("t", modifiers: [.command, .option])
                 Button("Inbox") { postSegment(.inbox) }
                     .keyboardShortcut("b", modifiers: [.command, .option])
-                Button("Palette") { postSegment(.palette) }
+                // ⌘⌥P re-pointed (stage-3a Task 5): same story as Research,
+                // for the tree's Palette section.
+                Button("Palette") {
+                    MaughamEvent.post(.maughamRevealPaletteSection, to: .keyWindow)
+                }
                     .keyboardShortcut("p", modifiers: [.command, .option])
                 Button("Translation") { postSegment(.translation) }
                     .keyboardShortcut("l", modifiers: [.command, .option])

@@ -31,12 +31,12 @@ The ones you'll use most:
 | `⌘4` | Publish persona |
 | `⌘⌥⇧R` | Toggle Review Mode — the annotate-only posture, see [Annotations & Suggestions](annotations-and-suggestions.md#review-mode--reading-your-own-draft-cold) |
 | `⌘⌥I` | Inspector pane |
-| `⌘⌥R` | Research pane |
-| `⌘⌥O` | Outline pane |
+| `⌘⌥R` | Open the tree's Research section (no-op while Find in Project covers the tree) |
+| `⌘⌥O` | Select the project row — corkboard/outline in Author/Review/Publish, the board in Plan |
 | `⌘⌥H` | History pane |
 | `⌘⌥T` | Tasks pane |
 | `⌘⌥B` | Inbox pane |
-| `⌘⌥P` | Palette pane |
+| `⌘⌥P` | Open the tree's Palette section (no-op while Find in Project covers the tree) |
 | `⌘⌥L` | Translation pane |
 | `⌘⌥N` | Intent pane |
 | `⌘⌥V` | Visual Language pane |
