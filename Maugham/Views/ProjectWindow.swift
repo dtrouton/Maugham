@@ -2083,11 +2083,9 @@ struct ProjectWindow: View {
         DetailPaneToggle(
             store: store,
             segment: $detailSegment,
-            outlineLayout: $outlineLayout,
             selectedSubject: $selectedSubject,
             activeManuscriptItemId: activeItemID,
             persona: persona,
-            hideOutline: store.manifest.type == .collection,
             projectURL: store.url,
             activeDocId: activeDocId,
             allDocIds: Self.documentIds(in: store.manifest.structure),
@@ -2771,13 +2769,16 @@ struct ProjectWindow: View {
             // Restored VERBATIM, exactly as the binder below is. Coercing to
             // the restored persona's registry here silently ate the writer's
             // last explicit pane choice (⌘⌥O in any persona, quit, reopen →
-            // Outline gone), and would have moved every pre-persona project off
+            // Outline gone, back when `.outline` was still a pane), and would
+            // have moved every pre-persona project off
             // Annotations/History/Inbox/Translation on upgrade. It protects
             // nothing: `DetailPaneToggle` appends an out-of-persona selection
             // and renders it highlighted — `visibleSegments`' own doc comment
             // names a restored `UIState` as a path that append exists to
-            // honour — and the one genuinely un-appendable value (`.outline`
-            // on a collection) is handled by the snap on mount.
+            // honour, and (stage 3a Task 6) that append never refuses now. A
+            // `detailSegment` stored as one of the three retired segments
+            // simply fails `UIState`'s own tolerant decode and falls back to
+            // `.inspector` before this line ever runs.
             self.detailSegment = ds.uiState.detailSegment
             self.persona = ds.uiState.persona
             self.outlineLayout = ds.uiState.outlineLayout

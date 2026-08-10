@@ -84,9 +84,10 @@ public enum ListAllLinksTool: MCPTool {
         }
 
         // Linked-research edges. Skip any pair already emitted as
-        // piece_research: a manual link goes dormant once the item is contained
-        // (mirrors the UI redundancy rule — LinkedResearchPane hides derived
-        // ids from the Linked section), so surfacing both edges would be noise.
+        // piece_research: a manual link goes dormant once the item is
+        // contained (the same dormant/resurface rule `ProjectStore
+        // +ResearchMove.swift` tracks in the data model), so surfacing both
+        // edges would be noise.
         for doc in docs {
             for rid in store.linkedResearchIds(forDocumentId: doc.id) {
                 if containmentPairs.contains("\(doc.id)\t\(rid)") { continue }

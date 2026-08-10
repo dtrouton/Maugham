@@ -30,61 +30,32 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
     /// `DetailPaneToggleTasksTests`), so it asserts the landing across every
     /// picker shape rather than one persona's arithmetic.
     func test_badgeLandsOnTheInboxInEveryPickerThatHasOne() {
-        for hideOutline in [false, true] {
-            for selected in [nil] + DetailSegment.allCases.map({ Optional($0) }) {
-                let segments = DetailPaneToggle<AnyView>.visibleSegments(
-                    persona: .plan, hideOutline: hideOutline, including: selected)
-                assertBadgeLandsOnInbox(segments)
-            }
+        for selected in [nil] + DetailSegment.allCases.map({ Optional($0) }) {
+            let segments = DetailPaneToggle<AnyView>.visibleSegments(
+                persona: .plan, including: selected)
+            assertBadgeLandsOnInbox(segments)
         }
     }
 
     func test_badgeOffset_isNilWhereThePersonaHasNoInbox() {
         for persona in Persona.allCases where persona != .plan {
-            let segments = DetailPaneToggle<AnyView>.visibleSegments(persona: persona, hideOutline: false)
+            let segments = DetailPaneToggle<AnyView>.visibleSegments(persona: persona)
             XCTAssertNil(DetailPaneToggle<AnyView>.badgeOffset(of: .inbox, in: segments),
                          "\(persona) has no inbox segment to badge")
         }
     }
 
     func test_visibleSegments_matchTheRegistry() {
-        XCTAssertEqual(DetailPaneToggle<AnyView>.visibleSegments(persona: .author, hideOutline: false),
+        XCTAssertEqual(DetailPaneToggle<AnyView>.visibleSegments(persona: .author),
                        Persona.author.panes)
-    }
-
-    /// `hideOutline`'s filter over the registry list is a no-op as of the
-    /// persona shell's slice 1, because no persona registers `.outline` any
-    /// more — the flag now bites only on the `including:` append
-    /// (`test_visibleSegments_doNotAppendOutlineWhenItIsHidden`). Asserted
-    /// rather than assumed: if a later slice re-registers the pane this goes
-    /// red, which is the moment the filter starts mattering again and wants a
-    /// decision.
-    func test_hideOutlineDoesNotChangeTheBarePickerInAnyPersona() {
-        for persona in Persona.allCases {
-            XCTAssertFalse(persona.panes.contains(.outline), "\(persona) registers outline")
-            XCTAssertEqual(
-                DetailPaneToggle<AnyView>.visibleSegments(persona: persona, hideOutline: true),
-                DetailPaneToggle<AnyView>.visibleSegments(persona: persona, hideOutline: false),
-                "\(persona)")
-        }
     }
 
     func test_visibleSegments_areNeverEmpty() {
         for persona in Persona.allCases {
-            for hideOutline in [true, false] {
-                XCTAssertFalse(
-                    DetailPaneToggle<AnyView>.visibleSegments(persona: persona, hideOutline: hideOutline).isEmpty,
-                    "\(persona) hideOutline=\(hideOutline) produced an empty picker")
-            }
+            XCTAssertFalse(
+                DetailPaneToggle<AnyView>.visibleSegments(persona: persona).isEmpty,
+                "\(persona) produced an empty picker")
         }
-    }
-
-    /// The badge must track inbox's position, not a fixed literal — including
-    /// when `hideOutline` shortens the picker on a collection project.
-    func test_badgeOffset_survivesTheHideOutlineCollectionCase() {
-        let segments = DetailPaneToggle<AnyView>.visibleSegments(persona: .plan, hideOutline: true)
-        XCTAssertFalse(segments.contains(.outline))
-        assertBadgeLandsOnInbox(segments)
     }
 
     // MARK: - The picker always shows its active segment
@@ -95,7 +66,7 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
     /// without this the picker rendered with nothing selected.
     func test_visibleSegments_includeASelectionThisPersonaDoesNotRegister() {
         let segments = DetailPaneToggle<AnyView>.visibleSegments(
-            persona: .author, hideOutline: false, including: .annotations)
+            persona: .author, including: .annotations)
         XCTAssertTrue(segments.contains(.annotations))
         // Appended, not woven into registry order — the persona's own ordering
         // stays put and the addition reads as transient.
@@ -107,13 +78,13 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
     /// `detailSegment = .translation`) has the same shape.
     func test_visibleSegments_includeTranslationWhenForcedOutsideItsPersonas() {
         let segments = DetailPaneToggle<AnyView>.visibleSegments(
-            persona: .author, hideOutline: false, including: .translation)
+            persona: .author, including: .translation)
         XCTAssertTrue(segments.contains(.translation))
     }
 
     func test_visibleSegments_doNotDuplicateASelectionThePersonaRegisters() {
         let segments = DetailPaneToggle<AnyView>.visibleSegments(
-            persona: .author, hideOutline: false, including: .tasks)
+            persona: .author, including: .tasks)
         XCTAssertEqual(segments, Persona.author.panes)
         XCTAssertEqual(segments.filter { $0 == .tasks }.count, 1)
     }
@@ -123,7 +94,7 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
     /// list would land one tab to the right of the inbox.
     func test_badgeOffset_staysOnTheInboxWhenAnOutOfPersonaSegmentIsAppended() {
         let segments = DetailPaneToggle<AnyView>.visibleSegments(
-            persona: .plan, hideOutline: false, including: .annotations)
+            persona: .plan, including: .annotations)
         // Plan gained one segment beyond its registry list.
         XCTAssertEqual(segments.count, Persona.plan.panes.count + 1)
         assertBadgeLandsOnInbox(segments)
@@ -131,40 +102,22 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
 
     // MARK: - Snap-back: the picker never renders with nothing selected
 
-    /// ⌘⌥O on a collection project sets `.outline`, which `visibleSegments`
-    /// refuses to append (its content falls through to the inspector, so the
-    /// tab would lie). Left alone that is a picker with no highlighted
-    /// segment — the state the `including:` append exists to prevent.
-    func test_snappedSelection_pullsOutlineBackWhenTheProjectHidesIt() {
-        let segments = DetailPaneToggle<AnyView>.visibleSegments(
-            persona: .plan, hideOutline: true, including: .outline)
-        let snapped = DetailPaneToggle<AnyView>.snappedSelection(
-            .outline, in: segments, fallback: Persona.plan.defaultPane)
-        XCTAssertNotEqual(snapped, .outline)
-        XCTAssertTrue(segments.contains(snapped), "snapped onto a segment the picker does not show")
-        XCTAssertEqual(snapped, segments.first)
-    }
-
+    /// Personas are lenses, not gates: an out-of-persona segment reached by
+    /// shortcut is appended by `visibleSegments(including:)` and must stay
+    /// selected. The one refusal this ever had — `.outline` on a collection
+    /// project — died with the case (stage 3a Task 6), so every proposed
+    /// segment now round-trips through `snappedSelection` unchanged.
     func test_snappedSelection_leavesEveryOtherSelectionAlone() {
-        // Personas are lenses, not gates: an out-of-persona segment reached by
-        // shortcut is appended and must stay selected. Only the hidden outline
-        // is ever pulled back.
         for persona in Persona.allCases {
-            for hideOutline in [false, true] {
-                for proposed in DetailSegment.allCases {
-                    let segments = DetailPaneToggle<AnyView>.visibleSegments(
-                        persona: persona, hideOutline: hideOutline, including: proposed)
-                    let snapped = DetailPaneToggle<AnyView>.snappedSelection(
-                        proposed, in: segments, fallback: persona.defaultPane)
-                    XCTAssertTrue(segments.contains(snapped),
-                                  "\(persona)/\(proposed) hideOutline=\(hideOutline) snapped off-picker")
-                    if hideOutline && proposed == .outline {
-                        XCTAssertNotEqual(snapped, proposed)
-                    } else {
-                        XCTAssertEqual(snapped, proposed,
-                                       "\(persona) should keep \(proposed) selected")
-                    }
-                }
+            for proposed in DetailSegment.allCases {
+                let segments = DetailPaneToggle<AnyView>.visibleSegments(
+                    persona: persona, including: proposed)
+                let snapped = DetailPaneToggle<AnyView>.snappedSelection(
+                    proposed, in: segments, fallback: persona.defaultPane)
+                XCTAssertTrue(segments.contains(snapped),
+                              "\(persona)/\(proposed) snapped off-picker")
+                XCTAssertEqual(snapped, proposed,
+                               "\(persona) should keep \(proposed) selected")
             }
         }
     }
@@ -190,15 +143,13 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
         XCTAssertFalse(Persona.author.panes.contains(selected))
 
         XCTAssertEqual(
-            DetailPaneToggle<AnyView>.mountSelection(
-                selected, persona: .author, hideOutline: false),
+            DetailPaneToggle<AnyView>.mountSelection(selected, persona: .author),
             selected,
             "the mount-time snap must keep the pane the writer just asked for")
 
         // The list `mountSelection` must NOT consult — proof the distinction
         // bites, and what the old `.onAppear` coercion produced.
-        let bare = DetailPaneToggle<AnyView>.visibleSegments(
-            persona: .author, hideOutline: false)
+        let bare = DetailPaneToggle<AnyView>.visibleSegments(persona: .author)
         XCTAssertEqual(
             DetailPaneToggle<AnyView>.snappedSelection(
                 selected, in: bare, fallback: Persona.author.defaultPane),
@@ -207,69 +158,40 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
     }
 
     /// Every persona × every pane shortcut: revealing a hidden column must
-    /// land on the requested pane. `.outline` on a collection is the sole
-    /// exception — its content falls through to the inspector, so a tab would
-    /// lie, and the snap pulls it back. This is ADR 0025 §3's claim that
-    /// "every pane shortcut now reveals a hidden column before selecting its
-    /// pane" stated as a test.
+    /// land on the requested pane. This is ADR 0025 §3's claim that "every
+    /// pane shortcut now reveals a hidden column before selecting its pane"
+    /// stated as a test. The one exception this used to carry — `.outline` on
+    /// a collection, whose content fell through to the inspector — died with
+    /// the case (stage 3a Task 6): there is no longer any segment whose
+    /// content can fall through, so every request lands exactly.
     func test_mountSelection_landsOnTheRequestedPaneInEveryPersona() {
         for persona in Persona.allCases {
-            for hideOutline in [false, true] {
-                for requested in DetailSegment.allCases {
-                    let landed = DetailPaneToggle<AnyView>.mountSelection(
-                        requested, persona: persona, hideOutline: hideOutline)
-                    if hideOutline && requested == .outline {
-                        XCTAssertNotEqual(landed, requested)
-                    } else {
-                        XCTAssertEqual(landed, requested,
-                                       "\(persona) dropped \(requested) on reveal")
-                    }
-                }
+            for requested in DetailSegment.allCases {
+                let landed = DetailPaneToggle<AnyView>.mountSelection(
+                    requested, persona: persona)
+                XCTAssertEqual(landed, requested,
+                               "\(persona) dropped \(requested) on reveal")
             }
         }
     }
 
-    /// The property that replaces `PersonaPaneRegistryTests.
-    /// test_everyDetailSegment_appearsInAtLeastOnePersona`, deleted by the
-    /// persona shell's slice 1. That test's failure message called a pane in no
-    /// registry "unreachable"; the shell demotes `.outline` to exactly that
-    /// state on purpose, so the claim had to be proved false rather than
-    /// worked around. **Leaving a registry is a demotion, not a removal.**
-    ///
-    /// The control matters more than the assertions: with no globally
-    /// unregistered segment this test proves nothing, so it says so and fails.
-    func test_aPaneRegisteredInNoPersonaIsStillReachable() {
-        let registered = Set(Persona.allCases.flatMap(\.panes))
-        let unregistered = DetailSegment.allCases.filter { !registered.contains($0) }
-        XCTAssertFalse(unregistered.isEmpty,
-                       "no segment is unregistered, so this test is vacuous — delete it "
-                       + "or the registry has silently re-adopted every pane")
+    // MARK: - Retired: the registry-less segment
 
-        for segment in unregistered {
-            for persona in Persona.allCases {
-                // The reveal path: ⌘⌥-letter with the column closed mounts the
-                // picker with the requested segment already in place.
-                XCTAssertEqual(
-                    DetailPaneToggle<AnyView>.mountSelection(
-                        segment, persona: persona, hideOutline: false),
-                    segment,
-                    "\(persona) dropped the unregistered \(segment) on reveal")
-                // The picker path: it is appended and rendered highlighted.
-                XCTAssertTrue(
-                    DetailPaneToggle<AnyView>.visibleSegments(
-                        persona: persona, hideOutline: false, including: segment)
-                        .contains(segment),
-                    "\(persona)'s picker does not carry the unregistered \(segment)")
-            }
-        }
-    }
-
-    /// `hideOutline` still wins over the selection: a collection project has
-    /// no outline pane, and appending it would render a tab whose content
-    /// falls through to the inspector.
-    func test_visibleSegments_doNotAppendOutlineWhenItIsHidden() {
-        let segments = DetailPaneToggle<AnyView>.visibleSegments(
-            persona: .publish, hideOutline: true, including: .outline)
-        XCTAssertFalse(segments.contains(.outline))
-    }
+    // `test_aPaneRegisteredInNoPersonaIsStillReachable` and
+    // `test_visibleSegments_doNotAppendOutlineWhenItIsHidden` are gone rather
+    // than reworked. Both pinned `.outline`'s specific status as the one
+    // `DetailSegment` case registered in no persona at all — reachable only
+    // via `mountSelection`/`visibleSegments(including:)`'s append, never via
+    // `Persona.panes`. Stage 3a Task 6 deleted the case outright rather than
+    // leaving it registry-less, and `PersonaPaneRegistryTests
+    // .test_everyDetailSegmentIsRegisteredSomewhere` now pins the flat
+    // replacement: every surviving case has a persona. The first test's own
+    // body already said what to do here — "no segment is unregistered, so
+    // this test is vacuous — delete it" — which is exactly the state Task 6
+    // brought about on purpose, not a registry silently re-adopting a pane.
+    // The append mechanism itself (an out-of-persona selection still reaching
+    // the picker) is not retired — see
+    // `test_visibleSegments_includeASelectionThisPersonaDoesNotRegister`,
+    // `test_visibleSegments_includeTranslationWhenForcedOutsideItsPersonas`
+    // and `PersonaPaneRegistryTests.test_forcedEntryReachesAPersonaThatDoesNotRegisterIt`.
 }

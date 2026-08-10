@@ -35,16 +35,10 @@ private struct DetailColumnCensusHarness: View {
             DetailPaneToggle(
                 store: store,
                 segment: Binding(get: { probe.segment }, set: { probe.segment = $0 }),
-                outlineLayout: Binding(get: { probe.layout }, set: { probe.layout = $0 }),
                 selectedSubject: Binding(get: { probe.subject },
                                          set: { probe.subject = $0 }),
                 activeManuscriptItemId: probe.subject?.itemID,
                 persona: .author,
-                // False, deliberately: a collection hides `.outline`, and a
-                // segment the window never renders is a segment this census
-                // would report on without measuring. The project below is a
-                // novel for the same reason.
-                hideOutline: false,
                 projectURL: store.url,
                 activeDocId: docId,
                 allDocIds: [docId],
@@ -78,7 +72,6 @@ private struct DetailColumnCensusHarness: View {
 @MainActor
 private final class DetailSegmentProbe {
     var segment: DetailSegment = .inspector
-    var layout: OutlineLayout = .table
     var subject: BinderSubject?
     init(subject: BinderSubject?) { self.subject = subject }
 }

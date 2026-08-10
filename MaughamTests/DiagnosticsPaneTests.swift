@@ -621,7 +621,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertNil(DetailPaneToggle<AnyView>.badgeOffset(of: .inbox, in: author))
 
         let withInboxAppended = DetailPaneToggle<AnyView>.visibleSegments(
-            persona: .author, hideOutline: false, including: .inbox)
+            persona: .author, including: .inbox)
         XCTAssertNotNil(
             DetailPaneToggle<AnyView>.badgeOffset(of: .diagnostics, in: withInboxAppended))
         XCTAssertEqual(

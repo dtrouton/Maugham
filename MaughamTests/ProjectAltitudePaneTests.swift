@@ -7,13 +7,17 @@ import MaughamCore
 /// `ProjectAltitudePane` is `OutlinePane` renamed (shell-finish stage 3a Task
 /// 1) plus one addition: a `title` prop for the header, so the pane can show
 /// the project's own name at altitude rather than the pane label "Outline".
-/// This task is the rename + readiness step only — the pane still mounts in
-/// the right-pane `.outline` arm (`DetailPaneToggle.swift`), unchanged in
-/// behaviour; a later task moves it to the centre column. So what this file
-/// pins is the contract the brief names: the title prop is genuinely wired
-/// into the header (not the old hardcoded label), the data derivation is
-/// unchanged (documents only, no per-row I/O), and the corkboard's adaptive
-/// grid still produces one card per document at a centre-typical width.
+/// This task is the rename + readiness step only — at the time, the pane
+/// still mounted in the right-pane `.outline` arm (`DetailPaneToggle.swift`),
+/// unchanged in behaviour. Tasks 2-3 moved it into the centre column
+/// alongside that arm, and Task 6 deleted the arm outright — the centre is the
+/// pane's only mount now (see `test_theCentreMountPassesTheProjectsOwnTitle`
+/// below, which replaced this file's premise about `DetailPaneToggle`). What
+/// this file pins is the contract the brief names: the title prop is
+/// genuinely wired into the header (not the old hardcoded label), the data
+/// derivation is unchanged (documents only, no per-row I/O), and the
+/// corkboard's adaptive grid still produces one card per document at a
+/// centre-typical width.
 @MainActor
 final class ProjectAltitudePaneTests: XCTestCase {
 
@@ -70,19 +74,20 @@ final class ProjectAltitudePaneTests: XCTestCase {
                      "premise: the offender really does keep both")
     }
 
-    // MARK: - The title prop reaches the pane from the right-pane arm
+    // MARK: - The title prop reaches the pane from its one production mount
 
     /// The prop is only load-bearing if the one production call site actually
-    /// passes something other than a literal. `DetailPaneToggle`'s `.outline`
-    /// arm is where the pane is still mounted this task (a later task moves
-    /// it) — pinned so a future edit cannot quietly go back to a fixed string.
-    func test_theRightPaneArmPassesTheProjectsOwnTitle() throws {
-        let code = try Self.codeLines(of: "Views/DetailPaneToggle.swift")
+    /// passes something other than a literal. `ProjectWindow`'s centre-column
+    /// overlay is the pane's only mount since stage 3a Task 6 deleted the
+    /// right-pane `.outline` arm this test used to read instead — pinned so a
+    /// future edit cannot quietly go back to a fixed string.
+    func test_theCentreMountPassesTheProjectsOwnTitle() throws {
+        let code = try Self.codeLines(of: "Views/ProjectWindow.swift")
 
         XCTAssertTrue(
             code.contains { $0.contains("title: store.manifest.title") },
-            "the `.outline` arm must hand the pane the project's own name, "
-            + "not a hardcoded pane label")
+            "the centre's altitude mount must hand the pane the project's own "
+            + "name, not a hardcoded pane label")
     }
 
     // MARK: - Data derivation unchanged (tripwire 4: no per-row I/O, documents only)
@@ -228,7 +233,7 @@ final class ProjectAltitudePaneTests: XCTestCase {
 }
 
 /// `ProjectAltitudePane` hosted with a fixed layout choice, standing in for
-/// where the pane is mounted today — the right-pane `.outline` arm holds the
+/// where the pane is mounted today — the centre column's overlay holds the
 /// layout as `@State` on `ProjectWindow`; this probe does the same at a
 /// smaller scale rather than standing up the whole window.
 @MainActor

@@ -252,7 +252,7 @@ struct PaletteCardEditor: View {
             if let notes = draft?.notes {
                 ForEach(Array(notes.enumerated()), id: \.offset) { index, note in
                     HStack(spacing: 8) {
-                        Image(systemName: note.sense.map(PalettePane.senseSymbol(for:)) ?? "ellipsis")
+                        Image(systemName: note.sense.map(PaletteCardReadView.senseSymbol(for:)) ?? "ellipsis")
                             .foregroundStyle(.secondary).frame(width: 18)
                         Text(note.text)
                         Spacer()
@@ -270,7 +270,7 @@ struct PaletteCardEditor: View {
                 ForEach(PaletteCard.Sense.allCases, id: \.self) { sense in
                     Button { addNote(sense: sense) } label: {
                         Label(sense.rawValue.capitalized,
-                              systemImage: PalettePane.senseSymbol(for: sense))
+                              systemImage: PaletteCardReadView.senseSymbol(for: sense))
                             .font(.caption)
                     }
                     .buttonStyle(.plain)

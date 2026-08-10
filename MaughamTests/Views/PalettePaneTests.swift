@@ -2,13 +2,20 @@ import XCTest
 @testable import Maugham
 import MaughamCore
 
-final class PalettePaneTests: XCTestCase {
+/// `PalettePane` itself is gone (stage 3a Task 6 — its right-pane `⌘⌥P` mount
+/// died with `DetailSegment.palette`); these two statics outlived it because
+/// `PaletteCardEditor` needs them independently of any pane, and moved to
+/// `PaletteCardReadView` — the view both callers already shared for drawing a
+/// card. This class kept its name until this commit for the same reason the
+/// symbols moved rather than duplicated: renaming it alongside the move is
+/// what proves nothing was quietly left calling the deleted type.
+final class PaletteCardReadViewTests: XCTestCase {
     func test_senseSymbol_coversAllSenses() {
         for sense in PaletteCard.Sense.allCases {
-            XCTAssertFalse(PalettePane.senseSymbol(for: sense).isEmpty)
+            XCTAssertFalse(PaletteCardReadView.senseSymbol(for: sense).isEmpty)
         }
-        XCTAssertEqual(PalettePane.senseSymbol(for: .sight), "eye")
-        XCTAssertEqual(PalettePane.senseSymbol(for: .touch), "hand.raised")
+        XCTAssertEqual(PaletteCardReadView.senseSymbol(for: .sight), "eye")
+        XCTAssertEqual(PaletteCardReadView.senseSymbol(for: .touch), "hand.raised")
     }
 
     func test_groupedNotes_ordersTaggedBySenseThenUntagged() {
@@ -17,7 +24,7 @@ final class PalettePaneTests: XCTestCase {
             .init(sense: .taste, text: "salt"),
             .init(sense: .sight, text: "green light"),
         ]
-        let groups = PalettePane.groupedNotes(notes)
+        let groups = PaletteCardReadView.groupedNotes(notes)
         XCTAssertEqual(groups.map(\.sense), [.sight, .taste, nil])
         XCTAssertEqual(groups.first?.notes.map(\.text), ["green light"])
     }

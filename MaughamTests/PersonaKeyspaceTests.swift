@@ -38,26 +38,46 @@ final class PersonaKeyspaceTests: XCTestCase {
         // that helper — the per-segment guard here checks the call site
         // instead: `postSegment(.<rawValue>)`.
         //
-        // **`.research`/`.outline`/`.palette` are the re-pointed three**
-        // (shell-finish stage-3a Task 5): their menu items still carry their
-        // old letters, but no longer dispatch through `postSegment` — the
-        // segment is retiring under them (Task 6 deletes the cases outright)
-        // while the tree/altitude surfaces the keys now reach have taken
-        // over. Each gets its own dedicated event instead.
+        // **Post-kill shape (stage-3a Task 6).** Research, Outline and
+        // Palette were the re-pointed three (Task 5): their menu items kept
+        // their old letters but stopped dispatching through `postSegment`,
+        // routing instead to the tree/altitude surfaces the keys now reach
+        // (`maughamRevealResearchSection`/`maughamSelectProjectRow`/
+        // `maughamRevealPaletteSection`, pinned by `AltitudeKeyspaceTests`).
+        // Task 6 deleted the three `DetailSegment` cases outright, so there is
+        // no longer a `repointed` lookup to maintain here — every SURVIVING
+        // case is a plain `postSegment` dispatch.
         let app = try source("Maugham/MaughamApp.swift")
-        let repointed: [DetailSegment: String] = [
-            .research: "maughamRevealResearchSection",
-            .outline: "maughamSelectProjectRow",
-            .palette: "maughamRevealPaletteSection",
-        ]
         for segment in DetailSegment.allCases {
-            if let event = repointed[segment] {
-                XCTAssertTrue(app.contains("MaughamEvent.post(.\(event), to: .keyWindow)"),
-                              "no View-menu item posts the re-pointed event for \(segment.rawValue)")
-            } else {
-                XCTAssertTrue(app.contains("postSegment(.\(segment.rawValue))"),
-                              "no View-menu item posts \(segment.rawValue)")
-            }
+            XCTAssertTrue(app.contains("postSegment(.\(segment.rawValue))"),
+                          "no View-menu item posts \(segment.rawValue)")
+        }
+    }
+
+    /// **The three re-pointed keys must never regress to their old spelling.**
+    /// `.outline`/`.research`/`.palette` no longer exist as `DetailSegment`
+    /// cases, so `postSegment(.outline)` etc. cannot even compile any more —
+    /// but a stringly-typed reintroduction
+    /// (`postSegment(DetailSegment(rawValue: "outline")!)`, say) would not
+    /// trip the compiler, so the spelling itself is censused rather than left
+    /// to the type system alone.
+    func test_noPostSegmentSpellingSurvivesForTheThreeRepointedCases() throws {
+        let app = try source("Maugham/MaughamApp.swift")
+        for dead in ["outline", "research", "palette"] {
+            XCTAssertFalse(app.contains("postSegment(.\(dead))"),
+                           "postSegment(.\(dead)) survives — Research/Outline/Palette "
+                           + "route through their new events, never the old pane")
+        }
+    }
+
+    /// Self-check: the assertion above must be able to fail.
+    func test_noPostSegmentSpellingCensusFiresOnPlantedOffender() {
+        let planted = "Button(\"Outline\") { postSegment(.outline) }"
+        for dead in ["outline", "research", "palette"] {
+            let hit = planted.contains("postSegment(.\(dead))")
+            XCTAssertEqual(hit, dead == "outline",
+                           "self-check: the planted offender should be caught only for "
+                           + "the spelling it actually contains")
         }
     }
 

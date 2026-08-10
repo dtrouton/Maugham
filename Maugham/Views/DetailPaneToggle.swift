@@ -4,15 +4,13 @@ import MaughamCore
 struct DetailPaneToggle<Inspector: View>: View {
     @Bindable var store: ProjectStore
     @Binding var segment: DetailSegment
-    @Binding var outlineLayout: OutlineLayout
     @Binding var selectedSubject: BinderSubject?
     /// The item the tree names, converted once at `ProjectWindow`'s boundary.
     /// `nil` for the project and for no selection alike.
     let activeManuscriptItemId: String?
     /// The window's working mode. Decides which segments the picker offers —
-    /// see `visibleSegments(persona:hideOutline:)`.
+    /// see `visibleSegments(persona:)`.
     let persona: Persona
-    let hideOutline: Bool
     // History pane props — optional so callers that don't need history can omit them.
     let projectURL: URL?
     /// The non-optional document id the per-document panes take, from the same
@@ -68,11 +66,9 @@ struct DetailPaneToggle<Inspector: View>: View {
     init(
         store: ProjectStore,
         segment: Binding<DetailSegment>,
-        outlineLayout: Binding<OutlineLayout>,
         selectedSubject: Binding<BinderSubject?>,
         activeManuscriptItemId: String?,
         persona: Persona = .default,
-        hideOutline: Bool = false,
         projectURL: URL? = nil,
         activeDocId: String = BinderSubject.noDocumentSubject,
         allDocIds: [String] = [],
@@ -92,11 +88,9 @@ struct DetailPaneToggle<Inspector: View>: View {
     ) {
         self.store = store
         self._segment = segment
-        self._outlineLayout = outlineLayout
         self._selectedSubject = selectedSubject
         self.activeManuscriptItemId = activeManuscriptItemId
         self.persona = persona
-        self.hideOutline = hideOutline
         self.projectURL = projectURL
         self.activeDocId = activeDocId
         self.allDocIds = allDocIds
@@ -123,11 +117,11 @@ struct DetailPaneToggle<Inspector: View>: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: segment) { _, newValue in
-            // A ⌘⌥-letter shortcut can select a segment this picker cannot
-            // render — `.outline` on a collection project is the only one
-            // (`visibleSegments` refuses to append it), and it left the
-            // picker with nothing highlighted. Snap onto a segment the
-            // picker actually shows; the snap re-enters here and persists.
+            // `visibleSegments(including:)` always appends an out-of-persona
+            // selection now (the one refusal — `.outline` on a collection
+            // project — died with the case, stage 3a Task 6), so this snap is
+            // normally a no-op; it stays as the belt for whatever the picker
+            // cannot render.
             let snapped = Self.snappedSelection(
                 newValue, in: pickerSegments, fallback: persona.defaultPane)
             guard snapped == newValue else {
@@ -149,10 +143,9 @@ struct DetailPaneToggle<Inspector: View>: View {
             snapSegmentIntoPicker()
         }
         // Belt to `PersonaModifier`'s braces: that modifier already runs
-        // `Persona.coerce(_:)` on a persona change, but it cannot see
-        // `hideOutline` — a collection project drops `.outline` from the
-        // picker after the registry has had its say. This is the only place
-        // both facts are known.
+        // `Persona.coerce(_:)` on a persona change, but only this view knows
+        // which segment is CURRENTLY selected outside the destination's own
+        // registry.
         .onChange(of: persona) { _, newPersona in
             coerceSegmentIntoView(of: newPersona)
         }
@@ -167,9 +160,10 @@ struct DetailPaneToggle<Inspector: View>: View {
     // - `snapSegmentIntoPicker()` uses the SELECTION-CARRYING list
     //   (`pickerSegments` = `visibleSegments(including: segment)`). It keeps
     //   whatever is selected, because an out-of-persona segment is appended
-    //   and rendered — personas are lenses, not gates. The only value it ever
-    //   moves is `.outline` on a collection project, which
-    //   `visibleSegments(including:)` refuses to append.
+    //   and rendered — personas are lenses, not gates. `visibleSegments(
+    //   including:)` never refuses an append (the one exception, `.outline`
+    //   on a collection project, died with the case in stage 3a Task 6), so
+    //   this snap is now always a no-op in production; it stays as the belt.
     //   Callers: `.onAppear` and `.onChange(of: segment)`.
     //
     // - `coerceSegmentIntoView(of:)` uses the persona's BARE registry list.
@@ -189,8 +183,7 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// Coercing here threw the requested pane away and persisted the wrong
     /// one to `UIState` (whole-branch review, Critical 1).
     private func snapSegmentIntoPicker() {
-        let snapped = Self.mountSelection(
-            segment, persona: persona, hideOutline: hideOutline)
+        let snapped = Self.mountSelection(segment, persona: persona)
         if snapped != segment { segment = snapped }
     }
 
@@ -203,11 +196,9 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// fails when it happens.
     static func mountSelection(
         _ current: DetailSegment,
-        persona: Persona,
-        hideOutline: Bool
+        persona: Persona
     ) -> DetailSegment {
-        let carrying = visibleSegments(
-            persona: persona, hideOutline: hideOutline, including: current)
+        let carrying = visibleSegments(persona: persona, including: current)
         return snappedSelection(current, in: carrying, fallback: persona.defaultPane)
     }
 
@@ -216,10 +207,10 @@ struct DetailPaneToggle<Inspector: View>: View {
     ///
     /// Deliberately asks for the persona's OWN list (no `including:`) — the
     /// selection-carrying list contains `segment` by construction, so passing
-    /// it here would make every coercion a no-op and a collection project
-    /// would sit on `.outline` forever.
+    /// it here would make every coercion a no-op and an out-of-persona
+    /// selection would never be dropped on a persona switch.
     private func coerceSegmentIntoView(of persona: Persona) {
-        let visible = Self.visibleSegments(persona: persona, hideOutline: hideOutline)
+        let visible = Self.visibleSegments(persona: persona)
         let coerced = Self.snappedSelection(segment, in: visible, fallback: persona.defaultPane)
         if coerced != segment { segment = coerced }
     }
@@ -237,17 +228,14 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// nothing selected while the pane below it showed the right content.
     /// Appending (rather than inserting in registry order) keeps the persona's
     /// own ordering stable and makes the addition read as transient.
-    /// `hideOutline` still wins: a collection project has no outline pane to
-    /// show, so an out-of-persona `.outline` selection is not appended either.
+    /// Always appends now: the one refusal this ever had — a collection
+    /// project hiding `.outline` — died with the case (stage 3a Task 6).
     static func visibleSegments(
         persona: Persona,
-        hideOutline: Bool,
         including selected: DetailSegment? = nil
     ) -> [DetailSegment] {
-        var segments = persona.panes.filter { !(hideOutline && $0 == .outline) }
-        if let selected,
-           !segments.contains(selected),
-           !(hideOutline && selected == .outline) {
+        var segments = persona.panes
+        if let selected, !segments.contains(selected) {
             segments.append(selected)
         }
         return segments
@@ -280,10 +268,9 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// list the picker renders. Everything the picker can show is returned
     /// unchanged — personas are lenses, not gates, so an out-of-persona
     /// segment reached by shortcut stays selected (it is appended by
-    /// `visibleSegments(including:)`). The one segment that cannot be
-    /// appended is `.outline` on a collection project, whose content falls
-    /// through to the inspector; a picker showing nothing selected is the
-    /// state this snaps out of.
+    /// `visibleSegments(including:)`, which never refuses now — see that
+    /// function's doc comment). Falling back at all is the belt for a segment
+    /// this list genuinely does not carry.
     static func snappedSelection(
         _ proposed: DetailSegment,
         in segments: [DetailSegment],
@@ -313,7 +300,7 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// The one list this picker renders — segment order, badge offset and
     /// badge width all derive from it, so they cannot disagree.
     private var pickerSegments: [DetailSegment] {
-        Self.visibleSegments(persona: persona, hideOutline: hideOutline, including: segment)
+        Self.visibleSegments(persona: persona, including: segment)
     }
 
     @ViewBuilder
@@ -388,28 +375,12 @@ struct DetailPaneToggle<Inspector: View>: View {
             inspectorContent()
         case .annotations:
             annotationsPane
-        case .research:
-            LinkedResearchPane(
-                store: store,
-                activeDocumentId: activeManuscriptItemId)
-        case .outline:
-            if hideOutline {
-                inspectorContent()
-            } else {
-                ProjectAltitudePane(
-                    store: store,
-                    layout: $outlineLayout,
-                    selectedSubject: $selectedSubject,
-                    title: store.manifest.title)
-            }
         case .history:
             historyPane
         case .tasks:
             tasksPane
         case .inbox:
             inboxPane
-        case .palette:
-            PalettePane(store: store)
         case .translation:
             translationPane
         case .intent:

@@ -1628,7 +1628,7 @@ final class TripwireGrepTests: XCTestCase {
     ///     selection-carrying list. This preserves out-of-persona pane selections
     ///     reached via ⌘⌥ shortcuts, even when the current persona doesn't register them.
     ///   - `.onChange(of: persona)` calls `coerceSegmentIntoView(of:)`, which MUST
-    ///     consult `visibleSegments(persona:, hideOutline:)` WITHOUT `including:` —
+    ///     consult `visibleSegments(persona:)` WITHOUT `including:` —
     ///     the bare registry. On persona change, coercion is the intent and an
     ///     out-of-persona pane is deliberately dropped.
     /// If those function calls are swapped between the two event handlers, the suite
@@ -1683,24 +1683,23 @@ final class TripwireGrepTests: XCTestCase {
         struct DetailPaneToggle<Inspector: View>: View {
             func snapSegmentIntoPicker() {
                 // WRONG: calling with bare list instead of including:
-                let snapped = Self.mountSelection(segment, persona: persona, hideOutline: hideOutline)
+                let snapped = Self.mountSelection(segment, persona: persona)
                 if snapped != segment { segment = snapped }
             }
 
             private func coerceSegmentIntoView(of persona: Persona) {
                 // WRONG: calling with including: instead of bare list
-                let visible = Self.visibleSegments(persona: persona, hideOutline: hideOutline, including: segment)
+                let visible = Self.visibleSegments(persona: persona, including: segment)
                 let coerced = Self.snappedSelection(segment, in: visible, fallback: persona.defaultPane)
                 if coerced != segment { segment = coerced }
             }
 
             static func mountSelection(
                 _ current: DetailSegment,
-                persona: Persona,
-                hideOutline: Bool
+                persona: Persona
             ) -> DetailSegment {
                 let carrying = visibleSegments(
-                    persona: persona, hideOutline: hideOutline, including: current)
+                    persona: persona, including: current)
                 return snappedSelection(current, in: carrying, fallback: persona.defaultPane)
             }
         }

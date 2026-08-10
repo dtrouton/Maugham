@@ -491,8 +491,6 @@ private struct ResearchRevealProbeView: View {
     let persona: Persona
     let probe: ResearchRevealProbe
 
-    @State private var outlineLayout: OutlineLayout = .table
-
     private var subject: Binding<BinderSubject?> {
         Binding(get: { probe.subject }, set: { probe.subject = $0 })
     }
@@ -543,7 +541,6 @@ private struct ResearchRevealProbeView: View {
         DetailPaneToggle(
             store: store,
             segment: segment,
-            outlineLayout: $outlineLayout,
             selectedSubject: subject,
             activeManuscriptItemId: probe.subject?.itemID,
             persona: persona,

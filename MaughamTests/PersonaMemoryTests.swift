@@ -126,10 +126,10 @@ final class PersonaMemoryTests: XCTestCase {
         // value, values are pane raw values — not the alternating-array form an
         // enum-keyed dictionary would produce.
         var memory = PersonaMemory.empty
-        memory.record(persona: .plan, detailSegment: .outline)
+        memory.record(persona: .plan, detailSegment: .tasks)
         let json = try JSONSerialization.jsonObject(
             with: try JSONEncoder().encode(memory)) as? [String: Any]
-        XCTAssertEqual(json?["detail"] as? [String: String], ["plan": "outline"])
+        XCTAssertEqual(json?["detail"] as? [String: String], ["plan": "tasks"])
     }
 
     func test_decode_dropsUnknownPaneValuesWithoutLosingTheRest() throws {
@@ -170,5 +170,28 @@ final class PersonaMemoryTests: XCTestCase {
     func test_decode_ofAMalformedMap_isEmptyNotAThrow() throws {
         let json = Data(#"{"binder":"nonsense","detail":42}"#.utf8)
         XCTAssertEqual(try JSONDecoder().decode(PersonaMemory.self, from: json), .empty)
+    }
+
+    // MARK: - The three retired segments (stage 3a Task 6, tripwire 11)
+
+    /// **No migration — a stored `.outline`/`.research`/`.palette` entry is
+    /// absorbed by the same tolerant decode that already drops any unknown
+    /// pane name.** The three raw values are written directly as JSON text,
+    /// never through the Swift enum — `DetailSegment.outline` etc. no longer
+    /// exist to construct. `compactMapValues(DetailSegment.init(rawValue:))`
+    /// drops each one on its own, and `restoredDetailSegment` falls back to
+    /// the persona's default exactly as it does for any other unrecognised
+    /// name.
+    func test_decode_retiredSegmentsFallBackToTheirPersonasDefault() throws {
+        for (persona, retired) in [
+            (Persona.plan, "outline"), (Persona.author, "research"), (Persona.author, "palette"),
+        ] {
+            let json = Data(
+                "{\"detail\":{\"\(persona.rawValue)\":\"\(retired)\"}}".utf8)
+            let memory = try JSONDecoder().decode(PersonaMemory.self, from: json)
+            XCTAssertEqual(memory.restoredDetailSegment(for: persona), persona.defaultPane,
+                           "\(persona) restored from a stored \"\(retired)\" instead of "
+                           + "falling back to its default")
+        }
     }
 }

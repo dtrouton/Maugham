@@ -63,7 +63,8 @@ enum ReadIcons {
     }
 
     /// Sense-group icon for the card detail. Phone-local twin of the Mac's
-    /// `PalettePane.senseSymbol` (app-target static, not reusable across modules).
+    /// `PaletteCardReadView.senseSymbol` (app-target static, not reusable
+    /// across modules).
     static func senseSymbol(_ sense: PaletteCard.Sense) -> String {
         switch sense {
         case .sight: return "eye"

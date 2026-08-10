@@ -1,6 +1,11 @@
+import SwiftUI
 import XCTest
 @testable import Maugham
 
+/// `DetailPaneToggle` is generic over its inspector content, so a static
+/// member reference has to bind that parameter — `<AnyView>` is an arbitrary
+/// witness; `visibleSegments` is pure and ignores it (mirrors
+/// `DetailPaneTogglePersonaTests`' own header comment).
 final class PersonaPaneRegistryTests: XCTestCase {
     func test_everyPersona_offersAtLeastTwoPanes() {
         // A one-pane picker reads as broken chrome rather than a choice.
@@ -24,54 +29,59 @@ final class PersonaPaneRegistryTests: XCTestCase {
         }
     }
 
-    /// Panes registered in no persona at all. The persona shell's slice 1
-    /// demoted `.outline`: the tree shows structure and `OutlinePane` is
-    /// read-only, so it cannot be the structure surface Plan needs
-    /// (`docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`
-    /// §5).
+    /// **Retired (stage 3a Task 6).** `.outline` was the one segment ever
+    /// registered nowhere — the persona shell's slice 1 demoted it, leaving
+    /// the tree to show structure while the read-only pane stayed reachable
+    /// by shortcut alone. Task 6 finished that arc by deleting the case
+    /// outright (its structure surface is the centre column now), and
+    /// `.research`/`.palette` left every registry the same commit, so there
+    /// is no longer any `DetailSegment` case unregistered everywhere — the
+    /// census below (`test_everyDetailSegmentIsRegisteredSomewhere`) needs no
+    /// exemption list for that claim at all.
     ///
-    /// This list REPLACES `test_everyDetailSegment_appearsInAtLeastOnePersona`,
-    /// deleted by that slice. That test asserted every segment is registered
-    /// somewhere, and its failure message called an unregistered one
-    /// "unreachable" — **the claim was false**, and it was the claim, not the
-    /// arithmetic, that made the test wrong. Verified 2026-08-01:
-    /// `MaughamApp.swift:222-223` binds ⌘⌥O unconditionally and the key-window
-    /// handler sets the segment with no registry check;
-    /// `DetailPaneToggle.visibleSegments(including:)` appends an unregistered
-    /// selection ("Personas are lenses, not gates"); and `segmentContent`
-    /// renders `OutlinePane` on `hideOutline` alone. Spec §8 says the same
-    /// normatively. Reachability is pinned as a property rather than assumed:
-    /// `DetailPaneTogglePersonaTests.test_aPaneRegisteredInNoPersonaIsStillReachable`
-    /// drives it through the toggle's own helpers.
-    private static let deliberatelyUnregistered: Set<DetailSegment> = [.outline]
+    /// What still needs a list is a DIFFERENT mechanism this file used to
+    /// conflate with "unregistered": a segment can reach a persona's picker
+    /// WITHOUT that persona registering it, via `DetailPaneToggle
+    /// .visibleSegments(including:)`'s append — `ProjectWindow` force-sets
+    /// `detailSegment = .translation` on entering translation review from ANY
+    /// persona, including the three whose own `panes` do not list it. That is
+    /// still worth a named, non-vacuous example even though `.translation` is
+    /// registered somewhere (Publish) — `test_forcedEntryReachesAPersonaThatDoesNotRegisterIt`
+    /// is this list's own control, the way `test_nothingInTheUnregisteredListIsActuallyRegistered`
+    /// used to be the retired list's.
+    private static let forcedEntry: Set<DetailSegment> = [.translation]
 
-    func test_everyDetailSegmentIsRegisteredOrDeliberatelyUnregistered() {
-        // The half of the deleted test that was true: a new pane added to
-        // DetailSegment and then forgotten is a real failure mode. It is now a
-        // census — a segment is registered somewhere, or it is named above
-        // with a reason. Silence is what fails.
+    /// Every `DetailSegment` case has a home in at least one persona's own
+    /// registry. Unlike the retired `deliberatelyUnregistered` census, this
+    /// one asserts flatly — `.outline` was the last case allowed to be
+    /// registry-less anywhere, and it was deleted rather than reinstated.
+    func test_everyDetailSegmentIsRegisteredSomewhere() {
         let registered = Set(Persona.allCases.flatMap(\.panes))
         for segment in DetailSegment.allCases {
-            XCTAssertTrue(registered.contains(segment)
-                            || Self.deliberatelyUnregistered.contains(segment),
-                          "\(segment) is in no persona's registry and is not listed in "
-                          + "deliberatelyUnregistered. Register it, or list it there with "
-                          + "the reason it is summonable-only.")
+            XCTAssertTrue(registered.contains(segment),
+                          "\(segment) is in no persona's registry. A new segment needs a "
+                          + "persona — there is no more registry-less exemption.")
         }
     }
 
-    /// The control that keeps the census above falsifiable: a segment listed as
-    /// unregistered must actually BE unregistered, so the list cannot rot into
-    /// a blanket exemption that swallows a genuine oversight.
-    func test_nothingInTheUnregisteredListIsActuallyRegistered() {
-        let registered = Set(Persona.allCases.flatMap(\.panes))
-        for segment in Self.deliberatelyUnregistered {
-            XCTAssertFalse(registered.contains(segment),
-                           "\(segment) is registered after all — take it out of "
-                           + "deliberatelyUnregistered")
+    /// The control for `forcedEntry`: a segment listed there only proves
+    /// something about the append mechanism if some persona genuinely does
+    /// NOT register it and still shows it via `visibleSegments(including:)`.
+    func test_forcedEntryReachesAPersonaThatDoesNotRegisterIt() {
+        XCTAssertFalse(Self.forcedEntry.isEmpty,
+                       "the list is empty, so this control is vacuous")
+        for segment in Self.forcedEntry {
+            let outsidePersonas = Persona.allCases.filter { !$0.panes.contains(segment) }
+            XCTAssertFalse(outsidePersonas.isEmpty,
+                           "\(segment) is registered in every persona, so listing it in "
+                           + "forcedEntry proves nothing about the append mechanism")
+            for persona in outsidePersonas {
+                let segments = DetailPaneToggle<AnyView>.visibleSegments(
+                    persona: persona, including: segment)
+                XCTAssertTrue(segments.contains(segment),
+                              "\(persona) does not append the forced \(segment)")
+            }
         }
-        XCTAssertFalse(Self.deliberatelyUnregistered.isEmpty,
-                       "the list is empty, so both tests above are vacuous")
     }
 
     func test_defaultPane_isTheFirstRegisteredPane() {
@@ -104,8 +114,11 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// Deliberately not `private`, unlike the ledgers below: a later test that
     /// needs this order should reuse it rather than transcribe it a second
     /// time, which is the whole argument for having one.
+    /// Research and Palette left this order whole in stage 3a Task 6 — every
+    /// tree grew its own section for both (stage 2a), so neither is a
+    /// right-column segment any more.
     static let canonicalPaneOrder: [DetailSegment] = [
-        .diagnostics, .annotations, .inbox, .research, .palette, .intent,
+        .diagnostics, .annotations, .inbox, .intent,
         .references, .visualLanguage, .tasks, .translation, .history, .inspector
     ]
 
@@ -145,30 +158,29 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// and the guard would then fail with a length mismatch whose message
     /// blames the persona rather than the order. This says which it is, and it
     /// is also the census a new `DetailSegment` has to answer: give it a place
-    /// in the order, or list it in `deliberatelyUnregistered`.
+    /// in the order. Since Task 6 there is no exemption list to name instead —
+    /// every case has a persona (`test_everyDetailSegmentIsRegisteredSomewhere`).
     func test_theCanonicalOrderPlacesEveryPaneThatIsRegisteredAnywhere() {
         XCTAssertEqual(Set(Self.canonicalPaneOrder).count, Self.canonicalPaneOrder.count,
                        "canonicalPaneOrder lists a segment twice")
         XCTAssertFalse(Self.canonicalPaneOrder.isEmpty,
                        "the order is empty, so the guard above is vacuous")
         for segment in DetailSegment.allCases {
-            XCTAssertTrue(Self.canonicalPaneOrder.contains(segment)
-                            || Self.deliberatelyUnregistered.contains(segment),
-                          "\(segment) has no place in the canonical right-column order "
-                          + "and is not listed in deliberatelyUnregistered")
+            XCTAssertTrue(Self.canonicalPaneOrder.contains(segment),
+                          "\(segment) has no place in the canonical right-column order")
         }
     }
 
-    /// **The planted offender.** Author's real panes, with Intent moved up two
-    /// places — a permutation built to survive every other test in this suite:
-    /// same members (so the design-matrix test passes), same first element (so
-    /// `test_defaultPane_isTheFirstRegisteredPane`,
+    /// **The planted offender.** Author's real panes, with History and
+    /// References swapped — a permutation built to survive every other test
+    /// in this suite: same members (so the design-matrix test passes), same
+    /// first element (so `test_defaultPane_isTheFirstRegisteredPane`,
     /// `test_reviewPersona_leadsWithAnnotations`, `PersonaModifierTests` and
     /// every derived array-equality in `DetailPaneTogglePersonaTests` pass).
     /// Only the guard above sees it. A plant that does not fire is the finding.
     func test_theOrderGuardCatchesAReorderThatKeepsEveryFirstElement() {
-        let offender: [DetailSegment] = [.diagnostics, .intent, .research, .palette,
-                                         .references, .tasks, .history, .inspector]
+        let offender: [DetailSegment] = [.diagnostics, .intent, .references,
+                                         .history, .tasks, .inspector]
 
         // The plant is honest: a permutation of Author's own panes, not a
         // membership change wearing a permutation's clothes.
@@ -410,11 +422,18 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// to all four, so it is no longer a deviation from anything — see
     /// `notYetDelivered`).
     ///
+    /// **A THIRD supersession, later than §5.0: stage 3a Task 6 takes Research
+    /// and Palette off Author's row.** Every tree grew its own section for
+    /// both (stage 2a), so ⌘⌥R/⌘⌥P reveal those sections instead of a pane —
+    /// the `DetailSegment` cases themselves are deleted, not merely demoted,
+    /// so `.author`'s row below is what stage 3a's own docs (not §5.0) now
+    /// authorize.
+    ///
     /// Editing this table without re-citing it leaves the test asserting a
     /// matrix no document contains.
     private static let designMatrix: [Persona: Set<DetailSegment>] = [
         .plan: [.inbox, .tasks, .history],
-        .author: [.diagnostics, .research, .palette, .intent, .references,
+        .author: [.diagnostics, .intent, .references,
                   .tasks, .history],
         .review: [.annotations, .intent, .references, .tasks, .history],
         .publish: [.visualLanguage, .tasks, .translation, .history]
@@ -499,14 +518,17 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// mention them. This pins the assumption: if a later milestone adds one,
     /// this test fails and `designMatrix` must gain its row.
     ///
-    /// `deliberatelyUnregistered` counts as a mention: `.outline` is in no
-    /// persona's row because the amendment took it out of all four, and that is
-    /// a decision recorded rather than a segment forgotten.
+    /// `forcedEntry` counts as a mention too, though it is no longer load-
+    /// bearing for this particular union — every case left standing after
+    /// Task 6's kill is registered in some persona's row already, so
+    /// `designMatrix` alone would satisfy this test. It stays in the union
+    /// because a case named ONLY via forced entry (none exists today) should
+    /// still count as covered rather than "forgotten".
     func test_designMatrixCoversEveryDetailSegmentThatExists() {
         let mentioned = Set(Self.designMatrix.values.flatMap { $0 })
             .union(Self.documentedDeviations.values.flatMap { $0 })
             .union(Self.notYetDelivered.values.flatMap { $0 })
-            .union(Self.deliberatelyUnregistered)
+            .union(Self.forcedEntry)
         for segment in DetailSegment.allCases {
             XCTAssertTrue(mentioned.contains(segment),
                           "\(segment) exists but has no row in the transcribed matrix")

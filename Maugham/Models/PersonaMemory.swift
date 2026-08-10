@@ -46,8 +46,6 @@ public struct PersonaMemory: Codable, Equatable, Sendable {
 
     /// The right-pane segment `persona` should be restored to. Same validity
     /// filtering against `Persona.panes`, falling back to `defaultPane`.
-    /// `DetailPaneToggle`'s own coercion stays the safety net for the one fact
-    /// this cannot see — `hideOutline` on a collection project.
     public func restoredDetailSegment(for persona: Persona) -> DetailSegment {
         if let remembered = detail[persona.rawValue], persona.panes.contains(remembered) {
             return remembered

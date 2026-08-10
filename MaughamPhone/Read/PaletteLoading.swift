@@ -44,9 +44,10 @@ enum PaletteLoading {
 
     /// Groups sensory notes for display: one group per `Sense` in `allCases`
     /// order (non-empty only), untagged notes last. The phone-local twin of the
-    /// Mac's app-target `PalettePane.groupedNotes` — that static lives in the Mac
-    /// target and can't cross the module boundary, so it's mirrored + tested here
-    /// (tripwire 19: shared shape, separately-owned code, guarded by tests).
+    /// Mac's app-target `PaletteCardReadView.groupedNotes` — that static lives
+    /// in the Mac target and can't cross the module boundary, so it's mirrored
+    /// + tested here (tripwire 19: shared shape, separately-owned code,
+    /// guarded by tests).
     static func groupedNotes(
         _ notes: [PaletteCard.SensoryNote]
     ) -> [(sense: PaletteCard.Sense?, notes: [PaletteCard.SensoryNote])] {

@@ -488,8 +488,6 @@ private struct BinderBesideThePaneProbeView: View {
     let paneProbe: StatementProbeModel
     let treeState = BinderTreeSectionsState()
 
-    @State private var outlineLayout: OutlineLayout = .table
-
     private var subject: Binding<BinderSubject?> {
         Binding(get: { subjectProbe.subject }, set: { subjectProbe.subject = $0 })
     }
@@ -506,7 +504,6 @@ private struct BinderBesideThePaneProbeView: View {
             DetailPaneToggle(
                 store: store,
                 segment: segment,
-                outlineLayout: $outlineLayout,
                 selectedSubject: subject,
                 activeManuscriptItemId: subjectProbe.subject?.itemID,
                 // Plan registers BOTH statement panes, so neither `.intent` nor

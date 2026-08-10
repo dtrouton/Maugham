@@ -67,8 +67,12 @@ public extension Persona {
     /// the right column. Every case below is the SAME sequence with non-members
     /// removed:
     ///
-    ///     Annotations · Inbox · Research · Palette · Intent ·
+    ///     Annotations · Inbox · Intent ·
     ///     Visual Language · Tasks · Translation · History · Inspector
+    ///
+    /// Research and Palette left this order whole (stage 3a Task 6): every
+    /// tree grew its own section for both (stage 2a), and ⌘⌥R/⌘⌥P now reveal
+    /// those sections instead of opening a right-pane segment.
     ///
     /// Denver: *"it'll be confusing if I am always hunting for the right option
     /// in different modes, so the order should be one set and things just
@@ -132,9 +136,11 @@ public extension Persona {
     /// appends an unregistered selection, and `segmentContent` renders every
     /// case. So ⌘⌥N still writes intent in Plan and ⌘⌥L still opens the
     /// translation pane in Review; what changed is which panes a persona *leads
-    /// you to*. Personas are lenses, not gates. (`.outline` is the one pane in
-    /// no registry at all — the tree shows structure and `OutlinePane` is
-    /// read-only, so it cannot be the structure surface Plan needs.)
+    /// you to*. Personas are lenses, not gates. (`.outline` was demoted to no
+    /// registry at all in slice 1 — the tree shows structure and the pane was
+    /// read-only, so it could not be the structure surface Plan needs — and
+    /// stage 3a Task 6 finished the job: the case is deleted outright, its
+    /// altitude view now built into the centre column instead.)
     ///
     /// Still owed to the design, and NOT this re-cut's: `.inspector` dissolves
     /// into per-persona sections (§5.1, slice 4). §5.0 keeps it in all four
@@ -188,12 +194,21 @@ public extension Persona {
             // Plan on a fresh window showed "No document selected" with no
             // control in either visible column able to change it.
             //
-            // `.outline` left in slice 1: Plan is where structure gets built,
-            // and a read-only outline is not that.
+            // `.outline` left in slice 1 (Plan is where structure gets built,
+            // and a read-only outline was not that) and the case itself is
+            // gone as of stage 3a Task 6 — the project row's own centre-column
+            // altitude view is Plan's structure surface now (Tasks 1-3).
             return [.inbox, .tasks, .history, .inspector]
         case .author:
-            // Diagnostics · Research · Palette · Intent · References · Tasks ·
-            // History · Inspector.
+            // Diagnostics · Intent · References · Tasks · History · Inspector.
+            //
+            // **Research and Palette left this list whole in stage 3a Task
+            // 6** — every tree grew its own section for both (stage 2a), and
+            // ⌘⌥R/⌘⌥P now reveal those sections instead of opening a pane here.
+            // The paragraphs below that discuss them as Author's panes
+            // (`LinkedResearchPane`, `PalettePane`) describe the design as it
+            // stood before that departure; `docs/superpowers/plans/` and this
+            // milestone's own docs-catch-up task carry the narrative forward.
             //
             // **§5.0 changed Author's ORDER and not its membership.** This is
             // the persona the right column was designed for: it consults what
@@ -235,7 +250,7 @@ public extension Persona {
             // briefed on. Beside Intent it puts what the piece is *going for*
             // next to what it is *made of*, which is the pair a writer consults
             // together, and keeps both on the working-with side of Tasks.
-            return [.diagnostics, .research, .palette, .intent, .references,
+            return [.diagnostics, .intent, .references,
                     .tasks, .history, .inspector]
         case .review:
             // Annotations · Intent · References · Tasks · History · Inspector.
@@ -273,7 +288,8 @@ public extension Persona {
             // .test_visibleSegments_includeTranslationWhenForcedOutsideItsPersonas`).
             // Demotion, not removal.
             //
-            // `.outline` left in slice 1 with every other persona's.
+            // `.outline` left in slice 1 with every other persona's, and the
+            // case itself is gone as of stage 3a Task 6.
             //
             // **`.inspector` is here for a reason of its own, and the shared
             // doc comment's — "it anchors the far end of the order" — is not

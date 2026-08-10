@@ -1033,19 +1033,20 @@ final class RegionBindingTests: XCTestCase {
                        + "this census could not be.")
     }
 
-    /// **The editor's half of the same question** (shell-finish stage 3a Task 2).
+    /// **The editor's half of the same question** (shell-finish stage 3a Task 2,
+    /// re-cut by Task 6).
     ///
     /// The census above counts the canvas's mounts because a second one costs
     /// the writer their camera and layouts with nothing red anywhere. The centre
     /// column's other two surfaces are the same shape of claim and had no count
     /// at all: `EditorHost` owns the open `Document` and closes it on
     /// `.onDisappear`, so a second mount is a second Document lifecycle, and the
-    /// altitude view is now built in two columns at once — the right pane's
-    /// `.outline` arm and the centre — which is a number worth stating out loud
-    /// rather than discovering.
+    /// altitude view was briefly built in two columns at once — the right
+    /// pane's `.outline` arm and the centre — until Task 6 deleted the arm
+    /// whole. One mount is what remains; a second anywhere is a surface
+    /// nobody decided to add.
     ///
-    /// Both files, because the two mounts are one per file and a count over
-    /// either alone would be satisfied by moving the other.
+    /// Both files, because a second mount could land in either.
     func test_theEditorAndTheAltitudeViewAreEachBuiltWhereTheyBelong() throws {
         let source = try projectWindowSource() + (try detailPaneToggleSource())
 
@@ -1054,26 +1055,29 @@ final class RegionBindingTests: XCTestCase {
                        + "`manuscriptEditor`. A second is a second identity and "
                        + "therefore a second `Document.close()` on every flip "
                        + "between them")
-        XCTAssertEqual(occurrences(of: "ProjectAltitudePane(", in: source), 2,
-                       "two, and they are named: the right pane's `.outline` arm "
-                       + "and the centre column's overlay. Stage 3a Task 6 "
-                       + "removes the first and re-cuts this count to 1 — until "
-                       + "then a third is a surface nobody decided to add")
+        XCTAssertEqual(occurrences(of: "ProjectAltitudePane(", in: source), 1,
+                       "one, in the centre column's overlay. The right pane's "
+                       + "`.outline` arm that used to hold the second mount was "
+                       + "deleted whole in stage 3a Task 6 — a second occurrence "
+                       + "anywhere is a mount nobody decided to add")
     }
 
-    /// The control for the count above: it must read both files rather than
-    /// answering from one. `OutlinePane` is the pane's pre-rename spelling
-    /// (stage 3a Task 1) and cannot appear in either — which is also what says
-    /// the rename did not leave a caller behind.
-    func test_theEditorAndAltitudeCensusReadsBothFiles() throws {
+    /// The control for the count above: `DetailPaneToggle` must no longer name
+    /// the pane at all, and the window must be the one file that does —
+    /// otherwise the count of 1 above could be satisfied by the wrong file, or
+    /// by neither. `OutlinePane` is the pane's pre-rename spelling (stage 3a
+    /// Task 1) and cannot appear in either — which is also what says the
+    /// rename did not leave a caller behind.
+    func test_theAltitudeViewIsMountedOnlyInTheWindowNotTheToggle() throws {
         let window = try projectWindowSource()
         let toggle = try detailPaneToggleSource()
 
-        XCTAssertTrue(window.contains("EditorHost("),
-                      "premise: the window is where the editor is mounted")
-        XCTAssertTrue(toggle.contains("ProjectAltitudePane("),
-                      "premise: the toggle is where the right pane's arm is, so "
-                      + "the count above is genuinely over the pair")
+        XCTAssertTrue(window.contains("ProjectAltitudePane("),
+                      "premise: the window's centre overlay is where the pane "
+                      + "lives")
+        XCTAssertFalse(toggle.contains("ProjectAltitudePane("),
+                       "DetailPaneToggle must not name the altitude pane — its "
+                       + "`.outline` arm was deleted whole in stage 3a Task 6")
         for (name, source) in [("ProjectWindow", window), ("DetailPaneToggle", toggle)] {
             XCTAssertEqual(occurrences(of: "OutlinePane(", in: source), 0,
                            "\(name) still constructs the pane under its old "

@@ -404,10 +404,10 @@ final class ResearchMoveTests: XCTestCase {
     // New contract (user feedback 2026-07-17): because we now auto-associate on
     // move-in (containment) and creation-in-a-piece, scope moves leave
     // `linkedResearchIds` entirely untouched. A manual link goes DORMANT while
-    // contained (the UI hides it: `LinkedResearchPane` filters derived ids out
-    // of the Linked section; `linkableResearchItems` excludes contained items
-    // from the picker) and RESURFACES on move-out. A containment-only
-    // association severs on move-out — no auto-link is minted.
+    // contained (the data model tracks it regardless of whether a UI surfaces
+    // the split — `linkableResearchItems` excludes contained items from the
+    // picker) and RESURFACES on move-out. A containment-only association
+    // severs on move-out — no auto-link is minted.
 
     func test_moveIntoPiece_keepsDormantManualLink() async throws {
         let (_, store, ds, piece) = try await makeCollection()

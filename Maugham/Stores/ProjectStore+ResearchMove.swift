@@ -286,10 +286,11 @@ extension ProjectStore {
         // Scope moves deliberately leave `linkedResearchIds` UNTOUCHED (user
         // feedback 2026-07-17). Because we now auto-associate on move-in
         // (containment) and creation-in-a-piece, a manual link goes DORMANT
-        // while contained — the UI hides it (LinkedResearchPane filters derived
-        // ids out of the Linked section; `linkableResearchItems` excludes
-        // contained items) and it RESURFACES on move-out. A containment-only
-        // association simply severs on move-out; no auto-link is minted.
+        // while contained — the data model tracks the distinction regardless
+        // of whether a UI surfaces it (`linkableResearchItems` excludes
+        // contained items from the link picker) — and it RESURFACES on
+        // move-out. A containment-only association simply severs on move-out;
+        // no auto-link is minted.
 
         manifest.modified = Date()
         try await saveManifest()
