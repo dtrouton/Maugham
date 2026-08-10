@@ -269,9 +269,41 @@ struct BinderTreeSections: View {
         }
     }
 
+    /// **The target is the frame, not the glyph** (Denver's smoke, 2026-08-10).
+    ///
+    /// A bare `Image` inside a `Button(.plain)` hit-tests the box it draws in and
+    /// nothing more. Measured on this SDK with real mouse events through a
+    /// mounted tree: the live region was **13×10pt in the middle of a 19pt header
+    /// row**, so a click on the icon's own top or bottom edge did nothing at all
+    /// — not the door, and not the section's own disclosure either; the header's
+    /// `.contentShape(Rectangle())` swallowed it. The writer's reading was that
+    /// only the icon's top half worked.
+    ///
+    /// **Not a regression from the `isExpanded:` conversion**, which is where it
+    /// was first looked for: a plain `Section` header carrying the identical
+    /// button measures the identical 10pt band (`PaletteWallDoorHitAreaTests`'
+    /// control). The door has always been this small; stage 3a only changed what
+    /// was around it.
+    ///
+    /// **21×15 is the `+` menu's own size**, read off the mounted window rather
+    /// than chosen: `SwiftUI.Menu` mounts a real `SwiftUIPopupButton` `NSView`
+    /// that is live across its whole frame, which is why the `+` beside this
+    /// button never had the defect. Matching it makes the row's two accessories
+    /// one size, and leaves the header's height exactly where it was.
+    ///
+    /// It is a match rather than a ceiling, and the difference was measured: the
+    /// 19pt header row absorbs a 19pt child without moving, and only grows at
+    /// around 30. So there is real headroom here if the door ever wants more —
+    /// what there is no headroom for is the two accessories disagreeing, since
+    /// they sit a few points apart on one row in every tree in the app.
+    ///
+    /// `.contentShape` is the half that does the work: without it the frame is
+    /// layout only and the glyph is still all that answers a click.
     private var openWallButton: some View {
         Button(action: onOpenPaletteWall) {
             Image(systemName: "rectangle.grid.2x2")
+                .frame(width: 21, height: 15)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!canOpenPaletteWall)
