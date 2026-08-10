@@ -65,41 +65,53 @@ struct BinderTreeSections: View {
     // MARK: - Research
 
     private var researchSection: some View {
-        // **`isExpanded:` since stage-3a Task 4** — see
-        // `BinderTreeSectionsState.researchSectionExpanded`. What the writer
-        // clicks is unchanged; what is new is that the reveal can open a section
-        // the writer closed, which is what made **Open** and **Show** able to
-        // point at a row nothing was drawing.
-        Section(isExpanded: $state.researchSectionExpanded) {
-            let roots = TreeSectionDerivation.sharedResearchRoots(
-                research: store.manifest.research,
-                projectType: store.manifest.type)
-            if roots.isEmpty {
-                placeholder("No research yet.", onDrop: { ids in
-                    sharedSectionDrop(ids)
-                }, onExternalDrop: { providers in
-                    sharedSectionExternalDrop(providers)
-                })
-            } else {
-                ForEach(roots) { item in
-                    ResearchTreeNode(
-                        item: item,
-                        renamingItemId: $state.renamingItemId,
-                        findParentId: { findParentId(of: $0) },
-                        actions: actions,
-                        // The one difference from the old panes: their `List`s
-                        // select over `Set<String>` and tag bare ids; the tree's
-                        // selection is the WINDOW's subject.
-                        tagFor: { BinderSubject.research($0.id) },
-                        // The section's groups open out of the shared state, so
-                        // `reveal` can open the ones between a revealed item and
-                        // the root. The piece folds pass nothing and keep
-                        // SwiftUI's own — see `ResearchTreeNode.expandedGroups`.
-                        expandedGroups: $state.expandedResearchGroups)
+        // **A plain `Section` whose rows read the flag** (Denver's smoke,
+        // 2026-08-10), rather than stage-3a Task 4's `isExpanded:` binding — see
+        // `sectionChevron` for the whole argument. The flag itself is untouched:
+        // `reveal`, ⌘⌥R and the writer's click all still write
+        // `state.researchSectionExpanded`, and the only change is that this
+        // `if` reads it instead of SwiftUI.
+        //
+        // **A section whose content builder produces nothing keeps its header
+        // row** — measured on this SDK before the conversion, because the
+        // chevron that reopens the section lives in that header and a `Section`
+        // that vanished when it closed would trap the writer out of it. It is
+        // also the premise `ResearchSubjectRevealTests` already depends on: a
+        // closed Research section holding two notes draws `open - 2` rows, the
+        // header being the one that stays.
+        Section {
+            if state.researchSectionExpanded {
+                let roots = TreeSectionDerivation.sharedResearchRoots(
+                    research: store.manifest.research,
+                    projectType: store.manifest.type)
+                if roots.isEmpty {
+                    placeholder("No research yet.", onDrop: { ids in
+                        sharedSectionDrop(ids)
+                    }, onExternalDrop: { providers in
+                        sharedSectionExternalDrop(providers)
+                    })
+                } else {
+                    ForEach(roots) { item in
+                        ResearchTreeNode(
+                            item: item,
+                            renamingItemId: $state.renamingItemId,
+                            findParentId: { findParentId(of: $0) },
+                            actions: actions,
+                            // The one difference from the old panes: their
+                            // `List`s select over `Set<String>` and tag bare
+                            // ids; the tree's selection is the WINDOW's subject.
+                            tagFor: { BinderSubject.research($0.id) },
+                            // The section's groups open out of the shared state,
+                            // so `reveal` can open the ones between a revealed
+                            // item and the root. The piece folds pass nothing
+                            // and keep SwiftUI's own — see
+                            // `ResearchTreeNode.expandedGroups`.
+                            expandedGroups: $state.expandedResearchGroups)
+                    }
                 }
             }
         } header: {
-            sectionHeader("Research") {
+            sectionHeader("Research", isExpanded: $state.researchSectionExpanded) {
                 Button("New Note") { actions.newNote(nil) }
                 Button("New Group") { actions.newGroup(nil) }
                 Button("Add File…") { actions.addFile(nil) }
@@ -143,42 +155,46 @@ struct BinderTreeSections: View {
     /// `.binderTreeSections(store:state:selectedSubject:)` — tripwire 4: a row
     /// that reads its own card off disk turns a binder click into N file reads.
     private var paletteSection: some View {
-        // Its twin above carries why this takes a binding.
-        Section(isExpanded: $state.paletteSectionExpanded) {
-            if state.cards.isEmpty {
-                // The palette's placeholder refuses: a card is MADE (the
-                // header's `+` menu), never dragged into being, and the
-                // section's rows are not drop targets either.
-                placeholder("No cards yet.", onDrop: { ids in
-                    refuseDrop("palette placeholder", payload: ids.first,
-                               reason: .notAResearchTarget)
-                }, onExternalDrop: { _ in
-                    // A card is MADE, from the header's `+` menu — and that
-                    // goes for a Finder file too: a dropped image is research,
-                    // and a card is a written thing with an image on it.
-                    refuseDrop("palette placeholder", payload: nil,
-                               reason: .notAResearchTarget)
-                })
-            } else {
-                ForEach(state.cards) { card in
-                    Label(card.title,
-                          systemImage: PaletteCardTile.kindSymbol(for: card.kind))
-                        .tag(BinderSubject.research(card.id))
-                        .contentShape(Rectangle())
-                        // **A card is dragged by its BARE id** (final review's
-                        // I2). That is the canvas's own drop contract — the
-                        // canvas reads a research id and derives its node id
-                        // from it — and it is what `ResearchRow` sends, so a
-                        // card and a note are the same payload to every reader.
-                        // The Inbox's prefixed payload is the exception and
-                        // says so at its own site.
-                        .draggable(card.id) {
-                            Text(card.title)
-                                .padding(6)
-                                .background(.regularMaterial,
-                                            in: RoundedRectangle(cornerRadius: 4))
-                        }
-                        .contextMenu { paletteRowMenu(for: card) }
+        // Its twin above carries why this is a plain `Section` reading the flag.
+        Section {
+            if state.paletteSectionExpanded {
+                if state.cards.isEmpty {
+                    // The palette's placeholder refuses: a card is MADE (the
+                    // header's `+` menu), never dragged into being, and the
+                    // section's rows are not drop targets either.
+                    placeholder("No cards yet.", onDrop: { ids in
+                        refuseDrop("palette placeholder", payload: ids.first,
+                                   reason: .notAResearchTarget)
+                    }, onExternalDrop: { _ in
+                        // A card is MADE, from the header's `+` menu — and that
+                        // goes for a Finder file too: a dropped image is
+                        // research, and a card is a written thing with an image
+                        // on it.
+                        refuseDrop("palette placeholder", payload: nil,
+                                   reason: .notAResearchTarget)
+                    })
+                } else {
+                    ForEach(state.cards) { card in
+                        Label(card.title,
+                              systemImage: PaletteCardTile.kindSymbol(for: card.kind))
+                            .tag(BinderSubject.research(card.id))
+                            .contentShape(Rectangle())
+                            // **A card is dragged by its BARE id** (final
+                            // review's I2). That is the canvas's own drop
+                            // contract — the canvas reads a research id and
+                            // derives its node id from it — and it is what
+                            // `ResearchRow` sends, so a card and a note are the
+                            // same payload to every reader. The Inbox's prefixed
+                            // payload is the exception and says so at its own
+                            // site.
+                            .draggable(card.id) {
+                                Text(card.title)
+                                    .padding(6)
+                                    .background(.regularMaterial,
+                                                in: RoundedRectangle(cornerRadius: 4))
+                            }
+                            .contextMenu { paletteRowMenu(for: card) }
+                    }
                 }
             }
         } header: {
@@ -252,6 +268,8 @@ struct BinderTreeSections: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            sectionChevron(store.paletteGroupDisplayTitle,
+                           isExpanded: $state.paletteSectionExpanded)
         }
         .contentShape(Rectangle())
         .contextMenu {
@@ -279,11 +297,14 @@ struct BinderTreeSections: View {
     /// `.contentShape(Rectangle())` swallowed it. The writer's reading was that
     /// only the icon's top half worked.
     ///
-    /// **Not a regression from the `isExpanded:` conversion**, which is where it
-    /// was first looked for: a plain `Section` header carrying the identical
-    /// button measures the identical 10pt band (`PaletteWallDoorHitAreaTests`'
-    /// control). The door has always been this small; stage 3a only changed what
-    /// was around it.
+    /// **Not a regression from stage-3a's `isExpanded:` conversion**, which is
+    /// where it was first looked for: a plain `Section` header carrying the
+    /// identical button measures the identical 10pt band
+    /// (`PaletteWallDoorHitAreaTests`' control). The door had always been this
+    /// small; the conversion only changed what was around it. (Both `Section`s
+    /// have since gone back to plain for an unrelated reason — see
+    /// `sectionChevron` — so that control now compares production's own shape
+    /// against the one it replaced, and its finding is unchanged either way.)
     ///
     /// **21×15 is the `+` menu's own size**, read off the mounted window rather
     /// than chosen: `SwiftUI.Menu` mounts a real `SwiftUIPopupButton` `NSView`
@@ -325,7 +346,8 @@ struct BinderTreeSections: View {
     /// the binder's root menu and offers *New Document* under a heading that
     /// says Research.
     private func sectionHeader<Menu: View>(
-        _ title: String, @ViewBuilder menu: @escaping () -> Menu
+        _ title: String, isExpanded: Binding<Bool>,
+        @ViewBuilder menu: @escaping () -> Menu
     ) -> some View {
         HStack {
             Text(title)
@@ -336,9 +358,64 @@ struct BinderTreeSections: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            sectionChevron(title, isExpanded: isExpanded)
         }
         .contentShape(Rectangle())
         .contextMenu(menuItems: menu)
+    }
+
+    /// **The section's disclosure triangle, drawn rather than the system's**
+    /// (Denver's smoke, 2026-08-10 — the second finding in this header, after
+    /// the wall's door).
+    ///
+    /// What he reported: the affordance appears only on mouse-over, and when it
+    /// materialises it shoves the `+` and Open Wall icons left. Both halves
+    /// belong to `Section(isExpanded:)` under `.listStyle(.sidebar)`, which
+    /// mounts a hover-revealed `NSButton` of its own — measured at
+    /// `(295, y, 15, 19)` on this SDK, a sibling in front of the header's
+    /// `NSHostingView` — and takes its width out of the trailing group when it
+    /// arrives. **There is no API to make that chevron permanent**, so the fix
+    /// is to stop the system drawing one at all: the two `Section`s go back to
+    /// plain, their rows read the flag through an `if`, and this is the
+    /// triangle. `SectionChevronTests` asserts no `NSButton` survives in either
+    /// header, which is what keeps the two from ever being drawn at once.
+    ///
+    /// **Unconditional is the whole point.** A control that is only sometimes
+    /// there is a control that moves its neighbours when it arrives; this one is
+    /// in the `HStack` in every state, so the accessories beside it cannot
+    /// shift. That is the property the test pins — an open→closed→open cycle
+    /// with the `+` and the door at the same x throughout — because a hover is
+    /// not synthesisable (`NSTrackingArea` wants the window server to move a
+    /// real pointer) while the layout consequence of one is.
+    ///
+    /// **Trailing, where the system put its own**, and not in the outline gutter
+    /// where every group ROW's triangle sits (`BinderTreeIndentationTests`
+    /// measures those at x=12). A header is a `ListTableHeaderView` rather than
+    /// an outline row, so it has no gutter to sit in and a hand-drawn leading
+    /// chevron would line up with nothing. The cost is real and recorded: the
+    /// section headers now disclose from the opposite edge to the groups beneath
+    /// them.
+    ///
+    /// The frame and content shape are the door's own lesson one control over —
+    /// a bare `Image` in a `Button(.plain)` hit-tests the box it draws in and
+    /// nothing more. See `openWallButton`.
+    private func sectionChevron(_ title: String,
+                                isExpanded: Binding<Bool>) -> some View {
+        Button {
+            isExpanded.wrappedValue.toggle()
+        } label: {
+            Image(systemName: "chevron.right")
+                .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
+                .frame(width: 21, height: 15)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(isExpanded.wrappedValue ? "Collapse \(title)" : "Expand \(title)")
+        // Never "Open Wall": `PaletteWallDoorTests` finds the door in the
+        // accessibility tree by that exact label, and this button shares its
+        // header.
+        .accessibilityLabel(isExpanded.wrappedValue
+                            ? "Collapse \(title)" : "Expand \(title)")
     }
 
     /// The one row an empty section shows.

@@ -22,8 +22,13 @@ import MaughamCore
 /// both section headers, and the door demonstrably worked in the 2b smoke). A
 /// plain `Section` header carrying an identical `Button(.plain) { Image(…) }`
 /// measures the identical 10pt band — see
-/// `test_control_aPlainSectionHeaderMeasuresTheSameLiveRegion`. The door has
+/// `test_control_aPlainSectionHeaderMeasuresTheSameLiveRegion`. The door had
 /// always been this small.
+///
+/// Both `Section`s went back to plain shortly afterwards, for a reason that has
+/// nothing to do with hit geometry (`SectionChevronTests` — the hover-revealed
+/// chevron). That control therefore now measures production's own shape beside
+/// the one it replaced, and reports the same thing about both.
 ///
 /// **Why this suite drives real mouse events rather than `NSView.hitTest`.** The
 /// brief asked for hit-testing, and the attempt is recorded here so the next
@@ -250,8 +255,8 @@ final class PaletteWallDoorHitAreaTests: XCTestCase {
             + "a collapsible one's over \(collapsible.length)pt. They matched when "
             + "this was written, which is what cleared the `isExpanded:` "
             + "conversion of causing the door's dead band — if they have come "
-            + "apart, the conversion HAS grown a hit-geometry cost and "
-            + "`openWallButton`'s doc comment is now wrong")
+            + "apart, the two shapes DO differ in hit geometry and both "
+            + "`openWallButton`'s doc comment and this suite's are now wrong")
     }
 
     // MARK: - Driving
@@ -272,18 +277,46 @@ final class PaletteWallDoorHitAreaTests: XCTestCase {
         let header: CGRect
     }
 
+    /// **Which button in which header is the door.**
+    ///
+    /// It used to be "the window's first focus ring", which was true only while
+    /// the Palette header held the tree's one `Button`. Since the section
+    /// chevrons landed (`SectionChevronTests`) every header holds one, and the
+    /// first ring in view order is the RESEARCH chevron — so this silently
+    /// measured the wrong control and both sweeps went red. Recorded rather than
+    /// quietly repaired, because it is the same lesson
+    /// `BinderTreeMultiselectMountTests` writes down about row indices: a
+    /// fixture that identifies its subject by position goes wrong the next time
+    /// the furniture grows.
+    ///
+    /// The discriminator is structural instead. Palette is the header carrying
+    /// TWO buttons — the door and its chevron — where Research carries only a
+    /// chevron; and within it the door is the leftmost, the chevron being at the
+    /// trailing edge. Both halves are asserted below rather than assumed.
     private func doorGeometry(in window: NSWindow) throws -> Door {
         let content = try XCTUnwrap(window.contentView)
-        let ring = try XCTUnwrap(
-            views(in: window).first {
-                String(describing: type(of: $0)).contains("FocusRing")
-            },
-            "no focus ring mounted, so the Palette header's `Button` left no "
-            + "`NSView` trace to read its frame from. Views: "
-            + "\(views(in: window).map { String(describing: type(of: $0)) })")
-        // The header this button is in — the Research header carries a menu too,
-        // and measuring the door against the wrong one would be measuring
-        // nothing.
+        let headers = views(in: window).filter {
+            String(describing: type(of: $0)).contains("ListTableHeaderView")
+        }
+        try XCTSkipUnless(headers.count == 2,
+                          "this display mounted \(headers.count) section headers")
+        let ringsByHeader = headers.map { header in
+            descendants(of: header)
+                .filter { String(describing: type(of: $0)).contains("FocusRing") }
+                .sorted { $0.convert($0.bounds, to: content).minX
+                          < $1.convert($1.bounds, to: content).minX }
+        }
+        // A claim about what production builds, so it fails rather than skips.
+        XCTAssertEqual(
+            ringsByHeader.map(\.count).sorted(), [1, 2],
+            "the tree's two section headers mounted "
+            + "\(ringsByHeader.map(\.count)) buttons. Palette should carry the "
+            + "door AND its chevron, Research its chevron alone — without that "
+            + "asymmetry there is nothing here to tell the two headers apart, "
+            + "and every measurement below would be about an arbitrary one")
+        let palette = try XCTUnwrap(ringsByHeader.max(by: { $0.count < $1.count }))
+        let ring = try XCTUnwrap(palette.first,
+                                 "the Palette header mounted no button at all")
         var header: NSView? = ring.superview
         while let candidate = header,
               !String(describing: type(of: candidate)).contains("ListTableHeaderView") {
