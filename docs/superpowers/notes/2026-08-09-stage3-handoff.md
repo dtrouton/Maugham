@@ -145,6 +145,12 @@ all-red gate learning that).
 
 ## Denver's smoke — the consolidated LIVE list (2a+2b union, post-fix-wave)
 
+**2026-08-10: DONE.** Denver marked this list, the second draft's 7-item
+full-loop smoke, and the M2-era remainders all complete; v0.27.0 +
+phone-v0.8.0 released the same day. No smoke debt carries into stage 3.
+The two parked DECISIONS (assistant column scope; strip freshness) remain
+open — they were never smoke items.
+
 **Tree & subject** — click through Pieces/Research/Palette rows in every
 persona; a collection piece's fold (contained, nested groups expand) vs a
 novel chapter's fold (linked, flat, read-only rows); drag the SELECTED note
@@ -182,6 +188,6 @@ is the project; the tree's blank space takes no drops (targets are rows,
 headers, placeholders); in Plan a selected research item's preview replaces
 the region inspector until the subject clears.
 
-**Plus the standing older lists, unchanged and still owed**: the second
-draft's 7-item full-loop smoke (its handoff, top section) and the M2-era
-remainders (same file, "Standing items").
+**Plus the standing older lists**: the second draft's 7-item full-loop
+smoke (its handoff, top section) and the M2-era remainders (same file,
+"Standing items") — **both marked done 2026-08-10 with the list above.**
