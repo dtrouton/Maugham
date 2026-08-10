@@ -416,6 +416,243 @@ final class ProjectAltitudeCentreTests: XCTestCase {
                       "…nor did the editor open on a piece it cannot resolve")
     }
 
+    // MARK: - Mounted: the click that opens the chapter
+
+    /// **The gesture the altitude view exists for: click a card, that chapter
+    /// opens.**
+    ///
+    /// The click-writer is not new — `CorkboardGrid`'s card has been a
+    /// `Button(.plain)` writing `.item(id)` into the binding since the pane was
+    /// a right-hand one. What is new is where that write LANDS: from the right
+    /// column it moved a selection some other column had to act on, and from the
+    /// centre it swaps the centre column's own contents, because altitude and
+    /// the editor are two layers of one arm (Task 2). So this test is not about
+    /// the button — it is about the arm, and it reads the outcome the way the
+    /// writer does: the words of that chapter, in the editor, where the
+    /// corkboard was.
+    ///
+    /// **A real click, not `selectedSubject = …`.** Writing the binding from the
+    /// test would prove the arm swaps and nothing about whether a mouse can
+    /// reach the card at all — the card is inside a `LazyVGrid` inside a
+    /// `ScrollView`, and `Button(.plain)`'s hit region is its own question.
+    ///
+    /// The SECOND card on purpose: the first is what a window that ignored the
+    /// click and simply opened something would show.
+    func test_clickingACorkboardCardOpensThatChapterInTheHostThatWasAlreadyUp() async throws {
+        let store = try await novel()
+        let documents = Self.documents(in: store)
+        let wanted = try XCTUnwrap(documents.last, "fixture: two chapters")
+        let other = try XCTUnwrap(documents.first)
+        let mount = try await host(store: store, subject: .project, layout: .cards)
+
+        await pumpUntil(deadline: 5) { self.cards(in: mount.window).count == documents.count }
+        let deck = cards(in: mount.window)
+        // The premise, read off the window this display actually granted: the
+        // grid is adaptive, and a column too narrow for two cards stacks them
+        // — which is still fine — but a display that mounted no cards at all
+        // cannot be asked whether clicking one opens a chapter.
+        try XCTSkipUnless(
+            deck.count == documents.count && deck.allSatisfy { $0.bounds.width > 1 },
+            "this display mounted \(deck.count) cards of "
+            + "\(deck.map(\.bounds.size)) for \(documents.count) chapters")
+        XCTAssertEqual(mount.hostLife.appearances, 1, "premise: the host is up")
+
+        await click(try XCTUnwrap(deck.last), in: mount.window) {
+            self.probeOpenedText(in: mount.window) != nil
+        }
+
+        XCTAssertEqual(mount.probe.subject, .item(wanted.id),
+                       "the card's own button writes the window's subject")
+        let opened = try XCTUnwrap(
+            probeOpenedText(in: mount.window),
+            "no editor opened at all — the click reached the subject but the "
+            + "centre column did not swap. Views: \(viewNames(in: mount.window))")
+        XCTAssertTrue(opened.contains(wanted.title),
+                      "the editor is showing \"\(opened)\", which is not "
+                      + "\(wanted.title)'s only sentence")
+        XCTAssertFalse(opened.contains(other.title),
+                       "…and it is not the other chapter, which is what a "
+                       + "centre that opened something of its own would show")
+        XCTAssertTrue(cards(in: mount.window).isEmpty,
+                      "the corkboard is gone rather than sitting over the text")
+        XCTAssertEqual(
+            mount.hostLife.disappearances, 0,
+            "and the chapter opened in the host that was ALREADY mounted — a "
+            + "teardown here is `doc.close()`, `unregister(path:)` and "
+            + "`loads.abandon()` on the writer's commonest gesture")
+        XCTAssertEqual(mount.hostLife.appearances, 1, "…never re-mounted either")
+    }
+
+    /// **The same gesture in the table layout**, which reaches the subject by a
+    /// different road: `OutlineTable` has no button, and the write is
+    /// `Table(selection:)`'s own, back through the `Binding<String?>`
+    /// projection.
+    ///
+    /// **Two instruments, because the row is out of the synthetic mouse's
+    /// reach and the card is not.** The centre of a row hit-tests to
+    /// `_NSTableRowSeparatorDrawingView`, whose `acceptsFirstMouse` is `false`,
+    /// and a window in this test host never becomes key and never belongs to an
+    /// active app (measured here 2026-08-10, and the same fact
+    /// `StatementMountFixture` records from 2026-08-01) — so AppKit reads the
+    /// synthetic `leftMouseDown` as a click that activates a window rather than
+    /// one that selects a row, and drops it. Measured in all four spellings:
+    /// through `sendEvent`, with the `mouseUp` pre-posted for the table's
+    /// tracking loop, after `NSApp.activate` + `makeKeyAndOrderFront`, and sent
+    /// straight to the table. All four leave `selectedRow` at -1. The corkboard
+    /// test above is not subject to this — SwiftUI's own hit-testing does not
+    /// consult first-mouse — which is why the real click lives there and is the
+    /// proof that the altitude overlay can be clicked at all.
+    ///
+    /// So the row is driven the way the OS would drive it once the click had
+    /// landed, and the hit test is asserted separately: the centre of the row
+    /// belongs to the altitude table, not to the editor mounted underneath it
+    /// in the same `ZStack`. What is left unpinnable in this host is only the
+    /// step between those two.
+    func test_clickingAnOutlineRowOpensThatChapterInTheHostThatWasAlreadyUp() async throws {
+        let store = try await novel()
+        let documents = Self.documents(in: store)
+        let wanted = try XCTUnwrap(documents.last, "fixture: two chapters")
+        let other = try XCTUnwrap(documents.first)
+        let mount = try await host(store: store, subject: .project, layout: .table)
+
+        await pumpUntil(deadline: 5) { self.altitudeTable(in: mount.window) != nil }
+        let table = try XCTUnwrap(altitudeTable(in: mount.window))
+        let row = documents.count - 1
+        let rect = table.rect(ofRow: row)
+        try XCTSkipUnless(
+            table.numberOfRows == documents.count && rect.height > 1,
+            "this display mounted \(table.numberOfRows) rows of \(rect.size) "
+            + "for \(documents.count) chapters")
+        XCTAssertEqual(mount.hostLife.appearances, 1, "premise: the host is up")
+
+        let content = try XCTUnwrap(mount.window.contentView)
+        let centre = CGPoint(x: rect.midX, y: rect.midY)
+        let hit = try XCTUnwrap(content.hitTest(content.convert(centre, from: table)),
+                                "nothing at all at the middle of the row")
+        XCTAssertTrue(
+            hit === table || hit.isDescendant(of: table),
+            "the middle of the row hit-tests to \(type(of: hit)), which is not "
+            + "part of the outline — a mouse aimed at this row would be landing "
+            + "on whatever is in front of it")
+
+        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        await pumpUntil(deadline: 5) { self.probeOpenedText(in: mount.window) != nil }
+
+        XCTAssertEqual(mount.probe.subject, .item(wanted.id),
+                       "the row's selection writes back through the projection")
+        let opened = try XCTUnwrap(
+            probeOpenedText(in: mount.window),
+            "no editor opened at all. Views: \(viewNames(in: mount.window))")
+        XCTAssertTrue(opened.contains(wanted.title),
+                      "the editor is showing \"\(opened)\"")
+        XCTAssertFalse(opened.contains(other.title),
+                       "…and not the other chapter")
+        XCTAssertNil(altitudeTable(in: mount.window),
+                     "the outline is gone rather than sitting over the text")
+        XCTAssertEqual(mount.hostLife.disappearances, 0,
+                       "and the host was never torn down")
+        XCTAssertEqual(mount.hostLife.appearances, 1)
+    }
+
+    /// **Review and Publish open the chapter from the same click.** They show
+    /// the same altitude (the test above), so they inherit the same way out of
+    /// it — and today the thing on the other side of the click is the editor in
+    /// each of them, because Review's overview is M3's and Publish's preview is
+    /// stage 3b's. Asserted rather than assumed: a persona that took some other
+    /// arm below the click would leave the writer on a card that does nothing.
+    func test_reviewAndPublishOpenTheChapterFromTheSameCardClick() async throws {
+        for persona in Self.manuscriptPersonas where persona != .author {
+            let store = try await novel()
+            let documents = Self.documents(in: store)
+            let wanted = try XCTUnwrap(documents.last)
+            let mount = try await host(store: store, persona: persona,
+                                       subject: .project, layout: .cards)
+
+            await pumpUntil(deadline: 5) { self.cards(in: mount.window).count == documents.count }
+            let deck = cards(in: mount.window)
+            try XCTSkipUnless(
+                deck.count == documents.count && deck.allSatisfy { $0.bounds.width > 1 },
+                "\(persona): this display mounted \(deck.count) cards")
+
+            await click(try XCTUnwrap(deck.last), in: mount.window) {
+                self.probeOpenedText(in: mount.window) != nil
+            }
+
+            XCTAssertEqual(mount.probe.subject, .item(wanted.id),
+                           "\(persona): the card writes the window's subject")
+            let opened = try XCTUnwrap(
+                probeOpenedText(in: mount.window),
+                "\(persona): the click landed on the subject but the centre "
+                + "column opened nothing. Views: \(viewNames(in: mount.window))")
+            XCTAssertTrue(opened.contains(wanted.title),
+                          "\(persona): the editor is showing \"\(opened)\"")
+            // Not redundant: the host is mounted UNDERNEATH the overlay, so it
+            // opens the document either way. Without this, a persona whose
+            // altitude never came down would pass — measured, by planting
+            // exactly that in `subjectShowsAltitude` and watching this test stay
+            // green while the two above went red.
+            XCTAssertTrue(cards(in: mount.window).isEmpty,
+                          "\(persona): the corkboard is still covering the "
+                          + "chapter it just opened")
+        }
+    }
+
+    // MARK: - Mounted: opening altitude costs the writer nothing
+
+    /// **Arriving at altitude must not clear the subject that summoned it** —
+    /// the table layout, where the risk lives.
+    ///
+    /// `OutlineTable.rowSelection` is a `Binding<String?>` projection of the
+    /// window's `Binding<BinderSubject?>`, and it is a LOSSY one in the
+    /// direction that matters: SwiftUI's `Table(selection:)` is hard-bound to
+    /// `Value.ID`, so nothing typed can be handed to it, and a project subject
+    /// reads out of the projection as `nil` — correctly, since the project is
+    /// not one of the table's rows. The question this pins is whether the
+    /// `Table` then writes that `nil` BACK, answering *"which of my rows is
+    /// that?"* by deleting the question.
+    ///
+    /// **The premise re-derived for stage 3a.** This was pinned against the
+    /// right-hand Outline pane (`ProjectSubjectReachesThePanesTests`), where a
+    /// cleared subject was a pane losing the window's selection. From the CENTRE
+    /// it is sharper: the project subject is the very thing that PUT altitude on
+    /// screen (`subjectShowsAltitude`), so a write-back of `nil` is a surface
+    /// that dismisses itself the moment it appears — the writer clicks the
+    /// project row, the corkboard flashes, and the centre falls back to *"Select
+    /// a document."* Hence the mount here is the centre column's own, and the
+    /// assertion is that BOTH the subject and the altitude view survive.
+    ///
+    /// Fixed window on purpose: this asserts that nothing happens, and there is
+    /// no condition whose arrival could end the wait early.
+    func test_openingAltitudeDoesNotClearTheProjectSubjectInTheTableLayout() async throws {
+        let store = try await novel()
+        let mount = try await host(store: store, subject: .project, layout: .table)
+
+        await waitOut(0.6)
+
+        XCTAssertEqual(mount.probe.subject, .project,
+                       "the outline answered \"which of my rows is the "
+                       + "project?\" by clearing the window's subject — and "
+                       + "that subject is what put it on screen")
+        XCTAssertNotNil(altitudeTable(in: mount.window),
+                        "…so altitude is still up rather than having dismissed "
+                        + "itself onto the editor's placeholder")
+    }
+
+    /// The corkboard layout, same question and the control for the one above:
+    /// it writes only from a card's own button, so nothing should move while
+    /// nobody clicks. A failure HERE would mean the write-back is not the
+    /// `Table` projection at all.
+    func test_openingAltitudeDoesNotClearTheProjectSubjectInTheCorkboardLayout() async throws {
+        let store = try await novel()
+        let mount = try await host(store: store, subject: .project, layout: .cards)
+
+        await waitOut(0.6)
+
+        XCTAssertEqual(mount.probe.subject, .project)
+        XCTAssertFalse(cards(in: mount.window).isEmpty,
+                       "…and the corkboard is still up")
+    }
+
     // MARK: - Hosting
 
     private struct Mount {
@@ -435,6 +672,7 @@ final class ProjectAltitudeCentreTests: XCTestCase {
     private func host(store: ProjectStore,
                       persona: Persona = .author,
                       subject: BinderSubject? = nil,
+                      layout: OutlineLayout = .table,
                       shape: AltitudeCentreProbeView.Shape = .layered)
     async throws -> Mount {
         let documentStore = try await DocumentStore.open(url: store.url)
@@ -452,7 +690,7 @@ final class ProjectAltitudeCentreTests: XCTestCase {
         let preferences = UserPreferences(defaults: UserDefaults(suiteName: suite)!)
         let root = AltitudeCentreProbeView(
             store: store, documentStore: documentStore, persona: persona,
-            probe: probe, shape: shape, hostLife: life,
+            probe: probe, layout: layout, shape: shape, hostLife: life,
             canvasModel: CanvasModel())
             .environment(preferences)
 
@@ -479,6 +717,68 @@ final class ProjectAltitudeCentreTests: XCTestCase {
 
     private func textViews(in window: NSWindow) -> [MaughamTextView] {
         collect(MaughamTextView.self, in: window)
+    }
+
+    /// What the editor is actually showing, or nil while it is showing nothing.
+    /// A `MaughamTextView` exists only while a document is open, so this is both
+    /// *"the editor opened"* and *"…on these words"* in one reading.
+    private func probeOpenedText(in window: NSWindow) -> String? {
+        guard let view = textViews(in: window).first else { return nil }
+        return view.string.isEmpty ? nil : view.string
+    }
+
+    /// The corkboard's cards, in the order the grid lays them out.
+    ///
+    /// A `Button(.plain)` mounts no `NSButton` on this SDK; what it leaves is one
+    /// focus-ring container at exactly the card's own frame (measured for this
+    /// SDK — two cards, 210×140 each, at the grid's own origins). Sorted by the
+    /// frame each one GOT rather than by subview order, so "the second card" is
+    /// the second one a writer reads, whatever the adaptive grid did with the
+    /// width this display granted.
+    private func cards(in window: NSWindow) -> [NSView] {
+        guard let content = window.contentView else { return [] }
+        var placed: [(view: NSView, frame: CGRect)] = []
+        for ring in focusRings(in: window) {
+            placed.append((ring, ring.convert(ring.bounds, to: content)))
+        }
+        placed.sort { a, b in
+            if a.frame.minY != b.frame.minY { return a.frame.minY < b.frame.minY }
+            return a.frame.minX < b.frame.minX
+        }
+        return placed.map(\.view)
+    }
+
+    /// A real click at the centre of a view: down and up, through the window, so
+    /// the `Button` in the card gets its chance exactly as it does under a mouse.
+    /// Writing the binding from the test would prove nothing about whether the
+    /// card can be reached at all.
+    ///
+    /// `until` is the thing the caller's next assertion reads, so the wait costs
+    /// what the click really takes rather than its worst case.
+    private func click(_ view: NSView, in window: NSWindow,
+                       until settled: (() -> Bool)? = nil) async {
+        let centre = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+        await click(at: view.convert(centre, to: nil), in: window, until: settled)
+    }
+
+    private func click(at inWindow: CGPoint, in window: NSWindow,
+                       until settled: (() -> Bool)? = nil) async {
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            if let event = NSEvent.mouseEvent(
+                with: type, location: inWindow, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1,
+                pressure: type == .leftMouseDown ? 1 : 0) {
+                window.sendEvent(event)
+            }
+            pump(0.05)
+        }
+        if let settled {
+            await pumpUntil(deadline: 5, settled)
+        } else {
+            await waitOut(0.4)
+        }
     }
 
     private func canvasViews(in window: NSWindow) -> [CanvasEventNSView] {
@@ -519,8 +819,34 @@ final class ProjectAltitudeCentreTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         _ = try await store.addStructureItem(
             parentId: nil, title: "Chapter Two", kind: .document(extension: "md"))
+        try Self.seedOneSentencePerDocument(in: store)
         await store.wordCountPopulationTask?.value
         return store
+    }
+
+    /// Gives every chapter a sentence no other chapter contains, so *"the editor
+    /// opened THAT document"* is readable off the mounted text view rather than
+    /// inferred from the subject the click wrote.
+    ///
+    /// Written straight to the `.md` before anything opens it: a project this
+    /// fresh has no op log, so `Bootstrap` mints one from this text on the first
+    /// load (ADR 0018's *derived* direction — nothing here reads a `.md` back).
+    private static func seedOneSentencePerDocument(in store: ProjectStore) throws {
+        for item in TreeWalk.collect(in: store.manifest.structure,
+                                     where: { $0.type == .document }) {
+            guard let path = item.path else { continue }
+            try marker(for: item).write(
+                to: store.url.appendingPathComponent(path),
+                atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// The one sentence that identifies a document. Its title, so a failure
+    /// message reads as a chapter rather than as a UUID — the fixture's two
+    /// titles share no substring, and the click tests assert the OTHER
+    /// chapter's title is absent as well as their own being present.
+    private static func marker(for item: StructureItem) -> String {
+        "The chapter titled \(item.title), and nothing else at all.\n"
     }
 
     /// A Collection holding one reference piece the project cannot resolve — the
@@ -550,8 +876,14 @@ final class ProjectAltitudeCentreTests: XCTestCase {
             "fixture precondition: a novel opens with a chapter")
     }
 
+    /// The documents in the order the altitude view lists them — its rows and
+    /// its cards are the same walk, so this is the row/card index too.
+    private static func documents(in store: ProjectStore) -> [StructureItem] {
+        TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document })
+    }
+
     private static func documentCount(in store: ProjectStore) -> Int {
-        TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document }).count
+        documents(in: store).count
     }
 
     // MARK: - The shape of the mount
@@ -718,8 +1050,21 @@ private struct AltitudeCentreProbeView: View {
     let hostLife: EditorHostLifeCounter
     let canvasModel: CanvasModel
 
-    @State private var layout: OutlineLayout = .table
+    @State private var layout: OutlineLayout
     @State private var control = EditorControl()
+
+    init(store: ProjectStore, documentStore: DocumentStore, persona: Persona,
+         probe: BinderSubjectProbe, layout: OutlineLayout, shape: Shape,
+         hostLife: EditorHostLifeCounter, canvasModel: CanvasModel) {
+        self.store = store
+        self.documentStore = documentStore
+        self.persona = persona
+        self.probe = probe
+        self.shape = shape
+        self.hostLife = hostLife
+        self.canvasModel = canvasModel
+        _layout = State(initialValue: layout)
+    }
 
     private var subject: Binding<BinderSubject?> {
         Binding(get: { probe.subject }, set: { probe.subject = $0 })

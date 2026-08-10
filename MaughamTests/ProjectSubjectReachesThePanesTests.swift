@@ -20,6 +20,15 @@ import MaughamCore
 /// There is exactly one of those in a non-collection project: `OutlineTable`,
 /// whose `Table(selection:)` is hard-bound to `StructureItem.ID` and so hangs off
 /// a `String?` projection of the typed binding.
+///
+/// **Where the write-back half now lives.** Shell-finish stage 3a moved that
+/// table out of the right column and into the CENTRE, layered over the editor
+/// and summoned by the very subject the projection cannot represent — so
+/// *"opening it must not clear the project"* is no longer a pane keeping the
+/// window's selection but a surface not dismissing itself, and it is pinned
+/// against the centre mount in `ProjectAltitudeCentreTests`. What stays here is
+/// the way OUT, which is the same act wherever the pane hangs: a row selected
+/// is a document chosen.
 @MainActor
 final class ProjectSubjectReachesThePanesTests: XCTestCase {
 
@@ -36,35 +45,7 @@ final class ProjectSubjectReachesThePanesTests: XCTestCase {
         temp = nil
     }
 
-    /// Opening the Outline pane (⌘⌥O) while the subject is the project must not
-    /// cost the writer that subject. The pane's projection reads `nil` out of a
-    /// project subject — correctly, the project is not one of its rows — and the
-    /// question is whether the `Table` then writes that `nil` back.
-    func test_theOutlinePaneDoesNotClearTheProjectSubjectJustByOpening() async throws {
-        let store = try await novel(named: "Outline")
-        let probe = BinderSubjectProbe(.project)
-        _ = try await hostOutline(store: store, probe: probe, layout: .table)
-
-        // Fixed window: asserting nothing happens. The subject already holds the
-        // asserted value, so the window IS the test.
-        await waitOut(0.6)
-        XCTAssertEqual(probe.subject, .project,
-                       "the Outline pane must not answer \"which of my rows is "
-                       + "that?\" by clearing the window's subject")
-    }
-
-    /// The corkboard layout, same question. It writes only from its own button.
-    func test_theCorkboardDoesNotClearTheProjectSubjectJustByOpening() async throws {
-        let store = try await novel(named: "Corkboard")
-        let probe = BinderSubjectProbe(.project)
-        _ = try await hostOutline(store: store, probe: probe, layout: .cards)
-
-        // Fixed window: asserting nothing happens.
-        await waitOut(0.6)
-        XCTAssertEqual(probe.subject, .project)
-    }
-
-    /// And the way out still works: selecting a row in the outline replaces the
+    /// The way out: selecting a row in the outline replaces the
     /// project subject with that document, through the projection's setter.
     func test_selectingInTheOutlineTakesTheSubjectOffTheProject() async throws {
         let store = try await novel(named: "OutlinePick")
