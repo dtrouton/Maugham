@@ -1,25 +1,25 @@
-# Inspector, Research & Outline
+# The Right Column
 
-The right column's modes are Inspector, Research, and Outline (covered on this page), plus Tasks, Annotations, History, Inbox, Palette, Translation, Intent, Visual Language, Diagnostics, and References (each covered elsewhere, or at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
+The right column's modes are Inspector (covered on this page), plus Tasks, Annotations, History, Inbox, Translation, Intent, Visual Language, Diagnostics, and References (each covered elsewhere, or at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
+
+**Outline, Research, and Palette are not right-column modes.** ⌘⌥O selects the project row, which shows a corkboard or table full-width in the CENTRE column instead of opening anything here — see [Structure & the Binder → The project row](structure-and-binder.md#the-project-row). ⌘⌥R and ⌘⌥P open the tree's own Research and Palette sections — see [Research](research.md) — rather than a pane in this column.
 
 ### Panes are grouped by persona
 
 Each of the four personas (⌘1 Plan, ⌘2 Author, ⌘3 Review, ⌘4 Publish — see [Getting Started → Personas](getting-started.md#personas)) offers its own subset of these modes in the picker. A shortcut still opens its pane from any persona — it reveals the right column if it's hidden and switches to it — even one the current persona doesn't lead with:
 
 - **Plan** — Inbox, Tasks, History, Inspector.
-- **Author** — Diagnostics, Research, Palette, Intent, References, Tasks, History, Inspector.
+- **Author** — Diagnostics, Intent, References, Tasks, History, Inspector.
 - **Review** — Annotations, Intent, References, Tasks, History, Inspector.
 - **Publish** — Visual Language, Tasks, Translation, History, Inspector.
 
-**There is one order, and modes appear and disappear within it.** Reading down the whole set: Diagnostics, Annotations, Inbox, Research, Palette, Intent, References, Visual Language, Tasks, Translation, History, Inspector. Every persona above is that same sequence with the modes it doesn't offer taken out — so a mode never moves left or right of a mode it sits beside somewhere else, and you aren't hunting for it in a new place each time you change persona. Tasks marks the break between what you're working *with* and what's flowing *through*; History and Inspector always close the row, with Inspector on the far end.
+**There is one order, and modes appear and disappear within it.** Reading down the whole set: Diagnostics, Annotations, Inbox, Intent, References, Visual Language, Tasks, Translation, History, Inspector. Every persona above is that same sequence with the modes it doesn't offer taken out — so a mode never moves left or right of a mode it sits beside somewhere else, and you aren't hunting for it in a new place each time you change persona. Tasks marks the break between what you're working *with* and what's flowing *through*; History and Inspector always close the row, with Inspector on the far end.
 
 Each persona's default — the mode it opens on — is just the first one it offers: Inbox in Plan, Diagnostics in Author, Annotations in Review, Visual Language in Publish.
 
-**What a persona leads you to is not what it can reach.** The right column shows what you *consult* while making something else, so a persona doesn't lead you to a mode for the thing it's there to make: you write research notes and palette cards in the binder tree — the same tree in every persona — and Author reads them back in its right column instead. Intent and Visual Language have no tree home at all — **they're right-hand panes everywhere, reached with ⌘⌥N and ⌘⌥V** rather than from any picker. They open, they work, and they stay selected while you use them; switch persona and come back and Plan is on its own modes again.
+**What a persona leads you to is not what it can reach.** The right column shows what you *consult* while making something else, so a persona doesn't lead you to a mode for the thing it's there to make: you write research notes and palette cards in the binder tree — the same tree in every persona — and reach for **References** (⌘⌥E, Author and Review) to see what a chapter or a card is pinned to, or open the tree's own Research/Palette sections (⌘⌥R / ⌘⌥P) to browse them directly. Intent and Visual Language have no tree home at all — **they're right-hand panes everywhere, reached with ⌘⌥N and ⌘⌥V** rather than from any picker. They open, they work, and they stay selected while you use them; switch persona and come back and Plan is on its own modes again.
 
-**Outline is in no persona's picker at all.** Same story — ⌘⌥O opens it from any persona — it just isn't one of the modes a persona leads you to. The binder is where structure lives.
-
-Switching persona while sitting on a pane the destination doesn't offer falls back to that persona's default rather than blanking the pane. A pane no persona offers is the one thing that isn't remembered across a persona switch: summon Outline with ⌘⌥O, switch persona and come back, and you're on that persona's own mode again.
+Switching persona while sitting on a pane the destination doesn't offer falls back to that persona's default rather than blanking the pane. A pane no persona offers is the one thing that isn't remembered across a persona switch: summon References with ⌘⌥E in Plan (which doesn't offer it), switch persona and come back, and you're on that persona's own mode again.
 
 ### Inspector mode (⌘⌥I)
 
@@ -36,33 +36,6 @@ Select nothing and it says so.
 **So in Plan the Inspector is the canvas's** — the Inspector describes the middle column, and in Plan the middle column is always the canvas. Clicking a chapter in Plan's tree doesn't put that chapter's metadata here; it's the panes that are *about* a chapter that follow it — **Intent** (⌘⌥N) above all. Switch to Author (⌘2) for a chapter's own metadata.
 
 Both Piece pickers offer only pieces that can actually hold research, so nothing on either list can fail when you promote. A card left on **None** follows the region it lives in, and the line under its picker says so — *Chapter Three (from its region)* — rather than leaving you to work out where the note went. See [Getting Started → The planning canvas](getting-started.md#the-planning-canvas) and [→ Promoting](getting-started.md#promoting).
-
-### Research mode (⌘⌥R)
-
-Shows research for the current manuscript document in up to two sections:
-
-- **Piece Research** (in a Collection) / **Project Research** (in a single-document project) — research that already belongs to this piece or project. It appears automatically; there's no linking step. Promote a piece to its own project and this carried research comes with it.
-- **Linked** — research explicitly linked to this document from elsewhere in the project.
-
-Click an item in either section → the pane swaps to a read-only Markdown preview, side-by-side with your editor. Back chevron returns to the list.
-
-This mode is **Author's** (⌘⌥R) — it's for reading what the open chapter points at while you draft. Writing the notes themselves is the tree's own job, in every persona ([Research](research.md)).
-
-The **+** button offers **Link Research…**, a picker sheet offering everything not already shown above, plus **New Note…**, **Add File…**, **Add Link…** to create research scoped to the open document. Dragging an item from the binder tree's Research section onto this pane links it the same way — summon this pane with **⌘⌥R** in any persona to have both the tree and this preview on screen at once.
-
-Unlink: × on a row in **Linked**. Items in the automatic section have no × — untangle those by editing the piece/project structure itself, not the link.
-
-### Outline mode (⌘⌥O)
-
-Either a **table** view (Title / Status / Synopsis / Words) or a **cards** view (corkboard with synopses). Toggle between the two with the small picker in the pane header. Click a row or card → editor jumps to that document.
-
-Layout choice persists per project.
-
-⌘⌥0 toggles the whole right pane visibility.
-
-The right pane also has a **Tasks** mode (⌘⌥T) — see [Tasks & To-Dos](tasks.md) — and an **Annotations** mode (⌘⌥A) — see [Annotations & Suggestions](annotations-and-suggestions.md).
-
-It also has a **History** mode (⌘⌥H) — a read-only timeline of edits, annotations, and checkpoints, with a scrubber for time-travel — an **Inbox** mode (⌘⌥B) — triage text/audio/photo captures from MaughamPhone, see [The Sense Pass](sense-pass.md) — a **Palette** mode (⌘⌥P) — a card for the sensory palette wall, also covered there — and a **Translation** mode (⌘⌥L) — the selected paragraph's source text and any open translator queries, active while reviewing a translation, see [Translating Your Manuscript](translation-review.md).
 
 ### Intent mode (⌘⌥N)
 
@@ -88,19 +61,19 @@ day, same note about where it came from); Edit changes the words in place and
 leaves the day and provenance untouched, because a correction isn't a new
 decision.
 
-The editor above the strip is for your prose, and typing a `## Rulings` heading
-into it doesn't make the section — a heading with nothing under it is just a
-heading, and it stays in your text like any other line. Let the buttons write
-the section; if you've already typed a heading of your own, the next ruling
-adopts it rather than adding a second one. **The `.md` file's own shape is
-forgiving** — Maugham reads whatever list it finds under that heading and
+The editor above the strip is for your prose, and typing a `## Rulings`
+heading into it doesn't make the section — a heading with nothing under it is
+just a heading, and it stays in your text like any other line. Let the buttons
+write the section; if you've already typed a heading of your own, the next
+ruling adopts it rather than adding a second one. **The `.md` file's own shape
+is forgiving** — Maugham reads whatever list it finds under that heading and
 doesn't require the exact form it writes itself, so a bare line with no date
 works as well as one it dated for you. That
-tolerance is for files arriving from your other Mac or from an older draft, not
-an invitation to edit the file in Finder: like every document in Maugham, an
-intent is kept in its own operation log and the `.md` is written out from it, so
-an outside edit made while Maugham has the project open is discarded on the next
-save.
+tolerance is for files arriving from your other Mac or from an older draft,
+not an invitation to edit the file in Finder: like every document in Maugham,
+an intent is kept in its own operation log and the `.md` is written out from
+it, so an outside edit made while Maugham has the project open is discarded on
+the next save.
 
 ### Visual Language mode (⌘⌥V)
 
@@ -130,7 +103,7 @@ The gear menu picks the model a check runs against — **Fast**, **Standard**, o
 
 **What this piece is pinned to**, as a shelf of thumbnails and titles — Author's and Review's. It's not a browser: there's no search and no tree, because the list is short by design. Two things put something on it, and they're the two ways a piece acquires context in Maugham:
 
-- **Research you linked to this document** — the Research pane's own **Link** action (⌘⌥R).
+- **Research you linked to this document** — drag its row from the tree's Research section onto the document's own row, or promote a canvas card or region into that chapter (see [Getting Started → Promoting](getting-started.md#promoting)); either links it, the same way.
 - **Cards you clustered for it on the planning canvas** — anything sitting inside a region bound to this piece, plus any single card you bound to the piece directly.
 
 Research notes, PDFs, recordings, links, palette cards, photographs and loose canvas scraps all appear; a photograph shows a thumbnail, everything else shows the same kind glyph the canvas draws it with. If you delete something, it simply leaves the shelf — you'll never see a row that's only an id.
@@ -140,3 +113,9 @@ Research notes, PDFs, recordings, links, palette cards, photographs and loose ca
 **The column itself is Author's only.** In Review the shelf is still there — you can see what a piece is pinned to while you adjudicate it — but a row isn't a button there: a caption at the bottom reads *"Studying a pin opens in Author (⌘2)."* Study something in Author, switch to Review and back, and it's still up — Author remembers what you were looking at, so ⌘2 brings the column straight back.
 
 **This is the same set Claude is briefed on.** When you press ⌘R the compiler is told what this piece is pinned to, by name — so what you see on the shelf is what it can go and read.
+
+The right pane also has a **Tasks** mode (⌘⌥T) — see [Tasks & To-Dos](tasks.md) — and an **Annotations** mode (⌘⌥A) — see [Annotations & Suggestions](annotations-and-suggestions.md).
+
+It also has a **History** mode (⌘⌥H) — a read-only timeline of edits, annotations, and checkpoints, with a scrubber for time-travel — an **Inbox** mode (⌘⌥B) — triage text/audio/photo captures from MaughamPhone, see [The Sense Pass](sense-pass.md) — and a **Translation** mode (⌘⌥L) — the selected paragraph's source text and any open translator queries, active while reviewing a translation, see [Translating Your Manuscript](translation-review.md).
+
+⌘⌥0 toggles the whole right pane visibility.

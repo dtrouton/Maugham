@@ -191,3 +191,101 @@ the region inspector until the subject clears.
 **Plus the standing older lists**: the second draft's 7-item full-loop
 smoke (its handoff, top section) and the M2-era remainders (same file,
 "Standing items") — **both marked done 2026-08-10 with the list above.**
+
+## Addendum, 2026-08-10: stage 3a built, 3b owed
+
+*Written at the end of stage 3a's seven-task plan
+(`docs/superpowers/plans/2026-08-10-shell-finish-stage3a-altitude.md`),
+merged unpushed on `claude/shell-finish-3a-altitude`
+(`6871db10..19092ce1`). This is the addendum stage 3's own section above
+promised — read it alongside that section rather than in place of it.*
+
+### What 3a built
+
+- **The project row's dead click became *zoom out*** (Tasks 1–3): `OutlinePane`
+  is renamed `ProjectAltitudePane` and moved into the CENTRE column. Selecting
+  the project row, a group, or nothing — in Author, Review, or Publish — fills
+  the centre with the corkboard/outline (cards↔table toggle stays centre-local,
+  `OutlineLayout` unchanged) instead of `EditorHost`'s "Select a document"
+  placeholder; clicking a card or a table row opens that chapter, in the SAME
+  `EditorHost` instance (`ProjectWindow.manuscriptEditor`'s `ZStack` — never a
+  sixth `ViewBuilder` arm, which would tear the host down on every
+  project↔chapter hop). Plan is untouched: `centresTheCanvas` takes the canvas
+  arm first, so the project row there still shows the undimmed board.
+  `showsStatusFooter` refuses while altitude shows.
+- **The tree owns its disclosure state** (Task 4): `BinderTreeSectionsState`
+  gained `researchSectionExpanded`/`paletteSectionExpanded`/
+  `expandedResearchGroups`, and `reveal(itemId:research:)` opens whatever it
+  takes for a row to be on screen (the owning section plus every ancestor
+  group). `openResearchItem` and Claude's Show (`handleShowLatestMCPNote`)
+  now call it beside their existing subject write, closing the reveal-without-
+  expansion gap this handoff's carries section recorded. It only ever opens —
+  collapsing stays the writer's own click, and a restore never forces it.
+- **The keyspace re-points** (Task 5): ⌘⌥O now sets `selectedSubject =
+  .project` (the altitude view's entry point) instead of opening a pane;
+  ⌘⌥R/⌘⌥P now expand the tree's Research/Palette sections instead of opening
+  one. All three are refused (no-op, no crash) while `treeFindActive` covers
+  the tree. `docs/guide/reference.md` rows 34/35/39 carry the new meanings.
+- **The kill** (Task 6): `DetailSegment.outline`/`.research`/`.palette`,
+  `LinkedResearchPane.swift`, and `Palette/PalettePane.swift` are deleted
+  outright — not demoted. Author's registry drops to `[.diagnostics, .intent,
+  .references, .tasks, .history, .inspector]` (`Persona.panes`,
+  `PersonaPaneRegistryTests.canonicalPaneOrder`). `PalettePane`'s two
+  sense-glyph statics survive, moved to the new `PaletteCardReadView.swift`
+  (`AssistantColumn`'s caller). `PersonaMemory`/`UIState` tolerant decodes
+  absorb a stored dead segment with no migration (tripwire 11).
+- **Docs caught up** (Task 7, this commit): the guide's outline/research/
+  palette-as-right-pane prose is rewritten throughout (`right-pane.md`
+  retitled "The Right Column"; `research.md`, `structure-and-binder.md`,
+  `getting-started.md`, `sense-pass.md`, `compiler.md`'s cross-links);
+  CLAUDE.md's Views row and `Maugham/Views/AREA.md` gained the altitude
+  centre, the disclosure owner, and the keyspace re-points; `Persona.swift`'s
+  Author-case narrative no longer describes Research/Palette as live panes.
+
+### A finding along the way, not fixed in this task
+
+`Maugham/Views/ResearchLinkPickerSheet.swift` — the picker sheet that used to
+offer "Link Research…" from `LinkedResearchPane`'s **+** button — has **zero
+production callers** after Task 6's deletion. Linking an *existing* shared
+research item to a document is still possible (drag its row from the tree's
+Research section onto the document's own row — `BinderTreeDrops.swift` calls
+`ProjectStore.linkResearch`; promoting a canvas card/region into a novel
+chapter also links it), but the picker-sheet affordance itself is dead code
+with no path to it. Worth a decision: wire it somewhere (a document row's
+context menu?) or delete it. Docs were written against what's reachable
+(the drag), not against the orphaned sheet.
+
+### 3b — owed, recorded decisions verbatim (Denver, 2026-08-10)
+
+Carried from stage 3a's plan (`2026-08-10-shell-finish-stage3a-altitude.md`,
+Global Constraints) — **3b is planned only after 3a builds (rule 11)**, and
+these are the decisions already made, not open questions:
+
+- **The travel rule**: in Plan, double-click any tree row travels to Author
+  with that subject open; Open Wall in Plan travels to Author with the wall
+  open (opened AFTER the persona switch lands, since the wall closes on
+  persona changes).
+- **Publish's whole-book preview**: the most recent compiled PDF via PDFKit;
+  a piece subject shows the same preview; degrade to altitude when nothing
+  has been compiled yet. Per-piece page-jump is a follow-up beyond that.
+- **The canvas research-highlight case**: a new `CanvasSubject` case for
+  Plan's board (2a deliberately answers `.wholeProject` for research until
+  this exists) — the census identified `CanvasHighlightTests.swift:55-60` as
+  the test 3b rewrites — plus the no-node degrade design question (standing
+  chrome vs. undim).
+- **Review's read-only research/card routing** — Review adjudicates; it
+  doesn't edit research or palette cards from its own columns.
+- **The find-match posture under the centre rule** — a manuscript match
+  navigates through the centre; a research match's posture (select vs. full
+  navigation) needs re-deriving against the altitude view now that the centre
+  can show something other than a document.
+
+### Denver's 3a smoke (recorded for the next session to run)
+
+Project row in Author/Review/Publish → corkboard fills the centre; toggle to
+table; click a card → chapter opens; typing after the hop is ⌘Z-safe; footer
+absent over altitude; group row → altitude; ⌘⌥O/⌘⌥R/⌘⌥P land their new
+meanings; collapse the Research section then Claude Show → section expands;
+Plan untouched (project row → undimmed board); find overlay: tree selection/
+expansion survives open/close (the Task 4 behaviour change). **Not yet run —
+this addendum records the list, not a result.**

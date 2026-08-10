@@ -20,9 +20,10 @@ struct OutlineTable: View {
     /// the type's design can fix that; the projection is the framework's price.
     ///
     /// Kept HERE, at the one view the framework constrains, rather than by
-    /// letting `OutlinePane` hand a `String?` down — the pane chain stays
-    /// uniformly typed and the exception is visible where it is forced, which
-    /// is `DeviceSlug`'s rule about interpolating `.raw` at the filename point.
+    /// letting `ProjectAltitudePane` hand a `String?` down — the pane chain
+    /// stays uniformly typed and the exception is visible where it is forced,
+    /// which is `DeviceSlug`'s rule about interpolating `.raw` at the
+    /// filename point.
     ///
     /// `nil` on the way out for a project subject is the honest answer: this
     /// table lists documents, and the project is not one of its rows. The

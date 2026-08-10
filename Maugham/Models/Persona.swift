@@ -203,18 +203,23 @@ public extension Persona {
             // Diagnostics · Intent · References · Tasks · History · Inspector.
             //
             // **Research and Palette left this list whole in stage 3a Task
-            // 6** — every tree grew its own section for both (stage 2a), and
-            // ⌘⌥R/⌘⌥P now reveal those sections instead of opening a pane here.
-            // The paragraphs below that discuss them as Author's panes
-            // (`LinkedResearchPane`, `PalettePane`) describe the design as it
-            // stood before that departure; `docs/superpowers/plans/` and this
-            // milestone's own docs-catch-up task carry the narrative forward.
+            // 6.** Every tree grew its own section for both (stage 2a), and
+            // ⌘⌥R/⌘⌥P now reveal those sections instead of opening a pane
+            // here — building and browsing research/palette material is a
+            // tree action in every persona, never Author-exclusive.
+            // `LinkedResearchPane` and `PalettePane`, the two views that used
+            // to mount here, are deleted outright.
             //
-            // **§5.0 changed Author's ORDER and not its membership.** This is
-            // the persona the right column was designed for: it consults what
-            // Plan authors — what the open chapter points at (⌘⌥R), a palette
-            // card beside the prose (⌘⌥P), the chapter's aim (⌘⌥N). Visual
-            // language is — for Author and stays absent.
+            // **This is still the persona the right column was designed
+            // for**: it consults what Plan authors. Today that means
+            // **References** (⌘⌥E) — the research the writer linked to the
+            // open chapter, and the cards clustered for it on the canvas —
+            // beside **Intent** (⌘⌥N), the chapter's aim. Before stage 3a,
+            // Research and Palette did that consulting job directly: ⌘⌥R
+            // showed what the chapter pointed at, ⌘⌥P kept a card open
+            // beside the prose. References absorbed that job when the two
+            // panes left. Visual Language is Publish's and stays absent
+            // here.
             //
             // **Author's landing pane MOVES from Inspector to Research, and
             // the reason recorded here before is overruled by name.** It read:

@@ -31,10 +31,13 @@ story is not "missing" sensory detail.
    drag images in from Finder or paste them from the clipboard, pick colour
    swatches with the colour picker or sample them straight off a reference
    image with the eyedropper, and add sensory notes tagged sight / sound /
-   smell / touch / taste (or left untagged). Keep a card open beside the
-   editor with ⌘⌥P while you draft — that pane is a read-only view of a card
-   and it opens in any persona, so building cards stays in Plan while reading
-   them goes wherever you're working.
+   smell / touch / taste (or left untagged). ⌘⌥P jumps to the tree's Palette
+   section, from any persona, to browse or build cards — building stays a
+   tree action wherever you're working. To keep a card open beside the editor
+   while you draft, pin it to the chapter instead — associate the card with
+   the piece, or cluster it in a canvas region bound to the piece — and it
+   shows up on that chapter's **References** shelf (⌘⌥E, Author); click it
+   there and it opens as a read-only column beside your prose.
 
    **Managing a card** is the tree's, like managing a note: right-click a card
    row for **Duplicate** or **Delete**, ⌘-click several and delete them

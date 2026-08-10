@@ -2,7 +2,7 @@
 
 The binder tree's **Research** section is for everything that isn't manuscript: character sheets, location photos, PDFs, web links, voice notes.
 
-**It's in the tree, in every persona** — making research is a tree action wherever you're standing, not a trip to a particular persona. Author reads a document's research in the right column instead ([Research mode](right-pane.md#research-mode-r), ⌘⌥R), which is a preview: to edit a note, use the tree. The two are deliberately different surfaces — the tree makes the notes, the right column consults them while you draft — and that reading view is Author's alone; Review and Publish carry no Research mode in their right column.
+**It's in the tree, in every persona** — making research is a tree action wherever you're standing, not a trip to a particular persona. ⌘⌥R expands the tree's own **Research** section rather than opening anything in the right column (it's a no-op while Find in Project covers the tree). There's no separate reading pane: the tree is the one place research is browsed, in every persona, and the same right-click menus and empty-state buttons work from Plan as anywhere else.
 
 - **New Note** — right-click the Research section (or a group inside it) → **New Note** to create a markdown note. Rename inline; the file on disk renames with it.
 - **Drag in from Finder** — drop images, PDFs, audio, text files. They land in `research/`.
@@ -15,7 +15,7 @@ Click a research item to view it. Documents are editable in place. Images, PDFs,
 
 Groups nest — right-click + **New Group** to make a folder, drop items into it. In a Collection, both the shared research section and each piece's own research section render full nested trees the same way. "Palette" is reserved for the shared root — it's the Palette section's own folder — so naming or renaming a top-level group to it is refused; a nested group can still be called Palette.
 
-Select several items (⌘-click) to work on them together. Right-click a selection for **Move to ▸** (Shared, any group, or — in a Collection — any loose piece) and batch **Delete**. Dragging a row that's part of your selection moves the whole selection; drop it on a group to nest it there, or drop it in a different Collection section to move it between shared research and a piece's research folder. Scope moves leave your links alone: an item inside a piece is already associated by containment, so a link you added by hand goes quietly dormant while it lives there (Maugham just hides the now-redundant entry) and reappears on the **Linked** list if you move the item back out. An association that only ever came from containment ends when you move the item out — nothing is auto-linked in its place.
+Select several items (⌘-click) to work on them together. Right-click a selection for **Move to ▸** (Shared, any group, or — in a Collection — any loose piece) and batch **Delete**. Dragging a row that's part of your selection moves the whole selection; drop it on a group to nest it there, or drop it in a different Collection section to move it between shared research and a piece's research folder. Scope moves leave your links alone: an item inside a piece is already associated by containment, so a link you added by hand goes quietly dormant while it lives there (Maugham just hides the now-redundant entry) and reappears as a link on that document if you move the item back out. An association that only ever came from containment ends when you move the item out — nothing is auto-linked in its place.
 
 ### Capture inbox
 
@@ -27,7 +27,7 @@ Voice/text/photo captures from the iPhone companion app land in the Mac's captur
 
 A capture can also go **straight to the planning canvas** instead — drag the row onto the canvas, or right-click → **Send to Canvas** — which is the shorter road when you don't yet know what the capture is. Promoting from the canvas afterwards makes the research note whenever you're ready for it. See [Getting Started → Sending a capture from the Inbox to the canvas](getting-started.md#sending-a-capture-from-the-inbox-to-the-canvas).
 
-Promoting into a collection piece drops the item straight into that piece's own research folder, where it shows up automatically under **Piece Research** — no separate linking step. Promoting into a novel chapter files it under shared research and links it to that chapter, so it shows up under **Linked** (see [Inspector, Research & Outline](right-pane.md)).
+Promoting into a collection piece drops the item straight into that piece's own research folder, where it shows up automatically under that piece's fold in the tree — no separate linking step. Promoting into a novel chapter files it under shared research and links it to that chapter, so it shows up under that chapter's own (read-only) fold, drawn flat. You can link an existing shared item to a chapter yourself too, without promoting: drag its row from the tree's Research section onto the chapter's own row.
 
 ### Trash & undo
 

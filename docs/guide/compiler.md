@@ -70,7 +70,7 @@ goes back.
 **This is the same list a check reads.** What's on your shelf is what Claude
 is briefed on when you press ⌘R — nothing more, nothing hidden. Full mechanics
 — how a pin gets there, resizing, what each kind renders as — are in
-[Inspector, Research & Outline → References mode](right-pane.md#references-mode-e).
+[The Right Column → References mode](right-pane.md#references-mode-e).
 
 ## What comes back
 
@@ -130,8 +130,8 @@ is truth until you act on it; it is inspected, never tended.
 Blessing or correcting is permanent in a way dismissing is not: once a reading
 is a ruling of yours, later checks never offer it again, even when you rewrite
 the scene that established it. Dismissing says *not so*, and your manuscript is
-allowed to argue back. See [Inspector,
-Research & Outline → Intent mode](right-pane.md#intent-mode-n).
+allowed to argue back. See [The Right
+Column → Intent mode](right-pane.md#intent-mode-n).
 
 ## What you can do with a note
 
@@ -142,8 +142,8 @@ intent, minting the statement if you did not have one. The note goes away, and
 the next check reads the ruling you just made, so answering is permanent
 rather than a dismissal you have to repeat. Escape takes the field away
 without writing anything. The reader's report offers no **Answer** — "I
-stopped believing her here" is not a question to rule on. See [Inspector,
-Research & Outline → Intent mode](right-pane.md#intent-mode-n) for what a
+stopped believing her here" is not a question to rule on. See [The Right
+Column → Intent mode](right-pane.md#intent-mode-n) for what a
 ruling looks like and how to add one yourself, without a note to answer.
 
 Answers go into the *piece's* intent, never the project's. An explanation of
