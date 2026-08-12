@@ -47,7 +47,7 @@ final class CheckpointCaptureTests: XCTestCase {
         XCTAssertEqual(cp.docPointers["doc-1"], seedOp.opId)
 
         // Persisted to checkpoints.jsonl.
-        let cps = try await CheckpointStore(projectURL: tmp).load()
+        let cps = await CheckpointStore(projectURL: tmp).load().checkpoints
         XCTAssertEqual(cps.count, 1)
         XCTAssertEqual(cps[0], cp)
 

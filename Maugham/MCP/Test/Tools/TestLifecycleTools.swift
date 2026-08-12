@@ -39,7 +39,13 @@ public enum TestFlushAutosaveTool: MCPTool {
 /// `CheckpointCapture.run` entry point the real ⌘S handler uses.
 public enum TestCheckpointTool: MCPTool {
     public struct Params: Codable { let project_id: String; let doc_id: String; let label: String? }
-    public struct Result: Codable { public let label: String; public let checkpoint_count: Int }
+    public struct Result: Codable {
+        public let label: String
+        public let checkpoint_count: Int
+        /// Device files the load could not read (RULING-54) — surfaced so a
+        /// broken fixture fails loudly instead of skewing checkpoint_count.
+        public let unreadable: [String]
+    }
     public static let method = "test_checkpoint"
     public static let description = "Dev-only: fire a project-scope \u{2318}S checkpoint (flushes the live doc first)."
     public static let inputSchemaJSON =
@@ -65,8 +71,14 @@ public enum TestCheckpointTool: MCPTool {
             session: doc.session,
             label: p.label,
             activeDocument: doc)
-        let all = try await CheckpointStore(projectURL: entry.url).load()
-        return try JSONEncoder().encode(Result(label: cp.label, checkpoint_count: all.count))
+        // RULING-54: this tool's whole purpose is asserting counts, so an
+        // unreadable device file must not silently skew checkpoint_count —
+        // it rides along in `unreadable` and a broken fixture fails loudly.
+        let loaded = await CheckpointStore(projectURL: entry.url).load()
+        return try JSONEncoder().encode(Result(
+            label: cp.label,
+            checkpoint_count: loaded.checkpoints.count,
+            unreadable: loaded.unreadableFiles.map(\.name)))
     }
 }
 

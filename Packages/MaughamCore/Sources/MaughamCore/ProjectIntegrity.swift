@@ -17,24 +17,59 @@ public struct IntegrityReport: Equatable, Sendable {
     public let conflictTwins: [String]
     public let danglingPointers: [IntegrityChecks.DanglingPointer]
     public let invalidParagraphIds: [IntegrityChecks.InvalidParagraphId]
+    /// Checkpoint device files that exist but could not be read (RULING-54).
+    /// An unreadable file used to read as EMPTY through `try? … ?? []`, which
+    /// *reduced* this report's findings — fewer checkpoints meant fewer
+    /// dangling pointers to find — exactly when the project was least healthy.
+    public let unreadableCheckpointFiles: [CheckpointLoad.UnreadableFile]
 
     public init(
         docSkips: [DocSkips],
         conflictTwins: [String],
         danglingPointers: [IntegrityChecks.DanglingPointer],
-        invalidParagraphIds: [IntegrityChecks.InvalidParagraphId] = []
+        invalidParagraphIds: [IntegrityChecks.InvalidParagraphId] = [],
+        unreadableCheckpointFiles: [CheckpointLoad.UnreadableFile] = []
     ) {
         self.docSkips = docSkips
         self.conflictTwins = conflictTwins
         self.danglingPointers = danglingPointers
         self.invalidParagraphIds = invalidParagraphIds
+        self.unreadableCheckpointFiles = unreadableCheckpointFiles
     }
 
     /// `docSkips` only ever holds docs *with* skips (the aggregator filters empties),
     /// so its emptiness alone is the parse-health signal.
+    ///
+    /// NOTE: since the backup gate moved to `blocksBackup` (2026-08-12), this
+    /// has ZERO production consumers — it is the whole-report health signal
+    /// the future "Verify project" surface (this type's stated purpose, above)
+    /// is meant to take. If that surface ships reading something else, delete
+    /// this rather than leave a second unread projection (the
+    /// RegionBinding-zero-callers shape).
     public var isHealthy: Bool {
         docSkips.isEmpty && conflictTwins.isEmpty && danglingPointers.isEmpty
-            && invalidParagraphIds.isEmpty
+            && invalidParagraphIds.isEmpty && unreadableCheckpointFiles.isEmpty
+    }
+
+    /// The findings that BLOCK a backup: the manuscript-derived corruption
+    /// signals only. An unreadable checkpoint file is deliberately NOT among
+    /// them — it is a finding (`isHealthy` is false, the History pane names
+    /// it) but the checkpoint index derives no manuscript text, and its
+    /// realistic causes (another device's iCloud dataless stub while offline,
+    /// a permissions break) are transient states in which refusing to back up
+    /// the writer's words would invert the priority: the manuscript's safety
+    /// must not be held hostage by a non-manuscript index (constitution
+    /// must #1). The op-log findings DO block, because the backup would
+    /// propagate a corrupt or shortened manuscript into every generation.
+    ///
+    /// Known residue: `danglingPointers` is computed FROM the checkpoint set,
+    /// so while a checkpoint file is unreadable that blocking check runs on
+    /// incomplete input and can under-report — the backup proceeds on weaker
+    /// evidence. Accepted: blocking here would hold the manuscript hostage
+    /// again, and the unreadable file is itself a named finding on the report.
+    public var blocksBackup: Bool {
+        !(docSkips.isEmpty && conflictTwins.isEmpty && danglingPointers.isEmpty
+            && invalidParagraphIds.isEmpty)
     }
 }
 
@@ -66,14 +101,15 @@ public enum ProjectIntegrity {
             opsByDoc[docId] = opIds
         }
 
-        let checkpoints = (try? await CheckpointStore(projectURL: projectURL).load()) ?? []
+        let checkpointLoad = await CheckpointStore(projectURL: projectURL).load()
         let dangling = IntegrityChecks.danglingCheckpointPointers(
-            checkpoints: checkpoints, opsByDoc: opsByDoc)
+            checkpoints: checkpointLoad.checkpoints, opsByDoc: opsByDoc)
 
         return IntegrityReport(
             docSkips: docSkips,
             conflictTwins: IntegrityChecks.conflictTwins(inOpsDirectoryFilenames: filenames),
             danglingPointers: dangling,
-            invalidParagraphIds: IntegrityChecks.invalidParagraphIds(inOps: allOps))
+            invalidParagraphIds: IntegrityChecks.invalidParagraphIds(inOps: allOps),
+            unreadableCheckpointFiles: checkpointLoad.unreadableFiles)
     }
 }

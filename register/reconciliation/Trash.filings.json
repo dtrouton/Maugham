@@ -819,7 +819,7 @@
     "M3-TR-034"
    ],
    "specificity": "19/24 = 79%",
-   "note_2026_08_09": "The five VIOLATES rows (M3-TR-011/-012/-015/-045/-046) are fixed and flipped to COMPLIES; M3-TR-061..-064 are the new pins that came with them. No VIOLATES row remains in this module. Every fix commit is PENDING — the work is uncommitted on claude/spec-phase-2 and the hashes must be written in when it lands."
+   "note_2026_08_09": "The five VIOLATES rows (M3-TR-011/-012/-015/-045/-046) are fixed and flipped to COMPLIES; M3-TR-061..-064 are the new pins that came with them. No VIOLATES row remains in this module. The fix hashes are written in (e80e11d8, via 96d7488f's round-two pass); this sentence carried a placeholder until 2026-08-12."
   }
  }
 ]
