@@ -227,7 +227,7 @@ public enum OpLogQuarantine {
         return entries
             .filter { $0.lastPathComponent.hasSuffix(".quarantine.json") }
             .map { url in
-                let record = (try? Data(contentsOf: url))
+                let record = (try? Data(contentsOf: url))  // adr-0018-ok: a `.quarantine.json` sidecar — this verb's own bookkeeping, never manuscript text
                     .flatMap { try? decoder.decode(QuarantineRecord.self, from: $0) }
                 return (url: url, record: record)
             }

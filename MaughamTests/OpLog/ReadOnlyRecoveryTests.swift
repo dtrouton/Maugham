@@ -225,9 +225,63 @@ final class ReadOnlyRecoveryTests: XCTestCase {
                       + "the view's `.onDisappear` cannot run until a render "
                       + "pass the load's first suspension precedes")
         XCTAssertEqual(
-            source.components(separatedBy: "Self.recoveryActionIsCurrent(").count - 1, 2,
-            "BOTH minted actions — auto-open-editable and open-read-only — ask "
-            + "whether they are still the host's current model before acting")
+            source.components(separatedBy: "Self.recoveryActionIsCurrent(").count - 1, 3,
+            "ALL THREE minted actions — auto-open-editable, open-read-only and "
+            + "set-aside — ask whether they are still the host's current model "
+            + "before acting. The pane's actions are minted once with the model "
+            + "and outlive the selection that raised them; set-aside is the one "
+            + "of the three that MOVES A FILE, so a stale firing is the worst of "
+            + "them. (The BANNER's set-aside is not counted here and needs no "
+            + "guard: it is built per render inside `recoveryBannerInset`, from "
+            + "the `doc` the body is currently rendering, so a superseded one "
+            + "cannot exist to fire — the same shape as Reopen beside it.)")
+
+        // MARK: Plan B — the set-aside wiring
+        XCTAssertTrue(source.contains("OpLogQuarantine.quarantine("),
+                      "the set-aside goes through the typed mover (tripwire 14), "
+                      + "never a raw FileManager.moveItem on an op-log file")
+        let bannerInset = Self.slice(
+            of: source, from: "private func recoveryBannerInset",
+            to: "private func retryFullLoad")
+        XCTAssertTrue(
+            bannerInset.contains("quarantineAndContinue()"),
+            "the BANNER's offer reaches the same one verb — the read-only "
+            + "writer who tried to type is the likeliest caller of all")
+        // The CALL form, not the bare name: the comment beside these two
+        // actions explains itself by naming the guard, and a census that
+        // matched prose would fail on its own explanation.
+        XCTAssertFalse(
+            bannerInset.contains("Self.recoveryActionIsCurrent("),
+            "and reaches it UNGUARDED, deliberately: both of the banner's "
+            + "actions are built per render from the `doc` the body is "
+            + "rendering, so there is no superseded one to refuse. A guard here "
+            + "would be cargo — and would read as though the count above were "
+            + "four")
+        // Sliced from the pane's own mint (`let model = RecoveryPaneModel(`),
+        // not from the first `onSetAside:` in the file — that one is the
+        // BANNER's, several hundred lines above, and a slice starting there
+        // swallows the pane's whole region and passes on the banner's wiring.
+        let paneMint = Self.slice(
+            of: source, from: "let model = RecoveryPaneModel(", to: "minted = model")
+        XCTAssertTrue(
+            paneMint.contains("onSetAside:")
+                && paneMint.contains("quarantineAndContinue()"),
+            "and so does the PANE's, minted with the model beside its two "
+            + "siblings, so there is exactly one place that decides what gets "
+            + "moved and what happens when a move fails")
+    }
+
+    /// The text between two markers, for a census that must look INSIDE one
+    /// function rather than anywhere in an 900-line file. Fails loudly rather
+    /// than passing vacuously when a marker has moved.
+    private static func slice(of source: String, from: String, to: String) -> Substring {
+        guard let start = source.range(of: from) else {
+            XCTFail("census marker not found: \(from)"); return ""
+        }
+        guard let end = source.range(of: to, range: start.upperBound..<source.endIndex) else {
+            XCTFail("census marker not found after \(from): \(to)"); return ""
+        }
+        return source[start.upperBound..<end.lowerBound]
     }
 
     // MARK: - Census machinery

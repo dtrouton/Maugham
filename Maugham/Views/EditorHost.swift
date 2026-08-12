@@ -393,9 +393,16 @@ struct EditorHost: View {
     @ViewBuilder
     private func recoveryBannerInset(doc: Document) -> some View {
         if doc.isReadOnlyRecovery, let bannerModel = recoveryBannerModel {
-            RecoveryBanner(model: bannerModel) {
-                Task { await retryFullLoad() }
-            }
+            // Neither action is identity-guarded, and neither needs to be: both
+            // are built fresh on every render pass, from the `doc` the body is
+            // currently rendering, so a superseded one cannot exist to fire.
+            // (The PANE's three actions are the opposite case — minted once
+            // with the model, one of them fired by a poller — which is what the
+            // recoveryActionIsCurrent guard exists for.)
+            RecoveryBanner(
+                model: bannerModel,
+                onReopen: { Task { await retryFullLoad() } },
+                onSetAside: { Task { await quarantineAndContinue() } })
         }
     }
 
@@ -470,6 +477,119 @@ struct EditorHost: View {
                 "Maugham couldn’t open a read-only view of this document "
                 + "(\(error.localizedDescription)).",
                 projectURL: store.url)
+        }
+    }
+
+    /// Rung 3 (spec §5): set the unreadable op-log file(s) aside and open the
+    /// document EDITABLE without them. The writer keeps writing; the bytes are
+    /// moved, never deleted, and Plan B's return path brings them back — merged,
+    /// never overwriting — the moment they read again.
+    ///
+    /// **Reached from both surfaces**, which is why the decision lives here
+    /// rather than in either of them: from the refusal pane, where no `Document`
+    /// exists at all, and from the read-only banner, where one does and the
+    /// writer has just been stopped from typing. The two differ only in what
+    /// they know, and the difference is the first block below.
+    ///
+    /// It ends in `retryFullLoad()` — the one path that closes what is bound and
+    /// runs the ordinary load — so a successful set-aside arrives as an ordinary
+    /// editable document, and a still-refusing one arrives as a freshly
+    /// classified refusal rather than a stale pane.
+    private func quarantineAndContinue() async {
+        guard let item = currentItem, let path = item.path else { return }
+        let docURL = store.url.appendingPathComponent(path)
+        let opsDir = store.url.appendingPathComponent(".maugham/ops", isDirectory: true)
+
+        // What to move, and the reason each move records. The BANNER is looking
+        // at an open partial view, which names EVERY file that failed — a
+        // partial open can be blocked by more than one, and setting one aside
+        // while leaving its neighbour would refuse the load again for the same
+        // reason. The PANE is looking at a refusal, whose cause names the one
+        // file the strict load died on. `.icloudNotDownloaded` and
+        // `.unlistableOpsDirectory` are absent by construction: neither offers
+        // this rung (`RecoveryPaneModel.offersSetAside`), and the `case` below
+        // is what makes that a shape rather than a promise.
+        var targets: [(url: URL, reason: String)] = []
+        if let doc = document, doc.isReadOnlyRecovery,
+           let unreadable = doc.readOnlyRecovery?.unreadableFiles {
+            targets = unreadable.map {
+                (url: opsDir.appendingPathComponent($0.name), reason: $0.reason)
+            }
+        } else if case .unreadableFile(_, let fileURL, let reason)? = recoveryPaneModel?.cause {
+            targets = [(url: fileURL, reason: reason)]
+        }
+        guard !targets.isEmpty else { return }
+
+        // The id the record is filed under — and the id the return path will
+        // look it up by, so it has to be the same one the op log itself is
+        // written against. An open doc knows its own. A refusal has no
+        // `Document` at all, so it is resolved from the path through
+        // `resolveDocId`, the function `Document.load` itself calls — never a
+        // second parser (tripwire 19's shape: one implementation, not a
+        // stricter local copy).
+        let docId: String
+        if let doc = document {
+            docId = doc.docId
+        } else {
+            do {
+                docId = try resolveDocId(for: docURL)
+            } catch {
+                loadError = error.localizedDescription
+                MaughamEvent.postNotice(
+                    "Maugham couldn’t work out which document this history "
+                    + "belongs to, so it set nothing aside "
+                    + "(\(error.localizedDescription)).",
+                    projectURL: store.url)
+                return
+            }
+        }
+
+        for target in targets {
+            do {
+                try OpLogQuarantine.quarantine(
+                    fileURL: target.url, docId: docId,
+                    reason: target.reason, in: store.url)
+            } catch {
+                // A throw part-way through leaves some files moved and this one
+                // where it was — which is a COHERENT state, not a half-done
+                // one: each move is a complete, recorded, reversible act of its
+                // own, and nothing here has touched the document. So we stop
+                // rather than push past the failure, and say which file and
+                // why. No reload is attempted: what the writer is looking at
+                // stays put, and their next attempt reclassifies against
+                // whatever STILL blocks the load — which is exactly the files
+                // that did not move.
+                loadError = error.localizedDescription
+                MaughamEvent.postNotice(
+                    "Maugham couldn’t set “\(target.url.lastPathComponent)” aside "
+                    + "(\(Self.explainSetAsideFailure(error))). Nothing was lost — "
+                    + "any files it did move are kept in the project’s "
+                    + "conflicts folder.",
+                    projectURL: store.url)
+                return
+            }
+        }
+        await retryFullLoad()
+    }
+
+    /// Why a set-aside failed, in a sentence. `QuarantineError` is a plain
+    /// enum, so its `localizedDescription` is the unhelpful "The operation
+    /// couldn’t be completed" — and its one case is one the writer can act on
+    /// (by waiting), so it gets its own words. Every other error is a real
+    /// filesystem failure whose own description is the better one.
+    ///
+    /// Reachable from the BANNER only: the pane never offers this rung for a
+    /// stub (`RecoveryPaneModel.offersSetAside`), but a partial open names
+    /// every file that failed, and one of those can be a file iCloud is still
+    /// bringing down.
+    private static func explainSetAsideFailure(_ error: Error) -> String {
+        guard let quarantineError = error as? QuarantineError else {
+            return error.localizedDescription
+        }
+        switch quarantineError {
+        case .datalessStub:
+            return "iCloud is still downloading it — it isn’t broken, and "
+                 + "moving it now would fight that download"
         }
     }
 
@@ -866,6 +986,15 @@ struct EditorHost: View {
                         guard Self.recoveryActionIsCurrent(
                             minted: minted, current: recoveryPaneModel) else { return }
                         await openReadOnly()
+                    } },
+                    // Guarded like its two siblings, and with the most to lose
+                    // of the three: this one MOVES A FILE. Fired from a pane the
+                    // writer has left behind, it would set aside part of one
+                    // document's history while they are inside another.
+                    onSetAside: { Task {
+                        guard Self.recoveryActionIsCurrent(
+                            minted: minted, current: recoveryPaneModel) else { return }
+                        await quarantineAndContinue()
                     } })
                 minted = model
                 return model
