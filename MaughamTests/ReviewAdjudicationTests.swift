@@ -50,6 +50,7 @@ final class ReviewAdjudicationTests: XCTestCase {
             UserDefaults.standard.removePersistentDomain(forName: suite)
         }
         defaultsSuites.removeAll()
+        NSPasteboard.general.clearContents()
         temp.cleanup()
         temp = nil
     }
@@ -120,6 +121,70 @@ final class ReviewAdjudicationTests: XCTestCase {
             textViews(in: window).first { $0.string.contains(Self.noteText) })
         XCTAssertEqual(editor.coordinator?.lockEditing, false,
                        "Author must reach the centre with its editor unlocked, as before this task")
+    }
+
+    /// **A locked note must not write a file to disk on paste** (review
+    /// finding on this task). `EditorSurface.paste(_:)` calls the image-paste
+    /// handler SYNCHRONOUSLY and BEFORE `insertText` —
+    /// `ImagePasteHandler.saveAndReference` writes the PNG to
+    /// `<slug>_assets/` on disk first, and only THEN does the locked
+    /// `shouldChangeTextIn` refuse the markdown ref. The write is not text
+    /// mutation, so `lockEditing` never gated it on its own — the fix is
+    /// `ResearchNoteEditor` not wiring the handler at all while locked
+    /// (`imagePasteHandler: lockEditing ? nil : makeImagePasteHandler()`),
+    /// which this test pins from the outside: drive the REAL paste path
+    /// (`MaughamTextView.paste(_:)`, not a hand call into the store) and
+    /// assert nothing landed in the well.
+    func test_reviewLockedNoteRefusesAnImagePaste_noFileLands() async throws {
+        let (store, note) = try await storeWithNote(text: Self.noteText)
+        let assets = try assetsWell(for: note, in: store)
+        let window = try await hostCentre(store: store, itemID: note.id, readOnly: true)
+
+        await pumpUntil(deadline: 5) {
+            self.textViews(in: window).contains { $0.string.contains(Self.noteText) }
+        }
+        let editor = try XCTUnwrap(
+            textViews(in: window).first { $0.string.contains(Self.noteText) })
+        XCTAssertTrue(files(in: assets).isEmpty, "precondition: nothing in the well yet")
+
+        try putImageOnTheClipboard()
+        editor.paste(nil)
+        // Negative assertion: a fixed wait outlasting the synchronous write
+        // path this bug used, rather than a `pumpUntil` with nothing to wait
+        // for — `waitOut`'s own documented use.
+        await waitOut(0.5)
+
+        XCTAssertTrue(
+            files(in: assets).isEmpty,
+            "a locked note must never write a file to disk on paste — found \(files(in: assets))")
+        XCTAssertEqual(editor.string, Self.noteText,
+                       "…and the note's text must be unchanged too")
+    }
+
+    /// **The control: Author's paste still saves and references.** Without
+    /// this, a handler wired backwards (nil for everyone) would still pass
+    /// the test above.
+    func test_authorNoteStillSavesAndReferencesAnImagePaste() async throws {
+        let (store, note) = try await storeWithNote(text: Self.noteText)
+        let assets = try assetsWell(for: note, in: store)
+        let window = try await hostCentre(store: store, itemID: note.id, readOnly: false)
+
+        await pumpUntil(deadline: 5) {
+            self.textViews(in: window).contains { $0.string.contains(Self.noteText) }
+        }
+        let editor = try XCTUnwrap(
+            textViews(in: window).first { $0.string.contains(Self.noteText) })
+
+        try putImageOnTheClipboard()
+        editor.paste(nil)
+        await pumpUntil(deadline: 5) { !self.files(in: assets).isEmpty }
+
+        let landed = files(in: assets)
+        XCTAssertEqual(landed.count, 1, "found \(landed)")
+        XCTAssertTrue(landed.first?.hasSuffix(".png") == true, "found \(landed)")
+        await pumpUntil(deadline: 5) { editor.string.contains("![](./") }
+        XCTAssertTrue(editor.string.contains("![](./\(assets.lastPathComponent)/"),
+                      "the ref must land in the editor text too, got: \(editor.string)")
     }
 
     // MARK: - ResearchSubjectCentre: the palette card
@@ -263,6 +328,44 @@ final class ReviewAdjudicationTests: XCTestCase {
         try await store.updatePaletteCard(card)
         await store.wordCountPopulationTask?.value
         return (store, item)
+    }
+
+    // MARK: - Image paste fixtures
+
+    /// The well beside a note, derived from the note's own path —
+    /// `ImagePasteHandler.destination` builds `<slug>_assets` from the note's
+    /// filename, mirrored here rather than spelled as a literal.
+    /// `StatementImageIngestTests.well(beside:in:)`'s shape, over a
+    /// `ResearchItem` instead of a `Statement`.
+    private func assetsWell(for note: ResearchItem, in store: ProjectStore) throws -> URL {
+        let path = try XCTUnwrap(note.path)
+        let file = store.url.appendingPathComponent(path)
+        return file.deletingLastPathComponent()
+            .appendingPathComponent(
+                "\(file.deletingPathExtension().lastPathComponent)_assets")
+    }
+
+    /// `StatementImageIngestTests.makeImage(_:)`'s shape — a tiny real bitmap
+    /// so `NSBitmapImageRep`/PNG encoding has something to work with.
+    private func makeImage(_ side: Int = 12) throws -> NSImage {
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let image = NSImage(size: NSSize(width: side, height: side))
+        image.addRepresentation(rep)
+        return image
+    }
+
+    /// Put a picture where `MaughamTextView.paste(_:)` will find one — the
+    /// same pasteboard the writer's own ⌘V uses.
+    private func putImageOnTheClipboard() throws {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([try makeImage()])
+    }
+
+    private func files(in directory: URL) -> [String] {
+        (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
     }
 
     // MARK: - Hosting

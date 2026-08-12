@@ -122,7 +122,23 @@ struct ResearchNoteEditor: View {
                                 researchCursor = position
                             }),
                         paragraphProviders: .init(
-                            imagePasteHandler: makeImagePasteHandler()))
+                            // **Gated on the lock, not just unconditionally
+                            // wired** (shell-finish stage 3b Task 6 review
+                            // finding). `EditorSurface.paste(_:)` calls this
+                            // handler SYNCHRONOUSLY and BEFORE `insertText` —
+                            // `ImagePasteHandler.saveAndReference` writes the
+                            // PNG to `<slug>_assets/` on disk first, and only
+                            // then does the (locked) `shouldChangeTextIn`
+                            // refuse the markdown ref. A locked editor with an
+                            // active handler wrote an orphaned file straight
+                            // through the lock — the write isn't text
+                            // mutation, so nothing here ever gated it. Nil
+                            // also flips `readablePasteboardTypes`'
+                            // `coordinator?.imagePasteHandler != nil` check,
+                            // so Paste's image affordance itself goes away in
+                            // Review rather than accepting a paste that then
+                            // silently drops the ref.
+                            imagePasteHandler: lockEditing ? nil : makeImagePasteHandler()))
                 )
                 .id(path)
             } else {
