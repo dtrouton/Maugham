@@ -92,7 +92,7 @@ final class RecoveryPaneModel {
     /// Cheap readability probe: open-for-reading + read one byte. Never a
     /// whole-file read (a poll must not cost megabytes), never a write.
     nonisolated static func defaultReadableProbe(_ url: URL) -> Bool {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false } // adr-0018-ok: an op-log file's readability, one byte — never manuscript text
         defer { try? handle.close() }
         // Zero-length is readable (a truthfully empty file); a stub or a
         // permissions break throws above or here.
