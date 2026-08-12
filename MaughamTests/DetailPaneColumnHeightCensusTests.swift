@@ -97,10 +97,13 @@ private final class DetailSegmentProbe {
 /// and differently from the WIDTH conflict `DetailColumnWidthTests` documents.
 ///
 /// **What it cannot see, and what covers that instead.** It only walks the right
-/// column. The centre column's three `safeAreaInset(edge: .top)`s can demand
-/// height too, and `ViewOnlyShareNotice` is one of them — that case is measured
-/// by `test_theViewOnlyNoticeDoesNotGrowTheColumnsEither`, which puts the real
-/// notice in the real inset position rather than asserting anything about panes.
+/// column. The centre column's top insets can demand height too — three in
+/// `ProjectWindow.body` plus `EditorHost`'s recovery banner, which renders only
+/// over a read-only partial open — and `ViewOnlyShareNotice` is one of them:
+/// that case is measured by `test_theViewOnlyNoticeDoesNotGrowTheColumnsEither`,
+/// which puts the real notice in the real inset position rather than asserting
+/// anything about panes. `RecoveryBanner` is unmeasured; it carries no
+/// `fixedSize` for the reason that test records, and nothing yet holds it to it.
 ///
 /// **Runner parity applies** (CLAUDE.md): these mount real AppKit views, so a
 /// green run here says nothing about a runner on a different macOS major.
