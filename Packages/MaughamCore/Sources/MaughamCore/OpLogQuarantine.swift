@@ -33,6 +33,22 @@ public enum QuarantineError: Error, Equatable {
     case datalessStub(URL)
 }
 
+/// Outcome of `OpLogQuarantine.attemptReturn` (Plan B, spec §5's return
+/// path): verified by a real read, merged by the sync rules, never
+/// overwriting.
+public enum ReturnOutcome: Equatable, Sendable {
+    /// Moved back into .maugham/ops/; the report describes the merge.
+    case returned(RecoveredHistoryReport)
+    /// The device's file reappeared via sync; the archive stays, the report
+    /// covers whatever the archive held beyond the current log.
+    case supersededBySync(RecoveredHistoryReport)
+    /// Still can't be read cleanly — stays held. Reason for the notice.
+    case stillUnreadable(reason: String)
+    /// Readable but a line fails to decode — stays held; salvage is the
+    /// integrity path's job, not a merge input (spec §5 step 1).
+    case corrupt(reason: String)
+}
+
 /// The typed verb for setting an unreadable op-log file aside (Plan B,
 /// spec §5) — the recovery ladder's rung above read-only (Plan A). This IS
 /// tripwire 14's typed mover for op-log sidecar relocation: a raw
@@ -206,5 +222,123 @@ public enum OpLogQuarantine {
             [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]),
               values.isUbiquitousItem == true else { return false }
         return values.ubiquitousItemDownloadingStatus != .current
+    }
+}
+
+extension OpLogQuarantine {
+    /// Attempts to bring a quarantined op-log file back into `.maugham/ops/`
+    /// (Plan B's return path, spec §5): verified by a real read, merged by
+    /// the sync rules, never overwriting.
+    ///
+    /// Isolation: like `quarantine`, this WRITES (moves a file, rewrites the
+    /// record on disk), so it stays on the `@MainActor` side of the split —
+    /// the pure reads (`records(forDocId:in:)`, `quarantinedFileURL(for:in:)`)
+    /// are the only members of this type that are `nonisolated`.
+    ///
+    /// Order, and why: (1) a coordinated STRICT read of the quarantined
+    /// bytes — any failure (permission, a directory squatting on the path,
+    /// …) answers `.stillUnreadable` before anything else is touched;
+    /// (2) parse as `Op` JSONL — a line that fails to decode answers
+    /// `.corrupt` rather than being silently dropped, because salvaging a
+    /// torn file is the integrity path's job, not a merge input (spec §5
+    /// step 1); (3) load the CURRENT log for this doc via `OpLogStore` —
+    /// this is a `do`/`catch`, not `try?`, because a throw here means the
+    /// live history is itself unreadable (some OTHER device file is broken)
+    /// and merging against a partial current picture would be dishonest, so
+    /// that also answers `.stillUnreadable`; (4) compute the recovery
+    /// report from both op sets; (5) check the destination path
+    /// (`.maugham/ops/<originalName>`) — present means sync already
+    /// delivered this device's file back while it was set aside, so the
+    /// archive is left exactly where it is and the record is marked
+    /// `.superseded`; absent means a coordinated move back (mirroring
+    /// `quarantine`'s own move, source and destination swapped) and the
+    /// record is marked `.returned`. No branch ever writes to an existing
+    /// destination file.
+    public static func attemptReturn(
+        record: QuarantineRecord, in projectURL: URL, presenter: NSFilePresenter?
+    ) async -> ReturnOutcome {
+        let dataURL = OpLogQuarantine.quarantinedFileURL(for: record, in: projectURL)
+
+        let quarantinedStore = JSONLAppendStore<Op>(
+            fileURL: dataURL, presenter: presenter,
+            dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+        let parsed: (elements: [Op], diagnostics: ParseDiagnostics)
+        do {
+            parsed = try await quarantinedStore.loadDiagnosedStrict()
+        } catch {
+            return .stillUnreadable(reason: error.localizedDescription)
+        }
+        guard parsed.diagnostics.skipped.isEmpty else {
+            return .corrupt(reason: "a line in the quarantined file failed to decode")
+        }
+        let returnedOps = parsed.elements
+
+        let currentOps: [Op]
+        do {
+            currentOps = try await OpLogStore(projectURL: projectURL, presenter: presenter)
+                .load(docId: record.docId)
+        } catch {
+            return .stillUnreadable(reason: "the live history is itself unreadable")
+        }
+
+        let report = RecoveredHistory.report(currentOps: currentOps, returnedOps: returnedOps)
+
+        let destURL = projectURL
+            .appendingPathComponent(".maugham/ops", isDirectory: true)
+            .appendingPathComponent(record.originalName)
+
+        guard !FileManager.default.fileExists(atPath: destURL.path) else {
+            rewriteRecord(record, status: .superseded, quarantinedFileURL: dataURL, in: projectURL)
+            return .supersededBySync(report)
+        }
+
+        let fm = FileManager.default
+        try? fm.createDirectory(
+            at: destURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        var coordError: NSError?
+        var moveError: Error?
+        let coordinator = NSFileCoordinator(filePresenter: presenter)
+        coordinator.coordinate(
+            writingItemAt: dataURL, options: .forMoving,
+            writingItemAt: destURL, options: [],
+            error: &coordError
+        ) { newSrcURL, newDestURL in
+            do {
+                try fm.moveItem(at: newSrcURL, to: newDestURL)
+            } catch {
+                moveError = error
+            }
+        }
+        if let coordError {
+            return .stillUnreadable(reason: coordError.localizedDescription)
+        }
+        if let moveError {
+            return .stillUnreadable(reason: moveError.localizedDescription)
+        }
+
+        rewriteRecord(record, status: .returned, quarantinedFileURL: dataURL, in: projectURL)
+        return .returned(report)
+    }
+
+    /// Rewrites the `.quarantine.json` sidecar beside the quarantined file
+    /// with an updated status. The sidecar name is derived from the
+    /// QUARANTINED file's own name (`quarantinedFileURL`'s name, captured
+    /// BEFORE any move) — same `<name>.quarantine.json` convention
+    /// `quarantine` writes at creation time — so this resolves correctly
+    /// whether or not the data itself just moved out from under it.
+    /// Best-effort, matching `quarantine`'s own unguarded sidecar write: the
+    /// move (or the decision to leave the archive alone) already happened,
+    /// and a failed rewrite afterwards is not this call's error to raise.
+    private static func rewriteRecord(
+        _ record: QuarantineRecord, status: QuarantineRecord.Status,
+        quarantinedFileURL: URL, in projectURL: URL
+    ) {
+        var updated = record
+        updated.status = status
+        let dir = projectURL.appendingPathComponent(directoryName, isDirectory: true)
+        let sidecarURL = dir.appendingPathComponent(
+            "\(quarantinedFileURL.lastPathComponent).quarantine.json")
+        try? JSONEncoder().encode(updated).write(to: sidecarURL, options: .atomic)
     }
 }
