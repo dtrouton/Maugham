@@ -132,6 +132,30 @@ final class BackupCoordinatorTests: XCTestCase {
         if case .integrityFailed = coordinator.lastResult(for: proj) { } else { XCTFail("expected integrityFailed, got \(String(describing: coordinator.lastResult(for: proj)))") }
     }
 
+    // RULING-54 (M9-OL-008, review finding A): an unreadable CHECKPOINT device
+    // file is a surfaced finding but must NOT stop the writer's words reaching
+    // a backup — its realistic causes (offline dataless stub, permissions
+    // break) are exactly the moments a backup matters most. Only the
+    // manuscript-derived findings block (see the corrupt-source test above).
+    func test_backupNow_proceedsWhenOnlyACheckpointFileIsUnreadable() async throws {
+        let proj = try tempProjectWithOps(); let dest = destDir()
+        defer { [proj, dest].forEach { try? FileManager.default.removeItem(at: $0) } }
+        // A directory squatting on a checkpoint device file's path — unreadable-yet-present.
+        let badURL = CheckpointStore.fileURL(
+            deviceSlug: DeviceSlug.make(from: "bad"), in: proj)
+        try FileManager.default.createDirectory(at: badURL, withIntermediateDirectories: true)
+        let coordinator = BackupCoordinator()
+        coordinator.destinations = [BackupDestination(url: dest, retention: 5)]
+
+        await coordinator.backupNow(projectURL: proj, generationId: "01GEN", at: Date(timeIntervalSince1970: 1))
+
+        XCTAssertFalse(try BackupWriter.generationIds(at: dest).isEmpty,
+                       "the manuscript still reaches the backup")
+        if case .ok = coordinator.lastResult(for: proj) {} else {
+            XCTFail("expected .ok, got \(coordinator.lastResult(for: proj))")
+        }
+    }
+
     private struct IntegrityCheckBlewUp: Error {}
 
     // Audit N1 / item 1b: a *throwing* integrity check (the check itself couldn't

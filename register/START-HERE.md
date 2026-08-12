@@ -61,7 +61,7 @@ why. **Read `register/RULINGS.md` and nothing else.**
 
 The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 265 further claims in their own files. **434 claims in the experiment, 413 reconciled.** The app layer stands at **162 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
-App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`).
+App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`). Exception: the OpLog row's pins live where their subjects do — `MaughamTests/OpLog/` and the MaughamCore package tests (`core-tests`/`behavioural-claims`) — not under `Claims/`.
 
 <!-- END GENERATED STATE -->
 

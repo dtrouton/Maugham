@@ -74,9 +74,9 @@
   "outcome": "COMPLIES",
   "ruling": "RULING-7",
   "clause_that_reaches_it": "Unreadable is never presented as empty; a refusal names its real cause",
-  "why_in_scope": "the writer-facing half: the pane names the files instead of silently thinning, the integrity report gains findings instead of losing them, and the backup gate's refusal names the count — each surface says what is actually wrong where the writer would otherwise see a cleaner picture than the truth",
+  "why_in_scope": "the writer-facing half: the pane names the files with their reasons instead of silently thinning, the integrity report gains findings instead of losing them, and the backup gate deliberately keeps protecting the manuscript — blocksBackup excludes this finding so the writer's words still reach a backup while the pane says what is wrong. RESIDUAL: the backup banner renders fixed copy and discards .integrityFailed's summary string (pre-existing; the cp-unreadable count in that string is context for a manuscript-caused refusal, not a surface of its own)",
   "intent_expressed_when": "contemporaneous",
-  "call_path": "the History pane; Verify-project's data model; the backup banner",
+  "call_path": "the History pane; ProjectIntegrity.check (the data model behind a future Verify surface); BackupCoordinator.backupNow's gate; the dev-only checkpoint test tools",
   "violation_or_enhancement": "neither — born with the fix"
  },
  {

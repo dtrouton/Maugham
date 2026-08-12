@@ -59,7 +59,13 @@ public final class BackupCoordinator {
         // identically: surface and skip.
         do {
             let report = try await integrityCheck(projectURL)
-            if !report.isHealthy {
+            // `blocksBackup`, not `isHealthy`: an unreadable checkpoint file is
+            // a surfaced finding (History pane, RULING-54) but must not stop
+            // the writer's WORDS reaching a backup — its realistic causes
+            // (offline dataless stub, permissions break) are exactly the
+            // moments a backup matters most. Manuscript-derived corruption
+            // still blocks, because it would propagate into every generation.
+            if report.blocksBackup {
                 let summary = "skips:\(report.docSkips.count) twins:\(report.conflictTwins.count) dangling:\(report.danglingPointers.count) bad-ids:\(report.invalidParagraphIds.count) cp-unreadable:\(report.unreadableCheckpointFiles.count)"
                 resultsByProject[key] = .integrityFailed(summary: summary)
                 return

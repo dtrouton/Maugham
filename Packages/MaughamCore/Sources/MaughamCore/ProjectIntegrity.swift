@@ -43,6 +43,21 @@ public struct IntegrityReport: Equatable, Sendable {
         docSkips.isEmpty && conflictTwins.isEmpty && danglingPointers.isEmpty
             && invalidParagraphIds.isEmpty && unreadableCheckpointFiles.isEmpty
     }
+
+    /// The findings that BLOCK a backup: the manuscript-derived corruption
+    /// signals only. An unreadable checkpoint file is deliberately NOT among
+    /// them — it is a finding (`isHealthy` is false, the History pane names
+    /// it) but the checkpoint index derives no manuscript text, and its
+    /// realistic causes (another device's iCloud dataless stub while offline,
+    /// a permissions break) are transient states in which refusing to back up
+    /// the writer's words would invert the priority: the manuscript's safety
+    /// must not be held hostage by a non-manuscript index (constitution
+    /// must #1). The op-log findings DO block, because the backup would
+    /// propagate a corrupt or shortened manuscript into every generation.
+    public var blocksBackup: Bool {
+        !(docSkips.isEmpty && conflictTwins.isEmpty && danglingPointers.isEmpty
+            && invalidParagraphIds.isEmpty)
+    }
 }
 
 @MainActor

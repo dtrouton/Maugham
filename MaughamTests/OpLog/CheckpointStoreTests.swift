@@ -95,4 +95,16 @@ final class CheckpointStoreTests: XCTestCase {
         XCTAssertTrue(notice?.contains("checkpoints.bad.jsonl") == true,
                       "the notice names the unreadable file")
     }
+
+    /// The notice's tooltip carries the WHY (review finding B): "permission
+    /// denied" and "couldn't be downloaded" want opposite responses, so the
+    /// reason must reach the writer, not just the load result.
+    func test_historyPaneDetail_carriesTheReasons() {
+        XCTAssertNil(HistoryPane.unreadableCheckpointDetail([]))
+        let detail = HistoryPane.unreadableCheckpointDetail([
+            .init(name: "checkpoints.bad.jsonl", reason: "permission denied")])
+        XCTAssertTrue(detail?.contains("checkpoints.bad.jsonl") == true)
+        XCTAssertTrue(detail?.contains("permission denied") == true,
+                      "the underlying reason reaches the writer")
+    }
 }

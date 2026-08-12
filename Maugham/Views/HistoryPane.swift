@@ -105,12 +105,14 @@ struct HistoryPane: View {
 
     @State private var filter: HistoryFilter = .all
     @State private var checkpoints: [Checkpoint] = []
-    /// Checkpoint device files `reload()` could not read, by filename
+    /// Checkpoint device files `reload()` could not read — name AND reason
     /// (RULING-54: an unreadable file used to read as EMPTY — every checkpoint
     /// from that device silently gone from this pane and from Rewind's
-    /// targets). The pane shows a notice when non-empty; the rows are intact
-    /// on disk. The inbox pane's M8-IN-012 shape.
-    @State private var unreadableCheckpointFiles: [String] = []
+    /// targets). The pane shows a notice when non-empty, with the reasons in
+    /// its tooltip: "permission denied" and "couldn't be downloaded" want
+    /// opposite responses from the writer. The rows are intact on disk. The
+    /// inbox pane's M8-IN-012 shape.
+    @State private var unreadableCheckpointFiles: [CheckpointLoad.UnreadableFile] = []
     @State private var ops: [Op] = []
     @State private var expanded: Set<String> = []
     @State private var selectedCheckpoint: Checkpoint?
@@ -192,17 +194,26 @@ struct HistoryPane: View {
              + "They are still in the file — check permissions or iCloud sync."
     }
 
+    /// The notice's tooltip: one "name — reason" line per unreadable file, so
+    /// the WHY reaches the writer ("permission denied" is fixed here;
+    /// "couldn't be downloaded" is fixed by getting online).
+    static func unreadableCheckpointDetail(_ files: [CheckpointLoad.UnreadableFile]) -> String? {
+        guard !files.isEmpty else { return nil }
+        return files.map { "\($0.name) — \($0.reason)" }.joined(separator: "\n")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             filterToolbar
             Divider()
-            if let notice = Self.unreadableCheckpointNotice(unreadableCheckpointFiles) {
+            if let notice = Self.unreadableCheckpointNotice(unreadableCheckpointFiles.map(\.name)) {
                 Label(notice, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(Self.unreadableCheckpointDetail(unreadableCheckpointFiles) ?? "")
                 Divider()
             }
             if entries.isEmpty {
@@ -310,7 +321,7 @@ struct HistoryPane: View {
         // which is exactly what the user would expect to see for a
         // multi-doc novel/screenplay project.
         checkpoints = loaded.checkpoints
-        unreadableCheckpointFiles = loaded.unreadableFiles.map(\.name)
+        unreadableCheckpointFiles = loaded.unreadableFiles
         // Prefer the live Document if it's loaded (its mirror reflects any
         // unflushed in-memory state). Otherwise read the op log directly
         // from disk — the History pane should always show typing bursts /

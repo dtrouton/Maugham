@@ -89,5 +89,20 @@ final class ProjectIntegrityTests: XCTestCase {
         XCTAssertEqual(report.unreadableCheckpointFiles.map(\.name),
                        [badURL.lastPathComponent],
                        "the unreadable checkpoint file is named in the report")
+        XCTAssertFalse(report.blocksBackup,
+                       "a non-manuscript finding must not stop the writer's words reaching a backup (constitution must #1)")
+    }
+
+    /// The four manuscript-derived findings DO block a backup — a corrupt op
+    /// line would propagate into every generation.
+    @MainActor
+    func test_blocksBackup_onManuscriptDerivedFindingsOnly() async throws {
+        let proj = makeProject()
+        defer { try? FileManager.default.removeItem(at: proj) }
+        try writeOps(proj, file: "doc-0f677d7e.macA.jsonl", lines: ["GARBAGE NOT JSON"])
+
+        let report = try await ProjectIntegrity.check(projectURL: proj)
+        XCTAssertTrue(report.blocksBackup)
+        XCTAssertFalse(report.isHealthy)
     }
 }

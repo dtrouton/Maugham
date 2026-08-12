@@ -143,6 +143,9 @@ public enum TestListCheckpointsTool: MCPTool {
     public struct Result: Codable {
         public let count: Int
         public let labels: [String]
+        /// Device files the load could not read (RULING-54) — surfaced so a
+        /// broken fixture fails loudly instead of silently skewing `count`.
+        public let unreadable: [String]
     }
     public static let method = "test_list_checkpoints"
     public static let description = "Dev-only: list project checkpoints (labels, in append order)."
@@ -153,11 +156,14 @@ public enum TestListCheckpointsTool: MCPTool {
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let p = try decodeParams(Params.self, from: paramsJSON)
         let entry = try resolveProject(p.project_id, in: registry)
-        // RULING-54 lenient, reason recorded: a dev-only listing over the
-        // TestWorkspace fence — an unreadable device file here is a test
-        // fixture problem, and the load names it in its own result type.
-        let checkpoints = await CheckpointStore(projectURL: entry.url).load().checkpoints
-        return try JSONEncoder().encode(Result(count: checkpoints.count, labels: checkpoints.map { $0.label }))
+        // RULING-54: this tool's whole purpose is asserting counts, so an
+        // unreadable device file must not silently skew `count` — it rides
+        // along in `unreadable` and a broken fixture fails loudly.
+        let loaded = await CheckpointStore(projectURL: entry.url).load()
+        return try JSONEncoder().encode(Result(
+            count: loaded.checkpoints.count,
+            labels: loaded.checkpoints.map { $0.label },
+            unreadable: loaded.unreadableFiles.map(\.name)))
     }
 }
 #endif
