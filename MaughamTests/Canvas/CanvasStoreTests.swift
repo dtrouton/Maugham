@@ -4,6 +4,11 @@ import AppKit
 
 final class CanvasStoreTests: XCTestCase {
 
+    /// The sidecar-deletion test attaches a `CanvasModel`, which measures the
+    /// cards it puts back through production typography — so this suite resolves
+    /// a font in a parallel worker's first moments.
+    override class func setUp() { FontWarmup.ensure() }
+
     private var root: URL!
 
     override func setUpWithError() throws {
@@ -58,6 +63,11 @@ final class CanvasStoreTests: XCTestCase {
 
     /// Spec §8: the sidecar is derived UI state, deletable without loss of
     /// content. Deleting it must lose positions but never words.
+    ///
+    /// **`load()` is a pure reader and stays one** — every scrap is technically
+    /// an orphan here, and the recovery is the MODEL's (F9, issue #28): the
+    /// second half asserts the words come back **visibly**, as cards the writer
+    /// can see, rather than only as entries in a dictionary nothing draws.
     func test_deletingTheSidecar_losesLayoutButKeepsTheWords() throws {
         let store = CanvasStore(projectRoot: root)
         store.save(scene: sampleScene(), scraps: [CanvasNodeID("s1"): "The falls at night."])
@@ -66,6 +76,15 @@ final class CanvasStoreTests: XCTestCase {
         let loaded = CanvasStore(projectRoot: root).load()
         XCTAssertTrue(loaded.scene.isEmpty)
         XCTAssertEqual(loaded.scraps[CanvasNodeID("s1")], "The falls at night.")
+
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        XCTAssertNotNil(model.scene.node(CanvasNodeID("s1")),
+                        "an empty layout with the words intact is a RECOVERABLE "
+                        + "state — opening the canvas puts a card back under every "
+                        + "scrap, or the writer's words are on disk and nowhere "
+                        + "they can be read")
+        XCTAssertEqual(model.scraps[CanvasNodeID("s1")], "The falls at night.")
     }
 
     /// ADR 0015 — a sidecar from a newer build must not throw the canvas away.

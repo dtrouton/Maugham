@@ -285,7 +285,12 @@ final class CanvasModel {
                             debounceInterval: saveDebounceInterval)
         s.beforeFlush = { [weak self] in self?.beforeFlush?() }
         store = s
-        let loaded = s.load()
+        var loaded = s.load()
+        // Before the assignment, deliberately: this is load-time reconciliation
+        // and not a writer gesture, so it mutates the loaded VALUE and reaches no
+        // undo bracket (there is none open at attach time, and one opened here
+        // would put a repair on the stack a ⌘Z aimed at a sentence could take).
+        let repaired = Self.surfaceOrphanScraps(in: &loaded.scene, scraps: &loaded.scraps)
         scene = loaded.scene
         scraps = loaded.scraps
         isAttached = true
@@ -317,6 +322,77 @@ final class CanvasModel {
             sceneRevision += 1
             scheduleSave()
         }
+
+        // Last, so the payload it queues is the repaired canvas. Debounced
+        // rather than written: `CanvasView.load()` calls this on `.onAppear` and
+        // a synchronous write there would put file I/O on the mount.
+        if repaired { scheduleSave() }
+    }
+
+    /// Give every orphaned scrap somewhere to be — a card, or nothing at all.
+    ///
+    /// **An orphan is an id `canvas.md` holds words for that `canvas.json` has no
+    /// node for** (F9, issue #28). It is invisible for ever, and
+    /// `ScrapText.render` rewrites it into `canvas.md` on every save, so it also
+    /// never goes away. Three things produce one and none of them is exotic: a
+    /// crash between the two writes (which is why they are ordered content-first),
+    /// a node the codec dropped, and `saveSceneOnly`, which writes the sidecar
+    /// alone. **The sidecar being absent or unreadable is the fourth and the
+    /// loudest**: `CanvasStore.load` answers with an empty scene and the scraps
+    /// intact, so every word the writer owns is an orphan at once — and it is
+    /// this function that makes "an empty layout with the words intact is a
+    /// recoverable state" true rather than aspirational.
+    ///
+    /// **Denver's ruling, 2026-08-12: an orphan is SURFACED — not silently
+    /// pruned, and not silently kept.** Words the writer typed come back as a
+    /// card they can see, read and decide about; a whitespace-only entry is cruft
+    /// with nothing in it to lose and is dropped. Pruning the text-bearing ones
+    /// instead would delete exactly the words the crash window left behind, which
+    /// is constitution must #1 read backwards.
+    ///
+    /// **The card is the WRITER'S and it lands loose.** `author` stays nil (nil
+    /// *is* the writer) so it leans by at least `minimumTiltDegrees` and true
+    /// zero stays reserved for Claude (ADR 0026 §10) — these are the writer's own
+    /// words coming back, and a repair that drew them straight and cool would say
+    /// Claude wrote them. It joins no region for `CanvasCapture.Placement.loose`'s
+    /// reason: membership is something the writer stated, and this function has no
+    /// idea what they meant, so inventing one is a container they never asked for.
+    /// `CanvasClaudePlacement.looseOrigin` is the one spelling of "clear of the
+    /// writer's work" and is re-asked per card, so a canvas whose sidecar has just
+    /// been deleted comes back as a row of cards rather than a stack of one.
+    ///
+    /// **Born measured**, like every other producer on this surface: a node with
+    /// no `cachedHeight` has no `frame`, and both `nodes(intersecting:)` and
+    /// `topmostNode(at:)` drop one that has none — so an unmeasured resurrection
+    /// would be the invisible orphan again, with a node added to it.
+    ///
+    /// Reports whether anything changed, so an untouched canvas queues no write.
+    /// Idempotent by construction: the repaired ids have nodes now, and the
+    /// dropped ones have no words.
+    private static func surfaceOrphanScraps(in scene: inout CanvasScene,
+                                            scraps: inout [CanvasNodeID: String]) -> Bool {
+        // Sorted, so a canvas repaired twice from the same files lays its cards
+        // out the same way twice — dictionary order is not.
+        let orphans = scraps.keys
+            .filter { scene.node($0) == nil }
+            .sorted { $0.raw < $1.raw }
+        guard !orphans.isEmpty else { return false }
+
+        for id in orphans {
+            let text = scraps[id] ?? ""
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                scraps[id] = nil
+                continue
+            }
+            let width = CanvasInteraction.defaultScrapWidth
+            scene.insert(CanvasNode(
+                id: id, kind: .scrap,
+                origin: CanvasClaudePlacement.looseOrigin(in: scene),
+                width: width,
+                cachedHeight: CanvasScrapMeasure.height(text: text, cardWidth: width),
+                z: scene.topZ + 1))
+        }
+        return true
     }
 
     /// Write, and then let go of every closure that points back at the owner.
