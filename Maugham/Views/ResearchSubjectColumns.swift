@@ -17,16 +17,22 @@ extension ProjectWindow {
     /// The two columns differ, and the difference is the whole type:
     ///
     /// - `takesTheCentre` — the item is the centre column, and the right column
-    ///   inspects it. Author, Review and Publish, whose left column is the
-    ///   manuscript home and nothing else.
+    ///   inspects it. Author and Review, whose left column is the manuscript
+    ///   home and nothing else.
     /// - `besideTheCanvas` — Plan. The canvas STAYS MOUNTED
     ///   (`Persona.centresTheCanvas`) and the right column previews the
     ///   item instead. `CanvasTreeSegmentMountTests` measured what a second
     ///   centre-column branch costs: the camera back to origin at zoom 1, every
     ///   scrap layout re-measured, the thumbnail cache emptied — on every
     ///   research click.
-    /// - `nothingMoves` — the subject is not research, so neither column has
-    ///   anything to do about it.
+    /// - `nothingMoves` — neither column has anything to do about it. Two
+    ///   populations reach it: a subject that is not research at all, and — as
+    ///   of shell-finish stage 3b Task 5 — a research subject in **Publish**,
+    ///   which is spec §4's "—" row. Publish has no rendering for a note or a
+    ///   card, and the centre it does have is the compiled book; so the subject
+    ///   falls through to the manuscript arm, which shows the book if there is
+    ///   one and the project at altitude if there is not ("Review/Publish
+    ///   degrade gracefully… the centre never renders nothing").
     ///
     /// A third case, `.segmentStands`, guarded against a left column that was
     /// not the tree: a research item taking a column while nothing on screen
@@ -95,6 +101,13 @@ extension ProjectWindow {
         persona: Persona, subject: BinderSubject?
     ) -> ResearchSubjectPlacement {
         guard let id = subject?.researchID else { return .nothingMoves }
+        // **Publish acts on it in neither column** (stage 3b Task 5, spec §4's
+        // "—" row). Asked FIRST because the two questions below it are both
+        // about which column takes the item, and Publish's answer is that
+        // neither does: its centre is the book, and a note previewed beside a
+        // book is a reference view Publish does not have. Asked through
+        // `previewsThePublishedBook` rather than by name — the ONE spelling.
+        guard !persona.previewsThePublishedBook else { return .nothingMoves }
         // **The persona decides which column.** Plan keeps the board in the
         // centre and previews beside it; everyone else hands the centre over.
         return persona.centresTheCanvas ? .besideTheCanvas(id) : .takesTheCentre(id)

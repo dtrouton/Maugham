@@ -307,11 +307,52 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
                 + "left column wrote nothing — this is the trap: it survives a "
                 + "relaunch, because the subject is persisted in `UIState`")
         }
-        XCTAssertEqual(held, Persona.allCases.count,
-                       "the control: every persona holds a research subject in "
-                       + "one column or the other since Task 7, so a `continue` "
-                       + "here would mean the placement started refusing "
-                       + "somebody again and this loop went quiet about it")
+        XCTAssertEqual(
+            held,
+            Persona.allCases.filter { !$0.previewsThePublishedBook }.count,
+            "the control: every persona but Publish holds a research subject in "
+            + "one column or the other, so a `continue` beyond the expected one "
+            + "would mean the placement started refusing somebody else and this "
+            + "loop went quiet about it")
+    }
+
+    /// **Publish's `.nothingMoves` is exempt from the loop above by that loop's
+    /// own rule, and this is what says it is not a trap** (shell-finish stage 3b
+    /// Task 5).
+    ///
+    /// The rule is *"every window state that lets a research subject STAND must
+    /// be able to clear it"*. Publish no longer lets one stand: the placement
+    /// moves neither column (spec §4's "—" row), so the centre shows the
+    /// compiled book or the project at altitude and the subject is holding
+    /// nothing hostage. The trap the loop guards against needs a surface that
+    /// the subject took AND no control able to give it back; Publish has neither
+    /// half.
+    ///
+    /// Driven anyway, because "exempt" is the shape of claim that goes quietly
+    /// wrong: the tree is still there and its head row still writes the subject
+    /// away.
+    func test_publishHoldsNoResearchSubjectAndItsTreeCanStillWriteTheSubjectAway() async throws {
+        let stuck = BinderSubject.research("r1")
+        XCTAssertEqual(
+            ProjectWindow.researchSubjectPlacement(persona: .publish, subject: stuck),
+            .nothingMoves,
+            "premise: Publish takes neither column for a research subject, "
+            + "which is why the loop above skips it")
+
+        let store = try await project(of: .novel)
+        let (window, probe) = try await host(
+            store: store, script: nil, persona: .publish, subject: stuck)
+        let table = try XCTUnwrap(
+            firstTableView(in: window),
+            "Publish's left column is the tree like everyone else's")
+
+        await select(row: 0, in: table, until: { probe.subject != stuck })
+
+        XCTAssertNotEqual(
+            probe.subject, stuck,
+            "the subject persists through `UIState`, so even a subject holding "
+            + "no column has to be clearable — otherwise a relaunch reopens onto "
+            + "it and the writer cannot tell what the window is about")
     }
 
     /// **And the surviving form of the same question.**

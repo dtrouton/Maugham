@@ -446,4 +446,35 @@ public extension Persona {
         case .author, .review, .publish: return false
         }
     }
+
+    /// **The one spelling of "the centre column is the compiled book"**
+    /// (shell-finish stage 3b Task 5, spec §4's Publish column).
+    ///
+    /// `centresTheCanvas`'s sibling and written for its reason: the alternative
+    /// is a `== .publish` at every gate that needs the question — the centre
+    /// column's own layer, the status footer's refusal, and the refresh that
+    /// re-asks on arrival — and the compiler cannot check that three equalities
+    /// spread over two files still mean the same thing. The canvas's version of
+    /// exactly this cost three sites a visible defect apiece before it was
+    /// named.
+    ///
+    /// **It is deliberately NOT derived from `centresTheCanvas`'s complement or
+    /// from `showsManuscriptDocuments`.** Publish's centre holds a manuscript
+    /// document whenever nothing has been compiled — that is stage 3a's degrade
+    /// and it still stands — so this is a third, independent fact about the
+    /// centre column rather than a partition of the other two.
+    ///
+    /// **The Exports footer stays the sole place the persona is named** (`persona
+    /// != .plan` in `ProjectWindow`): it is a control about exporting rather
+    /// than a rule about what the centre column draws, and every tree looks the
+    /// same, so what is left to gate on is what the writer is doing.
+    ///
+    /// Exhaustive with no `default:`, so a fifth persona has to say whether its
+    /// centre is the book rather than inheriting "no".
+    var previewsThePublishedBook: Bool {
+        switch self {
+        case .publish: return true
+        case .plan, .author, .review: return false
+        }
+    }
 }
