@@ -270,6 +270,16 @@ extension ProjectStore {
     /// direct `Data().write(to:)`, and the mover's discipline is
     /// close-before-surgery for a path with a live autosave on it — which the
     /// open refusal above has already established there is not.
+    ///
+    /// **The caller must NOT already hold `lockStatementOpen` for this id — the
+    /// gate is not reentrant.** This takes it unconditionally at entry, and
+    /// `lockStatementOpen` parks a caller that finds the id in flight on a
+    /// continuation resumed only by `unlockStatementOpen`, so a re-entrant call
+    /// waits on a lock it is itself holding: a **hang**, with no error and
+    /// nothing red to explain it. The rollback callers are failure paths inside
+    /// `createStatement`'s own callers, which hold nothing — but a future one
+    /// reaching for this from inside `withStatementDocument`'s gate, or from a
+    /// pane that has taken it to load, is the shape to refuse at review.
     @discardableResult
     public func rollbackUnusedStatement(_ statement: Statement) async -> Bool {
         // Under the open gate, so a pane cannot bind this statement between the
