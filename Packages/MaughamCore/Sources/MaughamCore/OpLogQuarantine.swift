@@ -1,4 +1,13 @@
 import Foundation
+import os
+
+/// Diagnostic channel for quarantine-return anomalies — specifically a
+/// sidecar rewrite that fails AFTER a move-back already succeeded (see
+/// `attemptReturn`'s doc comment). Mirrors `Deriver.swift`'s `deriverLog` /
+/// `TranslationStore.swift`'s `translationLog`.
+private let quarantineLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.core",
+    category: "OpLogQuarantine")
 
 /// A durable record of one set-aside op-log file (Plan B, spec §5): what was
 /// moved, why, and whether it can come back. Lives beside the moved bytes as
@@ -139,7 +148,41 @@ public enum OpLogQuarantine {
         sidecars(in: projectURL)
             .compactMap { $0.record }
             .filter { $0.docId == docId }
+            .map { reconciled($0, in: projectURL) }
             .sorted { $0.quarantinedAt < $1.quarantinedAt }
+    }
+
+    /// Corrects a stale `.held` record at READ time when its move-back
+    /// already happened: `attemptReturn`'s move and its sidecar rewrite are
+    /// two separate filesystem operations (the move can't be made to
+    /// unwind if the rewrite afterward fails — see that function's doc
+    /// comment), so a rewrite failure can leave a record saying `.held`
+    /// for a file that has, in fact, already returned.
+    ///
+    /// The signal is unambiguous: nothing but a completed return-move ever
+    /// removes a file from `quarantined-ops/` (`quarantine` only ever
+    /// ADDS entries there), so a `.held` record whose quarantined bytes are
+    /// gone, paired with its `originalName` sitting at `.maugham/ops/`,
+    /// can only mean the move succeeded and the rewrite that should have
+    /// followed it did not.
+    ///
+    /// Deliberately a READ-time correction rather than a write-back repair:
+    /// `records` is `nonisolated` by design (a pure filesystem read with no
+    /// write to serialize) and this keeps it that way — the write-vs-read
+    /// isolation split stays intact, at the cost of recomputing the
+    /// correction on every call rather than settling it once on disk.
+    private nonisolated static func reconciled(_ record: QuarantineRecord, in projectURL: URL) -> QuarantineRecord {
+        guard record.status == .held else { return record }
+        let quarantinedURL = quarantinedFileURL(for: record, in: projectURL)
+        let destURL = projectURL
+            .appendingPathComponent(".maugham/ops", isDirectory: true)
+            .appendingPathComponent(record.originalName)
+        guard !FileManager.default.fileExists(atPath: quarantinedURL.path),
+              FileManager.default.fileExists(atPath: destURL.path)
+        else { return record }
+        var corrected = record
+        corrected.status = .returned
+        return corrected
     }
 
     /// The URL of the quarantined bytes for `record`. Matched by identity
@@ -288,7 +331,9 @@ extension OpLogQuarantine {
             .appendingPathComponent(record.originalName)
 
         guard !FileManager.default.fileExists(atPath: destURL.path) else {
-            rewriteRecord(record, status: .superseded, quarantinedFileURL: dataURL, in: projectURL)
+            if !rewriteRecord(record, status: .superseded, quarantinedFileURL: dataURL, in: projectURL) {
+                quarantineLog.error("attemptReturn: left \(dataURL.lastPathComponent, privacy: .public) quarantined (superseded by sync) but failed to rewrite its quarantine record to .superseded")
+            }
             return .supersededBySync(report)
         }
 
@@ -317,7 +362,9 @@ extension OpLogQuarantine {
             return .stillUnreadable(reason: moveError.localizedDescription)
         }
 
-        rewriteRecord(record, status: .returned, quarantinedFileURL: dataURL, in: projectURL)
+        if !rewriteRecord(record, status: .returned, quarantinedFileURL: dataURL, in: projectURL) {
+            quarantineLog.error("attemptReturn: moved \(dataURL.lastPathComponent, privacy: .public) back to .maugham/ops/ but failed to rewrite its quarantine record to .returned — records() reconciles this at read time")
+        }
         return .returned(report)
     }
 
@@ -327,18 +374,33 @@ extension OpLogQuarantine {
     /// BEFORE any move) — same `<name>.quarantine.json` convention
     /// `quarantine` writes at creation time — so this resolves correctly
     /// whether or not the data itself just moved out from under it.
-    /// Best-effort, matching `quarantine`'s own unguarded sidecar write: the
-    /// move (or the decision to leave the archive alone) already happened,
-    /// and a failed rewrite afterwards is not this call's error to raise.
+    ///
+    /// Returns whether the write succeeded. NOT parity with `quarantine`'s
+    /// own sidecar write (a bare `try` that propagates because `quarantine`
+    /// is a `throws` function) — `attemptReturn` isn't throwing, and by the
+    /// time this runs its move has already either happened or been
+    /// deliberately skipped, so there is nothing left to unwind. A caller
+    /// that gets `false` back has a truthful `ReturnOutcome` (the move DID
+    /// happen; only the bookkeeping about it failed) plus a `.held` record
+    /// stranded on disk — `attemptReturn` logs the failure loudly, and
+    /// `records(forDocId:in:)` self-heals the `.returned` case at read time
+    /// (see `reconciled(_:in:)`) so the strand doesn't read as "still set
+    /// aside" forever.
+    @discardableResult
     private static func rewriteRecord(
         _ record: QuarantineRecord, status: QuarantineRecord.Status,
         quarantinedFileURL: URL, in projectURL: URL
-    ) {
+    ) -> Bool {
         var updated = record
         updated.status = status
         let dir = projectURL.appendingPathComponent(directoryName, isDirectory: true)
         let sidecarURL = dir.appendingPathComponent(
             "\(quarantinedFileURL.lastPathComponent).quarantine.json")
-        try? JSONEncoder().encode(updated).write(to: sidecarURL, options: .atomic)
+        do {
+            try JSONEncoder().encode(updated).write(to: sidecarURL, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
     }
 }

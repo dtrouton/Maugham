@@ -183,4 +183,31 @@ final class OpLogQuarantineTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: quarantinedURL.path), "nothing moved")
         XCTAssertEqual(OpLogQuarantine.records(forDocId: "doc-1", in: tmp).first?.status, .held)
     }
+
+    /// Fix round 1: a sidecar rewrite can fail AFTER `attemptReturn`'s move
+    /// already succeeded — the move can't be unwound at that point, so the
+    /// record is left saying `.held` for a file that, in fact, already
+    /// returned. `records()` must read that situation honestly rather than
+    /// reporting it as still set aside. Simulated directly (move the bytes
+    /// by hand, leave the sidecar untouched) rather than by forcing the
+    /// real write to fail, so this pins the READ-time correction itself.
+    @MainActor
+    func test_records_selfCorrectsAStaleHeldRecord_overAnAlreadyReturnedFile() throws {
+        let src = tmp.appendingPathComponent(".maugham/ops/doc-1.phone.jsonl")
+        try writeJSONL([opFixture("aaaa")], to: src)
+
+        let record = try OpLogQuarantine.quarantine(
+            fileURL: src, docId: "doc-1", reason: "torn line",
+            in: tmp, isDatalessStub: { _ in false })
+        let quarantinedURL = OpLogQuarantine.quarantinedFileURL(for: record, in: tmp)
+        XCTAssertEqual(record.status, .held)
+
+        // What attemptReturn's move step does, minus the sidecar rewrite
+        // that (in this scenario) failed afterward.
+        try FileManager.default.moveItem(at: quarantinedURL, to: src)
+
+        let reconciled = OpLogQuarantine.records(forDocId: "doc-1", in: tmp).first
+        XCTAssertEqual(reconciled?.status, .returned,
+                       "the move already happened — reporting .held would be dishonest")
+    }
 }
