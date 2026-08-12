@@ -295,6 +295,25 @@ struct EditorHost: View {
         // parallel-observable-state cursor races (tripwires 6 and 7).
         .task { await loadDocumentIfNeeded() }
         .background(WindowAccessor(window: $window))
+        // The second trigger (the BinderRow.claimFocus double-trigger shape):
+        // a load can complete before WindowAccessor resolves the window, and
+        // a post made then is dropped by the liveness guard — deliver again
+        // when the window arrives. `consumePendingRecoveryFailure` is
+        // consume-once, so at most one of the two triggers posts.
+        .onChange(of: window) { _, _ in deliverPendingRecoveryNoticeIfPossible() }
+    }
+
+    /// RULING-54 (M9-OL-010): post the crash-recovery notice exactly once,
+    /// and only when a window exists to render it. Without a window the stamp
+    /// stays on the document for the next trigger.
+    private func deliverPendingRecoveryNoticeIfPossible() {
+        guard window != nil, let doc = document,
+              let failure = doc.consumePendingRecoveryFailure() else { return }
+        MaughamEvent.postNotice(
+            "Maugham couldn’t recover unsaved keystrokes from your last session "
+            + "(\(failure.name): \(failure.reason)). Everything you saved is intact; "
+            + "a record was kept in the project’s quarantine folder.",
+            projectURL: store.url)
     }
 
     /// Build the EditorSurface configuration wall in a dedicated function so the
@@ -583,6 +602,11 @@ struct EditorHost: View {
             loadedItemId = item.id
             priorLoadedPath = path
             loadError = nil
+            // RULING-54 (M9-OL-010): the crash-recovery failure is stamped on
+            // the doc by `Document.load` and delivered HERE, where a window
+            // can exist — a load-time post from a windowless context was
+            // dropped by the liveness guard and then destroyed on close.
+            deliverPendingRecoveryNoticeIfPossible()
             // Metrics for the freshly-loaded doc are delivered by the new
             // EditorSurface's coordinator `attach` (immediate, non-debounced) —
             // no EditorHost-side mirror call.

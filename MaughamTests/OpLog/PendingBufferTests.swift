@@ -94,7 +94,7 @@ final class PendingBufferTests: XCTestCase {
         // A fresh buffer for the SAME device (the crashed device recovering its
         // own uncommitted keystrokes) reads back from the partitioned path.
         let fresh = PendingBuffer(projectURL: tmp, docId: "d", device: device)
-        try await fresh.loadFromDisk()
+        await fresh.loadFromDisk()
         let snap = fresh.snapshot()
         XCTAssertEqual(snap.count, 1)
         XCTAssertEqual(snap[0].paragraphId, "a")
@@ -109,8 +109,65 @@ final class PendingBufferTests: XCTestCase {
         try await other.flushToDisk()
 
         let thisDevice = PendingBuffer(projectURL: tmp, docId: "d", device: device)
-        try await thisDevice.loadFromDisk()
+        await thisDevice.loadFromDisk()
         XCTAssertEqual(thisDevice.snapshot().count, 0,
                        "loadFromDisk must read only THIS device's slug file")
+    }
+
+    // MARK: - RULING-54: an unrecoverable pending file is never silent
+
+    /// An UNDECODABLE-yet-present pending file holds the writer's un-bursted
+    /// keystrokes from a crashed session; it used to collapse into the absent
+    /// case (silent return) and the next autosave overwrote the only copy.
+    /// Now the outcome names the file, the reason, and carries the raw bytes
+    /// so the caller can preserve them.
+    func test_loadFromDisk_undecodableFile_reportsUnrecoverableWithRawCarried() async throws {
+        let url = pendingURL(docId: "d")
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "NOT JSON — a crashed session's torn pending state".write(
+            to: url, atomically: true, encoding: .utf8)
+
+        let buf = PendingBuffer(projectURL: tmp, docId: "d", device: device)
+        let outcome = await buf.loadFromDisk()
+
+        guard case .unrecoverable(let name, let reason, let raw) = outcome else {
+            XCTFail("expected .unrecoverable, got \(outcome)"); return
+        }
+        XCTAssertEqual(name, url.lastPathComponent, "the file is named")
+        XCTAssertFalse(reason.isEmpty, "the decode failure's reason rides along")
+        XCTAssertEqual(raw, "NOT JSON — a crashed session's torn pending state",
+                       "the readable bytes are carried so the caller can preserve them")
+        XCTAssertEqual(buf.snapshot().count, 0, "nothing half-folded")
+    }
+
+    /// UNREADABLE-yet-present (a directory squatting on the pending path — the
+    /// permissions-break / dataless-stub shape): unrecoverable with no raw.
+    func test_loadFromDisk_unreadableFile_reportsUnrecoverableWithoutRaw() async throws {
+        let url = pendingURL(docId: "d")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+
+        let buf = PendingBuffer(projectURL: tmp, docId: "d", device: device)
+        let outcome = await buf.loadFromDisk()
+
+        guard case .unrecoverable(let name, _, let raw) = outcome else {
+            XCTFail("expected .unrecoverable, got \(outcome)"); return
+        }
+        XCTAssertEqual(name, url.lastPathComponent)
+        XCTAssertNil(raw, "nothing could be read, so nothing is claimed")
+    }
+
+    /// ABSENT stays the clean-quit state, and a good file reports .loaded.
+    func test_loadFromDisk_absentAndLoadedOutcomes() async throws {
+        let buf = PendingBuffer(projectURL: tmp, docId: "d", device: device)
+        let absent = await buf.loadFromDisk()
+        XCTAssertEqual(absent, .absent)
+
+        buf.recordChange(paragraphId: "a", prior: nil, next: "words")
+        try await buf.flushToDisk()
+        let fresh = PendingBuffer(projectURL: tmp, docId: "d", device: device)
+        let loaded = await fresh.loadFromDisk()
+        XCTAssertEqual(loaded, .loaded)
+        XCTAssertEqual(fresh.snapshot().count, 1)
     }
 }

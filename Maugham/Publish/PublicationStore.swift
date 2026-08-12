@@ -29,11 +29,36 @@ public final class PublicationStore {
         self.presenter = presenter
     }
 
+    /// RULING-54: an unreadable-yet-present publication device file THROWS,
+    /// naming the file. Unlike checkpoints (a notice) this is a REFUSAL,
+    /// because every substantive consumer of this list is write-adjacent: the
+    /// compile's occupied-destination refusal, republish's prior-edition
+    /// lookup, and the starter's version high-water mark each read it before
+    /// writing — a silently shorter catalog arms a version collision or an
+    /// overwrite of a publication the writer already shipped.
+    public enum ReadError: Error, LocalizedError {
+        case unreadableFile(name: String, underlying: String)
+        public var errorDescription: String? {
+            switch self {
+            case .unreadableFile(let name, let underlying):
+                return "The publications catalog “\(name)” exists but can't be read (\(underlying)). "
+                     + "Compiling without it could overwrite or collide with an edition you already "
+                     + "published — check the file's permissions or wait for iCloud to finish "
+                     + "syncing, then try again."
+            }
+        }
+    }
+
     public func load() async throws -> [Publication] {
         var merged: [Publication] = []
         for url in Self.fileURLs(in: projectURL) {
             let store = JSONLAppendStore<Publication>(fileURL: url, presenter: presenter)
-            merged.append(contentsOf: try await store.load())
+            do { merged.append(contentsOf: try await store.loadStrict()) }
+            catch {
+                throw ReadError.unreadableFile(
+                    name: url.lastPathComponent,
+                    underlying: error.localizedDescription)
+            }
         }
         var seen = Set<String>()
         return merged

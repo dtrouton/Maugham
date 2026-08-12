@@ -83,7 +83,7 @@
   "claim_id": "M9-OL-006",
   "scope": "the lenient residuals, recorded",
   "kind": "INVARIANT",
-  "statement": "deliberately lenient after RULING-54, each with its reason in place: the app-fringe readers (search content, background word-count stats, closed-doc task derivation, the rename pre-check, the statement-preview classifier, the scenes sidebar, the project task log) read via try? and SKIP an unreadable doc — every one of them meets the loud refusal the moment the doc is opened, and none can mutate anything from the shortened view. Still queued: sealTailIfNeeded's silent skip, PendingBuffer's silent crash-recovery skip, and BackupSignature's dropped file (checkpoints closed 2026-08-12, M9-OL-007/008; the two dev-only checkpoint test tools joined the recorded-lenient set in the same fix)",
+  "statement": "deliberately lenient after RULING-54, each with its reason in place: the app-fringe readers (search content, background word-count stats, closed-doc task derivation, the rename pre-check, the statement-preview classifier, the scenes sidebar, the project task log) read via try? and SKIP an unreadable doc — every one of them meets the loud refusal the moment the doc is opened, and none can mutate anything from the shortened view. The queue is EMPTY as of 2026-08-12: checkpoints closed (M9-OL-007/008), then the residual family (M9-OL-009 publications, M9-OL-010 pending buffer, M9-OL-011 backup signature, M9-OL-012 the seal's recorded reason). The recorded-lenient set now also carries the two dev-only checkpoint test tools and sealTailIfNeeded's skip",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "the // RULING-54 lenient, reason recorded comments at each site (grep-discoverable); DocumentLoadQuarantineTests for the loud half"
@@ -123,6 +123,70 @@
   "warrant": "HIGH",
   "intent": "INTENTIONAL — the fix",
   "reachability": "LIVE — the History pane's every reload; every integrity check; every backup",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-009",
+  "scope": "PublicationStore.load + CompileOrchestrator pre-flight — unreadable catalog file",
+  "kind": "POSTCONDITION",
+  "statement": "an UNREADABLE-yet-present publications device file THROWS PublicationStore.ReadError.unreadableFile naming the file — a REFUSAL, unlike checkpoints' notice, because every substantive consumer is write-adjacent: the compile's occupied-destination refusal, republish's prior-edition lookup, and the starter's version high-water mark each read this list before writing, so a silently shorter catalog armed a version collision or an overwrite of a shipped edition. CompileOrchestrator refuses PRE-FLIGHT (terminal job, .failed, nothing landed — no export, no snapshot, no bump), the same shape as its no-config refusal; PublishStarter's try? … ?? [] is gone (fix commit 9772aea2). The two RULING-52 failure-after-mutation pins moved their fault injection to a read-only catalog file because the old directory squat now refuses before anything mutates — the strictly better failure",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PublicationStoreTests.testLoad_unreadableDeviceFile_throwsNamingTheFile; CompileOrchestratorTests.test_anUnreadableCatalogRefusesBeforeAnythingLands; PublicationsCharacterization.test_aFailureAfterMutationNamesWhatLandedAndTheJobIsTerminal (re-injected)"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the fix",
+  "reachability": "LIVE — every compile, republish, and starter force-init",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-010",
+  "scope": "PendingBuffer.loadFromDisk + Document.load — unrecoverable pending file",
+  "kind": "POSTCONDITION",
+  "statement": "a pending file that EXISTS but cannot be read or decoded holds the writer's un-bursted keystrokes from a crashed session; it used to collapse into the absent case (silent return) and the next autosave's flushToDisk overwrote the only copy. loadFromDisk now reports absent / loaded / unrecoverable(name, reason, raw — the bytes when readable); Document.load quarantines the salvageable bytes under .maugham/conflicts/quarantine BEFORE that overwrite can happen, then STAMPS the failure on the Document (consume-once) — it does not post the notice itself, because a windowless post is dropped by the receive helpers' liveness guard (isLive(nil) == false) and a clean close then deletes the trigger: the forbidden silence, relocated (whole-branch review finding C). EditorHost consumes the stamp and posts when a window exists, with BOTH triggers (load-completion and window-resolution — either can happen first). A notice, not a refusal: every SAVED word is intact in the op log (fix 9772aea2 + the review's delivery fix)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PendingBufferTests.test_loadFromDisk_undecodableFile_reportsUnrecoverableWithRawCarried; test_loadFromDisk_unreadableFile_reportsUnrecoverableWithoutRaw; test_loadFromDisk_absentAndLoadedOutcomes; DocumentLoadQuarantineTests.test_load_unrecoverablePendingFile_quarantinesAndStampsTheDoc_stillLoads; test_editorHostDeliversTheStampedNotice_census"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the fix",
+  "reachability": "LIVE — every document open after a crash",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-011",
+  "scope": "BackupSignature.compute — unreadable file in the change-detection hash",
+  "kind": "INVARIANT",
+  "statement": "an UNREADABLE-yet-present file contributes a distinct '<rel>\\tunreadable' marker line to the backup signature, never silence — dropping it made the signature EQUAL to the file-deleted state (RED-watched against the old code, 2026-08-12), so change detection could not tell 'became unreadable' from 'was removed' and a skip-unchanged verdict could stand on a state it never actually hashed. Deterministic across calls. The WRITE path was already loud (copyItem throws on the unreadable file → .failed per destination); this closes the read half (fix commit 9772aea2)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "BackupSignatureTests.test_signature_unreadableFileIsNotEqualToAbsentFile"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the fix",
+  "reachability": "LIVE — every backup run's change detection",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-012",
+  "scope": "OpLogStore.sealTailIfNeeded — the skip's recorded reason",
+  "kind": "INVARIANT",
+  "statement": "the seal's unreadable-tail and torn-line skips are DELIBERATELY lenient with the reason recorded in place (// RULING-54 lenient, grep-discoverable): sealing is maintenance, not truth — the ops stay in the tail, the skip retries on every autosave/close, and a genuinely unreadable tail meets the strict refusal at the next document load (M9-OL-001), so the state cannot persist silently across sessions; a checksummed segment must never bake in unparseable bytes, and the quarantine path owns torn tails",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "the // RULING-54 lenient comment at the skip site (grep-discoverable); OpLogStoreSegmentTests (the seal's existing pins); OpLogStoreDiagnosedTests (the strict-refusal backstop)"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the recorded trade",
+  "reachability": "LIVE — every autosave/close over an oversized tail",
   "evidence": {
    "property_test": null
   }

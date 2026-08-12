@@ -113,7 +113,32 @@ extension Document {
 
         let opStore = OpLogStore(projectURL: projectURL, presenter: presenter)
         let pending = PendingBuffer(projectURL: projectURL, docId: docId, device: device)
-        try await pending.loadFromDisk()
+        // RULING-54: a pending file that exists but can't be read or decoded
+        // holds un-bursted keystrokes from a crashed session. Not a refusal —
+        // every SAVED word is intact in the op log — but never silent either:
+        // quarantine what's salvageable (the next autosave overwrites the
+        // pending file, so this record is the only copy that survives), then
+        // STAMP the failure on the Document rather than posting a notice here:
+        // a post from this windowless context is dropped by the receive
+        // helpers' liveness guard (isLive(nil) == false), and a clean close
+        // then deletes the trigger — the forbidden silence, relocated.
+        // EditorHost consumes the stamp and posts once its window exists.
+        // Best-effort like the torn-line block below: a quarantine-write
+        // failure must never abort the load.
+        var pendingFailure: Document.PendingRecoveryFailure?
+        if case .unrecoverable(let name, let reason, let raw) = await pending.loadFromDisk() {
+            let stamp = ISO8601DateFormatter.quarantineStamp(from: Date())
+            do {
+                _ = try IntegrityQuarantine.record(
+                    skipped: [.init(byteOffset: 0,
+                                    raw: raw ?? "<pending file \(name) unreadable: \(reason)>")],
+                    forDocId: docId, in: projectURL, stamp: stamp)
+            } catch {
+                documentLog.error(
+                    "pending quarantine-record write failed for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+            pendingFailure = .init(name: name, reason: reason)
+        }
 
         let loaded = try await opStore.loadDiagnosed(docId: docId)
         var ops = loaded.ops
@@ -289,6 +314,7 @@ extension Document {
         doc._hasAnyAnnotationOps = ops.contains {
             Document.isAnnotationOpKind($0.kind)
         }
+        doc.unrecoveredPendingFailure = pendingFailure
         return doc
     }
 }
