@@ -447,6 +447,36 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         try await assertTheNoteIsInTheCentre(of: mount, note: note)
     }
 
+    /// **Review reaches the same note through the same tree row — locked.**
+    /// (shell-finish stage 3b Task 6, Denver's ruling: Review adjudicates and
+    /// does not edit research from its own columns.) The routing this file
+    /// already pins is untouched — the note still reaches the centre — so this
+    /// is the one place a real tree click's result is checked against
+    /// `Persona.editsResearchInTheCentre` rather than only against
+    /// `ResearchSubjectPlacement`. `ReviewAdjudicationTests` covers the rest of
+    /// the contract (the palette card, the wall, the tree's verbs) with a
+    /// lighter direct mount; this is the click-to-lock path through production's
+    /// own tree.
+    func test_aNoteSelectedInReviewReachesTheCentreLocked() async throws {
+        let store = try await novel(notes: ["Ships"], cards: [])
+        let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
+        try seedNoteText(Self.noteText, at: note, in: store)
+
+        let mount = try await host(store: store, tree: .binder, persona: .review)
+        let table = try XCTUnwrap(firstTableView(in: mount.window))
+        await select(row: 1 + store.manifest.structure.count + 1, in: table,
+                     until: { mount.probe.subject == .research(note.id) })
+
+        await pumpUntil(deadline: 5) {
+            self.textViews(in: mount.window).contains { $0.string.contains(Self.noteText) }
+        }
+        let editor = try XCTUnwrap(
+            textViews(in: mount.window).first { $0.string.contains(Self.noteText) },
+            "Review must still show the note's own text — locked, not hidden")
+        XCTAssertEqual(editor.coordinator?.lockEditing, true,
+                       "the tree row's click must reach Review's lock, not just the direct mount")
+    }
+
     // MARK: - Mounted: the palette card takes the card editor
 
     /// The lost-update precedent, on the delivery path: a card row in the tree
@@ -910,7 +940,8 @@ private struct ResearchRoutingProbeView: View {
     private var centre: some View {
         if let id = placement.centreItemID {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: id, previewVisible: false)
+                                  itemID: id, previewVisible: false,
+                                  readOnly: !persona.editsResearchInTheCentre)
         } else if persona.centresTheCanvas {
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { canvasLoads.record(); return [] })

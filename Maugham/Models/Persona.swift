@@ -477,4 +477,35 @@ public extension Persona {
         case .plan, .author, .review: return false
         }
     }
+
+    /// **The one spelling of "this persona's centre column edits research and
+    /// palette cards."** False only for `.review` (shell-finish stage 3b Task
+    /// 6, Denver's ruling): *Review adjudicates; it doesn't edit research or
+    /// palette cards from its own columns.* Read by `ResearchSubjectCentre`'s
+    /// mount (`ProjectWindow.editorPane`) and by `PaletteWallCentre`'s card arm
+    /// — the same value at both sites, so a reviewer can't reach a mutable
+    /// note through one door and a locked one through the other.
+    ///
+    /// The alternative is `== .review` at each of those two sites, which is
+    /// exactly the shape `centresTheCanvas` and `previewsThePublishedBook` were
+    /// each written to close off — a hardcoded equality ships the defect the
+    /// moment a fifth persona needs an answer, silently, because the compiler
+    /// has nothing to ask.
+    ///
+    /// **Publish answers `true` despite never being asked**: its centre is the
+    /// compiled book (`previewsThePublishedBook`), so `researchSubjectPlacement`
+    /// routes a Publish research subject to `.nothingMoves` before this
+    /// predicate is ever read there — Task 5's rule, unchanged. `true` is the
+    /// honest answer to the literal question ("if Publish's centre showed a
+    /// note, would it be editable") rather than a value chosen to make an
+    /// unreachable case look intentional.
+    ///
+    /// Exhaustive with no `default:`, so a fifth persona has to say whether its
+    /// centre edits research rather than inheriting "yes".
+    var editsResearchInTheCentre: Bool {
+        switch self {
+        case .review: return false
+        case .plan, .author, .publish: return true
+        }
+    }
 }

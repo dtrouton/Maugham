@@ -1147,7 +1147,8 @@ private struct AltitudeCentreProbeView: View {
         if let id = ProjectWindow.researchSubjectPlacement(
             persona: persona, subject: probe.subject).centreItemID {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: id, previewVisible: false)
+                                  itemID: id, previewVisible: false,
+                                  readOnly: !persona.editsResearchInTheCentre)
         } else if route == .canvas {
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { [] })

@@ -227,18 +227,31 @@ struct ResearchSubjectCentre: View {
     /// is `.missing`, which is the empty state.
     let itemID: String?
     let previewVisible: Bool
+    /// **Threaded from the mount off `Persona.editsResearchInTheCentre`**
+    /// (shell-finish stage 3b Task 6) — never re-derived here, so this view
+    /// cannot answer a different question than the persona did. True only in
+    /// Review: the `.paletteCard` arm mounts `PaletteCardReadView` instead of
+    /// `PaletteCardEditor`, and the `.note` arm locks `ResearchNoteEditor`
+    /// rather than leaving it editable. `.preview` and `.missing` are
+    /// unaffected — both were already read-only.
+    let readOnly: Bool
 
     var body: some View {
         switch ProjectWindow.researchCentreRoute(id: itemID, in: store.manifest.research) {
         case .paletteCard(let cardID):
-            PaletteCardEditor(store: store, cardId: cardID)
+            if readOnly {
+                PaletteCardReadHost(store: store, cardId: cardID)
+            } else {
+                PaletteCardEditor(store: store, cardId: cardID)
+            }
         case .note(let item, let path):
             ResearchNoteEditor(
                 store: store,
                 documentStore: documentStore,
                 path: path,
                 itemId: item.id,
-                previewVisible: previewVisible)
+                previewVisible: previewVisible,
+                lockEditing: readOnly)
         case .preview(let item):
             ResearchPreview(projectURL: store.url, item: item)
         case .missing:

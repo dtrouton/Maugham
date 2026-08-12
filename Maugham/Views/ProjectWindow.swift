@@ -1531,7 +1531,7 @@ struct ProjectWindow: View {
         // the door's own disabled state already keeps.
         if Self.showsPaletteWallCentre(showsPaletteWall: showsPaletteWall, persona: persona) {
             PaletteWallCentre(store: store, selectedPaletteCardId: $selectedPaletteCardId,
-                              onClose: { showsPaletteWall = false })
+                              onClose: { showsPaletteWall = false }, persona: persona)
         // **Above `editorRoute` and never inside it**, because the canvas
         // branch below must stay the one the canvas is mounted from: a
         // `.research` subject in Plan resolves to `.besideTheCanvas` and never
@@ -1540,7 +1540,8 @@ struct ProjectWindow: View {
         } else if let id = Self.researchSubjectPlacement(
             persona: persona, subject: selectedSubject).centreItemID {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: id, previewVisible: researchPreviewVisible)
+                                  itemID: id, previewVisible: researchPreviewVisible,
+                                  readOnly: !persona.editsResearchInTheCentre)
         } else if route == .canvas {
             canvasCentre(store: store, documentStore: documentStore)
         } else if route == .collectionReference,

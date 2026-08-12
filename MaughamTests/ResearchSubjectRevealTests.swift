@@ -531,7 +531,8 @@ private struct ResearchRevealProbeView: View {
     private var centre: some View {
         if let id = placement.centreItemID {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: id, previewVisible: false)
+                                  itemID: id, previewVisible: false,
+                                  readOnly: !persona.editsResearchInTheCentre)
         } else {
             Color.clear
         }

@@ -1018,7 +1018,8 @@ struct PublishCentreProbeView: View {
         if let id = ProjectWindow.researchSubjectPlacement(
             persona: box.persona, subject: box.subject).centreItemID {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: id, previewVisible: false)
+                                  itemID: id, previewVisible: false,
+                                  readOnly: !box.persona.editsResearchInTheCentre)
         } else if route == .canvas {
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { [] })
