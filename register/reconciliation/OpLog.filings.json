@@ -1,88 +1,110 @@
 [
-  {
-    "claim_id": "M9-OL-001",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-54",
-    "clause_that_reaches_it": "a reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
-    "why_in_scope": "the op log is the surface the ruling named FIRST, and this is its fix landing: the cascade the characterisation mapped (shorter doc → truncated autosave → superseded paragraphs) is closed at its first link",
-    "intent_expressed_when": "contemporaneous — RULING-54's own queue entry",
-    "call_path": "every document load; every closed-doc read",
-    "violation_or_enhancement": "neither — born with the fix"
-  },
-  {
-    "claim_id": "M9-OL-002",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-7",
-    "clause_that_reaches_it": "Unreadable is never presented as empty; a refusal names its real cause",
-    "why_in_scope": "the document-level shape: the refusal reaches the writer in the pane where the manuscript would be, naming the file and stating the words are intact — never an eternal Loading… over a real error, never a silently shorter manuscript",
-    "intent_expressed_when": "contemporaneous",
-    "call_path": "document open",
-    "violation_or_enhancement": "neither — born with the fix"
-  },
-  {
-    "claim_id": "M9-OL-003",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-54",
-    "clause_that_reaches_it": "unreadable-yet-present is an error to surface",
-    "why_in_scope": "the directory case is the worst of the family — a parallel second history minted over the intact one — and the guard closes it before Bootstrap can run",
-    "intent_expressed_when": "contemporaneous",
-    "call_path": "document open",
-    "violation_or_enhancement": "neither — born with the fix"
-  },
-  {
-    "claim_id": "M9-OL-004",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-52",
-    "clause_that_reaches_it": "an operation that has already changed the project and then fails says what it did (the compile route); validate-first (the read route)",
-    "why_in_scope": "the compile half rides RULING-52's own machinery: a throwing Source means an unreadable file fails the compile through the DurableProgress catch with the honest ledger, instead of emitting a book silently missing chapters — the publications module's protections composing with this one",
-    "intent_expressed_when": "contemporaneous",
-    "call_path": "MCP closed-doc reads; the compile pipeline",
-    "violation_or_enhancement": "neither — born with the fix"
-  },
-  {
-    "claim_id": "M9-OL-005",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-8",
-    "clause_that_reaches_it": "where the same product question is answered in more than one place, it has one answer",
-    "why_in_scope": "checksum-failure and unreadable LOOK like one question and are two: 'these bytes are damaged' has partial truth to salvage and record; 'these bytes cannot be read' has none. The split is now deliberate and pinned, so the next author meets a decision rather than an inconsistency",
-    "intent_expressed_when": "contemporaneous",
-    "call_path": "segment loads",
-    "violation_or_enhancement": "neither"
-  },
-  {
-    "claim_id": "M9-OL-006",
-    "outcome": "COMPLIES",
-    "ruling": "RULING-54",
-    "clause_that_reaches_it": "lenient reads are opt-in with a recorded reason",
-    "why_in_scope": "every fringe site carries its reason in place, each is mutation-free from the shortened view, and each converges on the loud refusal at document open. The QUEUED residuals (checkpoints, seal tail, pending buffer, backup signature) are restated in START-HERE — checkpoints first among them, since a device's vanished checkpoints thin History/Rewind silently",
-    "intent_expressed_when": "contemporaneous",
-    "call_path": "the fringe readers",
-    "violation_or_enhancement": "neither — the recorded-reason half of the ruling"
-  },
-  {
-    "_summary": {
-      "reached": 6,
-      "complies": 6,
-      "violates": 0,
-      "no_ruling": 0,
-      "total": 6,
-      "coverage": "100%",
-      "by_ruling": {
-        "RULING-54": [
-          "M9-OL-001",
-          "M9-OL-003",
-          "M9-OL-006"
-        ],
-        "RULING-7": [
-          "M9-OL-002"
-        ],
-        "RULING-52": [
-          "M9-OL-004"
-        ],
-        "RULING-8": [
-          "M9-OL-005"
-        ]
-      }
-    }
+ {
+  "claim_id": "M9-OL-001",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "a reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
+  "why_in_scope": "the op log is the surface the ruling named FIRST, and this is its fix landing: the cascade the characterisation mapped (shorter doc → truncated autosave → superseded paragraphs) is closed at its first link",
+  "intent_expressed_when": "contemporaneous — RULING-54's own queue entry",
+  "call_path": "every document load; every closed-doc read",
+  "violation_or_enhancement": "neither — born with the fix"
+ },
+ {
+  "claim_id": "M9-OL-002",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Unreadable is never presented as empty; a refusal names its real cause",
+  "why_in_scope": "the document-level shape: the refusal reaches the writer in the pane where the manuscript would be, naming the file and stating the words are intact — never an eternal Loading… over a real error, never a silently shorter manuscript",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "document open",
+  "violation_or_enhancement": "neither — born with the fix"
+ },
+ {
+  "claim_id": "M9-OL-003",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "unreadable-yet-present is an error to surface",
+  "why_in_scope": "the directory case is the worst of the family — a parallel second history minted over the intact one — and the guard closes it before Bootstrap can run",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "document open",
+  "violation_or_enhancement": "neither — born with the fix"
+ },
+ {
+  "claim_id": "M9-OL-004",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-52",
+  "clause_that_reaches_it": "an operation that has already changed the project and then fails says what it did (the compile route); validate-first (the read route)",
+  "why_in_scope": "the compile half rides RULING-52's own machinery: a throwing Source means an unreadable file fails the compile through the DurableProgress catch with the honest ledger, instead of emitting a book silently missing chapters — the publications module's protections composing with this one",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "MCP closed-doc reads; the compile pipeline",
+  "violation_or_enhancement": "neither — born with the fix"
+ },
+ {
+  "claim_id": "M9-OL-005",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "where the same product question is answered in more than one place, it has one answer",
+  "why_in_scope": "checksum-failure and unreadable LOOK like one question and are two: 'these bytes are damaged' has partial truth to salvage and record; 'these bytes cannot be read' has none. The split is now deliberate and pinned, so the next author meets a decision rather than an inconsistency",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "segment loads",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M9-OL-006",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "lenient reads are opt-in with a recorded reason",
+  "why_in_scope": "every fringe site carries its reason in place, each is mutation-free from the shortened view, and each converges on the loud refusal at document open. The QUEUED residuals (seal tail, pending buffer, backup signature) are restated in START-HERE — checkpoints closed 2026-08-12 (M9-OL-007/008)",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "the fringe readers",
+  "violation_or_enhancement": "neither — the recorded-reason half of the ruling"
+ },
+ {
+  "claim_id": "M9-OL-007",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "a reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
+  "why_in_scope": "the checkpoint stream is a durable store and was the first queued consumer after the op-log slice; the surfaced error is a NAMED NOTICE rather than a refusal because no manuscript text derives from this read — the readable devices' rows stay true, and refusing the whole list would cost the writer real checkpoints to protect nothing",
+  "intent_expressed_when": "contemporaneous — RULING-54's own queue entry (M9-OL-006) and the 30-handoff's notice-not-refusal lean",
+  "call_path": "HistoryPane reload; ProjectIntegrity.check; the dev-only checkpoint test tools",
+  "violation_or_enhancement": "neither — born with the fix"
+ },
+ {
+  "claim_id": "M9-OL-008",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Unreadable is never presented as empty; a refusal names its real cause",
+  "why_in_scope": "the writer-facing half: the pane names the files instead of silently thinning, the integrity report gains findings instead of losing them, and the backup gate's refusal names the count — each surface says what is actually wrong where the writer would otherwise see a cleaner picture than the truth",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "the History pane; Verify-project's data model; the backup banner",
+  "violation_or_enhancement": "neither — born with the fix"
+ },
+ {
+  "_summary": {
+   "reached": 8,
+   "complies": 8,
+   "violates": 0,
+   "no_ruling": 0,
+   "total": 8,
+   "coverage": "100%",
+   "by_ruling": {
+    "RULING-52": [
+     "M9-OL-004"
+    ],
+    "RULING-54": [
+     "M9-OL-001",
+     "M9-OL-003",
+     "M9-OL-006",
+     "M9-OL-007"
+    ],
+    "RULING-7": [
+     "M9-OL-002",
+     "M9-OL-008"
+    ],
+    "RULING-8": [
+     "M9-OL-005"
+    ]
+   }
   }
+ }
 ]

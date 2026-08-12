@@ -57,9 +57,9 @@ why. **Read `register/RULINGS.md` and nothing else.**
 | `Canvas/Promotion*` (the falsification module) | 78 | 67% | 52 / 0 | `29-promotion-falsification.md` |
 | `Publish/Republisher` (+`CompileOrchestrator`) | 11 | 91% | 10 / 0 | — |
 | `Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings) | 12 | 75% | 9 / 0 | — |
-| `OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice) | 6 | 100% | 6 / 0 | — |
+| `OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice) | 8 | 100% | 8 / 0 | — |
 
-The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 263 further claims in their own files. **432 claims in the experiment, 411 reconciled.** The app layer stands at **160 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
+The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 265 further claims in their own files. **434 claims in the experiment, 413 reconciled.** The app layer stands at **162 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
 App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`).
 
@@ -178,11 +178,14 @@ pending" this section once carried is closed; the filings hold the details:
    autosave → superseded paragraphs → and, for the directory case, a
    re-bootstrapped parallel history — is closed at its first link); the
    closed-doc and compile reads are strict too, and the app-fringe readers are
-   lenient with recorded reasons. STILL QUEUED, in order: **checkpoints**
-   (CheckpointStore.load — an unreadable device file silently thins
-   History/Rewind), the seal tail's silent skip, PendingBuffer's silent
-   crash-recovery skip, BackupSignature's dropped file, and the
-   publications/tasks lenient loads.
+   lenient with recorded reasons. **Checkpoints closed 2026-08-12**
+   (M9-OL-007/008, fix `da4ecc0e`): CheckpointStore.load names unreadable
+   device files beside the rows that read — a notice in the History pane, a
+   finding in ProjectIntegrity (which now blocks backup), not a refusal,
+   because nothing derives manuscript text from this read. STILL QUEUED, in
+   order: the seal tail's silent skip, PendingBuffer's silent crash-recovery
+   skip, BackupSignature's dropped file, and the publications/tasks lenient
+   loads.
 3. **Small residuals**: RULING-30's presentation duty (verify-and-file); the two
    formal-methods findings (§8.2/§8.4); the audio-capture nuance.
 3. **The gap queue is EMPTY again as of 2026-08-09's P-gap sitting** — Promotion's five
