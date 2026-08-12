@@ -82,10 +82,30 @@ public enum OpLogQuarantine {
     /// BOTH the source (`.forMoving`) and destination — the standard AppKit
     /// shape for a coordinated move — mirroring `sealTailIfNeeded`'s "one
     /// coordinator per file operation" discipline in `OpLogStore.swift`.
+    ///
+    /// **Order: the record is written FIRST, then the bytes move.** The two are
+    /// separate filesystem operations and only one order is safe. Writing the
+    /// sidecar afterward means a failed sidecar write strands MOVED BYTES with
+    /// no record of them — a file gone from `.maugham/ops/` that nothing in the
+    /// app knows to offer back (the review's M1). Written first, the two
+    /// failure modes are both recoverable: a failed sidecar write moves
+    /// nothing at all, and a failed MOVE deletes the record-of-nothing it just
+    /// wrote before rethrowing. The one cost is a sub-millisecond window in
+    /// which the sidecar describes a file that has not moved yet, during which
+    /// `records(forDocId:in:)`'s read-time reconciliation reads it as
+    /// `.returned` — honest in its own way (the bytes ARE at
+    /// `.maugham/ops/`), and gone the instant the move lands.
+    ///
+    /// `now` exists so a test can predict the destination name this mints (the
+    /// stamp is otherwise a wall-clock read with no seam), which is what makes
+    /// both the sidecar-write failure and the same-millisecond collision
+    /// reachable from a test rather than argued about in prose. Production
+    /// never passes it.
     @discardableResult
     public static func quarantine(
         fileURL: URL, docId: String, reason: String,
         in projectURL: URL,
+        now: Date = Date(),
         isDatalessStub: (URL) -> Bool = OpLogQuarantine.defaultStubProbe
     ) throws -> QuarantineRecord {
         guard !isDatalessStub(fileURL) else {
@@ -97,17 +117,29 @@ public enum OpLogQuarantine {
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
 
         let originalName = fileURL.lastPathComponent
-        let quarantinedAt = Date()
+        let quarantinedAt = now
         let stampText = stamp(from: quarantinedAt)
 
         // Disambiguate on collision (two quarantines of the same original
         // name landing in the same stamp millisecond) rather than overwrite.
+        // The SIDECAR's existence counts as a collision too: a record whose
+        // file has already returned leaves its forensic sidecar behind with
+        // the data file gone, and a re-quarantine that looked only at the data
+        // path would overwrite that record (the review's M3) — the one durable
+        // account of what was set aside and why.
         var destURL = dir.appendingPathComponent("\(originalName).\(stampText)")
         var suffix = 2
-        while fm.fileExists(atPath: destURL.path) {
+        while fm.fileExists(atPath: destURL.path)
+                || fm.fileExists(atPath: sidecarURL(forQuarantinedName: destURL.lastPathComponent, in: dir).path) {
             destURL = dir.appendingPathComponent("\(originalName).\(stampText)-\(suffix)")
             suffix += 1
         }
+
+        let record = QuarantineRecord(
+            docId: docId, originalName: originalName, quarantinedAt: quarantinedAt,
+            reason: reason, status: .held)
+        let sidecar = sidecarURL(forQuarantinedName: destURL.lastPathComponent, in: dir)
+        try JSONEncoder().encode(record).write(to: sidecar, options: .atomic)
 
         var coordError: NSError?
         var moveError: Error?
@@ -123,17 +155,28 @@ public enum OpLogQuarantine {
                 moveError = error
             }
         }
-        if let coordError { throw coordError }
-        if let moveError { throw moveError }
-
-        let record = QuarantineRecord(
-            docId: docId, originalName: originalName, quarantinedAt: quarantinedAt,
-            reason: reason, status: .held)
-
-        let sidecarURL = dir.appendingPathComponent("\(destURL.lastPathComponent).quarantine.json")
-        try JSONEncoder().encode(record).write(to: sidecarURL, options: .atomic)
+        // Nothing moved on either failure, so the record above describes
+        // nothing. Remove it rather than leave a `.held` row for a file still
+        // sitting in `.maugham/ops/` — the pane would offer a Retry for
+        // history the writer already has.
+        if let coordError {
+            try? fm.removeItem(at: sidecar)
+            throw coordError
+        }
+        if let moveError {
+            try? fm.removeItem(at: sidecar)
+            throw moveError
+        }
 
         return record
+    }
+
+    /// The `<quarantined name>.quarantine.json` convention, in one place —
+    /// `quarantine` mints it, its collision loop probes it, and
+    /// `rewriteRecord` resolves it back. Three spellings of the same suffix
+    /// was one rename away from a record nothing could find.
+    nonisolated static func sidecarURL(forQuarantinedName name: String, in directory: URL) -> URL {
+        directory.appendingPathComponent("\(name).quarantine.json")
     }
 
     /// Every `QuarantineRecord` filed for `docId`, oldest first. Decodes every
@@ -240,7 +283,11 @@ public enum OpLogQuarantine {
     /// wall clock (there is no injected clock in the public signature), so
     /// the format is duplicated here rather than shared across the module
     /// boundary MaughamCore can't cross.
-    private static func stamp(from date: Date) -> String {
+    ///
+    /// Internal rather than private so a test that pins `quarantine`'s
+    /// destination naming can predict the name from the `now` it injected,
+    /// instead of re-spelling this format and drifting from it.
+    static func stamp(from date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date).replacingOccurrences(of: ":", with: "-")
@@ -288,15 +335,18 @@ extension OpLogQuarantine {
     /// this is a `do`/`catch`, not `try?`, because a throw here means the
     /// live history is itself unreadable (some OTHER device file is broken)
     /// and merging against a partial current picture would be dishonest, so
-    /// that also answers `.stillUnreadable`; (4) compute the recovery
-    /// report from both op sets; (5) check the destination path
+    /// that also answers `.stillUnreadable`; (4) check the destination path
     /// (`.maugham/ops/<originalName>`) — present means sync already
     /// delivered this device's file back while it was set aside, so the
     /// archive is left exactly where it is and the record is marked
     /// `.superseded`; absent means a coordinated move back (mirroring
     /// `quarantine`'s own move, source and destination swapped) and the
     /// record is marked `.returned`. No branch ever writes to an existing
-    /// destination file.
+    /// destination file. (5) compute the recovery report — **inside** each
+    /// branch and never before it, because what counts as an orphan depends
+    /// on whether the archive actually MOVED (`RecoveredHistory.report`'s
+    /// `mergeHappened`); a report computed once, up front, against the
+    /// hypothetical merge was the whole-branch review's C1.
     public static func attemptReturn(
         record: QuarantineRecord, in projectURL: URL, presenter: NSFilePresenter?
     ) async -> ReturnOutcome {
@@ -324,13 +374,20 @@ extension OpLogQuarantine {
             return .stillUnreadable(reason: "the live history is itself unreadable")
         }
 
-        let report = RecoveredHistory.report(currentOps: currentOps, returnedOps: returnedOps)
-
         let destURL = projectURL
             .appendingPathComponent(".maugham/ops", isDirectory: true)
             .appendingPathComponent(record.originalName)
 
         guard !FileManager.default.fileExists(atPath: destURL.path) else {
+            // NOTHING MOVES on this branch, so the report is computed against
+            // the current derivation ALONE (`mergeHappened: false`). Computing
+            // it against the merge here was the whole-branch review's C1: an
+            // archive whose keyframe would have WON a merge reported zero
+            // orphans, the record flipped `.superseded`, the standing notice
+            // went away, and the writer was told "nothing was missing" about
+            // paragraphs that live in no readable log.
+            let report = RecoveredHistory.report(
+                currentOps: currentOps, returnedOps: returnedOps, mergeHappened: false)
             if !rewriteRecord(record, status: .superseded, quarantinedFileURL: dataURL, in: projectURL) {
                 quarantineLog.error("attemptReturn: left \(dataURL.lastPathComponent, privacy: .public) quarantined (superseded by sync) but failed to rewrite its quarantine record to .superseded")
             }
@@ -365,7 +422,10 @@ extension OpLogQuarantine {
         if !rewriteRecord(record, status: .returned, quarantinedFileURL: dataURL, in: projectURL) {
             quarantineLog.error("attemptReturn: moved \(dataURL.lastPathComponent, privacy: .public) back to .maugham/ops/ but failed to rewrite its quarantine record to .returned — records() reconciles this at read time")
         }
-        return .returned(report)
+        // The move DID happen, so the draft the writer will see derives from
+        // both op sets: `mergeHappened: true`.
+        return .returned(RecoveredHistory.report(
+            currentOps: currentOps, returnedOps: returnedOps, mergeHappened: true))
     }
 
     /// Rewrites the `.quarantine.json` sidecar beside the quarantined file
@@ -386,6 +446,19 @@ extension OpLogQuarantine {
     /// `records(forDocId:in:)` self-heals the `.returned` case at read time
     /// (see `reconciled(_:in:)`) so the strand doesn't read as "still set
     /// aside" forever.
+    ///
+    /// **`.returned` is sticky.** Two returns can be in flight over the same
+    /// record — `EditorHost`'s auto-return sweep fires on every normal open
+    /// and the History pane's Retry is a button the writer can press while it
+    /// runs — and the LOSER of that race would otherwise write its own,
+    /// staler, verdict over the winner's: a `.superseded` stamped on top of a
+    /// `.returned` says the archive is still in `quarantined-ops/` when the
+    /// bytes are back in `.maugham/ops/`, which sends the pane looking for a
+    /// file that is not there (the review's M2). So a non-`.returned` write
+    /// re-reads the sidecar first and declines when it already says
+    /// `.returned`. The decline answers `true`: the sidecar holds the truth
+    /// this call was trying to establish, which is success — a `false` here
+    /// would put a spurious "failed to rewrite" line in the log.
     @discardableResult
     private static func rewriteRecord(
         _ record: QuarantineRecord, status: QuarantineRecord.Status,
@@ -394,13 +467,24 @@ extension OpLogQuarantine {
         var updated = record
         updated.status = status
         let dir = projectURL.appendingPathComponent(directoryName, isDirectory: true)
-        let sidecarURL = dir.appendingPathComponent(
-            "\(quarantinedFileURL.lastPathComponent).quarantine.json")
+        let sidecar = sidecarURL(
+            forQuarantinedName: quarantinedFileURL.lastPathComponent, in: dir)
+        if status != .returned, onDiskStatus(at: sidecar) == .returned { return true }
         do {
-            try JSONEncoder().encode(updated).write(to: sidecarURL, options: .atomic)
+            try JSONEncoder().encode(updated).write(to: sidecar, options: .atomic)
             return true
         } catch {
             return false
         }
+    }
+
+    /// The status the sidecar at `url` currently records, or nil when there is
+    /// nothing readable there. An unreadable sidecar answers nil rather than
+    /// throwing: the caller's fallback is to write its own verdict, which is
+    /// the same thing it would do for a sidecar that was never written.
+    private static func onDiskStatus(at url: URL) -> QuarantineRecord.Status? {
+        (try? Data(contentsOf: url))  // adr-0018-ok: a `.quarantine.json` sidecar — this verb's own bookkeeping, never manuscript text
+            .flatMap { try? JSONDecoder().decode(QuarantineRecord.self, from: $0) }?
+            .status
     }
 }

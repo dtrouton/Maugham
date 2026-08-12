@@ -68,10 +68,13 @@ final class OpLogQuarantineTests: XCTestCase {
         return String(data: try! enc.encode(op), encoding: .utf8)!
     }
 
-    private func opFixture(_ id: String, docId: String = "doc-1") -> Op {
+    private func opFixture(
+        _ id: String, docId: String = "doc-1",
+        changes: [Op.ParagraphChange] = [], sequence: [String]? = nil
+    ) -> Op {
         Op(opId: id, docId: docId, at: Date(timeIntervalSince1970: 0),
-           device: "phone", session: "s", kind: .typingBurst, changes: [],
-           sequence: nil, provenance: nil)
+           device: "phone", session: "s", kind: .typingBurst, changes: changes,
+           sequence: sequence, provenance: nil)
     }
 
     private func writeJSONL(_ ops: [Op], to url: URL) throws {
@@ -209,5 +212,196 @@ final class OpLogQuarantineTests: XCTestCase {
         let reconciled = OpLogQuarantine.records(forDocId: "doc-1", in: tmp).first
         XCTAssertEqual(reconciled?.status, .returned,
                        "the move already happened — reporting .held would be dishonest")
+    }
+
+    // MARK: - The superseded branch's report (whole-branch review C1)
+
+    /// **The reproduction.** Sync recreated the device file from a DIVERGENT,
+    /// older generation while the archive was set aside, and the archive holds
+    /// the keyframe that would have won a merge. Nothing moves on this branch,
+    /// so the archive's paragraphs are in no readable log — and they must be
+    /// reported as orphans. Before the fix the report was computed against the
+    /// hypothetical merge, so it read empty, the record flipped `.superseded`,
+    /// the standing notice disappeared and the toast said "nothing was
+    /// missing".
+    @MainActor
+    func test_return_destinationPresentWithDivergentContent_reportsTheArchivesOwnParagraphs() async throws {
+        let src = tmp.appendingPathComponent(".maugham/ops/doc-1.phone.jsonl")
+        try writeJSONL([
+            opFixture("aaaa", changes: [.init(paragraphId: "abcd", prior: nil, next: "archive-1")],
+                      sequence: ["abcd", "efgh"]),
+            opFixture("bbbb", changes: [.init(paragraphId: "efgh", prior: nil, next: "archive-2")],
+                      sequence: ["abcd", "efgh"]),
+        ], to: src)
+
+        let record = try OpLogQuarantine.quarantine(
+            fileURL: src, docId: "doc-1", reason: "torn line",
+            in: tmp, isDatalessStub: { _ in false })
+        let quarantinedURL = OpLogQuarantine.quarantinedFileURL(for: record, in: tmp)
+
+        // Sync recreates the device file — an older generation with its own
+        // keyframe, sharing not one opId with the archive.
+        try writeJSONL([
+            opFixture("0001", changes: [.init(paragraphId: "jkmn", prior: nil, next: "recreated")],
+                      sequence: ["jkmn"]),
+        ], to: src)
+
+        let outcome = await OpLogQuarantine.attemptReturn(record: record, in: tmp, presenter: nil)
+
+        guard case .supersededBySync(let report) = outcome else {
+            return XCTFail("expected .supersededBySync, got \(outcome)")
+        }
+        XCTAssertEqual(report.orphans.map(\.paragraphId), ["abcd", "efgh"],
+                       "the archive did not move — its paragraphs are in no readable log")
+        XCTAssertFalse(report.redundant,
+                       "the live log holds neither archive op — this is the lossy case")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: quarantinedURL.path),
+                      "archive untouched — never overwritten")
+    }
+
+    // MARK: - The sidecar is written first (review M1)
+
+    /// A failed sidecar write must strand NOTHING: the bytes stay in
+    /// `.maugham/ops/` and no record is filed. With the sidecar written after
+    /// the move (the shipped order) this test fails exactly the way the review
+    /// described — the file is gone from `.maugham/ops/` and nothing records
+    /// where it went.
+    ///
+    /// **The plant is a filename length.** A name of 220 characters makes the
+    /// stamped DESTINATION name legal (220 + 1 + the 24-character stamp = 245,
+    /// under the 255-byte `NAME_MAX`) while its `.quarantine.json` sidecar is
+    /// not (261) — so the move can succeed and only the record write can fail,
+    /// which is the one interleaving that separates the two orders. Planting a
+    /// directory at the sidecar path does NOT work for this: the collision
+    /// loop (M3) sees it as an existing sidecar and steps politely around it.
+    @MainActor
+    func test_quarantine_sidecarWriteFailure_movesNothing() throws {
+        let longName = String(repeating: "a", count: 214) + ".jsonl"
+        let src = tmp.appendingPathComponent(".maugham/ops").appendingPathComponent(longName)
+        try Data("x".utf8).write(to: src)
+
+        let now = Date(timeIntervalSince1970: 1_700_000_000.5)
+        let stamped = "\(longName).\(OpLogQuarantine.stamp(from: now))"
+        XCTAssertLessThanOrEqual(stamped.count, 255, "self-check: the data name must be legal")
+        XCTAssertGreaterThan("\(stamped).quarantine.json".count, 255,
+                             "self-check: and its sidecar's must not be")
+
+        XCTAssertThrowsError(try OpLogQuarantine.quarantine(
+            fileURL: src, docId: "doc-1", reason: "r", in: tmp, now: now,
+            isDatalessStub: { _ in false }))
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: src.path),
+                      "the bytes never left .maugham/ops/ — a record must exist before they do")
+        XCTAssertEqual(OpLogQuarantine.records(forDocId: "doc-1", in: tmp), [],
+                       "and no record was filed")
+        let dir = tmp.appendingPathComponent(".maugham/conflicts/quarantined-ops", isDirectory: true)
+        let entries = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        XCTAssertEqual(entries, [], "and nothing at all landed in quarantined-ops/")
+    }
+
+    /// The other half of the reorder: the move can fail with the record
+    /// already written, and that record describes nothing. It must be deleted
+    /// rather than left behind as a `.held` row offering a Retry for history
+    /// the writer never lost. Planted with a source that does not exist, so
+    /// the sidecar write succeeds and only the move fails.
+    @MainActor
+    func test_quarantine_moveFailure_leavesNoRecordOfNothing() throws {
+        let missing = tmp.appendingPathComponent(".maugham/ops/doc-1.phone.jsonl")
+
+        XCTAssertThrowsError(try OpLogQuarantine.quarantine(
+            fileURL: missing, docId: "doc-1", reason: "r", in: tmp,
+            isDatalessStub: { _ in false }))
+
+        XCTAssertEqual(OpLogQuarantine.records(forDocId: "doc-1", in: tmp), [],
+                       "the record-of-nothing is deleted, not left for the pane to offer")
+        let dir = tmp.appendingPathComponent(".maugham/conflicts/quarantined-ops", isDirectory: true)
+        let entries = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        XCTAssertEqual(entries.filter { $0.lastPathComponent.hasSuffix(".quarantine.json") }, [],
+                       "and no sidecar survives on disk")
+    }
+
+    // MARK: - A returned record's sidecar is never overwritten (review M3)
+
+    /// A record that has RETURNED leaves its forensic sidecar behind with the
+    /// data file gone. A re-quarantine of the same original name in the same
+    /// stamp millisecond must disambiguate around it — the collision loop
+    /// probes the sidecar, not only the data path — or the one durable account
+    /// of what was set aside and why is overwritten. The same `now` for both
+    /// calls is what makes the millisecond collision deterministic.
+    @MainActor
+    func test_quarantine_sameMillisecond_neverOverwritesAReturnedRecordsSidecar() throws {
+        let src = tmp.appendingPathComponent(".maugham/ops/doc-1.phone.jsonl")
+        try writeJSONL([opFixture("aaaa")], to: src)
+        let now = Date(timeIntervalSince1970: 1_700_000_000.25)
+
+        let first = try OpLogQuarantine.quarantine(
+            fileURL: src, docId: "doc-1", reason: "the first refusal", in: tmp,
+            now: now, isDatalessStub: { _ in false })
+        // The return: the bytes go back, the sidecar stays behind.
+        try FileManager.default.moveItem(
+            at: OpLogQuarantine.quarantinedFileURL(for: first, in: tmp), to: src)
+
+        let second = try OpLogQuarantine.quarantine(
+            fileURL: src, docId: "doc-1", reason: "the second refusal", in: tmp,
+            now: now, isDatalessStub: { _ in false })
+
+        let reasons = OpLogQuarantine.records(forDocId: "doc-1", in: tmp).map(\.reason).sorted()
+        XCTAssertEqual(reasons, ["the first refusal", "the second refusal"],
+                       "both accounts survive — the second quarantine stepped around the "
+                       + "first's sidecar instead of writing over it")
+        // Read off the directory rather than through `quarantinedFileURL`: the
+        // two records share a `quarantinedAt` to the bit here (the injected
+        // `now` is what makes the collision deterministic), which is the one
+        // case that function documents as ambiguous.
+        let dir = tmp.appendingPathComponent(".maugham/conflicts/quarantined-ops", isDirectory: true)
+        let sidecars = try FileManager.default
+            .contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+            .map(\.lastPathComponent)
+            .filter { $0.hasSuffix(".quarantine.json") }
+            .sorted()
+        let base = "doc-1.phone.jsonl.\(OpLogQuarantine.stamp(from: now))"
+        XCTAssertEqual(sidecars, ["\(base)-2.quarantine.json", "\(base).quarantine.json"].sorted(),
+                       "the second landed on a disambiguated name beside the first")
+        XCTAssertEqual(second.reason, "the second refusal", "self-check: the second is the returned record")
+    }
+
+    // MARK: - `.returned` is sticky (review M2)
+
+    /// The concurrency shape: the auto-return sweep and the History pane's
+    /// Retry both run over the same record, one wins the move and writes
+    /// `.returned`, and the loser reaches its own rewrite afterwards. Its
+    /// `.superseded` must not land — it would send the pane looking in
+    /// `quarantined-ops/` for bytes that are back in `.maugham/ops/`. Planted
+    /// by hand-writing the winner's verdict, then driving the loser's whole
+    /// path through `attemptReturn` with the destination present.
+    @MainActor
+    func test_rewrite_neverDowngradesAnAlreadyReturnedRecord() async throws {
+        let src = tmp.appendingPathComponent(".maugham/ops/doc-1.phone.jsonl")
+        try writeJSONL([opFixture("aaaa")], to: src)
+
+        let record = try OpLogQuarantine.quarantine(
+            fileURL: src, docId: "doc-1", reason: "torn line",
+            in: tmp, isDatalessStub: { _ in false })
+        let quarantinedURL = OpLogQuarantine.quarantinedFileURL(for: record, in: tmp)
+
+        // The winner: it moved the file back and stamped `.returned`. (The
+        // archive is left in place here so the loser's own read still
+        // succeeds — that is exactly the interleaving being pinned.)
+        try writeJSONL([opFixture("aaaa")], to: src)
+        var won = record
+        won.status = .returned
+        let sidecar = OpLogQuarantine.sidecarURL(
+            forQuarantinedName: quarantinedURL.lastPathComponent,
+            in: tmp.appendingPathComponent(".maugham/conflicts/quarantined-ops", isDirectory: true))
+        try JSONEncoder().encode(won).write(to: sidecar, options: .atomic)
+
+        // The loser, arriving with its stale `.held` snapshot.
+        let outcome = await OpLogQuarantine.attemptReturn(record: record, in: tmp, presenter: nil)
+
+        guard case .supersededBySync = outcome else {
+            return XCTFail("expected .supersededBySync, got \(outcome)")
+        }
+        XCTAssertEqual(OpLogQuarantine.records(forDocId: "doc-1", in: tmp).first?.status, .returned,
+                       "`.returned` is terminal — the loser's verdict must not overwrite it")
     }
 }
