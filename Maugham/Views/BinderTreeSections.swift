@@ -177,6 +177,10 @@ struct BinderTreeSections: View {
                     ForEach(state.cards) { card in
                         Label(card.title,
                               systemImage: PaletteCardTile.kindSymbol(for: card.kind))
+                            // The LABEL LEAF, before `.tag`/`.contentShape`/
+                            // `.draggable` widen the row (tripwire 9) — see
+                            // TreeTravel.swift and BinderRow's twin.
+                            .treeTravelOnDoubleClick(.research(card.id))
                             .tag(BinderSubject.research(card.id))
                             .contentShape(Rectangle())
                             // **A card is dragged by its BARE id** (final

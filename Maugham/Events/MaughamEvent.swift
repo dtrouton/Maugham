@@ -73,6 +73,17 @@ enum MaughamEvent {
     static let canvasScrapCountKey = "scrap_count"
     static let canvasRegionIDKey = "region_id"
 
+    /// Payload key for `.maughamTreeTravel` — the row's own `BinderSubject`,
+    /// carried as the value itself rather than a re-encoded string. In-process
+    /// `NotificationCenter` delivery needs no wire encoding, and a subject has
+    /// no `rawValue` by design (`BinderSubject`'s own doc comment: a site that
+    /// wants a bare id has to say what the project means to it) — string-
+    /// encoding it here would be inventing the very sentinel that type exists
+    /// to end. Same reason as `personaKey`: the post sites are five row views
+    /// and the receiver is `TreeTravel.swift`, so a rename on either side must
+    /// not silently make the post reach nobody.
+    static let treeTravelSubjectKey = "subject"
+
     /// Payload key for `.maughamDocumentNotice` — the finished sentence the
     /// window puts in front of the writer. Same reason as `personaKey`: the
     /// post sites live in `Maugham/OpLog/` and the receiver in

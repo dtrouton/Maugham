@@ -419,6 +419,16 @@ struct ProjectWindow: View {
                                        persona: $persona,
                                        detailSegment: $detailSegment,
                                        documentStore: documentStore))
+        // Denver's travel rule (shell-finish stage 3b): a double-click on any
+        // tree row in Plan takes the writer to Author, on that row's subject.
+        // One line, because this body has no expression budget (the Release
+        // type-check ceiling) — the whole rule is in `TreeTravel.swift`, and
+        // THIS LINE is what makes it reachable.
+        .modifier(TreeTravelModifier(window: window,
+                                     persona: $persona,
+                                     detailSegment: $detailSegment,
+                                     selectedSubject: $selectedSubject,
+                                     documentStore: documentStore))
         .modifier(FocusPostureModifier(
             window: window,
             documentStore: documentStore,

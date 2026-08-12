@@ -70,6 +70,9 @@ struct ResearchRow: View {
                 Text(item.title)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    // The LABEL LEAF only (tripwire 9) — see BinderRow's twin
+                    // and TreeTravel.swift.
+                    .treeTravelOnDoubleClick(.research(item.id))
                 Spacer()
             }
             .contentShape(Rectangle())

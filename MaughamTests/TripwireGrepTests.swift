@@ -3635,9 +3635,15 @@ final class TripwireGrepTests: XCTestCase {
     /// logic. `ManuscriptNavigation.go` is the one sanctioned cross-context
     /// arrival; `PersonaModifier`'s `.maughamSetPersona` handler is the one
     /// sanctioned direct choice (⌘1–4 and the picker); `CanvasClaudeArrivalModifier`
-    /// is Claude's own arrival (1C-c3), reviewed separately; `UIState.swift`
-    /// is the model's own init/decode, not a live decision; and the two
-    /// `self.persona = persona` lines in `AssistantColumn.swift` and
+    /// is Claude's own arrival (1C-c3), reviewed separately; `TreeTravel.swift`'s
+    /// `TreeTravelModifier` is the tree's own double-click arrival (shell-finish
+    /// stage 3b) — through `PersonaModifier.applyPersonaChange` directly rather
+    /// than `ManuscriptNavigation.go`, because the travel rule's question ("is
+    /// there a persona to travel TO") is not `ManuscriptNavigation`'s ("does the
+    /// CURRENT persona already show a document"), and routing one through the
+    /// other would let a rule answer a premise it was never asked about;
+    /// `UIState.swift` is the model's own init/decode, not a live decision; and
+    /// the two `self.persona = persona` lines in `AssistantColumn.swift` and
     /// `DetailPaneToggle.swift` are init-parameter captures for a subview
     /// reading the persona it was handed, not a place that moves anything.
     func test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites() throws {
@@ -3660,7 +3666,7 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(
             Set(offendersByFile.keys),
             ["ManuscriptNavigation.swift", "CanvasClaudeArrivalModifier.swift",
-             "ProjectWindow.swift"],
+             "ProjectWindow.swift", "TreeTravel.swift"],
             "a new file writes the window's persona directly — either route it "
             + "through ManuscriptNavigation.go / PersonaModifier, or if it is a "
             + "genuinely new sanctioned decision site, add it here by name "

@@ -129,6 +129,12 @@ struct BinderView: View {
     /// right-clicking empty space always has. A menu on the row would shadow it.
     private var projectRow: some View {
         ProjectRowLabel(title: store.manifest.title)
+            // The LABEL LEAF only, before `.tag` (tripwire 9) — see
+            // TreeTravel.swift. The project row carries no `.draggable` at
+            // all, so there is no drag-interior claim to make here; the
+            // gesture still has to stay off `.tag`'s own row-wide selection
+            // target rather than widen onto it.
+            .treeTravelOnDoubleClick(.project)
             .tag(BinderSubject.project)
     }
 

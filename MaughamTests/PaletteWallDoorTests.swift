@@ -349,7 +349,8 @@ final class PaletteWallDoorTests: XCTestCase {
     /// piece of state is the drift the observer exists to prevent.
     func test_neitherBypassWriterClosesTheWallItself() throws {
         for path in ["Maugham/Views/CanvasClaudeArrivalModifier.swift",
-                     "Maugham/Views/ManuscriptNavigation.swift"] {
+                     "Maugham/Views/ManuscriptNavigation.swift",
+                     "Maugham/Views/TreeTravel.swift"] {
             let text = Self.codeOnly(try source(path))
             XCTAssertTrue(text.contains("persona"),
                           "\(path): premise — this file writes the window's persona")
