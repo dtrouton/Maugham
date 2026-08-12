@@ -324,3 +324,93 @@ meanings; collapse the Research section then Claude Show → section expands;
 Plan untouched (project row → undimmed board); find overlay: tree selection/
 expansion survives open/close (the Task 4 behaviour change). **Not yet run —
 this addendum records the list, not a result.**
+
+## Addendum, 2026-08-12: stage 3b BUILT and MERGED — the shell finish is code-complete
+
+*Written at the close of 3b's ten-task plan
+(`docs/superpowers/plans/2026-08-12-shell-finish-stage3b-centre-rule.md`),
+merged to local main at `ffa51137`, UNPUSHED. The whole-branch review found
+no Critical (the 3a break in the streak holds — the reconcile agent caught
+the sharpest emergent seam mid-branch instead: upstream's throwing
+`PublicationStore.load()` landing in the new preview resolver). One fix
+wave (docs) applied and re-reviewed. Full no-skip gate green at the merge.
+The branch reconciles origin/main at `ff88aed4` (strict-read ×2 +
+recovery-plan-a); recovery Plan B was expected to push after this session's
+merge — check for it before pushing main.*
+
+### What 3b built (pointers, not restatements — the plan and AREA.md files carry the detail)
+
+Travel (double-click any Plan tree row → Author with that subject;
+`TreeTravel.swift`; Open Wall in Plan travels with the wall opened after the
+switch lands); Publish's whole-book PDF preview centre
+(`PublishPreviewCentre`/`PublishPreviewResolver`,
+`Persona.previewsThePublishedBook`; research subjects there are
+`.nothingMoves`); the canvas research highlight (`CanvasSubject.research`,
+absent-card standing chrome, arrival camera pan — never on restore);
+Review's read-only research/card centre (`Persona.editsResearchInTheCentre`,
+locked note editor with the image-paste hole closed, `PaletteCardReadView`
+in centre and wall); bound fold disclosure + the narrowed `reveal` (returns
+the row it opened); tree scroll-to-section/row + the find research match's
+full arrival posture; Link Research… back as a document-row context-menu
+verb (`.sharedPlusLink` rows) with the resurrected picker surfacing errors.
+
+### Denver's 3b smoke (recorded, NOT yet run)
+
+- **Travel**: double-click each row kind in Plan — chapter, project row,
+  research note, palette card, collection piece, screenplay script row —
+  lands Author with that subject; single click still only selects; a drag
+  still starts from the row interior. (Real AppKit double-click delivery is
+  synthetically untestable — measured; this smoke is the only end-to-end.)
+- **Wall travel**: Plan → Open Wall → lands Author with the wall; Esc
+  closes; ⌘1 then ⌘2 — the wall must NOT reappear.
+- **Publish**: with a compiled book — project/chapter/research rows all keep
+  the preview; footer absent; delete the export in Finder, leave and
+  re-enter Publish → altitude. Uncompiled — project/group → altitude,
+  chapter → editor, corkboard card click still opens the chapter.
+- **Review**: research note and palette card (centre AND wall) read-only —
+  typing lands nothing, ⌘V of an image writes NO file; the tree's
+  create/rename/delete still work.
+- **Canvas**: click a research row in Plan — its card lights, board dims,
+  camera brings an off-screen card into view; a research item with no card →
+  "This item isn't on this canvas yet." chrome; Escape → whole board;
+  relaunch with a research subject → dims but camera stays.
+- **Reveal/scroll**: ⌘⌥R/⌘⌥P scroll the section header on-screen; Claude
+  Show on a Collection piece's note opens the FOLD (not the shared
+  section) and scrolls to the piece row; a find research match's row is
+  visible after Esc.
+- **Link Research…**: on a novel chapter row's context menu; toggles link
+  live; the chapter's fold updates without relaunch; no verb on groups,
+  collection pieces, screenplay rows.
+
+### Denver decisions owed (carried out of 3b)
+
+1. **Unreadable-catalog copy never renders** (reconcile finding): both
+   preview degrades fall to altitude and the writer with an UNREADABLE
+   publications catalog sees exactly what a never-compiled writer sees —
+   RULING-54's shape one level up. Pinned deliberately by
+   `PublishPreviewCentreTests.test_bothDegradesLeaveTheCentreToAltitude`;
+   the register session has it queued for a VIOLATES filing once 3b is on
+   main. Cheap fix if ruled: render the error's own sentence in the
+   degrade placeholder.
+2. **Return-to-Plan is a mount, not a subject change**: a research subject
+   selected elsewhere gets no camera reveal on ⌘1 back into Plan — follows
+   from "a restore is not an arrival"; a Denver call if it feels wrong live.
+3. **Preview staleness position**: no file watcher — an export deleted (or
+   a second device's compile) while standing in Publish stays stale until
+   leave-and-return.
+
+### Flakes and process residue
+
+- **Second sighting** of
+  `ScreenplaySingleParseTests.test_applyTypography_usesPassedScript_notReparse`
+  (0.000s, fontd cold-start shape, green in isolation, no rival build) —
+  if a third arrives, wire `FontWarmup.ensure()` into that suite.
+- A NEW mounted-click harness rule, root-caused mid-branch: a synthetic
+  click posted into `NSApp`'s queue must first drain it to empty and see it
+  STAY empty (stale `appKitDefined` traffic from `makeKeyAndOrderFront`
+  otherwise feeds the drag-disambiguation loop and eats the click pair —
+  load-dependent, so it passed three same-day gates first).
+  `TreeTravelTests.click(row:in:window:)` is the canonical quiescing shape.
+- The wall arrival is race-free only because `showInspector = true` lives
+  solely in the ⌘1–⌘4 handler, not a persona observer — recorded on the
+  code; don't move it.
