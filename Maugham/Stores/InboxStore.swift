@@ -441,9 +441,16 @@ final class InboxStore {
     /// ("flip to `.promoted` only after every mutating step has succeeded") is the
     /// palette one's. So: ingest (a copy, never a move), write the canvas, flip,
     /// and remove the inbox original last. A flip that fails then leaves the
-    /// original in place and a retry re-copies — a recoverable duplicate, never a
-    /// capture stranded `.new` with its asset already gone, which is a permanent
-    /// `assetMissing` on every retry.
+    /// original in place, never a capture stranded `.new` with its asset already
+    /// gone — which is a permanent `assetMissing` on every retry.
+    ///
+    /// **And the retry converges** (S7, issue #29): the image arm asks the canvas
+    /// whether this capture is already on it *before* copying, so the second
+    /// attempt repeats only the flip and the removal. Ordering alone left the
+    /// duplicate recoverable in principle and invisible in practice — a copy in
+    /// `canvas_assets/` that no node references is reachable from no surface at
+    /// all. The card's half of this is `CanvasCapture`'s derived node id
+    /// (RULING-8, M8-IN-004); this is its file half.
     ///
     /// **An audio capture's recording is NOT removed**, which the palette sibling
     /// also does and for the same reason: what went to the canvas is the
@@ -476,6 +483,22 @@ final class InboxStore {
             guard let asset = assetURL(for: entry),
                   FileManager.default.fileExists(atPath: asset.path) else {
                 throw InboxError.assetMissing(entry.sourceFilename ?? entry.id)
+            }
+            // **The already-on-canvas question, asked before the copy** (S7, issue
+            // #29). The only reachable second send is the retry after a failed
+            // flip, and on that path the previous attempt's copy AND its card both
+            // landed — only the flip failed. `CanvasCapture.send` would skip the
+            // card, but the ingest below has already run by then, stranding a
+            // second copy in the well that no node will ever reference and nothing
+            // enumerates. So: retry the flip and the removal alone.
+            //
+            // The `.text`/`.audio` arms need no twin — they read the entry's words
+            // and nothing else, so `send`'s own short-circuit is early enough.
+            if let existing = CanvasCapture.existingNode(
+                forCapture: entry.id, store: projectStore, projectRoot: projectStore.url) {
+                try await updateStatusThrowing(id: entry.id, to: .promoted)
+                await trashPromotedAsset(asset, entry: entry, projectStore: projectStore)
+                return existing
             }
             // A COPY into the canvas's own well; the inbox original goes below,
             // after the flip commits.

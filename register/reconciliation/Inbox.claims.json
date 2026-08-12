@@ -51,10 +51,10 @@
   "claim_id": "M8-IN-004",
   "scope": "InboxStore.sendToCanvas — retry",
   "kind": "POSTCONDITION",
-  "statement": "the capture's canvas node id is DERIVED (cap-<entryId>) and both CanvasCapture arms skip a node already present (RULING-8, fixed 6955c2d8): the only reachable second send — the failed-flip retry — lands on the same card",
+  "statement": "the capture's canvas node id is DERIVED (cap-<entryId>) and both CanvasCapture arms skip a node already present (RULING-8, fixed 6955c2d8): the only reachable second send — the failed-flip retry — lands on the same card. The retry converges on the ASSET too (issue #29 S7): the image arm asks that same question through CanvasCapture.existingNode BEFORE ingestCanvasAsset and repeats only the flip and the removal, where before it re-copied the picture into the canvas well on every attempt — a duplicate no node referenced and no surface listed",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "InboxCharacterization.test_aCanvasRetryConvergesOnTheSameCard; InboxToCanvasTests.test_aRetryAfterAFailedFlipLandsOnTheSameCard"
+   "ref": "InboxCharacterization.test_aCanvasRetryConvergesOnTheSameCard; InboxToCanvasTests.test_aRetryAfterAFailedFlipLandsOnTheSameCard; InboxToCanvasTests.test_anImageRetryAfterAFailedFlipDoesNotIngestASecondCopy (the asset half)"
   },
   "warrant": "HIGH",
   "intent": "UNKNOWN",

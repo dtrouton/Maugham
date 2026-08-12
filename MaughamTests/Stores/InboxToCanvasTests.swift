@@ -651,4 +651,57 @@ final class InboxToCanvasTests: XCTestCase {
         withExtendedLifetime(f.documentStore) {}
     }
 
+    /// S7 (issue #29): RULING-8 made the retry land on the same CARD
+    /// (M8-IN-004) — but the image arm still re-ran the ingest *before* asking,
+    /// so every retry stranded another copy in the well that no node will ever
+    /// reference, invisible for ever. The retry now converges on the FILE too.
+    ///
+    /// The text arms need no twin: their half of `sendToCanvas` is
+    /// side-effect-free before `CanvasCapture.send`'s own short-circuit — they
+    /// read the entry's words and nothing else — so the ingest is the only step
+    /// a retry could repeat.
+    ///
+    /// Disable experiment: move the `existingNode` guard back below the
+    /// `ingestCanvasAsset` call and the file count goes to 2 while the card
+    /// count — M8-IN-004's own assertion — stays at 1.
+    func test_anImageRetryAfterAFailedFlipDoesNotIngestASecondCopy() async throws {
+        let f = try await openProject("ImageRetryConverge")
+        let model = attached(f)
+        _ = try seedImageAsset(f, name: "p7.png")
+        try await seed(f, [photoEntry("p7", filename: "p7.png")])
+        let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "p7" })
+
+        // The flip's own manifest, made unwritable by standing a directory where
+        // its file goes — the sibling test's idiom, and the only way to reach the
+        // retry at all (a `.promoted` entry can never be re-sent).
+        let own = InboxManifest.inboxManifestURL(
+            forDeviceSlug: DeviceSlug.make(from: "mac"), in: f.url)
+        try FileManager.default.createDirectory(at: own, withIntermediateDirectories: true)
+        do {
+            _ = try await f.inbox.sendToCanvas(entry, projectStore: f.store, placement: .loose)
+            XCTFail("expected the throwing flip to fail")
+        } catch {}
+        try FileManager.default.removeItem(at: own)
+        await f.inbox.refresh()
+
+        let retryEntry = try XCTUnwrap(f.inbox.entries.first { $0.id == "p7" })
+        let node = try await f.inbox.sendToCanvas(
+            retryEntry, projectStore: f.store, placement: .loose)
+
+        // The well is derived from the node's own path — its directory name is
+        // census-guarded and never spelled.
+        let scene = CanvasStore(projectRoot: f.url).load().scene
+        guard case .item(.owned(let ownedPath)) = try XCTUnwrap(scene.node(node)).kind else {
+            return XCTFail("the capture's card is not an owned item")
+        }
+        let well = f.url.appendingPathComponent(ownedPath).deletingLastPathComponent()
+        let files = try FileManager.default.contentsOfDirectory(atPath: well.path)
+        XCTAssertEqual(files.count, 1,
+                       "one capture, one file — the retry converged on the asset as "
+                       + "well as the card; a second copy would be referenced by "
+                       + "nothing, invisible for ever. found: \(files)")
+        XCTAssertEqual(scene.count, 1, "control: and still one card (M8-IN-004)")
+        withExtendedLifetime((model, f.documentStore)) {}
+    }
+
 }
