@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import MaughamCore
 
 /// The canvas's thumbnails: **decode small, cache by path, never on the frame
 /// path.**
@@ -324,7 +325,25 @@ public final class CanvasThumbnails {
         while !queue.isEmpty {
             let key = queue.removeFirst()
             guard entries[key] == nil else { continue }
-            let url = URL(fileURLWithPath: key.root).appendingPathComponent(key.path)
+            // **The one place in this file the path becomes a filesystem URL, so
+            // the one place the containment gate runs** (F8, issue #28). An
+            // owned path is a claim about a file THIS project owns
+            // (`Maugham/Canvas/AREA.md`) and it arrives from a sidecar, which is
+            // an ordinary file on disk — a `../` in `canvas.json` otherwise
+            // draws a photograph the project does not own on the writer's
+            // canvas. `SafeRelativePath.resolve` returns exactly the URL
+            // `appendingPathComponent` built before it, so nothing about a
+            // legitimate path moves.
+            //
+            // A refused path is cached as a FAILURE, like a file that is not an
+            // image: refused once, never re-queued. Without that the card naming
+            // it asks again on every frame that draws it — the per-frame work
+            // this file exists to prevent, arriving through the refusal path.
+            guard let url = try? SafeRelativePath.resolve(
+                key.path, under: URL(fileURLWithPath: key.root)) else {
+                store(nil, for: key)
+                continue
+            }
             let bucket = key.bucket
             let image = await Task.detached(priority: .utility) {
                 Self.decode(url, maxPixelSize: bucket)

@@ -37,6 +37,11 @@ final class CanvasThumbnailTests: XCTestCase {
 
     private var root: URL!
 
+    /// Files written deliberately OUTSIDE `root` — the containment test's bait.
+    /// Tracked because `tearDown` removes the project directory and these, by
+    /// construction, are not in it.
+    private var outsideRoot: [URL] = []
+
     /// The photograph's project-relative path — the shape
     /// `ProjectStore.ingestCanvasAsset` returns and
     /// `CanvasItemReference.owned(path:)` holds.
@@ -54,7 +59,11 @@ final class CanvasThumbnailTests: XCTestCase {
                               to: root.appendingPathComponent(Self.photo))
     }
 
-    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+        for url in outsideRoot { try? FileManager.default.removeItem(at: url) }
+        outsideRoot = []
+    }
 
     // MARK: - Decoding small
 
@@ -445,6 +454,52 @@ final class CanvasThumbnailTests: XCTestCase {
             + "ladder's own rounding exceeds aspectReshapeTolerance at 2.54:1 — "
             + "either raise the tolerance with the arithmetic re-done, or keep 128 "
             + "out of reach")
+    }
+
+    // MARK: - The path is a claim about THIS project
+
+    /// **An `ownedPath` cannot dangle outside the project** (F8, issue #28).
+    /// `Maugham/Canvas/AREA.md` says so; until this test nothing enforced it, and
+    /// the path arrives from a sidecar — `.maugham/canvas.json` — which is a file
+    /// on disk like any other, so a `../` in it read a photograph the project
+    /// does not own and drew it on the writer's canvas.
+    ///
+    /// The escape is a REAL, decodable PNG, which is what makes the assertions
+    /// mean anything: without the gate this resolves to pixels. And the refusal
+    /// is checked at `decodeCount` as well as at the image, because a gate placed
+    /// after the decode would still hand back nil while having already opened the
+    /// file. The counter counts decode ATTEMPTS (see `CanvasThumbnails.decodeCount`)
+    /// — a path refused before the decoder is asked is not one.
+    func test_anEscapingOwnedPathIsRefusedRatherThanDecoded() async throws {
+        let name = "outside-\(UUID().uuidString.prefix(8)).png"
+        let escaping = "../\(name)"
+        let outside = root.deletingLastPathComponent().appendingPathComponent(name)
+        outsideRoot.append(outside)
+        try Self.writeFixture(width: 400, height: 300, to: outside)
+
+        let cache = CanvasThumbnails()
+        XCTAssertNil(cache.resolved(escaping, in: root, fitting: 256))
+        _ = await cache.servicePending()
+
+        XCTAssertNil(cache.resolved(escaping, in: root, fitting: 256),
+                     "the escape resolved to pixels — the containment gate is not "
+                     + "being consulted, and a canvas can draw a file outside its project")
+        XCTAssertEqual(cache.decodeCount, 0,
+                       "the refusal has to happen BEFORE the decoder is handed the URL")
+
+        // Cached as a FAILURE, like an undecodable file: refused once, never
+        // re-queued. Without this a card naming an escaping path asks again on
+        // every frame that draws it, which is the per-frame work this whole file
+        // exists to prevent arriving through the refusal path.
+        XCTAssertEqual(cache.pendingCount, 0,
+                       "the refused path went back on the queue")
+
+        // The control: the same cache, the same call, an honest path — so the
+        // assertions above are about containment and not about a cache that
+        // stopped decoding.
+        let image = try await resolve(Self.photo, at: 256, with: cache)
+        XCTAssertLessThanOrEqual(image.width, 256)
+        XCTAssertEqual(cache.decodeCount, 1)
     }
 
     // MARK: - Helpers
