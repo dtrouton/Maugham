@@ -16,7 +16,7 @@ Compiled PDFs and EPUBs appear in the project's `Exports/` folder, which is show
 
 ### The Publish persona's centre column
 
-Switch to Publish (⌘4) and, once a PDF exists in `Exports/`, the centre column shows it full-width — whatever's selected in the tree. The project row, a chapter, a group: all three show the same compiled book, because reviewing the finished thing doesn't depend on which part of the manuscript you're standing on. Nothing compiled yet? Publish falls back to the corkboard/table or the editor, exactly as Author and Review show them (see [Structure & the Binder → The project row](structure-and-binder.md#the-project-row)). Selecting a research note or palette card does nothing to this column either way — Publish's job is the book, not the material behind it.
+Switch to Publish (⌘4) and, once a PDF exists in `Exports/`, the centre column shows it full-width — whatever's selected in the tree. The project row, a chapter, a group: all three show the same compiled book, because reviewing the finished thing doesn't depend on which part of the manuscript you're standing on. Nothing compiled yet? Publish falls back to the corkboard/table or the editor, exactly as Author and Review show them (see [Structure & the Binder → The project row](structure-and-binder.md#the-project-row)). Selecting a research note or palette card shows nothing in Publish's centre column when a publication is compiled (the centre stays on the book); if nothing's compiled yet, the centre flips from the chapter to the corkboard/outline, just as it would in Author or Review.
 
 ### The publish configuration
 
