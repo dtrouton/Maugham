@@ -363,7 +363,10 @@ struct CanvasInteraction {
 
     /// - Parameter now: when this sample arrived. Defaulted to the clock the
     ///   timeline runs on so production callers say nothing about time; tests
-    ///   pass it to drive `end(now:)`'s staleness check.
+    ///   pass it to drive `end(now:)`'s staleness check. It stamps the sample
+    ///   that check measures against, so it carries the same monotonic-clock
+    ///   precondition — stated in full on `end(now:)`, which is where the guard
+    ///   a broken clock would invert actually lives.
     mutating func update(to contentPoint: CGPoint,
                          in scene: inout CanvasScene,
                          now: TimeInterval = CACurrentMediaTime()) {
@@ -442,6 +445,18 @@ struct CanvasInteraction {
     ///
     /// - Parameter now: when the button came up. Defaulted to the same clock
     ///   `update(to:in:now:)` stamps its samples with.
+    ///
+    ///   **Precondition: it must be MONOTONIC with respect to the samples and
+    ///   track wall time.** The staleness guard below is a one-sided
+    ///   `now - last.time <= maximumFlickAge`, so a `now` EARLIER than the last
+    ///   sample makes the delta negative and satisfies it unconditionally — an
+    ///   arbitrarily stale drag would then be treated as fresh, which is the
+    ///   exact inversion of the guard's purpose (the parked card goes skating).
+    ///   Left one-sided rather than clamped deliberately: every shipped caller
+    ///   feeds `NSEvent.timestamp` or `CACurrentMediaTime()`, both monotonic on
+    ///   the same base, and Maugham synthesises no events. A future caller with
+    ///   a fixed, zeroed or replayed clock is the one that would trip it, and it
+    ///   would do so silently — hence this note rather than a runtime floor.
     @discardableResult
     mutating func end(now: TimeInterval = CACurrentMediaTime()) -> (id: CanvasNodeID, velocity: CGSize)? {
         defer {
