@@ -469,9 +469,12 @@ final class ResearchRevealProbe {
     /// view that cannot be mounted headless; the mirror is only as good as the
     /// census that pins it
     /// (`test_theWindowsTwoForcedEntriesBothOpenTheTree`).
-    func show(_ itemId: String, in store: ProjectStore) {
+    @discardableResult
+    func show(_ itemId: String, in store: ProjectStore) -> BinderSubject? {
         subject = .research(itemId)
-        treeState.reveal(itemId, research: store.manifest.research)
+        return treeState.reveal(itemId, structure: store.manifest.structure,
+                                research: store.manifest.research,
+                                projectType: store.manifest.type)
     }
 
     init() {}

@@ -237,6 +237,85 @@ final class BinderPieceFoldTests: XCTestCase {
                        + "children are not, and the fold must not say they are")
     }
 
+    // MARK: - The fold's disclosure is the window's (stage-3b Task 7)
+
+    /// **The writer's own chevron round-trips through the bound state.** The
+    /// fold's flag moved out of SwiftUI's private storage so the reveal could
+    /// open one; the thing that must not change is the writer clicking it. Both
+    /// directions, because a binding that only ever inserts would leave a fold
+    /// the writer closed still marked open, and the next reveal would think it
+    /// had nothing to do.
+    func test_theWritersChevronRoundTripsThroughTheBoundState() async throws {
+        let store = try await collection()
+        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        _ = try await store.addPieceResearchNote(pieceId: piece.id, title: "Alpha's Note")
+
+        let state = BinderTreeSectionsState()
+        let (window, _) = try await hostCollection(store: store, state: state)
+        let outline = try XCTUnwrap(outlineView(in: window))
+
+        try expandRow(1, in: outline)
+        XCTAssertEqual(state.expandedPieceFolds, [piece.id],
+                       "the click the writer makes is what the window reads")
+
+        try collapseRow(1, in: outline)
+        XCTAssertTrue(state.expandedPieceFolds.isEmpty,
+                      "and closing is a removal — collapsing stays the writer's "
+                      + "click, and the state has to be able to say 'closed'")
+    }
+
+    /// **Claude's Show on a note inside a Collection piece.** The end of the
+    /// task, on the delivery path: the window's reveal, into a real mounted
+    /// tree, has to leave the note's row ON SCREEN — which before this task it
+    /// could not, because the fold holding it was SwiftUI's own private flag
+    /// and the reveal opened the shared section instead.
+    func test_aRevealOfAPieceScopedNotePutsItsRowOnScreen() async throws {
+        let store = try await collection()
+        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let owned = try await store.addPieceResearchNote(
+            pieceId: piece.id, title: "Alpha's Note")
+
+        let state = BinderTreeSectionsState()
+        let (window, probe) = try await hostCollection(store: store, state: state)
+        let outline = try XCTUnwrap(outlineView(in: window))
+        let before = outline.numberOfRows
+
+        // What `openResearchItem`/`handleShowLatestMCPNote` do beside their
+        // subject write — the real method, on the real state the tree is over.
+        let shown = state.reveal(owned.id, structure: store.manifest.structure,
+                                 research: store.manifest.research,
+                                 projectType: store.manifest.type)
+        XCTAssertEqual(shown, .item(piece.id))
+        _ = await pumpUntil(deadline: 5) { outline.numberOfRows > before }
+
+        XCTAssertEqual(outline.numberOfRows, before + 1,
+                       "the fold opened and its row is drawn")
+        await select(row: 2, in: outline,
+                     until: { probe.subject == .research(owned.id) })
+        XCTAssertEqual(probe.subject, .research(owned.id),
+                       "and the row on screen is the note the reveal named")
+    }
+
+    /// The two hosts bind their folds to the window's state — a source census,
+    /// because the mounted pair above can only drive one host at a time and a
+    /// fold left on the no-binding initialiser is a tree the reveal opens
+    /// nothing in. `BinderPieceFold`'s own groups join the same set the shared
+    /// section uses, which is what lets an ancestor group inside a fold open.
+    func test_bothHostsBindTheirFoldsToTheWindowsState() throws {
+        for (host, rowId) in [("Maugham/Views/BinderView.swift", "item.id"),
+                              ("Maugham/Views/CollectionPiecesPane.swift", "piece.id")] {
+            let text = try source(of: host)
+            XCTAssertTrue(
+                text.contains("DisclosureGroup(isExpanded: treeState.foldExpansion(of: \(rowId))"),
+                "\(host): the fold's disclosure must take the window's binding")
+        }
+        let fold = try source(of: "Maugham/Views/BinderPieceFold.swift")
+        XCTAssertTrue(
+            fold.contains("expandedGroups: $state.expandedResearchGroups"),
+            "a fold's own groups read the tree's set of open ids, or a reveal "
+            + "can open the fold and still leave the note inside a closed group")
+    }
+
     // MARK: - The sweep reaches a fold
 
     /// Task 2's sweep watches the research ids as well as the structure's, and
@@ -588,11 +667,13 @@ final class BinderPieceFoldTests: XCTestCase {
     }
 
     private func hostCollection(
-        store: ProjectStore, sweeping: Bool = false
+        store: ProjectStore, sweeping: Bool = false,
+        state: BinderTreeSectionsState? = nil
     ) async throws -> (NSWindow, BinderSubjectProbe) {
         let probe = BinderSubjectProbe()
         let window = try await mount(AnyView(
-            FoldCollectionProbeView(store: store, probe: probe, sweeping: sweeping)))
+            FoldCollectionProbeView(store: store, probe: probe, sweeping: sweeping,
+                                    treeState: state ?? BinderTreeSectionsState())))
         return (window, probe)
     }
 
@@ -663,6 +744,15 @@ final class BinderPieceFoldTests: XCTestCase {
         pump(0.2)
     }
 
+    /// The other half of `expandRow` — `NSOutlineView.collapseItem`, which is
+    /// what the chevron does the second time it is clicked.
+    private func collapseRow(_ row: Int, in outline: NSOutlineView) throws {
+        let item = try XCTUnwrap(outline.item(atRow: row),
+                                 "no row \(row) in a list of \(outline.numberOfRows)")
+        outline.collapseItem(item)
+        pump(0.2)
+    }
+
     private func isExpandable(row: Int, in outline: NSOutlineView) throws -> Bool {
         let item = try XCTUnwrap(outline.item(atRow: row),
                                  "no row \(row) in a list of \(outline.numberOfRows)")
@@ -716,7 +806,10 @@ private struct FoldCollectionProbeView: View {
     /// where it lives in production, so a pane mounted alone does not carry it.
     let sweeping: Bool
     @State private var renaming: String?
-    let treeState = BinderTreeSectionsState()
+    /// The host's one state — the caller's since stage-3b Task 7, so a test can
+    /// drive the window's `reveal` into a mounted tree and read the fold's flag
+    /// back off it.
+    let treeState: BinderTreeSectionsState
 
     var body: some View {
         let subject = Binding(get: { probe.subject },

@@ -845,9 +845,37 @@ final class BinderTreeSectionsState {
     /// harmlessly, exactly as `selection` does and for the same reason (a row
     /// nothing draws reads nothing).
     var expandedResearchGroups: Set<String> = []
+    /// **The per-piece research FOLDS that are OPEN**, by DOCUMENT id — the
+    /// same open-ids-only spelling as `expandedResearchGroups` above, and for
+    /// the same reasons: an empty set is what a binding-less `DisclosureGroup`
+    /// already meant, so binding the folds changed nothing a writer sees, and a
+    /// stale id sits harmlessly because a row nothing draws reads nothing.
+    ///
+    /// It is separate from `expandedResearchGroups` because the two are keyed
+    /// on different id spaces — a fold is a *document*, a group is a research
+    /// item — and one set over both would make a collision between the spaces
+    /// open the wrong row. Every fold `DisclosureGroup` in both hosts takes
+    /// `foldExpansion(of:)` (stage-3b Task 7); before it, a fold's open/closed
+    /// flag was SwiftUI's own private state and `reveal` could not open one.
+    var expandedPieceFolds: Set<String> = []
+
+    /// One fold's flag, projected out of the set of open ids — the shape
+    /// `ResearchTreeNode.expansion(of:)` uses for a group, minus the optional:
+    /// every fold has this state, where a group's set is the caller's to hold
+    /// or not.
+    func foldExpansion(of documentId: String) -> Binding<Bool> {
+        Binding(
+            get: { [weak self] in self?.expandedPieceFolds.contains(documentId) ?? false },
+            set: { [weak self] open in
+                guard let self else { return }
+                if open { self.expandedPieceFolds.insert(documentId) }
+                else { self.expandedPieceFolds.remove(documentId) }
+            })
+    }
 
     /// **Open whatever it takes for `itemId`'s row to be on screen** — the
-    /// section that holds it and every group between it and the root.
+    /// section or the piece FOLD that holds it, and every group between it and
+    /// that root — and answer with the row the tree can now show.
     ///
     /// The window's two forced entries call this beside their subject write:
     /// **Open** on a promoted card and **Show** on Claude's banner both name an
@@ -858,16 +886,33 @@ final class BinderTreeSectionsState {
     /// from a restore, and a restore may not move the writer's tree).
     ///
     /// **It only ever opens.** A reveal is an addition to what is visible; a
-    /// writer's other open groups are none of its business.
+    /// writer's other open groups are none of its business, and closing one
+    /// stays the writer's own click.
+    ///
+    /// **The guard is OWNERSHIP, not existence** (stage-3b Task 7, and the
+    /// narrowing is the task). It used to be `TreeWalk.contains` over the whole
+    /// manifest, which every research id passes — including a collection
+    /// piece's, whose row is drawn in that piece's FOLD and nowhere near the
+    /// shared section (`sharedResearchRoots` filters `pieces/…` out). So a Show
+    /// on a note Claude wrote into a piece opened the shared section, which does
+    /// not hold the row, and left the fold that does hold it shut: the writer's
+    /// tree moved and the note still was not there. Ownership is asked of
+    /// `TreeSectionDerivation` — `sharedResearchRoots` and `pieceFold` — because
+    /// those are the derivations the tree DRAWS from, and a second path-prefix
+    /// spelling here is a rule that can come to disagree with what is on screen.
+    ///
+    /// The return is the row the tree can now show, for a caller that wants to
+    /// scroll to it: the item itself where it is a row of its own, and the
+    /// PIECE where the item is inside a fold — a fold's rows are reached
+    /// through the piece's row, which is where the chevron is.
     ///
     /// The ancestor walk is `TreeWalk`'s — a group is an ancestor when it
     /// CONTAINS the item, which is `ResearchSelectionSync.moveTargets`' own
     /// spelling of the same question. No tree-walking code of its own lives here.
-    func reveal(_ itemId: String, research: [ResearchItem]) {
-        // An id no tree holds names no row. Opening the Research section on it
-        // anyway would move the writer's tree for a Show banner naming a note
-        // that has since been deleted.
-        guard TreeWalk.contains(id: itemId, in: research) else { return }
+    @discardableResult
+    func reveal(_ itemId: String, structure: [StructureItem],
+                research: [ResearchItem],
+                projectType: ProjectType) -> BinderSubject? {
         // A card is a research item under the palette group — but the Palette
         // section draws its cards FLAT, so the group is not an ancestor anything
         // shows. Role-first, through the one lookup `sharedResearchRoots` filters
@@ -876,9 +921,56 @@ final class BinderTreeSectionsState {
            palette.id == itemId
             || TreeWalk.contains(id: itemId, in: palette.children ?? []) {
             paletteSectionExpanded = true
-            return
+            return .research(itemId)
         }
-        researchSectionExpanded = true
+        // The shared section first, and a novel's LINKED note is revealed here:
+        // it is a shared item, drawn in the section it lives in, and the copy of
+        // it in a chapter's fold is a second drawing of the same row. Opening
+        // the chapter instead would take the writer to a chapter for a note that
+        // belongs to the project.
+        if TreeWalk.contains(id: itemId, in: TreeSectionDerivation.sharedResearchRoots(
+            research: research, projectType: projectType)) {
+            researchSectionExpanded = true
+            openAncestorGroups(of: itemId, in: research)
+            return .research(itemId)
+        }
+        // Otherwise a piece's own research — the fold under that piece's row.
+        if let ownerId = Self.foldOwner(of: itemId, structure: structure,
+                                        research: research, projectType: projectType) {
+            expandedPieceFolds.insert(ownerId)
+            openAncestorGroups(of: itemId, in: research)
+            return .item(ownerId)
+        }
+        // An id no tree holds names no row: nothing moves. A Show banner for a
+        // note that has since been deleted must not move a writer's tree.
+        return nil
+    }
+
+    /// The document whose fold draws `itemId`, or nil where no fold does.
+    ///
+    /// Asked of `TreeSectionDerivation.pieceFold` per document rather than by
+    /// testing the item's path, because the fold is what the tree draws and the
+    /// routing rule behind it (`ProjectStore.researchRouting`) is the seam's,
+    /// not this file's. The walk is over the structure once, on the two forced
+    /// entries only — never on a body path (tripwire 4).
+    private static func foldOwner(
+        of itemId: String, structure: [StructureItem],
+        research: [ResearchItem], projectType: ProjectType
+    ) -> String? {
+        for document in TreeWalk.collect(in: structure, where: { _ in true }) {
+            let fold = TreeSectionDerivation.pieceFold(
+                for: document, structure: structure,
+                research: research, projectType: projectType)
+            if TreeWalk.contains(id: itemId, in: fold.items) { return document.id }
+        }
+        return nil
+    }
+
+    /// Every group between `itemId` and its root, opened. A group is an
+    /// ancestor when it CONTAINS the item, which is
+    /// `ResearchSelectionSync.moveTargets`' own spelling of the same question —
+    /// no tree-walking code of its own lives here.
+    private func openAncestorGroups(of itemId: String, in research: [ResearchItem]) {
         for group in TreeWalk.collect(in: research, where: { $0.type == .group })
         where TreeWalk.contains(id: itemId, in: group.children ?? []) {
             expandedResearchGroups.insert(group.id)

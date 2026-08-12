@@ -2535,9 +2535,10 @@ struct ProjectWindow: View {
     /// open/closed flag SwiftUI held privately, so the window could point every
     /// column at a note and still leave its row undrawn. The flags are
     /// `BinderTreeSectionsState`'s now (the window owns the object and the trees
-    /// take it), and `reveal` opens the section plus every group between the item
-    /// and the root. It only ever opens, so a writer's other groups are left
-    /// alone; an id the manifest does not hold opens nothing at all.
+    /// take it), and `reveal` opens the section — or, since stage-3b Task 7, the
+    /// piece FOLD — that holds the item, plus every group between it and that
+    /// root. It only ever opens, so a writer's other groups are left alone; an
+    /// id no tree draws a row for opens nothing at all.
     ///
     /// Reached from a promoted card's **Open** button (1C-c2), through
     /// `openPromotedArtifact`. The craft-intent inspector affordance was the
@@ -2550,7 +2551,11 @@ struct ProjectWindow: View {
     /// observer's reveal and this one ask the same function the same question.
     private func openResearchItem(_ itemId: String) {
         selectedSubject = .research(itemId)
-        treeState.reveal(itemId, research: store?.manifest.research ?? [])
+        if let store {
+            treeState.reveal(itemId, structure: store.manifest.structure,
+                             research: store.manifest.research,
+                             projectType: store.manifest.type)
+        }
         Self.revealResearchColumn(persona: persona, subject: selectedSubject,
                                   showInspector: &showInspector,
                                   detailSegment: &detailSegment)
@@ -2905,7 +2910,11 @@ struct ProjectWindow: View {
         selectedSubject = .research(id)
         // The tree opens far enough to draw the note's row — `openResearchItem`
         // carries why this is a call here and not an observer of the subject.
-        treeState.reveal(id, research: store?.manifest.research ?? [])
+        if let store {
+            treeState.reveal(id, structure: store.manifest.structure,
+                             research: store.manifest.research,
+                             projectType: store.manifest.type)
+        }
         Self.revealResearchColumn(persona: persona, subject: selectedSubject,
                                   showInspector: &showInspector,
                                   detailSegment: &detailSegment)

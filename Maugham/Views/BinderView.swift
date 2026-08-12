@@ -193,7 +193,10 @@ struct BinderView: View {
             research: store.manifest.research,
             projectType: store.manifest.type)
         if fold.showsDisclosure {
-            DisclosureGroup {
+            // Bound rather than SwiftUI-private (stage-3b Task 7): a
+            // piece-scoped research id is revealed by OPENING this fold, and a
+            // flag the window cannot reach is a fold the reveal cannot open.
+            DisclosureGroup(isExpanded: treeState.foldExpansion(of: item.id)) {
                 BinderPieceFold(store: store, state: treeState,
                                 selectedSubject: $selectedSubject,
                                 documentId: item.id, fold: fold)

@@ -218,7 +218,10 @@ struct CollectionPiecesPane: View {
             research: store.manifest.research,
             projectType: store.manifest.type)
         if fold.showsDisclosure {
-            DisclosureGroup {
+            // Bound for `BinderView.documentEntry`'s reason exactly (stage-3b
+            // Task 7): the window's reveal opens a piece's fold, and it can
+            // only open a flag it can reach.
+            DisclosureGroup(isExpanded: treeState.foldExpansion(of: piece.id)) {
                 BinderPieceFold(store: store, state: treeState,
                                 selectedSubject: $selectedSubject,
                                 documentId: piece.id, fold: fold)
