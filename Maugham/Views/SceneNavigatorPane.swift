@@ -110,6 +110,11 @@ struct SceneNavigatorPane: View {
     /// the two, is a row and a `.tag` for the same reason this one is.
     private var projectRow: some View {
         ProjectRowLabel(title: projectTitle)
+            // The LABEL LEAF, before `.tag` (tripwire 9) — see
+            // TreeTravel.swift and BinderView's twin. Neither this row nor
+            // `scriptRow` below carries `.draggable`, so there is no
+            // drag-interior claim to make here.
+            .treeTravelOnDoubleClick(.project)
             .tag(BinderSubject.project)
     }
 

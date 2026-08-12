@@ -342,6 +342,38 @@ final class TreeTravelRowMountingTests: XCTestCase {
                        + "confirms the travel gesture did not add one")
     }
 
+    /// **The same control, for the Collection's own project row** — a
+    /// separate row from `BinderView`'s (`ProjectWindow.binderColumn` mounts
+    /// `BinderView` only for non-collection projects; `CollectionPiecesPane`
+    /// carries its own), and the plan's original file list under-specified it
+    /// — Denver's recorded rule is "double-click ANY tree row", and this row
+    /// tags `.project` exactly like `BinderView`'s.
+    func test_theCollectionProjectRowStillMountsNoDragMachinery() async throws {
+        let store = try await collection(named: "CollectionProjectRowControl")
+        let (_, _, table) = try await hostCollectionPieces(store: store)
+
+        XCTAssertFalse(hasDraggingDestination(row: 0, in: table),
+                       "the Collection's project row has never been a drag "
+                       + "source — confirms the travel gesture did not add one")
+    }
+
+    /// **The same control, for the Scenes navigator's own project row.**
+    /// `TreePane(for: .screenplay)` is `.sceneNavigator`, so `BinderView` is
+    /// never mounted for a screenplay at all — without this row
+    /// `BinderSubject.project` would be unconstructible there, exactly the
+    /// gap `SceneNavigatorPane.swift`'s own doc comment records. It tags
+    /// `.project` like the other two, and neither it nor `scriptRow` beside
+    /// it carries `.draggable`.
+    func test_theSceneNavigatorProjectRowStillMountsNoDragMachinery() async throws {
+        let store = try await screenplay(named: "SceneNavProjectRowControl")
+        let (_, _, table) = try await hostSceneNavigator(store: store)
+
+        XCTAssertFalse(hasDraggingDestination(row: 0, in: table),
+                       "the Scenes navigator's project row has never been a "
+                       + "drag source — confirms the travel gesture did not "
+                       + "add one")
+    }
+
     // MARK: - Fixtures
 
     private func novel(named name: String) async throws -> ProjectStore {
@@ -357,6 +389,17 @@ final class TreeTravelRowMountingTests: XCTestCase {
 
     private func collection(named name: String) async throws -> ProjectStore {
         let url = try await ProjectFactory.createCollectionProject(
+            named: "\(name)-\(UUID().uuidString.prefix(6))", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let ds = try await DocumentStore.open(url: url)
+        store.documentStore = ds
+        documentStores.append(ds)
+        await store.wordCountPopulationTask?.value
+        return store
+    }
+
+    private func screenplay(named name: String) async throws -> ProjectStore {
+        let url = try await ProjectFactory.createScreenplayProject(
             named: "\(name)-\(UUID().uuidString.prefix(6))", in: temp.url)
         let store = try await ProjectStore.load(from: url)
         let ds = try await DocumentStore.open(url: url)
@@ -397,6 +440,30 @@ final class TreeTravelRowMountingTests: XCTestCase {
         let frame = CGRect(x: 0, y: 0, width: 420, height: 700)
         let hosting = NSHostingView(rootView: AnyView(
             CollectionPiecesTravelProbeView(store: store, probe: probe)))
+        hosting.frame = frame
+        let window = TreeTravelKeyTestWindow(contentRect: frame, styleMask: [.titled],
+                                             backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.makeKeyAndOrderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        windows.append(window)
+        let table = try await pumpUntilTable(in: window)
+        return (window, probe, table)
+    }
+
+    /// `documentID` is the literal `"doc-1"`, unconnected to any real
+    /// structure item — `SceneNavigatorProjectRowTests`' own vocabulary, and
+    /// the project row this test drives does not read it at all. `script:
+    /// nil` for the same reason: the project row's contract has nothing to
+    /// do with slugline content.
+    private func hostSceneNavigator(
+        store: ProjectStore, persona: Persona = .plan
+    ) async throws -> (NSWindow, TreeTravelProbe, NSTableView) {
+        let probe = TreeTravelProbe(persona: persona, detailSegment: .inbox,
+                                    documentStore: store.documentStore)
+        let frame = CGRect(x: 0, y: 0, width: 420, height: 700)
+        let hosting = NSHostingView(rootView: AnyView(
+            SceneNavigatorTravelProbeView(store: store, probe: probe)))
         hosting.frame = frame
         let window = TreeTravelKeyTestWindow(contentRect: frame, styleMask: [.titled],
                                              backing: .buffered, defer: false)
@@ -483,11 +550,14 @@ final class TreeTravelRowMountingTests: XCTestCase {
 /// doc records why a mounted double-click can't prove this directly. The
 /// TaskRow scar this rule is named after (`TaskRow.swift:36-45`) is exactly
 /// this failure: a row-wide `.simultaneousGesture(TapGesture(count: 2))` ate
-/// drag initiation across the row's whole interior. So this reads the five
-/// files by name and checks the ONE thing that failure shape turns on: the
-/// gesture line sits BEFORE the row's own `.tag`/`.contentShape`/`.draggable`
-/// widen the interactive area — i.e., attached to the label's own (smaller)
-/// view, not the container those calls widen onto.
+/// drag initiation across the row's whole interior. So this reads the files
+/// named in `test_theGestureAttachesBeforeTheRowWidens`'s own `expectations`
+/// array — not counted here, so a row kind added later cannot go stale in
+/// prose while the array right below it grows — and checks the ONE thing
+/// that failure shape turns on: the gesture line sits BEFORE the row's own
+/// `.tag`/`.contentShape`/`.draggable` widen the interactive area — i.e.,
+/// attached to the label's own (smaller) view, not the container those calls
+/// widen onto.
 final class TreeTravelGestureAttachmentTests: XCTestCase {
 
     private var repoRoot: URL {
@@ -519,6 +589,14 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
             Expectation(file: "Maugham/Views/ResearchRow.swift", widensAt: ".draggable("),
             Expectation(file: "Maugham/Views/BinderTreeSections.swift", widensAt: ".draggable("),
             Expectation(file: "Maugham/Views/BinderView.swift", widensAt: ".tag(BinderSubject.project)"),
+            // The other two project rows — `ProjectWindow.binderColumn`
+            // mounts exactly one of the three per project type, but the
+            // gesture belongs on all three since the rule is "any tree row",
+            // not "any tree row this app happens to show at once".
+            Expectation(file: "Maugham/Views/CollectionPiecesPane.swift",
+                       widensAt: ".tag(BinderSubject.project)"),
+            Expectation(file: "Maugham/Views/SceneNavigatorPane.swift",
+                       widensAt: ".tag(BinderSubject.project)"),
         ]
         for expectation in expectations {
             let text = try source(expectation.file)
@@ -546,7 +624,10 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
         for path in ["Maugham/Views/BinderRow.swift", "Maugham/Views/PieceRow.swift",
                      "Maugham/Views/ResearchRow.swift",
                      "Maugham/Views/BinderTreeSections.swift",
-                     "Maugham/Views/BinderView.swift", "Maugham/Views/TreeTravel.swift"] {
+                     "Maugham/Views/BinderView.swift",
+                     "Maugham/Views/CollectionPiecesPane.swift",
+                     "Maugham/Views/SceneNavigatorPane.swift",
+                     "Maugham/Views/TreeTravel.swift"] {
             XCTAssertFalse(try source(path).isEmpty, "\(path): read nothing")
         }
     }
@@ -648,6 +729,35 @@ private struct CollectionPiecesTravelProbeView: View {
             selectedSubject: Binding(get: { probe.subject }, set: { probe.subject = $0 }),
             renamingItemId: $renamingItemId,
             treeState: treeState)
+            .background(WindowAccessor(window: $window))
+            .modifier(TreeTravelModifier(
+                window: window,
+                persona: Binding(get: { probe.persona }, set: { probe.persona = $0 }),
+                detailSegment: Binding(get: { probe.detailSegment },
+                                       set: { probe.detailSegment = $0 }),
+                selectedSubject: Binding(get: { probe.subject }, set: { probe.subject = $0 }),
+                documentStore: probe.documentStore))
+    }
+}
+
+/// `SceneNavigatorPane`'s own twin — as `BinderPaneToggle` mounts it
+/// (`SceneNavigatorProjectRowTests.SceneNavigatorProbeView`'s shape).
+@MainActor
+private struct SceneNavigatorTravelProbeView: View {
+    let store: ProjectStore
+    let probe: TreeTravelProbe
+    let treeState = BinderTreeSectionsState()
+    @State private var window: NSWindow?
+
+    var body: some View {
+        SceneNavigatorPane(
+            store: store,
+            script: nil,
+            projectTitle: "Screenplay",
+            selectedSubject: Binding(get: { probe.subject }, set: { probe.subject = $0 }),
+            documentID: "doc-1",
+            treeState: treeState,
+            onSelect: { _ in })
             .background(WindowAccessor(window: $window))
             .modifier(TreeTravelModifier(
                 window: window,
