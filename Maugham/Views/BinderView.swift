@@ -277,6 +277,10 @@ struct BinderView: View {
             Button("Delete", role: .destructive) {
                 Task { await deleteItem(id: item.id) }
             }
+            if let openLinkPicker = linkResearchVerb(for: item) {
+                Divider()
+                Button("Link Research…", action: openLinkPicker)
+            }
             if item.type == .group {
                 Divider()
                 Button("Tidy Filenames") {
@@ -285,6 +289,30 @@ struct BinderView: View {
                 }
             }
         }
+    }
+
+    /// Whether `item`'s row offers **"Link Research…"** (shell-finish
+    /// stage-3b Task 9), and — when it does — what pressing it does.
+    ///
+    /// `nil` covers every row the verb has no business on: a group (research
+    /// links to a DOCUMENT — `researchRouting` throws before `.type` is even
+    /// asked), a Collection's own piece (`.pieceFolder` — research is
+    /// contained in the piece's own folder, not linked), a screenplay's
+    /// single file or a short story's (`.sharedOnly` — everything is already
+    /// that document's). This is the same boundary `BinderTreeDrops` already
+    /// enforces on the drag path — `ResearchScope.researchRouting(for:)`,
+    /// asked and never re-derived.
+    ///
+    /// Not `private`: `.contextMenu`'s `NSMenu` is built on right-click and
+    /// unreachable from a headless test (`PlanTreeStructureCreationTests`'
+    /// own note on this SDK), so `ResearchLinkPickerTests` asserts the
+    /// boundary at this predicate directly rather than trying to press a menu
+    /// item that does not exist until a real click builds one.
+    func linkResearchVerb(for item: StructureItem) -> (() -> Void)? {
+        guard item.type == .document,
+              let routing = try? store.researchRouting(for: item),
+              case .sharedPlusLink = routing else { return nil }
+        return { treeState.linkPickerDocumentId = item.id }
     }
 
     // MARK: - Actions

@@ -834,6 +834,14 @@ final class BinderTreeSectionsState {
     /// Which group the Add Link sheet's result belongs in; `nil` is the shared
     /// root.
     var addLinkParentId: String?
+    /// **The document "Link Research…" is open for** (shell-finish stage-3b
+    /// Task 9) — a document row's context menu sets this rather than owning a
+    /// sheet of its own, for `showingAddLinkSheet`'s own reason: a sheet
+    /// attached to a row inside a lazy `List` is presented from a view the
+    /// list may unmount. `BinderTreeSectionsPresentations` is where it
+    /// mounts. `nil` means closed; a document id names both that the picker
+    /// is open and which document it is linking against.
+    var linkPickerDocumentId: String?
     /// Palette cards, parsed from disk once per manifest change (tripwire 4).
     var cards: [PaletteCard] = []
     /// **The tree's `List` selection** (stage-2b Task 3) — every row of it, not
@@ -1128,6 +1136,27 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
                     get: { state.pendingError != nil },
                     set: { if !$0 { state.pendingError = nil } })) {
                 Button("OK", role: .cancel) {}
+            }
+            // **"Link Research…" returns** (stage-3b Task 9) — the tree drag
+            // was the only in-app route to `linkResearch`/`unlinkResearch`
+            // once `ResearchLinkPickerSheet`'s only host (`LinkedResearchPane`)
+            // died in stage 3a's fix wave, narrowing the modality for a
+            // keyboard/VoiceOver writer. A document row's context menu
+            // (`BinderView.linkResearchVerb`) sets `linkPickerDocumentId`;
+            // this is where it mounts, for the reason every presentation here
+            // does. `perform` is `BinderTreeVerbs.perform` — no `try?`
+            // survives from the deleted original, so a store failure reaches
+            // `state.pendingError` and the alert above like any other verb's.
+            .sheet(isPresented: Binding(
+                    get: { state.linkPickerDocumentId != nil },
+                    set: { if !$0 { state.linkPickerDocumentId = nil } })) {
+                if let documentId = state.linkPickerDocumentId {
+                    ResearchLinkPickerSheet(
+                        store: store, documentId: documentId,
+                        perform: BinderTreeVerbs(
+                            store: store, state: state,
+                            selectedSubject: $selectedSubject).perform)
+                }
             }
             // **⌘V lands in shared research** (stage-2b Task 4) — the table is
             // `ResearchPasteImporter`'s, which is `ResearchView`'s moved, and
