@@ -97,7 +97,10 @@ struct RecoveryBanner: View {
         .background(model.emphasised ? Color.orange.opacity(0.25) : Color.orange.opacity(0.12))
         // NO fixedSize(horizontal: false, vertical: true) — see
         // ViewOnlyShareNotice's warning: an unbreakable minimum height on a
-        // top inset grows the whole split view past the window.
+        // top inset grows the whole split view past the window. Held to it by
+        // `DetailPaneColumnHeightCensusTests
+        // .test_theRecoveryBannerDoesNotGrowTheColumnsEither`, which measured
+        // 3951pt in a 732pt window with the modifier planted back.
         .task { model.beginWatching() }
         .onDisappear { model.stopWatching() }
     }

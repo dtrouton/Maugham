@@ -155,6 +155,44 @@ final class ReadOnlyRecoveryTests: XCTestCase {
                        "census reported a correctly guarded function")
     }
 
+    // MARK: - The delivery path
+
+    /// Delivery-path census (the M9-OL-010 pattern): the refusal catch must
+    /// classify, the body must render the pane for a classified cause, the
+    /// read-only action must load `recovery: .readOnlyPartial` and must NOT
+    /// register the doc, and the pane's auto-open must route through
+    /// retryFullLoad. A mounted pin needs a full window fixture; this census
+    /// catches each wire disappearing.
+    func test_editorHostRefusalWiring_census() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Maugham/Views/EditorHost.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(source.contains("RecoveryCause.classify(loadError:"),
+                      "the catch classifies the refusal")
+        XCTAssertTrue(source.contains("DocumentRecoveryPane("),
+                      "a classified cause renders the pane, not the bare message")
+        XCTAssertTrue(source.contains("recovery: .readOnlyPartial"),
+                      "the read-only action uses the recovery load")
+        // The recovery load's registration ban (spec §4): the only register
+        // call must remain the normal path's single one.
+        XCTAssertEqual(source.components(separatedBy: "documentStore.register(").count - 1, 1,
+                      "exactly ONE register call site — the recovery doc is invisible to the registry MCP resolves through")
+        XCTAssertTrue(source.contains("onOpenEditable: ") && source.contains("retryFullLoad()"),
+                      "the pane's auto-open routes through the one retry path")
+        // One refusal can follow another. The pane's watch starts on appear
+        // and stops on disappear, so a model swapped in at a stable view
+        // identity would leave the new cause unwatched and the old cause's
+        // poller running with a callback that reloads a document the writer
+        // has left. Identity-keying the pane is what makes the swap a
+        // teardown; dropping the `.id` is silent.
+        XCTAssertTrue(source.contains(".id(ObjectIdentifier(paneModel))"),
+                      "the recovery pane is keyed on its model's identity")
+    }
+
     // MARK: - Census machinery
 
     /// Functions exempt from the census, each with the reason it cannot carry

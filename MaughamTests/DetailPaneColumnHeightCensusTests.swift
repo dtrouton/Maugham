@@ -102,8 +102,8 @@ private final class DetailSegmentProbe {
 /// over a read-only partial open — and `ViewOnlyShareNotice` is one of them:
 /// that case is measured by `test_theViewOnlyNoticeDoesNotGrowTheColumnsEither`,
 /// which puts the real notice in the real inset position rather than asserting
-/// anything about panes. `RecoveryBanner` is unmeasured; it carries no
-/// `fixedSize` for the reason that test records, and nothing yet holds it to it.
+/// anything about panes. `RecoveryBanner` is measured the same way, by
+/// `test_theRecoveryBannerDoesNotGrowTheColumnsEither`.
 ///
 /// **Runner parity applies** (CLAUDE.md): these mount real AppKit views, so a
 /// green run here says nothing about a runner on a different macOS major.
@@ -290,6 +290,50 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
             split.frame.height, content, accuracy: 1,
             "the view-only notice must fit the window it banners — it measured "
             + "\(split.frame.height) against \(content)pt")
+    }
+
+    /// **`RecoveryBanner`, in the same inset position — the fourth instance of
+    /// a defect shape that has shipped three times.**
+    ///
+    /// `EditorHost` puts it in exactly the position `ViewOnlyShareNotice`
+    /// occupies (`safeAreaInset(edge: .top)` on the writing column), and it
+    /// carries no `fixedSize(horizontal: false, vertical: true)` for the reason
+    /// the test above records. Until now nothing held it to that: the file's own
+    /// doc comment said so ("`RecoveryBanner` is unmeasured"). This is the
+    /// measurement.
+    ///
+    /// **Given the worst message it can build**, not the tidy one: the banner
+    /// names every unreadable history file, so its sentence grows with the
+    /// breakage, and the wide case is the one where an unbreakable height would
+    /// actually be paid. A writer looking at this banner is already being told
+    /// their document is partial — a layout that then shoves the window's
+    /// columns past its own frame is the worst possible moment for it.
+    func test_theRecoveryBannerDoesNotGrowTheColumnsEither() async throws {
+        let model = RecoveryBannerModel(
+            unreadableFiles: (1...6).map {
+                CheckpointLoad.UnreadableFile(
+                    name: "ops-\($0).d-abcdefgh-mac-mini-studio.jsonl",
+                    reason: "The file “ops-\($0)” couldn’t be read")
+            },
+            opsDirectory: temp.url.appendingPathComponent(".maugham/ops"),
+            // Never readable, so the watch cannot flip the banner to its
+            // Reopen shape mid-measurement and hand us the short sentence.
+            probeInterval: .seconds(3600), isReadable: { _ in false })
+        let window = try await mountColumns(
+            centreTopInset: { RecoveryBanner(model: model, onReopen: {}) },
+            detail: { Text("pane").frame(maxWidth: .infinity, maxHeight: .infinity) })
+        let split = try splitView(in: window)
+        let content = try XCTUnwrap(window.contentView).frame.height
+
+        XCTAssertEqual(
+            split.frame.height, content, accuracy: 1,
+            "the read-only recovery banner must fit the window it banners — it "
+            + "measured \(split.frame.height) against \(content)pt. Restoring "
+            + "`fixedSize(horizontal: false, vertical: true)` to `RecoveryBanner` "
+            + "is what makes this fail — measured 3951pt against this window's "
+            + "732pt on 2026-08-12, by planting it and running this test. See "
+            + "the two sites `DiagnosticsPaneColumnHeightTests` records and the "
+            + "notice above")
     }
 
     /// **What removing the notice's modifier cost, which turned out to be

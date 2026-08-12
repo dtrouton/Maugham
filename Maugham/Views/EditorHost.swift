@@ -130,6 +130,23 @@ struct EditorHost: View {
     /// presses it (`retryFullLoad`), never on the watcher's own authority.
     @State private var recoveryBannerModel: RecoveryBannerModel? = nil
 
+    /// The refusal ladder shown where the manuscript would be (recovery spec
+    /// §3), or nil for every document that opened. Minted at the ONE catch site
+    /// in `loadDocumentIfNeeded`, from the classified cause, and torn down
+    /// everywhere the host binds a document or retries.
+    ///
+    /// **Held, not built in `body`.** The model owns a readability watch; a
+    /// `RecoveryPaneModel(...)` written inline in the view would start a fresh
+    /// poller on every render pass. It is re-created only when a refusal is
+    /// classified, which is exactly "keyed to the cause".
+    ///
+    /// **And it is the only state the cause lives in** (tripwire 6's shape): a
+    /// second `@State` holding the `RecoveryCause` beside it would be two things
+    /// to keep in sync for no read that `recoveryPaneModel?.cause` doesn't
+    /// already serve. Nothing here feeds the editor binding — the model's whole
+    /// output is the pane's copy and its two buttons.
+    @State private var recoveryPaneModel: RecoveryPaneModel? = nil
+
     /// Session id stable for the lifetime of this app launch. Stamped onto
     /// every `typing_burst` Op so multi-window edits can be merged across
     /// instances. Computed once via a lazy static.
@@ -252,7 +269,7 @@ struct EditorHost: View {
             } else if currentItem?.type == .group {
                 placeholder("Select a document inside this group to edit.")
             } else if currentItem?.type == .document {
-                placeholder(loadError ?? "Loading…")
+                recoveryOrPlaceholder
             } else {
                 placeholder("Select a document.")
             }
@@ -299,6 +316,10 @@ struct EditorHost: View {
             }
             document = nil
             recoveryBannerModel = nil
+            // The pane's own `.onDisappear` stops its watch; dropping the
+            // model here is what keeps a returning host from re-showing a
+            // refusal it has not re-derived.
+            recoveryPaneModel = nil
             loadedItemId = nil
             priorLoadedPath = nil
             // And nothing in flight may bind into a host that has gone: it
@@ -335,6 +356,32 @@ struct EditorHost: View {
             projectURL: store.url)
     }
 
+    /// What a document that did not open shows: the recovery ladder when the
+    /// refusal was one this ladder owns (spec §3), and otherwise the bare
+    /// message the load path has always shown — an unclassified error keeps
+    /// today's rendering rather than being dressed up in a pane that offers
+    /// rungs it cannot climb.
+    ///
+    /// Extracted from `body` for the same reason `recoveryBannerInset` is: the
+    /// type-check budget (`ProjectWindow.body`'s ceiling, CLAUDE.md).
+    @ViewBuilder
+    private var recoveryOrPlaceholder: some View {
+        if let paneModel = recoveryPaneModel {
+            // Keyed on the MODEL's identity, not the view's position. One
+            // refusal can follow another (the writer clicks a second broken
+            // document), and a swapped-in model at a stable identity restarts
+            // nothing: `DocumentRecoveryPane`'s `.task` begins the watch on
+            // appear, and its `.onDisappear` stops it — neither fires for an
+            // update. The new cause would be shown with no watch behind it
+            // while the old cause's poller ran on, holding a callback that
+            // reloads a document the writer has left.
+            DocumentRecoveryPane(model: paneModel)
+                .id(ObjectIdentifier(paneModel))
+        } else {
+            placeholder(loadError ?? "Loading…")
+        }
+    }
+
     /// The recovery banner, or nothing at all. Extracted from `body` for the
     /// same reason every other wall here is (the type-checker budget), and
     /// gated twice — on the doc's own posture and on a minted model — so an
@@ -359,9 +406,57 @@ struct EditorHost: View {
         if let doc = document { await doc.close() }
         document = nil
         recoveryBannerModel = nil
+        // Reached from the pane's own auto-open as well as the banner's
+        // Reopen, so the ladder must come down here too: if the retry refuses
+        // again, the catch below mints a fresh model for the fresh cause, and
+        // a stale one left standing would keep polling beside it.
+        recoveryPaneModel = nil
         loadedItemId = nil
         priorLoadedPath = nil
         await loadDocumentIfNeeded()
+    }
+
+    /// Rung 1 (spec §4): bind a read-only partial Document. NEVER registered —
+    /// DocumentStore's registry is how MCP resolves open docs, and a
+    /// registered partial view would hand Claude the partial state §6 forbids.
+    ///
+    /// It claims a load generation like every other bind here: the writer's
+    /// press can land while a normal load is in flight, and two Documents on
+    /// one path would each carry their own `PendingBuffer`.
+    private func openReadOnly() async {
+        guard let item = currentItem, let path = item.path else { return }
+        let generation = loads.claim()
+        do {
+            let doc = try await Document.load(
+                url: store.url.appendingPathComponent(path),
+                device: Self.deviceId, session: Self.sessionId,
+                presenter: documentStore.presenter,
+                recovery: .readOnlyPartial)
+            guard loads.isCurrent(generation) else {
+                await doc.close()
+                return
+            }
+            document = doc
+            loadedItemId = item.id
+            priorLoadedPath = path
+            loadError = nil
+            recoveryPaneModel = nil
+            recoveryBannerModel = RecoveryBannerModel(
+                unreadableFiles: doc.readOnlyRecovery?.unreadableFiles ?? [],
+                opsDirectory: store.url.appendingPathComponent(".maugham/ops"))
+        } catch {
+            guard loads.isCurrent(generation) else { return }
+            // The partial view refused too (it can: `nothingUnreadable`, or a
+            // directory nothing can enumerate). The pane STAYS — its other
+            // rung, Restore from Backup, is still the right offer — so the
+            // refusal is told as a notice rather than into a `loadError` the
+            // pane is covering (RULING-5: never a silent refusal).
+            loadError = error.localizedDescription
+            MaughamEvent.postNotice(
+                "Maugham couldn’t open a read-only view of this document "
+                + "(\(error.localizedDescription)).",
+                projectURL: store.url)
+        }
     }
 
     /// Build the EditorSurface configuration wall in a dedicated function so the
@@ -658,6 +753,9 @@ struct EditorHost: View {
             loadedItemId = item.id
             priorLoadedPath = path
             loadError = nil
+            // A document that opened has no refusal to show: the ladder goes
+            // away with the failure that raised it.
+            recoveryPaneModel = nil
             // Recovery spec §4: mint the banner only for a doc that came back
             // read-only. `Document.load`'s ordinary path leaves
             // `readOnlyRecovery` nil, so this is nil for every normal load and
@@ -689,6 +787,20 @@ struct EditorHost: View {
             // eternal "Loading…" placeholder over a real error.
             loadError = error.localizedDescription
             MaughamEvent.postNotice(error.localizedDescription, projectURL: store.url)
+            // Recovery spec §3: classify the refusal, and mint the ladder's
+            // model HERE — the one place a cause is known — so the pane's
+            // readability watch is started once per refusal rather than once
+            // per render. `classify` returns nil for errors this ladder does
+            // not own, and then `recoveryOrPlaceholder` shows the bare message
+            // exactly as before.
+            let cause = RecoveryCause.classify(loadError: error, projectURL: store.url)
+            recoveryPaneModel = cause.map {
+                RecoveryPaneModel(
+                    cause: $0,
+                    projectURL: store.url,
+                    onOpenEditable: { Task { await retryFullLoad() } },
+                    onOpenReadOnly: { Task { await openReadOnly() } })
+            }
         }
     }
 
