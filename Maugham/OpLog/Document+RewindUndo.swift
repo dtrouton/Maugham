@@ -228,6 +228,7 @@ extension Document {
     /// merge. Append-only (nothing is truncated; the excluded ops were always
     /// in the log — this only moves the deriver's window).
     internal func appendTaskRewindCloser(originalRewindOpId: String) async throws {
+        if rejectMutationIfNotWritable("appendTaskRewindCloser") { return }
         let marker = Op(
             opId: ULID.generate(),
             docId: docId, at: Date(),

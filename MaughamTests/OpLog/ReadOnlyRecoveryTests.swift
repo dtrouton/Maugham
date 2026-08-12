@@ -89,4 +89,150 @@ final class ReadOnlyRecoveryTests: XCTestCase {
             // partial view to offer and the normal load is the right door.
         }
     }
+
+    // MARK: - The census
+
+    /// The gauntlet above enumerates today's mutation entry points BY HAND, so
+    /// it says nothing about the next one somebody writes. This census is the
+    /// standing guard: in `Maugham/OpLog/Document*.swift`, every function that
+    /// reaches `opStore.append(` or `pending.recordChange(` must consult the
+    /// writability choke point FIRST.
+    ///
+    /// Tripwire-32 shape — **count the array, not this comment.** The
+    /// allowlist below is the whole exemption list, each entry carrying why it
+    /// cannot take a guard; a new writer is an offender until it is guarded or
+    /// argued into that array in a review.
+    func test_everyOpLogWriterConsultsTheWritabilityChokePoint() throws {
+        var offenders: [String] = []
+        for url in try Self.documentSourceFiles() {
+            let source = try String(contentsOf: url, encoding: .utf8)
+            offenders += Self.unguardedWriters(
+                in: source, file: url.lastPathComponent)
+        }
+        XCTAssertEqual(
+            offenders, [],
+            """
+            Unguarded op-log writer(s). Open the function with \
+            `rejectMutationIfNotWritable("name")` (Void) or \
+            `try requireWritable("name")` (value-returning) before it writes — \
+            or, if it genuinely cannot, add it to `writerAllowlist` with the \
+            reason. See recovery spec §4.
+            """)
+    }
+
+    /// The census is only worth its runtime if it FAILS on an offender. This
+    /// plants three: an unguarded writer, one whose guard sits AFTER the write
+    /// (the subtle case a substring check would wave through), and one that
+    /// records into the pending buffer. The fourth function is properly
+    /// guarded and must NOT be reported.
+    func test_theCensusFailsOnAPlantedOffender() {
+        let planted = """
+            extension Document {
+                func plantedUnguardedWriter() async throws {
+                    try await opStore.append(op)
+                }
+                func plantedGuardTooLate() async throws {
+                    try await opStore.append(op)
+                    if rejectMutationIfNotWritable("plantedGuardTooLate") { return }
+                }
+                func plantedPendingWriter() {
+                    pending.recordChange(paragraphId: id, prior: nil, next: t)
+                }
+                func plantedProperlyGuarded() async throws {
+                    if rejectMutationIfNotWritable("plantedProperlyGuarded") { return }
+                    try await opStore.append(op)
+                }
+            }
+            """
+        let found = Self.unguardedWriters(in: planted, file: "Planted.swift")
+        XCTAssertEqual(found.count, 3, "planted offenders missed: \(found)")
+        for name in ["plantedUnguardedWriter", "plantedGuardTooLate",
+                     "plantedPendingWriter"] {
+            XCTAssertTrue(found.contains { $0.contains(name) },
+                          "census missed \(name): \(found)")
+        }
+        XCTAssertFalse(found.contains { $0.contains("plantedProperlyGuarded") },
+                       "census reported a correctly guarded function")
+    }
+
+    // MARK: - Census machinery
+
+    /// Functions exempt from the census, each with the reason it cannot carry
+    /// a guard. Keep this array SHORT and argued.
+    private static let writerAllowlist: Set<String> = [
+        // `Document.load`'s crash-recovery fold. Static: it runs before the
+        // Document exists, so there is no instance to ask about writability —
+        // and the recovery load reaches neither, because it skips the fold.
+        "load",
+    ]
+
+    private static func documentSourceFiles() throws -> [URL] {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here
+            .deletingLastPathComponent()   // OpLog
+            .deletingLastPathComponent()   // MaughamTests
+            .deletingLastPathComponent()   // repo root
+        let opLogDir = repoRoot.appendingPathComponent(
+            "Maugham/OpLog", isDirectory: true)
+        let all = try FileManager.default.contentsOfDirectory(
+            at: opLogDir, includingPropertiesForKeys: nil)
+        let documentFiles = all.filter {
+            $0.lastPathComponent.hasPrefix("Document")
+                && $0.pathExtension == "swift"
+        }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        XCTAssertFalse(
+            documentFiles.isEmpty,
+            "census found no Document*.swift to scan — the path is wrong, and a "
+                + "census that scans nothing passes vacuously")
+        return documentFiles
+    }
+
+    /// For every write call in `source`, find the nearest preceding `func`
+    /// declaration and require a guard token between the two. Deliberately
+    /// text-based and brace-free: "the guard appears before the write, inside
+    /// the same declaration" is the property, and matching it this way cannot
+    /// be fooled by a guard that sits after the write.
+    private static func unguardedWriters(
+        in source: String, file: String
+    ) -> [String] {
+        let writeTokens = ["opStore.append(", "pending.recordChange("]
+        // The last two are the narrower recovery-only arm, which four
+        // annotation sites take because M5-AN-048 pins their closed-doc
+        // behaviour. They still consult the choke point, which is what the
+        // census is about.
+        let guardTokens = [
+            "rejectMutationIfNotWritable(", "requireWritable(",
+            "rejectMutationIfReadOnlyRecovery(", "requireNotReadOnlyRecovery(",
+        ]
+
+        // Every `func ` declaration, in source order, with its name.
+        var funcStarts: [(at: String.Index, name: String)] = []
+        var cursor = source.startIndex
+        while let r = source.range(of: "func ", range: cursor..<source.endIndex) {
+            let afterKeyword = source[r.upperBound...]
+            let name = afterKeyword.prefix {
+                $0.isLetter || $0.isNumber || $0 == "_"
+            }
+            funcStarts.append((at: r.lowerBound, name: String(name)))
+            cursor = r.upperBound
+        }
+
+        var offenders: [String] = []
+        for token in writeTokens {
+            var searchFrom = source.startIndex
+            while let call = source.range(
+                of: token, range: searchFrom..<source.endIndex) {
+                searchFrom = call.upperBound
+                guard let owner = funcStarts.last(
+                    where: { $0.at < call.lowerBound }) else { continue }
+                if writerAllowlist.contains(owner.name) { continue }
+                let body = source[owner.at..<call.lowerBound]
+                let guarded = guardTokens.contains { body.contains($0) }
+                if !guarded {
+                    offenders.append("\(file): \(owner.name) → \(token)")
+                }
+            }
+        }
+        return offenders.sorted()
+    }
 }

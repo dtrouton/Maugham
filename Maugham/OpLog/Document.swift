@@ -40,9 +40,17 @@ public final class Document {
 
     /// Recovery spec §4: the read-only partial open. Set only by
     /// `Document.load(recovery: .readOnlyPartial)`; a doc carrying this state
-    /// can write NOTHING — every mutation entry point refuses through
-    /// `rejectMutationIfNotWritable`, no autosave scheduler exists, and
-    /// `close()` husks without flushing, sealing, or clearing.
+    /// can write NOTHING — every path that reaches `opStore.append` or
+    /// `pending.recordChange` refuses through `rejectMutationIfNotWritable`
+    /// (or its throwing sibling `requireWritable`, for the entry points that
+    /// owe their caller a value), no autosave scheduler exists, and `close()`
+    /// husks without flushing, sealing, or clearing.
+    ///
+    /// The guarantee is held by a CENSUS, not by this sentence:
+    /// `ReadOnlyRecoveryTests.test_everyOpLogWriterConsultsTheWritabilityChokePoint`
+    /// scans `Document*.swift` and fails on a writer that skips the choke
+    /// point, so a mutation entry point added later cannot quietly fall
+    /// outside the claim. Its allowlist is the whole set of exemptions.
     public struct ReadOnlyRecoveryState: Equatable, Sendable {
         public let unreadableFiles: [CheckpointLoad.UnreadableFile]
         public init(unreadableFiles: [CheckpointLoad.UnreadableFile]) {
@@ -168,6 +176,10 @@ public final class Document {
     /// live Document's mirror — currently only the checkpoint breadcrumb op
     /// written by `CheckpointCapture.run`.
     public func appendMirrored(_ op: Op) async throws {
+        // A checkpoint breadcrumb is derived from the doc's state, so on a
+        // read-only recovery view it would stamp a durable marker over a
+        // PARTIAL history — the one write that later reads would trust.
+        if rejectMutationIfNotWritable("appendMirrored") { return }
         try await opStore.append(op)
         appendToMirror(op)
     }
@@ -1189,5 +1201,46 @@ public final class Document {
             return true
         }
         return false
+    }
+
+    /// The throwing form of `rejectMutationIfNotWritable`, for the mutation
+    /// entry points that return a VALUE and so have no honest no-op to return
+    /// (`addAnnotation` owes its caller an id, `restoreToOp` a result). Same
+    /// choke point, same log line — a refusal here is loud rather than a
+    /// fabricated success.
+    internal func requireWritable(_ site: StaticString) throws {
+        if rejectMutationIfNotWritable(site) {
+            throw DocumentNotWritableError(site: "\(site)")
+        }
+    }
+
+    /// The NARROWER arm of the choke point: refuse a read-only recovery view's
+    /// write while leaving a CLOSED doc's behaviour byte-for-byte as it was.
+    ///
+    /// Used only where a closed-doc append is pinned by the behavioural
+    /// register — claim **M5-AN-048**, which characterises five annotation
+    /// mutators (craft-note creation, archive, reject, withdraw, edit) as
+    /// appending to a husked doc. Its filing is `NO_RULING_REACHES`, so that is
+    /// a characterised inconsistency rather than protected behaviour: widening
+    /// these to the full guard would *improve* it to 7-of-7, but it would also
+    /// re-decide a register claim, which belongs in its own change with the
+    /// claim and its filing moving alongside. The recovery rung needs only the
+    /// recovery arm, so that is all it takes.
+    ///
+    /// When M5-AN-048 is closed, these four sites collapse back onto
+    /// `rejectMutationIfNotWritable` / `requireWritable` and this pair goes.
+    internal func rejectMutationIfReadOnlyRecovery(_ site: StaticString) -> Bool {
+        guard isReadOnlyRecovery else { return false }
+        documentLog.error(
+            "\(site, privacy: .public) called on a read-only recovery Document \(self.docId, privacy: .public); no-op (nothing derived from a partial view is written)")
+        return true
+    }
+
+    /// Throwing form of `rejectMutationIfReadOnlyRecovery`, for the
+    /// value-returning entry points. Same M5-AN-048 scoping.
+    internal func requireNotReadOnlyRecovery(_ site: StaticString) throws {
+        if rejectMutationIfReadOnlyRecovery(site) {
+            throw DocumentNotWritableError(site: "\(site)")
+        }
     }
 }

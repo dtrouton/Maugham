@@ -35,6 +35,11 @@ extension Document {
         opId requestedOpId: String,
         synthesisSource: SynthesisSource = .rewind
     ) async throws -> RewindRestoreResult {
+        // Rewind REWRITES the manuscript and stamps a restore op. It owes the
+        // caller a result, so it throws rather than returning a fabricated one
+        // — and a recovery view is exactly where a rewind would be most
+        // damaging, since its target state is derived from a partial history.
+        try requireWritable("restoreToOp")
         // 1. Flush any pending burst so the rewind boundary is clean.
         try await flushBurstNow()
 
@@ -408,6 +413,10 @@ extension Document {
         sourceCheckpoint: String,
         synthesisSource: SynthesisSource
     ) async throws -> Op? {
+        // Reached from `restoreToOp` (guarded above) and from the inline-task
+        // archive undo. `nil` already means "no restore op was written", so
+        // that is the honest refusal here — no new failure mode for callers.
+        if rejectMutationIfNotWritable("applyRestore") { return nil }
         let currentState = Deriver.derive(ops: _opLogMirror)
 
         let buildResult = Restore.buildRestoreOp(

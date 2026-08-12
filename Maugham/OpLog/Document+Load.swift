@@ -10,6 +10,15 @@ public enum DocumentRecoveryMode: Equatable, Sendable {
     case readOnlyPartial
 }
 
+/// A mutation was attempted on a Document that must not write — closed
+/// (husked, abandoned) or a read-only recovery view (spec §4). Thrown only by
+/// the value-returning entry points; the Void-returning ones no-op instead.
+public struct DocumentNotWritableError: Error, Equatable {
+    /// The refusing call site, for the message the caller shows.
+    public let site: String
+    public init(site: String) { self.site = site }
+}
+
 /// Why a recovery-mode load refused. Distinct from `OpLogStore.ReadError`:
 /// these are refusals of the RECOVERY door itself, not read failures — the
 /// door is only ever the right one when the strict load has already refused.

@@ -63,6 +63,11 @@ extension Document {
         span: SpanAnchor? = nil,
         author: AnnotationAuthor? = nil
     ) async throws -> String {
+        // Owes the caller an annotation id, so it throws rather than
+        // fabricating one for an annotation that was never persisted.
+        // Recovery-arm only: M5-AN-048 pins craft-note creation as appending to
+        // a CLOSED doc (see `rejectMutationIfReadOnlyRecovery`).
+        try requireNotReadOnlyRecovery("addAnnotation")
         let opKind: OpKind = {
             switch kind {
             case .comment:         return .claudeComment
@@ -370,6 +375,11 @@ extension Document {
         userResponse: String? = nil,
         undoManager: UndoManager? = nil
     ) async throws {
+        // Accept SPLICES the suggestion into the manuscript and appends the
+        // accept op — two writes, neither reachable on a doc that must not
+        // write. (It reaches `opStore.append` directly, so the funnel guards
+        // below do not cover it.)
+        if rejectMutationIfNotWritable("acceptAnnotation") { return }
         guard let creation = _opLogMirror.first(where: { $0.opId == id }),
               let kind = AnnotationKind.fromOpKind(creation.kind) else {
             return  // unknown id or non-annotation op — no-op
@@ -555,6 +565,9 @@ extension Document {
     public func revertAcceptedAnnotation(
         id: String, undoManager: UndoManager? = nil
     ) async throws {
+        // The mirror of accept: restores the paragraph text and appends the
+        // revert op. Same two writes, same refusal.
+        if rejectMutationIfNotWritable("revertAcceptedAnnotation") { return }
         guard let creation = _opLogMirror.first(where: { $0.opId == id }),
               AnnotationKind.fromOpKind(creation.kind) == .suggestedChange else {
             documentLog.error("revertAcceptedAnnotation: \(id, privacy: .public) is not a suggestion creation op — ignoring")
@@ -776,6 +789,11 @@ extension Document {
     /// mirror, mark the sticky flag, invalidate caches. Never touches manuscript
     /// text — the manuscript-mutating accept path keeps its own bespoke tail.
     internal func appendAnnotationOpInternal(_ op: Op) async throws {
+        // The funnel guards, so every public verb that reaches the op log
+        // through it (reopen, edit-revert, withdraw…) is covered at one place
+        // rather than each remembering. Recovery arm only: M5-AN-048 pins
+        // withdraw and edit as appending to a CLOSED doc.
+        if rejectMutationIfReadOnlyRecovery("appendAnnotationOpInternal") { return }
         try await opStore.append(op)
         appendToMirror(op)
         _hasAnyAnnotationOps = true
@@ -804,6 +822,10 @@ extension Document {
         synthesisSource: SynthesisSource? = nil,
         changes: [Op.ParagraphChange] = []
     ) async throws {
+        // The other annotation funnel (reject / archive / the deletion sweep).
+        // Recovery arm only: M5-AN-048 pins archive and reject as appending to
+        // a CLOSED doc.
+        if rejectMutationIfReadOnlyRecovery("appendLifecycleOp") { return }
         let op = Op(
             opId: ULID.generate(),
             docId: docId, at: Date(),

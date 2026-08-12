@@ -125,6 +125,12 @@ extension Document {
     /// cache; the caller — `rebuildTasksCache` — already holds the
     /// post-mint derive result.
     private func applyMintedAnchors(_ mints: [TaskDeriver.MintedAnchor]) {
+        // The sharpest of these guards: this runs from `rebuildTasksCache`,
+        // which a plain `tasks(filter:)` READ triggers. Without it, merely
+        // showing the Tasks pane over a read-only recovery view would mutate
+        // `paragraphs` and record into the pending buffer — a write with no
+        // writer action behind it at all.
+        if rejectMutationIfNotWritable("applyMintedAnchors") { return }
         // Group by paragraph so we apply all mints to a paragraph in one
         // splice pass (line indices remain stable when we walk lines once).
         var byParagraph: [String: [TaskDeriver.MintedAnchor]] = [:]
