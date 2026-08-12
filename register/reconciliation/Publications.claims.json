@@ -50,19 +50,20 @@
   },
   {
     "claim_id": "M7-PB-004",
-    "scope": "CompileOrchestrator.compile / PreviewCompiler.preview",
+    "scope": "CompileOrchestrator.compileReserved / PreviewCompiler.preview",
     "kind": "POSTCONDITION",
-    "statement": "EMISSION.md is rewritten unconditionally on every compile and preview, refusals and dry runs included, before any guard runs — the one app-owned generated file in the publish tree, refreshed so it never misinforms an agent reading it (F5's own rationale)",
+    "statement": "EMISSION.md is rewritten unconditionally on every compile that RUNS — dry runs included, which are gate-exempt and refresh it on the same compileReserved path — and every preview, past the pre-flight refusal guards and before snapshot capture; a pre-flight-refused compile (no config, unreadable catalog, version collision, triple in flight) rewrites nothing, while a coverage-blocked translated compile has already refreshed it. The one app-owned generated file in the publish tree, refreshed so it never misinforms an agent reading it (F5's own rationale — carried by the compiles that run, not by refusals)",
     "source": {
       "type": "CHARACTERIZATION",
-      "ref": "PublicationsCharacterization.test_aRefusedCompileLeavesOnlyTheEmissionRefreshAndATerminalJob"
+      "ref": "PublicationsCharacterization.test_aRefusedCompileLeavesNothingDurableAndATerminalJob"
     },
     "warrant": "HIGH",
-    "intent": "INTENTIONAL",
+    "intent": "INTENTIONAL — amended 2026-08-12",
     "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
     "evidence": {
       "property_test": null
-    }
+    },
+    "fix_history": "Until 2026-08-12 the refresh ran before every guard, refusals included. CI run 31584930789 showed the cost: two concurrent compiles both wrote EMISSION.md on the way to the gate, the loser's atomic-write temp (`EMISSION.md.sb-*`) vanished mid-rename under the winner's snapshot enumeration, and the WINNING compile died on NSFileReadNoSuchFile. Fixed by moving the refresh behind the mint-gate reservation (this claim's amendment) and by making PublicationSnapshotStore.collectFiles skip atomic-write temps by name before any stat or read (which also closes the same race for previews and different-triple compiles, which the gate deliberately does not serialize)."
   },
   {
     "claim_id": "M7-PB-005",

@@ -871,6 +871,34 @@ final class CompileOrchestratorTests: XCTestCase {
             "a refusal must not write output")
     }
 
+    /// The other thing a refusal must not touch: the publish tree itself.
+    /// The F5 EMISSION.md refresh used to run on the way TO the gate, so a
+    /// compile that was about to be refused still rewrote the file — and its
+    /// atomic-write temp could land inside the winner's snapshot enumeration
+    /// (CI run 31584930789: the winner died reading the loser's vanishing
+    /// `EMISSION.md.sb-*`). A refused compile leaves EMISSION.md alone.
+    func testP2_aRefusedCompileDoesNotRewriteEmissionMd() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Held", author: "T")))
+        let gate = PublishMintGate()
+        let reserved = await gate.reserve(
+            PublishMintGate.Key(version: "0.1", language: nil, format: .epub))
+        XCTAssertTrue(reserved)
+
+        let emission = tmp.appendingPathComponent(".maugham/publish/EMISSION.md")
+        try "sentinel — refused compiles may not rewrite this".write(
+            to: emission, atomically: true, encoding: .utf8)
+
+        let result = try await makeOrch(configStore, PublicationStore(projectURL: tmp), gate)
+            .compile(format: .epub, label: nil)
+        guard case .failed = result else {
+            return XCTFail("expected .failed while the triple is in flight, got \(result)")
+        }
+        XCTAssertEqual(try String(contentsOf: emission),
+                       "sentinel — refused compiles may not rewrite this",
+                       "a refusal must not touch the publish tree")
+    }
+
     /// A compile whose reserved section throws must hand its reservation
     /// back — otherwise one transient disk error wedges that edition for the
     /// life of the app. A plain file where `Exports/` belongs makes the EPUB
