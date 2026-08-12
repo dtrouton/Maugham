@@ -114,7 +114,21 @@ all-red gate learning that).
   isolation: `GitHubReleasesAPITests.test_parseValidResponse` and
   `FountainScriptPageCountTests.test_referenceFixture_pageCountWithinFivePercent`
   — one sighting each; if either recurs on a QUIET machine it is real.
-- **Orphan checks must include `maugham-mcp`**: a 10-hour orphaned
+- **One-sighting APP crash (2026-08-10, Denver's live run, dev build from
+  Xcode)**: `NSRangeException` — `-[__NSArrayM objectAtIndex:]: index 2
+  beyond bounds [0 .. 1]` — thrown inside AppKit's OPEN-menu rebuild
+  (`NSContextMenuImpl preferredViewHeightForMenuItemAtIndex:` under
+  `-[NSMenu setItemArray:]`, driven by SwiftUI `menuNeedsUpdate` off a
+  `setFocusedValues` pass, all inside an `NSMenuBarTrackingSession`) —
+  i.e. a focus-values update replaced a menu-bar menu's item array while
+  the menu was open, and the table-backed representation indexed past it.
+  Investigated against the 3a branch: no change touches menu item counts,
+  menu structure (three action-closure swaps only), or focused-value
+  publication (`projectURL`/`canvasPromotable` keys always present, only
+  booleans flip). Not reproducible; the machine had post-restart system
+  lag at the time. If it recurs — note WHICH menu was open and what had
+  just changed focus — it is real and wants a Feedback to Apple plus a
+  workaround hunt (macOS 26.5, table-backed menus). a 10-hour orphaned
   DerivedData mcp binary held the shared dev socket and poisoned gates for
   a whole night. `ps ax | grep -E "xcodebuild|maugham-mcp|MacOS/Maugham"`;
   kill only DerivedData-path processes, never `/Applications`.
