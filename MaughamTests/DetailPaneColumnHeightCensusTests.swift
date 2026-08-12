@@ -318,7 +318,7 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
             opsDirectory: temp.url.appendingPathComponent(".maugham/ops"),
             // Never readable, so the watch cannot flip the banner to its
             // Reopen shape mid-measurement and hand us the short sentence.
-            probeInterval: .seconds(3600), isReadable: { _ in false })
+            probeInterval: .seconds(3600), blockageCleared: { _ in false })
         let window = try await mountColumns(
             centreTopInset: { RecoveryBanner(model: model, onReopen: {}) },
             detail: { Text("pane").frame(maxWidth: .infinity, maxHeight: .infinity) })

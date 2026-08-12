@@ -10,7 +10,7 @@ final class RecoveryPaneModel {
     let cause: RecoveryCause
     let projectURL: URL
     private let probeInterval: Duration
-    private let isReadable: (URL) -> Bool
+    private let blockageCleared: (URL) -> Bool
     private let startDownload: (URL) -> Void
     private let onOpenEditable: () -> Void
     let onOpenReadOnly: () -> Void
@@ -18,14 +18,14 @@ final class RecoveryPaneModel {
 
     init(cause: RecoveryCause, projectURL: URL,
          probeInterval: Duration = .seconds(2),
-         isReadable: @escaping (URL) -> Bool = RecoveryPaneModel.defaultReadableProbe,
+         blockageCleared: @escaping (URL) -> Bool = RecoveryPaneModel.defaultBlockageClearedProbe,
          startDownload: @escaping (URL) -> Void = RecoveryPaneModel.defaultStartDownload,
          onOpenEditable: @escaping () -> Void,
          onOpenReadOnly: @escaping () -> Void) {
         self.cause = cause
         self.projectURL = projectURL
         self.probeInterval = probeInterval
-        self.isReadable = isReadable
+        self.blockageCleared = blockageCleared
         self.startDownload = startDownload
         self.onOpenEditable = onOpenEditable
         self.onOpenReadOnly = onOpenReadOnly
@@ -75,11 +75,11 @@ final class RecoveryPaneModel {
         case .unlistableOpsDirectory: watchedURL = nil   // Retry is manual here.
         }
         guard let watchedURL else { return }
-        watcher = Task { [probeInterval, isReadable, onOpenEditable] in
+        watcher = Task { [probeInterval, blockageCleared, onOpenEditable] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: probeInterval)
                 if Task.isCancelled { return }
-                if isReadable(watchedURL) { onOpenEditable(); return }
+                if blockageCleared(watchedURL) { onOpenEditable(); return }
             }
         }
     }
@@ -89,14 +89,41 @@ final class RecoveryPaneModel {
         watcher = nil
     }
 
-    /// Cheap readability probe: open-for-reading + read one byte. Never a
-    /// whole-file read (a poll must not cost megabytes), never a write.
-    nonisolated static func defaultReadableProbe(_ url: URL) -> Bool {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return false } // adr-0018-ok: an op-log file's readability, one byte — never manuscript text
+    /// Does this path still block the strict load? True when it does NOT —
+    /// which is the semantic both watchers need, and is deliberately not the
+    /// same as "readable":
+    ///
+    ///   - **Absent → true.** The strict load finds its files by globbing the
+    ///     ops directory, so a file that is gone is a file it never sees.
+    ///     Deleting a squatting entry is one of the two likeliest manual
+    ///     fixes, and a probe that called it "not readable" would wait forever
+    ///     on a document that now opens perfectly well.
+    ///   - **Present and readable, including zero-length → true.** An empty
+    ///     file opens and reads EOF; that is a truthful empty log, not a
+    ///     failure. (`try?` flattens `Data??`, so the old spelling could not
+    ///     tell EOF from a throw and called both of these false.)
+    ///   - **A directory, or unreadable → false.** The squat and the
+    ///     permissions break — exactly what refused the load.
+    ///
+    /// Cheap by construction: open-for-reading + one byte. Never a whole-file
+    /// read (a poll must not cost megabytes), never a write.
+    nonisolated static func defaultBlockageClearedProbe(_ url: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path) else { return true }
+        let handle: FileHandle
+        do {
+            handle = try FileHandle(forReadingFrom: url) // adr-0018-ok: an op-log file's readability, one byte — never manuscript text
+        } catch {
+            return false
+        }
         defer { try? handle.close() }
-        // Zero-length is readable (a truthfully empty file); a stub or a
-        // permissions break throws above or here.
-        return (try? handle.read(upToCount: 1)) != nil
+        do {
+            // Explicit do/catch, never `try?`: nil here is EOF (readable), and
+            // only a throw is a failure.
+            _ = try handle.read(upToCount: 1)
+            return true
+        } catch {
+            return false
+        }
     }
 
     nonisolated static func defaultStartDownload(_ url: URL) {

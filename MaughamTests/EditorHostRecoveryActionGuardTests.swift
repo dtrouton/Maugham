@@ -132,7 +132,7 @@ final class EditorHostRecoveryActionGuardTests: XCTestCase {
                                    fileURL: fileURL, reason: "permission denied"),
             projectURL: proj,
             probeInterval: .milliseconds(5),
-            isReadable: { _ in probe() },
+            blockageCleared: { _ in probe() },
             startDownload: { _ in XCTFail("no download for a non-stub cause") },
             onOpenEditable: onOpenEditable,
             onOpenReadOnly: {})

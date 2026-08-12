@@ -18,18 +18,18 @@ final class RecoveryBannerModel {
     let unreadableFiles: [CheckpointLoad.UnreadableFile]
     private let opsDirectory: URL
     private let probeInterval: Duration
-    private let isReadable: (URL) -> Bool
+    private let blockageCleared: (URL) -> Bool
     private(set) var offersReopen = false
     private(set) var emphasised = false
     private var watcher: Task<Void, Never>?
 
     init(unreadableFiles: [CheckpointLoad.UnreadableFile], opsDirectory: URL,
          probeInterval: Duration = .seconds(5),
-         isReadable: @escaping (URL) -> Bool = RecoveryPaneModel.defaultReadableProbe) {
+         blockageCleared: @escaping (URL) -> Bool = RecoveryPaneModel.defaultBlockageClearedProbe) {
         self.unreadableFiles = unreadableFiles
         self.opsDirectory = opsDirectory
         self.probeInterval = probeInterval
-        self.isReadable = isReadable
+        self.blockageCleared = blockageCleared
     }
 
     var message: String {
@@ -54,15 +54,22 @@ final class RecoveryBannerModel {
     /// so the view's `.task` can re-run without stacking pollers.
     func beginWatching() {
         guard watcher == nil else { return }
-        watcher = Task { [probeInterval, isReadable, opsDirectory, unreadableFiles] in
+        watcher = Task { [probeInterval, blockageCleared, opsDirectory, unreadableFiles] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: probeInterval)
                 if Task.isCancelled { return }
-                let allReadable = unreadableFiles.allSatisfy {
-                    isReadable(opsDirectory.appendingPathComponent($0.name))
+                let allCleared = unreadableFiles.allSatisfy {
+                    blockageCleared(opsDirectory.appendingPathComponent($0.name))
                 }
-                if allReadable {
-                    await MainActor.run { self.offersReopen = true }
+                if allCleared {
+                    await MainActor.run {
+                        self.offersReopen = true
+                        // The flare's job is done the moment the offer is up:
+                        // the banner is no longer saying "you can't type here",
+                        // it is saying "come back". Left set, one refused
+                        // keystroke tints the offer for the rest of the session.
+                        self.emphasised = false
+                    }
                     return
                 }
             }

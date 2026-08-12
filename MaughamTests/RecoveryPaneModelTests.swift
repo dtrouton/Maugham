@@ -17,7 +17,7 @@ final class RecoveryPaneModelTests: XCTestCase {
             cause: .icloudNotDownloaded(fileName: "doc-1.phone.jsonl", fileURL: fileURL),
             projectURL: proj,
             probeInterval: .milliseconds(5),
-            isReadable: { _ in readable },
+            blockageCleared: { _ in readable },
             startDownload: { _ in downloads += 1 },
             onOpenEditable: { openedEditable += 1 },
             onOpenReadOnly: { XCTFail("stub path must never open read-only") })
@@ -43,7 +43,7 @@ final class RecoveryPaneModelTests: XCTestCase {
             cause: .unreadableFile(fileName: "doc-1.phone.jsonl", fileURL: fileURL, reason: "permission denied"),
             projectURL: proj,
             probeInterval: .milliseconds(5),
-            isReadable: { _ in readable },
+            blockageCleared: { _ in readable },
             startDownload: { _ in XCTFail("no download for a non-stub cause") },
             onOpenEditable: { openedEditable += 1 },
             onOpenReadOnly: {})
@@ -58,11 +58,55 @@ final class RecoveryPaneModelTests: XCTestCase {
         model.stopWatching()
     }
 
+    /// The production probe, on a real filesystem. Both watchers ask it one
+    /// question — *does this path still block the strict load?* — and the two
+    /// likeliest MANUAL fixes are the ones an earlier "is it readable"
+    /// spelling got backwards: deleting the squatting entry, and the file
+    /// being gone. Either left the writer waiting forever on a document that
+    /// opens perfectly well.
+    func test_theProbeAnswersBlockageCleared_notReadability() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("probe-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let probe = RecoveryPaneModel.defaultBlockageClearedProbe
+
+        // 1. Absent — the strict load globs the ops directory, so a file that
+        //    is gone is one it never sees. CLEARED.
+        let absent = dir.appendingPathComponent("gone.jsonl")
+        XCTAssertTrue(probe(absent),
+                      "an absent file blocks nothing — the glob won't see it")
+
+        // 2. Present and empty — opens, reads EOF. A truthful empty log.
+        let empty = dir.appendingPathComponent("empty.jsonl")
+        XCTAssertTrue(FileManager.default.createFile(atPath: empty.path, contents: Data()))
+        XCTAssertTrue(probe(empty), "zero-length is readable, not a failure")
+
+        // 3. Present with content — the ordinary readable case.
+        let full = dir.appendingPathComponent("full.jsonl")
+        try Data("{}\n".utf8).write(to: full)
+        XCTAssertTrue(probe(full))
+
+        // 4. A DIRECTORY where a file belongs — the squat that refuses the
+        //    strict load in the first place. Still blocking.
+        let squat = dir.appendingPathComponent("squat.jsonl")
+        try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)
+        XCTAssertFalse(probe(squat), "a directory is exactly what refused the load")
+
+        // 5. Unreadable — the permissions break. Still blocking.
+        let locked = dir.appendingPathComponent("locked.jsonl")
+        try Data("{}\n".utf8).write(to: locked)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: locked.path)
+        XCTAssertFalse(probe(locked), "a permissions break is still in the way")
+        try? FileManager.default.setAttributes([.posixPermissions: 0o644],
+                                               ofItemAtPath: locked.path)
+    }
+
     func test_directoryCause_offersRestoreOnly() {
         let model = RecoveryPaneModel(
             cause: .unlistableOpsDirectory(reason: "perm"),
             projectURL: proj, probeInterval: .seconds(1),
-            isReadable: { _ in false }, startDownload: { _ in },
+            blockageCleared: { _ in false }, startDownload: { _ in },
             onOpenEditable: {}, onOpenReadOnly: {})
         XCTAssertFalse(model.offersReadOnly, "nothing enumerable — no partial view (spec §3)")
         XCTAssertTrue(model.offersRestore)
