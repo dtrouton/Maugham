@@ -70,7 +70,7 @@ final class CanvasEventViewTests: XCTestCase {
         let v = view()
         var phases: [CanvasDragPhase] = []
         var points: [CGPoint] = []
-        v.onDrag = { p, phase, _ in points.append(p); phases.append(phase) }
+        v.onDrag = { p, phase, _, _ in points.append(p); phases.append(phase) }
 
         v.applyMouseDown(at: CGPoint(x: 10, y: 10), clickCount: 1)
         v.applyMouseDragged(to: CGPoint(x: 40, y: 20))
@@ -85,7 +85,7 @@ final class CanvasEventViewTests: XCTestCase {
     func test_draggedWithoutAMouseDownEmitsNothing() {
         let v = view()
         var phases: [CanvasDragPhase] = []
-        v.onDrag = { _, phase, _ in phases.append(phase) }
+        v.onDrag = { _, phase, _, _ in phases.append(phase) }
         v.applyMouseDragged(to: CGPoint(x: 40, y: 20))
         v.applyMouseUp(at: CGPoint(x: 40, y: 20))
         XCTAssertTrue(phases.isEmpty, "a drag that never began must not end")
@@ -106,7 +106,7 @@ final class CanvasEventViewTests: XCTestCase {
         let v = view()
         var events: [String] = []
         v.onClick = { _, _ in events.append("click") }
-        v.onDrag = { _, phase, _ in if phase == .began { events.append("dragBegan") } }
+        v.onDrag = { _, phase, _, _ in if phase == .began { events.append("dragBegan") } }
         v.applyMouseDown(at: .zero, clickCount: 1)
         XCTAssertEqual(events, ["click", "dragBegan"],
                       "onClick must fire before onDrag(.began) in the same mouseDown; "
@@ -123,7 +123,7 @@ final class CanvasEventViewTests: XCTestCase {
     func test_theShiftFlagIsReportedOnTheOpeningPressAndOnNothingAfterIt() {
         let v = view()
         var flags: [Bool] = []
-        v.onDrag = { _, _, shift in flags.append(shift) }
+        v.onDrag = { _, _, shift, _ in flags.append(shift) }
 
         v.applyMouseDown(at: .zero, clickCount: 1, shiftHeld: true)
         v.applyMouseDragged(to: CGPoint(x: 40, y: 20))

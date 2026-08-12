@@ -753,6 +753,40 @@ final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {
                        "a flick along x sent the card off its own line")
     }
 
+    /// Issue #34's root, pinned: the flick's age must measure the WRITER'S
+    /// gesture, never our processing. The samples here are stamped one frame
+    /// apart — a fast, real throw — while the RUNLOOP stalls far past
+    /// `maximumFlickAge` between the last two deliveries, which is exactly what
+    /// a loaded machine does. Before the seam carried timestamps the age was
+    /// measured across our own stall and the guard ate the flick (the card
+    /// stopped dead at 40 — CI run 31627910133's sibling signature); with event
+    /// time on the seam the stall is invisible.
+    ///
+    /// The stall is a `pump`, so this is deterministic rather than a load
+    /// simulation that happens to be slow on some machines.
+    func test_aProcessingStallBetweenTheLastTwoSamplesDoesNotEatTheFlick() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(model: makeModel(), projectRoot: root, paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        let t0 = CACurrentMediaTime()
+        events.applyMouseDown(at: CGPoint(x: 60, y: 40), clickCount: 1, timestamp: t0)
+        events.applyMouseDragged(to: CGPoint(x: 70, y: 40), timestamp: t0 + 1.0 / 60)
+        events.applyMouseDragged(to: CGPoint(x: 80, y: 40), timestamp: t0 + 2.0 / 60)
+        // The machine hitches: far longer than `maximumFlickAge` passes on the
+        // wall clock between the last two DELIVERIES…
+        pump(CanvasInteraction.maximumFlickAge * 2)
+        // …but the release is stamped one frame after the last sample, which is
+        // what the writer's hand actually did.
+        events.applyMouseUp(at: CGPoint(x: 80, y: 40), timestamp: t0 + 3.0 / 60)
+        pumpUntilSaved()
+
+        let node = try XCTUnwrap(savedScene(after: window, root: root).node(scrapID))
+        XCTAssertEqual(node.origin.x, 87.8, accuracy: 1.0,
+                       "the stall between deliveries ate the flick — the age "
+                       + "guard is reading OUR clock, not the writer's gesture")
+    }
+
     /// **Any press stops a coast, including the one that enters a scrap.**
     ///
     /// The press that enters is the SECOND of a double-click, and the first can

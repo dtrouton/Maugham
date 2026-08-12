@@ -405,16 +405,26 @@ class CanvasViewMountingCase: XCTestCase {
     /// `mouseDragged` → `mouseUp` sequence, through the same seam the AppKit
     /// overrides call.
     ///
-    /// No pumping between the samples: a real drag delivers them a frame apart,
-    /// and turning the runloop in between would age them past
-    /// `CanvasInteraction.maximumFlickAge` and quietly disarm every flick these
-    /// tests are about.
+    /// **Stamped one frame apart, which is what a real writer's throw looks
+    /// like** — the age guard reads EVENT time since issue #34, so the machine's
+    /// own scheduling between these calls is invisible to the flick. Before the
+    /// seam carried timestamps this helper had to promise never to pump between
+    /// samples, because a turn of the runloop aged them past
+    /// `CanvasInteraction.maximumFlickAge` and quietly disarmed every flick
+    /// these tests are about; that was a discipline no compiler enforced and a
+    /// loaded machine could break on its own, which is exactly how the mounted
+    /// flick test flaked on CI.
     func drag(_ events: CanvasEventNSView,
                       from start: CGPoint,
                       through path: [CGPoint]) {
-        events.applyMouseDown(at: start, clickCount: 1)
-        for point in path { events.applyMouseDragged(to: point) }
-        events.applyMouseUp(at: path.last ?? start)
+        let frame = 1.0 / 60
+        var t = CACurrentMediaTime()
+        events.applyMouseDown(at: start, clickCount: 1, timestamp: t)
+        for point in path {
+            t += frame
+            events.applyMouseDragged(to: point, timestamp: t)
+        }
+        events.applyMouseUp(at: path.last ?? start, timestamp: t + frame)
     }
 
     /// Take the canvas down so `.onDisappear` flushes the store, then read what

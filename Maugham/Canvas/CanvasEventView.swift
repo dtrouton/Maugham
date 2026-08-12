@@ -1,4 +1,7 @@
 import AppKit
+// `CACurrentMediaTime()`, the base the seam's defaulted timestamps and
+// `NSEvent.timestamp` share — see `onDrag`.
+import QuartzCore
 import SwiftUI
 
 /// The three phases of a canvas drag. ONE vocabulary, used by the event view,
@@ -36,13 +39,21 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// (view point, click count). Click count 2 is "enter the scrap under this
     /// point, or make a new one here".
     var onClick: ((CGPoint, Int) -> Void)?
-    /// (content-space point, phase, ⇧ held). The modifier is THREADED through
-    /// here rather than read off `NSEvent.modifierFlags` where it is used: a
-    /// static global read is untestable except by faking it, and this callback is
-    /// the one place a real event's flags can reach the gesture through
-    /// production code — `window.sendEvent(_:)` with a ⇧-flagged `NSEvent` runs
-    /// the whole route end to end.
-    var onDrag: ((CGPoint, CanvasDragPhase, Bool) -> Void)?
+    /// (content-space point, phase, ⇧ held, event time). The modifier is
+    /// THREADED through here rather than read off `NSEvent.modifierFlags` where
+    /// it is used: a static global read is untestable except by faking it, and
+    /// this callback is the one place a real event's flags can reach the gesture
+    /// through production code — `window.sendEvent(_:)` with a ⇧-flagged
+    /// `NSEvent` runs the whole route end to end.
+    ///
+    /// **The time is the EVENT's, not the moment we got round to it** (issue
+    /// #34). `NSEvent.timestamp` and `CACurrentMediaTime()` share a base —
+    /// seconds since boot — so the two are directly comparable, and
+    /// `CanvasInteraction`'s flick staleness guard is then measuring the
+    /// writer's hand rather than our own main-thread scheduling. A stall between
+    /// the last `mouseDragged` and the `mouseUp` used to age a real throw past
+    /// `maximumFlickAge` and silently disarm it.
+    var onDrag: ((CGPoint, CanvasDragPhase, Bool, TimeInterval) -> Void)?
     /// ⌫ / ⌦, with the canvas holding first responder. What it does with the
     /// selection is `CanvasView.deleteSelection()`'s business, not this view's.
     ///
@@ -258,7 +269,14 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     ///   `CanvasInteraction.begin` takes its `connecting:` with no default at all
     ///   so the single call site there has to say what it means. The default is
     ///   here only so the many tests that are not about ⇧ do not have to.
-    func applyMouseDown(at point: CGPoint, clickCount: Int, shiftHeld: Bool = false) {
+    /// - Parameter timestamp: when the writer's press happened, on
+    ///   `CACurrentMediaTime()`'s base. Defaulted for the same reason as
+    ///   `shiftHeld` — the AppKit override always passes `event.timestamp`, and
+    ///   a test that is not about the flick clock should not have to say a time.
+    ///   Defaulting it also means every caller that passes nothing behaves
+    ///   exactly as it did before issue #34.
+    func applyMouseDown(at point: CGPoint, clickCount: Int, shiftHeld: Bool = false,
+                        timestamp: TimeInterval = CACurrentMediaTime()) {
         // Both callbacks fire on every mouse-down, with onClick strictly before onDrag(.began).
         // A zero-distance drag (mouseDown → mouseUp with no mouseDragged) emits .began then .ended
         // with no .changed. AppKit delivers clickCount: 1 on the first mouse-down of a double-click,
@@ -269,7 +287,7 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
         // contract, not an incidental detail — do not reorder these calls.
         isDragging = true
         onClick?(point, clickCount)
-        onDrag?(point, .began, shiftHeld)
+        onDrag?(point, .began, shiftHeld, timestamp)
     }
 
     /// **`false`, and not the live modifier state — deliberately.** Only `.began`
@@ -278,16 +296,24 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// abandoned under them, and one who presses it late has not started a
     /// different gesture. This is exactly the kind of thing a later "consistency"
     /// edit removes, so it is written down rather than left to be inferred.
-    func applyMouseDragged(to point: CGPoint) {
+    ///
+    /// - Parameter timestamp: when this sample was produced — see
+    ///   `applyMouseDown`'s.
+    func applyMouseDragged(to point: CGPoint,
+                           timestamp: TimeInterval = CACurrentMediaTime()) {
         guard isDragging else { return }
-        onDrag?(point, .changed, false)
+        onDrag?(point, .changed, false, timestamp)
     }
 
-    /// `false` for the same reason as `applyMouseDragged` — see it.
-    func applyMouseUp(at point: CGPoint) {
+    /// `false` for the same reason as `applyMouseDragged` — see it. The
+    /// timestamp is the one that matters most: the flick's age is measured from
+    /// the last sample to THIS moment, so a release stamped when we handled it
+    /// rather than when the writer's finger came up is exactly issue #34.
+    func applyMouseUp(at point: CGPoint,
+                      timestamp: TimeInterval = CACurrentMediaTime()) {
         guard isDragging else { return }
         isDragging = false
-        onDrag?(point, .ended, false)
+        onDrag?(point, .ended, false, timestamp)
     }
 
     // MARK: - AppKit entry points
@@ -313,15 +339,18 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
         // it strips is about that method, not this one.
         applyMouseDown(at: convert(event.locationInWindow, from: nil),
                        clickCount: event.clickCount,
-                       shiftHeld: event.modifierFlags.contains(.shift))
+                       shiftHeld: event.modifierFlags.contains(.shift),
+                       timestamp: event.timestamp)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        applyMouseDragged(to: convert(event.locationInWindow, from: nil))
+        applyMouseDragged(to: convert(event.locationInWindow, from: nil),
+                          timestamp: event.timestamp)
     }
 
     override func mouseUp(with event: NSEvent) {
-        applyMouseUp(at: convert(event.locationInWindow, from: nil))
+        applyMouseUp(at: convert(event.locationInWindow, from: nil),
+                     timestamp: event.timestamp)
     }
 
     /// **This is the whole of ⌫ on the canvas**, and it is deliberately a
@@ -423,8 +452,8 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
 struct CanvasEventView: NSViewRepresentable {
     @Binding var camera: CanvasCamera
     var onClick: (CGPoint, Int) -> Void
-    /// (point, phase, ⇧ held) — see `CanvasEventNSView.onDrag`.
-    var onDrag: (CGPoint, CanvasDragPhase, Bool) -> Void
+    /// (point, phase, ⇧ held, event time) — see `CanvasEventNSView.onDrag`.
+    var onDrag: (CGPoint, CanvasDragPhase, Bool, TimeInterval) -> Void
     /// Returns whether anything was deleted — see `CanvasEventNSView.keyDown`.
     var onDeleteKey: () -> Bool
     /// Returns whether the canvas used the Escape — see the same.
