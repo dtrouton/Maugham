@@ -42,7 +42,7 @@ import AppKit
 /// never receive an event, so it can never take one from `List(selection:)`
 /// or from `.draggable`. It exists only to say *"the row whose subject is X
 /// draws its name here"*. The double-click itself is read by
-/// `TreeTravelClickWatcher`, one `NSEvent` local monitor per window, which
+/// `TreeTravelClickWatcher`, the app's single `NSEvent` local monitor, which
 /// **returns every event unchanged** — dispatch is exactly what it is with no
 /// travel rule at all, which is what makes single-click selection and drag
 /// initiation safe by construction rather than by measurement.
@@ -272,7 +272,11 @@ final class TreeTravelClickWatcher {
         }
     }
 
-    /// Test-only. Production never stops the watcher — see `shared`.
+    /// Test-only, and it has exactly one caller:
+    /// `TreeTravelRowMountingTests.test_aStoppedWatcherTravelsNowhereButStillSelects`,
+    /// which is what keeps this from being unexercised code whose doc comment
+    /// asserts something nothing checks. Production never stops the watcher —
+    /// see `shared`.
     func stop() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil

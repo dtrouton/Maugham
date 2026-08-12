@@ -361,6 +361,53 @@ final class TreeTravelRowMountingTests: XCTestCase {
                        + "row")
     }
 
+    /// **`TreeTravelClickWatcher.stop()` really removes the monitor** — the
+    /// one claim that method's "test-only" doc makes, and this is the caller
+    /// that makes it true rather than unexercised code whose comment asserts
+    /// something nothing checks.
+    ///
+    /// It also pins the half that matters most about the whole mechanism: with
+    /// the watcher gone the click STILL selects. The monitor is not in the
+    /// dispatch path, so removing it takes the travel away and leaves
+    /// `List(selection:)` exactly as it was — which is the same property, seen
+    /// from the other side, that makes the fix safe for selection and drag.
+    ///
+    /// **Hosted on the tree rather than on a bare marked label**, though a
+    /// label plus a monitor is the whole mechanism and a smaller host was
+    /// tried first. Measured: in a plain `NSHostingView` window the watcher
+    /// receives the synthetic double-click with `locationInWindow` reading the
+    /// REAL cursor position rather than the posted one — resolved subject
+    /// `nil`, no post, for a mechanism that is working. Routed through an
+    /// `NSTableView` the posted location survives, which is why every click
+    /// test in this file goes through a real tree.
+    func test_aStoppedWatcherTravelsNowhereButStillSelects() async throws {
+        let store = try await novel(named: "StoppedWatcher")
+        let firstDoc = try XCTUnwrap(store.manifest.structure.first)
+        try await store.renameStructureItem(
+            id: firstDoc.id, newTitle: "A Chapter With A Rather Long Name")
+        let (window, probe, table) = try await hostBinder(store: store)
+        let ready = await pumpUntil(deadline: 5) { probe.window != nil }
+        XCTAssertTrue(ready, "the probe's window never resolved — premise")
+
+        TreeTravelClickWatcher.shared.stop()
+        // The watcher is process-global and every other mounted suite in this
+        // worker has already run its `TreeTravelModifier.onAppear`, which will
+        // not fire again to re-install it.
+        defer { TreeTravelClickWatcher.shared.start() }
+
+        let label = try XCTUnwrap(labelFrame(ofRow: 1, in: table))
+        await click(at: CGPoint(x: label.midX, y: label.midY),
+                    in: table, window: window, clicks: 2)
+        await waitOut(0.5)
+
+        XCTAssertEqual(probe.persona, .plan,
+                       "a stopped watcher must not travel — its monitor is "
+                       + "still installed")
+        XCTAssertEqual(table.selectedRow, 1,
+                       "…while the very same click still selects, because the "
+                       + "monitor never sat in the dispatch path to begin with")
+    }
+
     /// A single click — the first half of any double-click — must only
     /// select. The dim moves (a subject write via `List(selection:)`); the
     /// persona does not, because `.maughamTreeTravel` is never posted by one
@@ -761,20 +808,27 @@ final class TreeTravelRowMountingTests: XCTestCase {
     }
 }
 
-// MARK: - Source census: the gesture is on the label leaf, not the row
+// MARK: - Source census: the mark is on the label leaf, not the row
 
-/// **Tripwire 9's own check, as a census** — `TreeTravelReceiverTests`' class
-/// doc records why a mounted double-click can't prove this directly. The
-/// TaskRow scar this rule is named after (`TaskRow.swift:36-45`) is exactly
-/// this failure: a row-wide `.simultaneousGesture(TapGesture(count: 2))` ate
-/// drag initiation across the row's whole interior. So this reads the files
-/// named in `test_theGestureAttachesBeforeTheRowWidens`'s own `expectations`
-/// array — not counted here, so a row kind added later cannot go stale in
-/// prose while the array right below it grows — and checks the ONE thing
-/// that failure shape turns on: the gesture line sits BEFORE the row's own
-/// `.tag`/`.contentShape`/`.draggable` widen the interactive area — i.e.,
-/// attached to the label's own (smaller) view, not the container those calls
-/// widen onto.
+/// **Two source censuses over the travel rule's own files**: the mark is
+/// attached to the label leaf, and it is not a SwiftUI gesture.
+///
+/// The ordering half reads the files named in
+/// `test_theGestureAttachesBeforeTheRowWidens`'s own `expectations` array —
+/// not counted here, so a row kind added later cannot go stale in prose while
+/// the array right below it grows — and checks that
+/// `.treeTravelOnDoubleClick(` sits BEFORE the row's own
+/// `.tag`/`.contentShape`/`.draggable`. Since 2026-08-12 that is a question
+/// about GEOMETRY rather than about stolen clicks: the mark is installed as a
+/// `.background`, so it takes the frame of whatever it is attached to, and
+/// attached after those calls it would take the ROW's frame — making a
+/// double-click anywhere on the row a travel, including the empty space past
+/// the title. `TreeTravelRowMountingTests.test_aDoubleClickPastTheNameDoesNotTravel`
+/// is the behavioural half of the same contract.
+///
+/// The second half — `test_noTreeRowCarriesASwiftUITapGesture` — is the one
+/// the stage 3b regression needed and the ordering check could not be: that
+/// gesture was correctly ordered and still ate the writer's single click.
 final class TreeTravelGestureAttachmentTests: XCTestCase {
 
     private var repoRoot: URL {
@@ -799,7 +853,15 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
          "Maugham/Views/TreeTravel.swift"]
     }
 
-    /// The file with its comment lines removed.
+    /// The spellings that re-introduce the bug class. Both, because
+    /// `.onTapGesture(count:)` and a bare `TapGesture(count:)` handed to
+    /// `.gesture`/`.simultaneousGesture`/`.highPriorityGesture` were measured
+    /// to behave identically here.
+    private static let tapGestureSpellings = ["onTapGesture(", "TapGesture("]
+
+    /// Text with its comment lines removed. **Pure, and separate from
+    /// `code(_:)`**, so the planted offender below can be run through the
+    /// REAL stripper rather than through a hand-written imitation of it.
     ///
     /// **`TreeTravel.swift` names both rejected spellings in prose**, at
     /// length, because why they are wrong is the most valuable thing in that
@@ -807,30 +869,41 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
     /// explanation or have to skip the one file where the mechanism actually
     /// lives. Stripping comments keeps the file in scope and keeps the
     /// explanation.
-    private func code(_ path: String) throws -> String {
-        try source(path)
-            .split(separator: "\n", omittingEmptySubsequences: false)
+    static func strippingComments(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
+    }
+
+    /// **The detector itself** — the one path both the census and its planted
+    /// offender go through. Returns the offending spellings found in `text`
+    /// once its comments are gone.
+    static func tapGestureOffences(in text: String) -> [String] {
+        let code = strippingComments(text)
+        return tapGestureSpellings.filter { code.contains($0) }
+    }
+
+    private func code(_ path: String) throws -> String {
+        Self.strippingComments(try source(path))
     }
 
     private func lineIndex(of needle: String, in lines: [Substring]) -> Int? {
         lines.firstIndex(where: { $0.contains(needle) })
     }
 
-    /// The gesture line belonging to THIS `widenLine` — the nearest
+    /// The mark line belonging to THIS `widenLine` — the nearest
     /// `.treeTravelOnDoubleClick(` occurrence at or before it, never the
     /// file's first — so a file carrying more than one row (`SceneNavigatorPane
-    /// .swift`'s project row AND its own script row, both gesture-bearing)
-    /// pairs each widening call with the gesture actually above IT, rather
-    /// than one row's gesture silently vouching for a different row's widen
+    /// .swift`'s project row AND its own script row, both mark-bearing)
+    /// pairs each widening call with the mark actually above IT, rather
+    /// than one row's mark silently vouching for a different row's widen
     /// call by virtue of coming first in the file.
     private func nearestGestureLine(before widenLine: Int, in lines: [Substring]) -> Int? {
         lines[0..<widenLine].lastIndex(where: { $0.contains(".treeTravelOnDoubleClick(") })
     }
 
     /// One row kind per case: the file, and the call that widens the row
-    /// AFTER the gesture must already be attached — `.draggable(` for every
+    /// AFTER the mark must already be attached — `.draggable(` for every
     /// row that drags, a row-specific `.tag(...)` for the rows that don't
     /// drag at all. `widensAt` must be unique in its file (verified as each
     /// entry was added) so it always anchors the SAME row's own widen call.
@@ -853,7 +926,7 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
                        widensAt: ".tag(BinderSubject.project)"),
             Expectation(file: "Maugham/Views/SceneNavigatorPane.swift",
                        widensAt: ".tag(BinderSubject.project)"),
-            // `SceneNavigatorPane`'s SECOND gesture-bearing row: the script
+            // `SceneNavigatorPane`'s SECOND mark-bearing row: the script
             // row, tagging the screenplay's one document — the last row the
             // set closes with (structure rows, project rows, research/palette
             // rows, and this one; scene rows excluded because they already
@@ -871,14 +944,19 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
             let gestureLine = try XCTUnwrap(
                 nearestGestureLine(before: widenLine, in: lines),
                 "\(expectation.file): no .treeTravelOnDoubleClick( precedes "
-                + "\(expectation.widensAt) at all — the travel gesture is "
+                + "\(expectation.widensAt) at all — the travel mark is "
                 + "missing outright for this row")
             XCTAssertLessThan(gestureLine, widenLine,
                               "\(expectation.file): .treeTravelOnDoubleClick must "
-                              + "come BEFORE \(expectation.widensAt) — attached "
-                              + "after it, the gesture sits on the ROW's own "
-                              + "widened interactive area rather than the label "
-                              + "leaf, which is the TaskRow.swift trap")
+                              + "come BEFORE \(expectation.widensAt). The mark is "
+                              + "a `.background`, so it takes the frame of "
+                              + "whatever it is attached to, and that frame is "
+                              + "what the watcher hit-tests — i.e. it is the "
+                              + "definition of what counts as \"the name\". "
+                              + "Attached after this call it takes the ROW's "
+                              + "frame instead of the label's, and a "
+                              + "double-click on the empty space past the title "
+                              + "starts travelling too")
         }
     }
 
@@ -902,33 +980,86 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
     /// reader merges back together.
     func test_noTreeRowCarriesASwiftUITapGesture() throws {
         for path in travelFiles {
-            let text = try code(path)
-            for spelling in ["onTapGesture(", "TapGesture("] {
-                XCTAssertFalse(
-                    text.contains(spelling),
-                    "\(path) contains `\(spelling)` — a SwiftUI tap gesture on "
-                    + "a row inside `List(.sidebar)` eats the single click that "
-                    + "selects it, wherever it is attached. The travel rule is "
-                    + "`treeTravelOnDoubleClick`'s hit-test-transparent marker "
-                    + "plus `TreeTravelClickWatcher`; see TreeTravel.swift.")
-            }
+            let offences = Self.tapGestureOffences(in: try source(path))
+            XCTAssertTrue(
+                offences.isEmpty,
+                "\(path) contains \(offences.joined(separator: ", ")) — a "
+                + "SwiftUI tap gesture on a row inside `List(.sidebar)` eats "
+                + "the single click that selects it, wherever it is attached. "
+                + "The travel rule is `treeTravelOnDoubleClick`'s "
+                + "hit-test-transparent marker plus `TreeTravelClickWatcher`; "
+                + "see TreeTravel.swift.")
         }
     }
 
-    /// The planted offender for the census above — the detector really does
-    /// fire on the spelling that shipped the bug, rather than passing because
-    /// it is looking for something no file could contain.
+    /// **The planted offender, injected into the REAL detector.**
+    ///
+    /// It matters that this goes through `tapGestureOffences(in:)` — the same
+    /// function the census above calls, comment-stripper and all — rather than
+    /// asserting that a hand-written string contains a substring. The latter
+    /// tests `String.contains`, which is not the thing that could break: what
+    /// could break is the stripper eating a real code line, or the spelling
+    /// list drifting away from what the census greps for.
+    ///
+    /// Three fixtures, because this detector has two ways to be wrong:
+    ///
+    /// - the offending line as CODE must be caught;
+    /// - the same text in a COMMENT must not be — otherwise the stripper is
+    ///   inert and `TreeTravel.swift`, which explains both rejected spellings
+    ///   at length, could never stay in scope;
+    /// - a clean row must come back empty, so the detector is not simply
+    ///   answering "yes".
     func test_theTapGestureCensusCatchesAPlantedOffender() throws {
-        let offender = """
+        let clean = """
             Text(item.title)
+                .lineLimit(1)
+                .treeTravelOnDoubleClick(.item(item.id))
+            """
+        let commentDecoy = """
+            // Never `.onTapGesture(count: 2)` here — see TreeTravel.swift for
+            // why a SwiftUI TapGesture(count: 2) eats the single click.
+            \(clean)
+            """
+        let offender = """
+            \(commentDecoy)
                 .onTapGesture(count: 2) { travel() }
             """
-        for spelling in ["onTapGesture(", "TapGesture("] {
-            XCTAssertTrue(offender.contains(spelling),
-                          "the census's own detector missed `\(spelling)` in a "
-                          + "planted copy of the line that shipped the "
-                          + "regression")
-        }
+
+        XCTAssertEqual(Self.tapGestureOffences(in: clean), [],
+                       "the detector fired on a row that carries no gesture "
+                       + "at all — it is answering yes to everything")
+        XCTAssertEqual(Self.tapGestureOffences(in: commentDecoy), [],
+                       "the detector fired on a COMMENT mentioning the "
+                       + "rejected spelling. The comment-stripper is what "
+                       + "keeps TreeTravel.swift — whose doc comment names "
+                       + "both spellings — inside the census rather than "
+                       + "exempted from it")
+        XCTAssertEqual(Self.tapGestureOffences(in: offender),
+                       Self.tapGestureSpellings,
+                       "the detector missed a planted copy of the very line "
+                       + "that shipped the regression, sitting in code "
+                       + "directly beneath a comment about it")
+    }
+
+    /// **The stripper is load-bearing on a REAL file, not just on a fixture.**
+    ///
+    /// `TreeTravel.swift` names both rejected spellings in its doc comment. If
+    /// comment-stripping ever became inert the census would start failing on
+    /// that file — and the tempting fix would be to drop it from `travelFiles`,
+    /// which is the one file where the mechanism actually lives. Pinning both
+    /// halves here means the pressure lands on the stripper instead.
+    func test_theStripperIsWhatKeepsTreeTravelInScope() throws {
+        let path = "Maugham/Views/TreeTravel.swift"
+        XCTAssertTrue(travelFiles.contains(path),
+                      "the file the census most needs has been dropped from it")
+        let raw = try source(path)
+        XCTAssertTrue(Self.tapGestureSpellings.allSatisfy(raw.contains),
+                      "TreeTravel.swift no longer explains the rejected "
+                      + "spellings by name — either the doc comment was "
+                      + "thinned, or this test's premise is stale")
+        XCTAssertEqual(Self.tapGestureOffences(in: raw), [],
+                       "…and after stripping comments none may remain: the "
+                       + "explanation is prose, the mechanism is not a gesture")
     }
 
     /// The control every absence-shaped/ordering assertion needs: the files
