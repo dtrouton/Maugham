@@ -210,12 +210,12 @@ final class SubjectValidationTests: XCTestCase {
                        "the plant did not fire: it was supposed to move the "
                        + "project subject onto a chapter nobody chose")
         XCTAssertTrue(
-            CanvasSubject.resolve(plantedAnswer, in: structure).dimsTheBoard,
+            CanvasSubject.resolve(plantedAnswer, in: structure, research: []).dimsTheBoard,
             "…and that is what puts the canvas into the dim without a click")
 
         let real = ProjectWindow.validSubject(.project, in: structure, research: [])
         XCTAssertEqual(real, .project)
-        XCTAssertFalse(CanvasSubject.resolve(real, in: structure).dimsTheBoard)
+        XCTAssertFalse(CanvasSubject.resolve(real, in: structure, research: []).dimsTheBoard)
     }
 
     // MARK: - The trigger

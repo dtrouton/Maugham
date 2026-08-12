@@ -1535,8 +1535,13 @@ struct ProjectWindow: View {
                    // not hold and should not start holding — the same reason
                    // `itemIndex` below is built on this body path rather than
                    // on the canvas's, which re-evaluates per drag frame.
+                   // The research tree rides beside the structure for the same
+                   // reason (stage 3b): §4's research subject lights its own
+                   // card, and telling a live research id from one whose note
+                   // the writer deleted needs the manifest's other tree.
                    subject: CanvasSubject.resolve(selectedSubject,
-                                                  in: store.manifest.structure),
+                                                  in: store.manifest.structure,
+                                                  research: store.manifest.research),
                    // Spec §4.1: Escape is the keyboard spelling of the project
                    // row, so it writes the value that row's own `.tag` carries
                    // (`BinderView.projectRow`) into the same `@State` on the

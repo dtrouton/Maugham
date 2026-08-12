@@ -1234,7 +1234,7 @@ final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {
         let window = host(CanvasView(
             model: makeModel(), projectRoot: try boundRegionProjectRoot(),
             paletteSwatchHexes: { [] },
-            subject: CanvasSubject.resolve(.item("ch3"), in: structure)))
+            subject: CanvasSubject.resolve(.item("ch3"), in: structure, research: [])))
 
         XCTAssertFalse(try axLabel(ofCardValued: secondScrapText, in: window)
                         .contains(CanvasAccessibility.dimmedTerm),
@@ -1245,7 +1245,7 @@ final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {
         XCTAssertFalse(try axLabel(ofCardValued: scrapText, in: window)
                         .contains(CanvasAccessibility.dimmedTerm))
 
-        try retarget(window, at: CanvasSubject.resolve(.item("ch2"), in: structure))
+        try retarget(window, at: CanvasSubject.resolve(.item("ch2"), in: structure, research: []))
         XCTAssertTrue(try axLabel(ofCardValued: secondScrapText, in: window)
                         .contains(CanvasAccessibility.dimmedTerm),
                       "control: an id that RESOLVES still filters the board, so the "

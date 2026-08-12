@@ -43,35 +43,95 @@ final class CanvasHighlightTests: XCTestCase {
          StructureItem(id: "loose", title: "Loose", type: .document, path: "Loose.md")]
     }
 
+    /// The research half of the same tree — `r-1` sits at the top level and
+    /// `r-nested` under a group, because `TreeWalk.contains` recurses and a
+    /// child-list check would find only the first.
+    private func research() -> [ResearchItem] {
+        [ResearchItem(id: "r-1", title: "A photograph", type: .asset, kind: .image),
+         ResearchItem(id: "r-grp", title: "Sources", type: .group, children: [
+            ResearchItem(id: "r-nested", title: "A letter", type: .asset, kind: .document)
+         ])]
+    }
+
     func test_theProjectRowAndNoSelectionBothMeanTheWholeBoard() {
-        XCTAssertEqual(CanvasSubject.resolve(.project, in: structure()), .wholeProject)
-        XCTAssertEqual(CanvasSubject.resolve(nil, in: structure()), .wholeProject,
+        XCTAssertEqual(CanvasSubject.resolve(.project, in: structure(), research: research()),
+                       .wholeProject)
+        XCTAssertEqual(CanvasSubject.resolve(nil, in: structure(), research: research()),
+                       .wholeProject,
                        "a window nobody has clicked in has not entered the dim")
         XCTAssertFalse(CanvasSubject.wholeProject.dimsTheBoard)
     }
 
-    /// A research subject dims nothing — the canvas's dim is entered only by a
-    /// piece/group click, and a research item is neither (stage-2a Task 1).
-    func test_aResearchSubjectAlsoMeansTheWholeBoard() {
-        XCTAssertEqual(CanvasSubject.resolve(.research("r-1"), in: structure()),
-                       .wholeProject)
-        XCTAssertFalse(CanvasSubject.resolve(.research("r-1"), in: structure())
-            .dimsTheBoard)
+    /// **A research subject is a subject now** (stage 3b Task 1, §4's *"its card
+    /// highlighted on the board"*).
+    ///
+    /// This asserted the opposite for two stages — `.research` collapsed into
+    /// `.wholeProject` on the reading that the dim is entered only by a
+    /// piece/group click. §4 always said otherwise, and the design call this
+    /// rides is §4.1's own group precedent: a subject that dims while binding
+    /// nothing already ships, because a group's sweep makes a plain region. A
+    /// research item is that shape exactly — it dims, it lights its own card,
+    /// and it can never name a piece.
+    func test_aResearchItemTheTreeCanFindIsASubjectAndDimsTheBoard() {
+        XCTAssertEqual(
+            CanvasSubject.resolve(.research("r-1"), in: structure(), research: research()),
+            .research("r-1"))
+        XCTAssertTrue(
+            CanvasSubject.resolve(.research("r-1"), in: structure(), research: research())
+                .dimsTheBoard,
+            "§4: selecting a research item filters the board to its card")
+        XCTAssertEqual(
+            CanvasSubject.resolve(.research("r-nested"), in: structure(), research: research()),
+            .research("r-nested"),
+            "the walk recurses — a grouped research item is as findable as a "
+            + "top-level one, and a child-list check would send it to the "
+            + "unresolvable arm below")
+    }
+
+    /// **A research id names no piece, and the accessor is where that is
+    /// enforced.** `pieces` feeds `boundPieceID` comparisons in
+    /// `CanvasHighlight` and `RegionBinding.references(forPiece:in:)`; a research
+    /// id leaking into either would light whatever region a writer had bound to
+    /// a document that happens to share the id space — and would do it silently,
+    /// because both sides are `String`.
+    func test_aResearchSubjectNamesNoPieces() {
+        XCTAssertEqual(CanvasSubject.research("r-1").pieces, [])
+    }
+
+    /// The control the old claim becomes: an id the tree cannot find is not a
+    /// subject at all, exactly as an unresolvable `.item` is not
+    /// (`test_anIdTheTreeCannotFindIsNoSubjectAtAllAndDimsNothing` below). The
+    /// research item was deleted; nobody clicked what is no longer there.
+    func test_aResearchIdTheTreeCannotFindIsNoSubjectAtAllAndDimsNothing() {
+        let subject = CanvasSubject.resolve(.research("gone"), in: structure(),
+                                            research: research())
+        XCTAssertEqual(subject, .wholeProject)
+        XCTAssertFalse(subject.dimsTheBoard,
+                       "a deletion is not a click — the dim is a state the writer "
+                       + "deliberately enters")
+        XCTAssertEqual(
+            CanvasSubject.resolve(.research("r-1"), in: structure(), research: []),
+            .wholeProject,
+            "…and an EMPTY research tree is the same case: nothing to find")
     }
 
     func test_aDocumentResolvesToItsOwnPiece() {
-        XCTAssertEqual(CanvasSubject.resolve(.item("ch2"), in: structure()), .piece("ch2"))
-        XCTAssertTrue(CanvasSubject.resolve(.item("ch2"), in: structure()).dimsTheBoard)
+        XCTAssertEqual(CanvasSubject.resolve(.item("ch2"), in: structure(), research: research()),
+                       .piece("ch2"))
+        XCTAssertTrue(CanvasSubject.resolve(.item("ch2"), in: structure(),
+                                            research: research()).dimsTheBoard)
     }
 
     /// §4.1: a group is the union of its children's bindings, and the union has
     /// to reach a chapter that is a grandchild.
     func test_aGroupResolvesToEveryDocumentBeneathItIncludingNestedOnes() {
-        XCTAssertEqual(CanvasSubject.resolve(.item("part-1"), in: structure()),
+        XCTAssertEqual(CanvasSubject.resolve(.item("part-1"), in: structure(),
+                                             research: research()),
                        .group(["ch1", "ch2"]),
                        "`inner`'s chapter is under Part One and must light with it; "
                        + "a child-list walk finds only `ch1`")
-        XCTAssertEqual(CanvasSubject.resolve(.item("inner"), in: structure()),
+        XCTAssertEqual(CanvasSubject.resolve(.item("inner"), in: structure(),
+                                             research: research()),
                        .group(["ch2"]),
                        "control: the nested group on its own names only its own child")
     }
@@ -80,7 +140,8 @@ final class CanvasHighlightTests: XCTestCase {
     /// document id, so a group id in this list would be a piece nothing can
     /// match and the union would be silently wrong rather than empty.
     func test_aGroupNamesNoGroups() {
-        XCTAssertFalse(CanvasSubject.resolve(.item("part-1"), in: structure())
+        XCTAssertFalse(CanvasSubject.resolve(.item("part-1"), in: structure(),
+                                             research: research())
             .pieces.contains("inner"))
     }
 
@@ -98,7 +159,7 @@ final class CanvasHighlightTests: XCTestCase {
     /// holds no documents still dims (below), because the tree names something
     /// that exists.
     func test_anIdTheTreeCannotFindIsNoSubjectAtAllAndDimsNothing() {
-        let subject = CanvasSubject.resolve(.item("gone"), in: structure())
+        let subject = CanvasSubject.resolve(.item("gone"), in: structure(), research: research())
         XCTAssertEqual(subject, .wholeProject)
         XCTAssertFalse(subject.dimsTheBoard,
                        "the id names nothing, so nobody chose this filter — a "
@@ -113,7 +174,7 @@ final class CanvasHighlightTests: XCTestCase {
     func test_aGroupThatRESOLVESAndHoldsNoDocumentsStillDimsTheBoard() {
         let empty = [StructureItem(id: "empty", title: "Part Two",
                                    type: .group, children: [])]
-        let subject = CanvasSubject.resolve(.item("empty"), in: empty)
+        let subject = CanvasSubject.resolve(.item("empty"), in: empty, research: research())
         XCTAssertEqual(subject, .group([]))
         XCTAssertTrue(subject.dimsTheBoard,
                       "an empty group is a selection the writer made; collapsing it "
@@ -189,7 +250,8 @@ final class CanvasHighlightTests: XCTestCase {
         RegionBinding.bind(r3, toPiece: "loose", in: &s)
 
         let h = CanvasHighlight.resolve(
-            subject: CanvasSubject.resolve(.item("part-1"), in: structure()), in: s)
+            subject: CanvasSubject.resolve(.item("part-1"), in: structure(),
+                                           research: research()), in: s)
         XCTAssertEqual(h.nodes, [a, b], "the nested chapter's card lights with the group's")
         XCTAssertEqual(h.regions, [r1, r2])
         XCTAssertTrue(h.isDimmed(node: c), "control: a chapter OUTSIDE the group stays dimmed")
@@ -207,6 +269,128 @@ final class CanvasHighlightTests: XCTestCase {
         let h = CanvasHighlight.resolve(subject: .piece("ch1"), in: s)
         XCTAssertEqual(h.nodes, [a, b])
         XCTAssertEqual(h.regions, [r1, r2])
+    }
+
+    // MARK: - A research subject (stage 3b Task 1, spec §4)
+
+    /// The join is `CanvasNodeID.item(_:)` and nothing else: the card's id is
+    /// DERIVED from the research id, so the lookup is O(1) and unique by
+    /// construction. It can never reach an `.owned` node either — an owned
+    /// picture's id is minted, so no research id can spell one.
+    private func sceneWithTheCardFor(_ researchId: String) -> CanvasScene {
+        var s = scene()
+        s.insert(CanvasNode(id: .item(researchId),
+                            kind: .item(.project(id: researchId)),
+                            origin: CGPoint(x: 900, y: 40),
+                            width: 200, cachedHeight: 140))
+        return s
+    }
+
+    /// §4: *"its card highlighted on the board"* — exactly one card, and every
+    /// region on the board recedes with everything else. A research item binds
+    /// nothing, so the region and line halves are empty **by the derivation
+    /// rather than by the fixture**: `r1` below is bound to a chapter and still
+    /// goes dark.
+    func test_aResearchSubjectLightsItsOwnCardAndNothingElse() {
+        var s = sceneWithTheCardFor("r-1")
+        CanvasMembership.join(a, home: r1, in: &s)
+        RegionBinding.bind(r1, toPiece: "ch1", in: &s)
+        s.insertLine(CanvasLine(id: CanvasLineID("touching"), from: .item("r-1"), to: a))
+
+        let h = CanvasHighlight.resolve(subject: .research("r-1"), in: s)
+        XCTAssertTrue(h.isFiltering)
+        XCTAssertEqual(h.nodes, [CanvasNodeID.item("r-1")])
+        XCTAssertTrue(h.regions.isEmpty,
+                      "a research item names no piece, so no `boundPieceID` can "
+                      + "match it — a region lighting here would mean a research "
+                      + "id had leaked into a piece-shaped comparison")
+        XCTAssertTrue(h.lines.isEmpty,
+                      "a line needs BOTH ends lit and only one card is ever lit here")
+        XCTAssertFalse(h.litNothing, "the card is on the board — this is not the "
+                       + "empty state Task 2 hangs its chrome off")
+        XCTAssertTrue(h.isDimmed(node: a), "control: a scrap recedes")
+        XCTAssertTrue(h.isDimmed(region: r1))
+    }
+
+    /// §4 row three's shape for a research subject, and the signal Task 2 reads:
+    /// the writer clicked a real research item and the board holds no card for
+    /// it. It DIMS — undimming would make that click indistinguishable from the
+    /// project row.
+    func test_aResearchSubjectWithNoCardOnTheBoardLightsNothingAndSaysSo() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        RegionBinding.bind(r1, toPiece: "ch1", in: &s)
+
+        let h = CanvasHighlight.resolve(subject: .research("r-1"), in: s)
+        XCTAssertTrue(h.isFiltering)
+        XCTAssertTrue(h.nodes.isEmpty)
+        XCTAssertTrue(h.litNothing)
+        XCTAssertTrue(h.isDimmed(node: a))
+    }
+
+    /// **The sweep is untouched and that is the assertion.** §4.1's group
+    /// precedent: a subject that names no piece gets a plain region, because the
+    /// canvas never guesses a piece the writer never named. `sweepOutcome`'s
+    /// `guard case .piece` already answers this for `.research` the day the case
+    /// exists — so this pins the behaviour without a line of new routing.
+    func test_aSweepUnderAResearchDimStillDrawsAPlainRegion() {
+        let s = sceneWithTheCardFor("r-1")
+        let swept = CGRect(x: 2_000, y: 2_000, width: 300, height: 200)
+        XCTAssertEqual(
+            CanvasInteraction.sweepOutcome(for: swept, subject: .research("r-1"), in: s),
+            .create(bindingTo: nil),
+            "a research item is not a piece, and a region bound to one is not "
+            + "expressible — `boundPieceID` holds a document id")
+        XCTAssertEqual(
+            CanvasInteraction.sweepOutcome(for: swept, subject: .piece("ch1"), in: s),
+            .create(bindingTo: "ch1"),
+            "control: the piece arm still binds what it mints")
+    }
+
+    /// The dim is audible on this subject too, and for free — every primitive
+    /// reads `highlight.isDimmed(...)`, so the research arm inherits task 7's
+    /// term. The polarity is the one that matters: the LIT card is the silent
+    /// one, and the announcement is what every other element carries.
+    func test_aResearchDimIsSpokenOnEveryCardExceptTheLitOne() {
+        var s = sceneWithTheCardFor("r-1")
+        CanvasMembership.join(a, home: r1, in: &s)
+
+        let h = CanvasHighlight.resolve(subject: .research("r-1"), in: s)
+        let elements = CanvasAccessibility.elements(scene: s, scraps: [a: "A sentence."],
+                                                    highlight: h)
+
+        let lit = elements.first { $0.id == .node(CanvasNodeID.item("r-1")) }
+        XCTAssertNotNil(lit, "the research card is not in the tree at all")
+        XCTAssertEqual(lit?.label.contains(CanvasAccessibility.dimmedTerm), false,
+                       "the lit card must not announce the dim — lit draws as it "
+                       + "always has and says nothing")
+        let others = elements.filter { $0.id != .node(CanvasNodeID.item("r-1")) }
+        XCTAssertFalse(others.isEmpty, "the fixture stopped producing other elements")
+        for element in others {
+            XCTAssertTrue(element.label.contains(CanvasAccessibility.dimmedTerm),
+                          "\(element.id) is outside the binder's selection and says "
+                          + "nothing about it")
+        }
+    }
+
+    /// **What the `dimsTheBoard` guard used to say, now said over more cases
+    /// than it covered.** `CanvasHighlight.resolve` opened with
+    /// `guard subject.dimsTheBoard`, which tied the two answers together in one
+    /// line; it is a `switch` since stage 3b, so a new case is a build error
+    /// there rather than a silent fall-through into the piece walk. This is what
+    /// replaces the tie: the derivation filters exactly when the subject says
+    /// the board dims, and a case that disagreed would show a writer a dimmed
+    /// board the project row could not explain.
+    func test_theDerivationAndTheSubjectAgreeAboutWhetherTheBoardIsFiltered() {
+        let s = sceneWithTheCardFor("r-1")
+        let subjects: [CanvasSubject] = [.wholeProject, .piece("ch1"), .group([]),
+                                         .group(["ch1", "ch2"]), .research("r-1"),
+                                         .research("not-on-this-board")]
+        for subject in subjects {
+            XCTAssertEqual(CanvasHighlight.resolve(subject: subject, in: s).isFiltering,
+                           subject.dimsTheBoard,
+                           "\(subject) says one thing and the lit set says the other")
+        }
     }
 
     // MARK: - Lines
@@ -462,7 +646,8 @@ final class CanvasHighlightTests: XCTestCase {
                       + "merely undims would leave the tree still showing a chapter "
                       + "selected while the board says otherwise")
 
-        XCTAssertEqual(CanvasSubject.resolve(.project, in: structure()), .wholeProject,
+        XCTAssertEqual(CanvasSubject.resolve(.project, in: structure(), research: research()),
+                       .wholeProject,
                        "and the value both of them write is the undimmed board")
     }
 
