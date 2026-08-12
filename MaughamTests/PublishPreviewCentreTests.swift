@@ -226,12 +226,15 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// **"Unreadable" is never presented as "empty"** (RULING-7's shape, and the
     /// reason this resolver answers with a reason rather than an optional).
     ///
-    /// Today `PublicationStore.load()` is the lenient `JSONLAppendStore.load()`,
-    /// which reads an unreadable-yet-present file as an empty list, so nothing in
-    /// production reaches this arm — it is driven through the loader seam
-    /// instead. A branch already on `origin/main` makes `load()` throw a named
-    /// `PublicationStore.ReadError` for exactly this fact; when it merges, this
-    /// test is what says the reconcile kept the two answers apart.
+    /// This case drives the loader SEAM, which is what keeps the two answers
+    /// assertable side by side in one function. Its companion below,
+    /// `test_aRealUnreadableCatalogRefusesThroughTheProductionEntryPoint`, drives
+    /// a real squatted device file through the store-taking overload production
+    /// actually calls — the reconcile of 2026-08-12 made
+    /// `PublicationStore.load()` throw a named
+    /// `PublicationStore.ReadError.unreadableFile` (RULING-54), so this arm is
+    /// no longer seam-only and the pair is what says the reconcile kept
+    /// *unreadable* and *never compiled* apart end to end.
     func test_anUnreadableCatalogIsNotTheSameAnswerAsAnEmptyOne() async {
         struct Unreadable: Error {}
 
@@ -249,6 +252,54 @@ final class PublishPreviewCentreTests: XCTestCase {
             "a catalog that exists and cannot be read is a DIFFERENT fact from "
             + "a project that has never been compiled — collapsing them is how "
             + "a writer is told their book was never made")
+    }
+
+    /// **The same fact, through the door production uses** — and the sharp part
+    /// is the row that IS readable.
+    ///
+    /// The catalog here holds a good PDF row in this device's own file *and* a
+    /// second device file that cannot be read (a directory squatting on its
+    /// path — the permissions-break / dataless-stub shape, borrowed from
+    /// `PublicationStoreTests`). `PublicationStore.load()` throws
+    /// `ReadError.unreadableFile` naming that file (RULING-54), so the resolver
+    /// must answer `.unreadableCatalog` **rather than drawing the row it could
+    /// see**: the unreadable file may hold a newer edition, and presenting a
+    /// stale PDF as "your latest compile" is a lie about the writer's book.
+    ///
+    /// This is the case the seam-driven test above cannot make — the seam proves
+    /// the resolver's arms are distinct, this proves the production loader
+    /// actually reaches the unreadable one.
+    func test_aRealUnreadableCatalogRefusesThroughTheProductionEntryPoint() async throws {
+        let project = try makeProject()
+        let store = PublicationStore(projectURL: project)
+        try await append(to: store, in: project, version: "0.1", minutesAgo: 10)
+
+        // Sanity: with the catalog readable, this project HAS a book to show —
+        // so the refusal below is caused by the unreadable file and nothing else.
+        let before = await PublishPreviewResolver.latestReadablePDF(
+            store: store, projectURL: project)
+        XCTAssertNotNil(before.publication,
+                        "precondition: a readable catalog with a real PDF shows the book")
+
+        let squatted = PublicationStore.fileURL(
+            deviceSlug: DeviceSlug.make(from: "otherdevice"), in: project)
+        try FileManager.default.createDirectory(
+            at: squatted, withIntermediateDirectories: true)
+
+        let resolution = await PublishPreviewResolver.latestReadablePDF(
+            store: store, projectURL: project)
+
+        guard case .unreadableCatalog(let reason) = resolution else {
+            XCTFail("an unreadable device file must refuse the preview, got \(resolution) "
+                    + "— drawing the row we happened to be able to read presents a "
+                    + "possibly-stale PDF as the writer's latest compile")
+            return
+        }
+        XCTAssertNotEqual(resolution, .nothingCompiled,
+                          "RULING-7: unreadable is never presented as empty")
+        XCTAssertTrue(reason.contains(squatted.lastPathComponent),
+                      "the placeholder's sentence names the file that could not be "
+                      + "read, so the writer knows what to fix — got: \(reason)")
     }
 
     /// Both non-`ready` answers degrade the centre the same way — to altitude —

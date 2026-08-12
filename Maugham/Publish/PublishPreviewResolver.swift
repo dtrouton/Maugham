@@ -21,13 +21,21 @@ enum PublishPreviewResolution: Equatable {
     /// — so a surface that grows copy for this has the sentence rather than
     /// having to invent one.
     ///
-    /// **Today nothing in production reaches this arm**: `PublicationStore.load()`
-    /// funnels through the lenient `JSONLAppendStore.load()`, which reads an
-    /// unreadable-yet-present file as an empty list. A branch already on
-    /// `origin/main` makes `load()` throw a named `PublicationStore.ReadError`
-    /// for this fact; when it merges, the `catch` in the resolver below starts
-    /// answering with this case, carrying that error's `localizedDescription`,
-    /// and nothing else has to move.
+    /// **Production reaches this arm as of the 2026-08-12 reconcile.**
+    /// `PublicationStore.load()` now reads each device file through the strict
+    /// `JSONLAppendStore.loadStrict()` and throws a named
+    /// `PublicationStore.ReadError.unreadableFile(name:underlying:)` when one
+    /// exists and cannot be read (RULING-54). The `catch` in the resolver below
+    /// answers with this case, carrying that error's `localizedDescription`, so
+    /// the writer's placeholder names the file rather than claiming the book was
+    /// never made.
+    ///
+    /// **One unreadable device file refuses the whole preview, even when another
+    /// file holds a perfectly good row — and that is the right answer, not a
+    /// casualty of the strict read.** The unreadable file may hold a NEWER
+    /// edition, so drawing the newest row we happen to be able to see would
+    /// present a stale PDF as "your latest compile". Refusing keeps the centre
+    /// honest about what it cannot see.
     case unreadableCatalog(reason: String)
 
     /// The publication to draw, or nil for either degrade.
@@ -64,8 +72,10 @@ enum PublishPreviewResolver {
         await latestReadablePDF(in: projectURL, loading: { try await store.load() })
     }
 
-    /// The rule, with the catalog handed in — so the failure arm is drivable
-    /// today, before the `throws`-ing loader lands (see `.unreadableCatalog`).
+    /// The rule, with the catalog handed in — so a loader failure is drivable
+    /// without a squatted file on disk (see `.unreadableCatalog`). The
+    /// store-taking overload above is what production calls, and
+    /// `PublishPreviewCentreTests` drives a REAL unreadable catalog through it.
     static func latestReadablePDF(
         in projectURL: URL,
         loading load: () async throws -> [Publication]
@@ -74,13 +84,16 @@ enum PublishPreviewResolver {
         do {
             rows = try await load()
         } catch {
-            // Deliberately catch-all rather than a typed arm: the type that
-            // means this (`PublicationStore.ReadError`) does not exist on this
-            // branch yet, and a `catch is` naming it would not compile. What
-            // must never happen is this becoming `.nothingCompiled` — the
-            // reconcile can add the typed arm above this one, but it does not
-            // have to, because this one already answers with the right case and
-            // the right sentence.
+            // **Deliberately catch-all, and it stays that way after the
+            // reconcile.** `PublicationStore.ReadError` is what production
+            // throws here and its `errorDescription` is the sentence the
+            // placeholder shows — but a typed `catch is` arm would narrow this
+            // to the one failure we thought of, and the loader is a closure: a
+            // future caller's own error would fall through to a rethrow this
+            // non-throwing function cannot make. What must never happen is this
+            // becoming `.nothingCompiled` (RULING-7's forbidden shape); the
+            // catch-all already answers with the right case and the right
+            // sentence for every error that can arrive.
             return .unreadableCatalog(reason: error.localizedDescription)
         }
         for row in rows.reversed() where row.format == .pdf {
