@@ -357,6 +357,14 @@ public final class CanvasThumbnails {
 
     // MARK: - The decode
 
+    /// No single decode may begin on a source claiming more pixels than this
+    /// (F13, issue #28) — 200 MP passes any real camera or panorama and
+    /// refuses the bomb class. Dimensions come from the header without
+    /// decoding; a source with UNREADABLE dimensions proceeds, because the
+    /// bomb must declare its size to work and the thumbnailer already fails
+    /// honestly on garbage.
+    static let sourcePixelCap = 200_000_000
+
     /// One decode, at thumbnail size, through `CGImageSource`.
     ///
     /// **`CGImageSourceCreateThumbnailAtIndex`, not a full-size decode followed
@@ -371,9 +379,34 @@ public final class CanvasThumbnails {
     /// which for a phone capture is often 160 px and for a PNG is nothing at all.
     /// `…WithTransform` applies the EXIF orientation, so a photograph taken in
     /// portrait is not drawn on its side.
-    private nonisolated static func decode(_ url: URL, maxPixelSize: Int) -> CGImage? {
+    ///
+    /// **The bucket ladder bounds the OUTPUT; it does not bound ImageIO's peak
+    /// working set while producing it, which is proportional to the SOURCE**
+    /// (F13, issue #28). A tiny-on-disk file that *claims* an enormous pixel
+    /// count — a decompression bomb — can spike memory before
+    /// `kCGImageSourceThumbnailMaxPixelSize` ever gets a say, so the gate below
+    /// reads the claimed dimensions from the header, without decoding, and
+    /// refuses before the thumbnailer runs.
+    ///
+    /// `internal` rather than `private` so the test can exercise the cap
+    /// directly: a forged-huge-header fixture fails to decode for other
+    /// reasons (ImageIO validates the file against the claim) and cannot
+    /// discriminate the gate from an ordinary decode failure — only a small
+    /// cap against an honest, decodable fixture can.
+    nonisolated static func decode(_ url: URL, maxPixelSize: Int,
+                                   sourcePixelCap: Int = CanvasThumbnails.sourcePixelCap) -> CGImage? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else {
+            return nil
+        }
+        // Header only — no decode. A source with UNREADABLE dimensions
+        // proceeds rather than refusing: a bomb has to declare its size to
+        // work, and an honest file with no size property already fails
+        // (or succeeds) on its own merits a few lines down.
+        if let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let width = props[kCGImagePropertyPixelWidth] as? Int,
+           let height = props[kCGImagePropertyPixelHeight] as? Int,
+           width * height > sourcePixelCap {
             return nil
         }
         let options: [CFString: Any] = [

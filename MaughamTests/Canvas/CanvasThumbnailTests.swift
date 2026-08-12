@@ -502,6 +502,22 @@ final class CanvasThumbnailTests: XCTestCase {
         XCTAssertEqual(cache.decodeCount, 1)
     }
 
+    // MARK: - The source-dimension gate
+
+    /// F13 (issue #28): the OUTPUT is clamped by the bucket ladder, but
+    /// ImageIO's peak working set while producing it is proportional to the
+    /// SOURCE — a tiny-on-disk bomb claiming enormous dimensions must be
+    /// refused before the thumbnailer runs. The cap is exercised directly
+    /// (small cap, honest fixture) because a forged header fails to decode
+    /// for other reasons and cannot discriminate the gate.
+    func test_decodeRefusesASourceOverThePixelCap() {
+        let url = root.appendingPathComponent(Self.photo)
+        XCTAssertNil(CanvasThumbnails.decode(url, maxPixelSize: 256, sourcePixelCap: 1_000_000),
+            "3.8MP source over a 1MP cap must refuse before decoding")
+        XCTAssertNotNil(CanvasThumbnails.decode(url, maxPixelSize: 256),
+            "the default cap must not refuse an ordinary photograph")
+    }
+
     // MARK: - Helpers
 
     /// The full loop a card goes through: miss on the frame path, service off
