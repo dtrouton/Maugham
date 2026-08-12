@@ -187,7 +187,7 @@ final class DocumentLoadQuarantineTests: XCTestCase {
             to: pendingURL, atomically: true, encoding: .utf8)
 
         var noticed: String?
-        let observer = NotificationCenter.default.addObserver(
+        let observer = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
             forName: .maughamDocumentNotice, object: nil, queue: .main
         ) { note in
             noticed = note.userInfo?[MaughamEvent.noticeMessageKey] as? String
