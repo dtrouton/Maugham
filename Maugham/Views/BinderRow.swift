@@ -73,7 +73,9 @@ struct BinderRow: View {
                     // The LABEL LEAF only (tripwire 9) — never the row's own
                     // `.contentShape(Rectangle())` below, which is what
                     // `.draggable` needs to keep dragging from anywhere in the
-                    // row's interior. See TreeTravel.swift.
+                    // row's interior. A hit-test-transparent MARK, not a
+                    // gesture: a SwiftUI tap gesture here eats the single click
+                    // that selects the row. See TreeTravel.swift.
                     .treeTravelOnDoubleClick(.item(item.id))
                 Spacer()
             }

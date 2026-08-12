@@ -60,23 +60,19 @@ final class TreeTravelDestinationTests: XCTestCase {
 /// exercises the exact call `treeTravelOnDoubleClick` makes — nothing about
 /// the receiver's own behaviour depends on how the row got there.
 ///
-/// **Why not a real synthetic double-click.** It was tried first: every row
-/// this milestone touches is `.draggable`, and `-[NSTableView mouseDown:]` on
-/// a draggable row enters AppKit's own drag-vs-click disambiguation
-/// (`_dragShouldBeginFromMouseDown:`), which blocks on the real
-/// `nextEventMatchingMask:untilDate:inMode:dequeue:` waiting for a
-/// windowserver event a synthetic host never sends — measured directly with
-/// `sample` on a run that never returned. Routing every event through
-/// `NSApp.postEvent`/`NSApp.nextEvent` instead of `window.sendEvent(_:)`
-/// stopped the hang, but the `.onTapGesture(count: 2)` recognizer itself
-/// never fired for either synthetic timing tried (all-at-once, and a real
-/// 50ms gap between the two presses) — zero posts observed both times. No
-/// other suite in this codebase drives a SwiftUI `.onTapGesture` through
-/// synthetic AppKit events (`grep -rn "clickCount: 2" MaughamTests/` outside
-/// this file turns up nothing), so there is no established technique to
-/// reach for here. `TreeTravelGestureAttachmentTests` covers the half a
-/// mounted click can't prove safely: that the gesture is textually on the
-/// label leaf and not the row container.
+/// **This class posts directly; the mounted class below drives real clicks.**
+/// Until 2026-08-12 nothing drove a real one, and the note here said a
+/// synthetic double-click was unreachable: the `.onTapGesture(count: 2)`
+/// recognizer never fired for any synthetic timing tried. That was true, and
+/// it was a symptom — SwiftUI's gesture graph is not driven by
+/// `NSApp.postEvent`-delivered events. It is no longer a limit, because the
+/// travel rule is no longer a SwiftUI gesture: it is an `NSEvent` monitor over
+/// a hit-test-transparent marker (`TreeTravel.swift`'s doc comment has the
+/// measurement), and AppKit-level mechanisms ARE reachable synthetically.
+/// `TreeTravelRowMountingTests.test_aDoubleClickOnTheRowsNameTravelsToAuthor`
+/// is that test. What is proven here instead is the receiver's own behaviour —
+/// the persona guard, the memory write, the `.keyWindow` scope — which a click
+/// would only reach through three more layers.
 @MainActor
 final class TreeTravelReceiverTests: XCTestCase {
 
@@ -242,16 +238,146 @@ final class TreeTravelRowMountingTests: XCTestCase {
         temp = nil
     }
 
+    /// **The regression this suite did not have, 2026-08-12.** A single click
+    /// on a row's NAME — the text itself, not the icon and not the whitespace
+    /// after it — must select the row.
+    ///
+    /// Stage 3b's `.onTapGesture(count: 2)` on the label swallowed it: the
+    /// writer could select a chapter by clicking its icon or the empty space to
+    /// the right of its title, but clicking the title did nothing at all. Every
+    /// test in this file was green throughout, because
+    /// `test_aSingleClickOnTheChapterRowOnlySelects` (below, now clicking the
+    /// name) clicked `rect.midX` against a project's DEFAULT short title — and
+    /// at a 420pt tree width the midpoint of the row falls in the trailing
+    /// `Spacer`, past where the text ends, which is the one part of the row
+    /// that never broke. That is the whole gap: a click is not "on the row", it
+    /// is at a POINT, and the point that mattered was the one over the glyphs.
+    ///
+    /// **The premise is read off the geometry it actually got** (the CI
+    /// display-width rule in CLAUDE.md): the click lands at the midpoint of the
+    /// travel mark's OWN frame, which is the label leaf's frame, rather than at
+    /// a hardcoded x that a different font or a clamped window would move out
+    /// from under. `labelFrame` failing is itself the mark being missing.
+    func test_aSingleClickOnTheRowsNameSelectsIt() async throws {
+        let store = try await novel(named: "NameClick")
+        let firstDoc = try XCTUnwrap(store.manifest.structure.first)
+        // Long enough that the label spans well past the row's own midpoint,
+        // so "the name" and "the middle of the row" are different places —
+        // with a short title the bug is invisible to a midX click.
+        try await store.renameStructureItem(
+            id: firstDoc.id, newTitle: "A Chapter With A Rather Long Name")
+        let (window, probe, table) = try await hostBinder(store: store)
+
+        let label = try XCTUnwrap(labelFrame(ofRow: 1, in: table),
+                                  "row 1 carries no travel mark at all — "
+                                  + "`treeTravelOnDoubleClick` is missing, or "
+                                  + "has gone back to being a gesture")
+        XCTAssertGreaterThan(label.width, 40,
+                             "the label is too narrow for this test to be "
+                             + "about clicking text — premise failing, not "
+                             + "the row")
+        XCTAssertLessThan(label.width, table.rect(ofRow: 1).width,
+                          "the mark spans the whole row, so it is on the "
+                          + "container rather than the label leaf — the "
+                          + "TaskRow scar (tripwire 9)")
+
+        await click(at: CGPoint(x: label.midX, y: label.midY),
+                    in: table, window: window)
+        await pumpUntil(deadline: 5) { probe.subject == .item(firstDoc.id) }
+
+        XCTAssertEqual(table.selectedRow, 1,
+                       "a single click on the row's NAME must select it — "
+                       + "this is stage 3b's regression: the icon and the "
+                       + "trailing whitespace selected, the title did not")
+        XCTAssertEqual(probe.subject, .item(firstDoc.id),
+                       "and the selection must reach the window's subject "
+                       + "through `List(selection:)`'s own binding")
+        XCTAssertEqual(probe.persona, .plan,
+                       "one click is not a travel")
+    }
+
+    /// **The other half of the same click, now reachable.** A double-click on
+    /// the name travels to Author on that row's subject — driven as a real
+    /// synthetic double-click, which the SwiftUI gesture this replaced could
+    /// not be (see `TreeTravelReceiverTests`' class doc). A mechanism that can
+    /// be driven end-to-end is worth more than one that has to be asserted in
+    /// two disconnected halves, and it is the reason the fix went to AppKit
+    /// rather than to a different SwiftUI gesture.
+    func test_aDoubleClickOnTheRowsNameTravelsToAuthor() async throws {
+        let store = try await novel(named: "NameDoubleClick")
+        let firstDoc = try XCTUnwrap(store.manifest.structure.first)
+        try await store.renameStructureItem(
+            id: firstDoc.id, newTitle: "A Chapter With A Rather Long Name")
+        let (window, probe, table) = try await hostBinder(store: store)
+        // The receiver is `.keyWindow`-scoped and reads the window
+        // `WindowAccessor` resolves a runloop hop after mount; clicking before
+        // it lands drives a live poster at a dead receiver.
+        let ready = await pumpUntil(deadline: 5) { probe.window != nil }
+        XCTAssertTrue(ready, "the probe's window never resolved — premise")
+
+        let label = try XCTUnwrap(labelFrame(ofRow: 1, in: table))
+        await click(at: CGPoint(x: label.midX, y: label.midY),
+                    in: table, window: window, clicks: 2)
+        await pumpUntil(deadline: 5) { probe.persona == .author }
+
+        XCTAssertEqual(probe.persona, .author,
+                       "a double-click on a tree row's name in Plan takes the "
+                       + "writer to Author — Denver's travel rule")
+        XCTAssertEqual(probe.subject, .item(firstDoc.id),
+                       "on that row's OWN subject")
+    }
+
+    /// **The control the pair above needs**: the same double-click, at the same
+    /// row, on the whitespace PAST the name, travels nowhere. Without it, a
+    /// mark that had quietly widened onto the row container would satisfy both
+    /// tests above while changing what the writer can double-click — and the
+    /// widening is invisible to every other assertion here, because a wider
+    /// mark still selects and still drags.
+    func test_aDoubleClickPastTheNameDoesNotTravel() async throws {
+        let store = try await novel(named: "PastTheName")
+        let firstDoc = try XCTUnwrap(store.manifest.structure.first)
+        try await store.renameStructureItem(id: firstDoc.id, newTitle: "Ch")
+        let (window, probe, table) = try await hostBinder(store: store)
+        let ready = await pumpUntil(deadline: 5) { probe.window != nil }
+        XCTAssertTrue(ready, "the probe's window never resolved — premise")
+
+        let rect = table.rect(ofRow: 1)
+        let label = try XCTUnwrap(labelFrame(ofRow: 1, in: table))
+        let past = (label.maxX + rect.maxX) / 2
+        XCTAssertGreaterThan(past, label.maxX,
+                             "there is no whitespace past this label to click "
+                             + "— premise failing")
+
+        await click(at: CGPoint(x: past, y: rect.midY),
+                    in: table, window: window, clicks: 2)
+        await waitOut(0.5)
+
+        XCTAssertEqual(probe.persona, .plan,
+                       "the travel mark is the label leaf, not the row — a "
+                       + "double-click on the row's empty trailing space is "
+                       + "not a travel")
+        XCTAssertEqual(table.selectedRow, 1,
+                       "…though it still selects, like any other click on the "
+                       + "row")
+    }
+
     /// A single click — the first half of any double-click — must only
     /// select. The dim moves (a subject write via `List(selection:)`); the
     /// persona does not, because `.maughamTreeTravel` is never posted by one
     /// click alone.
+    ///
+    /// **Clicks the NAME, not `rect.midX`.** It clicked the row's midpoint
+    /// until 2026-08-12, which against a default short title is the trailing
+    /// `Spacer` — see `test_aSingleClickOnTheRowsNameSelectsIt` for what that
+    /// cost.
     func test_aSingleClickOnTheChapterRowOnlySelects() async throws {
         let store = try await novel(named: "SingleClick")
         let firstDoc = try XCTUnwrap(store.manifest.structure.first)
         let (window, probe, table) = try await hostBinder(store: store)
 
-        await click(row: 1, in: table, window: window)
+        let label = try XCTUnwrap(labelFrame(ofRow: 1, in: table))
+        await click(at: CGPoint(x: label.midX, y: label.midY),
+                    in: table, window: window)
         await pumpUntil(deadline: 5) { probe.subject == .item(firstDoc.id) }
 
         // **The delivery premise, asserted before the contract** — a synthetic
@@ -527,9 +653,37 @@ final class TreeTravelRowMountingTests: XCTestCase {
     /// `mouseDown:` engages AppKit's own drag-disambiguation loop even for a
     /// single click; see `TreeTravelReceiverTests`' class doc for the
     /// measurement behind that).
+    /// The frame of a row's travel mark — i.e. of its LABEL — in table
+    /// coordinates, or `nil` when the row carries none.
+    ///
+    /// This is what makes the click tests read their premise off the geometry
+    /// they actually got rather than off a hardcoded x: the mark is installed
+    /// as the label's `.background`, so it has exactly the label's frame, and a
+    /// click at its midpoint is a click on the writer's own text whatever the
+    /// font, the title or the window width turn out to be.
+    private func labelFrame(ofRow row: Int, in table: NSTableView) -> CGRect? {
+        guard let rowView = table.rowView(atRow: row, makeIfNecessary: true)
+        else { return nil }
+        var found: CGRect?
+        walk(rowView) { view in
+            guard let target = view as? TreeTravelTargetView,
+                  target.subject != nil else { return }
+            found = target.convert(target.bounds, to: table)
+        }
+        return found
+    }
+
     private func click(row: Int, in table: NSTableView, window: NSWindow) async {
         let rect = table.rect(ofRow: row)
-        let point = CGPoint(x: rect.midX, y: rect.midY)
+        await click(at: CGPoint(x: rect.midX, y: rect.midY),
+                    in: table, window: window)
+    }
+
+    /// `clicks: 2` sends the pair AppKit itself would: two down/up pairs with
+    /// ascending `clickCount`, which is what `NSEvent.clickCount == 2` — the
+    /// watcher's own discriminator — is reading.
+    private func click(at point: CGPoint, in table: NSTableView,
+                       window: NSWindow, clicks: Int = 1) async {
         let inWindow = table.convert(point, to: nil)
         let app = NSApplication.shared
         // **The queue has to be QUIET before the pair goes in** — this helper's
@@ -563,7 +717,12 @@ final class TreeTravelRowMountingTests: XCTestCase {
             }
             pump(0.02)
         }
-        for (type, count) in [(NSEvent.EventType.leftMouseDown, 1), (.leftMouseUp, 1)] {
+        var pairs: [(NSEvent.EventType, Int)] = []
+        for n in 1...max(1, clicks) {
+            pairs.append((.leftMouseDown, n))
+            pairs.append((.leftMouseUp, n))
+        }
+        for (type, count) in pairs {
             guard let event = NSEvent.mouseEvent(
                 with: type, location: inWindow, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime,
@@ -626,6 +785,33 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
 
     private func source(_ path: String) throws -> String {
         try String(contentsOf: repoRoot.appendingPathComponent(path), encoding: .utf8)
+    }
+
+    /// Every file the travel rule touches, including `TreeTravel.swift` itself.
+    private var travelFiles: [String] {
+        ["Maugham/Views/BinderRow.swift",
+         "Maugham/Views/PieceRow.swift",
+         "Maugham/Views/ResearchRow.swift",
+         "Maugham/Views/BinderTreeSections.swift",
+         "Maugham/Views/BinderView.swift",
+         "Maugham/Views/CollectionPiecesPane.swift",
+         "Maugham/Views/SceneNavigatorPane.swift",
+         "Maugham/Views/TreeTravel.swift"]
+    }
+
+    /// The file with its comment lines removed.
+    ///
+    /// **`TreeTravel.swift` names both rejected spellings in prose**, at
+    /// length, because why they are wrong is the most valuable thing in that
+    /// file — so a census that grepped raw text would either fail on the
+    /// explanation or have to skip the one file where the mechanism actually
+    /// lives. Stripping comments keeps the file in scope and keeps the
+    /// explanation.
+    private func code(_ path: String) throws -> String {
+        try source(path)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
     }
 
     private func lineIndex(of needle: String, in lines: [Substring]) -> Int? {
@@ -696,18 +882,64 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
         }
     }
 
+    /// **No tree row may carry a SwiftUI tap gesture, 2026-08-12.**
+    ///
+    /// This is the census the ordering check above could not be. Stage 3b's
+    /// `.onTapGesture(count: 2)` was correctly placed by every rule this file
+    /// knew — on the label leaf, before `.draggable` — and still cost the
+    /// writer the single click, because the defect was never about WHERE the
+    /// gesture sat. `NSHostingView` gives SwiftUI's gesture graph the mouseDown
+    /// first, and a gesture whose hit region covers the point consumes it
+    /// rather than passing it to the enclosing `NSTableView`; the double-tap
+    /// recognizer waits for a second click that never comes, and the first one
+    /// is gone. `.simultaneousGesture(TapGesture(count: 2))` was measured on
+    /// the same rig and does the same thing.
+    ///
+    /// So the rule is the stronger one: in these files the travel rule is an
+    /// AppKit marker plus an `NSEvent` monitor, and a tap gesture of ANY count
+    /// re-introduces the bug class. A prose warning is what this replaces —
+    /// the distinction "label leaf, but not a gesture" is exactly the kind a
+    /// reader merges back together.
+    func test_noTreeRowCarriesASwiftUITapGesture() throws {
+        for path in travelFiles {
+            let text = try code(path)
+            for spelling in ["onTapGesture(", "TapGesture("] {
+                XCTAssertFalse(
+                    text.contains(spelling),
+                    "\(path) contains `\(spelling)` — a SwiftUI tap gesture on "
+                    + "a row inside `List(.sidebar)` eats the single click that "
+                    + "selects it, wherever it is attached. The travel rule is "
+                    + "`treeTravelOnDoubleClick`'s hit-test-transparent marker "
+                    + "plus `TreeTravelClickWatcher`; see TreeTravel.swift.")
+            }
+        }
+    }
+
+    /// The planted offender for the census above — the detector really does
+    /// fire on the spelling that shipped the bug, rather than passing because
+    /// it is looking for something no file could contain.
+    func test_theTapGestureCensusCatchesAPlantedOffender() throws {
+        let offender = """
+            Text(item.title)
+                .onTapGesture(count: 2) { travel() }
+            """
+        for spelling in ["onTapGesture(", "TapGesture("] {
+            XCTAssertTrue(offender.contains(spelling),
+                          "the census's own detector missed `\(spelling)` in a "
+                          + "planted copy of the line that shipped the "
+                          + "regression")
+        }
+    }
+
     /// The control every absence-shaped/ordering assertion needs: the files
     /// are really being read, so a path typo fails loudly here rather than
     /// silently passing the ordering check above.
     func test_theCensusIsReadingRealFiles() throws {
-        for path in ["Maugham/Views/BinderRow.swift", "Maugham/Views/PieceRow.swift",
-                     "Maugham/Views/ResearchRow.swift",
-                     "Maugham/Views/BinderTreeSections.swift",
-                     "Maugham/Views/BinderView.swift",
-                     "Maugham/Views/CollectionPiecesPane.swift",
-                     "Maugham/Views/SceneNavigatorPane.swift",
-                     "Maugham/Views/TreeTravel.swift"] {
+        for path in travelFiles {
             XCTAssertFalse(try source(path).isEmpty, "\(path): read nothing")
+            XCTAssertFalse(try code(path).isEmpty,
+                           "\(path): comment-stripping left nothing, so the "
+                           + "tap-gesture census would pass vacuously")
         }
     }
 }
@@ -790,6 +1022,12 @@ private struct BinderTravelProbeView: View {
                                        set: { probe.detailSegment = $0 }),
                 selectedSubject: Binding(get: { probe.subject }, set: { probe.subject = $0 }),
                 documentStore: probe.documentStore))
+            // The click tests wait on this before driving a double-click: the
+            // receiver is `.keyWindow`-scoped and reads the window
+            // `WindowAccessor` resolves a runloop hop after mount, so a click
+            // sent before it lands drives a live poster at a dead receiver —
+            // and reads exactly like a broken travel rule.
+            .onChange(of: window, initial: true) { _, new in probe.window = new }
     }
 }
 

@@ -211,8 +211,9 @@ struct BinderTreeSections: View {
                         Label(card.title,
                               systemImage: PaletteCardTile.kindSymbol(for: card.kind))
                             // The LABEL LEAF, before `.tag`/`.contentShape`/
-                            // `.draggable` widen the row (tripwire 9) — see
-                            // TreeTravel.swift and BinderRow's twin.
+                            // `.draggable` widen the row (tripwire 9), and a
+                            // mark rather than a gesture — see TreeTravel.swift
+                            // and BinderRow's twin.
                             .treeTravelOnDoubleClick(.research(card.id))
                             .tag(BinderSubject.research(card.id))
                             // **The same value as the tag** (Task 8) — a card

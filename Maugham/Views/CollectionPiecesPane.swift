@@ -43,10 +43,10 @@ struct CollectionPiecesPane: View {
     /// take part in, and nothing a piece dropped on it could mean.
     private var projectRow: some View {
         ProjectRowLabel(title: store.manifest.title)
-            // The LABEL LEAF, before `.tag` (tripwire 9) — see
-            // TreeTravel.swift and BinderView's twin. The project row carries
-            // no `.draggable` at all, so there is no drag-interior claim to
-            // make here.
+            // The LABEL LEAF, before `.tag` (tripwire 9), and a mark rather
+            // than a gesture — see TreeTravel.swift and BinderView's twin. The
+            // project row carries no `.draggable` at all, so there is no
+            // drag-interior claim to make here.
             .treeTravelOnDoubleClick(.project)
             .tag(BinderSubject.project)
     }
