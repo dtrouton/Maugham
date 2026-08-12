@@ -40,21 +40,27 @@ struct BinderTreeSections: View {
     @Bindable var store: ProjectStore
     @Bindable var state: BinderTreeSectionsState
     @Binding var selectedSubject: BinderSubject?
-    /// Whether the Palette header's "Open Wall" affordance is live — false in
-    /// Plan, where the centre column is the canvas and the wall taking it over
-    /// there is stage 3's call (shell-finish stage 2b Task 5). Derived by the
-    /// caller from `persona != .plan` today; Task 6 re-bases the segment-shaped
-    /// predicates this file already reads onto `Persona` directly, and this one
-    /// can fold into that pass then.
+    /// Whether pressing the Palette header's "Open Wall" door TRAVELS — true in
+    /// Plan alone, where the centre column is the board and the wall has no
+    /// column to take (shell-finish stage 3b Task 4, Denver's ruling of
+    /// 2026-08-12). It changes nothing here but the tooltip: the door is live in
+    /// every persona, and what a press *does* is the window's decision
+    /// (`ProjectWindow.pressPaletteWallDoor`), not this view's. The caller
+    /// derives it from `ProjectWindow.paletteWallDoorTravels(persona:)` so the
+    /// sentence the writer reads and the action they get cannot disagree.
     ///
-    /// Defaulted so the mounted-tree fixtures across `BinderPieceFoldTests`,
-    /// `BinderTreeSectionsTests`, `BinderTreeMultiselectMountTests` and
-    /// `BinderTreeDropRoutingTests` — none of which are about the wall's door —
-    /// keep compiling unchanged.
-    var canOpenPaletteWall: Bool = true
-    /// Opens the palette wall in the centre column — `ProjectWindow`'s
-    /// `showsPaletteWall = true` (stage 2b Task 5). Defaulted for the same
-    /// reason `canOpenPaletteWall` is.
+    /// **It replaced `canOpenPaletteWall`**, which disabled the door in Plan with
+    /// a tooltip explaining why — stage 2b Task 5's placeholder for the decision
+    /// this task made.
+    ///
+    /// Defaulted to the ordinary case so the mounted-tree fixtures across
+    /// `BinderPieceFoldTests`, `BinderTreeSectionsTests`,
+    /// `BinderTreeMultiselectMountTests` and `BinderTreeDropRoutingTests` — none
+    /// of which are about the wall's door — keep compiling unchanged.
+    var paletteWallTravels: Bool = false
+    /// Presses the wall's door — `ProjectWindow.openPaletteWall()`, which either
+    /// opens the wall here or travels to Author with it (stage 3b Task 4).
+    /// Defaulted for the same reason `paletteWallTravels` is.
     var onOpenPaletteWall: () -> Void = {}
 
     var body: some View {
@@ -256,11 +262,13 @@ struct BinderTreeSections: View {
     /// header's own context menu for the writer who right-clicks instead of
     /// hunting for the icon — `sectionHeader`'s shape, one arm wider.
     ///
-    /// **Disabled rather than hidden in Plan.** Plan's centre column is the
-    /// canvas; the wall taking it over there is stage 3's call. A hidden
-    /// button reads as "no door here", where a disabled one with a tooltip
-    /// says what is actually true — the door exists, this room just does not
-    /// open into it yet.
+    /// **Live in every persona, and in Plan it travels** (stage 3b Task 4,
+    /// Denver's 2026-08-12 ruling). It was DISABLED in Plan with a tooltip
+    /// explaining why — stage 2b Task 5's honest placeholder while the answer
+    /// was undecided. The refusal it stood on has not moved: `showsPaletteWall
+    /// Centre` still will not draw the wall over Plan's board. What moved is
+    /// what the writer gets instead of a dead door — the wall opens in Author,
+    /// and the press takes them there.
     private var paletteSectionHeader: some View {
         HStack {
             Text(store.paletteGroupDisplayTitle)
@@ -277,8 +285,8 @@ struct BinderTreeSections: View {
         }
         .contentShape(Rectangle())
         .contextMenu {
-            Button("Open Wall", action: onOpenPaletteWall)
-                .disabled(!canOpenPaletteWall)
+            Button(paletteWallTravels ? "Open Wall in Author" : "Open Wall",
+                   action: onOpenPaletteWall)
             Divider()
             paletteCreationMenu()
         }
@@ -331,11 +339,14 @@ struct BinderTreeSections: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!canOpenPaletteWall)
-        .help(canOpenPaletteWall
-              ? "Open the Palette wall"
-              : "The Palette wall isn't available in Plan — Plan's centre "
-                + "column is the canvas.")
+        // **No `.disabled` any more** (stage 3b Task 4): the door is live in
+        // every persona, and the tooltip says where it opens rather than why it
+        // won't. Plan's centre is still the board — the wall opens in Author and
+        // the press takes the writer there.
+        .help(paletteWallTravels
+              ? "Open the Palette wall — it opens in Author, since Plan's "
+                + "centre column is the canvas."
+              : "Open the Palette wall")
         .accessibilityLabel("Open Wall")
     }
 

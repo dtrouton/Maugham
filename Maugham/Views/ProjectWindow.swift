@@ -54,13 +54,29 @@ struct ProjectWindow: View {
     @State private var selectedSubject: BinderSubject?
     @State private var selectedPaletteCardId: String?
     /// The palette wall's door (shell-finish stage 2b Task 5) — the Palette
-    /// tree section's own "Open Wall" affordance writes this, which is what
-    /// carried the wall across Task 7's deletion of the binder strip it used to
-    /// be reached through. `showsPaletteWallCentre` is what turns this (plus
+    /// tree section's own "Open Wall" affordance opens it (through
+    /// `pressPaletteWallDoor`, which either writes this or travels — stage 3b
+    /// Task 4), and that door is what carried the wall across Task 7's deletion
+    /// of the binder strip it used to be reached through. `showsPaletteWallCentre` is what turns this (plus
     /// the persona) into a routing decision; `PaletteWallModifier` is what
     /// turns it into the inspector stash/restore the old `.palette` segment
     /// used to own.
     @State private var showsPaletteWall: Bool = false
+    /// **The travel token** (shell-finish stage 3b Task 4, Denver's 2026-08-12
+    /// ruling: the door in Plan takes the writer to Author with the wall open).
+    ///
+    /// It exists because the two halves cannot happen in one pass: a persona
+    /// change CLOSES the wall (`closePaletteWallOnPersonaChange`), so a door
+    /// that opened the wall and then switched persona would have the switch
+    /// shut it. So the press arms this, and `PaletteWallModifier`'s own persona
+    /// observer consumes it — inside that one handler, immediately after the
+    /// close — which is what "opened AFTER the switch lands" means without any
+    /// ordering resting on which modifier SwiftUI delivers first (tripwire 2).
+    ///
+    /// Window state, never persisted: it is a one-shot about a press that has
+    /// already happened, and a token surviving a relaunch would open a wall
+    /// nobody asked for.
+    @State private var wallTravelPending: Bool = false
     /// The inspector's visibility captured on entry to the palette wall, so
     /// leaving restores it exactly (spec: no stuck-hidden inspector). `nil`
     /// when the wall is closed. Owned by `PaletteWallModifier`.
@@ -474,6 +490,7 @@ struct ProjectWindow: View {
             inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette,
             selectedPaletteCardId: $selectedPaletteCardId,
             selectedSubject: $selectedSubject,
+            wallTravelPending: $wallTravelPending,
             persona: persona))
         // A research subject arriving while the canvas holds the centre reveals
         // the column that previews it — one line, because this body has no
@@ -651,6 +668,11 @@ struct ProjectWindow: View {
         @Binding var inspectorWasVisibleBeforePalette: Bool?
         @Binding var selectedPaletteCardId: String?
         @Binding var selectedSubject: BinderSubject?
+        /// The door-in-Plan travel token — see `ProjectWindow.wallTravelPending`
+        /// and `applyWallTravelOnPersonaChange`. Consumed below, in the same
+        /// handler that closes the wall and after it, so nothing about the
+        /// order depends on which modifier SwiftUI runs first.
+        @Binding var wallTravelPending: Bool
         /// The window's working mode — watched, never written. See
         /// `ProjectWindow.closePaletteWallOnPersonaChange`.
         let persona: Persona
@@ -670,10 +692,19 @@ struct ProjectWindow: View {
                 // **The wall belongs to the persona it was opened in** (final
                 // review's I3). Here rather than at the three sites that write
                 // `persona`, two of which never touch `PersonaModifier` at all.
+                //
+                // **And the travel arrives here too, second** (stage 3b Task
+                // 4): the close is unconditional and the travel is what asks
+                // for a wall on the far side of it, so the two lines are one
+                // rule about one persona change rather than two observers
+                // racing. Swap them and the wall opens and is immediately shut.
                 .onChange(of: persona) { _, _ in
                     ProjectWindow.closePaletteWallOnPersonaChange(
                         showsPaletteWall: &showsPaletteWall,
                         stash: &inspectorWasVisibleBeforePalette)
+                    ProjectWindow.applyWallTravelOnPersonaChange(
+                        pending: &wallTravelPending,
+                        showsPaletteWall: &showsPaletteWall)
                 }
         }
     }
@@ -1056,7 +1087,7 @@ struct ProjectWindow: View {
                 renamingItemId: $pendingPieceRenameId,
                 treeState: treeState,
                 persona: persona,
-                onOpenPaletteWall: { showsPaletteWall = true },
+                onOpenPaletteWall: { openPaletteWall() },
                 onRestoreOutcome: { restoreOutcome = $0 }
             )
         case .standard:
@@ -1068,13 +1099,32 @@ struct ProjectWindow: View {
                 treeState: treeState,
                 treeFindActive: $treeFindActive,
                 persona: persona,
-                onOpenPaletteWall: { showsPaletteWall = true },
+                onOpenPaletteWall: { openPaletteWall() },
                 // **One sink for both restore paths** (final review's I1). ⌘⌥Z
                 // and the disclosure's own Restore say the same kind of thing —
                 // RULING-40's refusal, RULING-42's shortfall — and only this
                 // alert is mounted unconditionally, so only it can be shown by a
                 // restore that empties the trash and takes the rows with it.
                 onRestoreOutcome: { restoreOutcome = $0 })
+        }
+    }
+
+    /// The Palette section's "Open Wall" door, from either tree shell. The
+    /// decision and every state write are `pressPaletteWallDoor`'s (so a test
+    /// drives production's own function rather than a copy of it); what stays
+    /// here is the `UIState` write, which needs the document store this view
+    /// owns.
+    private func openPaletteWall() {
+        guard let change = Self.pressPaletteWallDoor(
+            persona: &persona,
+            detailSegment: &detailSegment,
+            showsPaletteWall: &showsPaletteWall,
+            wallTravelPending: &wallTravelPending,
+            memory: documentStore?.uiState.personaMemory ?? .empty)
+        else { return }
+        documentStore?.updateUIState {
+            $0.persona = change.persona
+            $0.personaMemory = change.memory
         }
     }
 
@@ -1924,6 +1974,78 @@ struct ProjectWindow: View {
         guard showsPaletteWall else { return }
         stash = nil
         showsPaletteWall = false
+    }
+
+    /// **The other half of the same persona change** (shell-finish stage 3b
+    /// Task 4): the wall the writer asked for in Plan, opened now that the
+    /// switch to Author has landed.
+    ///
+    /// Called from `PaletteWallModifier`'s `.onChange(of: persona)` and only
+    /// there, AFTER `closePaletteWallOnPersonaChange`. The order is the whole
+    /// point: the close is unconditional, so a travel consumed first would open
+    /// a wall the close then shuts, and the writer would arrive in Author with
+    /// the same nothing the disabled door used to give them.
+    ///
+    /// **A one-shot.** Clearing the token before opening is what keeps the wall
+    /// from following the writer around — ⌘1 back to Plan closes it, and ⌘2 must
+    /// not bring it back.
+    static func applyWallTravelOnPersonaChange(pending: inout Bool,
+                                               showsPaletteWall: inout Bool) {
+        guard pending else { return }
+        pending = false
+        showsPaletteWall = true
+    }
+
+    /// Whether the Palette section's "Open Wall" door travels from this persona
+    /// rather than opening the wall where the writer already is.
+    ///
+    /// **`TreeTravel.treeTravelDestination`, not a second predicate.** It is the
+    /// same question Denver's tree-travel rule asks on the same day — the door
+    /// is a tree affordance, and "the centre column here is the board, so there
+    /// is somewhere to travel to" has one answer, not one per affordance. Two
+    /// spellings is how the door's tooltip and the door's action come to
+    /// disagree; `PaletteWallDoorTests` pins them to this one.
+    static func paletteWallDoorTravels(persona: Persona) -> Bool {
+        TreeTravel.treeTravelDestination(persona: persona) != nil
+    }
+
+    /// **Pressing the wall's door.** Either the wall opens here, or the writer
+    /// travels to where it opens — Denver, 2026-08-12.
+    ///
+    /// Returns the persona change to persist, or `nil` when nobody moved. The
+    /// state writes are inout rather than a returned value because the two arms
+    /// write different things and a caller assembling them from a description
+    /// would be the second spelling this function exists to prevent; the window
+    /// keeps only the `UIState` write, which needs its `documentStore`.
+    ///
+    /// **It does NOT open the wall on the travelling arm**, and it writes no
+    /// subject: the persona change closes the wall
+    /// (`closePaletteWallOnPersonaChange`) and a subject change closes it too
+    /// (`PaletteWallModifier`'s second observer), so either would undo the very
+    /// thing the press asked for. What crosses the switch is the token.
+    @discardableResult
+    static func pressPaletteWallDoor(
+        persona: inout Persona,
+        detailSegment: inout DetailSegment,
+        showsPaletteWall: inout Bool,
+        wallTravelPending: inout Bool,
+        memory: PersonaMemory
+    ) -> PersonaModifier.Change? {
+        guard let destination = TreeTravel.treeTravelDestination(persona: persona)
+        else {
+            showsPaletteWall = true
+            return nil
+        }
+        wallTravelPending = true
+        // The same discipline every deliberate persona move uses (`TreeTravel
+        // Modifier`, `ManuscriptNavigation.go`): the departing position is
+        // recorded, so ⌘1 brings the writer back to the board they left.
+        let change = PersonaModifier.applyPersonaChange(
+            to: destination, from: persona,
+            currentSegment: detailSegment, memory: memory)
+        persona = change.persona
+        detailSegment = change.segment
+        return change
     }
 
     static func applyPaletteWallChange(from old: Bool,

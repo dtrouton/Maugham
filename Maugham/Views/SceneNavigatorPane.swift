@@ -52,9 +52,9 @@ struct SceneNavigatorPane: View {
     /// Called with the line range location when the user clicks a scene.
     let onSelect: (Int) -> Void
     /// Threaded to `BinderTreeSections`' Palette header — see its own doc
-    /// comment (stage 2b Task 5). Defaulted for the mounted-tree fixtures that
+    /// comment (stage 3b Task 4). Defaulted for the mounted-tree fixtures that
     /// do not care about the wall's door.
-    var canOpenPaletteWall: Bool = true
+    var paletteWallTravels: Bool = false
     var onOpenPaletteWall: () -> Void = {}
 
     var body: some View {
@@ -90,7 +90,7 @@ struct SceneNavigatorPane: View {
             // segment was the only tree with no way to either.
             BinderTreeSections(store: store, state: treeState,
                                selectedSubject: $selectedSubject,
-                               canOpenPaletteWall: canOpenPaletteWall,
+                               paletteWallTravels: paletteWallTravels,
                                onOpenPaletteWall: onOpenPaletteWall)
         }
         .listStyle(.sidebar)

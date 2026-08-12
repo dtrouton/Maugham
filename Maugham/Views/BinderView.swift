@@ -14,9 +14,9 @@ struct BinderView: View {
     /// writer's disclosure and selection on the next render.
     let treeState: BinderTreeSectionsState
     /// Threaded to `BinderTreeSections`' Palette header — see its own doc
-    /// comment (stage 2b Task 5). Defaulted for the mounted-tree fixtures that
+    /// comment (stage 3b Task 4). Defaulted for the mounted-tree fixtures that
     /// do not care about the wall's door.
-    var canOpenPaletteWall: Bool = true
+    var paletteWallTravels: Bool = false
     var onOpenPaletteWall: () -> Void = {}
     @State private var renamingItemId: String?
     @State private var pendingError: String?
@@ -63,7 +63,7 @@ struct BinderView: View {
             // at the foot of the column, and the project row stays row zero.
             BinderTreeSections(store: store, state: treeState,
                                selectedSubject: $selectedSubject,
-                               canOpenPaletteWall: canOpenPaletteWall,
+                               paletteWallTravels: paletteWallTravels,
                                onOpenPaletteWall: onOpenPaletteWall)
         }
         .listStyle(.sidebar)

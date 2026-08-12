@@ -82,11 +82,13 @@ struct CollectionBinderPaneToggle: View {
             selectedSubject: $selectedSubject,
             renamingItemId: $renamingItemId,
             treeState: treeState,
-            canOpenPaletteWall: canOpenPaletteWall,
+            paletteWallTravels: paletteWallTravels,
             onOpenPaletteWall: onOpenPaletteWall)
     }
 
     /// The wall's own door — see `BinderPaneToggle`'s twin, whose doc comment
     /// carries the whole reasoning.
-    private var canOpenPaletteWall: Bool { persona != .plan }
+    private var paletteWallTravels: Bool {
+        ProjectWindow.paletteWallDoorTravels(persona: persona)
+    }
 }
