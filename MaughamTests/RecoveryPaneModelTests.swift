@@ -20,9 +20,17 @@ final class RecoveryPaneModelTests: XCTestCase {
             blockageCleared: { _ in readable },
             startDownload: { _ in downloads += 1 },
             onOpenEditable: { openedEditable += 1 },
-            onOpenReadOnly: { XCTFail("stub path must never open read-only") })
+            onOpenReadOnly: { XCTFail("stub path must never open read-only") },
+            onSetAside: { XCTFail("stub path must never set the file aside") })
 
         XCTAssertFalse(model.offersReadOnly, "spec §3: the stub path never offers the partial view")
+        XCTAssertFalse(
+            model.offersSetAside,
+            "the stub rule (spec §5): a not-yet-downloaded file is not broken, "
+            + "it is in transit — moving it out from under the download this "
+            + "very pane started is how you turn a wait into a loss. "
+            + "`OpLogQuarantine.quarantine` refuses it too; this is the offer "
+            + "never appearing in the first place")
         XCTAssertTrue(model.offersRestore)
         XCTAssertTrue(model.headline.localizedCaseInsensitiveContains("icloud"))
 
@@ -46,9 +54,14 @@ final class RecoveryPaneModelTests: XCTestCase {
             blockageCleared: { _ in readable },
             startDownload: { _ in XCTFail("no download for a non-stub cause") },
             onOpenEditable: { openedEditable += 1 },
-            onOpenReadOnly: {})
+            onOpenReadOnly: {},
+            onSetAside: {})
 
         XCTAssertTrue(model.offersReadOnly)
+        XCTAssertTrue(
+            model.offersSetAside,
+            "the one cause with a named, broken, downloaded file — the only "
+            + "shape there is anything honest to move (spec §5)")
         XCTAssertTrue(model.offersRestore)
         XCTAssertTrue(model.detail.contains("permission denied"), "the reason reaches the writer")
         model.beginWatching()
@@ -107,8 +120,34 @@ final class RecoveryPaneModelTests: XCTestCase {
             cause: .unlistableOpsDirectory(reason: "perm"),
             projectURL: proj, probeInterval: .seconds(1),
             blockageCleared: { _ in false }, startDownload: { _ in },
-            onOpenEditable: {}, onOpenReadOnly: {})
+            onOpenEditable: {}, onOpenReadOnly: {},
+            onSetAside: { XCTFail("there is no file named to set aside") })
         XCTAssertFalse(model.offersReadOnly, "nothing enumerable — no partial view (spec §3)")
+        XCTAssertFalse(
+            model.offersSetAside,
+            "the nothing-enumerable rule: the cause names no file, because the "
+            + "directory holding them all is what refused. There is no single "
+            + "thing to move, and moving the directory would be moving the "
+            + "history itself")
         XCTAssertTrue(model.offersRestore)
+    }
+
+    /// The set-aside offer is the writer's, so it is said in the writer's
+    /// words. "Quarantine" is what the code calls it and what the folder on
+    /// disk is named; the button says what the writer gets — their document,
+    /// back, with the broken history kept rather than thrown away.
+    func test_thePaneSaysSetAside_neverQuarantine() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()      // MaughamTests
+                .deletingLastPathComponent()      // repo root
+                .appendingPathComponent("Maugham/Views/DocumentRecoveryPane.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(source.contains("\"Set the File Aside and Keep Writing\""),
+                      "the pane's third rung, in the writer's words")
+        for line in source.split(separator: "\n") where line.contains("Button(\"") {
+            XCTAssertFalse(line.localizedCaseInsensitiveContains("quarantine"),
+                           "no button says 'quarantine' at the writer: \(line)")
+        }
     }
 }
