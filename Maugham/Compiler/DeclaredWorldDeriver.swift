@@ -57,6 +57,13 @@ final class ClaudeWorldDeriver: WorldDeriver {
     /// bounds the wait without punishing an ordinary slow answer.
     static let defaultDeadline: TimeInterval = 120
 
+    /// How long the deadline path waits, after `terminate()`, for the
+    /// ordinary EOF-and-exit pairing to resolve the run before resolving it
+    /// by force. Milliseconds is the common case; two seconds is generous
+    /// slack for a loaded box without meaningfully extending the 120s
+    /// production budget.
+    static let terminationGrace: TimeInterval = 2
+
     init(
         model: String, cliOverride: URL?, isEnabled: @escaping () -> Bool,
         deadline: TimeInterval = ClaudeWorldDeriver.defaultDeadline
@@ -188,12 +195,16 @@ final class ClaudeWorldDeriver: WorldDeriver {
     ///
     /// **`deadline` is the honest degrade, not a new failure mode.** A process
     /// still running past its budget is `terminate()`d — no orphan billing —
-    /// which closes its stdout and ends it, so the SAME EOF-and-exit pairing
-    /// above resolves the continuation exactly as it does for any other
-    /// process death; a truncated or empty envelope then fails
-    /// `extractResultText`/`parse` the way `.dies`/`.garbage` already do, and
-    /// `derive` returns its ordinary honest `nil`. No separate forced-resume
-    /// path exists, so the resume-once rule has only ever the one door.
+    /// which ordinarily closes its stdout and ends it, so the SAME
+    /// EOF-and-exit pairing above resolves the continuation exactly as it
+    /// does for any other process death; a truncated or empty envelope then
+    /// fails `extractResultText`/`parse` the way `.dies`/`.garbage` already
+    /// do, and `derive` returns its ordinary honest `nil`. When the kill's
+    /// reach falls short — a group member that escaped the group SIGTERM
+    /// keeps the pipe open, so EOF never comes — the deadline resolves by
+    /// force after `terminationGrace` (`OneShotOutput.deadlineExpired`), the
+    /// same `nil`. Two doors, both the deadline's own; the resume-once rule
+    /// is the lock's.
     private nonisolated static func runOneShot(
         cli: URL, arguments: [String], input: String, deadline: TimeInterval
     ) async -> String? {
@@ -256,11 +267,30 @@ final class ClaudeWorldDeriver: WorldDeriver {
             // `takeContinuationIfReadyLocked`), so an ordinary derivation
             // does not leave a sleeping task behind for the rest of its
             // budget — only a genuinely overrunning one reaches `terminate()`.
+            //
+            // After `terminate()`, the run usually resolves through the
+            // ordinary EOF-and-exit pairing within milliseconds — the group
+            // SIGTERM takes the whole tree, stdout closes, done. But that
+            // pairing is only as good as the kill's reach: a group member
+            // that escapes (its own process group via the killpg/fork race,
+            // or a grandchild that setsids) keeps the inherited stdout pipe
+            // open and withholds EOF forever, and the deadline's promise —
+            // this ALWAYS comes back — must not hang on a stranger's file
+            // descriptor. So the deadline waits out a short grace for the
+            // ordinary pairing to win, then resolves on its own authority
+            // (CI run 31595012981 is the caught-in-the-wild case). The
+            // survivor is left to the OS: it is no longer this run's answer,
+            // and nothing here can reach a process that dodged its own
+            // group's SIGTERM.
             let deadlineTask = Task.detached(priority: .utility) {
                 try? await Task.sleep(
                     nanoseconds: UInt64(max(0, deadline) * 1_000_000_000))
                 guard !Task.isCancelled else { return }
                 if process.isRunning { process.terminate() }
+                try? await Task.sleep(
+                    nanoseconds: UInt64(Self.terminationGrace * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                output.deadlineExpired()
             }
             output.armDeadline(deadlineTask)
         }
@@ -370,7 +400,10 @@ final class ClaudeWorldDeriver: WorldDeriver {
 /// the child is gone. A reader that resumes on termination alone can be holding
 /// bytes still in the pipe; one that resumes on EOF alone answers before the
 /// process it is reporting on has finished. So both are recorded and the
-/// continuation is resumed once, by whichever arrives second.
+/// continuation is resumed once, by whichever arrives second — with one
+/// override: the deadline path, having terminated the process and waited out
+/// its grace, resolves by force (`deadlineExpired`) rather than wait on an
+/// EOF a kill-surviving group member can withhold forever.
 ///
 /// `@unchecked Sendable` on `StderrTail`'s reasoning, one file over: every
 /// field is touched under `lock`, and `FileHandle`'s readability handler is a
@@ -430,6 +463,25 @@ private final class OneShotOutput: @unchecked Sendable {
         let data = buffer
         lock.unlock()
         resumable?.resume(returning: String(data: data, encoding: .utf8))
+    }
+
+    /// The deadline's own door: `terminate()` ran and the termination grace
+    /// passed without the EOF-and-exit pairing arriving — some group member
+    /// survived the kill and is holding the stdout pipe open. Resolve with
+    /// `nil` directly: on this path the output is doomed to be discarded as
+    /// truncated anyway, and the alternative is hanging `derive` forever on
+    /// a file descriptor a stranger holds. Called only from the deadline
+    /// task itself, so it clears `deadlineTask` without cancelling (there is
+    /// nothing left of it to cancel). A later `readerDidFinish`/
+    /// `processDidExit` — the survivor eventually dying — finds the
+    /// continuation already taken and is a no-op.
+    func deadlineExpired() {
+        lock.lock()
+        let resumable = continuation
+        continuation = nil
+        deadlineTask = nil
+        lock.unlock()
+        resumable?.resume(returning: nil)
     }
 
     /// The process never started — there is nothing to wait for and nothing to
