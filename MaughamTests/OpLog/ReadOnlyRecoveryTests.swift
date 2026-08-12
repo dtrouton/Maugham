@@ -269,6 +269,47 @@ final class ReadOnlyRecoveryTests: XCTestCase {
             "and so does the PANE's, minted with the model beside its two "
             + "siblings, so there is exactly one place that decides what gets "
             + "moved and what happens when a move fails")
+
+        // MARK: Task 6 — the return runs itself at document open
+        //
+        // The hook must sit AFTER the pending-notice delivery, in the
+        // success path only, and never on a recovery bind.
+        let deliverRange = try XCTUnwrap(
+            source.range(of: "deliverPendingRecoveryNoticeIfPossible()\n"),
+            "the pending-notice delivery line the hook must follow")
+        let afterDeliver = source[deliverRange.upperBound...]
+        XCTAssertTrue(
+            afterDeliver.contains("if !doc.isReadOnlyRecovery {"),
+            "the auto-return hook sits after the pending-notice delivery, "
+            + "guarded so it never runs on a read-only recovery bind")
+        XCTAssertTrue(
+            afterDeliver.contains("OpLogQuarantine.records("),
+            "the hook reads this doc's held quarantine records")
+        XCTAssertTrue(
+            afterDeliver.contains("OpLogQuarantine.attemptReturn("),
+            "the hook attempts the return for each held record")
+        // `presenter: nil` is load-bearing (Task 5's review): passing this
+        // view's own presenter would exclude the project's
+        // ProjectFolderPresenter from the coordinated move, and it's that
+        // presenter's callback that lets the OPEN document notice the
+        // returned ops and merge them. The comment marker pins that the
+        // reasoning travelled with the code, not just the literal.
+        let hookSlice = Self.slice(
+            of: String(afterDeliver), from: "if !doc.isReadOnlyRecovery {",
+            to: "// Metrics for the freshly-loaded doc")
+        XCTAssertTrue(
+            hookSlice.contains("presenter: nil"),
+            "presenter: nil keeps the project's own presenter eligible for "
+            + "the change notification")
+        XCTAssertTrue(
+            hookSlice.contains("ProjectFolderPresenter"),
+            "the comment explains WHY presenter: nil is correct here — a "
+            + "bare nil with no reasoning is indistinguishable from an "
+            + "oversight the next reader has to re-derive")
+        XCTAssertTrue(
+            hookSlice.contains("Self.autoReturnNotice("),
+            "outcomes are mapped through the pinned pure helper, not "
+            + "re-derived inline")
     }
 
     /// The text between two markers, for a census that must look INSIDE one

@@ -873,6 +873,34 @@ struct EditorHost: View {
         return minted === current
     }
 
+    /// Maps the outcomes of an auto-return sweep (Task 6) to the notice text
+    /// to post, or nil when nothing should be said. Silence is deliberate for
+    /// `.stillUnreadable`/`.corrupt` — the writer never asked for this
+    /// attempt, so the standing History-pane notice (`HistoryPane.quarantineNotice`)
+    /// is the only surface a held record needs. `.returned`/`.supersededBySync`
+    /// share one sentence, orphan counts summed across every record the sweep
+    /// touched, via the SAME copy `HistoryPane`'s explicit Retry button uses
+    /// (`recoveredHistoryNotice(orphanCount:)`) — one sentence, one place it's
+    /// worded.
+    ///
+    /// Static + pure so a unit test can pin the mapping without mounting a
+    /// window — the `needsReload`/`recoveryActionIsCurrent` precedent above.
+    static func autoReturnNotice(outcomes: [ReturnOutcome]) -> String? {
+        var orphanCount = 0
+        var anyReturned = false
+        for outcome in outcomes {
+            switch outcome {
+            case .returned(let report), .supersededBySync(let report):
+                anyReturned = true
+                orphanCount += report.orphans.count
+            case .stillUnreadable, .corrupt:
+                break
+            }
+        }
+        guard anyReturned else { return nil }
+        return HistoryPane.recoveredHistoryNotice(orphanCount: orphanCount)
+    }
+
     private func loadDocumentIfNeeded() async {
         guard let item = currentItem,
               item.type == .document,
@@ -945,6 +973,52 @@ struct EditorHost: View {
             // can exist — a load-time post from a windowless context was
             // dropped by the liveness guard and then destroyed on close.
             deliverPendingRecoveryNoticeIfPossible()
+            // Plan B (spec §5's return path), Task 6: a document that just
+            // bound normally tries its own held quarantine records without
+            // being asked. Guarded on `!doc.isReadOnlyRecovery` — a recovery
+            // bind is read-only by definition (spec §4) and must never touch
+            // quarantine bookkeeping.
+            if !doc.isReadOnlyRecovery {
+                let autoReturnDocId = doc.docId
+                let autoReturnProjectURL = store.url
+                // `docId`/`projectURL` are captured as VALUES here, not
+                // `doc`/`store` themselves: if the writer switches documents
+                // mid-return the attempt still completes harmlessly — it is
+                // scoped to the filesystem, not to this view's live binding —
+                // and the notice it may post is project-scoped rather than
+                // doc-scoped, so nothing here needs a
+                // `recoveryActionIsCurrent`-style staleness guard.
+                Task {
+                    let held = OpLogQuarantine.records(
+                        forDocId: autoReturnDocId, in: autoReturnProjectURL
+                    ).filter { $0.status == .held }
+                    guard !held.isEmpty else { return }
+                    var outcomes: [ReturnOutcome] = []
+                    for record in held {
+                        // `presenter: nil` is deliberate, not an omission:
+                        // handing this call the VIEW's own presenter would
+                        // exclude the project's `ProjectFolderPresenter` from
+                        // the coordinated move, and it is THAT presenter's
+                        // `presentedItemDidChange` (`handleExternalLogChange`,
+                        // ADR 0012) that lets the still-open Document notice
+                        // the returned ops land and merge them in. `nil`
+                        // keeps the project's presenter eligible.
+                        outcomes.append(await OpLogQuarantine.attemptReturn(
+                            record: record, in: autoReturnProjectURL,
+                            presenter: nil))
+                    }
+                    // Known interaction (carried from Task 4/5's review):
+                    // `quarantineAndContinue` ends in `retryFullLoad`, so this
+                    // very hook fires again on the fresh bind and immediately
+                    // re-probes the file just set aside. For a persistent
+                    // cause that lands a harmless `.stillUnreadable` (silent,
+                    // below); for a cause that healed in the gap it is a
+                    // fast, welcome return. Accepted — no debounce.
+                    if let notice = Self.autoReturnNotice(outcomes: outcomes) {
+                        MaughamEvent.postNotice(notice, projectURL: autoReturnProjectURL)
+                    }
+                }
+            }
             // Metrics for the freshly-loaded doc are delivered by the new
             // EditorSurface's coordinator `attach` (immediate, non-debounced) —
             // no EditorHost-side mirror call.
