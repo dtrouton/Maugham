@@ -316,9 +316,13 @@ struct EditorHost: View {
             }
             document = nil
             recoveryBannerModel = nil
-            // The pane's own `.onDisappear` stops its watch; dropping the
-            // model here is what keeps a returning host from re-showing a
-            // refusal it has not re-derived.
+            // Stopped here as well as in the pane's own `.onDisappear`:
+            // nested `.onDisappear` ordering is unreliable on window close,
+            // and a poller that outlives its host holds an action that would
+            // reload a document nobody is looking at. Dropping the model then
+            // keeps a returning host from re-showing a refusal it has not
+            // re-derived.
+            recoveryPaneModel?.stopWatching()
             recoveryPaneModel = nil
             loadedItemId = nil
             priorLoadedPath = nil
@@ -444,6 +448,12 @@ struct EditorHost: View {
             loadedItemId = item.id
             priorLoadedPath = path
             loadError = nil
+            // Symmetry with every other teardown: stop the watch before
+            // dropping the model. The pane is about to leave the screen, but
+            // its `.onDisappear` cannot run until a render pass this bind
+            // precedes, and a poller left running would auto-open editable
+            // over the read-only view the writer just asked for.
+            recoveryPaneModel?.stopWatching()
             recoveryPaneModel = nil
             recoveryBannerModel = RecoveryBannerModel(
                 unreadableFiles: doc.readOnlyRecovery?.unreadableFiles ?? [],
@@ -796,7 +806,10 @@ struct EditorHost: View {
             priorLoadedPath = path
             loadError = nil
             // A document that opened has no refusal to show: the ladder goes
-            // away with the failure that raised it.
+            // away with the failure that raised it. This is the belt — the
+            // stop-and-drop before the load's first suspension (defence 1)
+            // has already cleared it, and this ALSO clears whatever a
+            // re-entrant refusal minted while we were in file I/O.
             recoveryPaneModel = nil
             // Recovery spec §4: mint the banner only for a doc that came back
             // read-only. `Document.load`'s ordinary path leaves

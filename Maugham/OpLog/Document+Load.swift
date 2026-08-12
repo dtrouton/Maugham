@@ -120,7 +120,10 @@ extension Document {
     ///     a partial view's render is missing whatever the unreadable files
     ///     held, so it would file the writer's intact `.md` as "diverged"
     ///     against an incomplete history.
-    ///   - **No autosave scheduler**, so no debounced write can exist to fire.
+    ///   - **No autosave**: the scheduler exists (the property is implicitly
+    ///     unwrapped, and a nil one turns a stray future `schedule(())` into a
+    ///     crash) but its fire closure is empty, so no debounced write can
+    ///     reach this document.
     ///   - **No `unrecoveredPendingFailure` stamp**: that notice is delivered
     ///     once, by the real open, whose pending fold is what actually consumed
     ///     (or failed to consume) the file.
@@ -168,6 +171,15 @@ extension Document {
             burstScheduler: burst,
             paragraphs: initial.paragraphs, sequence: initial.sequence,
             lastDiskEcho: .initialLoad(bytes: ""))
+        // And the autosave scheduler is given a fire closure that does
+        // NOTHING rather than left nil: the property is implicitly unwrapped,
+        // so an unguarded future path that schedules an autosave on a recovery
+        // doc must no-op, not crash — `Document+Tasks.swift`'s
+        // `autosaveScheduler.schedule(())` is the live near-miss, one guard
+        // away from being reached here. Belt on braces, like the burst
+        // scheduler above: nothing may write from a partial view, and the
+        // failure mode of the belt breaking must not be a crash on the writer.
+        doc.autosaveScheduler = DebounceScheduler<Void>(delay: .milliseconds(750)) { _ in }
         doc.recomputeDisplayText()
         doc._opLogMirror = partial.ops
         doc._annotationsCacheValid = false
