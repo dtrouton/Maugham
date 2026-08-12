@@ -363,7 +363,8 @@ final class TreeTravelRowMountingTests: XCTestCase {
     /// `BinderSubject.project` would be unconstructible there, exactly the
     /// gap `SceneNavigatorPane.swift`'s own doc comment records. It tags
     /// `.project` like the other two, and neither it nor `scriptRow` beside
-    /// it carries `.draggable`.
+    /// it carries `.draggable` — both now carry the travel gesture, neither
+    /// a drag source.
     func test_theSceneNavigatorProjectRowStillMountsNoDragMachinery() async throws {
         let store = try await screenplay(named: "SceneNavProjectRowControl")
         let (_, _, table) = try await hostSceneNavigator(store: store)
@@ -372,6 +373,22 @@ final class TreeTravelRowMountingTests: XCTestCase {
                        "the Scenes navigator's project row has never been a "
                        + "drag source — confirms the travel gesture did not "
                        + "add one")
+    }
+
+    /// **The screenplay's own document row.** Structurally a structure row
+    /// in every way that matters (it tags `.item(documentID)`, exactly what
+    /// `BinderRow` tags for a chapter) — `scriptRow`'s own doc comment is
+    /// clear that it names the *kind* of thing rather than being a special
+    /// case, and the travel rule treats it the same way. `hostSceneNavigator`
+    /// always passes a `documentID`, so this row is always row 1, right below
+    /// the project row (`SceneNavigatorProjectRowTests`' own row layout).
+    func test_theScriptRowStillMountsNoDragMachinery() async throws {
+        let store = try await screenplay(named: "ScriptRowControl")
+        let (_, _, table) = try await hostSceneNavigator(store: store)
+
+        XCTAssertFalse(hasDraggingDestination(row: 1, in: table),
+                       "the script row has never been a drag source — "
+                       + "confirms the travel gesture did not add one")
     }
 
     // MARK: - Fixtures
@@ -574,10 +591,22 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
         lines.firstIndex(where: { $0.contains(needle) })
     }
 
+    /// The gesture line belonging to THIS `widenLine` — the nearest
+    /// `.treeTravelOnDoubleClick(` occurrence at or before it, never the
+    /// file's first — so a file carrying more than one row (`SceneNavigatorPane
+    /// .swift`'s project row AND its own script row, both gesture-bearing)
+    /// pairs each widening call with the gesture actually above IT, rather
+    /// than one row's gesture silently vouching for a different row's widen
+    /// call by virtue of coming first in the file.
+    private func nearestGestureLine(before widenLine: Int, in lines: [Substring]) -> Int? {
+        lines[0..<widenLine].lastIndex(where: { $0.contains(".treeTravelOnDoubleClick(") })
+    }
+
     /// One row kind per case: the file, and the call that widens the row
     /// AFTER the gesture must already be attached — `.draggable(` for every
-    /// row that drags, `.tag(BinderSubject.project)` for the one that
-    /// doesn't drag at all.
+    /// row that drags, a row-specific `.tag(...)` for the rows that don't
+    /// drag at all. `widensAt` must be unique in its file (verified as each
+    /// entry was added) so it always anchors the SAME row's own widen call.
     func test_theGestureAttachesBeforeTheRowWidens() throws {
         struct Expectation {
             let file: String
@@ -597,17 +626,26 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
                        widensAt: ".tag(BinderSubject.project)"),
             Expectation(file: "Maugham/Views/SceneNavigatorPane.swift",
                        widensAt: ".tag(BinderSubject.project)"),
+            // `SceneNavigatorPane`'s SECOND gesture-bearing row: the script
+            // row, tagging the screenplay's one document — the last row the
+            // set closes with (structure rows, project rows, research/palette
+            // rows, and this one; scene rows excluded because they already
+            // navigate through `ManuscriptNavigation` on a single click).
+            Expectation(file: "Maugham/Views/SceneNavigatorPane.swift",
+                       widensAt: ".tag(BinderSubject.item(documentID))"),
         ]
         for expectation in expectations {
             let text = try source(expectation.file)
             let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-            let gestureLine = try XCTUnwrap(
-                lineIndex(of: ".treeTravelOnDoubleClick(", in: lines),
-                "\(expectation.file): the travel gesture is missing outright")
             let widenLine = try XCTUnwrap(
                 lineIndex(of: expectation.widensAt, in: lines),
                 "\(expectation.file): the row-widening call itself is missing "
                 + "— fixture assumption is stale")
+            let gestureLine = try XCTUnwrap(
+                nearestGestureLine(before: widenLine, in: lines),
+                "\(expectation.file): no .treeTravelOnDoubleClick( precedes "
+                + "\(expectation.widensAt) at all — the travel gesture is "
+                + "missing outright for this row")
             XCTAssertLessThan(gestureLine, widenLine,
                               "\(expectation.file): .treeTravelOnDoubleClick must "
                               + "come BEFORE \(expectation.widensAt) — attached "

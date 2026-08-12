@@ -38,6 +38,23 @@ import AppKit
 /// travel rule by routing it through a navigation meant for a different
 /// premise would leave Review's own guard (never eject a reviewer mid-
 /// adjudication) silently deciding a case it was never asked about.
+///
+/// **The set this closes.** "Any tree row" means every row that tags a
+/// `BinderSubject` in any of the three trees — `TreeTravelGestureAttachmentTests
+/// .test_theGestureAttachesBeforeTheRowWidens`'s own `expectations` array is
+/// the count, never a number here, but the KINDS are: a structure row
+/// (`BinderRow`/`PieceRow`, a chapter or a loose piece), a project row
+/// (`BinderView`/`CollectionPiecesPane`/`SceneNavigatorPane` each carry their
+/// own, since only one of the three is ever mounted for a given project type),
+/// a research or palette row (`ResearchRow`, the palette card `Label` in
+/// `BinderTreeSections.swift`), and the screenplay's own script row
+/// (`SceneNavigatorPane.scriptRow` — structurally a structure row in every way
+/// that matters, just named for what a screenplay's one document always is).
+/// Excluded on purpose: a slugline in `SceneNavigatorPane` needs nothing,
+/// because it already navigates Plan → Author on a single click through
+/// `ManuscriptNavigation` (`ManuscriptNavigationTests
+/// .test_onlyPlanIsMovedToAuthorAndTheOthersStayWhereTheyAre`) — giving it
+/// this gesture too would double the trip.
 enum TreeTravel {
 
     /// Where a double-click on a tree row takes the window, or `nil` when it

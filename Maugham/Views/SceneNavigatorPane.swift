@@ -158,6 +158,11 @@ struct SceneNavigatorPane: View {
                     .foregroundStyle(.secondary)
                 Text("Script")
                     .lineLimit(1)
+                    // The LABEL LEAF, before `.contentShape`/`.tag`
+                    // (tripwire 9) — see TreeTravel.swift. This row carries
+                    // no `.draggable` either, so there is no drag-interior
+                    // claim to make.
+                    .treeTravelOnDoubleClick(.item(documentID))
                 Spacer()
             }
             .contentShape(Rectangle())
