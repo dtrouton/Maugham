@@ -54,7 +54,7 @@
   "outcome": "COMPLIES",
   "ruling": "RULING-54",
   "clause_that_reaches_it": "lenient reads are opt-in with a recorded reason",
-  "why_in_scope": "every fringe site carries its reason in place, each is mutation-free from the shortened view, and each converges on the loud refusal at document open. The QUEUED residuals (seal tail, pending buffer, backup signature) are restated in START-HERE — checkpoints closed 2026-08-12 (M9-OL-007/008)",
+  "why_in_scope": "every fringe site carries its reason in place, each is mutation-free from the shortened view, and each converges on the loud refusal at document open. The queue is empty as of 2026-08-12 — checkpoints (M9-OL-007/008), then the residual family (M9-OL-009..012)",
   "intent_expressed_when": "contemporaneous",
   "call_path": "the fringe readers",
   "violation_or_enhancement": "neither — the recorded-reason half of the ruling"
@@ -80,12 +80,52 @@
   "violation_or_enhancement": "neither — born with the fix"
  },
  {
+  "claim_id": "M9-OL-009",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "a reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
+  "why_in_scope": "the publications catalog is a durable store whose consumers WRITE on the strength of what they read — the refusal shape (not checkpoints' notice) follows from that: partial truth here arms an overwrite of a shipped edition, which is the writer's published words at stake. The pre-flight refusal composes with RULING-52's family: it fails BEFORE the first durable mutation, so there is nothing partial to report",
+  "intent_expressed_when": "contemporaneous — M9-OL-006's queue entry",
+  "call_path": "CompileOrchestrator.compile pre-flight; Republisher.republish; PublishStarter.reconcileNextVersion; the two MCP publication tools",
+  "violation_or_enhancement": "neither — born with the fix"
+ },
+ {
+  "claim_id": "M9-OL-010",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "a reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
+  "why_in_scope": "the pending file is the durable store holding the writer's most recent un-bursted keystrokes — the one store whose silent-empty case DESTROYS data on a timer, because the next autosave overwrites the only copy. Quarantine-then-notice (not refusal) because the manuscript's saved words are intact; constitution must #1 reaches the unsaved tail through the quarantine record",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "Document.load's crash-recovery fold",
+  "violation_or_enhancement": "neither — born with the fix"
+ },
+ {
+  "claim_id": "M9-OL-011",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "a reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
+  "why_in_scope": "the signature is a READER of the whole project tree whose answer gates whether a backup happens at all; presenting an unreadable file as absent let the gate decide from a state that never existed. The marker line is the surface appropriate to a hash: distinct, deterministic, and it can only ever cause an EXTRA backup attempt, whose per-file failure the write path reports",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "BackupRunner.run's change detection",
+  "violation_or_enhancement": "neither — born with the fix"
+ },
+ {
+  "claim_id": "M9-OL-012",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "lenient reads are opt-in with a recorded reason",
+  "why_in_scope": "the seal is maintenance over a file whose truth-affecting reads are strict elsewhere: the skip is self-healing (retried every autosave/close), conservative (ops stay where they are), and backstopped by M9-OL-001's refusal at the next load — the reason is recorded at the site in the family's grep-discoverable form",
+  "intent_expressed_when": "contemporaneous",
+  "call_path": "Document autosave/close's seal step",
+  "violation_or_enhancement": "neither — the recorded-reason half of the ruling"
+ },
+ {
   "_summary": {
-   "reached": 8,
-   "complies": 8,
+   "reached": 12,
+   "complies": 12,
    "violates": 0,
    "no_ruling": 0,
-   "total": 8,
+   "total": 12,
    "coverage": "100%",
    "by_ruling": {
     "RULING-52": [
@@ -95,7 +135,11 @@
      "M9-OL-001",
      "M9-OL-003",
      "M9-OL-006",
-     "M9-OL-007"
+     "M9-OL-007",
+     "M9-OL-009",
+     "M9-OL-010",
+     "M9-OL-011",
+     "M9-OL-012"
     ],
     "RULING-7": [
      "M9-OL-002",
