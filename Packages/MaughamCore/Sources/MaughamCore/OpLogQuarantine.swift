@@ -42,7 +42,11 @@ public enum QuarantineError: Error, Equatable {
 /// read is exactly the file this verb must not risk reading.
 @MainActor
 public enum OpLogQuarantine {
-    private static let directoryName = ".maugham/conflicts/quarantined-ops"
+    // `nonisolated`: a plain string literal, referenced from both the
+    // MainActor-isolated write path and the nonisolated read helpers below —
+    // matches `OpLogStore.segmentSealThreshold`'s reasoning for the same
+    // annotation on a stateless `static let` inside a `@MainActor` type.
+    nonisolated private static let directoryName = ".maugham/conflicts/quarantined-ops"
 
     /// Moves `fileURL` byte-identically into
     /// `.maugham/conflicts/quarantined-ops/` and writes a `QuarantineRecord`
@@ -111,7 +115,11 @@ public enum OpLogQuarantine {
     /// `*.quarantine.json` sidecar in the quarantine directory; unreadable or
     /// undecodable sidecars are skipped rather than thrown (best-effort
     /// forensics, matching `IntegrityQuarantine`'s stance).
-    public static func records(forDocId docId: String, in projectURL: URL) -> [QuarantineRecord] {
+    ///
+    /// `nonisolated`: a pure filesystem read touching no MainActor state —
+    /// same reasoning as `defaultStubProbe`. Unlike `quarantine`, this has no
+    /// write to serialize, so there's no reason to force it onto MainActor.
+    public nonisolated static func records(forDocId docId: String, in projectURL: URL) -> [QuarantineRecord] {
         sidecars(in: projectURL)
             .compactMap { $0.record }
             .filter { $0.docId == docId }
@@ -122,8 +130,15 @@ public enum OpLogQuarantine {
     /// (`docId`, `originalName`, `quarantinedAt`) rather than full equality,
     /// so a caller holding a stale snapshot (e.g. `status` since flipped by a
     /// later return/supersede) still resolves — the triple is this event's
-    /// key, `status` is mutable state on top of it.
-    public static func quarantinedFileURL(for record: QuarantineRecord, in projectURL: URL) -> URL {
+    /// key, `status` is mutable state on top of it. Accepted, documented
+    /// assumption: two records whose `(docId, originalName, quarantinedAt)`
+    /// agree to the bit (vanishingly unlikely — `Date` carries sub-millisecond
+    /// precision — but not impossible) resolve to whichever sidecar the
+    /// directory listing returns first.
+    ///
+    /// `nonisolated`: a pure filesystem read touching no MainActor state —
+    /// same reasoning as `defaultStubProbe`.
+    public nonisolated static func quarantinedFileURL(for record: QuarantineRecord, in projectURL: URL) -> URL {
         let dir = projectURL.appendingPathComponent(directoryName, isDirectory: true)
         for entry in sidecars(in: projectURL) {
             guard let found = entry.record,
@@ -142,7 +157,10 @@ public enum OpLogQuarantine {
 
     // MARK: - Private
 
-    private static func sidecars(in projectURL: URL) -> [(url: URL, record: QuarantineRecord?)] {
+    // `nonisolated`: shared by the two nonisolated read helpers above; a
+    // nonisolated caller can't synchronously call back into a MainActor-
+    // isolated function, so this has to be nonisolated too.
+    nonisolated private static func sidecars(in projectURL: URL) -> [(url: URL, record: QuarantineRecord?)] {
         let dir = projectURL.appendingPathComponent(directoryName, isDirectory: true)
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil) else { return [] }
@@ -177,7 +195,13 @@ public enum OpLogQuarantine {
     /// as quarantinable degrades to an honest quarantine of a file that will
     /// re-download fine; the reverse (refusing to quarantine a genuinely
     /// broken file because it looked like a stub) is worse.
-    public static func defaultStubProbe(_ url: URL) -> Bool {
+    ///
+    /// `nonisolated`: used as the default value for a plain `(URL) -> Bool`
+    /// parameter on `quarantine` — a MainActor-isolated default is a Swift 6
+    /// error there. Precedent: `RecoveryPaneModel.defaultBlockageClearedProbe`
+    /// in `Maugham/Views/DocumentRecoveryPane.swift`, `nonisolated` on the
+    /// same shape of problem.
+    public nonisolated static func defaultStubProbe(_ url: URL) -> Bool {
         guard let values = try? url.resourceValues(forKeys:
             [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]),
               values.isUbiquitousItem == true else { return false }
