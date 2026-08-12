@@ -44,6 +44,9 @@ struct EditorSurfaceConfiguration {
         /// The consumer (ProjectWindow) does zero parsing — the page count comes
         /// from the keystroke's own parse. Omit at call sites without metrics.
         var onMetricsChanged: ((EditorMetrics) -> Void)? = nil
+        /// Recovery spec §4: fired when the reader tries to type into a
+        /// `readOnlyRecovery` surface — the host's cue to offer the next rung.
+        var onTypingRefused: (() -> Void)? = nil
     }
 
     /// Resolvers that map paragraphs / locations / links for click routing,
@@ -126,6 +129,10 @@ struct EditorSurfaceConfiguration {
     /// for research notes). Required — all production call sites must pass a
     /// real, populated model.
     var control: EditorControl
+    /// Recovery spec §4: when true, `makeNSView` sets the text view non-editable
+    /// and wires its refusal signal to `callbacks.onTypingRefused`. Default false
+    /// keeps every existing call site an editable surface unchanged.
+    var readOnlyRecovery: Bool = false
     var callbacks: EditingCallbacks = .init()
     var paragraphProviders: ParagraphProviders = .init()
     var reviewProviders: ReviewProviders = .init()
@@ -241,7 +248,8 @@ struct EditorSurface: NSViewRepresentable {
         textView.columnWidth = columnWidth
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
-        textView.isEditable = true
+        textView.isEditable = !configuration.readOnlyRecovery
+        textView.onTypingRefusedWhileReadOnly = configuration.callbacks.onTypingRefused
         textView.isRichText = false
         textView.allowsUndo = true
         textView.usesFindBar = true
@@ -495,6 +503,44 @@ final class MaughamTextView: NSTextView {
     override var acceptsFirstResponder: Bool { true }
     override func becomeFirstResponder() -> Bool {
         super.becomeFirstResponder()
+    }
+
+    /// Recovery spec §4: typing in a read-only recovery view is refused AND
+    /// answered — the host surfaces the next rung's offer. Fired only when
+    /// `isEditable == false` and only for an event that would have INSERTED
+    /// text (`isTextInsertionEvent`); nil (the default) restores plain AppKit
+    /// refusal.
+    var onTypingRefusedWhileReadOnly: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if !isEditable, let onTypingRefusedWhileReadOnly,
+           Self.isTextInsertionEvent(event) {
+            onTypingRefusedWhileReadOnly()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    /// Would this event have put a character in the text, had the view been
+    /// editable? Only those are refused-and-signalled; **everything else must
+    /// reach `super`**, because a reading view is for reading: arrows, page,
+    /// home/end, escape and ⌘-chords all navigate, and swallowing them leaves
+    /// the writer looking at a document they cannot scroll while the banner
+    /// flares at them for pressing ↓.
+    ///
+    /// The discriminator is the code point AppKit delivers.
+    /// `charactersIgnoringModifiers` gives navigation and function keys a
+    /// scalar in the private-use block `NSUpArrowFunctionKey…` (0xF700–0xF8FF),
+    /// and escape/tab/return/delete arrive as C0 controls or DEL — none of
+    /// which is a character anyone meant to type.
+    static func isTextInsertionEvent(_ event: NSEvent) -> Bool {
+        // ⌘-anything is a command being sent, not a word being written.
+        if event.modifierFlags.contains(.command) { return false }
+        guard let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first
+        else { return false }
+        if (0xF700...0xF8FF).contains(scalar.value) { return false }
+        if scalar.value < 0x20 || scalar.value == 0x7F { return false }
+        return true
     }
 
     // MARK: - Insertion point height

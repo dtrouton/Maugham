@@ -36,7 +36,7 @@ final class CrashRecoveryTests: XCTestCase {
 
         // Simulate session 2: open fresh buffer, recover from disk, flush to op log.
         let buf2 = PendingBuffer(projectURL: tmp, docId: "d", device: device)
-        try await buf2.loadFromDisk()
+        await buf2.loadFromDisk()
         XCTAssertEqual(buf2.snapshot().count, 1)
 
         // Fold recovered pending into a fresh typing_burst op.

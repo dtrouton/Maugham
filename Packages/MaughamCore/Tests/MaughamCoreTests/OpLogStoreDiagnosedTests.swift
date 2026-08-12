@@ -149,4 +149,35 @@ final class OpLogStoreDiagnosedTests: XCTestCase {
         XCTAssertTrue(result.ops.isEmpty)
     }
 
+    // MARK: - the PARTIAL read (recovery spec §4): readable files load,
+    // unreadable ones are NAMED — never thrown, never silently dropped.
+
+    /// The read-only rung's substrate: one unreadable device file must not
+    /// cost the readable devices' ops, and must be named for the banner.
+    func test_loadDiagnosedPartial_unreadableFileIsNamed_readableOpsStillLoad() async throws {
+        let store = OpLogStore(projectURL: tmp)
+        try await store.append(makeOp(opId: "01AAAAAAAAAAAAAAAAAAAAAAAA"))
+        let bad = DeviceSlug.unsafeForTesting("bad")
+        let badURL = OpLogStore.opLogFileURL(forDocId: "doc-1", deviceSlug: bad, in: tmp)
+        try FileManager.default.createDirectory(at: badURL, withIntermediateDirectories: true)
+
+        let result = await store.loadDiagnosedPartial(docId: "doc-1")
+
+        XCTAssertEqual(result.ops.map(\.opId), ["01AAAAAAAAAAAAAAAAAAAAAAAA"],
+                       "the readable device's ops still load")
+        XCTAssertEqual(result.unreadableFiles.map(\.name), [badURL.lastPathComponent],
+                       "the unreadable file is named for the banner")
+        XCTAssertFalse(result.unreadableFiles[0].reason.isEmpty)
+    }
+
+    /// With every file readable, partial == diagnosed (same ops, no names).
+    func test_loadDiagnosedPartial_cleanFiles_matchesLoadDiagnosed() async throws {
+        let store = OpLogStore(projectURL: tmp)
+        try await store.append(makeOp(opId: "01AAAAAAAAAAAAAAAAAAAAAAAA"))
+        let partial = await store.loadDiagnosedPartial(docId: "doc-1")
+        let strict = try await store.loadDiagnosed(docId: "doc-1")
+        XCTAssertEqual(partial.ops.map(\.opId), strict.ops.map(\.opId))
+        XCTAssertTrue(partial.unreadableFiles.isEmpty)
+    }
+
 }

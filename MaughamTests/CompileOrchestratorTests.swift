@@ -871,6 +871,34 @@ final class CompileOrchestratorTests: XCTestCase {
             "a refusal must not write output")
     }
 
+    /// The other thing a refusal must not touch: the publish tree itself.
+    /// The F5 EMISSION.md refresh used to run on the way TO the gate, so a
+    /// compile that was about to be refused still rewrote the file — and its
+    /// atomic-write temp could land inside the winner's snapshot enumeration
+    /// (CI run 31584930789: the winner died reading the loser's vanishing
+    /// `EMISSION.md.sb-*`). A refused compile leaves EMISSION.md alone.
+    func testP2_aRefusedCompileDoesNotRewriteEmissionMd() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Held", author: "T")))
+        let gate = PublishMintGate()
+        let reserved = await gate.reserve(
+            PublishMintGate.Key(version: "0.1", language: nil, format: .epub))
+        XCTAssertTrue(reserved)
+
+        let emission = tmp.appendingPathComponent(".maugham/publish/EMISSION.md")
+        try "sentinel — refused compiles may not rewrite this".write(
+            to: emission, atomically: true, encoding: .utf8)
+
+        let result = try await makeOrch(configStore, PublicationStore(projectURL: tmp), gate)
+            .compile(format: .epub, label: nil)
+        guard case .failed = result else {
+            return XCTFail("expected .failed while the triple is in flight, got \(result)")
+        }
+        XCTAssertEqual(try String(contentsOf: emission),
+                       "sentinel — refused compiles may not rewrite this",
+                       "a refusal must not touch the publish tree")
+    }
+
     /// A compile whose reserved section throws must hand its reservation
     /// back — otherwise one transient disk error wedges that edition for the
     /// life of the app. A plain file where `Exports/` belongs makes the EPUB
@@ -1049,8 +1077,10 @@ final class CompileOrchestratorTests: XCTestCase {
     /// RULING-52 + RULING-7 (fix for M7-PB-005/006/007): a failure AFTER the
     /// first durable mutation says what it did as well as what failed, and the
     /// job record is terminal — never stranded in_progress. Injected at the
-    /// sharpest site: the catalog append throws (a directory squats on the
-    /// device catalog path) after the export and the snapshot have landed.
+    /// sharpest site: a valid but READ-ONLY catalog file, so the strict load
+    /// (RULING-54) reads it fine and the APPEND throws after the export and
+    /// the snapshot have landed. (A directory squatting on the path — the old
+    /// injection — now refuses pre-flight instead; pinned below.)
     func test_aFailureAfterMutationNamesWhatLandedAndTerminalisesTheJob() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
         try await configStore.save(PublishConfig(metadata: .init(title: "Led", author: "T")))
@@ -1067,10 +1097,17 @@ final class CompileOrchestratorTests: XCTestCase {
             snapshotStore: PublicationSnapshotStore(projectURL: tmp),
             jobManager: jobs,
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        // Injection: a valid but READ-ONLY catalog file — the strict load
+        // (RULING-54) reads it fine, and the append throws AFTER the export
+        // and snapshot have landed. (A directory squatting on this path now
+        // refuses pre-flight instead — pinned below.)
         let catalogURL = PublicationStore.fileURL(
             deviceSlug: DeviceSlug.make(from: MacDeviceID.current), in: tmp)
         try FileManager.default.createDirectory(
-            at: catalogURL, withIntermediateDirectories: true)
+            at: catalogURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: catalogURL)  // an empty catalog loads as []
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o444], ofItemAtPath: catalogURL.path)
 
         let outcome = try await orch.compile(format: .epub, label: nil)
         guard case .failed(let errors, _) = outcome else {
@@ -1087,6 +1124,48 @@ final class CompileOrchestratorTests: XCTestCase {
                       "and says the remaining steps did not happen — found: \(context)")
         let inFlight = await jobs.allInProgress()
         XCTAssertTrue(inFlight.isEmpty, "the job is terminal, not stranded")
+    }
+
+    /// RULING-54 (M9-OL-009): an UNREADABLE-yet-present catalog file refuses
+    /// the compile at the pre-flight load — BEFORE any mutation — because a
+    /// silently shorter catalog is what the occupied-destination refusal and
+    /// the version mint read. Nothing lands: no export, no snapshot, and the
+    /// job is terminal with the error naming the file.
+    func test_anUnreadableCatalogRefusesBeforeAnythingLands() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Led", author: "T")))
+        let jobs = CompileJobManager()
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hi.")]
+            }
+        }
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: PublicationStore(projectURL: tmp),
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: jobs,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        // A directory squatting on the catalog path: unreadable-yet-present.
+        let catalogURL = PublicationStore.fileURL(
+            deviceSlug: DeviceSlug.make(from: MacDeviceID.current), in: tmp)
+        try FileManager.default.createDirectory(
+            at: catalogURL, withIntermediateDirectories: true)
+
+        let outcome = try await orch.compile(format: .epub, label: nil)
+
+        guard case .failed(let errors, _) = outcome else {
+            return XCTFail("expected .failed, got \(outcome)")
+        }
+        let text = errors.map(\.message).joined(separator: "\n")
+        XCTAssertTrue(text.contains(catalogURL.lastPathComponent) || text.contains("publications catalog"),
+                      "the refusal names the catalog — found: \(text)")
+        let exports = (try? FileManager.default.contentsOfDirectory(
+            atPath: tmp.appendingPathComponent("Exports").path)) ?? []
+        XCTAssertTrue(exports.isEmpty, "nothing landed — the refusal came before any mutation")
+        let inFlight = await jobs.allInProgress()
+        XCTAssertTrue(inFlight.isEmpty, "the job is terminal")
     }
 
 }

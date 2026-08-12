@@ -469,7 +469,9 @@ struct CanvasView: View {
                 }
             }
 
-            // §4's third row: a document with nothing bound (`CanvasBindingOffer`).
+            // §4's third row: a document with nothing bound — or, since stage 3b,
+            // a research item whose card is not here (`CanvasBindingOffer`, whose
+            // one decision function chooses which of the two sentences to say).
             //
             // **Beneath the event view on purpose.** It needs no
             // `.allowsHitTesting(false)` there — the transparent
@@ -478,8 +480,8 @@ struct CanvasView: View {
             // two opt-outs above this line, so adding a third would say the
             // ground or the drawn layer had stopped opting out. It also keeps
             // the mounted editor frontmost with nothing between them.
-            if CanvasBindingOffer.isOffered(subject: subject, highlight: highlight) {
-                CanvasBindingOfferView()
+            if let offer = CanvasBindingOffer.message(subject: subject, highlight: highlight) {
+                CanvasBindingOfferView(message: offer)
             }
 
             CanvasEventView(
@@ -621,6 +623,28 @@ struct CanvasView: View {
         // one primitive over. Keyed on the FINGERPRINT and never on the map: a
         // dictionary comparison per body pass is what the key exists to avoid.
         .onChange(of: pieceTitles.fingerprint) { _, _ in rebuildHighlightAndTree() }
+        // A research subject ARRIVING brings its card into view (stage 3b, §4).
+        // Lighting a card the writer cannot see is a dimmed board and no answer,
+        // which is the state the standing chrome above exists for — and the card
+        // being on the canvas is exactly when that chrome is silent.
+        //
+        // **A SEPARATE observer, and not a fourth line inside
+        // `rebuildHighlightAndTree()`.** That function answers *what is lit*; this
+        // moves the writer's viewport. Folding a camera write into it would put
+        // one on `sceneRevision` and on every rename fingerprint as well — so a
+        // save, a bind from the other column or a manifest edit would yank the
+        // camera back mid-arrangement. `CanvasHighlightTests`' caller census
+        // still reads 4 for that reason.
+        //
+        // **No `initial:`, deliberately** — a restored subject is not an arrival.
+        // A window reopened onto a research item dims exactly as it dims onto a
+        // chapter, and the camera stays where the writer left it
+        // (`ResearchRevealModifier`'s own rule, one column over).
+        //
+        // Tripwire 30: keyed on the SUBJECT, which moves on a click, and never on
+        // `revision` or `sceneRevision` — off either, dragging the card would
+        // re-centre it under the writer's own hand, once per frame.
+        .onChange(of: subject) { _, arrived in bringArrivingResearchCardIntoView(arrived) }
         // The manifest moved under a canvas that did not: the writer renamed the
         // research note a card points at, or deleted it. Nothing on the canvas
         // changed, so no structural counter budged — and the card would show the
@@ -897,6 +921,35 @@ struct CanvasView: View {
         if let parked = model.takePendingReveal() {
             model.onRevealRequested?(parked)
         }
+    }
+
+    /// The writer clicked a research row, so the card that answers to it comes
+    /// into view (stage 3b, spec §4).
+    ///
+    /// **The same path a drop-reveal drives** — `camera.bring(_:toViewPoint:)` at
+    /// `CanvasCamera.revealViewPoint`, zoom untouched. Nothing here is new
+    /// geometry: the join to the board is `CanvasNodeID.item(id)`, derived and
+    /// O(1), and this is the third caller of the one reveal spelling
+    /// (`onRevealRequested` and `handleDrop`'s `.reveal` arm are the others).
+    ///
+    /// **Nothing is selected.** A drop selects because a drop is a placement the
+    /// writer just made and the inspector should show it; this is a click in the
+    /// tree, which is the window's subject-picker — the dim is what says *this
+    /// one*, and writing the canvas's own selection from here would be a second
+    /// answer to what the window is about.
+    ///
+    /// **The camera moves even when the card is already on screen**, which is
+    /// `handleDrop`'s cost for `handleDrop`'s reason: this view has no
+    /// `GeometryReader` (the viewport exists only inside the `Canvas` closure), so
+    /// *"is it visible already"* is not a question it can ask.
+    ///
+    /// No `revision` bump: `camera` is `@State` this view reads in `body`, so a
+    /// write to it redraws by itself. The scene did not move, so no structural
+    /// bump either.
+    private func bringArrivingResearchCardIntoView(_ arrived: CanvasSubject) {
+        guard case .research(let id) = arrived,
+              let node = model.scene.node(.item(id)) else { return }
+        camera.bring(node.origin, toViewPoint: CanvasCamera.revealViewPoint)
     }
 
     /// Re-derive §4's lit set **and the accessibility tree that speaks it**, from

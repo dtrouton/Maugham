@@ -57,11 +57,11 @@ why. **Read `register/RULINGS.md` and nothing else.**
 | `Canvas/Promotion*` (the falsification module) | 78 | 67% | 52 / 0 | `29-promotion-falsification.md` |
 | `Publish/Republisher` (+`CompileOrchestrator`) | 11 | 91% | 10 / 0 | — |
 | `Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings) | 12 | 75% | 9 / 0 | — |
-| `OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice) | 6 | 100% | 6 / 0 | — |
+| `OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice) | 14 | 100% | 14 / 0 | — |
 
-The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 263 further claims in their own files. **432 claims in the experiment, 411 reconciled.** The app layer stands at **160 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
+The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 271 further claims in their own files. **440 claims in the experiment, 419 reconciled.** The app layer stands at **168 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
-App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`).
+App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`). Exception: the OpLog row's pins live where their subjects do — `MaughamTests/OpLog/` and the MaughamCore package tests (`core-tests`/`behavioural-claims`) — not under `Claims/`.
 
 <!-- END GENERATED STATE -->
 
@@ -178,11 +178,24 @@ pending" this section once carried is closed; the filings hold the details:
    autosave → superseded paragraphs → and, for the directory case, a
    re-bootstrapped parallel history — is closed at its first link); the
    closed-doc and compile reads are strict too, and the app-fringe readers are
-   lenient with recorded reasons. STILL QUEUED, in order: **checkpoints**
-   (CheckpointStore.load — an unreadable device file silently thins
-   History/Rewind), the seal tail's silent skip, PendingBuffer's silent
-   crash-recovery skip, BackupSignature's dropped file, and the
-   publications/tasks lenient loads.
+   lenient with recorded reasons. **The RULING-54 queue is EMPTY as of
+   2026-08-12.** Checkpoints closed first (M9-OL-007/008, fix `da4ecc0e`):
+   CheckpointStore.load names unreadable device files beside the rows that
+   read — a notice in the History pane, a finding in ProjectIntegrity, and
+   deliberately NOT a backup blocker (`blocksBackup` is the manuscript-derived
+   four only — a non-manuscript index must never hold the writer's words
+   hostage). Then the residual family (M9-OL-009..012, fix `9772aea2`):
+   publications REFUSE (write-adjacent consumers — a shorter catalog arms an
+   overwrite of a shipped edition), an unrecoverable pending file is
+   quarantined-then-noticed before the next autosave destroys the only copy,
+   BackupSignature hashes unreadable as a state of its own, and the seal's
+   skip carries its recorded reason. The recovery ladder's **Plan A** (branch
+   `claude/recovery-plan-a`) landed above that refusal floor — the pane
+   classifies the cause, waits out an iCloud dataless stub, offers a
+   read-only partial open that a census holds to zero writes and keeps
+   invisible to the MCP-resolving registry, and points at the existing
+   restore window (rungs 1, 2 and 4-lite; M9-OL-013/014) — with the
+   quarantine-and-continue rung and its return merge still queued for Plan B.
 3. **Small residuals**: RULING-30's presentation duty (verify-and-file); the two
    formal-methods findings (§8.2/§8.4); the audio-capture nuance.
 3. **The gap queue is EMPTY again as of 2026-08-09's P-gap sitting** — Promotion's five

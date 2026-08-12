@@ -44,9 +44,11 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     /// (`try? Data(contentsOf:)`), so every lenient consumer presents an
     /// unreadable file as an empty list — RULING-7's forbidden shape
     /// ("unreadable is never presented as empty"), fixed for the inbox at
-    /// M8-IN-012. `load()` keeps the lenient contract its existing consumers
-    /// (op log, checkpoints, publications, tasks) currently rely on; a
-    /// register residual records that they should each decide deliberately.
+    /// M8-IN-012. `load()` keeps the lenient contract its remaining consumers
+    /// (publications, tasks) currently rely on; a register residual records
+    /// that they should each decide deliberately. The op log went strict with
+    /// RULING-54's first slice (M9-OL-001) and checkpoints followed
+    /// (M9-OL-007: unreadable files are NAMED in `CheckpointLoad`).
     public func loadStrict() async throws -> [Element] {
         parseDiagnosed(bytes: try readBytesStrict()).elements
     }

@@ -69,6 +69,41 @@ public final class OpLogStore {
         return (Self.mergeSortedDedup(merged), ParseDiagnostics(skipped: skipped))
     }
 
+    /// The result of `loadDiagnosedPartial` — the recovery spec §4's read.
+    public struct PartialOpLogLoad {
+        public let ops: [Op]
+        public let diagnostics: ParseDiagnostics
+        /// Sorted by filename; reuses the checkpoint slice's pair type.
+        public let unreadableFiles: [CheckpointLoad.UnreadableFile]
+    }
+
+    /// RULING-54's DELIBERATE partial read, for the read-only recovery rung
+    /// ONLY (spec §4): every readable file loads, every unreadable-yet-present
+    /// file is NAMED in the result. This must never become a general-purpose
+    /// lenient read — `loadDiagnosed` stays the strict default, and the one
+    /// production caller is `Document.load(recovery: .readOnlyPartial)`,
+    /// whose Document can write nothing.
+    public func loadDiagnosedPartial(docId: String) async -> PartialOpLogLoad {
+        var all: [Op] = []
+        var skipped: [ParseDiagnostics.SkippedLine] = []
+        var unreadable: [CheckpointLoad.UnreadableFile] = []
+        for url in Self.opLogFileURLs(forDocId: docId, in: projectURL) {
+            do {
+                let result = try await Self.loadFileDiagnosed(url: url, presenter: presenter)
+                all.append(contentsOf: result.ops)
+                skipped.append(contentsOf: result.diagnostics.skipped)
+            } catch {
+                unreadable.append(.init(
+                    name: url.lastPathComponent,
+                    reason: error.localizedDescription))
+            }
+        }
+        return PartialOpLogLoad(
+            ops: Self.mergeSortedDedup(all),
+            diagnostics: ParseDiagnostics(skipped: skipped),
+            unreadableFiles: unreadable.sorted { $0.name < $1.name })
+    }
+
     /// Load + parse ONE op-log file — plain `.jsonl` tail or sealed `.mzseg`
     /// segment — into ops + diagnostics. The single per-file read shared by
     /// `loadDiagnosed(docId:)` and `ProjectIntegrity.check`, so opIds inside
@@ -264,6 +299,14 @@ public final class OpLogStore {
             tailBytes = try? Data(contentsOf: ru)  // adr-0018-ok: op-log segment tail bytes — the op log IS the source of truth (ADR 0018)
         }
         if let coordErr { throw coordErr }
+        // RULING-54 lenient, reason recorded: an unreadable tail SKIPS the
+        // seal rather than surfacing. Sealing is maintenance, not truth — the
+        // ops stay in the tail, the skip is retried on every autosave/close,
+        // and a tail that is genuinely unreadable meets the strict refusal at
+        // the next document load (M9-OL-001), so the state cannot persist
+        // silently across sessions. The torn-line skip below is likewise
+        // deliberate: the quarantine path owns torn tails, and a checksummed
+        // segment must never bake in unparseable bytes.
         guard let bytes = tailBytes, !bytes.isEmpty else { return nil }
         let parsed = JSONLAppendStore<Op>.parse(bytes: bytes)
         guard parsed.diagnostics.skipped.isEmpty else { return nil }

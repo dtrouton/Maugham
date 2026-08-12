@@ -167,13 +167,42 @@ final class SubjectRestoreTests: XCTestCase {
     /// where they meet, which is `ProjectWindow`'s body handing one to the
     /// other — so it is asserted across the seam rather than inside either side.
     func test_aFreshWindowLandsOnAnUNDIMMEDBoard() {
-        for saved in [BinderSubject?.none, .item("gone")] {
-            let restored = ProjectWindow.validSubject(saved, in: structure(), research: [])
+        for saved in [BinderSubject?.none, .item("gone"), .research("gone")] {
+            let restored = ProjectWindow.validSubject(saved, in: structure(),
+                                                      research: researchTree())
             XCTAssertFalse(
-                CanvasSubject.resolve(restored, in: structure()).dimsTheBoard,
+                CanvasSubject.resolve(restored, in: structure(),
+                                      research: researchTree()).dimsTheBoard,
                 "opening a project put the canvas into the dim with no click: "
                 + "saved \(String(describing: saved)) restored as \(restored)")
         }
+    }
+
+    /// **The other half of the same seam, and it moved in stage 3b** (design
+    /// call 3). A subject the restore keeps is a subject the writer chose — the
+    /// window merely remembered it — so a live research id restores into the dim
+    /// exactly as a live document id has since slice 3. "The dim is entered by a
+    /// click" distinguishes ids the tree cannot find; it never meant that a
+    /// relaunch undoes the writer's last selection.
+    ///
+    /// The pair is what makes it a rule rather than a coincidence: what
+    /// `validSubject` REPAIRS lands undimmed (above), and what it PRESERVES
+    /// dims.
+    func test_aRestoredResearchSubjectDimsTheBoardTheWayARestoredChapterDoes() {
+        for saved in [BinderSubject.research("r-1"), .research("pal-1"), .item("doc-1")] {
+            let restored = ProjectWindow.validSubject(saved, in: structure(),
+                                                      research: researchTree())
+            XCTAssertEqual(restored, saved, "fixture: this subject is a live one")
+            XCTAssertTrue(
+                CanvasSubject.resolve(restored, in: structure(),
+                                      research: researchTree()).dimsTheBoard,
+                "the writer's own selection came back undimmed: \(restored)")
+        }
+        XCTAssertFalse(
+            CanvasSubject.resolve(ProjectWindow.validSubject(.project, in: structure(),
+                                                             research: researchTree()),
+                                  in: structure(), research: researchTree()).dimsTheBoard,
+            "control: the project row is still the way out of the dim")
     }
 
     // MARK: - Through a real file

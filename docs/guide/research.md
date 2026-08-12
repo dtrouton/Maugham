@@ -2,14 +2,14 @@
 
 The binder tree's **Research** section is for everything that isn't manuscript: character sheets, location photos, PDFs, web links, voice notes.
 
-**It's in the tree, in every persona** — making research is a tree action wherever you're standing, not a trip to a particular persona. ⌘⌥R expands the tree's own **Research** section rather than opening anything in the right column (it's a no-op while Find in Project covers the tree). There's no separate reading pane: the tree is the one place research is browsed, in every persona, and the same right-click menus and empty-state buttons work from Plan as anywhere else.
+**It's in the tree, in every persona** — making research is a tree action wherever you're standing, not a trip to a particular persona. ⌘⌥R expands the tree's own **Research** section and scrolls it into view, rather than opening anything in the right column (it's a no-op while Find in Project covers the tree). There's no separate reading pane: the tree is the one place research is browsed, in every persona, and the same right-click menus and empty-state buttons work from Plan as anywhere else.
 
 - **New Note** — right-click the Research section (or a group inside it) → **New Note** to create a markdown note. Rename inline; the file on disk renames with it.
 - **Drag in from Finder** — drop images, PDFs, audio, text files. They land in `research/`.
 - **Paste an image** — Cmd-V into the research pane. Saved as `pasted-…png` next to your notes.
 - **Add Link…** — paste a URL. Opens via WKWebView when clicked.
 
-Click a research item to view it. Documents are editable in place. Images, PDFs, audio, and links use Maugham's preview renderers. Mark inline images in notes with `![alt](./image.png)` — ⌘⇧P toggles the preview pane.
+Click a research item to view it. Documents are editable in place — except in Review, where every note and card opens read-only: you can look and select text, but not change it, because Review's job is adjudicating the manuscript rather than editing what's behind it. Switch to Author (⌘2) to make the change. Images, PDFs, audio, and links use Maugham's preview renderers. Mark inline images in notes with `![alt](./image.png)` — ⌘⇧P toggles the preview pane.
 
 ### Organizing research
 
@@ -27,7 +27,7 @@ Voice/text/photo captures from the iPhone companion app land in the Mac's captur
 
 A capture can also go **straight to the planning canvas** instead — drag the row onto the canvas, or right-click → **Send to Canvas** — which is the shorter road when you don't yet know what the capture is. Promoting from the canvas afterwards makes the research note whenever you're ready for it. See [Getting Started → Sending a capture from the Inbox to the canvas](getting-started.md#sending-a-capture-from-the-inbox-to-the-canvas).
 
-Promoting into a collection piece drops the item straight into that piece's own research folder, where it shows up automatically under that piece's fold in the tree — no separate linking step. Promoting into a novel chapter files it under shared research and links it to that chapter, so it shows up under that chapter's own (read-only) fold, drawn flat. You can link an existing shared item to a chapter yourself too, without promoting: drag its row from the tree's Research section onto the chapter's own row.
+Promoting into a collection piece drops the item straight into that piece's own research folder, where it shows up automatically under that piece's fold in the tree — no separate linking step. Promoting into a novel chapter files it under shared research and links it to that chapter, so it shows up under that chapter's own (read-only) fold, drawn flat. You can link an existing shared item to a chapter yourself too, without promoting: drag its row from the tree's Research section onto the chapter's own row, or right-click the chapter and choose **Link Research…** for a searchable list with a toggle per item — the keyboard- and VoiceOver-reachable route to the same thing the drag does.
 
 ### Trash & undo
 

@@ -11,9 +11,9 @@ struct CollectionPiecesPane: View {
     /// whose doc comment carries the reasoning (stage-3a Task 4).
     let treeState: BinderTreeSectionsState
     /// Threaded to `BinderTreeSections`' Palette header — see its own doc
-    /// comment (stage 2b Task 5). Defaulted for the mounted-tree fixtures that
+    /// comment (stage 3b Task 4). Defaulted for the mounted-tree fixtures that
     /// do not care about the wall's door.
-    var canOpenPaletteWall: Bool = true
+    var paletteWallTravels: Bool = false
     var onOpenPaletteWall: () -> Void = {}
 
     var body: some View {
@@ -43,6 +43,11 @@ struct CollectionPiecesPane: View {
     /// take part in, and nothing a piece dropped on it could mean.
     private var projectRow: some View {
         ProjectRowLabel(title: store.manifest.title)
+            // The LABEL LEAF, before `.tag` (tripwire 9) — see
+            // TreeTravel.swift and BinderView's twin. The project row carries
+            // no `.draggable` at all, so there is no drag-interior claim to
+            // make here.
+            .treeTravelOnDoubleClick(.project)
             .tag(BinderSubject.project)
     }
 
@@ -76,25 +81,30 @@ struct CollectionPiecesPane: View {
     /// verbs the research panes 2b deletes used to hold. The window's one
     /// subject is derived from that set — see `BinderTreeSelection`.
     private var pieceList: some View {
-        List(selection: BinderTreeSelection.binding(
-                subject: $selectedSubject, state: treeState, store: store)) {
-            projectRow
-            ForEach(store.manifest.structure) { piece in
-                pieceEntry(for: piece)
+        // A `ScrollViewReader` around the `List` (stage-3b Task 8) — see
+        // `BinderView.body`'s twin comment; the reasoning is not restated here.
+        ScrollViewReader { proxy in
+            List(selection: BinderTreeSelection.binding(
+                    subject: $selectedSubject, state: treeState, store: store)) {
+                projectRow
+                ForEach(store.manifest.structure) { piece in
+                    pieceEntry(for: piece)
+                }
+                // Below the pieces — furniture at the foot of the column, with
+                // the project row still row zero.
+                BinderTreeSections(store: store, state: treeState,
+                                   selectedSubject: $selectedSubject,
+                                   paletteWallTravels: paletteWallTravels,
+                                   onOpenPaletteWall: onOpenPaletteWall)
             }
-            // Below the pieces — furniture at the foot of the column, with the
-            // project row still row zero.
-            BinderTreeSections(store: store, state: treeState,
-                               selectedSubject: $selectedSubject,
-                               canOpenPaletteWall: canOpenPaletteWall,
-                               onOpenPaletteWall: onOpenPaletteWall)
+            .listStyle(.sidebar)
+            .overlay {
+                if store.manifest.structure.isEmpty { emptyState }
+            }
+            .binderTreeSections(store: store, state: treeState,
+                                selectedSubject: $selectedSubject)
+            .consumingTreeScrollRequests(proxy, state: treeState)
         }
-        .listStyle(.sidebar)
-        .overlay {
-            if store.manifest.structure.isEmpty { emptyState }
-        }
-        .binderTreeSections(store: store, state: treeState,
-                            selectedSubject: $selectedSubject)
     }
 
     /// One piece's row, whole — the modifier chain is unchanged from when it was
@@ -213,7 +223,10 @@ struct CollectionPiecesPane: View {
             research: store.manifest.research,
             projectType: store.manifest.type)
         if fold.showsDisclosure {
-            DisclosureGroup {
+            // Bound for `BinderView.documentEntry`'s reason exactly (stage-3b
+            // Task 7): the window's reveal opens a piece's fold, and it can
+            // only open a flag it can reach.
+            DisclosureGroup(isExpanded: treeState.foldExpansion(of: piece.id)) {
                 BinderPieceFold(store: store, state: treeState,
                                 selectedSubject: $selectedSubject,
                                 documentId: piece.id, fold: fold)
@@ -222,10 +235,14 @@ struct CollectionPiecesPane: View {
             }
             .padding(.leading, ProjectRowLabel.childIndent)
             .tag(BinderSubject.item(piece.id))
+            // The find manuscript-match scroll target (stage-3b Task 8) —
+            // `BinderView.outline`'s comment carries the reasoning.
+            .id(BinderSubject.item(piece.id))
         } else {
             pieceRow(for: piece)
                 .padding(.leading, ProjectRowLabel.childIndent)
                 .tag(BinderSubject.item(piece.id))
+                .id(BinderSubject.item(piece.id))
         }
     }
 

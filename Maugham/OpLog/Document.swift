@@ -38,6 +38,54 @@ public final class Document {
     /// resurrecting the husk. Mirror of `EditorCoordinator.detach()`.
     public private(set) var isClosed = false
 
+    /// Recovery spec §4: the read-only partial open. Set only by
+    /// `Document.load(recovery: .readOnlyPartial)`; a doc carrying this state
+    /// can write NOTHING — every path that reaches `opStore.append` or
+    /// `pending.recordChange` refuses through `rejectMutationIfNotWritable`
+    /// (or its throwing sibling `requireWritable`, for the entry points that
+    /// owe their caller a value), no autosave scheduler exists, and `close()`
+    /// husks without flushing, sealing, or clearing.
+    ///
+    /// The guarantee is held by a CENSUS, not by this sentence:
+    /// `ReadOnlyRecoveryTests.test_everyOpLogWriterConsultsTheWritabilityChokePoint`
+    /// scans `Document*.swift` and fails on a writer that skips the choke
+    /// point, so a mutation entry point added later cannot quietly fall
+    /// outside the claim. Its allowlist is the whole set of exemptions.
+    public struct ReadOnlyRecoveryState: Equatable, Sendable {
+        public let unreadableFiles: [CheckpointLoad.UnreadableFile]
+        public init(unreadableFiles: [CheckpointLoad.UnreadableFile]) {
+            self.unreadableFiles = unreadableFiles
+        }
+    }
+    public internal(set) var readOnlyRecovery: ReadOnlyRecoveryState?
+    public var isReadOnlyRecovery: Bool { readOnlyRecovery != nil }
+
+    /// The pending file `load` found but could not recover (RULING-54,
+    /// M9-OL-010): un-bursted keystrokes from a crashed session, already
+    /// preserved in the quarantine record. Stamped by `Document.load` and
+    /// CONSUMED ONCE by the first window-bound surface (EditorHost), which
+    /// posts the document notice — load itself must not post, because a
+    /// windowless post is dropped by the receive helpers' liveness guard and
+    /// the writer is never told. A load that never binds a window (an MCP
+    /// statement flow) leaves the stamp unconsumed; the quarantine record is
+    /// the durable truth either way.
+    public struct PendingRecoveryFailure: Equatable, Sendable {
+        public let name: String
+        public let reason: String
+        public init(name: String, reason: String) {
+            self.name = name
+            self.reason = reason
+        }
+    }
+    public internal(set) var unrecoveredPendingFailure: PendingRecoveryFailure?
+
+    /// Consume-once: returns the failure and marks it delivered, so a second
+    /// surface cannot re-post the same notice.
+    public func consumePendingRecoveryFailure() -> PendingRecoveryFailure? {
+        defer { unrecoveredPendingFailure = nil }
+        return unrecoveredPendingFailure
+    }
+
     // === Internal state ===
     // Several of these are `internal` rather than `private` because the
     // method bodies that touch them live in `Document+*.swift` peer
@@ -128,6 +176,10 @@ public final class Document {
     /// live Document's mirror — currently only the checkpoint breadcrumb op
     /// written by `CheckpointCapture.run`.
     public func appendMirrored(_ op: Op) async throws {
+        // A checkpoint breadcrumb is derived from the doc's state, so on a
+        // read-only recovery view it would stamp a durable marker over a
+        // PARTIAL history — the one write that later reads would trust.
+        if rejectMutationIfNotWritable("appendMirrored") { return }
         try await opStore.append(op)
         appendToMirror(op)
     }
@@ -378,8 +430,9 @@ public final class Document {
         // Data-safety guard: a husked doc's `materialize()` is empty, so an
         // autosave firing after close() would write an EMPTY .md over the real
         // manuscript. close() flushes autosave BEFORE husking, so this only
-        // rejects a stray post-close scheduler tail.
-        guard !isClosed else { return }
+        // rejects a stray post-close scheduler tail. A read-only recovery doc
+        // has no scheduler at all, so this arm is belt for a hand-driven call.
+        if rejectMutationIfNotWritable("performAutosave") { return }
         // Mirror pending buffer to disk for crash recovery. Carry the live
         // paragraph order so recovery is op-log-domain — not reconstructed from
         // the .md (ADR 0019). Stamp the basis (newest folded opId) so load can
@@ -575,7 +628,7 @@ public final class Document {
         // still-referenced zombie) must no-op rather than resurrect the husk
         // (which would parse `text` against empty prior state and re-populate
         // paragraphs). documentLog.error records the misuse.
-        if rejectMutationIfClosed("setFullText") { return }
+        if rejectMutationIfNotWritable("setFullText") { return }
         // Parse-once keystroke path (perf fix B). The prior stored state is
         // already in hand as `paragraphs`/`sequence` — the load path and this
         // method's own orphan-prune below enforce `paragraphs.keys ⊆ sequence`,
@@ -778,7 +831,7 @@ public final class Document {
     }
 
     public func setParagraph(id: String, text: String) {
-        if rejectMutationIfClosed("setParagraph") { return }
+        if rejectMutationIfNotWritable("setParagraph") { return }
         let prior = paragraphs[id]
         guard prior != text else { return }
         pending.recordChange(paragraphId: id, prior: prior, next: text)
@@ -800,7 +853,7 @@ public final class Document {
     }
 
     public func insertParagraph(after: String?, text: String) -> String {
-        if rejectMutationIfClosed("insertParagraph") { return "" }
+        if rejectMutationIfNotWritable("insertParagraph") { return "" }
         // Unique against the doc's live id population (birthday hazard over
         // the ~1.05M id space — see ParagraphID.mintUnique).
         let newId = ParagraphID.mintUnique(
@@ -824,7 +877,7 @@ public final class Document {
     }
 
     public func deleteParagraph(id: String) {
-        if rejectMutationIfClosed("deleteParagraph") { return }
+        if rejectMutationIfNotWritable("deleteParagraph") { return }
         guard paragraphs[id] != nil else { return }
         let priorText = paragraphs[id]
         paragraphs.removeValue(forKey: id)
@@ -847,7 +900,7 @@ public final class Document {
     }
 
     public func reorder(sequence: [String]) {
-        if rejectMutationIfClosed("reorder") { return }
+        if rejectMutationIfNotWritable("reorder") { return }
         self.sequence = sequence
         _orderingDirty = true
         _orderingChangedSinceLoad = true
@@ -875,6 +928,12 @@ public final class Document {
     }
 
     public func flushBurstNow() async throws {
+        // Everything below this line appends ops, clears the pending buffer or
+        // sweeps annotations — writes, every one. `close()` calls it while the
+        // doc is still writable, so the normal path is unaffected; this rejects
+        // a stray post-close call (which would append against husked state) and
+        // a recovery doc's flush (spec §4: a partial view writes nothing).
+        if rejectMutationIfNotWritable("flushBurstNow") { return }
         let hadPending = !pending.isEmpty()
         // Emit an op when there are pending TEXT changes OR an ordering-only
         // edit that recorded nothing in the pending buffer but flipped
@@ -988,6 +1047,15 @@ public final class Document {
         // appWillTerminate racing onDisappear) returns immediately rather than
         // re-running the flush machinery over husked state.
         guard !isClosed else { return }
+        // A read-only recovery doc closes by husking alone: it has nothing to
+        // flush (mutations refused), must not seal (maintenance writes), and
+        // must not clear the pending file (it belongs to the REAL open that
+        // follows recovery). It also has no autosave scheduler to flush.
+        if isReadOnlyRecovery {
+            isClosed = true
+            huskInMemoryState()
+            return
+        }
         // Let any in-flight ⌘Z undo/redo hop finish on the LIVE (non-husked) doc
         // before husking (whole-branch review, 2026-07-11). An op-log undo runs
         // its mutation in `_lastUndoWorkTask`'s async hop (OpUndoRegistrar); a
@@ -1091,6 +1159,14 @@ public final class Document {
         // `performAutosave` also bails on it, so no stray scheduler tail can
         // write the now-empty `materialize()` over the on-disk manuscript.
         isClosed = true
+        huskInMemoryState()
+    }
+
+    /// Drop the O(doc) in-memory state. Called from `close()` once the disk
+    /// truth is durably written, and directly by the read-only recovery close
+    /// (which has no disk truth to write). Callers set `isClosed` FIRST, so
+    /// every mutation path is already gated before the state goes.
+    private func huskInMemoryState() {
         paragraphs = [:]
         sequence = []
         displayText = ""
@@ -1105,15 +1181,71 @@ public final class Document {
         lastDiskEcho = .afterWrite(bytes: "")
     }
 
-    /// Guard for mutation entry points: on a closed (husked) Document, logs once
-    /// and tells the caller to bail. A closed doc is abandoned by contract — a
-    /// late mutation (a still-referenced zombie, an MCP misuse, a scheduler tail)
-    /// must no-op rather than operate on husked state or resurrect it. Data
-    /// safety is unaffected: the disk truth was written before husking.
-    internal func rejectMutationIfClosed(_ site: StaticString) -> Bool {
-        guard isClosed else { return false }
+    /// One choke point for "this instance must not mutate": closed (husked,
+    /// abandoned) or read-only recovery (spec §4 — nothing derived from a
+    /// partial view is ever written). Callers no-op; documentLog records it.
+    ///
+    /// The closed arm: a late mutation (a still-referenced zombie, an MCP
+    /// misuse, a scheduler tail) must no-op rather than operate on husked state
+    /// or resurrect it. Data safety is unaffected — the disk truth was written
+    /// before husking.
+    internal func rejectMutationIfNotWritable(_ site: StaticString) -> Bool {
+        if isClosed {
+            documentLog.error(
+                "\(site, privacy: .public) called on a closed Document \(self.docId, privacy: .public); no-op (the instance is abandoned by contract)")
+            return true
+        }
+        if isReadOnlyRecovery {
+            documentLog.error(
+                "\(site, privacy: .public) called on a read-only recovery Document \(self.docId, privacy: .public); no-op (nothing derived from a partial view is written)")
+            return true
+        }
+        return false
+    }
+
+    /// The throwing form of `rejectMutationIfNotWritable`, for the mutation
+    /// entry points that return a VALUE and so have no honest no-op to return
+    /// (`addAnnotation` owes its caller an id, `restoreToOp` a result). Same
+    /// choke point, same log line — a refusal here is loud rather than a
+    /// fabricated success.
+    internal func requireWritable(_ site: StaticString) throws {
+        if rejectMutationIfNotWritable(site) {
+            throw DocumentNotWritableError(site: "\(site)")
+        }
+    }
+
+    /// The NARROWER arm of the choke point: refuse a read-only recovery view's
+    /// write while leaving a CLOSED doc's behaviour byte-for-byte as it was.
+    ///
+    /// Used only where a closed-doc append is pinned by the behavioural
+    /// register — claim **M5-AN-048**, which characterises five annotation
+    /// mutators (craft-note creation, archive, reject, withdraw, edit) as
+    /// appending to a husked doc. Its filing is `NO_RULING_REACHES`, so that is
+    /// a characterised inconsistency rather than protected behaviour: widening
+    /// these to the full guard would *improve* it to 7-of-7, but it would also
+    /// re-decide a register claim, which belongs in its own change with the
+    /// claim and its filing moving alongside. The recovery rung needs only the
+    /// recovery arm, so that is all it takes.
+    ///
+    /// When M5-AN-048 is closed, the sites taking this arm collapse back onto
+    /// `rejectMutationIfNotWritable` / `requireWritable` and this pair goes.
+    /// They are enumerated in ONE place — `ReadOnlyRecoveryTests`'
+    /// `narrowGuardAllowlist`, which is also what permits them: the census
+    /// treats this arm as a guard only for a name on that list, so a new
+    /// writer reaching for it is an offender. Count that array, not this
+    /// comment, which said "four" over three sites.
+    internal func rejectMutationIfReadOnlyRecovery(_ site: StaticString) -> Bool {
+        guard isReadOnlyRecovery else { return false }
         documentLog.error(
-            "\(site, privacy: .public) called on a closed Document \(self.docId, privacy: .public); no-op (the instance is abandoned by contract)")
+            "\(site, privacy: .public) called on a read-only recovery Document \(self.docId, privacy: .public); no-op (nothing derived from a partial view is written)")
         return true
+    }
+
+    /// Throwing form of `rejectMutationIfReadOnlyRecovery`, for the
+    /// value-returning entry points. Same M5-AN-048 scoping.
+    internal func requireNotReadOnlyRecovery(_ site: StaticString) throws {
+        if rejectMutationIfReadOnlyRecovery(site) {
+            throw DocumentNotWritableError(site: "\(site)")
+        }
     }
 }

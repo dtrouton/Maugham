@@ -3466,6 +3466,82 @@ final class TripwireGrepTests: XCTestCase {
             + "must not appear at all.")
     }
 
+    // MARK: - Every tree host consumes the scroll request (stage-3b Task 8)
+
+    /// **All three hosts consume** — a scroll request queued on
+    /// `BinderTreeSectionsState.scrollRequest` while a DIFFERENT tree host was
+    /// mounted (the writer switched project type mid-session is not a real
+    /// case, but the find overlay swapping the column for `ProjectSearchView`
+    /// and back IS) needs picking up by whichever tree remounts, and that is
+    /// production's responsibility to wire at every host — not something a
+    /// shared helper can enforce by itself, since a host that never calls it
+    /// simply never scrolls, silently.
+    func test_everyBinderTreeHostConsumesTheScrollRequest() throws {
+        let census = try consumingScrollRequestsCensus(in: sourceDir)
+        XCTAssertEqual(
+            census,
+            ["BinderView.swift", "CollectionPiecesPane.swift",
+             "SceneNavigatorPane.swift"],
+            "Every binder tree host must call "
+            + "`.consumingTreeScrollRequests(_:state:)` on its `List` (inside "
+            + "the `ScrollViewReader` that hands back the proxy) — a host that "
+            + "does not is a tree ⌘⌥R/⌘⌥P and a find match scroll silently do "
+            + "nothing in.\n\nFound: \(census)")
+    }
+
+    /// Self-check: the census fires on a host missing the call, and a doc
+    /// comment naming it must not count.
+    func test_consumingScrollRequestsCensusFiresOnAHostMissingTheCall() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-scroll-consumption-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct WiredHost: View {
+            var body: some View {
+                ScrollViewReader { proxy in
+                    List(selection: $subject) { rows }
+                        .consumingTreeScrollRequests(proxy, state: treeState)
+                }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("WiredHost.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        /// A doc comment naming .consumingTreeScrollRequests( must not count.
+        struct UnwiredHost: View {
+            var body: some View {
+                ScrollViewReader { proxy in
+                    List(selection: $subject) { rows }
+                }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("UnwiredHost.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let census = try consumingScrollRequestsCensus(in: tmp)
+        XCTAssertEqual(census, ["WiredHost.swift"],
+                       "Self-check: only the file that actually calls the "
+                       + "consumer must enter the census — a doc comment "
+                       + "naming it must not count.")
+    }
+
+    /// Which files call `.consumingTreeScrollRequests(`, comments stripped so
+    /// a definer's or a host's own prose cannot stand in for the call.
+    private func consumingScrollRequestsCensus(in dir: URL) throws -> [String] {
+        let offenders = try grepSwift(
+            in: dir, patterns: [".consumingTreeScrollRequests("],
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("///")
+                || $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") })
+        return offenders.compactMap { $0.split(separator: ":").first.map(String.init) }
+            .reduce(into: [String]()) { acc, name in
+                if !acc.contains(name) { acc.append(name) }
+            }
+            .sorted()
+    }
+
     /// The whole-tree census: which halves of `BinderTreeSections` each file
     /// carries. Comments are stripped, so the definer's own prose and a host's
     /// explanatory comments cannot stand in for a call.
@@ -3635,9 +3711,15 @@ final class TripwireGrepTests: XCTestCase {
     /// logic. `ManuscriptNavigation.go` is the one sanctioned cross-context
     /// arrival; `PersonaModifier`'s `.maughamSetPersona` handler is the one
     /// sanctioned direct choice (⌘1–4 and the picker); `CanvasClaudeArrivalModifier`
-    /// is Claude's own arrival (1C-c3), reviewed separately; `UIState.swift`
-    /// is the model's own init/decode, not a live decision; and the two
-    /// `self.persona = persona` lines in `AssistantColumn.swift` and
+    /// is Claude's own arrival (1C-c3), reviewed separately; `TreeTravel.swift`'s
+    /// `TreeTravelModifier` is the tree's own double-click arrival (shell-finish
+    /// stage 3b) — through `PersonaModifier.applyPersonaChange` directly rather
+    /// than `ManuscriptNavigation.go`, because the travel rule's question ("is
+    /// there a persona to travel TO") is not `ManuscriptNavigation`'s ("does the
+    /// CURRENT persona already show a document"), and routing one through the
+    /// other would let a rule answer a premise it was never asked about;
+    /// `UIState.swift` is the model's own init/decode, not a live decision; and
+    /// the two `self.persona = persona` lines in `AssistantColumn.swift` and
     /// `DetailPaneToggle.swift` are init-parameter captures for a subview
     /// reading the persona it was handed, not a place that moves anything.
     func test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites() throws {
@@ -3660,7 +3742,7 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(
             Set(offendersByFile.keys),
             ["ManuscriptNavigation.swift", "CanvasClaudeArrivalModifier.swift",
-             "ProjectWindow.swift"],
+             "ProjectWindow.swift", "TreeTravel.swift"],
             "a new file writes the window's persona directly — either route it "
             + "through ManuscriptNavigation.go / PersonaModifier, or if it is a "
             + "genuinely new sanctioned decision site, add it here by name "

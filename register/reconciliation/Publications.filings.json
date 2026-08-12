@@ -21,7 +21,7 @@
   "outcome": "COMPLIES",
   "ruling": "RULING-52",
   "clause_that_reaches_it": "either it validates first so a refusal leaves nothing behind, or its failure report names what it already did",
-  "why_in_scope": "the refusal half takes RULING-52's first route: every guard runs before any durable mutation except the deliberate EMISSION.md refresh (filed separately, M7-PB-004), the job terminates .failed with the cause, and a retry meets a clean project",
+  "why_in_scope": "the refusal half takes RULING-52's first route: every guard runs before any durable mutation, the job terminates .failed with the cause, and a retry meets a clean project. Until 2026-08-12 there was one carve-out — the EMISSION.md refresh ran before the guards (filed separately, M7-PB-004) — retired when CI run 31584930789 showed the pre-guard refresh racing a concurrent winner's snapshot capture; the refresh now runs behind the mint-gate reservation, so the route is taken without exception",
   "intent_expressed_when": "contemporaneous — the guards' own messages name remedies",
   "call_path": "MCP `compile` (CompileTool) -> CompileOrchestrator.compile",
   "violation_or_enhancement": "neither"
@@ -39,7 +39,7 @@
  {
   "claim_id": "M7-PB-004",
   "outcome": "NO_RULING_REACHES",
-  "reason": "the unconditional EMISSION.md refresh is a deliberate app-owned-doc policy (F5): the file is generated, carries no writer content, and refreshing it on refused compiles is the point — an agent reading it must never meet a stale copy. No ruling governs when Maugham may rewrite its own generated documentation inside the project; RULING-52's 'changed the project' is not credibly read to cover it, and stretching would be discipline 3's symptom-matching"
+  "reason": "the EMISSION.md refresh is a deliberate app-owned-doc policy (F5): the file is generated, carries no writer content, and is refreshed on every compile that runs — dry runs included — so an agent reading it never meets a stale copy. No ruling governs when Maugham may rewrite its own generated documentation inside the project; RULING-52's 'changed the project' is not credibly read to cover it, and stretching would be discipline 3's symptom-matching. Amended 2026-08-12: the refresh no longer runs on REFUSED compiles — it moved behind the mint-gate reservation after CI run 31584930789, where a refused compile's atomic-write temp raced the concurrent winner's snapshot capture and killed the winning compile. The staleness rationale survives on the compiles that run; the ordering ('before any guard') was incidental to it and actively harmful"
  },
  {
   "claim_id": "M7-PB-005",

@@ -165,4 +165,77 @@ final class DocumentLoadQuarantineTests: XCTestCase {
         }
     }
 
+    /// RULING-54's pending-buffer half: a pending file that exists but can't
+    /// be decoded holds un-bursted keystrokes from a crashed session. The doc
+    /// still loads (every SAVED word is intact — a notice, not a refusal),
+    /// the bytes are quarantined BEFORE the next autosave overwrites the only
+    /// copy, and the failure is STAMPED on the Document for the first
+    /// window-bound surface to post — load itself must not post, because a
+    /// windowless post is dropped by the receive helpers' liveness guard
+    /// (isLive(nil) == false) and a clean close then deletes the trigger.
+    /// EditorHost's consume-and-post wiring is pinned by the census below.
+    func test_load_unrecoverablePendingFile_quarantinesAndStampsTheDoc_stillLoads() async throws {
+        let (project, docURL) = try makeTestProject(prefix: "DOCPEND", initialMd: "Hello.\n")
+        let doc1 = try await Document.load(
+            url: docURL, device: "m", session: "s", presenter: nil)
+        let docId = doc1.docId
+        await doc1.close()
+
+        // A crashed session's torn pending state: present, undecodable.
+        let pendingURL = project
+            .appendingPathComponent(".maugham/pending")
+            .appendingPathComponent("\(docId).\(DeviceSlug.make(from: "m").raw).pending.jsonl")
+        try FileManager.default.createDirectory(
+            at: pendingURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "NOT JSON — torn pending state".write(
+            to: pendingURL, atomically: true, encoding: .utf8)
+
+        let doc = try await Document.load(
+            url: docURL, device: "m", session: "s", presenter: nil)
+        XCTAssertTrue(doc.displayText.contains("Hello."), "the manuscript still opens")
+
+        let quarantineDir = project
+            .appendingPathComponent(".maugham/conflicts/quarantine", isDirectory: true)
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            atPath: quarantineDir.path)) ?? []
+        XCTAssertFalse(entries.isEmpty, "the torn pending bytes are preserved")
+        let recorded = try String(
+            contentsOf: quarantineDir.appendingPathComponent(entries.sorted()[0]),
+            encoding: .utf8)
+        XCTAssertTrue(recorded.contains("NOT JSON"),
+                      "the record carries the raw bytes, the only copy that survives the next autosave")
+
+        let failure = try XCTUnwrap(doc.unrecoveredPendingFailure,
+                                    "the failure is stamped for the window-bound surface")
+        XCTAssertEqual(failure.name, pendingURL.lastPathComponent, "the file is named")
+        XCTAssertFalse(failure.reason.isEmpty)
+
+        // Consume-once: the first surface takes it, a second cannot re-post.
+        XCTAssertNotNil(doc.consumePendingRecoveryFailure())
+        XCTAssertNil(doc.consumePendingRecoveryFailure())
+        XCTAssertNil(doc.unrecoveredPendingFailure)
+        await doc.close()
+    }
+
+    /// The delivery wiring census: EditorHost must consume the stamp and must
+    /// carry BOTH triggers — after the load completes AND when the window
+    /// resolves — because either can happen first (the BinderRow.claimFocus
+    /// double-trigger shape). A mounted pin would need a full window fixture;
+    /// the census catches the two regressions that matter: the consume call
+    /// disappearing, and the window trigger disappearing.
+    func test_editorHostDeliversTheStampedNotice_census() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Maugham/Views/EditorHost.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(source.contains("consumePendingRecoveryFailure()"),
+                      "EditorHost consumes the stamped failure")
+        XCTAssertTrue(source.contains(".onChange(of: window) { _, _ in deliverPendingRecoveryNoticeIfPossible() }"),
+                      "the window-resolution trigger exists — a load can finish before WindowAccessor resolves")
+        XCTAssertTrue(source.contains("deliverPendingRecoveryNoticeIfPossible()\n"),
+                      "the load-completion trigger exists")
+    }
+
 }

@@ -134,9 +134,13 @@ final class PublicationsCharacterization: XCTestCase {
 
     /// M7-PB-002, M7-PB-004 — the refusal half is validate-first: a refused
     /// compile terminates its job as `.failed` and leaves nothing durable
-    /// behind EXCEPT the unconditional EMISSION.md refresh (deliberate, F5),
-    /// which happens before every guard, refusals included.
-    func test_aRefusedCompileLeavesOnlyTheEmissionRefreshAndATerminalJob() async throws {
+    /// behind — since 2026-08-12 including the EMISSION.md refresh, which
+    /// moved behind the mint-gate reservation after CI run 31584930789: the
+    /// pre-guard refresh's atomic-write temp raced a concurrent winner's
+    /// snapshot capture and killed the winning compile. F5's rationale (an
+    /// agent must never meet a stale copy) is carried by every compile that
+    /// RUNS — dry runs included — not by refusals.
+    func test_aRefusedCompileLeavesNothingDurableAndATerminalJob() async throws {
         let (orch, cfg, pubStore, jobs) = try await makeOrchestrator()
         try await cfg.save(PublishConfig(metadata: .init(title: "Pin", author: "T")))
         guard case .completed = try await orch.compile(format: .epub, label: nil) else {
@@ -167,9 +171,11 @@ final class PublicationsCharacterization: XCTestCase {
                        "M7-PB-002: no version bump")
         let failed = await jobs.allInProgress()
         XCTAssertTrue(failed.isEmpty, "M7-PB-002: the job is terminal, not in flight")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: emissionURL.path),
-                      "M7-PB-004: EMISSION.md is rewritten before every guard — "
-                      + "refusals included, deliberately (F5)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: emissionURL.path),
+                       "M7-PB-004: a refused compile rewrites nothing — the F5 "
+                       + "refresh runs behind the mint-gate reservation, so a "
+                       + "refusal's atomic-write temp can't race a concurrent "
+                       + "winner's snapshot capture (CI run 31584930789)")
     }
 
     /// M7-PB-003 — a dry run mutates nothing durable except the EMISSION.md
@@ -202,12 +208,19 @@ final class PublicationsCharacterization: XCTestCase {
     func test_aFailureAfterMutationNamesWhatLandedAndTheJobIsTerminal() async throws {
         let (orch, cfg, _, jobs) = try await makeOrchestrator()
         try await cfg.save(PublishConfig(metadata: .init(title: "Pin", author: "T")))
-        // Injection: the device's own catalog file path becomes a directory,
-        // so the append throws AFTER the export and snapshot have landed.
+        // Injection: a valid but READ-ONLY catalog file — the strict load
+        // (RULING-54, M9-OL-009) reads it fine, and the append's
+        // FileHandle(forWritingTo:) throws AFTER the export and snapshot have
+        // landed. (The old directory-squat injection now refuses at the
+        // pre-flight load, before anything mutates — a better failure, pinned
+        // separately in CompileOrchestratorTests.)
         let catalogURL = PublicationStore.fileURL(
             deviceSlug: DeviceSlug.make(from: MacDeviceID.current), in: tmp)
         try FileManager.default.createDirectory(
-            at: catalogURL, withIntermediateDirectories: true)
+            at: catalogURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: catalogURL)  // an empty catalog loads as []
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o444], ofItemAtPath: catalogURL.path)
 
         let outcome = try await orch.compile(format: .epub, label: nil)
         guard case .failed(let errors, _) = outcome else {

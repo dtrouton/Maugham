@@ -20,6 +20,16 @@ struct ResearchNoteEditor: View {
     let path: String
     let itemId: String
     let previewVisible: Bool
+    /// **Review's locked posture, threaded from `ResearchSubjectCentre.readOnly`**
+    /// (shell-finish stage 3b Task 6) — forwarded straight into
+    /// `EditorControl.lockEditing`. Research notes still have no `isReviewMode`
+    /// toggle (there is no ⌘⌥⇧R here), but `lockEditing` is no longer always
+    /// false: Denver's ruling is that Review adjudicates and does not edit
+    /// research from its own columns, and `EditorEditPolicy.allowsTextMutation`
+    /// already treats `lockEditing` as the hard floor selection/scroll survive
+    /// but typing does not, which is the "reference view" shape this posture
+    /// wants rather than an unmounted editor.
+    let lockEditing: Bool
     @Environment(UserPreferences.self) private var userPreferences
 
     @State private var documentText: String = ""
@@ -30,9 +40,10 @@ struct ResearchNoteEditor: View {
     @State private var loadFailure: String?
     @State private var researchCursor: Int? = nil
     /// Real EditorControl populated from userPreferences + project typography
-    /// (ADR 0017). Research notes have no review posture — isReviewMode and
-    /// lockEditing stay false. The coordinator observes this model so the
-    /// appearance is correct even after the updateNSView pushes are removed.
+    /// (ADR 0017). Research notes have no `isReviewMode` toggle, so that field
+    /// stays false; `lockEditing` mirrors the `lockEditing` parameter above.
+    /// The coordinator observes this model so the appearance (and the
+    /// membrane) is correct even after the updateNSView pushes are removed.
     @State private var editorControl = EditorControl()
 
     private var effectiveTypography: TypographySettings {
@@ -52,13 +63,15 @@ struct ResearchNoteEditor: View {
             }
         }
         .task(id: path) { await loadDocument() }
-        // Mirror appearance into editorControl (ADR 0017). Review posture
-        // (isReviewMode / lockEditing) stays false — research notes have none.
+        // Mirror appearance into editorControl (ADR 0017). isReviewMode stays
+        // false — research notes have no ⌘⌥⇧R toggle — but lockEditing now
+        // carries Review's posture, mirrored below like every other field here.
         .onChange(of: userPreferences.theme) { _, t in editorControl.theme = t }
         .onChange(of: effectiveTypography) { _, t in editorControl.typography = t }
         .onChange(of: userPreferences.typewriterScroll) { _, v in editorControl.typewriterScroll = v }
         .onChange(of: userPreferences.sentenceFocus) { _, v in editorControl.sentenceFocus = v }
         .onChange(of: userPreferences.paragraphFocus) { _, v in editorControl.paragraphFocus = v }
+        .onChange(of: lockEditing) { _, v in editorControl.lockEditing = v }
         .onAppear {
             // Seed all fields from current sources; onChange only fires on
             // transitions, not on first render.
@@ -67,6 +80,7 @@ struct ResearchNoteEditor: View {
             editorControl.typewriterScroll = userPreferences.typewriterScroll
             editorControl.sentenceFocus = userPreferences.sentenceFocus
             editorControl.paragraphFocus = userPreferences.paragraphFocus
+            editorControl.lockEditing = lockEditing
         }
     }
 
@@ -108,7 +122,23 @@ struct ResearchNoteEditor: View {
                                 researchCursor = position
                             }),
                         paragraphProviders: .init(
-                            imagePasteHandler: makeImagePasteHandler()))
+                            // **Gated on the lock, not just unconditionally
+                            // wired** (shell-finish stage 3b Task 6 review
+                            // finding). `EditorSurface.paste(_:)` calls this
+                            // handler SYNCHRONOUSLY and BEFORE `insertText` —
+                            // `ImagePasteHandler.saveAndReference` writes the
+                            // PNG to `<slug>_assets/` on disk first, and only
+                            // then does the (locked) `shouldChangeTextIn`
+                            // refuse the markdown ref. A locked editor with an
+                            // active handler wrote an orphaned file straight
+                            // through the lock — the write isn't text
+                            // mutation, so nothing here ever gated it. Nil
+                            // also flips `readablePasteboardTypes`'
+                            // `coordinator?.imagePasteHandler != nil` check,
+                            // so Paste's image affordance itself goes away in
+                            // Review rather than accepting a paste that then
+                            // silently drops the ref.
+                            imagePasteHandler: lockEditing ? nil : makeImagePasteHandler()))
                 )
                 .id(path)
             } else {

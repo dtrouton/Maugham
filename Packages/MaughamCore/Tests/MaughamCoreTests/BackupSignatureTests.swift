@@ -163,4 +163,41 @@ final class BackupSignatureTests: XCTestCase {
         XCTAssertNotEqual(BackupSignature.compute(projectURL: proj), before,
                           "a manuscript edit MUST mint a backup generation")
     }
+
+    /// RULING-54: an UNREADABLE-yet-present file contributes a marker line,
+    /// never silence. Dropping it made the signature EQUAL to the
+    /// file-deleted state, so change detection could not tell "became
+    /// unreadable" from "was removed" and a skip-unchanged verdict could
+    /// stand on a state it never actually hashed.
+    @MainActor
+    func test_signature_unreadableFileIsNotEqualToAbsentFile() throws {
+        let proj = makeProject()
+        defer {
+            // Restore permissions so teardown's removeItem can clean up.
+            let research = proj.appendingPathComponent("research/notes.md")
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o644], ofItemAtPath: research.path)
+            try? FileManager.default.removeItem(at: proj)
+        }
+        try writeOps(proj, [contentOp("01A")])
+        try FileManager.default.createDirectory(
+            at: proj.appendingPathComponent("research"), withIntermediateDirectories: true)
+        let research = proj.appendingPathComponent("research/notes.md")
+        try "the writer's notes".write(to: research, atomically: true, encoding: .utf8)
+        let readable = BackupSignature.compute(projectURL: proj)
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: research.path)
+        let unreadable = BackupSignature.compute(projectURL: proj)
+        let unreadableAgain = BackupSignature.compute(projectURL: proj)
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o644], ofItemAtPath: research.path)
+        try FileManager.default.removeItem(at: research)
+        let absent = BackupSignature.compute(projectURL: proj)
+
+        XCTAssertNotEqual(unreadable, readable, "unreadable is a state of its own")
+        XCTAssertNotEqual(unreadable, absent, "unreadable must never read as deleted")
+        XCTAssertEqual(unreadable, unreadableAgain, "and it is deterministic")
+    }
 }
