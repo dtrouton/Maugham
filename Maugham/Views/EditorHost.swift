@@ -409,7 +409,11 @@ struct EditorHost: View {
         // Reached from the pane's own auto-open as well as the banner's
         // Reopen, so the ladder must come down here too: if the retry refuses
         // again, the catch below mints a fresh model for the fresh cause, and
-        // a stale one left standing would keep polling beside it.
+        // a stale one left standing would keep polling beside it. Stopped
+        // explicitly rather than relying on the watch having returned by
+        // itself — it has, when the auto-open is what called this, but the
+        // banner's Reopen reaches here with the watch still running.
+        recoveryPaneModel?.stopWatching()
         recoveryPaneModel = nil
         loadedItemId = nil
         priorLoadedPath = nil
@@ -711,6 +715,34 @@ struct EditorHost: View {
         loadedItemId != itemId || loadedPath != path
     }
 
+    /// Whether a recovery action minted against `minted` may still act.
+    ///
+    /// The refusal pane's two actions are minted ONCE, when a cause is
+    /// classified, and one of them is fired by a poller rather than by a press:
+    /// the iCloud rung opens the document by itself the moment the file lands.
+    /// A `View` is a struct, so those closures carry the value of
+    /// `selectedItemId` — a `let` — from the moment they were built, and the
+    /// writer is free to select another document while the poll runs. Firing
+    /// stale, the action would close the document the writer is now in and
+    /// re-bind the one they left, with the binder still highlighting the other:
+    /// no words lost (the close flushes), but the wrong manuscript silently on
+    /// screen, which is the race class tripwires 2/3/6/7 exist for.
+    ///
+    /// `recoveryPaneModel` is `@State`, so a read through it inside the closure
+    /// sees LIVE storage rather than the captured copy — the one channel by
+    /// which these closures can learn that the world moved. Identity, not the
+    /// cause: a second refusal for the same reason on a different document is
+    /// still a different pane.
+    ///
+    /// Static + pure so `EditorHostRecoveryActionGuardTests` can pin the rule
+    /// without a window (the `needsReload` precedent).
+    static func recoveryActionIsCurrent(
+        minted: RecoveryPaneModel?, current: RecoveryPaneModel?
+    ) -> Bool {
+        guard let minted else { return false }
+        return minted === current
+    }
+
     private func loadDocumentIfNeeded() async {
         guard let item = currentItem,
               item.type == .document,
@@ -722,6 +754,16 @@ struct EditorHost: View {
         // Claimed BEFORE the first suspension: everything from here on may be
         // superseded, and only the newest claim may write the markers below.
         let generation = loads.claim()
+        // A refusal belongs to the selection that raised it, and this host
+        // KEEPS ITS IDENTITY across a document switch (ProjectWindow's
+        // `manuscriptEditor` layers rather than branches, so nothing unmounts).
+        // Left standing, the previous document's pane stays on screen for the
+        // whole of this load with its poller running — and that poller holds an
+        // action minted against the previous selection. Stopped and dropped
+        // HERE rather than left to the view's `.onDisappear`, which cannot run
+        // until a render pass this suspension precedes.
+        recoveryPaneModel?.stopWatching()
+        recoveryPaneModel = nil
         // The outgoing doc's pending metrics mirror is cancelled inside the
         // coordinator's own teardown/attach now (a doc switch makes a fresh
         // EditorSurface via `.id(path)`, whose coordinator's `attach` cancels
@@ -794,12 +836,26 @@ struct EditorHost: View {
             // not own, and then `recoveryOrPlaceholder` shows the bare message
             // exactly as before.
             let cause = RecoveryCause.classify(loadError: error, projectURL: store.url)
-            recoveryPaneModel = cause.map {
-                RecoveryPaneModel(
-                    cause: $0,
+            recoveryPaneModel = cause.map { cause in
+                // `minted` is WEAK and assigned after the init: the model holds
+                // these closures, so a strong capture of it here is a cycle
+                // that keeps a poller alive for the life of the process.
+                weak var minted: RecoveryPaneModel?
+                let model = RecoveryPaneModel(
+                    cause: cause,
                     projectURL: store.url,
-                    onOpenEditable: { Task { await retryFullLoad() } },
-                    onOpenReadOnly: { Task { await openReadOnly() } })
+                    onOpenEditable: { Task {
+                        guard Self.recoveryActionIsCurrent(
+                            minted: minted, current: recoveryPaneModel) else { return }
+                        await retryFullLoad()
+                    } },
+                    onOpenReadOnly: { Task {
+                        guard Self.recoveryActionIsCurrent(
+                            minted: minted, current: recoveryPaneModel) else { return }
+                        await openReadOnly()
+                    } })
+                minted = model
+                return model
             }
         }
     }

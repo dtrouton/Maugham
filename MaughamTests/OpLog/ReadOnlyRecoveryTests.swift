@@ -191,6 +191,21 @@ final class ReadOnlyRecoveryTests: XCTestCase {
         // teardown; dropping the `.id` is silent.
         XCTAssertTrue(source.contains(".id(ObjectIdentifier(paneModel))"),
                       "the recovery pane is keyed on its model's identity")
+        // Fix round 1 — the two defences against a stale action. The pane's
+        // actions are minted once and one of them is fired by a POLLER, while
+        // this host keeps its identity across a document switch: left standing,
+        // the previous selection's pane reloads the document the writer left.
+        // `EditorHostRecoveryActionGuardTests` pins what the guard DOES; these
+        // pin that the delivery path still consults it, which no unit test of a
+        // static function can see.
+        XCTAssertTrue(source.contains("recoveryPaneModel?.stopWatching()"),
+                      "a new load stops the previous selection's watch — "
+                      + "the view's `.onDisappear` cannot run until a render "
+                      + "pass the load's first suspension precedes")
+        XCTAssertEqual(
+            source.components(separatedBy: "Self.recoveryActionIsCurrent(").count - 1, 2,
+            "BOTH minted actions — auto-open-editable and open-read-only — ask "
+            + "whether they are still the host's current model before acting")
     }
 
     // MARK: - Census machinery
