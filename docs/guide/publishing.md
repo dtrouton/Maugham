@@ -14,6 +14,10 @@ The EPUB output produces a structurally clean file with one `<section>` per piec
 
 Compiled PDFs and EPUBs appear in the project's `Exports/` folder, which is shown as a footer beneath the binder tree in Author, Review, and Publish (Plan's centre column is the planning canvas, so it doesn't carry this footer). You can open the file from there or find it in Finder alongside your manuscript folder.
 
+### The Publish persona's centre column
+
+Switch to Publish (⌘4) and, once a PDF exists in `Exports/`, the centre column shows it full-width — whatever's selected in the tree. The project row, a chapter, a group: all three show the same compiled book, because reviewing the finished thing doesn't depend on which part of the manuscript you're standing on. Nothing compiled yet? Publish falls back to the corkboard/table or the editor, exactly as Author and Review show them (see [Structure & the Binder → The project row](structure-and-binder.md#the-project-row)). Selecting a research note or palette card does nothing to this column either way — Publish's job is the book, not the material behind it.
+
 ### The publish configuration
 
 The template, preamble, per-piece style files, and a small `config.json` live under `.maugham/publish/` inside your project folder. `EMISSION.md` in that folder is the authoritative contract describing what the body emitter produces for each source pattern — Claude reads it to understand what LaTeX the emitter will generate before writing template hooks. If you want to inspect or hand-edit the template, it's plain text at `.maugham/publish/template.tex`.
