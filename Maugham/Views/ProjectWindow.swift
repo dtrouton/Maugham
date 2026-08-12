@@ -2881,8 +2881,13 @@ private struct CheckpointModifier: ViewModifier {
                             label: nil,
                             activeDocument: activeDoc)
                     }
-                    // Back up after the checkpoint is durable. The coordinator
-                    // hops off-main internally and records status.
+                    // Runs regardless of whether the checkpoint above landed —
+                    // CheckpointFlashDecision.run catches its own throw rather
+                    // than propagating one, so a refused checkpoint (e.g. a
+                    // read-only recovery document) still reaches this backup
+                    // attempt. The coordinator hops off-main internally and
+                    // records status; its own gate (blocksBackup) is what
+                    // decides whether THIS backup proceeds.
                     await backupCoordinator.backupNow(
                         projectURL: store.url,
                         generationId: ULID.generate(),

@@ -222,5 +222,53 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M9-OL-015",
+  "scope": "OpLogQuarantine.quarantine + EditorHost.quarantineAndContinue — the set-aside act",
+  "kind": "POSTCONDITION",
+  "statement": "the writer's own press — never anything automatic (spec §6's 'no auto-quarantine, ever') — moves an unreadable op-log file byte-identically (one NSFileCoordinator, coordinating source-for-moving and destination) into .maugham/conflicts/quarantined-ops/ and writes a QuarantineRecord (docId, originalName, quarantinedAt, the read error at the time, status .held) beside it; a dataless iCloud stub is refused (QuarantineError.datalessStub) rather than moved, so the verb never fights the wait-and-retry rung's own download; two quarantines of the same original name in the same stamp millisecond both survive via a disambiguating suffix rather than one overwriting the other. The document then opens fully editable through the one retryFullLoad path. Reached from BOTH surfaces the spec names: the refusal pane's Set the File Aside and Keep Writing action (offered only for RecoveryCause.unreadableFile — RecoveryPaneModel.offersSetAside is false for the iCloud-stub and unlistable-directory causes, which name no single readable-but-broken file to move) and the read-only banner's typing-refusal offer (RecoveryBannerModel.setAsideOffered, raised by noteTypingRefused and lowered the instant every named file reads again); both call the SAME verb (quarantineAndContinue()), one guarded against a stale selection (the pane's three minted actions) and one deliberately unguarded (the banner's, built fresh per render from the doc the body is rendering). The offer is said in the writer's words at every site — 'Set the File Aside and Keep Writing', 'kept safe … merged back when it returns' — and never says 'quarantine' at the writer",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "OpLogQuarantineTests.test_quarantine_movesBytesIdentically_andRecordsWhy; test_quarantine_refusesADatalessStub; test_twoQuarantines_ofTheSameName_bothSurvive; RecoveryPaneModelTests.test_unreadableCause_offersTheLadder_andAutoOpensOnReadable; test_stubCause_downloadsWaitsAndAutoOpens_neverOffersReadOnly; test_directoryCause_offersRestoreOnly; test_thePaneSaysSetAside_neverQuarantine; RecoveryBannerTests.test_typingRefusal_emphasisesTheBanner_andRaisesTheOffer; test_reopenIsOffered_whenEveryNamedFileReads_neverBefore; test_theOfferPromisesKeptSafeAndAReturn_andNeverSaysQuarantine; EditorSurfaceReadOnlyTests.test_theDiscriminatorSeparatesTypingFromEverythingElse (the ⌃-chord addition: the offer must raise on an actual keystroke, not an emacs-style navigation chord the reading view has to pass through untouched); ReadOnlyRecoveryTests.test_editorHostRefusalWiring_census (the Plan B section: OpLogQuarantine.quarantine( is the typed mover, tripwire 14 — never a raw FileManager.moveItem — and both the banner's and the pane's onSetAside reach this one verb)"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — born with the milestone",
+  "reachability": "LIVE — the refusal pane and the read-only banner, any unreadable-file cause",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-016",
+  "scope": "OpLogQuarantine.attemptReturn + RecoveredHistory.report — the return merge and the orphan report",
+  "kind": "POSTCONDITION",
+  "statement": "attemptReturn requires a clean, fully VERIFIED read of the quarantined bytes before anything moves: a still-unreadable file or one whose lines fail to decode (a torn tail) leaves the record .held rather than merging a partial view (spec §5 step 1 — salvage is the integrity path's job, not a merge input). A clean read merges by the existing cross-device sync rules (ADR 0012, opId-ordered, last-writer-wins-per-paragraph) and NEVER overwrites an existing destination file: if sync already delivered the same device's file back while it was set aside, the archive stays exactly where it is and the record is marked .superseded rather than moved a second time onto something already there. A sidecar rewrite that fails AFTER a successful move-back self-heals at READ time — records(forDocId:in:) reconciles a stale .held record whose quarantined bytes are gone against an already-returned destination file — rather than stranding the writer on a 'still set aside' notice forever. RecoveredHistory.report is the pure accounting behind the honest half: for every paragraph in the RETURNED file's own derivation, it is EITHER in the merged draft's sequence OR in the orphan report, proven by a 200-trial randomized property test over interleaved two-device op sets with sequence keyframes — never lost, never counted in both. Reached opportunistically — EditorHost's auto-return sweep on every normal document open, guarded off a read-only recovery bind — and explicitly, the History pane's Retry; the report reaches the writer through HistoryPane's standing notice ('N paragraphs … aren't in your draft — View', or 'Recovered history merged — nothing was missing' for zero orphans) and RecoveredHistorySheet, whose Append to End lands each orphan as an ordinary new insertParagraph op against the OPEN document only — rewindable, undoable, overwriting nothing — disabled with the honest reason 'Open the document to append' when the document is closed",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "OpLogQuarantineTests.test_return_destinationAbsent_movesBackAndReports; test_return_destinationPresent_neverOverwrites_archiveStays; test_return_tornLine_staysHeld; test_return_unreadable_staysHeld; test_records_selfCorrectsAStaleHeldRecord_overAnAlreadyReturnedFile; RecoveredHistoryTests.test_supersededParagraphIsAnOrphan_survivorIsNot; test_fullyRedundantReturn_reportsRedundant_noOrphans; test_returnedOnlyOps_mergeIn_lastWriterWinsPerParagraph; test_property_everyReturnedParagraphIsAccountedFor (200 trials); EditorHostAutoReturnNoticeTests (9 — no-records/all-unreadable/all-corrupt/mixed silence; returned and superseded with zero orphans both say nothing was missing; orphan counts named and summed across multiple records; an un-returned record never dilutes the returned count); HistoryPaneQuarantineNoticeTests (5 — the standing notice nil until something is held, named once records are held, the recovered-history notice's zero/n/singular grammar); RecoveredHistorySheetTests (4 — append lands at the sequence's end, repeated appends land in click order, an empty document still appends, the closed-document reason is honest copy)"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — born with the milestone",
+  "reachability": "LIVE — every normal document open with a held quarantine record; every History pane Retry",
+  "evidence": {
+   "property_test": "RecoveredHistoryTests.test_property_everyReturnedParagraphIsAccountedFor — 200 trials, randomized op sets"
+  }
+ },
+ {
+  "claim_id": "M9-OL-017",
+  "scope": "CheckpointFlashDecision.run — the ⌘S flash's honesty",
+  "kind": "POSTCONDITION",
+  "statement": "both ⌘S sites (CheckpointModifier's key command and the Shift-⌘S named-checkpoint sheet) route through the one decision: onSuccess (the flash) fires ONLY when capture returns; a thrown capture — a read-only recovery document refusing the write is a live cause — runs neither onSuccess nor the caller's own success path and instead posts a .maughamDocumentNotice naming the failure ('Couldn't save a checkpoint — <reason>'). Never both, never neither. Before the fix, both sites swallowed CheckpointCapture.run's throw with try? and flashed regardless — a checkpoint that did not land looked identical to one that did, the whole-branch review's finding",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "SaveFlashHonestyTests.test_aThrowingCaptureNeverFlashes_andPostsANoticeNamingWhy; test_ASucceedingCaptureFlashes_andPostsNoNotice (fix commit c12714bf)"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the fix",
+  "reachability": "LIVE — every ⌘S / Shift-⌘S press",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]
