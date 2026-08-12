@@ -1227,8 +1227,13 @@ public final class Document {
     /// claim and its filing moving alongside. The recovery rung needs only the
     /// recovery arm, so that is all it takes.
     ///
-    /// When M5-AN-048 is closed, these four sites collapse back onto
+    /// When M5-AN-048 is closed, the sites taking this arm collapse back onto
     /// `rejectMutationIfNotWritable` / `requireWritable` and this pair goes.
+    /// They are enumerated in ONE place — `ReadOnlyRecoveryTests`'
+    /// `narrowGuardAllowlist`, which is also what permits them: the census
+    /// treats this arm as a guard only for a name on that list, so a new
+    /// writer reaching for it is an offender. Count that array, not this
+    /// comment, which said "four" over three sites.
     internal func rejectMutationIfReadOnlyRecovery(_ site: StaticString) -> Bool {
         guard isReadOnlyRecovery else { return false }
         documentLog.error(

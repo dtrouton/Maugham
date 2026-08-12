@@ -26,7 +26,13 @@ final class ReadOnlyRecoveryTests: XCTestCase {
         do {
             _ = try await Document.load(url: docURL, device: "m", session: "s", presenter: nil)
             XCTFail("precondition: the strict load must refuse")
-        } catch {}
+        } catch {
+            XCTAssertNotNil(
+                RecoveryCause.classify(loadError: error, projectURL: project,
+                                       isDatalessStub: { _ in false }),
+                "a real refusal must classify — the whole ladder hangs on this "
+                + "error crossing Document.load unwrapped")
+        }
 
         // …then snapshot every byte the partial view must not change.
         let opsDir = project.appendingPathComponent(".maugham/ops")
@@ -121,10 +127,14 @@ final class ReadOnlyRecoveryTests: XCTestCase {
     }
 
     /// The census is only worth its runtime if it FAILS on an offender. This
-    /// plants three: an unguarded writer, one whose guard sits AFTER the write
-    /// (the subtle case a substring check would wave through), and one that
-    /// records into the pending buffer. The fourth function is properly
-    /// guarded and must NOT be reported.
+    /// plants four: an unguarded writer, one whose guard sits AFTER the write
+    /// (the subtle case a substring check would wave through), one that
+    /// records into the pending buffer, and one that reaches for the NARROW
+    /// recovery-only arm under a name the M5-AN-048 allowlist does not carry —
+    /// the case that satisfied the census by token match alone until the
+    /// allowlist was added. The two properly guarded functions — the full
+    /// guard, and the narrow arm under an allowlisted name — must NOT be
+    /// reported.
     func test_theCensusFailsOnAPlantedOffender() {
         let planted = """
             extension Document {
@@ -138,21 +148,33 @@ final class ReadOnlyRecoveryTests: XCTestCase {
                 func plantedPendingWriter() {
                     pending.recordChange(paragraphId: id, prior: nil, next: t)
                 }
+                func plantedNarrowGuardOffThePermittedList() async throws {
+                    if rejectMutationIfReadOnlyRecovery("plantedNarrowGuardOffThePermittedList") { return }
+                    try await opStore.append(op)
+                }
                 func plantedProperlyGuarded() async throws {
                     if rejectMutationIfNotWritable("plantedProperlyGuarded") { return }
+                    try await opStore.append(op)
+                }
+                func appendLifecycleOp() async throws {
+                    if rejectMutationIfReadOnlyRecovery("appendLifecycleOp") { return }
                     try await opStore.append(op)
                 }
             }
             """
         let found = Self.unguardedWriters(in: planted, file: "Planted.swift")
-        XCTAssertEqual(found.count, 3, "planted offenders missed: \(found)")
+        XCTAssertEqual(found.count, 4, "planted offenders missed: \(found)")
         for name in ["plantedUnguardedWriter", "plantedGuardTooLate",
-                     "plantedPendingWriter"] {
+                     "plantedPendingWriter",
+                     "plantedNarrowGuardOffThePermittedList"] {
             XCTAssertTrue(found.contains { $0.contains(name) },
                           "census missed \(name): \(found)")
         }
         XCTAssertFalse(found.contains { $0.contains("plantedProperlyGuarded") },
                        "census reported a correctly guarded function")
+        XCTAssertFalse(found.contains { $0.contains("appendLifecycleOp") },
+                       "census reported an M5-AN-048 site taking the narrow arm "
+                       + "it is named in `narrowGuardAllowlist` to take")
     }
 
     // MARK: - The delivery path
@@ -219,6 +241,21 @@ final class ReadOnlyRecoveryTests: XCTestCase {
         "load",
     ]
 
+    /// The sites permitted to satisfy the census with the NARROW
+    /// (recovery-only) arm of the choke point, rather than the full guard.
+    /// Every one is an annotation mutator whose closed-doc append is pinned by
+    /// register claim **M5-AN-048** — widening it would re-decide that claim,
+    /// which belongs in its own change with the claim and its filing moving
+    /// alongside. Count the array, not a sentence: when M5-AN-048 closes,
+    /// these collapse onto `rejectMutationIfNotWritable`/`requireWritable`
+    /// and this list empties. A NEW writer reaching for the narrow arm is an
+    /// offender until it is argued into this array in a review.
+    private static let narrowGuardAllowlist: Set<String> = [
+        "addAnnotation",                // value-returning; throws the refusal
+        "appendAnnotationOpInternal",   // the shared annotation-op funnel
+        "appendLifecycleOp",            // archive / reject / withdraw / reopen
+    ]
+
     private static func documentSourceFiles() throws -> [URL] {
         let here = URL(fileURLWithPath: #filePath)
         let repoRoot = here
@@ -249,12 +286,15 @@ final class ReadOnlyRecoveryTests: XCTestCase {
         in source: String, file: String
     ) -> [String] {
         let writeTokens = ["opStore.append(", "pending.recordChange("]
-        // The last two are the narrower recovery-only arm, which four
-        // annotation sites take because M5-AN-048 pins their closed-doc
-        // behaviour. They still consult the choke point, which is what the
-        // census is about.
-        let guardTokens = [
-            "rejectMutationIfNotWritable(", "requireWritable(",
+        // The full guard: refuses a write on a closed doc AND on a recovery
+        // view. Any writer may take it.
+        let broadGuardTokens = ["rejectMutationIfNotWritable(", "requireWritable("]
+        // The narrower recovery-only arm, which refuses the recovery view but
+        // leaves a CLOSED doc's appends exactly as M5-AN-048 characterises
+        // them. It satisfies the census ONLY for the sites named below: a new
+        // writer that reaches for it is choosing the weaker guard, and the
+        // census must say so rather than wave it through on a token match.
+        let narrowGuardTokens = [
             "rejectMutationIfReadOnlyRecovery(", "requireNotReadOnlyRecovery(",
         ]
 
@@ -280,7 +320,9 @@ final class ReadOnlyRecoveryTests: XCTestCase {
                     where: { $0.at < call.lowerBound }) else { continue }
                 if writerAllowlist.contains(owner.name) { continue }
                 let body = source[owner.at..<call.lowerBound]
-                let guarded = guardTokens.contains { body.contains($0) }
+                let guarded = broadGuardTokens.contains { body.contains($0) }
+                    || (narrowGuardAllowlist.contains(owner.name)
+                        && narrowGuardTokens.contains { body.contains($0) })
                 if !guarded {
                     offenders.append("\(file): \(owner.name) → \(token)")
                 }
