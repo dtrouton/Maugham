@@ -166,3 +166,13 @@ The case it is built for: you write on actual paper, photograph it with your pho
 - **From there it is yours, exactly like anything else on the canvas.** Move it, rewrite it, delete it, or **promote** it. There is no queue to approve and nothing to accept: the canvas is scratch, and the marking is what makes leaving it there a real choice rather than a default. A card stays marked as Claude's even after you have rewritten every word of it — the mark says who put it there, which is a fact about what happened.
 - **Promoting is still the only way any of it becomes durable**, on the same terms as your own cards: a note, a palette card, a line in your craft intent, and never without the sheet.
 
+### Troubleshooting: a document that won't open
+
+Manuscripts are stored as a history — an append-only log under `.maugham/ops/` — and the `.md` you see is rendered from it (see [The Editor & Focus](editor-and-focus.md)). If a piece of that history can't be read — a permissions problem, a file that vanished, an iCloud file that hasn't finished downloading — Maugham never shows you an empty document or an endless "Loading…". It refuses to open, names exactly what's wrong, and offers a way forward:
+
+- **iCloud hasn't downloaded it yet.** This is the common case on a machine you've just switched to. Maugham asks iCloud to download the file and waits — there's nothing for you to do — and the moment it's readable, the document opens normally, editable, with no extra step.
+- **A file is unreadable for another reason** — a permissions break, or something else got in the way. The pane names the file and says why. Two things are offered: **Open Read-Only**, which shows you everything the rest of the history can reconstruct — read it, copy from it, confirm nothing important is missing — while typing is refused and a banner reminds you the view can't be saved from; and **Restore from Backup…**, which opens the usual restore window. Fix the underlying problem (permissions, a missing file) and a banner across the top of the read-only view offers to reopen the document editable, with everything intact — it never reopens on its own out from under you.
+- **The history folder itself can't be listed.** Rarer, and more serious — there's nothing to read even partially. Restore from a backup is the way forward here.
+
+In every case: your words are not gone. The refusal is Maugham declining to guess at a manuscript it can't fully read, not a sign anything has been lost.
+

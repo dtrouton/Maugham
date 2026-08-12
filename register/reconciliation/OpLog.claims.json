@@ -190,5 +190,37 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M9-OL-013",
+  "scope": "Document.load(recovery: .readOnlyPartial) — the whole-life write refusal and the registry's blind spot",
+  "kind": "POSTCONDITION",
+  "statement": "a Document opened via Document.load(recovery: .readOnlyPartial) writes NOTHING across its whole life, including across close(): no op appended, the .md byte-identical, the pending file untouched, no checkpoint, no seal — every mutation entry point (setFullText, setParagraph, insertParagraph, deleteParagraph, reorder, flushBurstNow) consults the writability choke point (rejectMutationIfNotWritable / requireWritable) before it would reach opStore.append or pending.recordChange, held not by the entry points alone but by a CENSUS over every Document*.swift function reaching those two calls, so a mutation added later cannot quietly skip the choke point. Before this rung existed, the refusal above it (M9-OL-002/003) was the floor: an unreadable op-log file or unlistable ops directory REFUSED the whole document, offering the writer nothing but the bare error. EditorHost's recovery action wires the read-only load WITHOUT a second call to documentStore.register — the census over EditorHost.swift holds the register call count at exactly one (the normal path's), so a partial-view Document stays outside the registry MCP's read_document/add_note resolve through and is reachable only from the pane that opened it — born with the milestone (spec §4)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "ReadOnlyRecoveryTests.test_partialView_writesNothing_evenAcrossClose; test_partialView_refusesWhenNothingIsUnreadable; test_everyOpLogWriterConsultsTheWritabilityChokePoint; test_theCensusFailsOnAPlantedOffender; test_editorHostRefusalWiring_census"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — born with the milestone",
+  "reachability": "LIVE — any refusal rung the ladder's Open Read-Only action offers",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-014",
+  "scope": "RecoveryCause.classify + RecoveryPaneModel + RecoveryBannerModel — the refusal names its cause; the return is offered where a view is open and auto-opened from the refusal pane",
+  "kind": "POSTCONDITION",
+  "statement": "a document-load refusal is classified into one of three named causes before the pane renders anything (RecoveryCause.classify, reading only the REFUSAL error, never partial content): a dataless iCloud stub (icloudNotDownloaded) triggers a download, waits, and auto-opens editable the moment the file reads — and NEVER offers the read-only rung; an unreadable-for-another-reason file (unreadableFile) offers both the read-only view and Restore, with the reason riding in the pane's detail; an unlistable ops directory (unlistableOpsDirectory) offers Restore only, because nothing is enumerable to read partially. The return is asymmetric by where the writer is: from the refusal pane the fix auto-opens editable (RecoveryPaneModel's poller fires onOpenEditable once isReadable turns true, for both the stub and the fixed-permissions cases); from an already-open read-only view the fix is OFFERED, never yanked — RecoveryBannerModel.offersReopen only turns true once every named file reads again, and the model exposes no reload callback of its own to misuse. Before this ladder existed, every refusal rendered the same bare error message regardless of cause, offering no wait, no read, and no differentiated return — born with the milestone (spec §3)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RecoveryCauseTests.test_unreadableFile_thatIsAStub_classifiesAsICloudNotDownloaded; test_unreadableFile_notAStub_classifiesAsUnreadable_withReason; test_unlistableDirectory_classifies_andNeverProbesTheStub; test_anUnrelatedError_isNotAClassifiedCause; RecoveryPaneModelTests.test_stubCause_downloadsWaitsAndAutoOpens_neverOffersReadOnly; test_unreadableCause_offersTheLadder_andAutoOpensOnReadable; test_directoryCause_offersRestoreOnly; RecoveryBannerTests.test_message_namesTheFiles_andReasonRidesInDetail; test_reopenIsOffered_whenEveryNamedFileReads_neverBefore; test_typingRefusal_emphasisesTheBanner"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — born with the milestone",
+  "reachability": "LIVE — every document-load refusal the ladder classifies",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]
