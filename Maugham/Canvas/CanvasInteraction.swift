@@ -46,15 +46,25 @@ struct CanvasInteraction {
     /// writer half-meant to park it is a much smaller failure than a canvas
     /// where nothing ever glides.
     ///
-    /// **What guards the tight direction is the BAND assertion in
-    /// `test_theFlickStalenessBoundaryIsWhereItSaysItIs`, not the live one.**
-    /// Measured, not assumed: tightening this to `1.0 / 60` leaves all nine of
-    /// the `CanvasViewMounting*` tests green, and only setting it to `0` makes
-    /// `test_aFlickCarriesTheCardOnPastWhereThePointerLetGo` fail. That test
-    /// drives `mouseDragged`/`mouseUp` as back-to-back synchronous calls, so the
-    /// age it produces is a microsecond, not the frame-plus-latency a real
-    /// release produces — it can prove the guard is not absolute and nothing
-    /// finer. Do not tighten this on the strength of a green mounting suite.
+    /// **The age it measures is the WRITER'S, not ours** *(issue #34)*. Both
+    /// `update(to:in:now:)` and `end(now:)` are handed `NSEvent.timestamp` by
+    /// the live surface — `CanvasEventNSView`'s overrides through
+    /// `CanvasView.handleDrag` — rather than being left to default to
+    /// `CACurrentMediaTime()` at the moment we get round to the event. The two
+    /// clocks share a base (seconds since boot), so they are directly
+    /// comparable; what changed is WHOSE gap the number describes. Stamped at
+    /// processing time, a main-thread stall between the last `mouseDragged` and
+    /// the `mouseUp` aged a genuine throw past this constant and disarmed it,
+    /// which is a real writer's flick eaten on a loaded machine.
+    ///
+    /// **What guards the tight direction is still the BAND assertion in
+    /// `test_theFlickStalenessBoundaryIsWhereItSaysItIs`** — a pure unit that
+    /// drives `now:` directly and pins where the boundary sits. The mounted
+    /// tests now stamp their samples a frame apart through the same seam
+    /// production uses, so they exercise a plausible release gap instead of the
+    /// microsecond that back-to-back synchronous calls used to produce; that
+    /// makes them deterministic under load, not a measurement of the boundary.
+    /// Do not tighten this on the strength of a green mounting suite.
     static let maximumFlickAge: TimeInterval = 1.0 / 10
 
     private enum Mode: Equatable {

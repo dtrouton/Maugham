@@ -488,9 +488,9 @@ struct CanvasView: View {
                     handleClick(at: camera.contentPoint(fromView: viewPoint),
                                 clickCount: clickCount)
                 },
-                onDrag: { viewPoint, phase, shiftHeld in
+                onDrag: { viewPoint, phase, shiftHeld, timestamp in
                     handleDrag(at: camera.contentPoint(fromView: viewPoint), phase: phase,
-                               shiftHeld: shiftHeld)
+                               shiftHeld: shiftHeld, timestamp: timestamp)
                 },
                 onDeleteKey: { deleteSelection() },
                 onEscape: { escapeAsksForTheWholeBoard() },
@@ -1887,7 +1887,24 @@ struct CanvasView: View {
     /// drag inside a focused scrap belongs to the editor, which is in front and
     /// takes the mouse itself, so asking about connect marks above that guard
     /// would compute an answer for a press this view never sees.
-    private func handleDrag(at contentPoint: CGPoint, phase: CanvasDragPhase, shiftHeld: Bool) {
+    ///
+    /// **`timestamp` is the EVENT's time, and it goes exactly two places** —
+    /// `interaction.update(…, now:)` and `interaction.end(now:)`, the pair that
+    /// decides whether a release was a throw (issue #34). Every other arm here
+    /// ignores it, and deliberately: a region sweep or a resize has no velocity
+    /// to age, so threading it further would be handing a clock to code with no
+    /// use for one. Before it arrived, both calls defaulted to
+    /// `CACurrentMediaTime()` at PROCESSING time, so a main-thread stall between
+    /// the last `mouseDragged` and the `mouseUp` aged a real writer's flick past
+    /// `CanvasInteraction.maximumFlickAge` and disarmed it — a card that stopped
+    /// dead where the pointer let go, and the reason the mounted flick test
+    /// flaked on a loaded CI machine.
+    ///
+    /// Undefaulted, for `shiftHeld`'s reason one level up: the default belongs
+    /// at the SEAM and nowhere below it, so the one call site here has to say
+    /// which clock it means.
+    private func handleDrag(at contentPoint: CGPoint, phase: CanvasDragPhase, shiftHeld: Bool,
+                            timestamp: TimeInterval) {
         switch phase {
         case .began:
             // ANY press stops a coast — this one included, and one on bare
@@ -1943,7 +1960,9 @@ struct CanvasView: View {
             guard interaction.isActive else { return }
             // `persist: false`: a drag emits a position per frame and the save
             // it owns is the one at `.ended`.
-            model.withScene(persist: false) { interaction.update(to: contentPoint, in: &$0) }
+            model.withScene(persist: false) {
+                interaction.update(to: contentPoint, in: &$0, now: timestamp)
+            }
             // A resize rewraps, and `CanvasScene.setWidth` clears the cached
             // height to say so. Re-derive it NOW, not at `.ended`: a node with
             // no `cachedHeight` has no `frame`, and a node with no frame is
@@ -1985,7 +2004,7 @@ struct CanvasView: View {
                     mintedLine = interaction.endLine(at: contentPoint, in: &$0)
                 }
             }
-            let flick = interaction.end()
+            let flick = interaction.end(now: timestamp)
 
             // Whether the sweep actually changed the scene, read below. A sweep
             // that minted nothing and bound nothing changed no part of it, and it
