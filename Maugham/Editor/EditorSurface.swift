@@ -507,15 +507,40 @@ final class MaughamTextView: NSTextView {
 
     /// Recovery spec §4: typing in a read-only recovery view is refused AND
     /// answered — the host surfaces the next rung's offer. Fired only when
-    /// `isEditable == false`; nil (the default) restores plain AppKit refusal.
+    /// `isEditable == false` and only for an event that would have INSERTED
+    /// text (`isTextInsertionEvent`); nil (the default) restores plain AppKit
+    /// refusal.
     var onTypingRefusedWhileReadOnly: (() -> Void)?
 
     override func keyDown(with event: NSEvent) {
-        if !isEditable, let onTypingRefusedWhileReadOnly {
+        if !isEditable, let onTypingRefusedWhileReadOnly,
+           Self.isTextInsertionEvent(event) {
             onTypingRefusedWhileReadOnly()
             return
         }
         super.keyDown(with: event)
+    }
+
+    /// Would this event have put a character in the text, had the view been
+    /// editable? Only those are refused-and-signalled; **everything else must
+    /// reach `super`**, because a reading view is for reading: arrows, page,
+    /// home/end, escape and ⌘-chords all navigate, and swallowing them leaves
+    /// the writer looking at a document they cannot scroll while the banner
+    /// flares at them for pressing ↓.
+    ///
+    /// The discriminator is the code point AppKit delivers.
+    /// `charactersIgnoringModifiers` gives navigation and function keys a
+    /// scalar in the private-use block `NSUpArrowFunctionKey…` (0xF700–0xF8FF),
+    /// and escape/tab/return/delete arrive as C0 controls or DEL — none of
+    /// which is a character anyone meant to type.
+    static func isTextInsertionEvent(_ event: NSEvent) -> Bool {
+        // ⌘-anything is a command being sent, not a word being written.
+        if event.modifierFlags.contains(.command) { return false }
+        guard let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first
+        else { return false }
+        if (0xF700...0xF8FF).contains(scalar.value) { return false }
+        if scalar.value < 0x20 || scalar.value == 0x7F { return false }
+        return true
     }
 
     // MARK: - Insertion point height
