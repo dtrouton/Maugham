@@ -151,8 +151,9 @@ final class CanvasHighlightTests: XCTestCase {
     /// wrong for the same reason `ProjectWindow.validSubject`'s document
     /// fallback was: a deletion is not a deliberate entry into the dim. Delete
     /// the chapter the canvas is filtered on and the board went dark with no lit
-    /// set, no offer — `CanvasBindingOffer.isOffered` guards `case .piece` and
-    /// correctly refuses a group — and nothing on screen saying why.
+    /// set, no offer — `CanvasBindingOffer.message` answers only a `.piece` or a
+    /// `.research` subject and correctly refuses a group — and nothing on screen
+    /// saying why.
     ///
     /// The two cases the old answer conflated are now apart, and the split is
     /// what makes `.group`'s own doc comment true again: a group that really

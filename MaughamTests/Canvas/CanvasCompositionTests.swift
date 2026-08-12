@@ -104,6 +104,48 @@ final class CanvasCompositionTests: XCTestCase {
             + "clicks never reach the event view")
     }
 
+    /// **The standing chrome sits BENEATH the event view**, which is what keeps
+    /// it out of the pointer's way with no opt-out of its own — the count above
+    /// stays at two precisely because this layer does not add a third.
+    ///
+    /// Stage 3b gave it a second message and a parameter; neither may move it up
+    /// the stack, and a `CanvasBindingOfferView` in front of `CanvasEventView`
+    /// would swallow every click landing on the middle of a dimmed board — the
+    /// one region of the surface the writer is being invited to act on.
+    func test_theStandingChromeIsBeneathTheEventView() throws {
+        let src = codeOnly(try canvasViewSource())
+        let body = try bodySource(src)
+        let chrome = try XCTUnwrap(body.range(of: "CanvasBindingOfferView("),
+                                   "CanvasView no longer composes the standing chrome")
+        let event = try XCTUnwrap(body.range(of: "CanvasEventView("))
+        XCTAssertTrue(chrome.lowerBound < event.lowerBound,
+                      "the chrome is in FRONT of the event view, so it eats clicks "
+                      + "in the middle of the board — where a dimmed canvas is "
+                      + "asking to be swept")
+    }
+
+    /// **Tripwire 30 on the arrival reveal**: the camera moves when the SUBJECT
+    /// changes, and on no other occasion.
+    ///
+    /// Two failures, neither visible on screen in a way a reader would attribute
+    /// to this wiring. Keyed on `revision` or `sceneRevision` instead, dragging
+    /// the revealed card would re-centre it under the writer's own hand once per
+    /// frame; given `initial: true`, a window reopened onto a research subject
+    /// would yank the camera away from where the writer left it, which is a
+    /// restore being treated as an arrival.
+    func test_theArrivalRevealIsKeyedOnTheSubjectChangeAlone() throws {
+        let src = codeOnly(try canvasViewSource())
+        XCTAssertTrue(
+            src.contains(".onChange(of: subject) { _, arrived in "
+                         + "bringArrivingResearchCardIntoView(arrived) }"),
+            "the reveal must fire from a bare subject `.onChange` — no `initial:`, "
+            + "because a restored subject is not an arrival")
+        XCTAssertEqual(
+            src.components(separatedBy: "bringArrivingResearchCardIntoView").count - 1, 2,
+            "the declaration and exactly ONE caller: a second call site is either a "
+            + "per-frame path or a second answer to when the camera moves")
+    }
+
     /// The editor must EXIST from the click. §7A.5 licenses a late caret, not
     /// lost keystrokes: gate the mount itself on `isLevel` and the first
     /// character or two of a double-click-and-type reach no editor at all.

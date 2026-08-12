@@ -40,9 +40,9 @@ import MaughamCore
 /// reading that a subject naming nothing bindable behaves like an empty group.
 /// The two are indistinguishable *inside* this type and completely different on
 /// screen: delete the chapter the canvas is filtered on and the board went fully
-/// dim with no lit set, no `CanvasBindingOffer` (which guards `case .piece` and
-/// so refuses a group — correctly for a group, silently for this) and nothing
-/// saying why. An unresolvable id is not a subject at all: nobody clicked it,
+/// dim with no lit set, no `CanvasBindingOffer` (which answers only a `.piece`
+/// or a `.research` subject and so refuses a group — correctly for a group,
+/// silently for this) and nothing saying why. An unresolvable id is not a subject at all: nobody clicked it,
 /// because the thing they clicked no longer exists. It resolves to
 /// `.wholeProject`, on the same principle as `ProjectWindow.validSubject`'s
 /// ruling — **the dim is entered by a click**, and a deletion is not one.
