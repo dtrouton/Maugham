@@ -78,11 +78,13 @@ public enum ScrapText {
 
         func flush() {
             guard let id = currentID else { return }
-            // Trim only the blank lines the renderer added around the body. An
-            // empty scrap therefore survives as "" rather than vanishing.
+            // The renderer added exactly one blank line on each side of the
+            // body (see `render`); strip AT MOST one from each end, so blank
+            // lines the writer typed survive the round trip. Conditional, not
+            // unconditional: a body whose last line is prose must keep it.
             var lines = body
-            while lines.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { lines.removeFirst() }
-            while lines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { lines.removeLast() }
+            if lines.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { lines.removeFirst() }
+            if lines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { lines.removeLast() }
             result[id] = unescape(lines.joined(separator: "\n"))
             body = []
         }
