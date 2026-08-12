@@ -335,8 +335,10 @@ the sharpest emergent seam mid-branch instead: upstream's throwing
 `PublicationStore.load()` landing in the new preview resolver). One fix
 wave (docs) applied and re-reviewed. Full no-skip gate green at the merge.
 The branch reconciles origin/main at `ff88aed4` (strict-read ×2 +
-recovery-plan-a); recovery Plan B was expected to push after this session's
-merge — check for it before pushing main.*
+recovery-plan-a); recovery Plan B (`1bb3079f`) was then merged in as
+`662f2ded` — zero fix commits, one AREA.md prose conflict, full no-skip
+gate green (5,612 Mac + 535 core), so main is one line holding BOTH
+milestones, unpushed.*
 
 ### What 3b built (pointers, not restatements — the plan and AREA.md files carry the detail)
 
@@ -400,6 +402,18 @@ verb (`.sharedPlusLink` rows) with the resurrected picker surfacing errors.
    leave-and-return.
 
 ### Flakes and process residue
+
+- **The composition smoke** (3b × recovery, suggested by the Plan B
+  reconcile): a project with a set-aside record → ⌘S over a read-only
+  recovery view (the flash must not fire) → double-click a tree row in
+  Plan to travel to Author → the History pane's standing notice follows
+  the document. Also: the auto-return hook runs on every normal document
+  bind, and the travel double-click makes binds more frequent than when
+  that trade was measured — no defect found (early-returns on an empty
+  held set), just worth a glance live.
+- **`git fetch` before any reconcile** — the Plan B merge found the local
+  `origin/main` ref stale; merging without fetching would have been a
+  silent no-op that looked clean.
 
 - **Second sighting** of
   `ScreenplaySingleParseTests.test_applyTypography_usesPassedScript_notReparse`
