@@ -161,4 +161,28 @@ final class CanvasStoreTests: XCTestCase {
         XCTAssertEqual(CanvasStore(projectRoot: root).load().scraps[CanvasNodeID("s1")],
                        "what the writer actually typed")
     }
+
+    /// F11 (issue #28): the content file must hit disk before the derived one.
+    /// A crash in the gap between the two writes may only ever LAG `canvas.json`
+    /// — the old order could resurrect a node in the sidecar whose words never
+    /// reached `canvas.md`, and the scrap reloads empty (constitution must #1).
+    /// Black-box I/O cannot see the interleaving, so this pins the source.
+    func test_writeNowPutsContentBeforeDerived() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // MaughamTests/Canvas
+            .deletingLastPathComponent()          // MaughamTests
+            .deletingLastPathComponent()          // repo root
+            .appendingPathComponent("Maugham/Canvas/CanvasStore.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        guard let fn = text.range(of: "func writeNow") else {
+            return XCTFail("writeNow not found — if it was renamed, move this pin with it")
+        }
+        let tail = text[fn.lowerBound...]
+        guard let content = tail.range(of: "ScrapText.render"),
+              let derived = tail.range(of: "writeSidecar(") else {
+            return XCTFail("writeNow no longer names both writes — re-pin the new spellings")
+        }
+        XCTAssertTrue(content.lowerBound < derived.lowerBound,
+            "canvas.md (content) must be written before canvas.json (derived)")
+    }
 }

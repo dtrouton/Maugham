@@ -126,8 +126,12 @@ final class CanvasStore {
     }
 
     private func writeNow(scene: CanvasScene, scraps: [CanvasNodeID: String]) {
-        writeSidecar(scene)
+        // Content first, derived second (F11, issue #28): both writes are
+        // individually atomic but the PAIR is not, and a crash in the gap must
+        // only ever lag the deletable sidecar — never leave a node in
+        // canvas.json whose words missed canvas.md.
         try? ScrapText.render(scraps).write(to: scrapsURL, atomically: true, encoding: .utf8)
+        writeSidecar(scene)
     }
 
     private func writeSidecar(_ scene: CanvasScene) {
