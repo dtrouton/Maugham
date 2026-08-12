@@ -37,6 +37,13 @@ final class DeclaredWorldDeriverTests: XCTestCase {
         /// `test_theDeadlineTerminatesAnOverrunningProcess`. Ignores nothing;
         /// it simply never gets there, so only `terminate()` ends it.
         case hangs
+        /// Never answer, and hang via a child that has moved to its OWN
+        /// process group — so `terminate()`'s group SIGTERM kills the script
+        /// but the child survives, holding the inherited stdout pipe open and
+        /// withholding EOF. The deterministic form of what CI run 31595012981
+        /// hit intermittently (the killpg/fork race), and the shape of any
+        /// real CLI grandchild that escapes the group kill.
+        case hangsDetached
     }
 
     /// How much padding the `.large` fixture carries. A macOS pipe holds 64 KB;
@@ -52,6 +59,10 @@ final class DeclaredWorldDeriverTests: XCTestCase {
     /// carried inside it: a quarter-megabyte base64 literal in a bash source
     /// file is a script no one can read and a diff no one can review.
     private var payloadURL: URL { tempDir.appendingPathComponent("payload.json") }
+    /// Where the `.hangsDetached` fixture records its escaped child's PID, so
+    /// the test can reap exactly that process — a `pkill -f` pattern here
+    /// once killed the harness shell whose own command line contained it.
+    private var detachedPidURL: URL { tempDir.appendingPathComponent("detached.pid") }
 
     override func setUp() async throws {
         try await super.setUp()
@@ -104,7 +115,7 @@ final class DeclaredWorldDeriverTests: XCTestCase {
             let padding = String(repeating: "a very long reading. ",
                                  count: largePaddingBytes / 21)
             return #"{"clauses":[{"quote":"Kelly never speaks first.","check":"\#(padding)"}],"rules":[]}"#
-        case .hangs:
+        case .hangs, .hangsDetached:
             // Never printed — the script exits via `terminate()` before it
             // would reach this line.
             return ""
@@ -148,6 +159,13 @@ final class DeclaredWorldDeriverTests: XCTestCase {
 
         if [ "$MODE" = "hangs" ]; then
           sleep 999999
+          exit 0
+        fi
+
+        if [ "$MODE" = "hangsDetached" ]; then
+          /usr/bin/perl -e 'setpgrp(0,0); sleep 987654' &
+          echo $! > "\(detachedPidURL.path)"
+          wait
           exit 0
         fi
 
@@ -434,11 +452,61 @@ final class DeclaredWorldDeriverTests: XCTestCase {
         XCTAssertFalse(stillRunning, "the overrunning process must be terminated, not orphaned")
     }
 
+    /// **The deadline answers on its own authority, not the process tree's.**
+    /// `terminate()`'s group SIGTERM is not guaranteed to reach every member:
+    /// a child in its own process group — the killpg/fork race CI run
+    /// 31595012981 hit, or any real CLI grandchild that setsids — survives
+    /// the kill holding the inherited stdout pipe, so EOF never arrives and
+    /// the EOF-and-exit pairing never resolves. The deadline path must
+    /// force-resolve (the ordinary honest `nil`) after its termination grace
+    /// rather than wait forever on a pipe a stranger is holding.
+    func test_theDeadlineComesBackEvenWhenAChildSurvivesTheKill() async throws {
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/perl") else {
+            throw XCTSkip("no /usr/bin/perl to build the group-escaping child with")
+        }
+        // The escaped child outlives the test by design — reap it however the
+        // test ends, by the exact PID the fixture recorded. Never by a
+        // `pkill -f` pattern: any process whose command line merely CONTAINS
+        // the pattern is in the blast radius, and the first draft of this
+        // cleanup killed the harness shell that had typed it.
+        defer {
+            if let pidText = try? String(contentsOf: detachedPidURL, encoding: .utf8),
+               let pid = Int32(pidText.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                kill(pid, SIGKILL)
+            }
+        }
+
+        let cli = try makeFakeCLI(mode: .hangsDetached)
+        let deriver = makeDeriver(cli: cli, deadline: 0.3)
+
+        let returned = expectation(description: "the derivation came back")
+        let result = Box<DerivedWorld?>(nil)
+        let started = Date()
+        Task {
+            result.value = await deriver.derive(statementText: "Kelly never speaks first.")
+            returned.fulfill()
+        }
+        await fulfillment(of: [returned], timeout: 10)
+
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 8,
+            "deadline + grace must resolve the run even though the pipe is "
+            + "still held — never the test timeout")
+        XCTAssertNil(
+            result.value,
+            "a terminated-but-not-quite-dead run resolves to the same honest "
+            + "nil as every other unreadable answer")
+    }
+
     /// Well inside the deadline, an ordinary run is unaffected — the timer
-    /// exists only for the case that never resolves on its own.
+    /// exists only for the case that never resolves on its own. The injected
+    /// deadline is deliberately GENEROUS (it was 0.3s, and a loaded parallel
+    /// suite can spend that on process spawn alone — flaked exactly so,
+    /// 2026-08-12): this test proves the timer doesn't kill a healthy run,
+    /// and a tight margin proves only that the box was busy.
     func test_anOrdinaryRunFinishesWellInsideTheDeadline() async throws {
         let cli = try makeFakeCLI(mode: .bare)
-        let deriver = makeDeriver(cli: cli, deadline: 0.3)
+        let deriver = makeDeriver(cli: cli, deadline: 10)
 
         let world = await deriver.derive(statementText: "Kelly never speaks first.")
 

@@ -3990,4 +3990,160 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(offenders.first?.contains("setMagnification(level, centeredAt: .zero)") == true,
             "Self-check: the planted setMagnification( call should be the one caught.")
     }
+
+    // MARK: - "Quarantine" never reaches the writer (recovery fix round, M5)
+
+    /// **The internal term stays internal.** Plan B's verb is `quarantine`;
+    /// what the writer is told is that part of their history was *set aside*.
+    /// That rule lived in three doc comments and one reviewer's memory — and it
+    /// had already been broken once, in the crash-recovery notice's "a record
+    /// was kept in the project's quarantine folder", which shipped on main and
+    /// which no test could see. Copy rules that are only written down decay;
+    /// this is the census that makes this one durable.
+    ///
+    /// **What is scanned:** the contents of single-line string literals in
+    /// every `.swift` file under `Maugham/Views/` plus
+    /// `Maugham/Editor/EditorSurface.swift` — the two places writer-visible
+    /// copy is composed. Selected negatively (every literal, minus the named
+    /// exemptions) rather than by listing `Text(`/`Label(`/`Button(`/
+    /// `postNotice(` call shapes: writer-visible copy also arrives through
+    /// `.help`, `accessibilityHint`, `NSAlert.informativeText`, a `static let`
+    /// two hundred lines from its own view, and whatever the next surface
+    /// invents, and a ban that only knows four spellings misses all of them.
+    ///
+    /// **What is exempt, and why:** whole comments and comment tails (through
+    /// `SourceScan`, so a doc comment explaining this very rule cannot trip
+    /// it); a diagnostic channel's own declaration (`Logger(`/`subsystem:`/
+    /// `category:` — `"HistoryPaneQuarantine"` is a log category, not a
+    /// sentence); and `os.Logger` call lines, which are written for whoever
+    /// debugs this and SHOULD name the verb (`Log.error(`, `Log.notice(`, …,
+    /// and `privacy:`, which is meaningless outside a Logger interpolation).
+    ///
+    /// **What it cannot see:** multi-line (`"""`) literals — a line carrying
+    /// one is skipped whole rather than guessed at, and the two in this tree
+    /// today are an iCloud alert and a JSON snippet. A censused ban with a
+    /// blind spot is worth saying out loud (`SourceScan`'s own doc comment
+    /// makes the same admission about unclosed blocks); this one is narrow and
+    /// the self-check below plants the shapes that matter.
+    private static let writerVisibleBannedTerm = "quarantine"
+
+    /// Lines whose literals are diagnostics rather than copy.
+    private static let diagnosticLineMarkers = [
+        "Logger(", "subsystem:", "category:", "privacy:",
+        "Log.error(", "Log.notice(", "Log.debug(", "Log.info(",
+        "Log.warning(", "Log.fault(", "Log.critical(", "Log.trace(",
+    ]
+
+    /// The contents of the single-line string literals on `line`, honouring
+    /// backslash escapes. A line carrying a `"""` delimiter is skipped whole —
+    /// this reader does not model multi-line literals and will not pretend to.
+    private static func stringLiterals(in line: String) -> [String] {
+        guard !line.contains("\"\"\"") else { return [] }
+        var literals: [String] = []
+        var current = ""
+        var inLiteral = false
+        var escaped = false
+        for ch in line {
+            if escaped { if inLiteral { current.append(ch) }; escaped = false; continue }
+            if ch == "\\" { escaped = true; continue }
+            if ch == "\"" {
+                if inLiteral { literals.append(current); current = "" }
+                inLiteral.toggle()
+                continue
+            }
+            if inLiteral { current.append(ch) }
+        }
+        return literals
+    }
+
+    /// Every writer-visible literal under `dir` (plus `extraFiles`) whose text
+    /// names the banned term, as "file:line: literal".
+    private func bannedTermInWriterCopy(
+        in dir: URL, extraFiles: [URL] = []
+    ) throws -> [String] {
+        let fm = FileManager.default
+        var urls = extraFiles
+        if let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) {
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                urls.append(url)
+            }
+        }
+        var offenders: [String] = []
+        for url in urls {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            // A file whose scan ends inside an unclosed `/*` hides its tail
+            // from this BAN — the quiet failure direction (see
+            // `test_noScannedFileIsTruncatedByAnUnclosedBlockComment`).
+            XCTAssertFalse(SourceScan.endsInsideABlock(text),
+                "\(url.lastPathComponent) ends its scan inside an unclosed /* — "
+                + "everything after that point is invisible to this ban")
+            for (i, line) in SourceScan.codeLines(of: text).enumerated() {
+                if Self.diagnosticLineMarkers.contains(where: { line.contains($0) }) { continue }
+                for literal in Self.stringLiterals(in: line)
+                where literal.localizedCaseInsensitiveContains(Self.writerVisibleBannedTerm) {
+                    offenders.append("\(url.lastPathComponent) (code line \(i + 1)): \(literal)")
+                }
+            }
+        }
+        return offenders
+    }
+
+    func test_noWriterVisibleCopyNamesTheQuarantineVerb() throws {
+        let offenders = try bannedTermInWriterCopy(
+            in: sourceDir.appendingPathComponent("Views", isDirectory: true),
+            extraFiles: [sourceDir.appendingPathComponent("Editor/EditorSurface.swift")])
+        XCTAssertTrue(offenders.isEmpty,
+            "Writer-facing copy names the internal verb. What the writer is told "
+            + "is that history was SET ASIDE — see HistoryPane.quarantineNotice "
+            + "and EditorHost's set-aside notices for the voice. If the string is "
+            + "really a diagnostic, it belongs in an os.Logger call, which this "
+            + "census exempts. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check, both directions in one plant: three writer-visible spellings
+    /// must fire — including one on a CONTINUATION line of a multi-line
+    /// `postNotice`, which is how the real notices are written — and the three
+    /// legitimate uses beside them (a doc comment explaining the rule, a log
+    /// category, an `os.Logger` call naming the verb) must not.
+    func test_theWriterCopyBanFiresOnPlantedOffendersAndSparesDiagnostics() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-writercopy-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try #"""
+        /// Prose naming quarantine — the rule's own explanation must not fire.
+        struct Offenders: View {
+            private let log = Logger(subsystem: "x", category: "PaneQuarantine")
+            static let standing = "Part of this history is in quarantine."
+            var body: some View {
+                Text("This history was quarantined")
+                Label("Quarantine folder", systemImage: "tray")
+                Button("Retry", action: retryQuarantine)   // the CODE may say it
+            }
+            func report(_ name: String) {
+                log.error("retryQuarantine: \(name, privacy: .public) still held")
+                MaughamEvent.postNotice(
+                    "Maugham put it in the Quarantine folder.",
+                    projectURL: url)
+            }
+        }
+        """#.write(to: tmp.appendingPathComponent("Offenders.swift"),
+                   atomically: true, encoding: .utf8)
+
+        let offenders = try bannedTermInWriterCopy(in: tmp)
+        let caught = offenders.map { String($0.split(separator: ": ", maxSplits: 1).last ?? "") }.sorted()
+        XCTAssertEqual(caught, [
+            "Maugham put it in the Quarantine folder.",
+            "Part of this history is in quarantine.",
+            "Quarantine folder",
+            "This history was quarantined",
+        ], "Self-check: every writer-visible spelling fires — the standing "
+         + "`static let` far from its view, the two SwiftUI labels, and the "
+         + "continuation line of a multi-line postNotice — while the doc "
+         + "comment, the log category and the Logger call do not. Got:\n"
+         + offenders.joined(separator: "\n"))
+    }
 }

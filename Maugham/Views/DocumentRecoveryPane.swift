@@ -14,6 +14,7 @@ final class RecoveryPaneModel {
     private let startDownload: (URL) -> Void
     private let onOpenEditable: () -> Void
     let onOpenReadOnly: () -> Void
+    let onSetAside: () -> Void
     private var watcher: Task<Void, Never>?
 
     init(cause: RecoveryCause, projectURL: URL,
@@ -21,7 +22,8 @@ final class RecoveryPaneModel {
          blockageCleared: @escaping (URL) -> Bool = RecoveryPaneModel.defaultBlockageClearedProbe,
          startDownload: @escaping (URL) -> Void = RecoveryPaneModel.defaultStartDownload,
          onOpenEditable: @escaping () -> Void,
-         onOpenReadOnly: @escaping () -> Void) {
+         onOpenReadOnly: @escaping () -> Void,
+         onSetAside: @escaping () -> Void) {
         self.cause = cause
         self.projectURL = projectURL
         self.probeInterval = probeInterval
@@ -29,6 +31,7 @@ final class RecoveryPaneModel {
         self.startDownload = startDownload
         self.onOpenEditable = onOpenEditable
         self.onOpenReadOnly = onOpenReadOnly
+        self.onSetAside = onSetAside
     }
 
     var offersReadOnly: Bool {
@@ -36,6 +39,25 @@ final class RecoveryPaneModel {
         return false
     }
     var offersRestore: Bool { true }
+
+    /// The rung ABOVE read-only (Plan B, spec §5): move the file that refused
+    /// out of `.maugham/ops/` and open the document editable without it. Same
+    /// single cause as `offersReadOnly`, and for reasons that are NOT the same
+    /// — so this is spelled out rather than aliased:
+    ///
+    ///   - `.icloudNotDownloaded` — the stub rule. The file is not broken, it
+    ///     is in transit, and this very pane has already asked iCloud for it.
+    ///     Moving it fights that download. (`OpLogQuarantine.quarantine`
+    ///     refuses a stub outright; this keeps the offer from appearing at all,
+    ///     so the writer is never shown a button that cannot work.)
+    ///   - `.unlistableOpsDirectory` — the nothing-enumerable rule. The cause
+    ///     names no file, because what refused was the directory holding all of
+    ///     them. There is nothing single to move, and moving the directory
+    ///     would be moving the history itself.
+    var offersSetAside: Bool {
+        if case .unreadableFile = cause { return true }
+        return false
+    }
 
     var headline: String {
         switch cause {
@@ -148,6 +170,15 @@ struct DocumentRecoveryPane: View {
             HStack(spacing: 8) {
                 if model.offersReadOnly {
                     Button("Open Read-Only") { model.onOpenReadOnly() }
+                }
+                // Plan B's rung. Not "Quarantine…": the folder on disk is
+                // named that and so is the verb, but what the writer is being
+                // offered is their document back, and the promise that the
+                // broken history is kept rather than thrown away is made in the
+                // detail copy above and in `OpLogQuarantine`'s byte-identical
+                // move — never in a word that sounds like a diagnosis.
+                if model.offersSetAside {
+                    Button("Set the File Aside and Keep Writing") { model.onSetAside() }
                 }
                 if model.offersRestore {
                     Button("Restore from Backup…") {

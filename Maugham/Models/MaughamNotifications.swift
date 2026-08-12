@@ -14,10 +14,11 @@ import Foundation
 ///   window.
 /// - **`.project(id:)`** (data events for windows on one project —
 ///   `maughamScriptDidUpdate`, `maughamOpenRewind`, `maughamMCPNoteAdded`,
-///   `maughamCheckpointAdded`, `maughamSessionLogChanged`,
-///   `maughamNavigateToDocument`, `maughamTranslationDidUpdate`,
-///   `maughamCanvasNodesAdded`, `maughamDocumentNotice`): delivered to live
-///   windows on the matching project only.
+///   `maughamCheckpointAdded`, `maughamQuarantineRecordsChanged`,
+///   `maughamSessionLogChanged`, `maughamNavigateToDocument`,
+///   `maughamTranslationDidUpdate`, `maughamCanvasNodesAdded`,
+///   `maughamDocumentNotice`): delivered to live windows on the matching
+///   project only.
 /// - **`.allWindows`** (genuinely global fan-out, no liveness guard — see the
 ///   per-name zombie-harm audit note where present): `maughamNewProject`,
 ///   `maughamOpenProject`, `maughamAppWillTerminate`, `maughamShowHelp`.
@@ -194,6 +195,22 @@ extension Notification.Name {
     public static let maughamNamedCheckpoint = Notification.Name("maugham.named.checkpoint")
     /// Posted when `.maugham/checkpoints.jsonl` is added or changed.
     public static let maughamCheckpointAdded = Notification.Name("maughamCheckpointAdded")
+    /// Posted when a document's SET-ASIDE (Plan B quarantine) records change
+    /// behind another surface's back: `EditorHost`'s auto-return sweep runs on
+    /// every normal document open and can return or supersede a record without
+    /// anyone asking. `HistoryPane` shows those records and offers a Retry per
+    /// pane load, so without this its standing notice went stale and its button
+    /// re-attempted history that had already come back.
+    ///
+    /// No payload: which records are held is the receiving pane's own answer
+    /// (it re-reads them for its `activeDocId`), not the sweep's.
+    ///
+    /// Scope: .project(id:) — a data event, like `maughamCheckpointAdded`. The
+    /// sweep is scoped to a project's files, every window on that project shows
+    /// the same records, and a closed window must reload nothing (the receive
+    /// helper's liveness guard, ADR 0021).
+    public static let maughamQuarantineRecordsChanged = Notification.Name(
+        "maugham.quarantine.recordsChanged")
     /// Posted when the AnnotationsPane wants the editor to scroll to/select a paragraph.
     /// userInfo["paragraph_id"] contains the paragraph id string.
     public static let maughamNavigateToParagraph = Notification.Name(

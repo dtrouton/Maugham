@@ -135,6 +135,7 @@ final class EditorHostRecoveryActionGuardTests: XCTestCase {
             blockageCleared: { _ in probe() },
             startDownload: { _ in XCTFail("no download for a non-stub cause") },
             onOpenEditable: onOpenEditable,
-            onOpenReadOnly: {})
+            onOpenReadOnly: {},
+            onSetAside: {})
     }
 }

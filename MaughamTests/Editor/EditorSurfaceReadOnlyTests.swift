@@ -101,16 +101,32 @@ final class EditorSurfaceReadOnlyTests: XCTestCase {
         }
         XCTAssertFalse(MaughamTextView.isTextInsertionEvent(Self.keyEvent("s", command: true)),
                        "⌘S is a command being sent, not a word being written")
+        // ⌃-chords are AppKit's emacs-style navigation — ⌃A/⌃E to the ends of
+        // the line, ⌃P/⌃N up and down, ⌃K to kill. `charactersIgnoringModifiers`
+        // hands them back the BARE letter, so the code-point discriminator
+        // alone reads ⌃E as someone typing "e": the reading view would swallow
+        // the caret move and flare the banner for a navigation key, which is
+        // the exact complaint the function-key arm above exists to answer.
+        for chord in ["a", "e", "p", "n", "k"] {
+            XCTAssertFalse(
+                MaughamTextView.isTextInsertionEvent(Self.keyEvent(chord, control: true)),
+                "⌃\(chord.uppercased()) is emacs-style navigation, not typing")
+        }
         for typed in ["a", "Z", " ", "é", "—", "7"] {
             XCTAssertTrue(MaughamTextView.isTextInsertionEvent(Self.keyEvent(typed)),
                           "\(typed) is someone trying to write")
         }
     }
 
-    private static func keyEvent(_ char: String, command: Bool = false) -> NSEvent {
-        NSEvent.keyEvent(
+    private static func keyEvent(
+        _ char: String, command: Bool = false, control: Bool = false
+    ) -> NSEvent {
+        var flags: NSEvent.ModifierFlags = []
+        if command { flags.insert(.command) }
+        if control { flags.insert(.control) }
+        return NSEvent.keyEvent(
             with: .keyDown, location: .zero,
-            modifierFlags: command ? [.command] : [],
+            modifierFlags: flags,
             timestamp: 0, windowNumber: 0, context: nil,
             characters: char, charactersIgnoringModifiers: char,
             isARepeat: false, keyCode: 0)!

@@ -20,6 +20,36 @@ final class MCPBinaryIntegrationTests: XCTestCase {
         return nil
     }
 
+    /// Mirror of MCPColdStartTests' dead-bridge discipline (2026-08-12, issue
+    /// #32) — see that file's `BridgeDied` doc for the CI history. Kept
+    /// per-file because the two harnesses share no types today. Exposure here
+    /// is lower (no staged race, so nothing to restage): the point is only
+    /// that a dead child arrives as this diagnosis, never as
+    /// NSFileHandleOperationException.
+    private struct BridgeDied: Error, CustomStringConvertible {
+        let phase: String
+        let underlying: String
+        var description: String {
+            "bridge child died (\(phase)): \(underlying) — on a loaded machine "
+                + "this is machine pathology worth a human look, not a bridge defect"
+        }
+    }
+
+    /// Writes exactly the bytes given (call sites already embed their own
+    /// newlines) through the throwing Swift API, guarded on liveness.
+    private func send(_ p: Process, raw text: String) throws {
+        guard p.isRunning else {
+            throw BridgeDied(phase: "before the write",
+                underlying: "exit status \(p.terminationStatus)")
+        }
+        let handle = (p.standardInput as! Pipe).fileHandleForWriting
+        do {
+            try handle.write(contentsOf: Data(text.utf8))
+        } catch {
+            throw BridgeDied(phase: "during the write", underlying: "\(error)")
+        }
+    }
+
     func test_binary_synthesizesNotRunning_whenSocketAbsent() throws {
         guard let bin = binaryURL() else {
             throw XCTSkip("maugham-mcp not built in this product dir")
@@ -42,11 +72,11 @@ final class MCPBinaryIntegrationTests: XCTestCase {
         defer { if process.isRunning { process.terminate() } }
 
         let request = #"{"jsonrpc":"2.0","id":7,"method":"list_projects"}"# + "\n"
-        inPipe.fileHandleForWriting.write(Data(request.utf8))
+        try send(process, raw: request)
         // Read one line response (new design is line-by-line, not EOF-delimited).
         let chunk = try? collectResponseLine(from: outPipe.fileHandleForReading, timeout: 5)
         // Close stdin so the binary exits cleanly.
-        inPipe.fileHandleForWriting.closeFile()
+        try? inPipe.fileHandleForWriting.close()
         let body = chunk ?? ""
         XCTAssertTrue(body.contains("-32001"), "expected -32001 in: \(body)")
         XCTAssertTrue(body.contains("\"id\":7"), "expected id 7 in: \(body)")
@@ -86,7 +116,7 @@ extension MCPBinaryIntegrationTests {
         // requests).
         for i in 1...3 {
             let req = "{\"jsonrpc\":\"2.0\",\"id\":\(i),\"method\":\"ping\"}\n"
-            inPipe.fileHandleForWriting.write(Data(req.utf8))
+            try send(process, raw: req)
             // Read just up to one response's length-ish; the binary writes
             // line-delimited responses so we read until we see a newline.
             let chunk = try? collectResponseLine(from: outPipe.fileHandleForReading, timeout: 5)
@@ -96,7 +126,7 @@ extension MCPBinaryIntegrationTests {
             XCTAssertTrue(body.contains("\"id\":\(i)"),
                 "request \(i) response had wrong id; got: \(body)")
         }
-        inPipe.fileHandleForWriting.closeFile()
+        try? inPipe.fileHandleForWriting.close()
     }
 
     /// Verify that closing stdin causes the binary to exit cleanly.
@@ -121,9 +151,9 @@ extension MCPBinaryIntegrationTests {
 
         // Send one request then close stdin.
         let req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"x\"}\n"
-        inPipe.fileHandleForWriting.write(Data(req.utf8))
+        try send(process, raw: req)
         _ = try? collectResponseLine(from: outPipe.fileHandleForReading, timeout: 5)
-        inPipe.fileHandleForWriting.closeFile()
+        try? inPipe.fileHandleForWriting.close()
 
         // The property is "stdin closes ⇒ the binary exits" — the expectation
         // fulfills on the exit EVENT, so this allowance costs nothing when
@@ -187,16 +217,16 @@ extension MCPBinaryIntegrationTests {
         // `method` — it parses as JSON but carries no extractable id. The
         // binary must NOT write a null-id response; it should drop silently.
         let bogus = #"{"jsonrpc":"2.0","garbage":true}"# + "\n"
-        inPipe.fileHandleForWriting.write(Data(bogus.utf8))
+        try send(process, raw: bogus)
 
         // Follow immediately with a real request to confirm the binary is
         // still alive and the bogus line didn't generate any output.
         let real = #"{"jsonrpc":"2.0","id":99,"method":"x"}"# + "\n"
-        inPipe.fileHandleForWriting.write(Data(real.utf8))
+        try send(process, raw: real)
 
         let body = (try? collectResponseLine(
             from: outPipe.fileHandleForReading, timeout: 5)) ?? ""
-        inPipe.fileHandleForWriting.closeFile()
+        try? inPipe.fileHandleForWriting.close()
 
         // The first (and only) response must be for id 99 — the real request.
         // The bogus line should have generated no output at all.
@@ -234,17 +264,17 @@ extension MCPBinaryIntegrationTests {
 
         // 1. Send an id-less notification first. Binary should NOT block.
         let notif = #"{"jsonrpc":"2.0","method":"notifications/initialized"}"# + "\n"
-        inPipe.fileHandleForWriting.write(Data(notif.utf8))
+        try send(process, raw: notif)
 
         // 2. Immediately send a request. If the binary blocked on the
         //    notification, this never gets read.
         let req = #"{"jsonrpc":"2.0","id":42,"method":"list_projects"}"# + "\n"
-        inPipe.fileHandleForWriting.write(Data(req.utf8))
+        try send(process, raw: req)
 
         // 3. We should get a response for the request within a few seconds.
         let body = (try? collectResponseLine(
             from: outPipe.fileHandleForReading, timeout: 5)) ?? ""
-        inPipe.fileHandleForWriting.closeFile()
+        try? inPipe.fileHandleForWriting.close()
         XCTAssertTrue(body.contains("\"id\":42"),
             "expected response for id 42 (notification didn't block); got: \(body)")
         XCTAssertTrue(body.contains("-32001"),

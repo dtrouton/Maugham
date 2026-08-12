@@ -534,8 +534,13 @@ final class MaughamTextView: NSTextView {
     /// and escape/tab/return/delete arrive as C0 controls or DEL — none of
     /// which is a character anyone meant to type.
     static func isTextInsertionEvent(_ event: NSEvent) -> Bool {
-        // ⌘-anything is a command being sent, not a word being written.
-        if event.modifierFlags.contains(.command) { return false }
+        // ⌘-anything is a command being sent, not a word being written — and
+        // ⌃-anything is AppKit's emacs-style navigation (⌃A/⌃E to the ends of
+        // the line, ⌃P/⌃N up and down). Those chords hand back the BARE letter
+        // in `charactersIgnoringModifiers`, so the code-point test below reads
+        // ⌃E as someone typing "e": excluded here, or the reading view swallows
+        // the caret move and flares the banner for a navigation key.
+        if !event.modifierFlags.isDisjoint(with: [.command, .control]) { return false }
         guard let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first
         else { return false }
         if (0xF700...0xF8FF).contains(scalar.value) { return false }

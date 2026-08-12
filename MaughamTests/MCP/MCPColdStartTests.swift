@@ -67,7 +67,17 @@ final class MCPColdStartTests: XCTestCase {
             DispatchQueue.global().asyncAfter(deadline: .now() + 2.5, execute: bringUp)
             defer { listener?.stop(unlinkFile: false) }
 
-            Self.send(proc, #"{"jsonrpc":"2.0","id":1,"method":"list_projects"}"#)
+            do {
+                try Self.send(proc, #"{"jsonrpc":"2.0","id":1,"method":"list_projects"}"#)
+            } catch {
+                // The child died inside the launch/drain window — the 2026-08-09
+                // CI failure arrived exactly here. Same verdict as a late bind:
+                // the scenario wasn't staged, so discard and restage, bounded.
+                bringUp.cancel()   // don't let the +2.5s bind fire into a discarded attempt
+                if attempt < attempts { continue }
+                return XCTFail("could not stage the cold-start scenario in "
+                    + "\(attempts) attempts — \(error)")
+            }
             let body = Self.readLine(proc, timeout: budget + 2)
 
             if !body.contains("\"served_by\":\"stub\"") {
@@ -117,7 +127,7 @@ final class MCPColdStartTests: XCTestCase {
         Self.drainInitialConnect()
 
         // Request 1 establishes the prior connection.
-        Self.send(proc, #"{"jsonrpc":"2.0","id":1,"method":"list_projects"}"#)
+        try Self.send(proc, #"{"jsonrpc":"2.0","id":1,"method":"list_projects"}"#)
         let r1 = Self.readLine(proc, timeout: 6)
         XCTAssertTrue(r1.contains("\"id\":1"), "req1 setup failed; got: \(r1)")
 
@@ -130,7 +140,7 @@ final class MCPColdStartTests: XCTestCase {
         let l2 = try StubSocketListener(path: path)
         defer { l2.stop(unlinkFile: false) }
 
-        Self.send(proc, #"{"jsonrpc":"2.0","id":2,"method":"list_projects"}"#)
+        try Self.send(proc, #"{"jsonrpc":"2.0","id":2,"method":"list_projects"}"#)
         let r2 = Self.readLine(proc, timeout: 9)
         XCTAssertTrue(r2.contains("\"served_by\":\"stub\""),
             "expected a REAL response after restart; got: \(r2)")
@@ -151,7 +161,7 @@ final class MCPColdStartTests: XCTestCase {
         defer { Self.terminate(proc) }
         Self.drainInitialConnect()
 
-        Self.send(proc, #"{"jsonrpc":"2.0","id":5,"method":"list_projects"}"#)
+        try Self.send(proc, #"{"jsonrpc":"2.0","id":5,"method":"list_projects"}"#)
         let body = Self.readLine(proc, timeout: 5)
         XCTAssertTrue(body.contains("-32001"),
             "absent app must synthesize not_running; got: \(body)")
@@ -159,6 +169,23 @@ final class MCPColdStartTests: XCTestCase {
     }
 
     // MARK: - Harness
+
+    /// **Dead-bridge discipline (2026-08-12, issue #32).** A child that died on
+    /// a loaded machine must not RAISE through the harness: NSFileHandle's ObjC
+    /// `writeData:` raises NSFileHandleOperationException on a dead fd, and
+    /// XCTest converts that to an instant failure BEFORE the read — bypassing
+    /// the staged-scenario restage discipline entirely (2026-08-09, CI run
+    /// 31299861454: 0.344s = launch + 0.3s drain + first write). `send` now
+    /// throws this instead; test 1 restages it through its bounded loop, and
+    /// tests 2–3 let it propagate so the failure message IS the diagnosis.
+    private struct BridgeDied: Error, CustomStringConvertible {
+        let phase: String
+        let underlying: String
+        var description: String {
+            "bridge child died (\(phase)): \(underlying) — on a loaded machine "
+                + "this is machine pathology worth a human look, not a bridge defect"
+        }
+    }
 
     private static func binaryURL() -> URL? {
         let hostExecutableURL = Bundle.main.executableURL
@@ -192,9 +219,17 @@ final class MCPColdStartTests: XCTestCase {
     /// Give the binary a moment for its startup connect attempt to settle.
     private static func drainInitialConnect() { Thread.sleep(forTimeInterval: 0.3) }
 
-    private static func send(_ p: Process, _ json: String) {
-        let pipe = p.standardInput as! Pipe
-        pipe.fileHandleForWriting.write(Data((json + "\n").utf8))
+    private static func send(_ p: Process, _ json: String) throws {
+        guard p.isRunning else {
+            throw BridgeDied(phase: "before the write",
+                underlying: "exit status \(p.terminationStatus)")
+        }
+        let handle = (p.standardInput as! Pipe).fileHandleForWriting
+        do {
+            try handle.write(contentsOf: Data((json + "\n").utf8))
+        } catch {
+            throw BridgeDied(phase: "during the write", underlying: "\(error)")
+        }
     }
 
     private static func readLine(_ p: Process, timeout: TimeInterval) -> String {
@@ -206,6 +241,8 @@ final class MCPColdStartTests: XCTestCase {
             if !avail.isEmpty {
                 buf.append(avail)
                 if buf.contains(0x0A) { break }
+            } else if !p.isRunning {
+                break   // EOF from a dead child; nothing more is coming
             } else {
                 Thread.sleep(forTimeInterval: 0.05)
             }
@@ -215,7 +252,10 @@ final class MCPColdStartTests: XCTestCase {
 
     private static func terminate(_ p: Process) {
         if let pipe = p.standardInput as? Pipe {
-            pipe.fileHandleForWriting.closeFile()
+            // Throwing Swift API, not `closeFile()` — this runs from a `defer`
+            // in every test, and a dead child's fd must not raise there either
+            // (hardening `send` alone would just move the exception here).
+            try? pipe.fileHandleForWriting.close()
         }
         if p.isRunning { p.terminate() }
     }
