@@ -133,7 +133,7 @@ final class CheckpointBreadcrumbSubjectTests: XCTestCase {
             allDocIds: ["doc-1"],
             device: "m", session: "s", label: "part one done")
 
-        let stored = try await CheckpointStore(projectURL: tmp).load()
+        let stored = await CheckpointStore(projectURL: tmp).load().checkpoints
         XCTAssertEqual(stored.count, 1, "checkpoints.jsonl must still get its entry")
         XCTAssertEqual(stored.first?.checkpointId, cp.checkpointId)
         XCTAssertEqual(cp.label, "part one done")

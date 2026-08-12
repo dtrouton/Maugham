@@ -30,6 +30,29 @@ final class PublicationSnapshotStoreTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(snap.publishFiles.count, 1)
     }
 
+    /// CI run 31584930789: a concurrent compile's in-flight atomic write left
+    /// its Foundation temp file (`EMISSION.md.sb-<hex>-<random>`) in the
+    /// publish tree while the winner's capture enumerated it; the rename then
+    /// completed and the capture's read of the temp threw NSFileReadNoSuchFile,
+    /// aborting the winning compile. The temps are transient junk either way —
+    /// a capture must neither embed one nor die on one.
+    func testCapture_skipsAtomicWriteTempFiles() async throws {
+        let pub = tmp.appendingPathComponent(".maugham/publish")
+        try FileManager.default.createDirectory(at: pub, withIntermediateDirectories: true)
+        try "% tex".write(to: pub.appendingPathComponent("template.tex"),
+                          atomically: true, encoding: .utf8)
+        try "transient".write(
+            to: pub.appendingPathComponent("EMISSION.md.sb-aef33a4a-NcjUMd"),
+            atomically: true, encoding: .utf8)
+
+        let cfg = PublishConfig(metadata: .init(title: "Cap", author: "A"))
+        let store = PublicationSnapshotStore(projectURL: tmp)
+        let snap = try await store.capture(
+            config: cfg, maughamVersion: "0.3.3", tectonicVersion: "0.15.0")
+        XCTAssertEqual(snap.publishFiles.map(\.relativePath), ["template.tex"],
+                       "an atomic-write temp is not a publish file")
+    }
+
     func testSave_thenLoad_roundTrips() async throws {
         let snap = PublicationSnapshot(
             snapshotID: "snap_test",

@@ -105,6 +105,14 @@ struct HistoryPane: View {
 
     @State private var filter: HistoryFilter = .all
     @State private var checkpoints: [Checkpoint] = []
+    /// Checkpoint device files `reload()` could not read — name AND reason
+    /// (RULING-54: an unreadable file used to read as EMPTY — every checkpoint
+    /// from that device silently gone from this pane and from Rewind's
+    /// targets). The pane shows a notice when non-empty, with the reasons in
+    /// its tooltip: "permission denied" and "couldn't be downloaded" want
+    /// opposite responses from the writer. The rows are intact on disk. The
+    /// inbox pane's M8-IN-012 shape.
+    @State private var unreadableCheckpointFiles: [CheckpointLoad.UnreadableFile] = []
     @State private var ops: [Op] = []
     @State private var expanded: Set<String> = []
     @State private var selectedCheckpoint: Checkpoint?
@@ -177,10 +185,40 @@ struct HistoryPane: View {
         }
     }
 
+    /// The notice shown when checkpoint device files can't be read — nil when
+    /// everything read cleanly. Static so the copy is pinnable without a
+    /// window mount (the `predecessorIndex` pattern).
+    static func unreadableCheckpointNotice(_ names: [String]) -> String? {
+        guard !names.isEmpty else { return nil }
+        return "Some checkpoints can’t be read (\(names.joined(separator: ", "))). "
+             + "They are still in the file — check permissions or iCloud sync."
+    }
+
+    /// The notice's tooltip: one "name — reason" line per unreadable file, so
+    /// the WHY reaches the writer ("permission denied" is fixed here;
+    /// "couldn't be downloaded" is fixed by getting online).
+    static func unreadableCheckpointDetail(_ files: [CheckpointLoad.UnreadableFile]) -> String? {
+        guard !files.isEmpty else { return nil }
+        return files.map { "\($0.name) — \($0.reason)" }.joined(separator: "\n")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             filterToolbar
             Divider()
+            if let notice = Self.unreadableCheckpointNotice(unreadableCheckpointFiles.map(\.name)) {
+                Label(notice, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(Self.unreadableCheckpointDetail(unreadableCheckpointFiles) ?? "")
+                    // .help is hover-only; the WHY must reach VoiceOver too.
+                    .accessibilityHint(Text(
+                        Self.unreadableCheckpointDetail(unreadableCheckpointFiles) ?? ""))
+                Divider()
+            }
             if entries.isEmpty {
                 ContentUnavailableView(
                     emptyTitle,
@@ -279,15 +317,14 @@ struct HistoryPane: View {
     }
 
     private func reload() async {
-        if let loaded = try? await CheckpointStore(
-            projectURL: projectURL).load() {
-            // Show all project-scope checkpoints regardless of active doc.
-            // Checkpoints are project-wide artefacts; filtering by active doc
-            // would hide checkpoints captured while a different doc was open,
-            // which is exactly what the user would expect to see for a
-            // multi-doc novel/screenplay project.
-            checkpoints = loaded
-        }
+        let loaded = await CheckpointStore(projectURL: projectURL).load()
+        // Show all project-scope checkpoints regardless of active doc.
+        // Checkpoints are project-wide artefacts; filtering by active doc
+        // would hide checkpoints captured while a different doc was open,
+        // which is exactly what the user would expect to see for a
+        // multi-doc novel/screenplay project.
+        checkpoints = loaded.checkpoints
+        unreadableCheckpointFiles = loaded.unreadableFiles
         // Prefer the live Document if it's loaded (its mirror reflects any
         // unflushed in-memory state). Otherwise read the op log directly
         // from disk — the History pane should always show typing bursts /

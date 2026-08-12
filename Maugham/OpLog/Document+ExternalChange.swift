@@ -8,7 +8,10 @@ extension Document {
         // callbacks (the DocumentStore removed the presenter and drained the
         // registry on close), but belt-guard so a stray one can't write a
         // spurious conflict backup against the empty husked `materialize()`.
-        guard !isClosed else { return }
+        // A recovery doc refuses for a different reason: its `materialize()` is
+        // a PARTIAL view, so the "diverged" backup it would write and the .md it
+        // would then rewrite are both derived from an incomplete history.
+        if rejectMutationIfNotWritable("handleExternalDiskChange") { return }
         // Echo guard: the change we ourselves just wrote.
         guard diskMd != lastDiskEcho.bytes else { return }
         // The on-disk file is the clean render (ADR 0019). If it already matches
@@ -48,7 +51,10 @@ extension Document {
         // A closed doc is husked + abandoned; belt-guard so a stray presenter
         // callback can't re-derive state from disk and RESURRECT the husk
         // (rebuilding paragraphs/sequence into a doc no reader observes).
-        guard !isClosed else { return }
+        // A recovery doc refuses too: this path flushes and re-derives, and its
+        // partial view must neither write nor silently become a fuller one
+        // behind the reader's back — the real open is how a fixed file lands.
+        if rejectMutationIfNotWritable("handleExternalLogChange") { return }
         // Flush any un-bursted local work BEFORE the merge (E3a). This
         // re-derives purely from the on-disk ops, so anything that hasn't
         // reached a burst boundary would otherwise be silently discarded the

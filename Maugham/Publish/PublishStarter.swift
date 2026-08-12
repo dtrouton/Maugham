@@ -76,7 +76,10 @@ public enum PublishStarter {
     /// or the freshly-written config already has a higher counter.
     private static func reconcileNextVersion(in projectURL: URL) async throws {
         let publicationStore = await PublicationStore(projectURL: projectURL)
-        let publications = (try? await publicationStore.load()) ?? []
+        // RULING-54: propagate, don't blank. An unreadable catalog read as []
+        // silently no-ops this guard — the exact collision the comment above
+        // describes, armed by the read the guard exists to consult.
+        let publications = try await publicationStore.load()
         guard !publications.isEmpty else { return }
         // Build the highest tuple via an explicit loop — Swift's type
         // inference times out on .compactMap { tuple }.max(by: ...).
@@ -135,6 +138,12 @@ public enum PublishStarter {
             try await install(into: projectURL, force: false)
         } catch {
             // Non-fatal: writer can re-trigger via the MCP tool.
+            // RULING-54 residual (M9-OL-009's filing): since the catalog read
+            // went strict, this catch also swallows reconcileNextVersion's
+            // unreadable-catalog refusal — reachable only for a project with
+            // a catalog present and the publish template missing. The next
+            // compile meets the same refusal loudly at pre-flight, so the
+            // collision guard is deferred, not lost.
             NSLog("PublishStarter.installIfMissing failed: \(error)")
         }
     }

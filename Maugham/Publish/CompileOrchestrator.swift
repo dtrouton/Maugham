@@ -119,19 +119,6 @@ public struct CompileOrchestrator {
         let publishDir = projectURL.appendingPathComponent(
             ".maugham/publish", isDirectory: true)
 
-        // F5: EMISSION.md is app-owned and generated — refresh the project's
-        // copy on every compile (dry_run included: it still runs the
-        // pipeline's front half, and there's no reason to let the doc drift
-        // just because nothing got emitted) so it never misinforms an agent
-        // reading it as instructed. Unconditional overwrite of that ONE file;
-        // every other starter file (template.tex, preamble/partials,
-        // config.json, style files) is untouched. Runs after config load and
-        // BEFORE snapshot capture below, so a real compile's snapshot embeds
-        // the freshly-stamped copy.
-        try EmissionContract.renderProjectCopy(appVersion: maughamVersion)
-            .write(to: publishDir.appendingPathComponent("EMISSION.md"),
-                   atomically: true, encoding: .utf8)
-
         effective = LanguageSuffixedFile.resolvingStyleFiles(
             in: effective, language: language, publishDir: publishDir)
 
@@ -156,7 +143,23 @@ public struct CompileOrchestrator {
         //     publication's version (most recent `compiledAt`, `language == nil`);
         //     when no source publication exists at all it refuses loudly
         //     ("compile the source edition first").
-        let existingPublications = try await publicationStore.load()
+        let existingPublications: [Publication]
+        do { existingPublications = try await publicationStore.load() }
+        catch {
+            // RULING-54: an unreadable catalog file refuses the compile
+            // PRE-FLIGHT — this list is exactly what the occupied-destination
+            // refusal and the version mint read, so compiling over a silently
+            // shorter catalog could overwrite or collide with an edition the
+            // writer already shipped. Same shape as the no-config refusal
+            // above: a terminal job and a `.failed` outcome, nothing landed.
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: error.localizedDescription,
+                contextLines: ["Nothing was compiled — no export, no snapshot, no version bump."])
+            await jobManager.fail(jobID: jobID, errors: [diag],
+                                  logExcerpt: "publications catalog unreadable")
+            return .failed(errors: [diag], logExcerpt: "publications catalog unreadable")
+        }
 
         let effectiveVersion: String
         if language == nil {
@@ -384,6 +387,24 @@ public struct CompileOrchestrator {
         excludedSectionIDs: Set<String>,
         progress: DurableProgress
     ) async throws -> Outcome {
+        // F5: EMISSION.md is app-owned and generated — refresh the project's
+        // copy on every compile (dry_run included: it still runs the
+        // pipeline's front half, and there's no reason to let the doc drift
+        // just because nothing got emitted) so it never misinforms an agent
+        // reading it as instructed. Unconditional overwrite of that ONE file;
+        // every other starter file (template.tex, preamble/partials,
+        // config.json, style files) is untouched. Runs BEHIND the mint-gate
+        // reservation — a refused compile touches nothing, and its
+        // atomic-write temp must not appear beside a winner's snapshot
+        // capture (CI run 31584930789 lost a winning compile reading the
+        // loser's vanishing `EMISSION.md.sb-*`) — and BEFORE the snapshot
+        // capture below, so a real compile's snapshot embeds the
+        // freshly-stamped copy.
+        try EmissionContract.renderProjectCopy(appVersion: maughamVersion)
+            .write(to: projectURL.appendingPathComponent(
+                       ".maugham/publish/EMISSION.md"),
+                   atomically: true, encoding: .utf8)
+
         // Task 9: translation coverage gate. A translated edition
         // (`language != nil`) must not ship a book whose translation lags the
         // source. Reuse the astSource's own `ProjectStore` (the same one the

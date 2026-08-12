@@ -135,7 +135,7 @@ final class CheckpointSubjectRecordTests: XCTestCase {
     func test_theAbsentActiveDocumentSurvivesTheRoundTripToDisk() async throws {
         _ = try await capture(subject: "grp-1")
 
-        let stored = try await CheckpointStore(projectURL: tmp).load()
+        let stored = await CheckpointStore(projectURL: tmp).load().checkpoints
         XCTAssertEqual(stored.count, 1, "the checkpoint itself is still written")
         XCTAssertNil(stored.first?.activeDoc)
     }
@@ -145,7 +145,7 @@ final class CheckpointSubjectRecordTests: XCTestCase {
         let cp = try await capture(subject: "doc-1")
 
         XCTAssertEqual(cp.activeDoc, "doc-1")
-        let stored = try await CheckpointStore(projectURL: tmp).load()
+        let stored = await CheckpointStore(projectURL: tmp).load().checkpoints
         XCTAssertEqual(stored.first?.activeDoc, "doc-1")
     }
 

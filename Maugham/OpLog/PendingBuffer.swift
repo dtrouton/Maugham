@@ -126,14 +126,46 @@ public final class PendingBuffer {
         try enc.encode(state).write(to: url, options: .atomic)
     }
 
-    public func loadFromDisk() async throws {
+    /// What `loadFromDisk` found. RULING-54: a pending file that EXISTS but
+    /// can't be read or decoded holds the writer's un-bursted keystrokes from
+    /// a crashed session — collapsing that into the absent case (the old
+    /// `guard … else return`) silently dropped them, and the next autosave's
+    /// `flushToDisk` overwrote the only copy. The caller (`Document.load`)
+    /// quarantines what can be salvaged and tells the writer.
+    public enum LoadOutcome: Equatable, Sendable {
+        /// No pending file — the clean-quit state.
+        case absent
+        /// Folded into the buffer.
+        case loaded
+        /// Present but unrecoverable. `raw` carries the file's bytes as text
+        /// when they were readable (the undecodable case) so the caller can
+        /// preserve them; nil when the read itself failed.
+        case unrecoverable(name: String, reason: String, raw: String?)
+    }
+
+    @discardableResult
+    public func loadFromDisk() async -> LoadOutcome {
         let url = file()
-        guard FileManager.default.fileExists(atPath: url.path),
-              let data = try? Data(contentsOf: url),  // adr-0018-ok: PendingBuffer's own pending file, not a manuscript
-              let state = try? JSONDecoder().decode(DiskState.self, from: data) else { return }
+        guard FileManager.default.fileExists(atPath: url.path) else { return .absent }
+        let data: Data
+        do { data = try Data(contentsOf: url) }  // adr-0018-ok: PendingBuffer's own pending file, not a manuscript
+        catch {
+            return .unrecoverable(
+                name: url.lastPathComponent,
+                reason: error.localizedDescription, raw: nil)
+        }
+        let state: DiskState
+        do { state = try JSONDecoder().decode(DiskState.self, from: data) }
+        catch {
+            return .unrecoverable(
+                name: url.lastPathComponent,
+                reason: error.localizedDescription,
+                raw: String(data: data, encoding: .utf8))
+        }
         seq = state.sequence
         basisOpId = state.basis
         for change in state.changes { buffer[change.paragraphId] = change }
+        return .loaded
     }
 
     public func clear() async throws {

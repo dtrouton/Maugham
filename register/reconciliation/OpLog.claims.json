@@ -1,98 +1,226 @@
 [
-  {
-    "claim_id": "M9-OL-001",
-    "scope": "OpLogStore.loadDiagnosed / loadFileDiagnosed — unreadable file",
-    "kind": "POSTCONDITION",
-    "statement": "an UNREADABLE-yet-present op-log file (jsonl or .mzseg) THROWS OpLogStore.ReadError.unreadableFile naming the file (RULING-54, this branch) — it used to contribute zero ops with EMPTY diagnostics, so the document opened SHORTER with no quarantine record, the writer's next autosave truncated the .md to match, and the new sequence keyframe SUPERSEDED the file's paragraphs when it came back (text surviving in the log but never reappearing). Absent files still read as empty — the legitimate new-document state",
-    "source": {
-      "type": "CHARACTERIZATION",
-      "ref": "OpLogStoreDiagnosedTests.test_loadDiagnosed_unreadableDeviceFile_throws; test_loadDiagnosed_absentFiles_returnsEmptyWithoutThrowing"
-    },
-    "warrant": "HIGH",
-    "intent": "INTENTIONAL — the fix",
-    "reachability": "LIVE — any permissions break, iCloud dataless stub, or squatting entry under .maugham/ops/",
-    "evidence": {
-      "property_test": null
-    }
+ {
+  "claim_id": "M9-OL-001",
+  "scope": "OpLogStore.loadDiagnosed / loadFileDiagnosed — unreadable file",
+  "kind": "POSTCONDITION",
+  "statement": "an UNREADABLE-yet-present op-log file (jsonl or .mzseg) THROWS OpLogStore.ReadError.unreadableFile naming the file (RULING-54, this branch) — it used to contribute zero ops with EMPTY diagnostics, so the document opened SHORTER with no quarantine record, the writer's next autosave truncated the .md to match, and the new sequence keyframe SUPERSEDED the file's paragraphs when it came back (text surviving in the log but never reappearing). Absent files still read as empty — the legitimate new-document state",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "OpLogStoreDiagnosedTests.test_loadDiagnosed_unreadableDeviceFile_throws; test_loadDiagnosed_absentFiles_returnsEmptyWithoutThrowing"
   },
-  {
-    "claim_id": "M9-OL-002",
-    "scope": "Document.load — the refusal",
-    "kind": "POSTCONDITION",
-    "statement": "a document whose op-log file set contains an unreadable file REFUSES to load, with the error naming the file and stating the words are intact inside it; the editor shows the refusal in the pane (EditorHost.loadError replaces the eternal 'Loading…' placeholder) and posts it as a project notice",
-    "source": {
-      "type": "CHARACTERIZATION",
-      "ref": "DocumentLoadQuarantineTests.test_load_unreadableDeviceFile_refusesWithTheFileNamed"
-    },
-    "warrant": "HIGH",
-    "intent": "INTENTIONAL — the fix",
-    "reachability": "LIVE — same failure shapes, at document open",
-    "evidence": {
-      "property_test": null
-    }
-  },
-  {
-    "claim_id": "M9-OL-003",
-    "scope": "Document.load — the unlistable ops directory",
-    "kind": "POSTCONDITION",
-    "statement": "an ops directory that EXISTS but cannot be LISTED refuses the load (OpLogStore.verifyOpsDirectoryListable) — it used to read as 'no log yet' through the presence-only glob and send Bootstrap minting FRESH paragraph ids: a second, parallel history over the writer's intact one",
-    "source": {
-      "type": "CHARACTERIZATION",
-      "ref": "DocumentLoadQuarantineTests.test_load_unlistableOpsDirectory_refusesRatherThanRebootstrapping"
-    },
-    "warrant": "HIGH",
-    "intent": "INTENTIONAL — the fix",
-    "reachability": "LIVE — a permissions break on .maugham/ops",
-    "evidence": {
-      "property_test": null
-    }
-  },
-  {
-    "claim_id": "M9-OL-004",
-    "scope": "OpLogStore.loadSyncMerged — the closed-doc read",
-    "kind": "POSTCONDITION",
-    "statement": "the sync-merge read throws on an unreadable file too, so a CLOSED document — DerivedManuscript, and through it MCP read_document, search-adjacent readers and the compile pipeline — never silently derives a shorter manuscript; the compile path's Source protocol is throwing, so an unreadable file FAILS the compile through the DurableProgress catch instead of emitting a book missing chapters",
-    "source": {
-      "type": "CHARACTERIZATION",
-      "ref": "OpLogStoreDiagnosedTests.test_loadSyncMerged_unreadableDeviceFile_throws"
-    },
-    "warrant": "HIGH",
-    "intent": "INTENTIONAL — the fix",
-    "reachability": "LIVE — MCP reads of closed docs; every compile",
-    "evidence": {
-      "property_test": null
-    }
-  },
-  {
-    "claim_id": "M9-OL-005",
-    "scope": "segment checksum vs unreadable — the two failure kinds",
-    "kind": "INVARIANT",
-    "statement": "a READABLE-but-corrupt segment (checksum/magic/decompress failure) still salvages decompressable lines and records a quarantine skip — partial truth, recorded — while an UNREADABLE segment throws: nothing can be known about it, so nothing can be honestly salvaged. Two different answers to two genuinely different questions",
-    "source": {
-      "type": "CHARACTERIZATION",
-      "ref": "OpLogStoreSegmentTests (checksum salvage, pre-existing pins); OpLogStoreDiagnosedTests.test_loadDiagnosed_unreadableDeviceFile_throws"
-    },
-    "warrant": "HIGH",
-    "intent": "INTENTIONAL",
-    "reachability": "LIVE",
-    "evidence": {
-      "property_test": null
-    }
-  },
-  {
-    "claim_id": "M9-OL-006",
-    "scope": "the lenient residuals, recorded",
-    "kind": "INVARIANT",
-    "statement": "deliberately lenient after RULING-54, each with its reason in place: the app-fringe readers (search content, background word-count stats, closed-doc task derivation, the rename pre-check, the statement-preview classifier, the scenes sidebar, the project task log) read via try? and SKIP an unreadable doc — every one of them meets the loud refusal the moment the doc is opened, and none can mutate anything from the shortened view. Still queued: checkpoints (CheckpointStore.load — a device's checkpoints vanish silently), sealTailIfNeeded's silent skip, PendingBuffer's silent crash-recovery skip, and BackupSignature's dropped file",
-    "source": {
-      "type": "CHARACTERIZATION",
-      "ref": "the // RULING-54 lenient, reason recorded comments at each site (grep-discoverable); DocumentLoadQuarantineTests for the loud half"
-    },
-    "warrant": "HIGH",
-    "intent": "INTENTIONAL — each site's comment records the trade",
-    "reachability": "LIVE",
-    "evidence": {
-      "property_test": null
-    }
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the fix",
+  "reachability": "LIVE — any permissions break, iCloud dataless stub, or squatting entry under .maugham/ops/",
+  "evidence": {
+   "property_test": null
   }
+ },
+ {
+  "claim_id": "M9-OL-002",
+  "scope": "Document.load — the refusal",
+  "kind": "POSTCONDITION",
+  "statement": "a document whose op-log file set contains an unreadable file REFUSES to load, with the error naming the file and stating the words are intact inside it; the editor shows the refusal in the pane (EditorHost.loadError replaces the eternal 'Loading…' placeholder) and posts it as a project notice",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "DocumentLoadQuarantineTests.test_load_unreadableDeviceFile_refusesWithTheFileNamed"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the fix",
+  "reachability": "LIVE — same failure shapes, at document open",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-003",
+  "scope": "Document.load — the unlistable ops directory",
+  "kind": "POSTCONDITION",
+  "statement": "an ops directory that EXISTS but cannot be LISTED refuses the load (OpLogStore.verifyOpsDirectoryListable) — it used to read as 'no log yet' through the presence-only glob and send Bootstrap minting FRESH paragraph ids: a second, parallel history over the writer's intact one",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "DocumentLoadQuarantineTests.test_load_unlistableOpsDirectory_refusesRatherThanRebootstrapping"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the fix",
+  "reachability": "LIVE — a permissions break on .maugham/ops",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-004",
+  "scope": "OpLogStore.loadSyncMerged — the closed-doc read",
+  "kind": "POSTCONDITION",
+  "statement": "the sync-merge read throws on an unreadable file too, so a CLOSED document — DerivedManuscript, and through it MCP read_document, search-adjacent readers and the compile pipeline — never silently derives a shorter manuscript; the compile path's Source protocol is throwing, so an unreadable file FAILS the compile through the DurableProgress catch instead of emitting a book missing chapters",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "OpLogStoreDiagnosedTests.test_loadSyncMerged_unreadableDeviceFile_throws"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the fix",
+  "reachability": "LIVE — MCP reads of closed docs; every compile",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-005",
+  "scope": "segment checksum vs unreadable — the two failure kinds",
+  "kind": "INVARIANT",
+  "statement": "a READABLE-but-corrupt segment (checksum/magic/decompress failure) still salvages decompressable lines and records a quarantine skip — partial truth, recorded — while an UNREADABLE segment throws: nothing can be known about it, so nothing can be honestly salvaged. Two different answers to two genuinely different questions",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "OpLogStoreSegmentTests (checksum salvage, pre-existing pins); OpLogStoreDiagnosedTests.test_loadDiagnosed_unreadableDeviceFile_throws"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-006",
+  "scope": "the lenient residuals, recorded",
+  "kind": "INVARIANT",
+  "statement": "deliberately lenient after RULING-54, each with its reason in place: the app-fringe readers (search content, background word-count stats, closed-doc task derivation, the rename pre-check, the statement-preview classifier, the scenes sidebar, the project task log) read via try? and SKIP an unreadable doc — every one of them meets the loud refusal the moment the doc is opened, and none can mutate anything from the shortened view. The queue is EMPTY as of 2026-08-12: checkpoints closed (M9-OL-007/008), then the residual family (M9-OL-009 publications, M9-OL-010 pending buffer, M9-OL-011 backup signature, M9-OL-012 the seal's recorded reason). The recorded-lenient set now also carries the two dev-only checkpoint test tools and sealTailIfNeeded's skip",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "the // RULING-54 lenient, reason recorded comments at each site (grep-discoverable); DocumentLoadQuarantineTests for the loud half"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — each site's comment records the trade",
+  "reachability": "LIVE",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-007",
+  "scope": "CheckpointStore.load — unreadable device file",
+  "kind": "POSTCONDITION",
+  "statement": "an UNREADABLE-yet-present checkpoint device file is NAMED in the load result (CheckpointLoad.unreadableFiles, name + reason) while every readable device's rows still load, and an absent file still reads as empty (fix commit da4ecc0e) — it used to contribute zero checkpoints with no trace (probe 2026-08-12: load() returned the readable device's rows, no error, no record of the bad file), silently thinning History and Rewind's targets. Deliberately a NOTICE, not the op log's refusal: nothing derives manuscript text from this read, so the readable devices' rows are still true and still useful",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "CheckpointStoreTests.test_load_unreadableDeviceFile_isNamedAndTheRestStillLoad; test_load_absentFiles_reportNothingUnreadable"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the fix",
+  "reachability": "LIVE — any permissions break, iCloud dataless stub, or squatting entry beside .maugham/checkpoints.*",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-008",
+  "scope": "the checkpoint surfaces — HistoryPane notice, ProjectIntegrity finding, backup gate",
+  "kind": "POSTCONDITION",
+  "statement": "the unreadable checkpoint files reach the writer: the History pane shows a notice naming them with the per-file reasons in its tooltip (the inbox pane's M8-IN-012 shape; copy pinned via the static HistoryPane.unreadableCheckpointNotice/unreadableCheckpointDetail), ProjectIntegrity reports them as findings — isHealthy false — instead of FEWER findings (an unreadable file used to shrink the checkpoint set through try? … ?? [] and with it the dangling-pointer check, so the report got healthier exactly when the project got worse), and the two dev-only checkpoint test tools carry an `unreadable` field so a broken fixture fails loudly instead of skewing a count. The backup gate deliberately does NOT block on this finding (whole-branch review finding A): IntegrityReport.blocksBackup is the manuscript-derived four only, because the realistic causes of an unreadable checkpoint file (another device's iCloud dataless stub while offline, a permissions break) are exactly the moments a backup matters most, and refusing to back up the writer's words over a non-manuscript index would invert constitution must #1 — manuscript-derived corruption still blocks, because it would propagate into every generation",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "CheckpointStoreTests.test_historyPaneNotice_namesTheFiles_andIsNilWhenClean; test_historyPaneDetail_carriesTheReasons; ProjectIntegrityTests.test_check_unreadableCheckpointFile_isAFinding_notFewerFindings; test_blocksBackup_onManuscriptDerivedFindingsOnly; BackupCoordinatorTests.test_backupNow_proceedsWhenOnlyACheckpointFileIsUnreadable"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the fix",
+  "reachability": "LIVE — the History pane's every reload; every integrity check; every backup",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-009",
+  "scope": "PublicationStore.load + CompileOrchestrator pre-flight — unreadable catalog file",
+  "kind": "POSTCONDITION",
+  "statement": "an UNREADABLE-yet-present publications device file THROWS PublicationStore.ReadError.unreadableFile naming the file — a REFUSAL, unlike checkpoints' notice, because every substantive consumer is write-adjacent: the compile's occupied-destination refusal, republish's prior-edition lookup, and the starter's version high-water mark each read this list before writing, so a silently shorter catalog armed a version collision or an overwrite of a shipped edition. CompileOrchestrator refuses PRE-FLIGHT (terminal job, .failed, nothing landed — no export, no snapshot, no bump), the same shape as its no-config refusal; PublishStarter's try? … ?? [] is gone (fix commit 9772aea2). The two RULING-52 failure-after-mutation pins moved their fault injection to a read-only catalog file because the old directory squat now refuses before anything mutates — the strictly better failure",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PublicationStoreTests.testLoad_unreadableDeviceFile_throwsNamingTheFile; CompileOrchestratorTests.test_anUnreadableCatalogRefusesBeforeAnythingLands; PublicationsCharacterization.test_aFailureAfterMutationNamesWhatLandedAndTheJobIsTerminal (re-injected)"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the fix",
+  "reachability": "LIVE — every compile, republish, and starter force-init",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-010",
+  "scope": "PendingBuffer.loadFromDisk + Document.load — unrecoverable pending file",
+  "kind": "POSTCONDITION",
+  "statement": "a pending file that EXISTS but cannot be read or decoded holds the writer's un-bursted keystrokes from a crashed session; it used to collapse into the absent case (silent return) and the next autosave's flushToDisk overwrote the only copy. loadFromDisk now reports absent / loaded / unrecoverable(name, reason, raw — the bytes when readable); Document.load quarantines the salvageable bytes under .maugham/conflicts/quarantine BEFORE that overwrite can happen, then STAMPS the failure on the Document (consume-once) — it does not post the notice itself, because a windowless post is dropped by the receive helpers' liveness guard (isLive(nil) == false) and a clean close then deletes the trigger: the forbidden silence, relocated (whole-branch review finding C). EditorHost consumes the stamp and posts when a window exists, with BOTH triggers (load-completion and window-resolution — either can happen first). A notice, not a refusal: every SAVED word is intact in the op log (fix 9772aea2 + the review's delivery fix)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "PendingBufferTests.test_loadFromDisk_undecodableFile_reportsUnrecoverableWithRawCarried; test_loadFromDisk_unreadableFile_reportsUnrecoverableWithoutRaw; test_loadFromDisk_absentAndLoadedOutcomes; DocumentLoadQuarantineTests.test_load_unrecoverablePendingFile_quarantinesAndStampsTheDoc_stillLoads; test_editorHostDeliversTheStampedNotice_census"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the fix",
+  "reachability": "LIVE — every document open after a crash",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-011",
+  "scope": "BackupSignature.compute — unreadable file in the change-detection hash",
+  "kind": "INVARIANT",
+  "statement": "an UNREADABLE-yet-present file contributes a distinct '<rel>\\tunreadable' marker line to the backup signature, never silence — dropping it made the signature EQUAL to the file-deleted state (RED-watched against the old code, 2026-08-12), so change detection could not tell 'became unreadable' from 'was removed' and a skip-unchanged verdict could stand on a state it never actually hashed. Deterministic across calls. The WRITE path was already loud (copyItem throws on the unreadable file → .failed per destination); this closes the read half (fix commit 9772aea2)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "BackupSignatureTests.test_signature_unreadableFileIsNotEqualToAbsentFile"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the fix",
+  "reachability": "LIVE — every backup run's change detection",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-012",
+  "scope": "OpLogStore.sealTailIfNeeded — the skip's recorded reason",
+  "kind": "INVARIANT",
+  "statement": "the seal's unreadable-tail and torn-line skips are DELIBERATELY lenient with the reason recorded in place (// RULING-54 lenient, grep-discoverable): sealing is maintenance, not truth — the ops stay in the tail, the skip retries on every autosave/close, and a genuinely unreadable tail meets the strict refusal at the next document load (M9-OL-001), so the state cannot persist silently across sessions; a checksummed segment must never bake in unparseable bytes, and the quarantine path owns torn tails",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "the // RULING-54 lenient comment at the skip site (grep-discoverable); OpLogStoreSegmentTests (the seal's existing pins); OpLogStoreDiagnosedTests (the strict-refusal backstop)"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the recorded trade",
+  "reachability": "LIVE — every autosave/close over an oversized tail",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-013",
+  "scope": "Document.load(recovery: .readOnlyPartial) — the whole-life write refusal and the registry's blind spot",
+  "kind": "POSTCONDITION",
+  "statement": "a Document opened via Document.load(recovery: .readOnlyPartial) writes NOTHING across its whole life, including across close(): no op appended, the .md byte-identical, the pending file untouched, no checkpoint, no seal — every mutation entry point (setFullText, setParagraph, insertParagraph, deleteParagraph, reorder, flushBurstNow) consults the writability choke point (rejectMutationIfNotWritable / requireWritable) before it would reach opStore.append or pending.recordChange, held not by the entry points alone but by a CENSUS over every Document*.swift function reaching those two calls, so a mutation added later cannot quietly skip the choke point. Before this rung existed, the refusal above it (M9-OL-002/003) was the floor: an unreadable op-log file or unlistable ops directory REFUSED the whole document, offering the writer nothing but the bare error. EditorHost's recovery action wires the read-only load WITHOUT a second call to documentStore.register — the census over EditorHost.swift holds the register call count at exactly one (the normal path's), so a partial-view Document stays outside the registry MCP's read_document/add_note resolve through and is reachable only from the pane that opened it — born with the milestone (spec §4)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "ReadOnlyRecoveryTests.test_partialView_writesNothing_evenAcrossClose; test_partialView_refusesWhenNothingIsUnreadable; test_everyOpLogWriterConsultsTheWritabilityChokePoint; test_theCensusFailsOnAPlantedOffender; test_editorHostRefusalWiring_census"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — born with the milestone",
+  "reachability": "LIVE — any refusal rung the ladder's Open Read-Only action offers",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-014",
+  "scope": "RecoveryCause.classify + RecoveryPaneModel + RecoveryBannerModel — the refusal names its cause; the return is offered where a view is open and auto-opened from the refusal pane",
+  "kind": "POSTCONDITION",
+  "statement": "a document-load refusal is classified into one of three named causes before the pane renders anything (RecoveryCause.classify, reading only the REFUSAL error, never partial content): a dataless iCloud stub (icloudNotDownloaded) triggers a download, waits, and auto-opens editable the moment the file reads — and NEVER offers the read-only rung; an unreadable-for-another-reason file (unreadableFile) offers both the read-only view and Restore, with the reason riding in the pane's detail; an unlistable ops directory (unlistableOpsDirectory) offers Restore only, because nothing is enumerable to read partially. The return is asymmetric by where the writer is: from the refusal pane the fix auto-opens editable (RecoveryPaneModel's poller fires onOpenEditable once isReadable turns true, for both the stub and the fixed-permissions cases); from an already-open read-only view the fix is OFFERED, never yanked — RecoveryBannerModel.offersReopen only turns true once every named file reads again, and the model exposes no reload callback of its own to misuse. Before this ladder existed, every refusal rendered the same bare error message regardless of cause, offering no wait, no read, and no differentiated return — born with the milestone (spec §3)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "RecoveryCauseTests.test_unreadableFile_thatIsAStub_classifiesAsICloudNotDownloaded; test_unreadableFile_notAStub_classifiesAsUnreadable_withReason; test_unlistableDirectory_classifies_andNeverProbesTheStub; test_anUnrelatedError_isNotAClassifiedCause; RecoveryPaneModelTests.test_stubCause_downloadsWaitsAndAutoOpens_neverOffersReadOnly; test_unreadableCause_offersTheLadder_andAutoOpensOnReadable; test_directoryCause_offersRestoreOnly; RecoveryBannerTests.test_message_namesTheFiles_andReasonRidesInDetail; test_reopenIsOffered_whenEveryNamedFileReads_neverBefore; test_typingRefusal_emphasisesTheBanner"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — born with the milestone",
+  "reachability": "LIVE — every document-load refusal the ladder classifies",
+  "evidence": {
+   "property_test": null
+  }
+ }
 ]

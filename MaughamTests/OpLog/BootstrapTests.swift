@@ -105,7 +105,7 @@ final class BootstrapTests: XCTestCase {
         XCTAssertEqual(ops[0].changes.map(\.next), ["Alpha.", "Bravo."])
 
         // Initial checkpoint emitted, same as the mint path.
-        let cps = try await CheckpointStore(projectURL: tmp).load()
+        let cps = await CheckpointStore(projectURL: tmp).load().checkpoints
         XCTAssertEqual(cps.count, 1)
         XCTAssertEqual(cps[0].labelSource, .auto)
     }
@@ -118,7 +118,7 @@ final class BootstrapTests: XCTestCase {
             projectURL: tmp, docId: "doc-1", mdURL: mdURL,
             device: "m", session: "s")
 
-        let cps = try await CheckpointStore(projectURL: tmp).load()
+        let cps = await CheckpointStore(projectURL: tmp).load().checkpoints
         XCTAssertEqual(cps.count, 1)
         XCTAssertEqual(cps[0].labelSource, .auto)
         XCTAssertTrue(cps[0].label.contains("Initial"))

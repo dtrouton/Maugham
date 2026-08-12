@@ -123,6 +123,12 @@ public actor PublicationSnapshotStore {
         "build/",
     ]
 
+    /// `template.tex.sb-1a2b3c4d-Xxxxxx` — the transient sibling Foundation's
+    /// atomic writes create beside their destination and rename away.
+    nonisolated static func isAtomicWriteTemp(_ name: String) -> Bool {
+        name.range(of: #"\.sb-[0-9a-fA-F]{8}-"#, options: .regularExpression) != nil
+    }
+
     nonisolated private func collectFiles(
         under directory: URL, relativeTo root: URL
     ) throws -> [PublicationSnapshot.File] {
@@ -134,6 +140,12 @@ public actor PublicationSnapshotStore {
         var out: [PublicationSnapshot.File] = []
         let rootPath = try root.standardizedFileURL.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath ?? root.path
         while let url = enumerator.nextObject() as? URL {
+            // Foundation's atomic-write temp (`<name>.sb-<hex>-<random>`) is
+            // another writer's EMISSION.md refresh mid-rename (a concurrent
+            // compile or a preview). Skip it by NAME before any stat or read —
+            // it can vanish between enumeration and either, and a snapshot
+            // must not embed it even when the read wins the race.
+            if Self.isAtomicWriteTemp(url.lastPathComponent) { continue }
             let resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey])
             guard resourceValues.isRegularFile == true else { continue }
 

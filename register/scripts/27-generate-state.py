@@ -68,7 +68,9 @@ lines += [
     "",
     "App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full "
     "suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as "
-    "`register/ExperimentTests` (CI job `behavioural-claims`).",
+    "`register/ExperimentTests` (CI job `behavioural-claims`). Exception: the OpLog row's pins "
+    "live where their subjects do — `MaughamTests/OpLog/` and the MaughamCore package tests "
+    "(`core-tests`/`behavioural-claims`) — not under `Claims/`.",
     "",
     END,
 ]
