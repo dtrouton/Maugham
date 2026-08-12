@@ -355,6 +355,82 @@ final class CanvasModelTests: XCTestCase {
                        "a second attach found nothing to repair and queued no write")
     }
 
+    // MARK: - A sidecar this build cannot read (#28 whole-branch review)
+
+    private var sidecarURL: URL { root.appendingPathComponent(CanvasStore.sidecarRelativePath) }
+    private var scrapsURL: URL { root.appendingPathComponent(CanvasStore.scrapsRelativePath) }
+
+    /// A canvas whose `canvas.md` holds words and whose sidecar is `json` —
+    /// which the caller makes unreadable. Every scrap is then an orphan, which
+    /// is the state that makes the repair want to write.
+    private func seedUnreadableSidecar(_ json: String) throws {
+        try FileManager.default.createDirectory(
+            at: sidecarURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try json.write(to: sidecarURL, atomically: true, encoding: .utf8)
+        try "\(ScrapText.banner)\n\n## ghst\n\nThe words survive.\n\n## orph\n\n   \n"
+            .write(to: scrapsURL, atomically: true, encoding: .utf8)
+    }
+
+    /// **Opening a canvas may not destroy an arrangement this build cannot
+    /// read.** A sidecar from a NEWER build loads as an empty scene with the
+    /// scraps intact, so every word is an orphan at once — and a repair saved
+    /// from there writes a current-schema file over the newer one, taking its
+    /// regions, lines, positions, marks and bindings with it, 750 ms after the
+    /// writer merely looked. The words are still surfaced, in memory; the file
+    /// survives being looked at.
+    func test_aNewerSchemaSidecarIsNotOverwrittenByTheRepair() throws {
+        try seedUnreadableSidecar(
+            #"{"schemaVersion":999,"nodes":[{"id":"futr","kind":"scrap","x":10,"y":10,"width":240,"z":3}]}"#)
+        let sidecarBefore = try Data(contentsOf: sidecarURL)
+        let scrapsBefore = try Data(contentsOf: scrapsURL)
+
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        XCTAssertNotNil(model.scene.node(CanvasNodeID("ghst")),
+                        "the writer still SEES their words — the repair is real, "
+                        + "it is only the write that is withheld")
+        XCTAssertFalse(model.hasPendingSave,
+                       "…and nothing is queued against a file this build refused")
+
+        model.detach()   // flushes whatever was queued
+        XCTAssertEqual(try Data(contentsOf: sidecarURL), sidecarBefore,
+                       "the newer build's whole arrangement is byte-identical on disk")
+        XCTAssertEqual(try Data(contentsOf: scrapsURL), scrapsBefore,
+                       "and canvas.md is untouched too — nothing was written at all")
+    }
+
+    /// Damaged bytes are the same case: present, unreadable, and not ours to
+    /// stamp over. A backup or a repair may still recover it.
+    func test_aCorruptSidecarIsNotOverwrittenByTheRepairEither() throws {
+        try seedUnreadableSidecar("not json at all")
+        let before = try Data(contentsOf: sidecarURL)
+
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        XCTAssertNotNil(model.scene.node(CanvasNodeID("ghst")), "the words are surfaced")
+        XCTAssertFalse(model.hasPendingSave, "and the damaged file is left alone")
+        model.detach()
+        XCTAssertEqual(try Data(contentsOf: sidecarURL), before)
+    }
+
+    /// **The control, and it is what keeps the two tests above falsifiable**: an
+    /// implementation that simply never saved a repair would pass both. With no
+    /// sidecar there is nothing to lose, so the repair is written and the next
+    /// open finds nodes rather than orphans.
+    func test_aRepairIsStillSavedWhenThereIsNoSidecarToLose() throws {
+        try "\(ScrapText.banner)\n\n## ghst\n\nThe words survive.\n"
+            .write(to: scrapsURL, atomically: true, encoding: .utf8)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarURL.path),
+                       "precondition: no sidecar")
+
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        XCTAssertTrue(model.hasPendingSave, "a repair with nothing to lose is written")
+        model.detach()
+        XCTAssertNotNil(CanvasStore(projectRoot: root).load().scene.node(CanvasNodeID("ghst")),
+                        "so the next open finds a node rather than an orphan again")
+    }
+
     /// **A probe, not a bound on the machine.** `@Observable` generates a
     /// `_modify` accessor, so `withScene` should mutate the stored scene in
     /// place; if it ever compiles down to get-modify-set instead, every drag

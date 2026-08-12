@@ -65,7 +65,8 @@ final class CanvasClaudeWriteTests: XCTestCase {
 
     private func sidecar(at projectRoot: URL) -> (scene: CanvasScene,
                                                   scraps: [CanvasNodeID: String]) {
-        CanvasStore(projectRoot: projectRoot).load()
+        let loaded = CanvasStore(projectRoot: projectRoot).load()
+        return (loaded.scene, loaded.scraps)
     }
 
     /// Every node and line a plan describes, present in `scene` with the plan's own

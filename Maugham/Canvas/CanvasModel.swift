@@ -326,7 +326,17 @@ final class CanvasModel {
         // Last, so the payload it queues is the repaired canvas. Debounced
         // rather than written: `CanvasView.load()` calls this on `.onAppear` and
         // a synchronous write there would put file I/O on the mount.
-        if repaired { scheduleSave() }
+        //
+        // **And never over a sidecar this build refused to read.** A file from a
+        // newer build, or one whose bytes are damaged, loads as an empty scene
+        // with the scraps intact — so every scrap is an orphan and the repair
+        // below would otherwise stamp a current-schema sidecar over somebody's
+        // whole arrangement 750 ms after the writer merely OPENED the canvas.
+        // The words are still surfaced, in memory, where they can be read; the
+        // file survives being looked at, and is only replaced if the writer
+        // actually edits from this build (which is their own act, in their own
+        // undo bracket, and is a save this branch did not invent).
+        if repaired && loaded.sidecar.acceptsARepairWrite { scheduleSave() }
     }
 
     /// Give every orphaned scrap somewhere to be — a card, or nothing at all.
@@ -341,7 +351,9 @@ final class CanvasModel {
     /// loudest**: `CanvasStore.load` answers with an empty scene and the scraps
     /// intact, so every word the writer owns is an orphan at once — and it is
     /// this function that makes "an empty layout with the words intact is a
-    /// recoverable state" true rather than aspirational.
+    /// recoverable state" true rather than aspirational. (Unreadable is also the
+    /// one case whose repair is not saved — see the `acceptsARepairWrite` line
+    /// at the end of `attach`.)
     ///
     /// **Denver's ruling, 2026-08-12: an orphan is SURFACED — not silently
     /// pruned, and not silently kept.** Words the writer typed come back as a

@@ -399,15 +399,23 @@ public final class CanvasThumbnails {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else {
             return nil
         }
-        // Header only — no decode. A source with UNREADABLE dimensions
-        // proceeds rather than refusing: a bomb has to declare its size to
-        // work, and an honest file with no size property already fails
-        // (or succeeds) on its own merits a few lines down.
+        // Header only — no decode. A source with UNREADABLE dimensions proceeds
+        // rather than refusing, so this is **a floor over sources that declare
+        // themselves, not a guarantee**: a TIFF claiming 65535×65535 can return
+        // a properties dict with no pixel-width/height keys at all and sail
+        // straight past this (measured, #28 review), failing harmlessly on its
+        // own merits at the thumbnailer a few lines down. Refusing everything
+        // that will not state its size would refuse honest files too.
+        //
+        // `multipliedReportingOverflow` because the claim is the ATTACKER's
+        // number: two Ints out of a header multiply to a trap on overflow, and a
+        // crash is a worse answer than a refusal. An overflowing product is over
+        // any cap by construction.
         if let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
            let width = props[kCGImagePropertyPixelWidth] as? Int,
-           let height = props[kCGImagePropertyPixelHeight] as? Int,
-           width * height > sourcePixelCap {
-            return nil
+           let height = props[kCGImagePropertyPixelHeight] as? Int {
+            let (pixels, overflowed) = width.multipliedReportingOverflow(by: height)
+            if overflowed || pixels > sourcePixelCap { return nil }
         }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

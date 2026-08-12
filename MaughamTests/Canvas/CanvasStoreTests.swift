@@ -49,6 +49,30 @@ final class CanvasStoreTests: XCTestCase {
         let loaded = CanvasStore(projectRoot: root).load()
         XCTAssertTrue(loaded.scene.isEmpty)
         XCTAssertTrue(loaded.scraps.isEmpty)
+        XCTAssertEqual(loaded.sidecar, .absent,
+                       "nothing to lose — a load-time repair may be saved here")
+    }
+
+    /// **An empty scene is three different situations and only the reader can
+    /// tell them apart** (#28 whole-branch review). Pinned at the source, so the
+    /// discriminator `CanvasModel.attach` acts on is decided in one place rather
+    /// than re-derived by whoever needs it.
+    func test_loadSaysWhetherAnEmptySceneMeansNothingOrSomethingItCannotRead() throws {
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().sidecar, .absent)
+
+        CanvasStore(projectRoot: root).save(scene: sampleScene(), scraps: [:])
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().sidecar, .decoded)
+
+        let file = root.appendingPathComponent(CanvasStore.sidecarRelativePath)
+        try "not json at all".write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().sidecar, .refused,
+                       "damaged bytes are somebody's arrangement, not an empty canvas")
+
+        try #"{"schemaVersion":999,"nodes":[]}"#.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().sidecar, .refused,
+                       "so is a schema from a newer build")
+        XCTAssertFalse(CanvasStore.SidecarState.refused.acceptsARepairWrite,
+                       "which is the whole point: a refused sidecar is not written over")
     }
 
     func test_sidecarAndScrapsLandAtTheirDocumentedPaths() {
