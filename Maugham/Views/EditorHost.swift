@@ -118,6 +118,18 @@ struct EditorHost: View {
     /// ADR 0021 liveness/scope filter (a closed window must not act).
     @State private var window: NSWindow? = nil
 
+    /// The standing banner over a read-only partial open (recovery spec §4),
+    /// or nil for every ordinary document. Minted at the ONE bind site in
+    /// `loadDocumentIfNeeded` from the doc's own `readOnlyRecovery` state, so a
+    /// normal load leaves it nil and this view renders exactly as before.
+    ///
+    /// Not parallel text state (tripwire 6): it holds the unreadable FILE NAMES
+    /// and a readability poll, never the manuscript's text, and nothing it owns
+    /// feeds the editor binding. Its single output is `offersReopen`, which the
+    /// banner renders as a button — the reload happens only when the writer
+    /// presses it (`retryFullLoad`), never on the watcher's own authority.
+    @State private var recoveryBannerModel: RecoveryBannerModel? = nil
+
     /// Session id stable for the lifetime of this app launch. Stamped onto
     /// every `typing_burst` Op so multi-window edits can be merged across
     /// instances. Computed once via a lazy static.
@@ -171,6 +183,12 @@ struct EditorHost: View {
                     ),
                     configuration: makeSurfaceConfiguration(doc: doc, path: path, um: um)
                 )
+                // Recovery spec §4: the read-only partial view's standing
+                // banner, in `ViewOnlyShareNotice`'s position over the writing
+                // column. Inside `.id(path)` on purpose, so a document switch
+                // tears the banner down and its `.onDisappear` cancels the
+                // readability watch. Nothing renders for an ordinary document.
+                .safeAreaInset(edge: .top) { recoveryBannerInset(doc: doc) }
                 .id(path)
                 // Crafted review render (Component F): the open-annotation set now
                 // flows through the control model (ADR 0017), not a per-prop push.
@@ -280,6 +298,7 @@ struct EditorHost: View {
                 documentStore.unregister(path: path)
             }
             document = nil
+            recoveryBannerModel = nil
             loadedItemId = nil
             priorLoadedPath = nil
             // And nothing in flight may bind into a host that has gone: it
@@ -316,6 +335,35 @@ struct EditorHost: View {
             projectURL: store.url)
     }
 
+    /// The recovery banner, or nothing at all. Extracted from `body` for the
+    /// same reason every other wall here is (the type-checker budget), and
+    /// gated twice — on the doc's own posture and on a minted model — so an
+    /// ordinary document's render path is untouched.
+    @ViewBuilder
+    private func recoveryBannerInset(doc: Document) -> some View {
+        if doc.isReadOnlyRecovery, let bannerModel = recoveryBannerModel {
+            RecoveryBanner(model: bannerModel) {
+                Task { await retryFullLoad() }
+            }
+        }
+    }
+
+    /// Close whatever is bound (recovery or stale) and run the normal load
+    /// again. Reached from `RecoveryBanner`'s Reopen — the writer's own press,
+    /// which is the only thing allowed to swap the view under them.
+    ///
+    /// No `documentStore.unregister` here, and that is not an omission: a
+    /// read-only recovery doc is never registered (spec §4), so there is no
+    /// registry entry of its own to withdraw.
+    private func retryFullLoad() async {
+        if let doc = document { await doc.close() }
+        document = nil
+        recoveryBannerModel = nil
+        loadedItemId = nil
+        priorLoadedPath = nil
+        await loadDocumentIfNeeded()
+    }
+
     /// Build the EditorSurface configuration wall in a dedicated function so the
     /// `body` type-checker load drops (the extracted-ViewModifier / ProjectWindow
     /// pattern). Pure packaging (hardening Task 2): every closure below is the
@@ -339,6 +387,11 @@ struct EditorHost: View {
                 paragraphFocus: userPreferences.paragraphFocus,
                 showElementGutter: store.manifest.showElementGutter ?? true),
             control: control,
+            // Recovery spec §4: a read-only partial open refuses typing at the
+            // AppKit level (Task 4) and answers the attempt by emphasising the
+            // banner. Both are `false`/`nil` for an ordinary document, which is
+            // the configuration this call site has always produced.
+            readOnlyRecovery: doc.isReadOnlyRecovery,
             callbacks: .init(
                 initialCursorLocation: doc.cursorLocation,
                 onCursorChanged: { offset in
@@ -350,7 +403,10 @@ struct EditorHost: View {
                 },
                 onPostEditCursor: { doc.recordPostEditCursor($0) },
                 onElementChanged: onElementChanged,
-                onMetricsChanged: onMetricsChanged),
+                onMetricsChanged: onMetricsChanged,
+                onTypingRefused: doc.isReadOnlyRecovery
+                    ? { recoveryBannerModel?.noteTypingRefused() }
+                    : nil),
             paragraphProviders: .init(
                 wikiLinkResolver: wikiLinkResolver,
                 wikiLinkClickResolver: wikiLinkClickResolver,
@@ -602,6 +658,15 @@ struct EditorHost: View {
             loadedItemId = item.id
             priorLoadedPath = path
             loadError = nil
+            // Recovery spec §4: mint the banner only for a doc that came back
+            // read-only. `Document.load`'s ordinary path leaves
+            // `readOnlyRecovery` nil, so this is nil for every normal load and
+            // the render path above is unchanged.
+            recoveryBannerModel = doc.readOnlyRecovery.map {
+                RecoveryBannerModel(
+                    unreadableFiles: $0.unreadableFiles,
+                    opsDirectory: store.url.appendingPathComponent(".maugham/ops"))
+            }
             // RULING-54 (M9-OL-010): the crash-recovery failure is stamped on
             // the doc by `Document.load` and delivered HERE, where a window
             // can exist — a load-time post from a windowless context was
@@ -616,6 +681,7 @@ struct EditorHost: View {
             // editor on "Loading…" for a file that is open.
             guard loads.isCurrent(generation) else { return }
             document = nil
+            recoveryBannerModel = nil
             loadedItemId = item.id
             priorLoadedPath = nil
             // RULING-7 + RULING-54: the refusal is SHOWN — in the pane where
