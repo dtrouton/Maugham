@@ -254,6 +254,16 @@ final class TreeTravelRowMountingTests: XCTestCase {
         await click(row: 1, in: table, window: window)
         await pumpUntil(deadline: 5) { probe.subject == .item(firstDoc.id) }
 
+        // **The delivery premise, asserted before the contract** — a synthetic
+        // click that AppKit never turned into a click leaves the row unselected,
+        // and read off the subject alone that is indistinguishable from a broken
+        // selection binding. It cost a whole debugging session on 2026-08-12 to
+        // tell those two apart (`click`'s own note has the measurement), so the
+        // harness's half now fails in its own words.
+        XCTAssertEqual(table.selectedRow, 1,
+                       "the synthetic click was never recognised as a click — "
+                       + "this is the harness's premise failing, not the row's "
+                       + "selection binding")
         XCTAssertEqual(probe.subject, .item(firstDoc.id))
         XCTAssertEqual(probe.persona, .plan,
                        "a single click must never move the persona — that "
@@ -522,6 +532,37 @@ final class TreeTravelRowMountingTests: XCTestCase {
         let point = CGPoint(x: rect.midX, y: rect.midY)
         let inWindow = table.convert(point, to: nil)
         let app = NSApplication.shared
+        // **The queue has to be QUIET before the pair goes in** — this helper's
+        // premise, and until 2026-08-12 an assumed one. `hostBinder` calls
+        // `makeKeyAndOrderFront`, and ordering a window front leaves AppKit's
+        // own `appKitDefined` (type 13) traffic for the PREVIOUSLY key window in
+        // `NSApp`'s queue. Post the click on top of that and the drain below
+        // dequeues the mouseDown first, `-[NSTableView mouseDown:]` opens its
+        // drag-vs-click disambiguation loop, and the next event that loop finds
+        // is the stale one rather than this click's own mouseUp: the pair is
+        // consumed WITHOUT a click being recognised, `table.selectedRow` stays
+        // -1, and nothing is ever selected. Measured directly (three variants,
+        // one build): with the stale event in the queue, red — `drained #2
+        // type=13 win=<ours − 1>`, `selectedRow(after)=-1`; draining it first,
+        // green — `selectedRow(after)=1`. Whether it has drained on its own by
+        // the time this runs is a function of machine load, which is how the
+        // same unchanged test passed three gates and then failed four runs in a
+        // row on a busier machine the same day.
+        //
+        // Deterministic rather than a sleep: drain to empty and require the
+        // queue to STAY empty across three polls, so an event still in flight
+        // has a run loop to arrive on before the click is posted.
+        var quietPolls = 0
+        while quietPolls < 3 {
+            if let stray = app.nextEvent(matching: .any, until: Date(),
+                                         inMode: .default, dequeue: true) {
+                app.sendEvent(stray)
+                quietPolls = 0
+            } else {
+                quietPolls += 1
+            }
+            pump(0.02)
+        }
         for (type, count) in [(NSEvent.EventType.leftMouseDown, 1), (.leftMouseUp, 1)] {
             guard let event = NSEvent.mouseEvent(
                 with: type, location: inWindow, modifierFlags: [],
