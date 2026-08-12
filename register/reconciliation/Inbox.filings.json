@@ -52,15 +52,15 @@
     "outcome": "COMPLIES",
     "ruling": "RULING-8",
     "clause_that_reaches_it": "a second code path may not answer the same question differently",
-    "why_in_scope": "the capture node id is derived (cap-<entryId>) and both CanvasCapture arms skip a node already present — the failed-flip retry lands on the same card, the second-drop-reveals shape",
+    "why_in_scope": "the capture node id is derived (cap-<entryId>) and both CanvasCapture arms skip a node already present — the failed-flip retry lands on the same card, the second-drop-reveals shape. The asset half is the same convergence read one call earlier: the image arm asked the canvas only AFTER copying, so the retry answered the same question about the card and a different one about the picture",
     "intent_expressed_when": "not at all",
     "call_path": "Send to Canvas, retried",
-    "violation_or_enhancement": "violation — derive the capture node id; a re-send lands on the same node",
+    "violation_or_enhancement": "violation — derive the capture node id; a re-send lands on the same node, and (the asset half) asks that question before the ingest so the picture is not re-copied",
     "fix": {
-      "commit": "6955c2d8",
-      "date": "2026-08-09",
+      "commit": "6955c2d8 (the card half); the asset half landed with issue #29 S7, a9cbba32",
+      "date": "2026-08-09 (the card half); 2026-08-12 (the asset half)",
       "authorised_by": "RULING-8 (standing)",
-      "pinned_by": "InboxCharacterization.test_aCanvasRetryConvergesOnTheSameCard; InboxToCanvasTests.test_aRetryAfterAFailedFlipLandsOnTheSameCard"
+      "pinned_by": "InboxCharacterization.test_aCanvasRetryConvergesOnTheSameCard; InboxToCanvasTests.test_aRetryAfterAFailedFlipLandsOnTheSameCard; InboxToCanvasTests.test_anImageRetryAfterAFailedFlipDoesNotIngestASecondCopy"
     }
   },
   {

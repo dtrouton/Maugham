@@ -101,6 +101,39 @@ enum CanvasCapture {
 
     // MARK: - Decide
 
+    /// The capture's node id, DERIVED from the entry (RULING-8, M8-IN-004) — the
+    /// one spelling, shared by the planner below and the pre-ingest query beside
+    /// it, so the question "is this capture already on the canvas?" cannot be
+    /// asked of a differently-spelled id than the one `send` would write.
+    static func nodeID(forCapture captureID: String) -> CanvasNodeID {
+        CanvasNodeID("cap-" + captureID)
+    }
+
+    /// Is this capture already on the canvas? **Asked BEFORE the asset ingest**, so
+    /// a retry after a failed status flip re-copies nothing (S7, issue #29).
+    ///
+    /// `send`'s own short-circuit lands the retry on the same card, but it is too
+    /// late for the picture: by the time it runs, `sendToCanvas` has already
+    /// ingested a second copy into the well that no node will ever reference —
+    /// invisible for ever, since nothing enumerates the well but the nodes. This is
+    /// that same question, one call earlier, for the caller that has a side effect
+    /// to skip.
+    ///
+    /// **Read-only, and it reads through `CanvasClaudeWrite.liveModel` rather than
+    /// re-deciding which canvas is real** — that helper is the one place
+    /// `liveCanvas` and `isAttached` are written together, and an answer derived
+    /// here from a second spelling could disagree with the one `send` acts on: the
+    /// query would clear a detached model's stale scene while the write went to the
+    /// sidecar, which is the double-copy back again.
+    static func existingNode(forCapture captureID: String,
+                             store: ProjectStore, projectRoot: URL) -> CanvasNodeID? {
+        let id = nodeID(forCapture: captureID)
+        if let model = CanvasClaudeWrite.liveModel(of: store) {
+            return model.scene.node(id) != nil ? id : nil
+        }
+        return CanvasStore(projectRoot: projectRoot).load().scene.node(id) != nil ? id : nil
+    }
+
     /// Decide where a capture lands, without touching the scene.
     ///
     /// **The node is born MEASURED.** A node with no `cachedHeight` has no
@@ -121,7 +154,7 @@ enum CanvasCapture {
         // reachable second send is the retry after a failed status flip — and
         // a derived id makes it land on the SAME card instead of a second one,
         // the shape the canvas already uses for a research row's second drop.
-        let id = CanvasNodeID("cap-" + captureID)
+        let id = nodeID(forCapture: captureID)
         let origin: CGPoint
         let joins: Bool
         switch placement {

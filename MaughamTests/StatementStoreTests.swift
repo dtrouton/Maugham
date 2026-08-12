@@ -217,6 +217,133 @@ final class StatementStoreTests: XCTestCase {
         XCTAssertEqual(store.statement(kind: .intent, scope: .project)?.id, created.id)
     }
 
+    // MARK: - Undoing a mint nothing was deposited into (issue #29)
+
+    /// Issue #29 (S5 residue + S6): `createStatement` commits a file and a
+    /// manifest row **before** the thing it was minted for can fail — an image
+    /// save that throws, a superseded mint nothing was deposited into. The
+    /// rollback undoes exactly that commit.
+    func test_rollbackRemovesAFreshlyMintedEmptyStatement() async throws {
+        let (url, store) = try await loadedNovel(named: "RollbackFresh")
+        let minted = try await store.createStatement(kind: .visualLanguage, scope: .project)
+        let file = url.appendingPathComponent(minted.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path),
+                      "control: the mint committed a file")
+
+        let rolled = await store.rollbackUnusedStatement(minted)
+
+        XCTAssertTrue(rolled, "an empty scaffold nothing was deposited into rolls back")
+        XCTAssertNil(store.statement(kind: .visualLanguage, scope: .project),
+                     "the manifest row is gone — the writer's visual language is "
+                     + "undeclared again, which is what it was a moment ago")
+        XCTAssertTrue(store.manifest.statements.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path),
+                       "and the empty file with it")
+
+        // The rollback is durable, not merely in memory: a reload must not find
+        // the row the writer's failed act left behind.
+        let reloaded = try await ProjectStore.load(from: url)
+        await reloaded.wordCountPopulationTask?.value
+        XCTAssertTrue(reloaded.manifest.statements.isEmpty,
+                      "the manifest was saved without the row")
+    }
+
+    /// **Words mean the mint was USED.** The verb exists for the
+    /// mint-then-fail window, and a caller reaching for it any later is wrong —
+    /// so it refuses rather than trusting them.
+    func test_rollbackRefusesAStatementThatHasWords() async throws {
+        let (url, store) = try await loadedNovel(named: "RollbackRefusesWords")
+        let minted = try await store.createStatement(kind: .intent, scope: .project)
+        try await store.appendToStatement("The writer's own intent.", to: minted,
+                                          session: "test-\(UUID().uuidString)")
+
+        let rolled = await store.rollbackUnusedStatement(minted)
+
+        XCTAssertFalse(rolled, "words mean the mint was USED — rollback must refuse")
+        XCTAssertEqual(store.statement(kind: .intent, scope: .project)?.id, minted.id,
+                       "the statement is untouched")
+        XCTAssertEqual(try store.statementText(of: minted), "The writer's own intent.",
+                       "and so are its words")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent(minted.path).path))
+    }
+
+    /// **The words can be in the FILE with the op log still empty**, and that is
+    /// the state this guard is really for: a freshly promoted Collection piece
+    /// carries its intent's prose in the `.md` and has no `.maugham/` at all
+    /// (`stagePromotedIntent`), so the derivation answers `""` over a file full
+    /// of the writer's paragraphs. Asked as a `stat` and never a read — the
+    /// non-zero-size question `propagateWikiLinkRename` already asks (ADR 0018).
+    func test_rollbackRefusesWhenTheWordsAreInTheFileAndNotYetInTheLog() async throws {
+        let (url, store) = try await loadedNovel(named: "RollbackUnbootstrapped")
+        let minted = try await store.createStatement(kind: .intent, scope: .project)
+        let file = url.appendingPathComponent(minted.path)
+        let prose = "Carried over from the Collection, never opened here.\n"
+        try prose.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try store.statementText(of: minted), "",
+                       "control: the op log is empty, so the derivation says nothing "
+                       + "— which is exactly why an empty derive cannot be the whole test")
+
+        let rolled = await store.rollbackUnusedStatement(minted)
+
+        XCTAssertFalse(rolled, "a statement whose file has bytes is not an unused mint")
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), prose,
+                       "the writer's prose is untouched")
+        XCTAssertEqual(store.statement(kind: .intent, scope: .project)?.id, minted.id)
+    }
+
+    /// **An OPEN statement is in use whatever its text says.** A pane binds a
+    /// `Document` on that path and types into it; deleting the file out from
+    /// under one leaves the writer typing into a `Document` whose file is gone.
+    func test_rollbackRefusesWhileTheStatementIsOpen() async throws {
+        let (url, store) = try await loadedNovel(named: "RollbackOpen")
+        let minted = try await store.createStatement(kind: .intent, scope: .project)
+
+        // Stand in for the Intent pane through the store's own open seam, which
+        // is the pair `StatementEditorHost.load` performs.
+        await store.lockStatementOpen(minted.id)
+        let pane = try await Document.load(
+            url: url.appendingPathComponent(minted.path),
+            device: MacDeviceID.current, session: "pane-test", presenter: nil)
+        store.noteStatementDocumentOpened(pane, id: minted.id)
+        store.unlockStatementOpen(minted.id)
+
+        let rolled = await store.rollbackUnusedStatement(minted)
+
+        XCTAssertFalse(rolled, "an OPEN statement is in use whatever its text says")
+        XCTAssertEqual(store.statement(kind: .intent, scope: .project)?.id, minted.id)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent(minted.path).path))
+
+        store.forgetStatementDocument(id: minted.id)
+        await pane.close()
+    }
+
+    /// **A stale handle deletes nothing**, and the sharp case is a path reused:
+    /// roll one back, mint another, and the first handle still names the path
+    /// the second now lives at. Identity is the manifest `id` (tripwire 22), so
+    /// the second call finds no row for it and refuses — rather than removing a
+    /// live statement's file by path.
+    func test_rollbackRefusesAHandleTheManifestNoLongerKnows() async throws {
+        let (url, store) = try await loadedNovel(named: "RollbackStaleHandle")
+        let first = try await store.createStatement(kind: .intent, scope: .project)
+        let rolledFirst = await store.rollbackUnusedStatement(first)
+        XCTAssertTrue(rolledFirst)
+
+        let second = try await store.createStatement(kind: .intent, scope: .project)
+        XCTAssertEqual(second.path, first.path, "control: the path was free again")
+        XCTAssertNotEqual(second.id, first.id)
+
+        let rolledAgain = await store.rollbackUnusedStatement(first)
+
+        XCTAssertFalse(rolledAgain, "the manifest no longer knows this statement")
+        XCTAssertEqual(store.statement(kind: .intent, scope: .project)?.id, second.id,
+                       "and the live statement standing at that path is untouched")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent(second.path).path),
+            "a stale handle must never take a live statement's file with it")
+    }
+
     /// Two documents can share a title, so their slugs collide. Each still gets
     /// its own statement file — identity is the manifest id, not the path.
     func test_twoDocumentsWithTheSameTitleGetSeparateIntents() async throws {

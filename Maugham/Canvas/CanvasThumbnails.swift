@@ -363,7 +363,7 @@ public final class CanvasThumbnails {
     /// decoding; a source with UNREADABLE dimensions proceeds, because the
     /// bomb must declare its size to work and the thumbnailer already fails
     /// honestly on garbage.
-    static let sourcePixelCap = 200_000_000
+    nonisolated static let sourcePixelCap = 200_000_000
 
     /// One decode, at thumbnail size, through `CGImageSource`.
     ///
