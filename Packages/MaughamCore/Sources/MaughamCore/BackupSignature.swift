@@ -83,8 +83,19 @@ public enum BackupSignature {
             if rel.hasPrefix(".maugham/ops/") {
                 // Op log: contribute only the non-checkpoint op ids, so the per-save
                 // `.checkpoint` breadcrumb doesn't perturb the signature.
+                // RULING-54: an unreadable-yet-present file contributes a
+                // distinct marker line, never silence — dropping it made the
+                // signature EQUAL to the file-deleted state, so change
+                // detection couldn't tell "a file became unreadable" from "a
+                // file was removed", and a skip-unchanged verdict could stand
+                // on a state it never actually hashed. (The WRITE path fails
+                // loudly regardless: `copyItem` throws on the unreadable file
+                // and the destination reports `.failed`.)
                 guard let data = try? Data(contentsOf: fileURL),  // adr-0018-ok: backup file bytes read for signature, not manuscript-as-truth
-                      let text = String(data: data, encoding: .utf8) else { continue }
+                      let text = String(data: data, encoding: .utf8) else {
+                    lines.append("\(rel)\tunreadable")
+                    continue
+                }
                 var ids: [String] = []
                 for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
                     guard let d = String(line).data(using: .utf8),
@@ -94,7 +105,12 @@ public enum BackupSignature {
                 }
                 lines.append("\(rel)\tops\t\(ids.sorted().joined(separator: ","))")
             } else {
-                guard let data = try? Data(contentsOf: fileURL) else { continue }  // adr-0018-ok: backup file bytes read for signature, not manuscript-as-truth
+                guard let data = try? Data(contentsOf: fileURL) else {  // adr-0018-ok: backup file bytes read for signature, not manuscript-as-truth
+                    // RULING-54: same marker as the ops branch — unreadable
+                    // is a state of its own, never equal to absent.
+                    lines.append("\(rel)\tunreadable")
+                    continue
+                }
                 lines.append("\(rel)\t\(MerkleBuilder.sha256Hex(data))")
             }
         }

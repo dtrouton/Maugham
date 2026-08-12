@@ -113,7 +113,30 @@ extension Document {
 
         let opStore = OpLogStore(projectURL: projectURL, presenter: presenter)
         let pending = PendingBuffer(projectURL: projectURL, docId: docId, device: device)
-        try await pending.loadFromDisk()
+        // RULING-54: a pending file that exists but can't be read or decoded
+        // holds un-bursted keystrokes from a crashed session. Not a refusal —
+        // every SAVED word is intact in the op log — but never silent either:
+        // quarantine what's salvageable (the next autosave overwrites the
+        // pending file, so this record is the only copy that survives) and
+        // tell the writer. Best-effort like the torn-line block below: a
+        // quarantine-write failure must never abort the load.
+        if case .unrecoverable(let name, let reason, let raw) = await pending.loadFromDisk() {
+            let stamp = ISO8601DateFormatter.quarantineStamp(from: Date())
+            do {
+                _ = try IntegrityQuarantine.record(
+                    skipped: [.init(byteOffset: 0,
+                                    raw: raw ?? "<pending file \(name) unreadable: \(reason)>")],
+                    forDocId: docId, in: projectURL, stamp: stamp)
+            } catch {
+                documentLog.error(
+                    "pending quarantine-record write failed for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+            MaughamEvent.postNotice(
+                "Maugham couldn’t recover unsaved keystrokes from your last session "
+                + "(\(name): \(reason)). Everything you saved is intact; a record was "
+                + "kept in the project’s quarantine folder.",
+                projectURL: projectURL)
+        }
 
         let loaded = try await opStore.loadDiagnosed(docId: docId)
         var ops = loaded.ops

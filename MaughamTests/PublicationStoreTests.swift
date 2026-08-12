@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class PublicationStoreTests: XCTestCase {
@@ -82,5 +83,38 @@ final class PublicationStoreTests: XCTestCase {
         }
         let pubs = try await store.load()
         XCTAssertEqual(pubs.map(\.version), ["0.1", "0.2", "0.3"])
+    }
+
+    // MARK: - RULING-54: an unreadable catalog file REFUSES, never shortens
+
+    /// An UNREADABLE-yet-present publications device file (a directory
+    /// squatting on its path — the permissions-break / dataless-stub shape)
+    /// must THROW naming the file, never read as a shorter catalog: every
+    /// substantive consumer is write-adjacent (the occupied-destination
+    /// refusal, republish's prior-edition lookup, the starter's version
+    /// high-water mark), so a silently missing row arms a version collision
+    /// or an overwrite of an edition the writer already shipped.
+    func testLoad_unreadableDeviceFile_throwsNamingTheFile() async throws {
+        let store = await PublicationStore(projectURL: tmp)
+        try await store.append(Publication(
+            publicationID: "pub_ok", version: "0.1", label: nil,
+            format: .pdf, outputPath: "x.pdf", snapshotID: "s",
+            checkpointID: "c", republishedFrom: nil,
+            compiledAt: Date(timeIntervalSince1970: 1_750_000_000),
+            maughamVersion: "0", tectonicVersion: "0.15.0"))
+        let badURL = PublicationStore.fileURL(
+            deviceSlug: DeviceSlug.make(from: "bad"), in: tmp)
+        try FileManager.default.createDirectory(
+            at: badURL, withIntermediateDirectories: true)
+
+        do {
+            _ = try await store.load()
+            XCTFail("an unreadable catalog file must throw, not read as a shorter catalog")
+        } catch let error as PublicationStore.ReadError {
+            guard case .unreadableFile(let name, _) = error else {
+                XCTFail("unexpected case: \(error)"); return
+            }
+            XCTAssertEqual(name, badURL.lastPathComponent, "the file is named")
+        }
     }
 }

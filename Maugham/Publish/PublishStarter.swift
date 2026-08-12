@@ -76,7 +76,10 @@ public enum PublishStarter {
     /// or the freshly-written config already has a higher counter.
     private static func reconcileNextVersion(in projectURL: URL) async throws {
         let publicationStore = await PublicationStore(projectURL: projectURL)
-        let publications = (try? await publicationStore.load()) ?? []
+        // RULING-54: propagate, don't blank. An unreadable catalog read as []
+        // silently no-ops this guard — the exact collision the comment above
+        // describes, armed by the read the guard exists to consult.
+        let publications = try await publicationStore.load()
         guard !publications.isEmpty else { return }
         // Build the highest tuple via an explicit loop — Swift's type
         // inference times out on .compactMap { tuple }.max(by: ...).

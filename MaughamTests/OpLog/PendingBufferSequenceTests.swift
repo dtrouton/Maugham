@@ -20,7 +20,7 @@ final class PendingBufferSequenceTests: XCTestCase {
         try await a.flushToDisk()
 
         let b = PendingBuffer(projectURL: root, docId: "doc-1", device: "d")
-        try await b.loadFromDisk()
+        await b.loadFromDisk()
         XCTAssertEqual(b.sequence, ["bbbb", "aaaa"])
         XCTAssertEqual(b.snapshot().map(\.paragraphId), ["aaaa"])  // changes intact
     }
@@ -55,7 +55,7 @@ final class PendingBufferSequenceTests: XCTestCase {
         try Data((line + "\n").utf8).write(to: url, options: .atomic)
 
         let b = PendingBuffer(projectURL: root, docId: "doc-1", device: "d")
-        try await b.loadFromDisk()
+        await b.loadFromDisk()
         XCTAssertTrue(b.isEmpty(), "old JSONL pending must not decode as DiskState")
         XCTAssertEqual(b.sequence, [])
     }

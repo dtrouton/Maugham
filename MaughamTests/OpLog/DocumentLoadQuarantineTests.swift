@@ -165,4 +165,54 @@ final class DocumentLoadQuarantineTests: XCTestCase {
         }
     }
 
+    /// RULING-54's pending-buffer half: a pending file that exists but can't
+    /// be decoded holds un-bursted keystrokes from a crashed session. The doc
+    /// still loads (every SAVED word is intact — a notice, not a refusal),
+    /// but the bytes are quarantined BEFORE the next autosave overwrites the
+    /// only copy, and the writer is told through the document-notice toast.
+    func test_load_unrecoverablePendingFile_quarantinesAndNotifies_stillLoads() async throws {
+        let (project, docURL) = try makeTestProject(prefix: "DOCPEND", initialMd: "Hello.\n")
+        let doc1 = try await Document.load(
+            url: docURL, device: "m", session: "s", presenter: nil)
+        let docId = doc1.docId
+        await doc1.close()
+
+        // A crashed session's torn pending state: present, undecodable.
+        let pendingURL = project
+            .appendingPathComponent(".maugham/pending")
+            .appendingPathComponent("\(docId).\(DeviceSlug.make(from: "m").raw).pending.jsonl")
+        try FileManager.default.createDirectory(
+            at: pendingURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "NOT JSON — torn pending state".write(
+            to: pendingURL, atomically: true, encoding: .utf8)
+
+        var noticed: String?
+        let observer = NotificationCenter.default.addObserver(
+            forName: .maughamDocumentNotice, object: nil, queue: .main
+        ) { note in
+            noticed = note.userInfo?[MaughamEvent.noticeMessageKey] as? String
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let doc = try await Document.load(
+            url: docURL, device: "m", session: "s", presenter: nil)
+        XCTAssertTrue(doc.displayText.contains("Hello."), "the manuscript still opens")
+        await doc.close()
+
+        let quarantineDir = project
+            .appendingPathComponent(".maugham/conflicts/quarantine", isDirectory: true)
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            atPath: quarantineDir.path)) ?? []
+        XCTAssertFalse(entries.isEmpty, "the torn pending bytes are preserved")
+        let recorded = try String(
+            contentsOf: quarantineDir.appendingPathComponent(entries.sorted()[0]),
+            encoding: .utf8)
+        XCTAssertTrue(recorded.contains("NOT JSON"),
+                      "the record carries the raw bytes, the only copy that survives the next autosave")
+
+        XCTAssertNotNil(noticed, "the writer is told")
+        XCTAssertTrue(noticed?.contains("pending.jsonl") == true,
+                      "the notice names the file — found: \(noticed ?? "nil")")
+    }
+
 }

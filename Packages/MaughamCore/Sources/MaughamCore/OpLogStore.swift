@@ -264,6 +264,14 @@ public final class OpLogStore {
             tailBytes = try? Data(contentsOf: ru)  // adr-0018-ok: op-log segment tail bytes — the op log IS the source of truth (ADR 0018)
         }
         if let coordErr { throw coordErr }
+        // RULING-54 lenient, reason recorded: an unreadable tail SKIPS the
+        // seal rather than surfacing. Sealing is maintenance, not truth — the
+        // ops stay in the tail, the skip is retried on every autosave/close,
+        // and a tail that is genuinely unreadable meets the strict refusal at
+        // the next document load (M9-OL-001), so the state cannot persist
+        // silently across sessions. The torn-line skip below is likewise
+        // deliberate: the quarantine path owns torn tails, and a checksummed
+        // segment must never bake in unparseable bytes.
         guard let bytes = tailBytes, !bytes.isEmpty else { return nil }
         let parsed = JSONLAppendStore<Op>.parse(bytes: bytes)
         guard parsed.diagnostics.skipped.isEmpty else { return nil }

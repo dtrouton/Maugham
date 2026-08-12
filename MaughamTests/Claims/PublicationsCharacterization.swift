@@ -202,12 +202,19 @@ final class PublicationsCharacterization: XCTestCase {
     func test_aFailureAfterMutationNamesWhatLandedAndTheJobIsTerminal() async throws {
         let (orch, cfg, _, jobs) = try await makeOrchestrator()
         try await cfg.save(PublishConfig(metadata: .init(title: "Pin", author: "T")))
-        // Injection: the device's own catalog file path becomes a directory,
-        // so the append throws AFTER the export and snapshot have landed.
+        // Injection: a valid but READ-ONLY catalog file — the strict load
+        // (RULING-54, M9-OL-009) reads it fine, and the append's
+        // FileHandle(forWritingTo:) throws AFTER the export and snapshot have
+        // landed. (The old directory-squat injection now refuses at the
+        // pre-flight load, before anything mutates — a better failure, pinned
+        // separately in CompileOrchestratorTests.)
         let catalogURL = PublicationStore.fileURL(
             deviceSlug: DeviceSlug.make(from: MacDeviceID.current), in: tmp)
         try FileManager.default.createDirectory(
-            at: catalogURL, withIntermediateDirectories: true)
+            at: catalogURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: catalogURL)  // an empty catalog loads as []
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o444], ofItemAtPath: catalogURL.path)
 
         let outcome = try await orch.compile(format: .epub, label: nil)
         guard case .failed(let errors, _) = outcome else {

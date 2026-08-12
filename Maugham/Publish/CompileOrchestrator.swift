@@ -156,7 +156,23 @@ public struct CompileOrchestrator {
         //     publication's version (most recent `compiledAt`, `language == nil`);
         //     when no source publication exists at all it refuses loudly
         //     ("compile the source edition first").
-        let existingPublications = try await publicationStore.load()
+        let existingPublications: [Publication]
+        do { existingPublications = try await publicationStore.load() }
+        catch {
+            // RULING-54: an unreadable catalog file refuses the compile
+            // PRE-FLIGHT — this list is exactly what the occupied-destination
+            // refusal and the version mint read, so compiling over a silently
+            // shorter catalog could overwrite or collide with an edition the
+            // writer already shipped. Same shape as the no-config refusal
+            // above: a terminal job and a `.failed` outcome, nothing landed.
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: error.localizedDescription,
+                contextLines: ["Nothing was compiled — no export, no snapshot, no version bump."])
+            await jobManager.fail(jobID: jobID, errors: [diag],
+                                  logExcerpt: "publications catalog unreadable")
+            return .failed(errors: [diag], logExcerpt: "publications catalog unreadable")
+        }
 
         let effectiveVersion: String
         if language == nil {

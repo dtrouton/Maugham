@@ -57,7 +57,7 @@ final class DocumentCloseFlushTests: XCTestCase {
 
         // And the recovered bytes must be the burst we typed.
         let recovered = PendingBuffer(projectURL: project, docId: doc.docId, device: "m")
-        try await recovered.loadFromDisk()
+        await recovered.loadFromDisk()
         let texts = recovered.snapshot().map(\.next)
         XCTAssertTrue(
             texts.contains(where: { $0.contains("the last burst before close") }),
