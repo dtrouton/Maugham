@@ -39,6 +39,13 @@ public struct IntegrityReport: Equatable, Sendable {
 
     /// `docSkips` only ever holds docs *with* skips (the aggregator filters empties),
     /// so its emptiness alone is the parse-health signal.
+    ///
+    /// NOTE: since the backup gate moved to `blocksBackup` (2026-08-12), this
+    /// has ZERO production consumers — it is the whole-report health signal
+    /// the future "Verify project" surface (this type's stated purpose, above)
+    /// is meant to take. If that surface ships reading something else, delete
+    /// this rather than leave a second unread projection (the
+    /// RegionBinding-zero-callers shape).
     public var isHealthy: Bool {
         docSkips.isEmpty && conflictTwins.isEmpty && danglingPointers.isEmpty
             && invalidParagraphIds.isEmpty && unreadableCheckpointFiles.isEmpty
@@ -54,6 +61,12 @@ public struct IntegrityReport: Equatable, Sendable {
     /// must not be held hostage by a non-manuscript index (constitution
     /// must #1). The op-log findings DO block, because the backup would
     /// propagate a corrupt or shortened manuscript into every generation.
+    ///
+    /// Known residue: `danglingPointers` is computed FROM the checkpoint set,
+    /// so while a checkpoint file is unreadable that blocking check runs on
+    /// incomplete input and can under-report — the backup proceeds on weaker
+    /// evidence. Accepted: blocking here would hold the manuscript hostage
+    /// again, and the unreadable file is itself a named finding on the report.
     public var blocksBackup: Bool {
         !(docSkips.isEmpty && conflictTwins.isEmpty && danglingPointers.isEmpty
             && invalidParagraphIds.isEmpty)

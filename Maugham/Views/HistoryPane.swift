@@ -214,6 +214,9 @@ struct HistoryPane: View {
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .help(Self.unreadableCheckpointDetail(unreadableCheckpointFiles) ?? "")
+                    // .help is hover-only; the WHY must reach VoiceOver too.
+                    .accessibilityHint(Text(
+                        Self.unreadableCheckpointDetail(unreadableCheckpointFiles) ?? ""))
                 Divider()
             }
             if entries.isEmpty {
