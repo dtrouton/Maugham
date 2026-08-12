@@ -140,16 +140,48 @@
   "violation_or_enhancement": "neither — born with the milestone"
  },
  {
+  "claim_id": "M9-OL-015",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "lenient reads are opt-in with a recorded reason",
+  "why_in_scope": "the set-aside act is Plan B's writer-initiated leniency over the same file M9-OL-002/003 refuses cold: nothing is auto-quarantined (spec §6's own non-goal, 'no auto-quarantine, ever'), the writer's own press from either surface is the only trigger, and the record IS the recorded reason this ruling requires — docId, original filename, when, and the read error at quarantine time, filed beside the byte-identical bytes rather than trusted to memory. RULING-4's recoverability clause reaches the same act from the other side: the bytes are moved, never opened, never deleted",
+  "intent_expressed_when": "contemporaneous — the milestone's own spec (§5, §6)",
+  "call_path": "the refusal pane's Set the File Aside and Keep Writing action; the read-only banner's typing-refusal offer",
+  "violation_or_enhancement": "neither — born with the milestone"
+ },
+ {
+  "claim_id": "M9-OL-016",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "lenient reads are opt-in with a recorded reason",
+  "why_in_scope": "the return is the opt-in leniency's counterpart: a held record is never silently forgotten (auto-probed on every normal open, explicitly on Retry) and never silently trusted either — a still-unreadable or torn returned file STAYS held rather than merging a partial read, and a clean merge never overwrites durable state (constitution must #1). The orphan report is RULING-28/52's family completing the honest half a second time: what the recovered history carried that the evolving draft does not is named, not silently dropped, even when it does not rejoin the sequence automatically; the whole-branch review found the honest half dishonest in exactly the branch that loses the most — the no-move one — and the fix makes the totality sentence true across both outcomes rather than only the one where the archive comes back",
+  "intent_expressed_when": "contemporaneous — the milestone's own spec (§5 rules 1-3)",
+  "call_path": "EditorHost's auto-return sweep at every normal document open; the History pane's Retry; RecoveredHistorySheet's Append to End",
+  "violation_or_enhancement": "neither — born with the milestone",
+  "residual": "CROSS-DEVICE AUTO-RETURN PING-PONG, undecided and DENVER'S DECISION when it is taken: the quarantine sidecar and the archive both live under .maugham/, so iCloud syncs them, and device B's auto-return sweep can move back a file device A deliberately set aside — for which it still does not read — so A sets it aside again on its next open, and so on. Nothing is lost (the move is byte-identical, the record survives every hop, and the ladder is honest on both devices), but whether a set-aside TRAVELS or is a local judgement about a local file is product behaviour nobody has ruled on, so this milestone neither guesses nor pretends the churn is absent. This is the concrete shape of the cross-device probe spec §8's tripwire-17 bullet asks the plan to add; also recorded in docs/roadmap.md's recovery entry residuals"
+ },
+ {
+  "claim_id": "M9-OL-017",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-52",
+  "clause_that_reaches_it": "an operation that has already changed the project and then fails says what it did as well as what failed",
+  "why_in_scope": "⌘S is exactly the shape RULING-52 names: an operation that can fail after it has begun. The whole-branch review's finding was silence about that failure — the flash looked identical whether the checkpoint landed or was refused. The fix answers both of the ruling's routes at once: CheckpointCapture either lands cleanly and the flash confirms it, or the write is refused and the notice names what failed and why — never a flash standing in for a write that did not happen",
+  "intent_expressed_when": "contemporaneous — the whole-branch review's finding",
+  "call_path": "CheckpointModifier's ⌘S key command; the Shift-⌘S named-checkpoint sheet",
+  "violation_or_enhancement": "neither — born with the fix"
+ },
+ {
   "_summary": {
-   "reached": 14,
-   "complies": 14,
+   "reached": 17,
+   "complies": 17,
    "violates": 0,
    "no_ruling": 0,
-   "total": 14,
+   "total": 17,
    "coverage": "100%",
    "by_ruling": {
     "RULING-52": [
-     "M9-OL-004"
+     "M9-OL-004",
+     "M9-OL-017"
     ],
     "RULING-54": [
      "M9-OL-001",
@@ -160,7 +192,9 @@
      "M9-OL-010",
      "M9-OL-011",
      "M9-OL-012",
-     "M9-OL-013"
+     "M9-OL-013",
+     "M9-OL-015",
+     "M9-OL-016"
     ],
     "RULING-7": [
      "M9-OL-002",

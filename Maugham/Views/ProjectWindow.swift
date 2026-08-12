@@ -236,14 +236,16 @@ struct ProjectWindow: View {
                             Task { @MainActor in
                                 let activeDoc = activeDocument(in: store, documentStore: documentStore)
                                 try? await activeDoc?.flushBurstNow()
-                                _ = try? await CheckpointCapture.run(
-                                    projectURL: projectURL,
-                                    activeDocId: activeDocId,
-                                    allDocIds: allDocIds,
-                                    device: _checkpointDeviceId,
-                                    session: _checkpointSessionId,
-                                    label: label,
-                                    activeDocument: activeDoc)
+                                await CheckpointFlashDecision.run(projectURL: projectURL) {
+                                    _ = try await CheckpointCapture.run(
+                                        projectURL: projectURL,
+                                        activeDocId: activeDocId,
+                                        allDocIds: allDocIds,
+                                        device: _checkpointDeviceId,
+                                        session: _checkpointSessionId,
+                                        label: label,
+                                        activeDocument: activeDoc)
+                                }
                             }
                         },
                         onCancel: { showingCheckpointLabelSheet = false }
@@ -2798,6 +2800,38 @@ struct ProjectWindow: View {
 
 }
 
+// MARK: - CheckpointFlashDecision
+
+/// The one honest-save decision both ⌘S sites route through — `CheckpointModifier`'s
+/// key command below and the Shift-⌘S label sheet in `ProjectWindow.body`. A
+/// landed checkpoint runs `onSuccess` (the flash); a thrown one runs neither
+/// `onSuccess` nor the caller's own success path, and posts a notice
+/// explaining why instead of staying silent. Never both, never neither — the
+/// whole-branch review's finding was a ⌘S flash that fired even when the
+/// checkpoint write failed or, in a read-only recovery state, wrote nothing.
+///
+/// A free type rather than a method on `ProjectWindow` or `CheckpointModifier`
+/// (different structs, so a method could not serve both) — and internal, not
+/// `private`, so `SaveFlashHonestyTests` can pin both directions without
+/// mounting either view.
+enum CheckpointFlashDecision {
+    @MainActor
+    static func run(
+        projectURL: URL,
+        onSuccess: () -> Void = {},
+        capture: () async throws -> Void
+    ) async {
+        do {
+            try await capture()
+            onSuccess()
+        } catch {
+            MaughamEvent.postNotice(
+                "Couldn’t save a checkpoint — \(error.localizedDescription)",
+                projectURL: projectURL)
+        }
+    }
+}
+
 // MARK: - CheckpointModifier
 
 /// Breaks the ⌘S / Shift-⌘S checkpoint notification handlers out of the
@@ -2835,17 +2869,25 @@ private struct CheckpointModifier: ViewModifier {
                     documentStore: documentStore)
                 Task { @MainActor in
                     try? await activeDoc?.flushBurstNow()
-                    _ = try? await CheckpointCapture.run(
-                        projectURL: store.url,
-                        activeDocId: activeDocId,
-                        allDocIds: allDocIds,
-                        device: _checkpointDeviceId,
-                        session: _checkpointSessionId,
-                        label: nil,
-                        activeDocument: activeDoc)
-                    onSaveFlash()
-                    // Back up after the checkpoint is durable. The coordinator
-                    // hops off-main internally and records status.
+                    await CheckpointFlashDecision.run(
+                        projectURL: store.url, onSuccess: onSaveFlash
+                    ) {
+                        _ = try await CheckpointCapture.run(
+                            projectURL: store.url,
+                            activeDocId: activeDocId,
+                            allDocIds: allDocIds,
+                            device: _checkpointDeviceId,
+                            session: _checkpointSessionId,
+                            label: nil,
+                            activeDocument: activeDoc)
+                    }
+                    // Runs regardless of whether the checkpoint above landed —
+                    // CheckpointFlashDecision.run catches its own throw rather
+                    // than propagating one, so a refused checkpoint (e.g. a
+                    // read-only recovery document) still reaches this backup
+                    // attempt. The coordinator hops off-main internally and
+                    // records status; its own gate (blocksBackup) is what
+                    // decides whether THIS backup proceeds.
                     await backupCoordinator.backupNow(
                         projectURL: store.url,
                         generationId: ULID.generate(),

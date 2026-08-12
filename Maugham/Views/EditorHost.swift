@@ -356,7 +356,7 @@ struct EditorHost: View {
         MaughamEvent.postNotice(
             "Maugham couldn’t recover unsaved keystrokes from your last session "
             + "(\(failure.name): \(failure.reason)). Everything you saved is intact; "
-            + "a record was kept in the project’s quarantine folder.",
+            + "a record of what couldn’t be read was set aside inside the project.",
             projectURL: store.url)
     }
 
@@ -393,9 +393,16 @@ struct EditorHost: View {
     @ViewBuilder
     private func recoveryBannerInset(doc: Document) -> some View {
         if doc.isReadOnlyRecovery, let bannerModel = recoveryBannerModel {
-            RecoveryBanner(model: bannerModel) {
-                Task { await retryFullLoad() }
-            }
+            // Neither action is identity-guarded, and neither needs to be: both
+            // are built fresh on every render pass, from the `doc` the body is
+            // currently rendering, so a superseded one cannot exist to fire.
+            // (The PANE's three actions are the opposite case — minted once
+            // with the model, one of them fired by a poller — which is what the
+            // recoveryActionIsCurrent guard exists for.)
+            RecoveryBanner(
+                model: bannerModel,
+                onReopen: { Task { await retryFullLoad() } },
+                onSetAside: { Task { await quarantineAndContinue() } })
         }
     }
 
@@ -470,6 +477,135 @@ struct EditorHost: View {
                 "Maugham couldn’t open a read-only view of this document "
                 + "(\(error.localizedDescription)).",
                 projectURL: store.url)
+        }
+    }
+
+    /// Rung 3 (spec §5): set the unreadable op-log file(s) aside and open the
+    /// document EDITABLE without them. The writer keeps writing; the bytes are
+    /// moved, never deleted, and Plan B's return path brings them back — merged,
+    /// never overwriting — the moment they read again.
+    ///
+    /// **Reached from both surfaces**, which is why the decision lives here
+    /// rather than in either of them: from the refusal pane, where no `Document`
+    /// exists at all, and from the read-only banner, where one does and the
+    /// writer has just been stopped from typing. The two differ only in what
+    /// they know, and the difference is the first block below.
+    ///
+    /// It ends in `retryFullLoad()` — the one path that closes what is bound and
+    /// runs the ordinary load — so a successful set-aside arrives as an ordinary
+    /// editable document, and a still-refusing one arrives as a freshly
+    /// classified refusal rather than a stale pane.
+    private func quarantineAndContinue() async {
+        guard let item = currentItem, let path = item.path else {
+            // Both of this function's early exits are a WRITER'S PRESS that
+            // achieved nothing, and both were bare returns (the review's M4).
+            // Unreachable today by construction — the button only exists on a
+            // pane or banner raised for a selected document with a path, and
+            // the `targets` list below is non-empty for every cause that offers
+            // this rung (`RecoveryPaneModel.offersSetAside`) — so this is the
+            // belt, in `openReadOnly`'s catch's shape: RULING-5, never a silent
+            // refusal.
+            MaughamEvent.postNotice(Self.setAsideNoDocumentNotice, projectURL: store.url)
+            return
+        }
+        let docURL = store.url.appendingPathComponent(path)
+        let opsDir = store.url.appendingPathComponent(".maugham/ops", isDirectory: true)
+
+        // What to move, and the reason each move records. The BANNER is looking
+        // at an open partial view, which names EVERY file that failed — a
+        // partial open can be blocked by more than one, and setting one aside
+        // while leaving its neighbour would refuse the load again for the same
+        // reason. The PANE is looking at a refusal, whose cause names the one
+        // file the strict load died on. `.icloudNotDownloaded` and
+        // `.unlistableOpsDirectory` are absent by construction: neither offers
+        // this rung (`RecoveryPaneModel.offersSetAside`), and the `case` below
+        // is what makes that a shape rather than a promise.
+        var targets: [(url: URL, reason: String)] = []
+        if let doc = document, doc.isReadOnlyRecovery,
+           let unreadable = doc.readOnlyRecovery?.unreadableFiles {
+            targets = unreadable.map {
+                (url: opsDir.appendingPathComponent($0.name), reason: $0.reason)
+            }
+        } else if case .unreadableFile(_, let fileURL, let reason)? = recoveryPaneModel?.cause {
+            targets = [(url: fileURL, reason: reason)]
+        }
+        guard !targets.isEmpty else {
+            // The second belt (see the guard above): a press with nothing
+            // nameable to move says so instead of returning silently.
+            MaughamEvent.postNotice(Self.setAsideNothingToMoveNotice, projectURL: store.url)
+            return
+        }
+
+        // The id the record is filed under — and the id the return path will
+        // look it up by, so it has to be the same one the op log itself is
+        // written against. An open doc knows its own. A refusal has no
+        // `Document` at all, so it is resolved from the path through
+        // `resolveDocId`, the function `Document.load` itself calls — never a
+        // second parser (tripwire 19's shape: one implementation, not a
+        // stricter local copy).
+        let docId: String
+        if let doc = document {
+            docId = doc.docId
+        } else {
+            do {
+                docId = try resolveDocId(for: docURL)
+            } catch {
+                loadError = error.localizedDescription
+                MaughamEvent.postNotice(
+                    "Maugham couldn’t work out which document this history "
+                    + "belongs to, so it set nothing aside "
+                    + "(\(error.localizedDescription)).",
+                    projectURL: store.url)
+                return
+            }
+        }
+
+        for target in targets {
+            do {
+                try OpLogQuarantine.quarantine(
+                    fileURL: target.url, docId: docId,
+                    reason: target.reason, in: store.url)
+            } catch {
+                // A throw part-way through leaves some files moved and this one
+                // where it was — which is a COHERENT state, not a half-done
+                // one: each move is a complete, recorded, reversible act of its
+                // own, and nothing here has touched the document. So we stop
+                // rather than push past the failure, and say which file and
+                // why. No reload is attempted: what the writer is looking at
+                // stays put, and their next attempt reclassifies against
+                // whatever STILL blocks the load — which is exactly the files
+                // that did not move.
+                loadError = error.localizedDescription
+                MaughamEvent.postNotice(
+                    "Maugham couldn’t set “\(target.url.lastPathComponent)” aside "
+                    + "(\(Self.explainSetAsideFailure(error))). Nothing was lost — "
+                    + "any files it did move are kept in the project’s "
+                    + "conflicts folder.",
+                    projectURL: store.url)
+                return
+            }
+        }
+        await retryFullLoad()
+    }
+
+    /// Why a set-aside failed, in a sentence. `QuarantineError` is a plain
+    /// enum, so its `localizedDescription` is the unhelpful "The operation
+    /// couldn’t be completed" — and its one case is one the writer can act on
+    /// (by waiting), so it gets its own words. Every other error is a real
+    /// filesystem failure whose own description is the better one.
+    ///
+    /// Reachable from the BANNER only: the pane never offers this rung for a
+    /// stub (`RecoveryPaneModel.offersSetAside`), but a partial open names
+    /// every file that failed, and one of those can be a file iCloud is still
+    /// bringing down.
+    private static func explainSetAsideFailure(_ error: Error) -> String {
+        guard let quarantineError = error as? QuarantineError else {
+            return error.localizedDescription
+        }
+        switch quarantineError {
+        case .datalessStub:
+            return "iCloud is still downloading it — it isn’t broken, and "
+                 + "moving it now would fight that download"
         }
     }
 
@@ -753,6 +889,65 @@ struct EditorHost: View {
         return minted === current
     }
 
+    /// The two notices `quarantineAndContinue` posts when a writer's press
+    /// cannot proceed at all. Both are belts over states unreachable by
+    /// construction today; both are `static let` so the copy is pinnable
+    /// without mounting a window (`RecoveredHistorySheet.documentClosedReason`'s
+    /// discipline), and both say "set aside" — the internal term never reaches
+    /// the writer.
+    static let setAsideNoDocumentNotice =
+        "Maugham couldn’t tell which file this document is, so it set nothing aside."
+    static let setAsideNothingToMoveNotice =
+        "Maugham couldn’t tell which part of this document’s history to set aside, "
+        + "so it set nothing aside."
+
+    /// Maps the outcomes of an auto-return sweep (Task 6) to the notice text
+    /// to post, or nil when nothing should be said. Silence is deliberate for
+    /// `.stillUnreadable`/`.corrupt` — the writer never asked for this
+    /// attempt, so the standing History-pane notice (`HistoryPane.quarantineNotice`)
+    /// is the only surface a held record needs. `.returned`/`.supersededBySync`
+    /// share one sentence, orphan counts summed across every record the sweep
+    /// touched, via the SAME copy `HistoryPane`'s explicit Retry button uses
+    /// (`recoveredHistoryNotice(orphanCount:)`) — one sentence, one place it's
+    /// worded.
+    ///
+    /// Static + pure so a unit test can pin the mapping without mounting a
+    /// window — the `needsReload`/`recoveryActionIsCurrent` precedent above.
+    static func autoReturnNotice(outcomes: [ReturnOutcome]) -> String? {
+        var reports: [RecoveredHistoryReport] = []
+        for outcome in outcomes {
+            switch outcome {
+            case .returned(let report), .supersededBySync(let report):
+                reports.append(report)
+            case .stillUnreadable, .corrupt:
+                break
+            }
+        }
+        guard !reports.isEmpty else { return nil }
+        // The sweep's own aggregate rather than a running total: one place
+        // decides what several returns add up to, and it is the same one the
+        // History pane's Retry hands to the sheet.
+        let sweep = RecoveredHistoryReport.aggregate(reports)
+        return HistoryPane.recoveredHistoryNotice(orphanCount: sweep.orphans.count)
+    }
+
+    /// Whether a sweep changed any record ON DISK — `.returned` and
+    /// `.supersededBySync` each rewrite a sidecar and take a record out of the
+    /// held set; `.stillUnreadable`/`.corrupt` leave everything as it was.
+    ///
+    /// Separate from `autoReturnNotice` on purpose, though today they answer
+    /// nil/false together: this one decides whether OTHER surfaces showing
+    /// those records are now stale, and tying that to whether a sentence was
+    /// worth saying would make the pane's freshness a property of the copy.
+    static func autoReturnChangedARecord(outcomes: [ReturnOutcome]) -> Bool {
+        outcomes.contains {
+            switch $0 {
+            case .returned, .supersededBySync: return true
+            case .stillUnreadable, .corrupt: return false
+            }
+        }
+    }
+
     private func loadDocumentIfNeeded() async {
         guard let item = currentItem,
               item.type == .document,
@@ -825,6 +1020,60 @@ struct EditorHost: View {
             // can exist — a load-time post from a windowless context was
             // dropped by the liveness guard and then destroyed on close.
             deliverPendingRecoveryNoticeIfPossible()
+            // Plan B (spec §5's return path), Task 6: a document that just
+            // bound normally tries its own held quarantine records without
+            // being asked. Guarded on `!doc.isReadOnlyRecovery` — a recovery
+            // bind is read-only by definition (spec §4) and must never touch
+            // quarantine bookkeeping.
+            if !doc.isReadOnlyRecovery {
+                let autoReturnDocId = doc.docId
+                let autoReturnProjectURL = store.url
+                // `docId`/`projectURL` are captured as VALUES here, not
+                // `doc`/`store` themselves: if the writer switches documents
+                // mid-return the attempt still completes harmlessly — it is
+                // scoped to the filesystem, not to this view's live binding —
+                // and the notice it may post is project-scoped rather than
+                // doc-scoped, so nothing here needs a
+                // `recoveryActionIsCurrent`-style staleness guard.
+                Task {
+                    let held = OpLogQuarantine.records(
+                        forDocId: autoReturnDocId, in: autoReturnProjectURL
+                    ).filter { $0.status == .held }
+                    guard !held.isEmpty else { return }
+                    var outcomes: [ReturnOutcome] = []
+                    for record in held {
+                        // `presenter: nil` is deliberate, not an omission:
+                        // handing this call the VIEW's own presenter would
+                        // exclude the project's `ProjectFolderPresenter` from
+                        // the coordinated move, and it is THAT presenter's
+                        // `presentedItemDidChange` (`handleExternalLogChange`,
+                        // ADR 0012) that lets the still-open Document notice
+                        // the returned ops land and merge them in. `nil`
+                        // keeps the project's presenter eligible.
+                        outcomes.append(await OpLogQuarantine.attemptReturn(
+                            record: record, in: autoReturnProjectURL,
+                            presenter: nil))
+                    }
+                    // Known interaction (carried from Task 4/5's review):
+                    // `quarantineAndContinue` ends in `retryFullLoad`, so this
+                    // very hook fires again on the fresh bind and immediately
+                    // re-probes the file just set aside. For a persistent
+                    // cause that lands a harmless `.stillUnreadable` (silent,
+                    // below); for a cause that healed in the gap it is a
+                    // fast, welcome return. Accepted — no debounce.
+                    // Anything that came back changed what the History pane is
+                    // showing, and that pane is in another column with its own
+                    // load — so it is told, project-scoped, before the toast.
+                    if Self.autoReturnChangedARecord(outcomes: outcomes) {
+                        MaughamEvent.post(
+                            .maughamQuarantineRecordsChanged,
+                            to: .project(for: autoReturnProjectURL))
+                    }
+                    if let notice = Self.autoReturnNotice(outcomes: outcomes) {
+                        MaughamEvent.postNotice(notice, projectURL: autoReturnProjectURL)
+                    }
+                }
+            }
             // Metrics for the freshly-loaded doc are delivered by the new
             // EditorSurface's coordinator `attach` (immediate, non-debounced) —
             // no EditorHost-side mirror call.
@@ -866,6 +1115,15 @@ struct EditorHost: View {
                         guard Self.recoveryActionIsCurrent(
                             minted: minted, current: recoveryPaneModel) else { return }
                         await openReadOnly()
+                    } },
+                    // Guarded like its two siblings, and with the most to lose
+                    // of the three: this one MOVES A FILE. Fired from a pane the
+                    // writer has left behind, it would set aside part of one
+                    // document's history while they are inside another.
+                    onSetAside: { Task {
+                        guard Self.recoveryActionIsCurrent(
+                            minted: minted, current: recoveryPaneModel) else { return }
+                        await quarantineAndContinue()
                     } })
                 minted = model
                 return model

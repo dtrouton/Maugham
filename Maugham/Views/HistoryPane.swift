@@ -2,6 +2,15 @@
 import SwiftUI
 import AppKit
 import MaughamCore
+import os
+
+/// Diagnostic channel for a Retry attempt that leaves a record `.held`
+/// (`.stillUnreadable`/`.corrupt`) — the writer sees the standing notice
+/// persist; this is the WHY for anyone debugging it. Mirrors
+/// `PartialRestorePicker.swift`'s `partialRestoreLog`.
+private let historyQuarantineLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "HistoryPaneQuarantine")
 
 // MARK: - History entry + filter
 
@@ -113,6 +122,17 @@ struct HistoryPane: View {
     /// opposite responses from the writer. The rows are intact on disk. The
     /// inbox pane's M8-IN-012 shape.
     @State private var unreadableCheckpointFiles: [CheckpointLoad.UnreadableFile] = []
+    /// Set-aside (Plan B) op-log files for `activeDocId` still `.held` —
+    /// `records(forDocId:in:)` already self-heals a stale `.held` row whose
+    /// return actually succeeded, so this list is only ever the genuine
+    /// article: history the writer cannot currently see.
+    @State private var heldQuarantineRecords: [QuarantineRecord] = []
+    @State private var isRetryingQuarantine: Bool = false
+    /// The report from the most recently completed Retry, kept only long
+    /// enough for the writer to view or dismiss it — cleared when the sheet
+    /// closes. Nil whenever nothing has just been recovered.
+    @State private var recoveredReport: RecoveredHistoryReport?
+    @State private var showingRecoveredHistorySheet: Bool = false
     @State private var ops: [Op] = []
     @State private var expanded: Set<String> = []
     @State private var selectedCheckpoint: Checkpoint?
@@ -202,6 +222,47 @@ struct HistoryPane: View {
         return files.map { "\($0.name) — \($0.reason)" }.joined(separator: "\n")
     }
 
+    /// The standing notice for set-aside (Plan B quarantine) history — nil
+    /// once nothing is held (nothing was ever set aside, or Retry brought
+    /// everything back). Pinnable without mounting, like the checkpoint
+    /// notice above. The sentence names what happened ("set aside") rather
+    /// than the internal term ("quarantine") — CLAUDE.md's writer-facing
+    /// copy rule. The row's "Retry" control sits beside this text in body;
+    /// read together they form the quoted UX copy the spec names.
+    static func quarantineNotice(heldCount: Int) -> String? {
+        guard heldCount > 0 else { return nil }
+        return "Part of this document’s history is set aside (couldn’t be read when it was)."
+    }
+
+    /// The notice shown after a Retry completes. Zero orphans is
+    /// unconditionally honest as "nothing was missing" — that covers both a
+    /// genuinely redundant return (sync already delivered the same history)
+    /// and a returned file that turned out to hold nothing new (including
+    /// the zero-byte-file case), because in both the merged draft already
+    /// has everything the recovered file has.
+    static func recoveredHistoryNotice(orphanCount: Int) -> String {
+        guard orphanCount > 0 else {
+            return "Recovered history merged — nothing was missing"
+        }
+        let plural = orphanCount == 1 ? "" : "s"
+        let verb = orphanCount == 1 ? "isn’t" : "aren’t"
+        return "\(orphanCount) paragraph\(plural) from the recovered history \(verb) in your draft — View"
+    }
+
+    /// The notice for a Retry where NOTHING came back — every held record is
+    /// still unreadable or still torn. The pressed button did something and
+    /// said nothing before this (the review's I2): a control that looks dead
+    /// is worse than a refusal, and the standing notice above it does not
+    /// change, so silence reads as "the press didn't register". Names the
+    /// first reason, because the reasons want opposite responses from the
+    /// writer ("permission denied" is fixed here; a torn file is not fixable
+    /// by pressing again). Writer-voiced — "set aside", never the internal
+    /// term.
+    static func stillHeldNotice(reason: String) -> String {
+        "That part of this document’s history still can’t be read, so it stays "
+        + "set aside (\(reason))."
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             filterToolbar
@@ -217,6 +278,38 @@ struct HistoryPane: View {
                     // .help is hover-only; the WHY must reach VoiceOver too.
                     .accessibilityHint(Text(
                         Self.unreadableCheckpointDetail(unreadableCheckpointFiles) ?? ""))
+                Divider()
+            }
+            if let notice = Self.quarantineNotice(heldCount: heldQuarantineRecords.count) {
+                HStack(spacing: 8) {
+                    Label(notice, systemImage: "arrow.uturn.backward.circle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    Spacer(minLength: 4)
+                    Button("Retry", action: retryQuarantine)
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                        .disabled(isRetryingQuarantine)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
+            if let report = recoveredReport, !report.orphans.isEmpty {
+                HStack(spacing: 8) {
+                    Label(Self.recoveredHistoryNotice(orphanCount: report.orphans.count),
+                          systemImage: "tray.and.arrow.down")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                    Spacer(minLength: 4)
+                    Button("View") { showingRecoveredHistorySheet = true }
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
             if entries.isEmpty {
@@ -274,6 +367,14 @@ struct HistoryPane: View {
         .onProjectEvent(.maughamCheckpointAdded, url: projectURL, window: window) { _ in
             Task { await reload() }
         }
+        // The set-aside rows are the one thing in this pane another surface
+        // changes behind its back: `EditorHost`'s auto-return sweep runs on
+        // every normal document open and can leave nothing held at all. Without
+        // this the standing notice went stale and its Retry re-attempted a
+        // record that had already come back (the review's I2).
+        .onProjectEvent(.maughamQuarantineRecordsChanged, url: projectURL, window: window) { _ in
+            Task { await reload() }
+        }
         .sheet(isPresented: $showingRestorePicker) {
             if let cp = selectedCheckpoint {
                 PartialRestorePicker(
@@ -291,6 +392,17 @@ struct HistoryPane: View {
                     },
                     onCancel: { showingRestorePicker = false }
                 )
+            }
+        }
+        // `onDismiss` clears `recoveredReport` — the row's "View" is a
+        // pointer to a just-completed Retry, not durable state; the next
+        // Retry (or reload finding new held records) replaces it.
+        .sheet(isPresented: $showingRecoveredHistorySheet, onDismiss: { recoveredReport = nil }) {
+            if let report = recoveredReport {
+                RecoveredHistorySheet(
+                    report: report,
+                    document: documentStore?.document(forDocId: activeDocId),
+                    onDismiss: { showingRecoveredHistorySheet = false })
             }
         }
     }
@@ -338,6 +450,72 @@ struct HistoryPane: View {
             ops = (try? await opStore.load(docId: activeDocId)) ?? []
         } else {
             ops = []
+        }
+        heldQuarantineRecords = activeDocId == BinderSubject.noDocumentSubject
+            ? []
+            : OpLogQuarantine.records(forDocId: activeDocId, in: projectURL)
+                .filter { $0.status == .held }
+    }
+
+    /// Runs `attemptReturn` for every held record, reloads, and surfaces
+    /// what happened: a toast in EVERY case, plus the report sheet when the
+    /// return turned up paragraphs the draft doesn't have.
+    ///
+    /// Each record's own `RecoveredHistoryReport` is carried through and the
+    /// sweep's verdict is `RecoveredHistoryReport.aggregate` — never a report
+    /// assembled here from loose orphans with `redundant` written in by hand,
+    /// which is what shipped (the review's I1): the flag then said "sync had
+    /// already delivered all of this" about sweeps where it had delivered none
+    /// of it.
+    ///
+    /// A record that stays `.stillUnreadable`/`.corrupt` keeps its place in the
+    /// standing notice via the next `reload()`, and — when NOTHING in the sweep
+    /// came back — says so (`stillHeldNotice`) rather than leaving a pressed
+    /// button looking dead.
+    private func retryQuarantine() {
+        guard !isRetryingQuarantine else { return }
+        isRetryingQuarantine = true
+        Task {
+            var reports: [RecoveredHistoryReport] = []
+            var failureReasons: [String] = []
+            for record in heldQuarantineRecords {
+                let outcome = await OpLogQuarantine.attemptReturn(
+                    record: record, in: projectURL, presenter: nil)
+                switch outcome {
+                case .returned(let report):
+                    reports.append(report)
+                case .supersededBySync(let report):
+                    reports.append(report)
+                    // The lossy shape, and the reason `redundant` is a field
+                    // rather than an inference from the orphan count: nothing
+                    // moved, and the archive carries history the live log has
+                    // not got. The writer hears about it through the orphan
+                    // notice; this is the WHY for whoever reads the log.
+                    if !report.redundant {
+                        historyQuarantineLog.notice("retryQuarantine: \(record.originalName, privacy: .public) stays an archive — its place was refilled by sync, and it holds \(report.orphans.count, privacy: .public) paragraph(s) the live history does not")
+                    }
+                case .stillUnreadable(let reason), .corrupt(let reason):
+                    failureReasons.append(reason)
+                    historyQuarantineLog.error("retryQuarantine: \(record.originalName, privacy: .public) still held — \(reason, privacy: .public)")
+                }
+            }
+            await reload()
+            isRetryingQuarantine = false
+            guard !reports.isEmpty else {
+                if let reason = failureReasons.first {
+                    MaughamEvent.postNotice(
+                        Self.stillHeldNotice(reason: reason), projectURL: projectURL)
+                }
+                return
+            }
+            let sweep = RecoveredHistoryReport.aggregate(reports)
+            MaughamEvent.postNotice(
+                Self.recoveredHistoryNotice(orphanCount: sweep.orphans.count),
+                projectURL: projectURL)
+            if !sweep.orphans.isEmpty {
+                recoveredReport = sweep
+                showingRecoveredHistorySheet = true
+            }
         }
     }
 

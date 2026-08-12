@@ -320,7 +320,9 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
             // Reopen shape mid-measurement and hand us the short sentence.
             probeInterval: .seconds(3600), blockageCleared: { _ in false })
         let window = try await mountColumns(
-            centreTopInset: { RecoveryBanner(model: model, onReopen: {}) },
+            centreTopInset: {
+                RecoveryBanner(model: model, onReopen: {}, onSetAside: {})
+            },
             detail: { Text("pane").frame(maxWidth: .infinity, maxHeight: .infinity) })
         let split = try splitView(in: window)
         let content = try XCTUnwrap(window.contentView).frame.height

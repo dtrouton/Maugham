@@ -225,9 +225,145 @@ final class ReadOnlyRecoveryTests: XCTestCase {
                       + "the view's `.onDisappear` cannot run until a render "
                       + "pass the load's first suspension precedes")
         XCTAssertEqual(
-            source.components(separatedBy: "Self.recoveryActionIsCurrent(").count - 1, 2,
-            "BOTH minted actions — auto-open-editable and open-read-only — ask "
-            + "whether they are still the host's current model before acting")
+            source.components(separatedBy: "Self.recoveryActionIsCurrent(").count - 1, 3,
+            "ALL THREE minted actions — auto-open-editable, open-read-only and "
+            + "set-aside — ask whether they are still the host's current model "
+            + "before acting. The pane's actions are minted once with the model "
+            + "and outlive the selection that raised them; set-aside is the one "
+            + "of the three that MOVES A FILE, so a stale firing is the worst of "
+            + "them. (The BANNER's set-aside is not counted here and needs no "
+            + "guard: it is built per render inside `recoveryBannerInset`, from "
+            + "the `doc` the body is currently rendering, so a superseded one "
+            + "cannot exist to fire — the same shape as Reopen beside it.)")
+
+        // MARK: Plan B — the set-aside wiring
+        XCTAssertTrue(source.contains("OpLogQuarantine.quarantine("),
+                      "the set-aside goes through the typed mover (tripwire 14), "
+                      + "never a raw FileManager.moveItem on an op-log file")
+        let bannerInset = Self.slice(
+            of: source, from: "private func recoveryBannerInset",
+            to: "private func retryFullLoad")
+        XCTAssertTrue(
+            bannerInset.contains("quarantineAndContinue()"),
+            "the BANNER's offer reaches the same one verb — the read-only "
+            + "writer who tried to type is the likeliest caller of all")
+        // The CALL form, not the bare name: the comment beside these two
+        // actions explains itself by naming the guard, and a census that
+        // matched prose would fail on its own explanation.
+        XCTAssertFalse(
+            bannerInset.contains("Self.recoveryActionIsCurrent("),
+            "and reaches it UNGUARDED, deliberately: both of the banner's "
+            + "actions are built per render from the `doc` the body is "
+            + "rendering, so there is no superseded one to refuse. A guard here "
+            + "would be cargo — and would read as though the count above were "
+            + "four")
+        // Sliced from the pane's own mint (`let model = RecoveryPaneModel(`),
+        // not from the first `onSetAside:` in the file — that one is the
+        // BANNER's, several hundred lines above, and a slice starting there
+        // swallows the pane's whole region and passes on the banner's wiring.
+        let paneMint = Self.slice(
+            of: source, from: "let model = RecoveryPaneModel(", to: "minted = model")
+        XCTAssertTrue(
+            paneMint.contains("onSetAside:")
+                && paneMint.contains("quarantineAndContinue()"),
+            "and so does the PANE's, minted with the model beside its two "
+            + "siblings, so there is exactly one place that decides what gets "
+            + "moved and what happens when a move fails")
+
+        // MARK: Task 6 — the return runs itself at document open
+        //
+        // The hook must sit AFTER the pending-notice delivery, in the
+        // success path only, and never on a recovery bind.
+        let deliverRange = try XCTUnwrap(
+            source.range(of: "deliverPendingRecoveryNoticeIfPossible()\n"),
+            "the pending-notice delivery line the hook must follow")
+        let afterDeliver = source[deliverRange.upperBound...]
+        XCTAssertTrue(
+            afterDeliver.contains("if !doc.isReadOnlyRecovery {"),
+            "the auto-return hook sits after the pending-notice delivery, "
+            + "guarded so it never runs on a read-only recovery bind")
+        XCTAssertTrue(
+            afterDeliver.contains("OpLogQuarantine.records("),
+            "the hook reads this doc's held quarantine records")
+        XCTAssertTrue(
+            afterDeliver.contains("OpLogQuarantine.attemptReturn("),
+            "the hook attempts the return for each held record")
+        // `presenter: nil` is load-bearing (Task 5's review): passing this
+        // view's own presenter would exclude the project's
+        // ProjectFolderPresenter from the coordinated move, and it's that
+        // presenter's callback that lets the OPEN document notice the
+        // returned ops and merge them. The comment marker pins that the
+        // reasoning travelled with the code, not just the literal.
+        let hookSlice = Self.slice(
+            of: String(afterDeliver), from: "if !doc.isReadOnlyRecovery {",
+            to: "// Metrics for the freshly-loaded doc")
+        XCTAssertTrue(
+            hookSlice.contains("presenter: nil"),
+            "presenter: nil keeps the project's own presenter eligible for "
+            + "the change notification")
+        XCTAssertTrue(
+            hookSlice.contains("ProjectFolderPresenter"),
+            "the comment explains WHY presenter: nil is correct here — a "
+            + "bare nil with no reasoning is indistinguishable from an "
+            + "oversight the next reader has to re-derive")
+        XCTAssertTrue(
+            hookSlice.contains("Self.autoReturnNotice("),
+            "outcomes are mapped through the pinned pure helper, not "
+            + "re-derived inline")
+
+        // MARK: Fix round — the sweep tells the other column (review I2b)
+        //
+        // The History pane shows these records and offers a Retry per pane
+        // load. The sweep can empty the held set behind its back, and without
+        // a post the pane's standing notice went stale and its button
+        // re-attempted a record that had already come back.
+        XCTAssertTrue(
+            hookSlice.contains("Self.autoReturnChangedARecord(")
+                && hookSlice.contains(".maughamQuarantineRecordsChanged"),
+            "the hook posts the project-scoped records-changed event when an "
+            + "outcome actually changed a record")
+        XCTAssertTrue(
+            hookSlice.contains("to: .project(for: autoReturnProjectURL)"),
+            "scoped .project (ADR 0021 / tripwire 21) — a window on another "
+            + "project must not reload for a sweep that was not its own")
+        let pane = try String(
+            contentsOf: root.appendingPathComponent("Maugham/Views/HistoryPane.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(
+            pane.contains(".onProjectEvent(.maughamQuarantineRecordsChanged"),
+            "…and the pane observes it, through the receive helper that owns "
+            + "the scope filter and the closed-window liveness guard")
+
+        // MARK: Fix round — no bare return on a writer's press (review M4)
+        //
+        // Both early exits in `quarantineAndContinue` are a press that
+        // achieved nothing. They are unreachable by construction today; the
+        // notices are the belt, and a bare `return` is how they stopped being
+        // one.
+        let setAside = Self.slice(
+            of: source, from: "private func quarantineAndContinue() async {",
+            to: "for target in targets {")
+        XCTAssertFalse(setAside.contains("else { return }"),
+                       "an early exit from the set-aside press posts a notice "
+                       + "first — RULING-5, never a silent refusal")
+        XCTAssertTrue(
+            setAside.contains("Self.setAsideNoDocumentNotice")
+                && setAside.contains("Self.setAsideNothingToMoveNotice"),
+            "…and both notices are the pinned statics, not copy written inline "
+            + "where no test can read it")
+    }
+
+    /// The text between two markers, for a census that must look INSIDE one
+    /// function rather than anywhere in an 900-line file. Fails loudly rather
+    /// than passing vacuously when a marker has moved.
+    private static func slice(of source: String, from: String, to: String) -> Substring {
+        guard let start = source.range(of: from) else {
+            XCTFail("census marker not found: \(from)"); return ""
+        }
+        guard let end = source.range(of: to, range: start.upperBound..<source.endIndex) else {
+            XCTFail("census marker not found after \(from): \(to)"); return ""
+        }
+        return source[start.upperBound..<end.lowerBound]
     }
 
     // MARK: - Census machinery
