@@ -416,7 +416,7 @@
   "evidence": {
    "property_test": null
   },
-  "fix_history": "Pinned the silence — the shipped RewindUndoTests.test_restore_undo_afterForeignOps_isLoudNoOp called it 'loud' meaning loud to the LOG — until fixed PENDING on claude/spec-phase-2, 2026-08-09, under RULING-7"
+  "fix_history": "Pinned the silence — the shipped RewindUndoTests.test_restore_undo_afterForeignOps_isLoudNoOp called it 'loud' meaning loud to the LOG — until fixed 234eb143 on claude/spec-phase-2, 2026-08-09, under RULING-7"
  },
  {
   "claim_id": "M4-RW-029",
