@@ -147,10 +147,10 @@
   "claim_id": "M9-OL-010",
   "scope": "PendingBuffer.loadFromDisk + Document.load — unrecoverable pending file",
   "kind": "POSTCONDITION",
-  "statement": "a pending file that EXISTS but cannot be read or decoded holds the writer's un-bursted keystrokes from a crashed session; it used to collapse into the absent case (silent return) and the next autosave's flushToDisk overwrote the only copy. loadFromDisk now reports absent / loaded / unrecoverable(name, reason, raw — the bytes when readable); Document.load quarantines the salvageable bytes under .maugham/conflicts/quarantine BEFORE that overwrite can happen and tells the writer through the document notice (fix commit 9772aea2). A notice, not a refusal: every SAVED word is intact in the op log",
+  "statement": "a pending file that EXISTS but cannot be read or decoded holds the writer's un-bursted keystrokes from a crashed session; it used to collapse into the absent case (silent return) and the next autosave's flushToDisk overwrote the only copy. loadFromDisk now reports absent / loaded / unrecoverable(name, reason, raw — the bytes when readable); Document.load quarantines the salvageable bytes under .maugham/conflicts/quarantine BEFORE that overwrite can happen, then STAMPS the failure on the Document (consume-once) — it does not post the notice itself, because a windowless post is dropped by the receive helpers' liveness guard (isLive(nil) == false) and a clean close then deletes the trigger: the forbidden silence, relocated (whole-branch review finding C). EditorHost consumes the stamp and posts when a window exists, with BOTH triggers (load-completion and window-resolution — either can happen first). A notice, not a refusal: every SAVED word is intact in the op log (fix 9772aea2 + the review's delivery fix)",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "PendingBufferTests.test_loadFromDisk_undecodableFile_reportsUnrecoverableWithRawCarried; test_loadFromDisk_unreadableFile_reportsUnrecoverableWithoutRaw; test_loadFromDisk_absentAndLoadedOutcomes; DocumentLoadQuarantineTests.test_load_unrecoverablePendingFile_quarantinesAndNotifies_stillLoads"
+   "ref": "PendingBufferTests.test_loadFromDisk_undecodableFile_reportsUnrecoverableWithRawCarried; test_loadFromDisk_unreadableFile_reportsUnrecoverableWithoutRaw; test_loadFromDisk_absentAndLoadedOutcomes; DocumentLoadQuarantineTests.test_load_unrecoverablePendingFile_quarantinesAndStampsTheDoc_stillLoads; test_editorHostDeliversTheStampedNotice_census"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL — the fix",

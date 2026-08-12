@@ -38,6 +38,32 @@ public final class Document {
     /// resurrecting the husk. Mirror of `EditorCoordinator.detach()`.
     public private(set) var isClosed = false
 
+    /// The pending file `load` found but could not recover (RULING-54,
+    /// M9-OL-010): un-bursted keystrokes from a crashed session, already
+    /// preserved in the quarantine record. Stamped by `Document.load` and
+    /// CONSUMED ONCE by the first window-bound surface (EditorHost), which
+    /// posts the document notice — load itself must not post, because a
+    /// windowless post is dropped by the receive helpers' liveness guard and
+    /// the writer is never told. A load that never binds a window (an MCP
+    /// statement flow) leaves the stamp unconsumed; the quarantine record is
+    /// the durable truth either way.
+    public struct PendingRecoveryFailure: Equatable, Sendable {
+        public let name: String
+        public let reason: String
+        public init(name: String, reason: String) {
+            self.name = name
+            self.reason = reason
+        }
+    }
+    public internal(set) var unrecoveredPendingFailure: PendingRecoveryFailure?
+
+    /// Consume-once: returns the failure and marks it delivered, so a second
+    /// surface cannot re-post the same notice.
+    public func consumePendingRecoveryFailure() -> PendingRecoveryFailure? {
+        defer { unrecoveredPendingFailure = nil }
+        return unrecoveredPendingFailure
+    }
+
     // === Internal state ===
     // Several of these are `internal` rather than `private` because the
     // method bodies that touch them live in `Document+*.swift` peer

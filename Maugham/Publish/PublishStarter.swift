@@ -138,6 +138,12 @@ public enum PublishStarter {
             try await install(into: projectURL, force: false)
         } catch {
             // Non-fatal: writer can re-trigger via the MCP tool.
+            // RULING-54 residual (M9-OL-009's filing): since the catalog read
+            // went strict, this catch also swallows reconcileNextVersion's
+            // unreadable-catalog refusal — reachable only for a project with
+            // a catalog present and the publish template missing. The next
+            // compile meets the same refusal loudly at pre-flight, so the
+            // collision guard is deferred, not lost.
             NSLog("PublishStarter.installIfMissing failed: \(error)")
         }
     }

@@ -84,7 +84,7 @@
   "outcome": "COMPLIES",
   "ruling": "RULING-54",
   "clause_that_reaches_it": "a reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
-  "why_in_scope": "the publications catalog is a durable store whose consumers WRITE on the strength of what they read — the refusal shape (not checkpoints' notice) follows from that: partial truth here arms an overwrite of a shipped edition, which is the writer's published words at stake. The pre-flight refusal composes with RULING-52's family: it fails BEFORE the first durable mutation, so there is nothing partial to report",
+  "why_in_scope": "the publications catalog is a durable store whose consumers WRITE on the strength of what they read — the refusal shape (not checkpoints' notice) follows from that: partial truth here arms an overwrite of a shipped edition, which is the writer's published words at stake. The pre-flight refusal composes with RULING-52's family: it fails BEFORE the first durable mutation, so there is nothing partial to report. RESIDUAL: PublishStarter.installIfMissing's catch-all (pre-existing) now also swallows reconcileNextVersion's unreadable-catalog refusal — reachable only for a project with a catalog present and the publish template missing; deferred, not lost, because the next compile meets the same refusal at pre-flight before any collision can happen (comment at the catch site)",
   "intent_expressed_when": "contemporaneous — M9-OL-006's queue entry",
   "call_path": "CompileOrchestrator.compile pre-flight; Republisher.republish; PublishStarter.reconcileNextVersion; the two MCP publication tools",
   "violation_or_enhancement": "neither — born with the fix"
@@ -94,7 +94,7 @@
   "outcome": "COMPLIES",
   "ruling": "RULING-54",
   "clause_that_reaches_it": "a reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
-  "why_in_scope": "the pending file is the durable store holding the writer's most recent un-bursted keystrokes — the one store whose silent-empty case DESTROYS data on a timer, because the next autosave overwrites the only copy. Quarantine-then-notice (not refusal) because the manuscript's saved words are intact; constitution must #1 reaches the unsaved tail through the quarantine record",
+  "why_in_scope": "the pending file is the durable store holding the writer's most recent un-bursted keystrokes — the one store whose silent-empty case DESTROYS data on a timer, because the next autosave overwrites the only copy. Quarantine-then-notice (not refusal) because the manuscript's saved words are intact; constitution must #1 reaches the unsaved tail through the quarantine record. TWO RESIDUALS (verification pass): a load that never binds a window — an MCP statement flow — leaves the stamp unconsumed and the writer untoasted; the quarantine record is the durable truth there. And .maugham/conflicts/ sits in BackupSignature's excludedPrefixes, so the quarantine record is not in any backup generation while the notice says 'a record was kept' — pre-existing exclusion, newly load-bearing; a future slice should decide whether quarantine belongs in backups",
   "intent_expressed_when": "contemporaneous",
   "call_path": "Document.load's crash-recovery fold",
   "violation_or_enhancement": "neither — born with the fix"

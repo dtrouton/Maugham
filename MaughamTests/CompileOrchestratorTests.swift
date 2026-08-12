@@ -1049,8 +1049,10 @@ final class CompileOrchestratorTests: XCTestCase {
     /// RULING-52 + RULING-7 (fix for M7-PB-005/006/007): a failure AFTER the
     /// first durable mutation says what it did as well as what failed, and the
     /// job record is terminal — never stranded in_progress. Injected at the
-    /// sharpest site: the catalog append throws (a directory squats on the
-    /// device catalog path) after the export and the snapshot have landed.
+    /// sharpest site: a valid but READ-ONLY catalog file, so the strict load
+    /// (RULING-54) reads it fine and the APPEND throws after the export and
+    /// the snapshot have landed. (A directory squatting on the path — the old
+    /// injection — now refuses pre-flight instead; pinned below.)
     func test_aFailureAfterMutationNamesWhatLandedAndTerminalisesTheJob() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
         try await configStore.save(PublishConfig(metadata: .init(title: "Led", author: "T")))
