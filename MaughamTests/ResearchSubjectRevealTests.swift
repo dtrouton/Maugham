@@ -249,7 +249,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
 
     /// **The mirror above, pinned to production.** `openResearchItem` and
     /// `handleShowLatestMCPNote` are private to a view no test can mount, so the
-    /// probe re-spells their two writes — and a mirror is worth exactly as much
+    /// probe re-spells their three writes — and a mirror is worth exactly as much
     /// as the census that says production still looks like it.
     func test_theWindowsTwoForcedEntriesBothOpenTheTree() throws {
         let source = try Self.windowSource()
@@ -267,6 +267,11 @@ final class ResearchSubjectRevealTests: XCTestCase {
                 "\(entry) must open the tree beside its subject write — a "
                 + "forced entry names an item the writer is not looking at, and "
                 + "selecting a row inside a closed section highlights nothing")
+            XCTAssertTrue(
+                body.contains("treeState.scrollRequest = .row("),
+                "\(entry) must ALSO scroll to what `reveal` returned "
+                + "(stage-3b Task 8) — opening the section makes the row "
+                + "EXIST, and arrival is visible, not just true")
         }
     }
 
@@ -461,7 +466,8 @@ final class ResearchRevealProbe {
 
     /// **What `handleShowLatestMCPNote` and `openResearchItem` do**, in the
     /// order they do it: the subject, then the tree opened far enough to draw
-    /// the row. The third write — the column reveal — is production's own
+    /// the row, then (stage-3b Task 8) the scroll request from what `reveal`
+    /// returned. The fourth write — the column reveal — is production's own
     /// `ResearchRevealModifier`, mounted by the probe view, which is why it is
     /// not spelled here.
     ///
@@ -472,9 +478,11 @@ final class ResearchRevealProbe {
     @discardableResult
     func show(_ itemId: String, in store: ProjectStore) -> BinderSubject? {
         subject = .research(itemId)
-        return treeState.reveal(itemId, structure: store.manifest.structure,
-                                research: store.manifest.research,
-                                projectType: store.manifest.type)
+        let revealed = treeState.reveal(itemId, structure: store.manifest.structure,
+                                        research: store.manifest.research,
+                                        projectType: store.manifest.type)
+        if let revealed { treeState.scrollRequest = .row(revealed) }
+        return revealed
     }
 
     init() {}

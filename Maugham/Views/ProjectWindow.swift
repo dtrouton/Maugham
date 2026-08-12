@@ -372,11 +372,16 @@ struct ProjectWindow: View {
         .onKeyWindowCommand(.maughamRevealResearchSection, window: window) { _ in
             guard !treeFindActive else { return }
             treeState.researchSectionExpanded = true
+            // The header lands on screen too (stage-3b Task 8) — expanding a
+            // section scrolled far off-screen makes it TRUE without making it
+            // VISIBLE.
+            treeState.scrollRequest = .researchHeader
         }
         // ⌘⌥P's twin, for the Palette section.
         .onKeyWindowCommand(.maughamRevealPaletteSection, window: window) { _ in
             guard !treeFindActive else { return }
             treeState.paletteSectionExpanded = true
+            treeState.scrollRequest = .paletteHeader
         }
         .onGlobalEvent(.maughamAppWillTerminate) { _ in
             // Best-effort flush. Task is fire-and-forget; NSApplication may
@@ -429,7 +434,8 @@ struct ProjectWindow: View {
             detailSegment: $detailSegment,
             persona: $persona,
             restoreOutcome: $restoreOutcome,
-            mcpBanner: mcpBanner))
+            mcpBanner: mcpBanner,
+            treeState: treeState))
         .modifier(CheckpointModifier(
             documentStore: documentStore,
             store: store,
@@ -752,6 +758,11 @@ struct ProjectWindow: View {
         /// when a restore gave back less than was deleted (RULING-40/42).
         @Binding var restoreOutcome: String?
         let mcpBanner: MCPBannerModel
+        /// The tree's disclosure/selection state (stage-3a Task 4) — held here
+        /// too, since Task 8, for the find-match handler's scroll request. An
+        /// `@Observable` reference type, so a plain `let` reaches the same
+        /// object `ProjectWindow` owns; nothing here needs a `Binding` to it.
+        let treeState: BinderTreeSectionsState
 
         func body(content: Content) -> some View {
             content
@@ -891,12 +902,26 @@ struct ProjectWindow: View {
                 // Author/Review/Publish, beside the canvas in Plan). The second
                 // write went with those panes in the kill task; the subject is
                 // now the only thing a match click moves.
+                // **The full arrival posture, both arms** (stage-3b Task 8).
+                // A research match gets `openResearchItem`'s own shape —
+                // `reveal`, then the scroll request from what it returned;
+                // the section is already expanding beneath the overlay from
+                // the subject write above, and the row itself is on screen
+                // once Escape hands the column back and the tree's own
+                // mount consumes the pending scroll. A manuscript match's
+                // row is never behind anything closable, so it scrolls
+                // straight to its own tag. The overlay stays up either way —
+                // no `applyCloseFind` here — and the editor's own text
+                // scroll is untouched: that is `EditorCoordinator`'s
+                // independent observer, not this handler's.
                 .onKeyWindowCommand(.maughamFindMatchSelected, window: window) { note in
                     guard let store,
                           let match = note.userInfo?["match"] as? SearchMatch,
                           let subject = ProjectWindow.matchSubject(match, in: store)
                     else { return }
                     selectedSubject = subject
+                    treeState.scrollRequest = ProjectWindow.findMatchScrollTarget(
+                        for: subject, store: store, treeState: treeState)
                 }
                 .onProjectEvent(.maughamMCPNoteAdded, url: url, window: window) { note in
                     guard let info = note.userInfo,
@@ -1442,6 +1467,33 @@ struct ProjectWindow: View {
             return TreeWalk.first(in: store.manifest.research) {
                 $0.path == match.documentPath
             }.map { .research($0.id) }
+        }
+    }
+
+    /// **What a find match's subject earns as a scroll target** (stage-3b
+    /// Task 8) — one function for both of `matchSubject`'s arms, kept pure
+    /// and static for the same reason `matchSubject` is: the routing is
+    /// drivable without a mounted window.
+    ///
+    /// A research match reveals whatever section or fold holds it and scrolls
+    /// to what `reveal` says is now on screen — `openResearchItem`'s own
+    /// shape, and `nil` when `reveal` finds no tree that draws the id (a
+    /// stale match, same reasoning as `matchSubject`'s own `nil`). A
+    /// manuscript (or project) match's row is never behind anything
+    /// closable — `reveal` only ever opens research furniture, never a
+    /// structural group — so it scrolls straight to its own tag.
+    static func findMatchScrollTarget(
+        for subject: BinderSubject, store: ProjectStore,
+        treeState: BinderTreeSectionsState
+    ) -> TreeScrollTarget? {
+        switch subject {
+        case .research(let id):
+            return treeState.reveal(id, structure: store.manifest.structure,
+                                    research: store.manifest.research,
+                                    projectType: store.manifest.type)
+                .map(TreeScrollTarget.row)
+        case .item, .project:
+            return .row(subject)
         }
     }
 
@@ -2551,10 +2603,14 @@ struct ProjectWindow: View {
     /// observer's reveal and this one ask the same function the same question.
     private func openResearchItem(_ itemId: String) {
         selectedSubject = .research(itemId)
-        if let store {
-            treeState.reveal(itemId, structure: store.manifest.structure,
-                             research: store.manifest.research,
-                             projectType: store.manifest.type)
+        if let store,
+           let revealed = treeState.reveal(itemId, structure: store.manifest.structure,
+                                            research: store.manifest.research,
+                                            projectType: store.manifest.type) {
+            // Arrival is visible, not just true (stage-3b Task 8): opening the
+            // section/fold makes the row EXIST; scrolling to what `reveal`
+            // returned is what puts it on screen.
+            treeState.scrollRequest = .row(revealed)
         }
         Self.revealResearchColumn(persona: persona, subject: selectedSubject,
                                   showInspector: &showInspector,
@@ -2910,10 +2966,13 @@ struct ProjectWindow: View {
         selectedSubject = .research(id)
         // The tree opens far enough to draw the note's row — `openResearchItem`
         // carries why this is a call here and not an observer of the subject.
-        if let store {
-            treeState.reveal(id, structure: store.manifest.structure,
-                             research: store.manifest.research,
-                             projectType: store.manifest.type)
+        if let store,
+           let revealed = treeState.reveal(id, structure: store.manifest.structure,
+                                            research: store.manifest.research,
+                                            projectType: store.manifest.type) {
+            // And it scrolls onto screen, `openResearchItem`'s twin write
+            // (stage-3b Task 8).
+            treeState.scrollRequest = .row(revealed)
         }
         Self.revealResearchColumn(persona: persona, subject: selectedSubject,
                                   showInspector: &showInspector,

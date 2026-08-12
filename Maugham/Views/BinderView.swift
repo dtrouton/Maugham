@@ -55,61 +55,70 @@ struct BinderView: View {
         // that hold the app's only batch verbs and the tree has to carry them.
         // The window still has exactly one subject: it is derived from the set,
         // and a write of one row goes through the very rule 2a shipped.
-        List(selection: BinderTreeSelection.binding(
-                subject: $selectedSubject, state: treeState, store: store)) {
-            projectRow
-            outline(items: store.manifest.structure)
-            // Below everything the tree already had — the sections are furniture
-            // at the foot of the column, and the project row stays row zero.
-            BinderTreeSections(store: store, state: treeState,
-                               selectedSubject: $selectedSubject,
-                               paletteWallTravels: paletteWallTravels,
-                               onOpenPaletteWall: onOpenPaletteWall)
-        }
-        .listStyle(.sidebar)
-        .overlay {
-            if store.manifest.structure.isEmpty { emptyState }
-        }
-        .binderTreeSections(store: store, state: treeState,
-                            selectedSubject: $selectedSubject)
-        // Root context menu — attached at the binder level so it's
-        // available even when the structure is empty (right-clicking
-        // a row gives the per-row menu instead, no overlap).
-        .contextMenu {
-            let ext = store.manifest.type == .screenplay ? "fountain" : "md"
-            Button("New Document") {
-                Task { await addItem(parent: nil, kind: .document(extension: ext)) }
+        //
+        // **A `ScrollViewReader` around the `List`** (stage-3b Task 8) — the
+        // proxy it hands back is what `consumingTreeScrollRequests` scrolls,
+        // wired at the end of the chain so every row's `.id()` below is
+        // already in the tree it addresses.
+        ScrollViewReader { proxy in
+            List(selection: BinderTreeSelection.binding(
+                    subject: $selectedSubject, state: treeState, store: store)) {
+                projectRow
+                outline(items: store.manifest.structure)
+                // Below everything the tree already had — the sections are
+                // furniture at the foot of the column, and the project row
+                // stays row zero.
+                BinderTreeSections(store: store, state: treeState,
+                                   selectedSubject: $selectedSubject,
+                                   paletteWallTravels: paletteWallTravels,
+                                   onOpenPaletteWall: onOpenPaletteWall)
             }
-            Button("New Group") {
-                Task { await addItem(parent: nil, kind: .group) }
+            .listStyle(.sidebar)
+            .overlay {
+                if store.manifest.structure.isEmpty { emptyState }
             }
-        }
-        .alert("Couldn't update project",
-               isPresented: Binding(
-                get: { pendingError != nil },
-                set: { if !$0 { pendingError = nil } }
-               )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(pendingError ?? "")
-        }
-        .alert("Renumber filenames?",
-               isPresented: $showingTidyConfirmation,
-               presenting: pendingTidyParentId
-        ) { _ in
-            Button("Renumber", role: .destructive) {
-                if let parentId = pendingTidyParentId {
-                    Task { await runTidy(parentId: parentId) }
-                } else {
-                    Task { await runTidy(parentId: nil) }
+            .binderTreeSections(store: store, state: treeState,
+                                selectedSubject: $selectedSubject)
+            // Root context menu — attached at the binder level so it's
+            // available even when the structure is empty (right-clicking
+            // a row gives the per-row menu instead, no overlap).
+            .contextMenu {
+                let ext = store.manifest.type == .screenplay ? "fountain" : "md"
+                Button("New Document") {
+                    Task { await addItem(parent: nil, kind: .document(extension: ext)) }
                 }
-                pendingTidyParentId = nil
+                Button("New Group") {
+                    Task { await addItem(parent: nil, kind: .group) }
+                }
             }
-            Button("Cancel", role: .cancel) {
-                pendingTidyParentId = nil
+            .alert("Couldn't update project",
+                   isPresented: Binding(
+                    get: { pendingError != nil },
+                    set: { if !$0 { pendingError = nil } }
+                   )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(pendingError ?? "")
             }
-        } message: { _ in
-            Text("Existing files will be moved to fix gaps in numbering. This change is visible to other apps that read this folder.")
+            .alert("Renumber filenames?",
+                   isPresented: $showingTidyConfirmation,
+                   presenting: pendingTidyParentId
+            ) { _ in
+                Button("Renumber", role: .destructive) {
+                    if let parentId = pendingTidyParentId {
+                        Task { await runTidy(parentId: parentId) }
+                    } else {
+                        Task { await runTidy(parentId: nil) }
+                    }
+                    pendingTidyParentId = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingTidyParentId = nil
+                }
+            } message: { _ in
+                Text("Existing files will be moved to fix gaps in numbering. This change is visible to other apps that read this folder.")
+            }
+            .consumingTreeScrollRequests(proxy, state: treeState)
         }
     }
 
@@ -159,6 +168,10 @@ struct BinderView: View {
                 }
                 .padding(.leading, indent)
                 .tag(BinderSubject.item(item.id))
+                // The scroll target a find manuscript match lands on
+                // (stage-3b Task 8) — the same value the tag above already
+                // carries.
+                .id(BinderSubject.item(item.id))
             } else {
                 documentEntry(for: item, indent: indent)
             }
@@ -205,10 +218,14 @@ struct BinderView: View {
             }
             .padding(.leading, indent)
             .tag(BinderSubject.item(item.id))
+            // The find manuscript-match scroll target — `outline`'s comment
+            // carries the reasoning, not restated here.
+            .id(BinderSubject.item(item.id))
         } else {
             row(for: item)
                 .padding(.leading, indent)
                 .tag(BinderSubject.item(item.id))
+                .id(BinderSubject.item(item.id))
         }
     }
 

@@ -718,6 +718,28 @@ final class BinderTreeSectionsTests: XCTestCase {
         XCTAssertTrue(state.expandedPieceFolds.isEmpty)
     }
 
+    // MARK: - The scroll request is a one-shot (stage-3b Task 8)
+
+    /// Nothing pending on a fresh state — the same "no binding, no request"
+    /// shape every other piece of disclosure state starts in.
+    func test_thereIsNoScrollRequestOnAFreshState() {
+        XCTAssertNil(BinderTreeSectionsState().scrollRequest)
+    }
+
+    /// **Two requests in a row land the second.** There is no coalescing or
+    /// debounce here — `scrollRequest` is a plain optional, and a write before
+    /// the previous one is consumed simply replaces it, exactly the way
+    /// `pendingSweep`/`pendingRenameId` and every other single-slot "next
+    /// thing to do" flag in this app already behaves.
+    func test_theSecondOfTwoUnconsumedScrollRequestsWins() {
+        let state = BinderTreeSectionsState()
+        state.scrollRequest = .researchHeader
+        state.scrollRequest = .paletteHeader
+        XCTAssertEqual(state.scrollRequest, .paletteHeader,
+                       "the second write, made before the first was consumed, "
+                       + "is what a consumer sees")
+    }
+
     /// **The folds start closed**, which is what the no-binding
     /// `DisclosureGroup`s the hosts used before this task already drew — binding
     /// them must change nothing a writer sees on a fresh window.

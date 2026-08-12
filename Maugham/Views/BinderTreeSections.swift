@@ -10,6 +10,21 @@ private let _binderTreeSectionsLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
     category: "BinderTreeSections")
 
+/// **Where a scroll-to request in a binder tree should land** (shell-finish
+/// stage-3b Task 8, spec's arrival posture).
+///
+/// `Hashable`, not just `Equatable` — `.researchHeader`/`.paletteHeader` ARE
+/// the `.id()` values their section headers carry (there is no existing
+/// Hashable identity for a header the way `BinderSubject` already serves a
+/// row), while `.row` wraps the `BinderSubject` a structure or research row is
+/// already tagged with, so a scroll target for a row and that row's own
+/// `.id()`/`.tag()` are the same value by construction.
+enum TreeScrollTarget: Hashable {
+    case researchHeader
+    case paletteHeader
+    case row(BinderSubject)
+}
+
 /// **The Research and Palette sections at the foot of every binder tree**
 /// (shell-finish stage-2a Task 4, spec §3).
 ///
@@ -112,7 +127,14 @@ struct BinderTreeSections: View {
                             // item and the root. The piece folds pass nothing
                             // and keep SwiftUI's own — see
                             // `ResearchTreeNode.expandedGroups`.
-                            expandedGroups: $state.expandedResearchGroups)
+                            expandedGroups: $state.expandedResearchGroups,
+                            // **The shared section's own rows carry
+                            // `.id(tagFor(item))`** (Task 8) — the one call
+                            // site that does, since a piece fold's linked rows
+                            // are a second drawing of the same tag and
+                            // `reveal` already answers a linked note with THIS
+                            // row, never the fold's copy.
+                            appliesScrollIdentity: true)
                     }
                 }
             }
@@ -123,6 +145,11 @@ struct BinderTreeSections: View {
                 Button("Add File…") { actions.addFile(nil) }
                 Button("Add Link…") { actions.addLink(nil) }
             }
+            // **The header's own scroll identity** (Task 8) — what ⌘⌥R's
+            // `scrollRequest = .researchHeader` targets. A revealed research
+            // ITEM scrolls to its own row instead (`.row`, above); this is
+            // only for the section's own chevron.
+            .id(TreeScrollTarget.researchHeader)
             // **The header is the section's drop target when the section has
             // rows** (Task 7). The placeholder below is the target when it has
             // none, and a `Section` gets no live drop region of its own — so
@@ -188,6 +215,10 @@ struct BinderTreeSections: View {
                             // TreeTravel.swift and BinderRow's twin.
                             .treeTravelOnDoubleClick(.research(card.id))
                             .tag(BinderSubject.research(card.id))
+                            // **The same value as the tag** (Task 8) — a card
+                            // is drawn once, flat, so its scroll identity is
+                            // never ambiguous the way a fold's copy could be.
+                            .id(BinderSubject.research(card.id))
                             .contentShape(Rectangle())
                             // **A card is dragged by its BARE id** (final
                             // review's I2). That is the canvas's own drop
@@ -209,6 +240,9 @@ struct BinderTreeSections: View {
             }
         } header: {
             paletteSectionHeader
+                // **The header's own scroll identity** (Task 8), the
+                // Research header's twin — see its comment.
+                .id(TreeScrollTarget.paletteHeader)
         }
     }
 
@@ -859,6 +893,36 @@ final class BinderTreeSectionsState {
     /// flag was SwiftUI's own private state and `reveal` could not open one.
     var expandedPieceFolds: Set<String> = []
 
+    /// **A one-shot scroll request** (stage-3b Task 8) — set by ⌘⌥R/⌘⌥P (a
+    /// section header) and by the two forced-reveal entries plus a find
+    /// research match (a row, from `reveal`'s own return), consumed by
+    /// whichever tree host is MOUNTED and cleared back to `nil` immediately
+    /// after.
+    ///
+    /// **Two consumption triggers, and both are required**
+    /// (`consumePendingScroll(with:)`'s callers): a live `.onChange` while the
+    /// tree is mounted, and the tree's own mount signal (`.task`/`.onAppear`).
+    /// The find overlay REPLACES the column (`BinderPaneToggle.swift`'s `if
+    /// treeFindActive`), so a request written while it covers the tree has no
+    /// mounted `List` to scroll — the mount trigger is what picks it up once
+    /// Escape brings the tree back.
+    var scrollRequest: TreeScrollTarget?
+
+    /// Scrolls `proxy` to `scrollRequest` and clears it — the one-shot itself.
+    /// A no-op when nothing is pending, so every caller (an `.onChange` firing
+    /// on an unrelated write, a mount with nothing queued) can call this
+    /// unconditionally rather than re-deriving the guard.
+    @MainActor
+    func consumePendingScroll(with proxy: ScrollViewProxy) {
+        guard let target = scrollRequest else { return }
+        switch target {
+        case .researchHeader: proxy.scrollTo(TreeScrollTarget.researchHeader, anchor: .center)
+        case .paletteHeader: proxy.scrollTo(TreeScrollTarget.paletteHeader, anchor: .center)
+        case .row(let subject): proxy.scrollTo(subject, anchor: .center)
+        }
+        scrollRequest = nil
+    }
+
     /// One fold's flag, projected out of the set of open ids — the shape
     /// `ResearchTreeNode.expansion(of:)` uses for a group, minus the optional:
     /// every fold has this state, where a group's set is the caller's to hold
@@ -998,6 +1062,31 @@ extension View {
                             selectedSubject: Binding<BinderSubject?>) -> some View {
         modifier(BinderTreeSectionsPresentations(
             store: store, state: state, selectedSubject: selectedSubject))
+    }
+
+    /// **Wires a tree host's `ScrollViewReader` proxy to `state`'s one-shot
+    /// scroll request** (stage-3b Task 8) — one shared helper rather than
+    /// three copies of the same two triggers, for `binderTreeSections`' own
+    /// reason.
+    ///
+    /// Every host — `BinderView`, `CollectionPiecesPane`,
+    /// `SceneNavigatorPane` — wraps its `List` in a `ScrollViewReader` and
+    /// calls this once, right after it, handing back the proxy that
+    /// `ScrollViewReader` produced. Both triggers matter and neither alone is
+    /// enough: `.onChange` catches a request written WHILE this tree is the
+    /// one on screen; `.task` catches a request written while it was NOT —
+    /// the find overlay replaces the whole column, so a request queued
+    /// underneath it (⌘⌥R pressed, then Escape) has no mounted `List` to
+    /// reach until the tree remounts, which is exactly what `.task` observes.
+    func consumingTreeScrollRequests(
+        _ proxy: ScrollViewProxy, state: BinderTreeSectionsState
+    ) -> some View {
+        onChange(of: state.scrollRequest) { _, _ in
+            state.consumePendingScroll(with: proxy)
+        }
+        .task {
+            state.consumePendingScroll(with: proxy)
+        }
     }
 }
 

@@ -74,31 +74,38 @@ struct SceneNavigatorPane: View {
         // `BinderView` and `CollectionPiecesPane` both landed on, and
         // `SceneNavigatorProjectRowTests` hit-tests it here rather than
         // inheriting the measurement: this empty state is neither of theirs.
-        List(selection: listSelection) {
-            projectRow
-            scriptRow
-            ForEach(Array(summaries.enumerated()), id: \.offset) { _, summary in
-                // Inset under the two header rows above: a slugline is a place
-                // INSIDE the script, and the indent is what says so without a
-                // disclosure triangle the writer cannot collapse anyway.
-                sceneRow(for: summary)
-                    .padding(.leading, ProjectRowLabel.childIndent)
+        // A `ScrollViewReader` around the `List` (stage-3b Task 8) — the same
+        // shape `BinderView.body` carries; see its comment for the reasoning.
+        ScrollViewReader { proxy in
+            List(selection: listSelection) {
+                projectRow
+                scriptRow
+                ForEach(Array(summaries.enumerated()), id: \.offset) { _, summary in
+                    // Inset under the two header rows above: a slugline is a
+                    // place INSIDE the script, and the indent is what says so
+                    // without a disclosure triangle the writer cannot collapse
+                    // anyway.
+                    sceneRow(for: summary)
+                        .padding(.leading, ProjectRowLabel.childIndent)
+                }
+                // Below the sluglines — furniture at the foot of the column
+                // (stage-2a Task 4). A screenplay's writer reaches the same
+                // research and the same palette as everyone else's; before
+                // this the Scenes segment was the only tree with no way to
+                // either.
+                BinderTreeSections(store: store, state: treeState,
+                                   selectedSubject: $selectedSubject,
+                                   paletteWallTravels: paletteWallTravels,
+                                   onOpenPaletteWall: onOpenPaletteWall)
             }
-            // Below the sluglines — furniture at the foot of the column
-            // (stage-2a Task 4). A screenplay's writer reaches the same research
-            // and the same palette as everyone else's; before this the Scenes
-            // segment was the only tree with no way to either.
-            BinderTreeSections(store: store, state: treeState,
-                               selectedSubject: $selectedSubject,
-                               paletteWallTravels: paletteWallTravels,
-                               onOpenPaletteWall: onOpenPaletteWall)
+            .listStyle(.sidebar)
+            .overlay {
+                if summaries.isEmpty { emptyState }
+            }
+            .binderTreeSections(store: store, state: treeState,
+                                selectedSubject: $selectedSubject)
+            .consumingTreeScrollRequests(proxy, state: treeState)
         }
-        .listStyle(.sidebar)
-        .overlay {
-            if summaries.isEmpty { emptyState }
-        }
-        .binderTreeSections(store: store, state: treeState,
-                            selectedSubject: $selectedSubject)
     }
 
     /// The row at the head of the navigator naming the project itself.
@@ -167,6 +174,10 @@ struct SceneNavigatorPane: View {
             }
             .contentShape(Rectangle())
             .tag(BinderSubject.item(documentID))
+            // The find manuscript-match scroll target (stage-3b Task 8) — the
+            // screenplay's script row is this pane's only structure row, so
+            // it is this tree's whole answer to `BinderView.outline`'s `.id`.
+            .id(BinderSubject.item(documentID))
         }
     }
 

@@ -296,6 +296,49 @@ final class BinderPieceFoldTests: XCTestCase {
                        "and the row on screen is the note the reveal named")
     }
 
+    /// **The scroll half of the case above** (stage-3b Task 8). Existence was
+    /// the whole of the old contract; arrival is visible now, not just true —
+    /// with the piece pushed far enough down the tree that its row starts
+    /// off-screen, the reveal's own scroll request has to bring it back.
+    ///
+    /// **The PIECE row, not the note's** — `reveal`'s own answer for a
+    /// piece-scoped id (a closed fold has no row of its own to scroll to yet;
+    /// Task 7's report records the choice).
+    func test_aRevealOfAPieceScopedNotePutsThePieceRowOnScreen() async throws {
+        let store = try await collection()
+        for i in 0..<60 {
+            _ = try await store.addLoosePiece(title: "Filler \(i)", mode: .prose)
+        }
+        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let owned = try await store.addPieceResearchNote(
+            pieceId: piece.id, title: "Alpha's Note")
+
+        let state = BinderTreeSectionsState()
+        let (window, _) = try await hostCollection(store: store, state: state)
+        let outline = try XCTUnwrap(outlineView(in: window))
+        // The project row, then every piece in insertion order — Alpha is the
+        // 61st (sixty filler pieces ahead of it).
+        let pieceIndex = try XCTUnwrap(
+            store.manifest.structure.firstIndex(where: { $0.id == piece.id }))
+        let pieceRow = 1 + pieceIndex
+        XCTAssertFalse(isRowVisible(pieceRow, in: outline),
+                       "premise: sixty filler pieces push Alpha's row below "
+                       + "the mounted window's visible rect")
+
+        // `reveal` itself only opens the fold — the scroll request is the
+        // CALLER's write (`openResearchItem`'s own shape), so this test makes
+        // it exactly as production does.
+        let shown = state.reveal(owned.id, structure: store.manifest.structure,
+                                 research: store.manifest.research,
+                                 projectType: store.manifest.type)
+        state.scrollRequest = shown.map(TreeScrollTarget.row)
+        await pumpUntil(deadline: 5) { self.isRowVisible(pieceRow, in: outline) }
+
+        XCTAssertTrue(isRowVisible(pieceRow, in: outline),
+                      "the reveal opened the fold but did not scroll the "
+                      + "piece's own row onto screen")
+    }
+
     /// The two hosts bind their folds to the window's state — a source census,
     /// because the mounted pair above can only drive one host at a time and a
     /// fold left on the no-binding initialiser is a tree the reveal opens
@@ -774,6 +817,15 @@ final class BinderPieceFoldTests: XCTestCase {
         var found: [NSOutlineView] = []
         collect(NSOutlineView.self, in: root, into: &found)
         return found.first
+    }
+
+    /// **Whether `row` is actually on screen** — `documentVisibleRect` is the
+    /// scroll view's own answer, distinct from `numberOfRows`'s "the row
+    /// exists" (stage-3b Task 8's arrival-is-visible distinction).
+    private func isRowVisible(_ row: Int, in outline: NSOutlineView) -> Bool {
+        guard row >= 0, row < outline.numberOfRows,
+              let scrollView = outline.enclosingScrollView else { return false }
+        return scrollView.documentVisibleRect.intersects(outline.rect(ofRow: row))
     }
 
     private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {

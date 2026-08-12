@@ -81,25 +81,30 @@ struct CollectionPiecesPane: View {
     /// verbs the research panes 2b deletes used to hold. The window's one
     /// subject is derived from that set — see `BinderTreeSelection`.
     private var pieceList: some View {
-        List(selection: BinderTreeSelection.binding(
-                subject: $selectedSubject, state: treeState, store: store)) {
-            projectRow
-            ForEach(store.manifest.structure) { piece in
-                pieceEntry(for: piece)
+        // A `ScrollViewReader` around the `List` (stage-3b Task 8) — see
+        // `BinderView.body`'s twin comment; the reasoning is not restated here.
+        ScrollViewReader { proxy in
+            List(selection: BinderTreeSelection.binding(
+                    subject: $selectedSubject, state: treeState, store: store)) {
+                projectRow
+                ForEach(store.manifest.structure) { piece in
+                    pieceEntry(for: piece)
+                }
+                // Below the pieces — furniture at the foot of the column, with
+                // the project row still row zero.
+                BinderTreeSections(store: store, state: treeState,
+                                   selectedSubject: $selectedSubject,
+                                   paletteWallTravels: paletteWallTravels,
+                                   onOpenPaletteWall: onOpenPaletteWall)
             }
-            // Below the pieces — furniture at the foot of the column, with the
-            // project row still row zero.
-            BinderTreeSections(store: store, state: treeState,
-                               selectedSubject: $selectedSubject,
-                               paletteWallTravels: paletteWallTravels,
-                               onOpenPaletteWall: onOpenPaletteWall)
+            .listStyle(.sidebar)
+            .overlay {
+                if store.manifest.structure.isEmpty { emptyState }
+            }
+            .binderTreeSections(store: store, state: treeState,
+                                selectedSubject: $selectedSubject)
+            .consumingTreeScrollRequests(proxy, state: treeState)
         }
-        .listStyle(.sidebar)
-        .overlay {
-            if store.manifest.structure.isEmpty { emptyState }
-        }
-        .binderTreeSections(store: store, state: treeState,
-                            selectedSubject: $selectedSubject)
     }
 
     /// One piece's row, whole — the modifier chain is unchanged from when it was
@@ -230,10 +235,14 @@ struct CollectionPiecesPane: View {
             }
             .padding(.leading, ProjectRowLabel.childIndent)
             .tag(BinderSubject.item(piece.id))
+            // The find manuscript-match scroll target (stage-3b Task 8) —
+            // `BinderView.outline`'s comment carries the reasoning.
+            .id(BinderSubject.item(piece.id))
         } else {
             pieceRow(for: piece)
                 .padding(.leading, ProjectRowLabel.childIndent)
                 .tag(BinderSubject.item(piece.id))
+                .id(BinderSubject.item(piece.id))
         }
     }
 
