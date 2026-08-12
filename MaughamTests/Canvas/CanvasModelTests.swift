@@ -1,7 +1,13 @@
 import XCTest
+import SwiftUI
 @testable import Maugham
 
 final class CanvasModelTests: XCTestCase {
+
+    /// `attach` measures a resurrected orphan's card through production
+    /// typography, so this suite resolves a font in a parallel worker's first
+    /// moments — the fontd cold-start window `FontWarmup` exists to absorb.
+    override class func setUp() { FontWarmup.ensure() }
 
     private var root: URL!
 
@@ -224,6 +230,205 @@ final class CanvasModelTests: XCTestCase {
         model.detach()
         model.attach(projectRoot: root)
         XCTAssertEqual(model.scene.region(r1)?.label, "Falls")
+    }
+
+    // MARK: - Orphan scraps (F9, issue #28)
+
+    /// Seed a canvas with one real card, then append two orphan sections to
+    /// `canvas.md` by hand — ids `canvas.json` has no node for. That is the state
+    /// a crash between the two writes leaves behind (F11), and the state a
+    /// codec-dropped node or a `saveSceneOnly` desync leaves behind on its own.
+    private func seedCanvasWithOrphans() throws {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: a, kind: .scrap, origin: CGPoint(x: 100, y: 100),
+                                width: 240, cachedHeight: 80))
+        scene.insertRegion(CanvasRegion(id: r1, label: "Act II fog",
+                                        frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
+        CanvasStore(projectRoot: root).save(scene: scene, scraps: [a: "Kept."])
+
+        let md = root.appendingPathComponent(CanvasStore.scrapsRelativePath)
+        let existing = try String(contentsOf: md, encoding: .utf8)
+        try (existing + "\n## orph\n\n   \n\n## ghst\n\nThe words survive.\n")
+            .write(to: md, atomically: true, encoding: .utf8)
+    }
+
+    /// F9 + Denver's 2026-08-12 ruling (issue #28): an orphan is SURFACED, not
+    /// silently pruned and not silently kept. Text-bearing → a loose card under
+    /// the same id, so the words are back where the writer works (this is also
+    /// how the write-order crash window heals); whitespace-only → dropped, so it
+    /// stops being rewritten into `canvas.md` on every save.
+    func test_attachResurrectsTextBearingOrphansAndDropsWhitespaceOnes() throws {
+        try seedCanvasWithOrphans()
+
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+
+        XCTAssertEqual(model.scraps[CanvasNodeID("ghst")], "The words survive.",
+                       "the orphan's words are back under their own id")
+        guard let resurrected = model.scene.node(CanvasNodeID("ghst")) else {
+            return XCTFail("the words are VISIBLE — a loose card, not invisible cruft")
+        }
+        XCTAssertNotNil(resurrected.frame,
+                        "a card with no measured height is neither drawn nor "
+                        + "clickable — resurrecting one that cannot be seen is "
+                        + "the defect with a node added to it")
+        XCTAssertNil(model.scraps[CanvasNodeID("orph")],
+                     "a whitespace-only orphan is cruft and is dropped at load")
+        XCTAssertNil(model.scene.node(CanvasNodeID("orph")),
+                     "…and nothing is drawn for it either")
+        XCTAssertEqual(model.scraps[a], "Kept.", "the real card is untouched")
+    }
+
+    /// The resurrected card is the WRITER'S — their own words, coming back.
+    /// Straight and cool means Claude (ADR 0026 §10), so true zero is reserved
+    /// and this card must lean like everything else a hand put down.
+    func test_aResurrectedOrphanIsTheWritersCardAndLeansLikeOne() throws {
+        try seedCanvasWithOrphans()
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+
+        guard let resurrected = model.scene.node(CanvasNodeID("ghst")) else {
+            return XCTFail("precondition: the text-bearing orphan came back")
+        }
+        XCTAssertNil(resurrected.author,
+                     "nil is the writer — an author of .claude would draw these "
+                     + "words straight and tinted, and say Claude's name over them")
+        XCTAssertGreaterThanOrEqual(
+            abs(CanvasRenderer.seededRotation(for: resurrected).degrees),
+            CanvasMaterial.minimumTiltDegrees,
+            "a writer's card leans by at least the minimum; zero is Claude's")
+    }
+
+    /// Loose, and never in a region — the same ruling `CanvasCapture.Placement`
+    /// carries for a keyboard `Send to Canvas`. Membership is a fact the writer
+    /// stated, and a load-time repair inventing one would be a container they
+    /// never asked for round words they have to hunt for anyway.
+    func test_aResurrectedOrphanLandsLooseAndJoinsNoRegion() throws {
+        try seedCanvasWithOrphans()
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+
+        let ghost = CanvasNodeID("ghst")
+        XCTAssertNotNil(model.scene.node(ghost), "precondition: it came back")
+        XCTAssertNil(CanvasMembership.homeRegion(of: ghost, in: model.scene),
+                     "a resurrected card joins no region")
+        for region in model.scene.regions {
+            XCTAssertFalse(region.mentions(ghost),
+                           "…and it is not an appearance in \(region.id) either")
+        }
+    }
+
+    /// Resurrection is load-time reconciliation, not a writer gesture: it runs
+    /// before the scene is assigned, so there is no step on the stack for a ⌘Z
+    /// aimed at the writer's own last edit to take instead.
+    func test_resurrectionRegistersNoUndoStep() throws {
+        try seedCanvasWithOrphans()
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+
+        XCTAssertFalse(model.undoManager.canUndo,
+                       "a load-time repair must not sit on the writer's undo stack")
+        XCTAssertFalse(model.isInGesture, "and it must not leave a bracket open")
+    }
+
+    /// The repair reaches disk — which is what stops the orphan accumulating —
+    /// and doing it twice changes nothing, because the id now has a node.
+    func test_theRepairIsWrittenOnceAndIsNotADuplicator() throws {
+        try seedCanvasWithOrphans()
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        model.flush()
+
+        let onDisk = CanvasStore(projectRoot: root).load()
+        XCTAssertNotNil(onDisk.scene.node(CanvasNodeID("ghst")),
+                        "the resurrected card is in the sidecar, so the next open "
+                        + "finds a node rather than an orphan again")
+        XCTAssertNil(onDisk.scraps[CanvasNodeID("orph")],
+                     "the whitespace orphan is gone from canvas.md rather than "
+                     + "being rewritten into it on every save")
+
+        let again = CanvasModel()
+        again.attach(projectRoot: root)
+        XCTAssertEqual(again.scene.unorderedNodes.count, model.scene.unorderedNodes.count,
+                       "resurrection is not a duplicator — the id has a node now")
+        XCTAssertFalse(again.hasPendingSave,
+                       "a second attach found nothing to repair and queued no write")
+    }
+
+    // MARK: - A sidecar this build cannot read (#28 whole-branch review)
+
+    private var sidecarURL: URL { root.appendingPathComponent(CanvasStore.sidecarRelativePath) }
+    private var scrapsURL: URL { root.appendingPathComponent(CanvasStore.scrapsRelativePath) }
+
+    /// A canvas whose `canvas.md` holds words and whose sidecar is `json` —
+    /// which the caller makes unreadable. Every scrap is then an orphan, which
+    /// is the state that makes the repair want to write.
+    private func seedUnreadableSidecar(_ json: String) throws {
+        try FileManager.default.createDirectory(
+            at: sidecarURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try json.write(to: sidecarURL, atomically: true, encoding: .utf8)
+        try "\(ScrapText.banner)\n\n## ghst\n\nThe words survive.\n\n## orph\n\n   \n"
+            .write(to: scrapsURL, atomically: true, encoding: .utf8)
+    }
+
+    /// **Opening a canvas may not destroy an arrangement this build cannot
+    /// read.** A sidecar from a NEWER build loads as an empty scene with the
+    /// scraps intact, so every word is an orphan at once — and a repair saved
+    /// from there writes a current-schema file over the newer one, taking its
+    /// regions, lines, positions, marks and bindings with it, 750 ms after the
+    /// writer merely looked. The words are still surfaced, in memory; the file
+    /// survives being looked at.
+    func test_aNewerSchemaSidecarIsNotOverwrittenByTheRepair() throws {
+        try seedUnreadableSidecar(
+            #"{"schemaVersion":999,"nodes":[{"id":"futr","kind":"scrap","x":10,"y":10,"width":240,"z":3}]}"#)
+        let sidecarBefore = try Data(contentsOf: sidecarURL)
+        let scrapsBefore = try Data(contentsOf: scrapsURL)
+
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        XCTAssertNotNil(model.scene.node(CanvasNodeID("ghst")),
+                        "the writer still SEES their words — the repair is real, "
+                        + "it is only the write that is withheld")
+        XCTAssertFalse(model.hasPendingSave,
+                       "…and nothing is queued against a file this build refused")
+
+        model.detach()   // flushes whatever was queued
+        XCTAssertEqual(try Data(contentsOf: sidecarURL), sidecarBefore,
+                       "the newer build's whole arrangement is byte-identical on disk")
+        XCTAssertEqual(try Data(contentsOf: scrapsURL), scrapsBefore,
+                       "and canvas.md is untouched too — nothing was written at all")
+    }
+
+    /// Damaged bytes are the same case: present, unreadable, and not ours to
+    /// stamp over. A backup or a repair may still recover it.
+    func test_aCorruptSidecarIsNotOverwrittenByTheRepairEither() throws {
+        try seedUnreadableSidecar("not json at all")
+        let before = try Data(contentsOf: sidecarURL)
+
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        XCTAssertNotNil(model.scene.node(CanvasNodeID("ghst")), "the words are surfaced")
+        XCTAssertFalse(model.hasPendingSave, "and the damaged file is left alone")
+        model.detach()
+        XCTAssertEqual(try Data(contentsOf: sidecarURL), before)
+    }
+
+    /// **The control, and it is what keeps the two tests above falsifiable**: an
+    /// implementation that simply never saved a repair would pass both. With no
+    /// sidecar there is nothing to lose, so the repair is written and the next
+    /// open finds nodes rather than orphans.
+    func test_aRepairIsStillSavedWhenThereIsNoSidecarToLose() throws {
+        try "\(ScrapText.banner)\n\n## ghst\n\nThe words survive.\n"
+            .write(to: scrapsURL, atomically: true, encoding: .utf8)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarURL.path),
+                       "precondition: no sidecar")
+
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        XCTAssertTrue(model.hasPendingSave, "a repair with nothing to lose is written")
+        model.detach()
+        XCTAssertNotNil(CanvasStore(projectRoot: root).load().scene.node(CanvasNodeID("ghst")),
+                        "so the next open finds a node rather than an orphan again")
     }
 
     /// **A probe, not a bound on the machine.** `@Observable` generates a

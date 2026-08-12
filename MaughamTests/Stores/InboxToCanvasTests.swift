@@ -509,7 +509,8 @@ final class InboxToCanvasTests: XCTestCase {
         let id = try await f.inbox.sendToCanvas(
             entry, projectStore: f.store, placement: .loose)
 
-        let (scene, scraps) = CanvasStore(projectRoot: f.url).load()
+        let loaded = CanvasStore(projectRoot: f.url).load()
+        let (scene, scraps) = (loaded.scene, loaded.scraps)
         XCTAssertNotNil(scene.node(id),
                         "the capture reached the only canvas there was — a send that "
                         + "answered \"sent\" with nothing on disk has lost it")
@@ -642,7 +643,8 @@ final class InboxToCanvasTests: XCTestCase {
         let node = try await f.inbox.sendToCanvas(
             retryEntry, projectStore: f.store, placement: .loose)
 
-        let (scene, scraps) = CanvasStore(projectRoot: f.url).load()
+        let loaded = CanvasStore(projectRoot: f.url).load()
+        let (scene, scraps) = (loaded.scene, loaded.scraps)
         XCTAssertEqual(scene.count, 1,
                        "one capture, one card — the retry converged")
         XCTAssertEqual(scraps[node], "A thought.")

@@ -219,7 +219,9 @@ enum CanvasCapture {
         // drag is unreachable from the keyboard and unavailable in another
         // persona. `CanvasClaudeWrite`'s second arm, for its reasons.
         let sidecar = CanvasStore(projectRoot: projectRoot)
-        var (scene, scraps) = sidecar.load()
+        let loaded = sidecar.load()
+        var scene = loaded.scene
+        var scraps = loaded.scraps
         let landing = plan(content, placement, captureID: captureID, in: scene)
         if scene.node(landing.node.id) != nil { return landing.node.id }
         apply(landing, to: &scene)

@@ -117,7 +117,9 @@ enum CanvasClaudeWrite {
         }
 
         let sidecar = CanvasStore(projectRoot: projectRoot)
-        var (scene, scraps) = sidecar.load()
+        let loaded = sidecar.load()
+        var scene = loaded.scene
+        var scraps = loaded.scraps
         CanvasClaudePlacement.apply(plan, to: &scene)
         // `merge` rather than an assignment per key, and `{ _, new in new }` rather
         // than a trap: the ids are freshly minted against this very scene so a

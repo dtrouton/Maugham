@@ -90,4 +90,12 @@ final class ScrapTextTests: XCTestCase {
         let scraps = [CanvasNodeID("s1"): ""]
         XCTAssertEqual(ScrapText.parse(ScrapText.render(scraps)), scraps)
     }
+
+    func test_roundTrip_preservesDeliberateLeadingAndTrailingBlankLines() {
+        // The renderer adds exactly ONE blank line on each side of a body; the
+        // parser must therefore strip AT MOST one from each end — the old
+        // `while` loops ate every blank line the writer put there on purpose.
+        let scraps = [CanvasNodeID("s1"): "\n\nBody.\n\n"]
+        XCTAssertEqual(ScrapText.parse(ScrapText.render(scraps)), scraps)
+    }
 }
