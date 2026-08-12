@@ -16,13 +16,45 @@ public enum ImagePasteHandler {
         forNoteAt notePath: String,
         in projectURL: URL
     ) throws -> String {
-        let dest = try destination(forNoteAt: notePath, in: projectURL, ext: "png")
+        try saveAndReferenceData(
+            encodePNG(image), ext: "png", forNoteAt: notePath, in: projectURL)
+    }
+
+    /// Re-encode `image` as PNG bytes and nothing else — no directory, no file.
+    ///
+    /// **Split out so a caller can fail before it commits anything** (issue #29,
+    /// S6). `ProjectStore.addImage(toStatement:scope:image:)` mints a statement
+    /// to save beside, and a bitmap that cannot be re-encoded has to refuse
+    /// before there is a statement to leave behind — which is the ordering the
+    /// file-URL twin below has had since M1A Task 12, where `isIngestableImage`
+    /// is asked before anything is copied.
+    ///
+    /// The composition above is the same two acts in the same order for every
+    /// existing caller, minus one side effect: an unencodable image no longer
+    /// creates an empty `<slug>_assets/` on its way to throwing.
+    public static func encodePNG(_ image: NSImage) throws -> Data {
         guard let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let pngData = bitmap.representation(using: .png, properties: [:]) else {
             throw ImagePasteError.encodingFailed
         }
-        try pngData.write(to: dest.fileURL, options: .atomic)
+        return pngData
+    }
+
+    /// Write already-encoded bytes into the note's `<slug>_assets/` well under
+    /// the shared naming/dedupe scheme, and return the Markdown ref.
+    ///
+    /// The half of `saveAndReference` that touches the disk, so a caller that
+    /// has encoded up front can commit its own work in between the two.
+    @discardableResult
+    public static func saveAndReferenceData(
+        _ data: Data,
+        ext: String,
+        forNoteAt notePath: String,
+        in projectURL: URL
+    ) throws -> String {
+        let dest = try destination(forNoteAt: notePath, in: projectURL, ext: ext)
+        try data.write(to: dest.fileURL, options: .atomic)
         return "![](./\(dest.assetsDirName)/\(dest.filename))"
     }
 
