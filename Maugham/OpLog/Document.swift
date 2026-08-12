@@ -38,6 +38,20 @@ public final class Document {
     /// resurrecting the husk. Mirror of `EditorCoordinator.detach()`.
     public private(set) var isClosed = false
 
+    /// Recovery spec §4: the read-only partial open. Set only by
+    /// `Document.load(recovery: .readOnlyPartial)`; a doc carrying this state
+    /// can write NOTHING — every mutation entry point refuses through
+    /// `rejectMutationIfNotWritable`, no autosave scheduler exists, and
+    /// `close()` husks without flushing, sealing, or clearing.
+    public struct ReadOnlyRecoveryState: Equatable, Sendable {
+        public let unreadableFiles: [CheckpointLoad.UnreadableFile]
+        public init(unreadableFiles: [CheckpointLoad.UnreadableFile]) {
+            self.unreadableFiles = unreadableFiles
+        }
+    }
+    public internal(set) var readOnlyRecovery: ReadOnlyRecoveryState?
+    public var isReadOnlyRecovery: Bool { readOnlyRecovery != nil }
+
     /// The pending file `load` found but could not recover (RULING-54,
     /// M9-OL-010): un-bursted keystrokes from a crashed session, already
     /// preserved in the quarantine record. Stamped by `Document.load` and
@@ -404,8 +418,9 @@ public final class Document {
         // Data-safety guard: a husked doc's `materialize()` is empty, so an
         // autosave firing after close() would write an EMPTY .md over the real
         // manuscript. close() flushes autosave BEFORE husking, so this only
-        // rejects a stray post-close scheduler tail.
-        guard !isClosed else { return }
+        // rejects a stray post-close scheduler tail. A read-only recovery doc
+        // has no scheduler at all, so this arm is belt for a hand-driven call.
+        if rejectMutationIfNotWritable("performAutosave") { return }
         // Mirror pending buffer to disk for crash recovery. Carry the live
         // paragraph order so recovery is op-log-domain — not reconstructed from
         // the .md (ADR 0019). Stamp the basis (newest folded opId) so load can
@@ -601,7 +616,7 @@ public final class Document {
         // still-referenced zombie) must no-op rather than resurrect the husk
         // (which would parse `text` against empty prior state and re-populate
         // paragraphs). documentLog.error records the misuse.
-        if rejectMutationIfClosed("setFullText") { return }
+        if rejectMutationIfNotWritable("setFullText") { return }
         // Parse-once keystroke path (perf fix B). The prior stored state is
         // already in hand as `paragraphs`/`sequence` — the load path and this
         // method's own orphan-prune below enforce `paragraphs.keys ⊆ sequence`,
@@ -804,7 +819,7 @@ public final class Document {
     }
 
     public func setParagraph(id: String, text: String) {
-        if rejectMutationIfClosed("setParagraph") { return }
+        if rejectMutationIfNotWritable("setParagraph") { return }
         let prior = paragraphs[id]
         guard prior != text else { return }
         pending.recordChange(paragraphId: id, prior: prior, next: text)
@@ -826,7 +841,7 @@ public final class Document {
     }
 
     public func insertParagraph(after: String?, text: String) -> String {
-        if rejectMutationIfClosed("insertParagraph") { return "" }
+        if rejectMutationIfNotWritable("insertParagraph") { return "" }
         // Unique against the doc's live id population (birthday hazard over
         // the ~1.05M id space — see ParagraphID.mintUnique).
         let newId = ParagraphID.mintUnique(
@@ -850,7 +865,7 @@ public final class Document {
     }
 
     public func deleteParagraph(id: String) {
-        if rejectMutationIfClosed("deleteParagraph") { return }
+        if rejectMutationIfNotWritable("deleteParagraph") { return }
         guard paragraphs[id] != nil else { return }
         let priorText = paragraphs[id]
         paragraphs.removeValue(forKey: id)
@@ -873,7 +888,7 @@ public final class Document {
     }
 
     public func reorder(sequence: [String]) {
-        if rejectMutationIfClosed("reorder") { return }
+        if rejectMutationIfNotWritable("reorder") { return }
         self.sequence = sequence
         _orderingDirty = true
         _orderingChangedSinceLoad = true
@@ -901,6 +916,12 @@ public final class Document {
     }
 
     public func flushBurstNow() async throws {
+        // Everything below this line appends ops, clears the pending buffer or
+        // sweeps annotations — writes, every one. `close()` calls it while the
+        // doc is still writable, so the normal path is unaffected; this rejects
+        // a stray post-close call (which would append against husked state) and
+        // a recovery doc's flush (spec §4: a partial view writes nothing).
+        if rejectMutationIfNotWritable("flushBurstNow") { return }
         let hadPending = !pending.isEmpty()
         // Emit an op when there are pending TEXT changes OR an ordering-only
         // edit that recorded nothing in the pending buffer but flipped
@@ -1014,6 +1035,15 @@ public final class Document {
         // appWillTerminate racing onDisappear) returns immediately rather than
         // re-running the flush machinery over husked state.
         guard !isClosed else { return }
+        // A read-only recovery doc closes by husking alone: it has nothing to
+        // flush (mutations refused), must not seal (maintenance writes), and
+        // must not clear the pending file (it belongs to the REAL open that
+        // follows recovery). It also has no autosave scheduler to flush.
+        if isReadOnlyRecovery {
+            isClosed = true
+            huskInMemoryState()
+            return
+        }
         // Let any in-flight ⌘Z undo/redo hop finish on the LIVE (non-husked) doc
         // before husking (whole-branch review, 2026-07-11). An op-log undo runs
         // its mutation in `_lastUndoWorkTask`'s async hop (OpUndoRegistrar); a
@@ -1117,6 +1147,14 @@ public final class Document {
         // `performAutosave` also bails on it, so no stray scheduler tail can
         // write the now-empty `materialize()` over the on-disk manuscript.
         isClosed = true
+        huskInMemoryState()
+    }
+
+    /// Drop the O(doc) in-memory state. Called from `close()` once the disk
+    /// truth is durably written, and directly by the read-only recovery close
+    /// (which has no disk truth to write). Callers set `isClosed` FIRST, so
+    /// every mutation path is already gated before the state goes.
+    private func huskInMemoryState() {
         paragraphs = [:]
         sequence = []
         displayText = ""
@@ -1131,15 +1169,25 @@ public final class Document {
         lastDiskEcho = .afterWrite(bytes: "")
     }
 
-    /// Guard for mutation entry points: on a closed (husked) Document, logs once
-    /// and tells the caller to bail. A closed doc is abandoned by contract — a
-    /// late mutation (a still-referenced zombie, an MCP misuse, a scheduler tail)
-    /// must no-op rather than operate on husked state or resurrect it. Data
-    /// safety is unaffected: the disk truth was written before husking.
-    internal func rejectMutationIfClosed(_ site: StaticString) -> Bool {
-        guard isClosed else { return false }
-        documentLog.error(
-            "\(site, privacy: .public) called on a closed Document \(self.docId, privacy: .public); no-op (the instance is abandoned by contract)")
-        return true
+    /// One choke point for "this instance must not mutate": closed (husked,
+    /// abandoned) or read-only recovery (spec §4 — nothing derived from a
+    /// partial view is ever written). Callers no-op; documentLog records it.
+    ///
+    /// The closed arm: a late mutation (a still-referenced zombie, an MCP
+    /// misuse, a scheduler tail) must no-op rather than operate on husked state
+    /// or resurrect it. Data safety is unaffected — the disk truth was written
+    /// before husking.
+    internal func rejectMutationIfNotWritable(_ site: StaticString) -> Bool {
+        if isClosed {
+            documentLog.error(
+                "\(site, privacy: .public) called on a closed Document \(self.docId, privacy: .public); no-op (the instance is abandoned by contract)")
+            return true
+        }
+        if isReadOnlyRecovery {
+            documentLog.error(
+                "\(site, privacy: .public) called on a read-only recovery Document \(self.docId, privacy: .public); no-op (nothing derived from a partial view is written)")
+            return true
+        }
+        return false
     }
 }

@@ -702,7 +702,7 @@ extension Document {
         // a compound-undo hop resuming after `close()` husked must not append a
         // reopen op-side while the paired text restore no-ops (isClosed-guarded).
         // Sibling of the `appendTaskOpInternal` guard.
-        if rejectMutationIfClosed("reopenAnnotation") { return }
+        if rejectMutationIfNotWritable("reopenAnnotation") { return }
         let current = annotations(filter: AnnotationFilter(statuses: nil))
             .first { $0.id == id }
         let undoneKind: OpKind
