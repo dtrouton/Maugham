@@ -57,9 +57,9 @@ why. **Read `register/RULINGS.md` and nothing else.**
 | `Canvas/Promotion*` (the falsification module) | 78 | 67% | 52 / 0 | `29-promotion-falsification.md` |
 | `Publish/Republisher` (+`CompileOrchestrator`) | 11 | 91% | 10 / 0 | — |
 | `Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings) | 12 | 75% | 9 / 0 | — |
-| `OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice) | 12 | 100% | 12 / 0 | — |
+| `OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice) | 14 | 100% | 14 / 0 | — |
 
-The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 269 further claims in their own files. **438 claims in the experiment, 417 reconciled.** The app layer stands at **166 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
+The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 271 further claims in their own files. **440 claims in the experiment, 419 reconciled.** The app layer stands at **168 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
 App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`). Exception: the OpLog row's pins live where their subjects do — `MaughamTests/OpLog/` and the MaughamCore package tests (`core-tests`/`behavioural-claims`) — not under `Claims/`.
 
@@ -189,7 +189,13 @@ pending" this section once carried is closed; the filings hold the details:
    overwrite of a shipped edition), an unrecoverable pending file is
    quarantined-then-noticed before the next autosave destroys the only copy,
    BackupSignature hashes unreadable as a state of its own, and the seal's
-   skip carries its recorded reason.
+   skip carries its recorded reason. The recovery ladder's **Plan A** (branch
+   `claude/recovery-plan-a`) landed above that refusal floor — the pane
+   classifies the cause, waits out an iCloud dataless stub, offers a
+   read-only partial open that a census holds to zero writes and keeps
+   invisible to the MCP-resolving registry, and points at the existing
+   restore window (rungs 1, 2 and 4-lite; M9-OL-013/014) — with the
+   quarantine-and-continue rung and its return merge still queued for Plan B.
 3. **Small residuals**: RULING-30's presentation duty (verify-and-file); the two
    formal-methods findings (§8.2/§8.4); the audio-capture nuance.
 3. **The gap queue is EMPTY again as of 2026-08-09's P-gap sitting** — Promotion's five

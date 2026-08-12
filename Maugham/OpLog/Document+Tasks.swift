@@ -125,6 +125,12 @@ extension Document {
     /// cache; the caller — `rebuildTasksCache` — already holds the
     /// post-mint derive result.
     private func applyMintedAnchors(_ mints: [TaskDeriver.MintedAnchor]) {
+        // The sharpest of these guards: this runs from `rebuildTasksCache`,
+        // which a plain `tasks(filter:)` READ triggers. Without it, merely
+        // showing the Tasks pane over a read-only recovery view would mutate
+        // `paragraphs` and record into the pending buffer — a write with no
+        // writer action behind it at all.
+        if rejectMutationIfNotWritable("applyMintedAnchors") { return }
         // Group by paragraph so we apply all mints to a paragraph in one
         // splice pass (line indices remain stable when we walk lines once).
         var byParagraph: [String: [TaskDeriver.MintedAnchor]] = [:]
@@ -190,7 +196,7 @@ extension Document {
         // append this op-side change to a cleared mirror / disk while its text
         // side no-ops (setParagraph/applyRestore are already isClosed-guarded) —
         // a torn op log. Matches the text-side guards so both sides no-op together.
-        if rejectMutationIfClosed("appendTaskOpInternal") { return }
+        if rejectMutationIfNotWritable("appendTaskOpInternal") { return }
         appendToMirror(op)
         invalidateTasksCache()
         // Annotation cache only invalidates for annotation ops — task ops

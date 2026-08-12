@@ -1,6 +1,37 @@
 import Foundation
 import MaughamCore
 
+/// How a `Document.load` should behave when the strict load would refuse
+/// (RULING-54). Absent this parameter the load is strict, which is the floor
+/// the whole recovery ladder stands on — a mode is opted into, never inferred.
+public enum DocumentRecoveryMode: Equatable, Sendable {
+    /// Spec §4: derive from the readable files only; the Document is
+    /// read-only and can write nothing.
+    case readOnlyPartial
+}
+
+/// A mutation was attempted on a Document that must not write — closed
+/// (husked, abandoned) or a read-only recovery view (spec §4). Thrown only by
+/// the value-returning entry points; the Void-returning ones no-op instead.
+public struct DocumentNotWritableError: Error, Equatable {
+    /// The refusing call site, for the message the caller shows.
+    public let site: String
+    public init(site: String) { self.site = site }
+}
+
+/// Why a recovery-mode load refused. Distinct from `OpLogStore.ReadError`:
+/// these are refusals of the RECOVERY door itself, not read failures — the
+/// door is only ever the right one when the strict load has already refused.
+public enum DocumentRecoveryError: Error, Equatable {
+    /// Every op-log file read cleanly, so there is no partial view to offer.
+    /// Recovery mode is not a lenient open — the normal load is the right door.
+    case nothingUnreadable
+    /// The doc has no op log at all, so there is no history to derive from.
+    /// A normal load would BOOTSTRAP one from the `.md`; a partial view must
+    /// never mint anchors, so it refuses and says there is nothing to recover.
+    case noOpLog
+}
+
 extension Document {
 
     /// Drop orphan paragraphs from the op-log-derived state: entries in
@@ -50,6 +81,113 @@ extension Document {
         try await load(
             url: url, device: device, session: session, presenter: presenter,
             burstIdle: .seconds(30), burstMax: .seconds(90))
+    }
+
+    /// The recovery-mode load (spec §4). Reached only after the strict load
+    /// above has refused — the ladder's rungs offer this, nothing opens with it
+    /// by default.
+    public static func load(
+        url: URL,
+        device: String,
+        session: String,
+        presenter: NSFilePresenter?,
+        recovery: DocumentRecoveryMode
+    ) async throws -> Document {
+        // .readOnlyPartial is the only mode; the switch is here so a second
+        // mode can't ship without deciding its load shape explicitly.
+        switch recovery {
+        case .readOnlyPartial:
+            return try await loadReadOnlyPartial(
+                url: url, device: device, session: session, presenter: presenter)
+        }
+    }
+
+    /// Spec §4's read-only partial view: derive from the op-log files that
+    /// READ, name the ones that don't, and write nothing at all — not an op,
+    /// not the `.md`, not a quarantine record, not a conflict snapshot, not a
+    /// sealed segment. It deliberately mirrors the strict load's docId /
+    /// projectURL resolution and its deriver, and deliberately omits every one
+    /// of that load's writes and repairs:
+    ///
+    ///   - **No `Bootstrap.run`** — a partial view must not mint anchors. A doc
+    ///     with no op log at all has nothing to recover and refuses.
+    ///   - **No pending fold** — the pending file holds a crashed session's
+    ///     un-bursted keystrokes and belongs to the REAL open that follows
+    ///     recovery. Folding it here would append an op AND clear the file,
+    ///     spending the writer's only copy on a view they cannot save from.
+    ///   - **No quarantine record** for parse skips, and no divergence
+    ///     snapshot: both are writes, and the second is worse than redundant —
+    ///     a partial view's render is missing whatever the unreadable files
+    ///     held, so it would file the writer's intact `.md` as "diverged"
+    ///     against an incomplete history.
+    ///   - **No autosave**: the scheduler exists (the property is implicitly
+    ///     unwrapped, and a nil one turns a stray future `schedule(())` into a
+    ///     crash) but its fire closure is empty, so no debounced write can
+    ///     reach this document.
+    ///   - **No `unrecoveredPendingFailure` stamp**: that notice is delivered
+    ///     once, by the real open, whose pending fold is what actually consumed
+    ///     (or failed to consume) the file.
+    private static func loadReadOnlyPartial(
+        url: URL,
+        device: String,
+        session: String,
+        presenter: NSFilePresenter?
+    ) async throws -> Document {
+        let docId = try resolveDocId(for: url)
+        let projectURL = resolveProjectURL(for: url)
+
+        // No op log means a normal load would have BOOTSTRAPPED one from the
+        // `.md`. There is no history here to read partially, and minting
+        // anchors is a write — refuse and let the caller offer another rung.
+        guard !OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL).isEmpty else {
+            throw DocumentRecoveryError.noOpLog
+        }
+
+        let opStore = OpLogStore(projectURL: projectURL, presenter: presenter)
+        let partial = await opStore.loadDiagnosedPartial(docId: docId)
+
+        // Recovery mode exists for the refusal path alone. If every file read,
+        // the strict load would have opened this doc writably — handing back a
+        // read-only view instead would quietly cost the writer their session.
+        guard !partial.unreadableFiles.isEmpty else {
+            throw DocumentRecoveryError.nothingUnreadable
+        }
+
+        let initial = Document.reconcile(
+            derived: Deriver.deriveWithSequenceFallback(ops: partial.ops))
+
+        // A `PendingBuffer` is constructed (the Document requires one) but
+        // never loaded, never flushed and never cleared: constructing it
+        // touches no disk.
+        let pending = PendingBuffer(projectURL: projectURL, docId: docId, device: device)
+        // Likewise the burst scheduler: it is handed no fire closure that can
+        // reach this doc, so its timer can never trigger a flush. `flushBurstNow`
+        // refuses on a recovery doc regardless — this is the belt on the braces.
+        let burst = BurstScheduler(idle: .seconds(30), max: .seconds(90)) {}
+
+        let doc = Document(
+            url: url, docId: docId, device: device, session: session,
+            presenter: presenter, opStore: opStore, pending: pending,
+            burstScheduler: burst,
+            paragraphs: initial.paragraphs, sequence: initial.sequence,
+            lastDiskEcho: .initialLoad(bytes: ""))
+        // And the autosave scheduler is given a fire closure that does
+        // NOTHING rather than left nil: the property is implicitly unwrapped,
+        // so an unguarded future path that schedules an autosave on a recovery
+        // doc must no-op, not crash — `Document+Tasks.swift`'s
+        // `autosaveScheduler.schedule(())` is the live near-miss, one guard
+        // away from being reached here. Belt on braces, like the burst
+        // scheduler above: nothing may write from a partial view, and the
+        // failure mode of the belt breaking must not be a crash on the writer.
+        doc.autosaveScheduler = DebounceScheduler<Void>(delay: .milliseconds(750)) { _ in }
+        doc.recomputeDisplayText()
+        doc._opLogMirror = partial.ops
+        doc._annotationsCacheValid = false
+        doc._hasAnyAnnotationOps = partial.ops.contains {
+            Document.isAnnotationOpKind($0.kind)
+        }
+        doc.readOnlyRecovery = .init(unreadableFiles: partial.unreadableFiles)
+        return doc
     }
 
     /// Internal overload that accepts custom burst thresholds. Used by tests

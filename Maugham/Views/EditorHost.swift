@@ -118,6 +118,35 @@ struct EditorHost: View {
     /// ADR 0021 liveness/scope filter (a closed window must not act).
     @State private var window: NSWindow? = nil
 
+    /// The standing banner over a read-only partial open (recovery spec §4),
+    /// or nil for every ordinary document. Minted at the ONE bind site in
+    /// `loadDocumentIfNeeded` from the doc's own `readOnlyRecovery` state, so a
+    /// normal load leaves it nil and this view renders exactly as before.
+    ///
+    /// Not parallel text state (tripwire 6): it holds the unreadable FILE NAMES
+    /// and a readability poll, never the manuscript's text, and nothing it owns
+    /// feeds the editor binding. Its single output is `offersReopen`, which the
+    /// banner renders as a button — the reload happens only when the writer
+    /// presses it (`retryFullLoad`), never on the watcher's own authority.
+    @State private var recoveryBannerModel: RecoveryBannerModel? = nil
+
+    /// The refusal ladder shown where the manuscript would be (recovery spec
+    /// §3), or nil for every document that opened. Minted at the ONE catch site
+    /// in `loadDocumentIfNeeded`, from the classified cause, and torn down
+    /// everywhere the host binds a document or retries.
+    ///
+    /// **Held, not built in `body`.** The model owns a readability watch; a
+    /// `RecoveryPaneModel(...)` written inline in the view would start a fresh
+    /// poller on every render pass. It is re-created only when a refusal is
+    /// classified, which is exactly "keyed to the cause".
+    ///
+    /// **And it is the only state the cause lives in** (tripwire 6's shape): a
+    /// second `@State` holding the `RecoveryCause` beside it would be two things
+    /// to keep in sync for no read that `recoveryPaneModel?.cause` doesn't
+    /// already serve. Nothing here feeds the editor binding — the model's whole
+    /// output is the pane's copy and its two buttons.
+    @State private var recoveryPaneModel: RecoveryPaneModel? = nil
+
     /// Session id stable for the lifetime of this app launch. Stamped onto
     /// every `typing_burst` Op so multi-window edits can be merged across
     /// instances. Computed once via a lazy static.
@@ -171,6 +200,12 @@ struct EditorHost: View {
                     ),
                     configuration: makeSurfaceConfiguration(doc: doc, path: path, um: um)
                 )
+                // Recovery spec §4: the read-only partial view's standing
+                // banner, in `ViewOnlyShareNotice`'s position over the writing
+                // column. Inside `.id(path)` on purpose, so a document switch
+                // tears the banner down and its `.onDisappear` cancels the
+                // readability watch. Nothing renders for an ordinary document.
+                .safeAreaInset(edge: .top) { recoveryBannerInset(doc: doc) }
                 .id(path)
                 // Crafted review render (Component F): the open-annotation set now
                 // flows through the control model (ADR 0017), not a per-prop push.
@@ -234,7 +269,7 @@ struct EditorHost: View {
             } else if currentItem?.type == .group {
                 placeholder("Select a document inside this group to edit.")
             } else if currentItem?.type == .document {
-                placeholder(loadError ?? "Loading…")
+                recoveryOrPlaceholder
             } else {
                 placeholder("Select a document.")
             }
@@ -280,6 +315,15 @@ struct EditorHost: View {
                 documentStore.unregister(path: path)
             }
             document = nil
+            recoveryBannerModel = nil
+            // Stopped here as well as in the pane's own `.onDisappear`:
+            // nested `.onDisappear` ordering is unreliable on window close,
+            // and a poller that outlives its host holds an action that would
+            // reload a document nobody is looking at. Dropping the model then
+            // keeps a returning host from re-showing a refusal it has not
+            // re-derived.
+            recoveryPaneModel?.stopWatching()
+            recoveryPaneModel = nil
             loadedItemId = nil
             priorLoadedPath = nil
             // And nothing in flight may bind into a host that has gone: it
@@ -316,6 +360,119 @@ struct EditorHost: View {
             projectURL: store.url)
     }
 
+    /// What a document that did not open shows: the recovery ladder when the
+    /// refusal was one this ladder owns (spec §3), and otherwise the bare
+    /// message the load path has always shown — an unclassified error keeps
+    /// today's rendering rather than being dressed up in a pane that offers
+    /// rungs it cannot climb.
+    ///
+    /// Extracted from `body` for the same reason `recoveryBannerInset` is: the
+    /// type-check budget (`ProjectWindow.body`'s ceiling, CLAUDE.md).
+    @ViewBuilder
+    private var recoveryOrPlaceholder: some View {
+        if let paneModel = recoveryPaneModel {
+            // Keyed on the MODEL's identity, not the view's position. One
+            // refusal can follow another (the writer clicks a second broken
+            // document), and a swapped-in model at a stable identity restarts
+            // nothing: `DocumentRecoveryPane`'s `.task` begins the watch on
+            // appear, and its `.onDisappear` stops it — neither fires for an
+            // update. The new cause would be shown with no watch behind it
+            // while the old cause's poller ran on, holding a callback that
+            // reloads a document the writer has left.
+            DocumentRecoveryPane(model: paneModel)
+                .id(ObjectIdentifier(paneModel))
+        } else {
+            placeholder(loadError ?? "Loading…")
+        }
+    }
+
+    /// The recovery banner, or nothing at all. Extracted from `body` for the
+    /// same reason every other wall here is (the type-checker budget), and
+    /// gated twice — on the doc's own posture and on a minted model — so an
+    /// ordinary document's render path is untouched.
+    @ViewBuilder
+    private func recoveryBannerInset(doc: Document) -> some View {
+        if doc.isReadOnlyRecovery, let bannerModel = recoveryBannerModel {
+            RecoveryBanner(model: bannerModel) {
+                Task { await retryFullLoad() }
+            }
+        }
+    }
+
+    /// Close whatever is bound (recovery or stale) and run the normal load
+    /// again. Reached from `RecoveryBanner`'s Reopen — the writer's own press,
+    /// which is the only thing allowed to swap the view under them.
+    ///
+    /// No `documentStore.unregister` here, and that is not an omission: a
+    /// read-only recovery doc is never registered (spec §4), so there is no
+    /// registry entry of its own to withdraw.
+    private func retryFullLoad() async {
+        if let doc = document { await doc.close() }
+        document = nil
+        recoveryBannerModel = nil
+        // Reached from the pane's own auto-open as well as the banner's
+        // Reopen, so the ladder must come down here too: if the retry refuses
+        // again, the catch below mints a fresh model for the fresh cause, and
+        // a stale one left standing would keep polling beside it. Stopped
+        // explicitly rather than relying on the watch having returned by
+        // itself — it has, when the auto-open is what called this, but the
+        // banner's Reopen reaches here with the watch still running.
+        recoveryPaneModel?.stopWatching()
+        recoveryPaneModel = nil
+        loadedItemId = nil
+        priorLoadedPath = nil
+        await loadDocumentIfNeeded()
+    }
+
+    /// Rung 1 (spec §4): bind a read-only partial Document. NEVER registered —
+    /// DocumentStore's registry is how MCP resolves open docs, and a
+    /// registered partial view would hand Claude the partial state §6 forbids.
+    ///
+    /// It claims a load generation like every other bind here: the writer's
+    /// press can land while a normal load is in flight, and two Documents on
+    /// one path would each carry their own `PendingBuffer`.
+    private func openReadOnly() async {
+        guard let item = currentItem, let path = item.path else { return }
+        let generation = loads.claim()
+        do {
+            let doc = try await Document.load(
+                url: store.url.appendingPathComponent(path),
+                device: Self.deviceId, session: Self.sessionId,
+                presenter: documentStore.presenter,
+                recovery: .readOnlyPartial)
+            guard loads.isCurrent(generation) else {
+                await doc.close()
+                return
+            }
+            document = doc
+            loadedItemId = item.id
+            priorLoadedPath = path
+            loadError = nil
+            // Symmetry with every other teardown: stop the watch before
+            // dropping the model. The pane is about to leave the screen, but
+            // its `.onDisappear` cannot run until a render pass this bind
+            // precedes, and a poller left running would auto-open editable
+            // over the read-only view the writer just asked for.
+            recoveryPaneModel?.stopWatching()
+            recoveryPaneModel = nil
+            recoveryBannerModel = RecoveryBannerModel(
+                unreadableFiles: doc.readOnlyRecovery?.unreadableFiles ?? [],
+                opsDirectory: store.url.appendingPathComponent(".maugham/ops"))
+        } catch {
+            guard loads.isCurrent(generation) else { return }
+            // The partial view refused too (it can: `nothingUnreadable`, or a
+            // directory nothing can enumerate). The pane STAYS — its other
+            // rung, Restore from Backup, is still the right offer — so the
+            // refusal is told as a notice rather than into a `loadError` the
+            // pane is covering (RULING-5: never a silent refusal).
+            loadError = error.localizedDescription
+            MaughamEvent.postNotice(
+                "Maugham couldn’t open a read-only view of this document "
+                + "(\(error.localizedDescription)).",
+                projectURL: store.url)
+        }
+    }
+
     /// Build the EditorSurface configuration wall in a dedicated function so the
     /// `body` type-checker load drops (the extracted-ViewModifier / ProjectWindow
     /// pattern). Pure packaging (hardening Task 2): every closure below is the
@@ -339,6 +496,11 @@ struct EditorHost: View {
                 paragraphFocus: userPreferences.paragraphFocus,
                 showElementGutter: store.manifest.showElementGutter ?? true),
             control: control,
+            // Recovery spec §4: a read-only partial open refuses typing at the
+            // AppKit level (Task 4) and answers the attempt by emphasising the
+            // banner. Both are `false`/`nil` for an ordinary document, which is
+            // the configuration this call site has always produced.
+            readOnlyRecovery: doc.isReadOnlyRecovery,
             callbacks: .init(
                 initialCursorLocation: doc.cursorLocation,
                 onCursorChanged: { offset in
@@ -350,7 +512,10 @@ struct EditorHost: View {
                 },
                 onPostEditCursor: { doc.recordPostEditCursor($0) },
                 onElementChanged: onElementChanged,
-                onMetricsChanged: onMetricsChanged),
+                onMetricsChanged: onMetricsChanged,
+                onTypingRefused: doc.isReadOnlyRecovery
+                    ? { recoveryBannerModel?.noteTypingRefused() }
+                    : nil),
             paragraphProviders: .init(
                 wikiLinkResolver: wikiLinkResolver,
                 wikiLinkClickResolver: wikiLinkClickResolver,
@@ -560,6 +725,34 @@ struct EditorHost: View {
         loadedItemId != itemId || loadedPath != path
     }
 
+    /// Whether a recovery action minted against `minted` may still act.
+    ///
+    /// The refusal pane's two actions are minted ONCE, when a cause is
+    /// classified, and one of them is fired by a poller rather than by a press:
+    /// the iCloud rung opens the document by itself the moment the file lands.
+    /// A `View` is a struct, so those closures carry the value of
+    /// `selectedItemId` — a `let` — from the moment they were built, and the
+    /// writer is free to select another document while the poll runs. Firing
+    /// stale, the action would close the document the writer is now in and
+    /// re-bind the one they left, with the binder still highlighting the other:
+    /// no words lost (the close flushes), but the wrong manuscript silently on
+    /// screen, which is the race class tripwires 2/3/6/7 exist for.
+    ///
+    /// `recoveryPaneModel` is `@State`, so a read through it inside the closure
+    /// sees LIVE storage rather than the captured copy — the one channel by
+    /// which these closures can learn that the world moved. Identity, not the
+    /// cause: a second refusal for the same reason on a different document is
+    /// still a different pane.
+    ///
+    /// Static + pure so `EditorHostRecoveryActionGuardTests` can pin the rule
+    /// without a window (the `needsReload` precedent).
+    static func recoveryActionIsCurrent(
+        minted: RecoveryPaneModel?, current: RecoveryPaneModel?
+    ) -> Bool {
+        guard let minted else { return false }
+        return minted === current
+    }
+
     private func loadDocumentIfNeeded() async {
         guard let item = currentItem,
               item.type == .document,
@@ -571,6 +764,16 @@ struct EditorHost: View {
         // Claimed BEFORE the first suspension: everything from here on may be
         // superseded, and only the newest claim may write the markers below.
         let generation = loads.claim()
+        // A refusal belongs to the selection that raised it, and this host
+        // KEEPS ITS IDENTITY across a document switch (ProjectWindow's
+        // `manuscriptEditor` layers rather than branches, so nothing unmounts).
+        // Left standing, the previous document's pane stays on screen for the
+        // whole of this load with its poller running — and that poller holds an
+        // action minted against the previous selection. Stopped and dropped
+        // HERE rather than left to the view's `.onDisappear`, which cannot run
+        // until a render pass this suspension precedes.
+        recoveryPaneModel?.stopWatching()
+        recoveryPaneModel = nil
         // The outgoing doc's pending metrics mirror is cancelled inside the
         // coordinator's own teardown/attach now (a doc switch makes a fresh
         // EditorSurface via `.id(path)`, whose coordinator's `attach` cancels
@@ -602,6 +805,21 @@ struct EditorHost: View {
             loadedItemId = item.id
             priorLoadedPath = path
             loadError = nil
+            // A document that opened has no refusal to show: the ladder goes
+            // away with the failure that raised it. This is the belt — the
+            // stop-and-drop before the load's first suspension (defence 1)
+            // has already cleared it, and this ALSO clears whatever a
+            // re-entrant refusal minted while we were in file I/O.
+            recoveryPaneModel = nil
+            // Recovery spec §4: mint the banner only for a doc that came back
+            // read-only. `Document.load`'s ordinary path leaves
+            // `readOnlyRecovery` nil, so this is nil for every normal load and
+            // the render path above is unchanged.
+            recoveryBannerModel = doc.readOnlyRecovery.map {
+                RecoveryBannerModel(
+                    unreadableFiles: $0.unreadableFiles,
+                    opsDirectory: store.url.appendingPathComponent(".maugham/ops"))
+            }
             // RULING-54 (M9-OL-010): the crash-recovery failure is stamped on
             // the doc by `Document.load` and delivered HERE, where a window
             // can exist — a load-time post from a windowless context was
@@ -616,6 +834,7 @@ struct EditorHost: View {
             // editor on "Loading…" for a file that is open.
             guard loads.isCurrent(generation) else { return }
             document = nil
+            recoveryBannerModel = nil
             loadedItemId = item.id
             priorLoadedPath = nil
             // RULING-7 + RULING-54: the refusal is SHOWN — in the pane where
@@ -623,6 +842,34 @@ struct EditorHost: View {
             // eternal "Loading…" placeholder over a real error.
             loadError = error.localizedDescription
             MaughamEvent.postNotice(error.localizedDescription, projectURL: store.url)
+            // Recovery spec §3: classify the refusal, and mint the ladder's
+            // model HERE — the one place a cause is known — so the pane's
+            // readability watch is started once per refusal rather than once
+            // per render. `classify` returns nil for errors this ladder does
+            // not own, and then `recoveryOrPlaceholder` shows the bare message
+            // exactly as before.
+            let cause = RecoveryCause.classify(loadError: error, projectURL: store.url)
+            recoveryPaneModel = cause.map { cause in
+                // `minted` is WEAK and assigned after the init: the model holds
+                // these closures, so a strong capture of it here is a cycle
+                // that keeps a poller alive for the life of the process.
+                weak var minted: RecoveryPaneModel?
+                let model = RecoveryPaneModel(
+                    cause: cause,
+                    projectURL: store.url,
+                    onOpenEditable: { Task {
+                        guard Self.recoveryActionIsCurrent(
+                            minted: minted, current: recoveryPaneModel) else { return }
+                        await retryFullLoad()
+                    } },
+                    onOpenReadOnly: { Task {
+                        guard Self.recoveryActionIsCurrent(
+                            minted: minted, current: recoveryPaneModel) else { return }
+                        await openReadOnly()
+                    } })
+                minted = model
+                return model
+            }
         }
     }
 
