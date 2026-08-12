@@ -56,7 +56,7 @@ final class SaveFlashHonestyTests: XCTestCase {
         XCTAssertFalse(flashed, "a checkpoint that did not land must not flash")
         XCTAssertEqual(seen.count, 1, "exactly one notice, naming the failure")
         XCTAssertTrue(
-            seen.first?.contains("Couldn't save a checkpoint") == true,
+            seen.first?.contains("Couldn’t save a checkpoint") == true,
             "the notice must say a checkpoint failed — got \(seen)")
         XCTAssertTrue(
             seen.first?.contains("read-only") == true,

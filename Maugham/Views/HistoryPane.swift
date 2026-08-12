@@ -249,6 +249,20 @@ struct HistoryPane: View {
         return "\(orphanCount) paragraph\(plural) from the recovered history \(verb) in your draft — View"
     }
 
+    /// The notice for a Retry where NOTHING came back — every held record is
+    /// still unreadable or still torn. The pressed button did something and
+    /// said nothing before this (the review's I2): a control that looks dead
+    /// is worse than a refusal, and the standing notice above it does not
+    /// change, so silence reads as "the press didn't register". Names the
+    /// first reason, because the reasons want opposite responses from the
+    /// writer ("permission denied" is fixed here; a torn file is not fixable
+    /// by pressing again). Writer-voiced — "set aside", never the internal
+    /// term.
+    static func stillHeldNotice(reason: String) -> String {
+        "That part of this document’s history still can’t be read, so it stays "
+        + "set aside (\(reason))."
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             filterToolbar
@@ -353,6 +367,14 @@ struct HistoryPane: View {
         .onProjectEvent(.maughamCheckpointAdded, url: projectURL, window: window) { _ in
             Task { await reload() }
         }
+        // The set-aside rows are the one thing in this pane another surface
+        // changes behind its back: `EditorHost`'s auto-return sweep runs on
+        // every normal document open and can leave nothing held at all. Without
+        // this the standing notice went stale and its Retry re-attempted a
+        // record that had already come back (the review's I2).
+        .onProjectEvent(.maughamQuarantineRecordsChanged, url: projectURL, window: window) { _ in
+            Task { await reload() }
+        }
         .sheet(isPresented: $showingRestorePicker) {
             if let cp = selectedCheckpoint {
                 PartialRestorePicker(
@@ -436,37 +458,62 @@ struct HistoryPane: View {
     }
 
     /// Runs `attemptReturn` for every held record, reloads, and surfaces
-    /// what happened: a toast always (`postNotice`), plus the report sheet
-    /// when the return actually turned up paragraphs the merged draft
-    /// doesn't have. A record that stays `.stillUnreadable`/`.corrupt` is
-    /// left alone — it reappears in the standing notice via the next
-    /// `reload()`, and its reason is logged rather than shown (the writer's
-    /// actionable options don't change based on which reason it was).
+    /// what happened: a toast in EVERY case, plus the report sheet when the
+    /// return turned up paragraphs the draft doesn't have.
+    ///
+    /// Each record's own `RecoveredHistoryReport` is carried through and the
+    /// sweep's verdict is `RecoveredHistoryReport.aggregate` — never a report
+    /// assembled here from loose orphans with `redundant` written in by hand,
+    /// which is what shipped (the review's I1): the flag then said "sync had
+    /// already delivered all of this" about sweeps where it had delivered none
+    /// of it.
+    ///
+    /// A record that stays `.stillUnreadable`/`.corrupt` keeps its place in the
+    /// standing notice via the next `reload()`, and — when NOTHING in the sweep
+    /// came back — says so (`stillHeldNotice`) rather than leaving a pressed
+    /// button looking dead.
     private func retryQuarantine() {
         guard !isRetryingQuarantine else { return }
         isRetryingQuarantine = true
         Task {
-            var orphans: [RecoveredHistoryReport.Orphan] = []
-            var anyReturned = false
+            var reports: [RecoveredHistoryReport] = []
+            var failureReasons: [String] = []
             for record in heldQuarantineRecords {
                 let outcome = await OpLogQuarantine.attemptReturn(
                     record: record, in: projectURL, presenter: nil)
                 switch outcome {
-                case .returned(let report), .supersededBySync(let report):
-                    anyReturned = true
-                    orphans.append(contentsOf: report.orphans)
+                case .returned(let report):
+                    reports.append(report)
+                case .supersededBySync(let report):
+                    reports.append(report)
+                    // The lossy shape, and the reason `redundant` is a field
+                    // rather than an inference from the orphan count: nothing
+                    // moved, and the archive carries history the live log has
+                    // not got. The writer hears about it through the orphan
+                    // notice; this is the WHY for whoever reads the log.
+                    if !report.redundant {
+                        historyQuarantineLog.notice("retryQuarantine: \(record.originalName, privacy: .public) stays an archive — its place was refilled by sync, and it holds \(report.orphans.count, privacy: .public) paragraph(s) the live history does not")
+                    }
                 case .stillUnreadable(let reason), .corrupt(let reason):
+                    failureReasons.append(reason)
                     historyQuarantineLog.error("retryQuarantine: \(record.originalName, privacy: .public) still held — \(reason, privacy: .public)")
                 }
             }
             await reload()
             isRetryingQuarantine = false
-            guard anyReturned else { return }
+            guard !reports.isEmpty else {
+                if let reason = failureReasons.first {
+                    MaughamEvent.postNotice(
+                        Self.stillHeldNotice(reason: reason), projectURL: projectURL)
+                }
+                return
+            }
+            let sweep = RecoveredHistoryReport.aggregate(reports)
             MaughamEvent.postNotice(
-                Self.recoveredHistoryNotice(orphanCount: orphans.count),
+                Self.recoveredHistoryNotice(orphanCount: sweep.orphans.count),
                 projectURL: projectURL)
-            if !orphans.isEmpty {
-                recoveredReport = RecoveredHistoryReport(orphans: orphans, redundant: false)
+            if !sweep.orphans.isEmpty {
+                recoveredReport = sweep
                 showingRecoveredHistorySheet = true
             }
         }

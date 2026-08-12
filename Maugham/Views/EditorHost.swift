@@ -356,7 +356,7 @@ struct EditorHost: View {
         MaughamEvent.postNotice(
             "Maugham couldn’t recover unsaved keystrokes from your last session "
             + "(\(failure.name): \(failure.reason)). Everything you saved is intact; "
-            + "a record was kept in the project’s quarantine folder.",
+            + "a record of what couldn’t be read was set aside inside the project.",
             projectURL: store.url)
     }
 
@@ -496,7 +496,18 @@ struct EditorHost: View {
     /// editable document, and a still-refusing one arrives as a freshly
     /// classified refusal rather than a stale pane.
     private func quarantineAndContinue() async {
-        guard let item = currentItem, let path = item.path else { return }
+        guard let item = currentItem, let path = item.path else {
+            // Both of this function's early exits are a WRITER'S PRESS that
+            // achieved nothing, and both were bare returns (the review's M4).
+            // Unreachable today by construction — the button only exists on a
+            // pane or banner raised for a selected document with a path, and
+            // the `targets` list below is non-empty for every cause that offers
+            // this rung (`RecoveryPaneModel.offersSetAside`) — so this is the
+            // belt, in `openReadOnly`'s catch's shape: RULING-5, never a silent
+            // refusal.
+            MaughamEvent.postNotice(Self.setAsideNoDocumentNotice, projectURL: store.url)
+            return
+        }
         let docURL = store.url.appendingPathComponent(path)
         let opsDir = store.url.appendingPathComponent(".maugham/ops", isDirectory: true)
 
@@ -518,7 +529,12 @@ struct EditorHost: View {
         } else if case .unreadableFile(_, let fileURL, let reason)? = recoveryPaneModel?.cause {
             targets = [(url: fileURL, reason: reason)]
         }
-        guard !targets.isEmpty else { return }
+        guard !targets.isEmpty else {
+            // The second belt (see the guard above): a press with nothing
+            // nameable to move says so instead of returning silently.
+            MaughamEvent.postNotice(Self.setAsideNothingToMoveNotice, projectURL: store.url)
+            return
+        }
 
         // The id the record is filed under — and the id the return path will
         // look it up by, so it has to be the same one the op log itself is
@@ -873,6 +889,18 @@ struct EditorHost: View {
         return minted === current
     }
 
+    /// The two notices `quarantineAndContinue` posts when a writer's press
+    /// cannot proceed at all. Both are belts over states unreachable by
+    /// construction today; both are `static let` so the copy is pinnable
+    /// without mounting a window (`RecoveredHistorySheet.documentClosedReason`'s
+    /// discipline), and both say "set aside" — the internal term never reaches
+    /// the writer.
+    static let setAsideNoDocumentNotice =
+        "Maugham couldn’t tell which file this document is, so it set nothing aside."
+    static let setAsideNothingToMoveNotice =
+        "Maugham couldn’t tell which part of this document’s history to set aside, "
+        + "so it set nothing aside."
+
     /// Maps the outcomes of an auto-return sweep (Task 6) to the notice text
     /// to post, or nil when nothing should be said. Silence is deliberate for
     /// `.stillUnreadable`/`.corrupt` — the writer never asked for this
@@ -886,19 +914,38 @@ struct EditorHost: View {
     /// Static + pure so a unit test can pin the mapping without mounting a
     /// window — the `needsReload`/`recoveryActionIsCurrent` precedent above.
     static func autoReturnNotice(outcomes: [ReturnOutcome]) -> String? {
-        var orphanCount = 0
-        var anyReturned = false
+        var reports: [RecoveredHistoryReport] = []
         for outcome in outcomes {
             switch outcome {
             case .returned(let report), .supersededBySync(let report):
-                anyReturned = true
-                orphanCount += report.orphans.count
+                reports.append(report)
             case .stillUnreadable, .corrupt:
                 break
             }
         }
-        guard anyReturned else { return nil }
-        return HistoryPane.recoveredHistoryNotice(orphanCount: orphanCount)
+        guard !reports.isEmpty else { return nil }
+        // The sweep's own aggregate rather than a running total: one place
+        // decides what several returns add up to, and it is the same one the
+        // History pane's Retry hands to the sheet.
+        let sweep = RecoveredHistoryReport.aggregate(reports)
+        return HistoryPane.recoveredHistoryNotice(orphanCount: sweep.orphans.count)
+    }
+
+    /// Whether a sweep changed any record ON DISK — `.returned` and
+    /// `.supersededBySync` each rewrite a sidecar and take a record out of the
+    /// held set; `.stillUnreadable`/`.corrupt` leave everything as it was.
+    ///
+    /// Separate from `autoReturnNotice` on purpose, though today they answer
+    /// nil/false together: this one decides whether OTHER surfaces showing
+    /// those records are now stale, and tying that to whether a sentence was
+    /// worth saying would make the pane's freshness a property of the copy.
+    static func autoReturnChangedARecord(outcomes: [ReturnOutcome]) -> Bool {
+        outcomes.contains {
+            switch $0 {
+            case .returned, .supersededBySync: return true
+            case .stillUnreadable, .corrupt: return false
+            }
+        }
     }
 
     private func loadDocumentIfNeeded() async {
@@ -1014,6 +1061,14 @@ struct EditorHost: View {
                     // cause that lands a harmless `.stillUnreadable` (silent,
                     // below); for a cause that healed in the gap it is a
                     // fast, welcome return. Accepted — no debounce.
+                    // Anything that came back changed what the History pane is
+                    // showing, and that pane is in another column with its own
+                    // load — so it is told, project-scoped, before the toast.
+                    if Self.autoReturnChangedARecord(outcomes: outcomes) {
+                        MaughamEvent.post(
+                            .maughamQuarantineRecordsChanged,
+                            to: .project(for: autoReturnProjectURL))
+                    }
                     if let notice = Self.autoReturnNotice(outcomes: outcomes) {
                         MaughamEvent.postNotice(notice, projectURL: autoReturnProjectURL)
                     }

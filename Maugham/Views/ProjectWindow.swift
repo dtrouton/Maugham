@@ -2826,7 +2826,7 @@ enum CheckpointFlashDecision {
             onSuccess()
         } catch {
             MaughamEvent.postNotice(
-                "Couldn't save a checkpoint — \(error.localizedDescription)",
+                "Couldn’t save a checkpoint — \(error.localizedDescription)",
                 projectURL: projectURL)
         }
     }

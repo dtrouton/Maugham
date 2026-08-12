@@ -310,6 +310,47 @@ final class ReadOnlyRecoveryTests: XCTestCase {
             hookSlice.contains("Self.autoReturnNotice("),
             "outcomes are mapped through the pinned pure helper, not "
             + "re-derived inline")
+
+        // MARK: Fix round — the sweep tells the other column (review I2b)
+        //
+        // The History pane shows these records and offers a Retry per pane
+        // load. The sweep can empty the held set behind its back, and without
+        // a post the pane's standing notice went stale and its button
+        // re-attempted a record that had already come back.
+        XCTAssertTrue(
+            hookSlice.contains("Self.autoReturnChangedARecord(")
+                && hookSlice.contains(".maughamQuarantineRecordsChanged"),
+            "the hook posts the project-scoped records-changed event when an "
+            + "outcome actually changed a record")
+        XCTAssertTrue(
+            hookSlice.contains("to: .project(for: autoReturnProjectURL)"),
+            "scoped .project (ADR 0021 / tripwire 21) — a window on another "
+            + "project must not reload for a sweep that was not its own")
+        let pane = try String(
+            contentsOf: root.appendingPathComponent("Maugham/Views/HistoryPane.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(
+            pane.contains(".onProjectEvent(.maughamQuarantineRecordsChanged"),
+            "…and the pane observes it, through the receive helper that owns "
+            + "the scope filter and the closed-window liveness guard")
+
+        // MARK: Fix round — no bare return on a writer's press (review M4)
+        //
+        // Both early exits in `quarantineAndContinue` are a press that
+        // achieved nothing. They are unreachable by construction today; the
+        // notices are the belt, and a bare `return` is how they stopped being
+        // one.
+        let setAside = Self.slice(
+            of: source, from: "private func quarantineAndContinue() async {",
+            to: "for target in targets {")
+        XCTAssertFalse(setAside.contains("else { return }"),
+                       "an early exit from the set-aside press posts a notice "
+                       + "first — RULING-5, never a silent refusal")
+        XCTAssertTrue(
+            setAside.contains("Self.setAsideNoDocumentNotice")
+                && setAside.contains("Self.setAsideNothingToMoveNotice"),
+            "…and both notices are the pinned statics, not copy written inline "
+            + "where no test can read it")
     }
 
     /// The text between two markers, for a census that must look INSIDE one
