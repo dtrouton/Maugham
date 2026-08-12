@@ -17,24 +17,31 @@ public struct IntegrityReport: Equatable, Sendable {
     public let conflictTwins: [String]
     public let danglingPointers: [IntegrityChecks.DanglingPointer]
     public let invalidParagraphIds: [IntegrityChecks.InvalidParagraphId]
+    /// Checkpoint device files that exist but could not be read (RULING-54).
+    /// An unreadable file used to read as EMPTY through `try? … ?? []`, which
+    /// *reduced* this report's findings — fewer checkpoints meant fewer
+    /// dangling pointers to find — exactly when the project was least healthy.
+    public let unreadableCheckpointFiles: [CheckpointLoad.UnreadableFile]
 
     public init(
         docSkips: [DocSkips],
         conflictTwins: [String],
         danglingPointers: [IntegrityChecks.DanglingPointer],
-        invalidParagraphIds: [IntegrityChecks.InvalidParagraphId] = []
+        invalidParagraphIds: [IntegrityChecks.InvalidParagraphId] = [],
+        unreadableCheckpointFiles: [CheckpointLoad.UnreadableFile] = []
     ) {
         self.docSkips = docSkips
         self.conflictTwins = conflictTwins
         self.danglingPointers = danglingPointers
         self.invalidParagraphIds = invalidParagraphIds
+        self.unreadableCheckpointFiles = unreadableCheckpointFiles
     }
 
     /// `docSkips` only ever holds docs *with* skips (the aggregator filters empties),
     /// so its emptiness alone is the parse-health signal.
     public var isHealthy: Bool {
         docSkips.isEmpty && conflictTwins.isEmpty && danglingPointers.isEmpty
-            && invalidParagraphIds.isEmpty
+            && invalidParagraphIds.isEmpty && unreadableCheckpointFiles.isEmpty
     }
 }
 
@@ -66,14 +73,15 @@ public enum ProjectIntegrity {
             opsByDoc[docId] = opIds
         }
 
-        let checkpoints = (try? await CheckpointStore(projectURL: projectURL).load()) ?? []
+        let checkpointLoad = await CheckpointStore(projectURL: projectURL).load()
         let dangling = IntegrityChecks.danglingCheckpointPointers(
-            checkpoints: checkpoints, opsByDoc: opsByDoc)
+            checkpoints: checkpointLoad.checkpoints, opsByDoc: opsByDoc)
 
         return IntegrityReport(
             docSkips: docSkips,
             conflictTwins: IntegrityChecks.conflictTwins(inOpsDirectoryFilenames: filenames),
             danglingPointers: dangling,
-            invalidParagraphIds: IntegrityChecks.invalidParagraphIds(inOps: allOps))
+            invalidParagraphIds: IntegrityChecks.invalidParagraphIds(inOps: allOps),
+            unreadableCheckpointFiles: checkpointLoad.unreadableFiles)
     }
 }

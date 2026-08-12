@@ -65,7 +65,10 @@ public enum TestCheckpointTool: MCPTool {
             session: doc.session,
             label: p.label,
             activeDocument: doc)
-        let all = try await CheckpointStore(projectURL: entry.url).load()
+        // RULING-54 lenient, reason recorded: a dev-only count over the
+        // TestWorkspace fence — an unreadable device file here is a test
+        // fixture problem, and the load names it in its own result type.
+        let all = await CheckpointStore(projectURL: entry.url).load().checkpoints
         return try JSONEncoder().encode(Result(label: cp.label, checkpoint_count: all.count))
     }
 }

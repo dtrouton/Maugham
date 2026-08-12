@@ -153,7 +153,10 @@ public enum TestListCheckpointsTool: MCPTool {
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let p = try decodeParams(Params.self, from: paramsJSON)
         let entry = try resolveProject(p.project_id, in: registry)
-        let checkpoints = try await CheckpointStore(projectURL: entry.url).load()
+        // RULING-54 lenient, reason recorded: a dev-only listing over the
+        // TestWorkspace fence — an unreadable device file here is a test
+        // fixture problem, and the load names it in its own result type.
+        let checkpoints = await CheckpointStore(projectURL: entry.url).load().checkpoints
         return try JSONEncoder().encode(Result(count: checkpoints.count, labels: checkpoints.map { $0.label }))
     }
 }

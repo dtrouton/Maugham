@@ -68,4 +68,26 @@ final class ProjectIntegrityTests: XCTestCase {
         XCTAssertEqual(report.docSkips.count, 0)  // it parsed fine — not a syntactic skip
         XCTAssertEqual(report.invalidParagraphIds.map(\.opId), ["01ABC"])
     }
+
+    /// RULING-54: an UNREADABLE-yet-present checkpoint device file is a
+    /// FINDING, not fewer findings. It used to read as empty through
+    /// `try? … ?? []` — fewer checkpoints meant fewer dangling pointers to
+    /// find, so the report got HEALTHIER exactly when the project got worse.
+    @MainActor
+    func test_check_unreadableCheckpointFile_isAFinding_notFewerFindings() async throws {
+        let proj = makeProject()
+        defer { try? FileManager.default.removeItem(at: proj) }
+        // A directory squatting on a checkpoint device file's path — the same
+        // failure shape as a permissions break or an iCloud dataless stub.
+        let badURL = CheckpointStore.fileURL(
+            deviceSlug: DeviceSlug.unsafeForTesting("bad"), in: proj)
+        try FileManager.default.createDirectory(
+            at: badURL, withIntermediateDirectories: true)
+
+        let report = try await ProjectIntegrity.check(projectURL: proj)
+        XCTAssertFalse(report.isHealthy)
+        XCTAssertEqual(report.unreadableCheckpointFiles.map(\.name),
+                       [badURL.lastPathComponent],
+                       "the unreadable checkpoint file is named in the report")
+    }
 }

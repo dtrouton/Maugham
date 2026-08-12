@@ -91,7 +91,7 @@ final class AnchoredFileEmptyLogBootstrapTests: XCTestCase {
         XCTAssertEqual(bootstraps[0].sequence, [idA, idB])
         XCTAssertEqual(bootstraps[0].changes.map(\.paragraphId), [idA, idB])
 
-        let cps = try await CheckpointStore(projectURL: fx.projectURL).load()
+        let cps = await CheckpointStore(projectURL: fx.projectURL).load().checkpoints
         XCTAssertEqual(cps.count, 1, "seed path must emit the initial checkpoint")
     }
 

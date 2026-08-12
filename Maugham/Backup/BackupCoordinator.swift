@@ -60,7 +60,7 @@ public final class BackupCoordinator {
         do {
             let report = try await integrityCheck(projectURL)
             if !report.isHealthy {
-                let summary = "skips:\(report.docSkips.count) twins:\(report.conflictTwins.count) dangling:\(report.danglingPointers.count) bad-ids:\(report.invalidParagraphIds.count)"
+                let summary = "skips:\(report.docSkips.count) twins:\(report.conflictTwins.count) dangling:\(report.danglingPointers.count) bad-ids:\(report.invalidParagraphIds.count) cp-unreadable:\(report.unreadableCheckpointFiles.count)"
                 resultsByProject[key] = .integrityFailed(summary: summary)
                 return
             }

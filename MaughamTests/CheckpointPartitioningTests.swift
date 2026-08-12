@@ -95,7 +95,7 @@ final class CheckpointPartitioningTests: XCTestCase {
         try await store.append(checkpoint("cp-4", device: "macB"))
         try await store.append(checkpoint("cp-2", device: "macA"))
 
-        let ids = try await store.load().map(\.checkpointId)
+        let ids = await store.load().checkpoints.map(\.checkpointId)
         XCTAssertEqual(ids, ["cp-1", "cp-2", "cp-3", "cp-4"])
     }
 
@@ -113,7 +113,7 @@ final class CheckpointPartitioningTests: XCTestCase {
         let store = CheckpointStore(projectURL: root)
         try await store.append(checkpoint("cp-1", device: "OldMac.local"))
 
-        let merged = try await store.load().map(\.checkpointId)
+        let merged = await store.load().checkpoints.map(\.checkpointId)
         XCTAssertEqual(merged, ["cp-0", "cp-1"],
                        "the legacy file must still be a merge source")
         XCTAssertEqual(try Data(contentsOf: legacy), legacyBytesBefore,
@@ -130,7 +130,7 @@ final class CheckpointPartitioningTests: XCTestCase {
             fileURL: root.appendingPathComponent(".maugham/checkpoints.jsonl")).append(cp)
         try await CheckpointStore(projectURL: root).append(cp)
 
-        let loaded = try await CheckpointStore(projectURL: root).load()
+        let loaded = await CheckpointStore(projectURL: root).load().checkpoints
         XCTAssertEqual(loaded, [cp])
     }
 
