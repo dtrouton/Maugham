@@ -1,7 +1,8 @@
 # START HERE — the behavioural-specification experiment
 
-Handoff refreshed 2026-08-09 — the dated session handoff is `30-handoff-2026-08-09.md`
-(read it after this file for the pickup queue and the conventions that bit).
+Handoff refreshed 2026-08-12 — the dated session handoff is `31-handoff-2026-08-12.md`
+(read it after this file for the MCP/Tools pickup and the conventions that bit;
+`30-handoff-2026-08-09.md` precedes it and its conventions all still stand).
 Read this, then `RECONCILE.md`, then carry on.
 **The standing plan is `PLAN.md`** — four phases with exit conditions, approved by Denver
 2026-08-08; this file carries the live queue and state, the plan carries the arc.
