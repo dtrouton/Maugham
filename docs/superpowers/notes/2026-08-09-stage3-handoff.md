@@ -479,9 +479,14 @@ ran overnight.
   failed in-suite with `XCTAssertFalse failed - the chapter opened in the
   host that was already there` (0.45s, not a deadline), green in isolation
   and green on the immediate rerun of the full gate. The recorder counted
-  an extra host appearance under parallel load only. If it recurs on a
-  quiet machine it is real; the xcresult discipline exists for exactly
-  this row.
+  an extra host appearance under parallel load only. **RESOLVED same
+  evening after a second sighting (`90eb1562`)**: a wait/assert mismatch —
+  the hop waited for the BOOK's departure but asserted the PROSE's
+  arrival, two render passes separated by an ~80 ms async document load;
+  a busy worker's runloop decided which side the poll landed on. The fix
+  waits for the state it asserts and pins the lifetime counter at the hop
+  too. The residual shape to watch elsewhere: waiting on the old
+  surface's departure while asserting the new one's arrival.
 - **Second sighting** of
   `ScreenplaySingleParseTests.test_applyTypography_usesPassedScript_notReparse`
   (0.000s, fontd cold-start shape, green in isolation, no rival build) —
