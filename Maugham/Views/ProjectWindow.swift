@@ -141,14 +141,21 @@ struct ProjectWindow: View {
     @State private var detailSegment: DetailSegment = .inspector
     @State private var persona: Persona = .default
     @State private var outlineLayout: OutlineLayout = .table
-    /// **The book the Publish persona's centre column draws** (stage 3b Task 5).
+    /// **The books the Publish persona's centre column can draw** (stage 3b
+    /// Task 5, a list since the 2026-08-12 revision gave the header a picker).
     ///
-    /// A resolution rather than a `Publication?` because the two ways of having
+    /// A resolution rather than a `[Publication]` because the two ways of having
     /// nothing to draw are different facts — never compiled, versus a catalog
-    /// that cannot be read — and the degrade they share (the project at
-    /// altitude) must not be what erases the difference. `PublishPreviewModifier`
-    /// is its only writer; nothing here polls.
+    /// that cannot be read — and the surface they share (the project at
+    /// altitude) must not be what erases the difference: each carries its own
+    /// notice. `PublishPreviewModifier` is its only writer; nothing here polls.
     @State private var publishPreview: PublishPreviewResolution = .nothingCompiled
+    /// **Which of them the writer is looking at, by `publicationID`** — `nil` is
+    /// the newest. Window `@State` and deliberately NOT `UIState`: Denver's
+    /// ruling is that the pick is transient, so a relaunch opens on the newest
+    /// book rather than on whatever proof was being checked last week. A new
+    /// compile clears it too (`PublishPreviewModifier`).
+    @State private var publishSelectedPublicationID: String?
     @State private var mcpBanner = MCPBannerModel()
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var showingBootstrapNotice: Bool = false
@@ -525,9 +532,10 @@ struct ProjectWindow: View {
         // modifier. Delete this line and every token in that file is still
         // present, every decision test still green, and a writer's compile never
         // reaches the centre column.
-        .modifier(PublishPreviewModifier(projectURL: url, window: window,
-                                         persona: persona,
-                                         publishPreview: $publishPreview))
+        .modifier(PublishPreviewModifier(
+            projectURL: url, window: window, persona: persona,
+            publishPreview: $publishPreview,
+            selectedPublicationID: $publishSelectedPublicationID))
         .modifier(CanvasPromotionModifier(window: window, store: store,
                                           model: canvasModel, persona: persona))
         // The writer's notice that Claude added cards to their canvas, and the way
@@ -1313,7 +1321,6 @@ struct ProjectWindow: View {
             persona: persona,
             subject: selectedSubject,
             showsPaletteWall: showsPaletteWall,
-            publishPreview: publishPreview,
             structure: store?.manifest.structure ?? []) else { return false }
         if isNoChromeOn { return false }
         return true
@@ -1369,24 +1376,26 @@ struct ProjectWindow: View {
     /// some input alone — the research clause still owns the research subject,
     /// which this one would otherwise answer for on its way past — so no clause
     /// here is a restatement of another.
-    /// **The published-book term, since stage 3b Task 5.** Same argument again,
-    /// and the sharpest instance of it: over a compiled PDF the centre column
-    /// holds no document at all, so the goal capsule, the live session words,
-    /// the `¶id` and the element are four claims about something that is not on
-    /// screen. Asked after the wall and before the research clause, for the
-    /// reason the clauses are ordered at all — the preview covers whatever the
-    /// centre would otherwise hold, so it decides its own input alone and never
-    /// answers on another clause's behalf.
+    /// **The published-book term had a clause of its own here from stage 3b
+    /// Task 5 until the 2026-08-12 revision, and it is gone because it can no
+    /// longer change an answer.** Denver's ruling made the book a PROJECT-level
+    /// surface — a chapter in Publish opens the editor, so the footer speaks
+    /// there exactly as it does in Author — and `publishCentre` now refuses
+    /// unless `subjectShowsAltitude` is already true. Whatever the preview or
+    /// either notice covers, the altitude clause below has therefore already
+    /// refused; a fifth clause would be a parameter that cannot move the
+    /// result, which is the shape the find-overlay question was answered with a
+    /// test rather than an argument. `PublishPreviewCentreTests
+    /// .test_theBookOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn`
+    /// asserts the implication over the whole product rather than leaving it to
+    /// this comment.
     static func showsStatusFooter(persona: Persona,
                                   subject: BinderSubject?,
                                   showsPaletteWall: Bool,
-                                  publishPreview: PublishPreviewResolution,
                                   structure: [StructureItem]) -> Bool {
         guard persona.showsManuscriptDocuments else { return false }
         guard !showsPaletteWallCentre(showsPaletteWall: showsPaletteWall,
                                       persona: persona) else { return false }
-        guard publishPreviewCentre(persona: persona,
-                                   preview: publishPreview) == nil else { return false }
         guard researchSubjectPlacement(persona: persona,
                                        subject: subject).centreItemID == nil
         else { return false }
@@ -1394,24 +1403,52 @@ struct ProjectWindow: View {
                                      structure: structure)
     }
 
-    /// **The book the centre column shows, or nil when it shows something else**
-    /// (stage 3b Task 5, spec §4's Publish column).
+    /// **What Publish puts over the manuscript stack — the book, a notice, or
+    /// nothing at all** (stage 3b Task 5, re-cut by Denver's rulings of
+    /// 2026-08-12).
     ///
-    /// One function answering both *"does the preview show?"* and *"what does it
-    /// show?"*, for `ResearchSubjectPlacement.centreItemID`'s reason: two
-    /// spellings of the same gate are two answers free to disagree about what is
-    /// in the centre column — and here that disagreement would be a word-count
-    /// footer under a PDF, or a corkboard over one.
+    /// One function answering both *"does anything cover the centre?"* and
+    /// *"what covers it?"*, for `ResearchSubjectPlacement.centreItemID`'s
+    /// reason: two spellings of the same gate are two answers free to disagree
+    /// about what is in the centre column — and here that disagreement would be
+    /// a "nothing published yet" notice over a compiled book.
     ///
-    /// **It takes no subject, and that is Denver's decision made structural.**
-    /// The whole book is what Publish shows for the project, for a chapter, for
-    /// a group and for a research note alike ("a piece subject shows the SAME
-    /// preview"); a subject parameter here would be an invitation to make that
-    /// four cases, three of which do not exist.
-    static func publishPreviewCentre(persona: Persona,
-                                     preview: PublishPreviewResolution) -> Publication? {
+    /// **It takes the subject as of this revision, and asks the ONE existing
+    /// question about it.** Denver walked back "a piece subject shows the same
+    /// preview": *"a chapter/piece subject in Publish ALWAYS opens the editor —
+    /// I might tweak something for layout"*, and the book shows at PROJECT level
+    /// (the project row, a group, or nothing selected). That is exactly
+    /// `subjectShowsAltitude`, so this composes it rather than spelling a second
+    /// document-resolution rule beside it — two of those are two answers free to
+    /// disagree about what a document is, and the disagreement here would put a
+    /// PDF over the chapter a writer is fixing.
+    ///
+    /// A research subject in Publish is `.nothingMoves` (spec §4's "—" row) and
+    /// resolves to no manuscript document, so it lands here as project level and
+    /// gets the book — which is what the spec's "project altitude shown" degrade
+    /// always meant.
+    static func publishCentre(persona: Persona,
+                              subject: BinderSubject?,
+                              structure: [StructureItem],
+                              preview: PublishPreviewResolution) -> PublishCentre? {
         guard persona.previewsThePublishedBook else { return nil }
-        return preview.publication
+        guard subjectShowsAltitude(persona: persona, subject: subject,
+                                   structure: structure) else { return nil }
+        switch preview {
+        case .ready(let publications):
+            // `.ready` is non-empty by construction (the resolver answers
+            // `.nothingCompiled` when its walk finds nothing readable). The
+            // ternary is what makes this switch total without inventing a third
+            // arm nobody can reach; `PublishPreviewCentreTests` pins the
+            // resolver's half of that invariant.
+            return publications.isEmpty
+                ? .notice(.neverCompiled)
+                : .books(publications)
+        case .nothingCompiled:
+            return .notice(.neverCompiled)
+        case .unreadableCatalog(let reason):
+            return .notice(.unreadableCatalog(reason: reason))
+        }
     }
 
     /// **Does the centre column show the project at altitude rather than a
@@ -1629,13 +1666,17 @@ struct ProjectWindow: View {
     /// names. A screenplay reaches it too; its tree is the slugline navigator,
     /// and the underlying `.fountain` is the same file.
     ///
-    /// **And the compiled book, as of stage 3b Task 5 — a THIRD layer of the
-    /// same stack**, over altitude and over the host. Publish's centre is the
-    /// book whatever the tree names (Denver: a piece subject shows the same
-    /// preview), and when nothing has been compiled the layer simply does not
-    /// appear, leaving the persona exactly as stage 3a left it. It is a layer
-    /// for the reason altitude is: a fourth `editorPane` arm would tear the host
-    /// down every time the writer walked from the proof back to the prose.
+    /// **And Publish's own surface, as of stage 3b Task 5 — a THIRD layer of
+    /// the same stack**, over altitude and over the host: the compiled book at
+    /// project level, or a banner naming which kind of nothing there is (never
+    /// compiled, or a catalog that cannot be read). Over a CHAPTER the layer
+    /// does not appear at all — Denver, 2026-08-12: *"a chapter/piece subject in
+    /// Publish ALWAYS opens the editor — I might tweak something for layout"* —
+    /// which is `publishCentre` composing `subjectShowsAltitude` rather than
+    /// anything spelled here. It is a layer for the reason altitude is: a fourth
+    /// `editorPane` arm would tear the host down every time the writer walked
+    /// from the proof back to the prose, and that walk is now the ordinary
+    /// gesture rather than an unusual one.
     ///
     /// **And the project at altitude, as of stage 3a Task 2 — layered INSIDE
     /// this arm rather than beside it.** When the tree names no single document
@@ -1685,17 +1726,32 @@ struct ProjectWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(nsColor: .windowBackgroundColor))
             }
-            // **The book, LAST of the three** (stage 3b Task 5). Above altitude
-            // rather than beside it: in Publish the project's own subject
-            // answers both rules, and the writer asked for the book — a
-            // corkboard over a compiled PDF is the truth table upside down.
-            // Subject-independent by construction (the rule takes none), which
-            // is Denver's "a piece subject shows the SAME preview".
-            if let publication = Self.publishPreviewCentre(
-                persona: persona, preview: publishPreview) {
-                PublishPreviewCentre(publication: publication,
-                                     projectURL: store.url,
-                                     title: store.manifest.title)
+            // **Publish's own layer, LAST of the three** (stage 3b Task 5,
+            // re-cut 2026-08-12). Above altitude rather than beside it: at
+            // project level in Publish the subject answers both rules, and the
+            // writer asked for the book — a corkboard over a compiled PDF is
+            // the truth table upside down. And when there is no book, the
+            // banner says WHICH kind of nothing it is, standing over the
+            // corkboard rather than replacing it.
+            //
+            // Both arms are project-level by construction: `publishCentre`
+            // composes `subjectShowsAltitude`, so a chapter subject in Publish
+            // reaches neither and opens in the host underneath — Denver's
+            // 2026-08-12 ruling, made structural rather than asserted twice.
+            switch Self.publishCentre(persona: persona,
+                                      subject: selectedSubject,
+                                      structure: store.manifest.structure,
+                                      preview: publishPreview) {
+            case .books(let publications):
+                PublishPreviewCentre(
+                    publications: publications,
+                    projectURL: store.url,
+                    title: store.manifest.title,
+                    selectedPublicationID: $publishSelectedPublicationID)
+            case .notice(let notice):
+                PublishCentreNoticeBanner(notice: notice)
+            case .none:
+                EmptyView()
             }
         }
     }

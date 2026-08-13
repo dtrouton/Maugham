@@ -13,8 +13,16 @@ import PDFKit
 /// copy for the degrade reads the reason off this value rather than inventing
 /// one.
 enum PublishPreviewResolution: Equatable {
-    /// The most recent compiled PDF this project can actually put on screen.
-    case ready(Publication)
+    /// **Every compiled PDF this project can actually put on screen, NEWEST
+    /// FIRST** — and non-empty by construction: the walk answers
+    /// `.nothingCompiled` when nothing survives its two guards.
+    ///
+    /// It became a LIST in the 2026-08-12 revision, for the header's publication
+    /// picker (Denver: *"readable PDF publications only, newest first; selecting
+    /// one swaps the rendered PDF"*). The head of it is still what the centre
+    /// draws until the writer picks another, which is what `publication` means
+    /// and why every caller that only wants "the book" is unchanged.
+    case ready(newestFirst: [Publication])
     /// The catalog was read and holds no PDF whose file is there and opens.
     case nothingCompiled
     /// The catalog exists and could not be read, carrying what the failure said
@@ -38,18 +46,34 @@ enum PublishPreviewResolution: Equatable {
     /// honest about what it cannot see.
     case unreadableCatalog(reason: String)
 
-    /// The publication to draw, or nil for either degrade.
-    var publication: Publication? {
-        if case .ready(let publication) = self { return publication }
-        return nil
+    /// **The newest readable book** — what the centre draws until the writer
+    /// picks another from the header, and nil for either degrade.
+    var publication: Publication? { publications.first }
+
+    /// **The picker's rows**, newest first; empty for either degrade. One
+    /// spelling of "what this project can show", so the menu and the page
+    /// cannot come to disagree about which books exist.
+    var publications: [Publication] {
+        if case .ready(let rows) = self { return rows }
+        return []
     }
 }
 
-/// **The most recent compiled PDF, resolved from the tail of the catalog.**
+/// **Every compiled PDF the writer can be shown, newest first, resolved from
+/// the tail of the catalog.**
 ///
 /// `PublicationStore.load()` returns ASCENDING `compiledAt` (its own doc comment
 /// says so, and `ListPublicationsTool` takes `suffix(limit)` for the same
 /// reason), so the latest is `.last` and the walk goes backwards.
+///
+/// **It was `latestReadablePDF` and stopped at the first row it could draw**
+/// until the 2026-08-12 revision gave the preview header a publication picker.
+/// Generalising the walk rather than writing a second one is the whole point:
+/// the two guards below are the reason a row is drawable at all, and a listing
+/// that applied fewer of them would offer the writer a menu entry that renders
+/// an empty page. The cost is honest and worth naming — every readable row is
+/// OPENED on each refresh (window load, a compile finishing, an arrival into
+/// Publish), where the old walk stopped at one.
 ///
 /// **Two guards, and both are load-bearing facts about disk rather than
 /// belt-and-braces:**
@@ -67,16 +91,16 @@ enum PublishPreviewResolution: Equatable {
 enum PublishPreviewResolver {
 
     /// Production's entry point.
-    static func latestReadablePDF(store: PublicationStore,
-                                  projectURL: URL) async -> PublishPreviewResolution {
-        await latestReadablePDF(in: projectURL, loading: { try await store.load() })
+    static func readablePDFs(store: PublicationStore,
+                             projectURL: URL) async -> PublishPreviewResolution {
+        await readablePDFs(in: projectURL, loading: { try await store.load() })
     }
 
     /// The rule, with the catalog handed in — so a loader failure is drivable
     /// without a squatted file on disk (see `.unreadableCatalog`). The
     /// store-taking overload above is what production calls, and
     /// `PublishPreviewCentreTests` drives a REAL unreadable catalog through it.
-    static func latestReadablePDF(
+    static func readablePDFs(
         in projectURL: URL,
         loading load: () async throws -> [Publication]
     ) async -> PublishPreviewResolution {
@@ -96,13 +120,34 @@ enum PublishPreviewResolver {
             // sentence for every error that can arrive.
             return .unreadableCatalog(reason: error.localizedDescription)
         }
+        var readable: [Publication] = []
         for row in rows.reversed() where row.format == .pdf {
             let file = fileURL(of: row, in: projectURL)
             guard FileManager.default.fileExists(atPath: file.path) else { continue }
             guard PDFDocument(url: file) != nil else { continue }
-            return .ready(row)
+            readable.append(row)
         }
-        return .nothingCompiled
+        return readable.isEmpty ? .nothingCompiled : .ready(newestFirst: readable)
+    }
+
+    /// **Which of the readable books the centre actually draws** — the writer's
+    /// pick from the header when it is still there, and the newest otherwise.
+    ///
+    /// A pure function rather than a rule spelled in the header view, because
+    /// the fallback is the load-bearing half: the picked publication's row can
+    /// leave the list under the writer (they delete the export in the Finder, or
+    /// a compile lands and the refresh re-walks the catalog), and a header that
+    /// resolved its own selection would then draw nothing at all in a column
+    /// whose whole job is to show the book.
+    ///
+    /// The selection is a `publicationID` rather than an index for the same
+    /// reason: an index survives a list that changed underneath it and means
+    /// something else afterwards.
+    static func shown(_ selectedID: String?,
+                      in publications: [Publication]) -> Publication? {
+        guard let selectedID else { return publications.first }
+        return publications.first { $0.publicationID == selectedID }
+            ?? publications.first
     }
 
     /// `Publication.outputPath` is documented relative to the project root, and

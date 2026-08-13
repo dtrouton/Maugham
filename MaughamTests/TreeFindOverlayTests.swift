@@ -140,7 +140,6 @@ final class TreeFindOverlayTests: XCTestCase {
                 store: store, box: box, persona: persona))
             let before = ProjectWindow.showsStatusFooter(
                 persona: persona, subject: box.subject, showsPaletteWall: false,
-                publishPreview: .nothingCompiled,
                 structure: structure)
 
             box.treeFindActive = true
@@ -148,7 +147,6 @@ final class TreeFindOverlayTests: XCTestCase {
 
             let after = ProjectWindow.showsStatusFooter(
                 persona: persona, subject: box.subject, showsPaletteWall: false,
-                publishPreview: .nothingCompiled,
                 structure: structure)
             XCTAssertEqual(before, after,
                            "\(persona): opening find changed the footer's "
@@ -158,7 +156,6 @@ final class TreeFindOverlayTests: XCTestCase {
         XCTAssertTrue(
             ProjectWindow.showsStatusFooter(persona: .author, subject: subject,
                                             showsPaletteWall: false,
-                                            publishPreview: .nothingCompiled,
                                             structure: structure),
             "premise: the case the ruling is about — a writer in Author with a "
             + "document in the centre — has a footer to lose in the first place")

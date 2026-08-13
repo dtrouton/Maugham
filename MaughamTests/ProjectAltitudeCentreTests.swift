@@ -88,38 +88,36 @@ final class ProjectAltitudeCentreTests: XCTestCase {
     /// The other side of the same rule, and the one the writer is in for most of
     /// their hours: a document subject is the editor and nothing else.
     ///
-    /// **Narrowed to Author and Review by shell-finish stage 3b Task 5**, and
-    /// the narrowing is about the CENTRE COLUMN rather than about this rule:
-    /// `subjectShowsAltitude` still answers false for a chapter in Publish, but
-    /// what the writer sees there is the compiled book, layered over the host
-    /// (`ProjectWindow.publishPreviewCentre` — Denver's "a piece subject shows
-    /// the SAME preview"). So the sentence in this test's name is true of
-    /// Publish only while nothing has been compiled, which is the control below.
+    /// **It is true of Publish again as of Denver's 2026-08-12 ruling**, and
+    /// that is the whole of the ruling: stage 3b Task 5 put the compiled book
+    /// over a chapter in Publish, and *"a chapter/piece subject in Publish
+    /// ALWAYS opens the editor — I might tweak something for layout"* takes it
+    /// back off. So every manuscript persona is in the loop below, Publish
+    /// included, and the assertion beneath each one is that nothing at all is
+    /// layered over the chapter — with a compiled book in hand, which is the
+    /// case that would have failed before the revision.
     func test_aDocumentSubjectIsTheEditorAndNeverAltitude() {
-        for persona in Self.manuscriptPersonas where !persona.previewsThePublishedBook {
+        let compiled = PublishPreviewResolution.ready(newestFirst: [
+            PublishPreviewCentreTests.publication(
+                version: "1.0", outputPath: "Exports/book.pdf", compiledAt: Date())
+        ])
+        for persona in Self.manuscriptPersonas {
             XCTAssertFalse(
                 ProjectWindow.subjectShowsAltitude(
                     persona: persona, subject: .item("chapter-1"),
                     structure: Self.structure),
                 "\(persona): a chapter is a document, and the editor is what "
                 + "opens on it")
-            XCTAssertNil(
-                ProjectWindow.publishPreviewCentre(persona: persona,
-                                                   preview: .nothingCompiled),
-                "\(persona): …and nothing is drawn over it")
+            for preview: PublishPreviewResolution in [.nothingCompiled, compiled] {
+                XCTAssertNil(
+                    ProjectWindow.publishCentre(
+                        persona: persona, subject: .item("chapter-1"),
+                        structure: Self.structure, preview: preview),
+                    "\(persona) with \(preview): …and nothing is drawn over it. "
+                    + "A compiled book over the chapter is exactly what Denver "
+                    + "walked back on 2026-08-12")
+            }
         }
-        // The publish-uncompiled control: with no book to show, the persona
-        // whose centre 3b changed is exactly what stage 3a left it.
-        XCTAssertFalse(
-            ProjectWindow.subjectShowsAltitude(
-                persona: .publish, subject: .item("chapter-1"),
-                structure: Self.structure))
-        XCTAssertNil(
-            ProjectWindow.publishPreviewCentre(persona: .publish,
-                                               preview: .nothingCompiled),
-            "an uncompiled Publish opens the chapter in the editor like the "
-            + "other two — the preview layer is what makes it different, and "
-            + "there is none")
     }
 
     /// **The rule is the complement of `selectionIsDocument`, not a second
@@ -250,13 +248,13 @@ final class ProjectAltitudeCentreTests: XCTestCase {
             XCTAssertTrue(
                 ProjectWindow.showsStatusFooter(
                     persona: persona, subject: .item("chapter-1"),
-                    showsPaletteWall: false, publishPreview: .nothingCompiled, structure: Self.structure),
+                    showsPaletteWall: false, structure: Self.structure),
                 "control: \(persona) over a document still reports")
             for (subject, shape) in Self.notADocument {
                 XCTAssertFalse(
                     ProjectWindow.showsStatusFooter(
                         persona: persona, subject: subject,
-                        showsPaletteWall: false, publishPreview: .nothingCompiled, structure: Self.structure),
+                        showsPaletteWall: false, structure: Self.structure),
                     "\(persona) with \(shape): the centre shows altitude, and "
                     + "the footer's four readings are all about a document")
             }

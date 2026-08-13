@@ -487,7 +487,6 @@ final class PaletteWallDoorTests: XCTestCase {
             ProjectWindow.showsStatusFooter(persona: box.persona,
                                             subject: .item("doc1"),
                                             showsPaletteWall: box.showsPaletteWall,
-                                            publishPreview: .nothingCompiled,
                                             structure: [StructureItem(
                                                 id: "doc1", title: "One",
                                                 type: .document,

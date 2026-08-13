@@ -6,24 +6,38 @@ import Observation
 import MaughamCore
 @testable import Maugham
 
-/// **Publish's centre is the book** (shell-finish stage 3b Task 5, spec §4's
-/// Publish column, and Denver's recorded decision: the most recent compiled PDF,
-/// the SAME preview for a piece subject, degrading when nothing has been
-/// compiled).
+/// **Publish's centre is the book — at PROJECT level** (shell-finish stage 3b
+/// Task 5, spec §4's Publish column, re-cut by Denver's rulings of 2026-08-12).
+///
+/// The rulings this suite pins, because they walk back what the merged
+/// behaviour asserted:
+///
+/// 1. **A chapter/piece subject in Publish always opens the editor** — *"I might
+///    tweak something for layout."* The preview is a project-level surface: the
+///    project row, a group, or nothing selected. The old truth-table tests
+///    (a document subject shows the same preview) are wrong by ruling and are
+///    replaced here rather than kept.
+/// 2. **An uncompiled Publish at project level says so** — altitude plus a
+///    standing notice, because a bare unexplained corkboard read as "basically
+///    Author".
+/// 3. **The unreadable catalog gets a NAMING banner** — RULING-7's shape made
+///    visible: two different notices, never one.
+/// 4. **The header carries a publication picker** — readable PDFs, newest
+///    first; a new compile snaps back to the newest; the choice is
+///    window-transient.
 ///
 /// Three things are under test and they need different instruments:
 ///
 /// - **The resolver.** `PublishPreviewResolver` walks the catalog from the TAIL
-///   (`PublicationStore.load()` is ascending `compiledAt`) and answers with the
-///   first row it can actually put on screen. Both of its guards are about facts
+///   (`PublicationStore.load()` is ascending `compiledAt`) and answers with
+///   every row it can actually put on screen. Both of its guards are about facts
 ///   on disk — a row can outlive its file (`ExportsListView`'s Delete removes the
 ///   file and never the JSONL), and an unknown format decodes to `.pdf` — so
 ///   these tests write real catalogs and real PDFs.
-/// - **The rule.** `ProjectWindow.publishPreviewCentre` is a static over
-///   `(persona, resolution)`, so it is assertable with no window at all. It
-///   takes NO subject, which is Denver's decision made structural rather than
-///   asserted case by case.
-/// - **The shape.** The preview is a THIRD layer of `manuscriptEditor`'s
+/// - **The rule.** `ProjectWindow.publishCentre` is a static over
+///   `(persona, subject, structure, resolution)`, so it is assertable with no
+///   window at all.
+/// - **The shape.** The layer is a THIRD member of `manuscriptEditor`'s
 ///   `ZStack`, above altitude and above the host — never a new `editorPane` arm,
 ///   for the reason stage 3a recorded: two ViewBuilder branches are two view
 ///   identities and `EditorHost.onDisappear` is `doc.close()` +
@@ -102,7 +116,7 @@ final class PublishPreviewCentreTests: XCTestCase {
         try await append(to: store, in: project, version: "0.2", minutesAgo: 20)
         let newest = try await append(to: store, in: project, version: "0.3", minutesAgo: 10)
 
-        let resolution = await PublishPreviewResolver.latestReadablePDF(
+        let resolution = await PublishPreviewResolver.readablePDFs(
             store: store, projectURL: project)
 
         assertReady(resolution, is: newest,
@@ -110,27 +124,55 @@ final class PublishPreviewCentreTests: XCTestCase {
                     + "compile is its tail — not its head")
     }
 
-    /// **An EPUB is not the book this column can draw.** The newest row is an
-    /// EPUB and the walk keeps going rather than stopping on it.
+    /// **And the picker's rows are the whole of it, newest first** (Denver's
+    /// 2026-08-12 ruling 4). The listing is the generalisation of the walk
+    /// rather than a second one, which is what says a menu entry cannot exist
+    /// for a book this column could not draw.
+    func test_thePickerListsEveryReadablePDFNewestFirst() async throws {
+        let project = try makeProject()
+        let store = PublicationStore(projectURL: project)
+        let oldest = try await append(to: store, in: project, version: "0.1", minutesAgo: 30)
+        let middle = try await append(to: store, in: project, version: "0.2", minutesAgo: 20)
+        let newest = try await append(to: store, in: project, version: "0.3", minutesAgo: 10)
+
+        let resolution = await PublishPreviewResolver.readablePDFs(
+            store: store, projectURL: project)
+
+        XCTAssertEqual(resolution.publications.map(\.publicationID),
+                       [newest.publicationID, middle.publicationID, oldest.publicationID],
+                       "the header picker reads this order and shows it as it "
+                       + "stands — newest first, so the writer's last compile is "
+                       + "the first row")
+        XCTAssertEqual(resolution.publication?.publicationID, newest.publicationID,
+                       "…and 'the book' is still the head of that list, so every "
+                       + "caller that only wants the newest is unchanged")
+    }
+
+    /// **An EPUB is not the book this column can draw** — and it is missing from
+    /// the picker for the same reason it is not the book: PDFKit cannot draw it,
+    /// and the Exports footer is where it lives.
     func test_theWalkPassesAnEpubAndKeepsLookingForAPDF() async throws {
         let project = try makeProject()
         let store = PublicationStore(projectURL: project)
         let pdf = try await append(to: store, in: project, version: "0.1", minutesAgo: 20)
-        _ = try await append(to: store, in: project, version: "0.2",
-                             format: .epub, minutesAgo: 10)
+        let epub = try await append(to: store, in: project, version: "0.2",
+                                    format: .epub, minutesAgo: 10)
 
-        let resolution = await PublishPreviewResolver.latestReadablePDF(
+        let resolution = await PublishPreviewResolver.readablePDFs(
             store: store, projectURL: project)
 
         assertReady(resolution, is: pdf,
                     "PDFKit cannot draw an EPUB; the newest row this column "
                     + "can show is the PDF underneath it")
+        XCTAssertFalse(resolution.publications.contains { $0.publicationID == epub.publicationID },
+                       "and it is not offered in the picker either — selecting "
+                       + "it would render an empty page")
     }
 
     /// **A row outlives its file**, which is not a corner case: `ExportsListView`'s
     /// Delete removes the file and never the JSONL, so the newest row in a
     /// working writer's catalog is routinely one whose PDF is gone. The walk
-    /// steps past it to the next-newest readable one.
+    /// steps past it to the next-newest readable one, and the picker does too.
     func test_aRowWhoseFileWasDeletedIsWalkedPastToTheNextNewest() async throws {
         let project = try makeProject()
         let store = PublicationStore(projectURL: project)
@@ -139,12 +181,17 @@ final class PublishPreviewCentreTests: XCTestCase {
         try FileManager.default.removeItem(
             at: project.appendingPathComponent(newer.outputPath))
 
-        let resolution = await PublishPreviewResolver.latestReadablePDF(
+        let resolution = await PublishPreviewResolver.readablePDFs(
             store: store, projectURL: project)
 
         assertReady(resolution, is: older,
                     "the newest row has no file behind it — a centre column "
                     + "built on it would draw an empty PDFView")
+        XCTAssertEqual(resolution.publications.map(\.publicationID), [older.publicationID],
+                       "the deleted row is not a picker entry either: every "
+                       + "guard the walk applies applies per ROW, which is the "
+                       + "whole reason the listing generalises the walk instead "
+                       + "of standing beside it")
     }
 
     /// **And a file that is not a PDF at all.** An unknown `format` decodes to
@@ -161,25 +208,30 @@ final class PublishPreviewCentreTests: XCTestCase {
             to: project.appendingPathComponent(fake.outputPath),
             atomically: true, encoding: .utf8)
 
-        let resolution = await PublishPreviewResolver.latestReadablePDF(
+        let resolution = await PublishPreviewResolver.readablePDFs(
             store: store, projectURL: project)
 
         assertReady(resolution, is: real,
                     "`format == .pdf` is a decoded field and an unknown "
                     + "format decodes to it — so the file has to open, not "
                     + "merely be claimed")
+        XCTAssertEqual(resolution.publications.map(\.publicationID), [real.publicationID],
+                       "…and the picker does not offer it")
     }
 
     /// Nothing compiled at all: the empty catalog. This is the degrade Denver
-    /// asked for, and the centre falls back to altitude.
+    /// asked for, and it now carries a notice of its own.
     func test_anEmptyCatalogIsNothingCompiled() async throws {
         let project = try makeProject()
         let store = PublicationStore(projectURL: project)
 
-        let resolution = await PublishPreviewResolver.latestReadablePDF(
+        let resolution = await PublishPreviewResolver.readablePDFs(
             store: store, projectURL: project)
 
         XCTAssertEqual(resolution, .nothingCompiled)
+        XCTAssertTrue(resolution.publications.isEmpty,
+                      "and no picker rows, which is what makes the header's "
+                      + "`count > 1` question safe to ask")
     }
 
     /// Every row's file gone: the same answer as an empty catalog, reached the
@@ -194,13 +246,35 @@ final class PublishPreviewCentreTests: XCTestCase {
                 at: project.appendingPathComponent(pub.outputPath))
         }
 
-        let resolution = await PublishPreviewResolver.latestReadablePDF(
+        let resolution = await PublishPreviewResolver.readablePDFs(
             store: store, projectURL: project)
 
         XCTAssertEqual(resolution, .nothingCompiled,
                        "the walk ran off the end — the centre degrades to "
-                       + "altitude rather than drawing a card about a file that "
-                       + "is not there")
+                       + "altitude plus the never-compiled notice rather than "
+                       + "drawing a card about a file that is not there")
+    }
+
+    /// **`.ready` is never empty**, which is the invariant `publishCentre`'s
+    /// otherwise-unreachable ternary leans on. Asserted over every shape of
+    /// catalog this suite can build rather than left to the reading.
+    func test_theResolverNeverAnswersReadyWithNoBooks() async throws {
+        let project = try makeProject()
+        let store = PublicationStore(projectURL: project)
+        for resolution in [
+            await PublishPreviewResolver.readablePDFs(store: store, projectURL: project),
+            await PublishPreviewResolver.readablePDFs(in: project, loading: { [] }),
+            await PublishPreviewResolver.readablePDFs(
+                in: project, loading: { [Self.publication(version: "9.9",
+                                                          outputPath: "Exports/ghost.pdf",
+                                                          compiledAt: Date())] })
+        ] {
+            if case .ready(let rows) = resolution {
+                XCTAssertFalse(rows.isEmpty,
+                               "`.ready` with no rows would put an empty picker "
+                               + "and a blank page in front of the writer")
+            }
+        }
     }
 
     /// **An absolute `output_path` resolves as itself.** `Publication.outputPath`
@@ -216,7 +290,7 @@ final class PublishPreviewCentreTests: XCTestCase {
                                    compiledAt: Date())
         try await store.append(pub)
 
-        let resolution = await PublishPreviewResolver.latestReadablePDF(
+        let resolution = await PublishPreviewResolver.readablePDFs(
             store: store, projectURL: project)
 
         assertReady(resolution, is: pub,
@@ -238,14 +312,14 @@ final class PublishPreviewCentreTests: XCTestCase {
     func test_anUnreadableCatalogIsNotTheSameAnswerAsAnEmptyOne() async {
         struct Unreadable: Error {}
 
-        let unreadable = await PublishPreviewResolver.latestReadablePDF(
+        let unreadable = await PublishPreviewResolver.readablePDFs(
             in: temp.url, loading: { throw Unreadable() })
-        let empty = await PublishPreviewResolver.latestReadablePDF(
+        let empty = await PublishPreviewResolver.readablePDFs(
             in: temp.url, loading: { [] })
 
         XCTAssertEqual(unreadable, .unreadableCatalog(reason: Unreadable().localizedDescription),
-                       "…carrying what the failure said, so a surface that "
-                       + "grows copy for this has the sentence")
+                       "…carrying what the failure said, so the banner has the "
+                       + "sentence")
         XCTAssertEqual(empty, .nothingCompiled)
         XCTAssertNotEqual(
             unreadable, empty,
@@ -276,7 +350,7 @@ final class PublishPreviewCentreTests: XCTestCase {
 
         // Sanity: with the catalog readable, this project HAS a book to show —
         // so the refusal below is caused by the unreadable file and nothing else.
-        let before = await PublishPreviewResolver.latestReadablePDF(
+        let before = await PublishPreviewResolver.readablePDFs(
             store: store, projectURL: project)
         XCTAssertNotNil(before.publication,
                         "precondition: a readable catalog with a real PDF shows the book")
@@ -286,7 +360,7 @@ final class PublishPreviewCentreTests: XCTestCase {
         try FileManager.default.createDirectory(
             at: squatted, withIntermediateDirectories: true)
 
-        let resolution = await PublishPreviewResolver.latestReadablePDF(
+        let resolution = await PublishPreviewResolver.readablePDFs(
             store: store, projectURL: project)
 
         guard case .unreadableCatalog(let reason) = resolution else {
@@ -298,42 +372,126 @@ final class PublishPreviewCentreTests: XCTestCase {
         XCTAssertNotEqual(resolution, .nothingCompiled,
                           "RULING-7: unreadable is never presented as empty")
         XCTAssertTrue(reason.contains(squatted.lastPathComponent),
-                      "the placeholder's sentence names the file that could not be "
+                      "the banner's sentence names the file that could not be "
                       + "read, so the writer knows what to fix — got: \(reason)")
     }
 
-    /// Both non-`ready` answers degrade the centre the same way — to altitude —
-    /// and that is deliberate: the reason is kept in the value for the copy that
-    /// will need it, not spent on a second centre-column surface.
-    func test_bothDegradesLeaveTheCentreToAltitude() {
-        for resolution: PublishPreviewResolution in [.nothingCompiled, Self.unreadable] {
+    /// **Which book the header draws is the writer's pick, and the fallback is
+    /// the load-bearing half** (`PublishPreviewResolver.shown`). The pick can
+    /// leave the list underneath them — they delete the export in the Finder, a
+    /// compile lands and the catalog is re-walked — and a header that resolved
+    /// its own selection would then draw nothing in the column whose job is the
+    /// book.
+    func test_thePickedBookFallsBackToTheNewestWhenItsRowIsGone() {
+        let newest = Self.publication(version: "1.1", outputPath: "Exports/b2.pdf",
+                                      compiledAt: Date())
+        let older = Self.publication(version: "1.0", outputPath: "Exports/b1.pdf",
+                                     compiledAt: Date().addingTimeInterval(-600))
+        let rows = [newest, older]
+
+        XCTAssertEqual(PublishPreviewResolver.shown(nil, in: rows)?.publicationID,
+                       newest.publicationID,
+                       "no pick is the newest — which is also what a relaunch "
+                       + "and a new compile both mean")
+        XCTAssertEqual(
+            PublishPreviewResolver.shown(older.publicationID, in: rows)?.publicationID,
+            older.publicationID,
+            "the writer's pick is what they get")
+        XCTAssertEqual(
+            PublishPreviewResolver.shown("pub-vanished", in: rows)?.publicationID,
+            newest.publicationID,
+            "a pick whose row has left the list draws the newest rather than "
+            + "an empty column")
+        XCTAssertNil(PublishPreviewResolver.shown(older.publicationID, in: []),
+                     "…and with nothing readable at all there is nothing to draw, "
+                     + "which is the notice's case rather than the page's")
+    }
+
+    // MARK: - The rule: the new truth table
+
+    /// **The whole table, in one loop** (Denver, 2026-08-12).
+    ///
+    /// | subject | compiled | uncompiled | unreadable |
+    /// |---|---|---|---|
+    /// | project / group / none / research | the book | notice: never compiled | notice: naming |
+    /// | a document | the EDITOR — nothing over it | the editor | the editor |
+    ///
+    /// Ruling 1 is the row that changed: a chapter used to show the book.
+    func test_theTruthTableTheRulingsLeave() {
+        let compiled = PublishPreviewResolution.ready(newestFirst: [Self.aBook])
+
+        for (subject, shape) in ProjectAltitudeCentreTests.notADocument {
+            XCTAssertEqual(
+                ProjectWindow.publishCentre(
+                    persona: .publish, subject: subject,
+                    structure: ProjectAltitudeCentreTests.structure,
+                    preview: compiled),
+                .books([Self.aBook]),
+                "\(shape): project level in Publish is the book")
+            XCTAssertEqual(
+                ProjectWindow.publishCentre(
+                    persona: .publish, subject: subject,
+                    structure: ProjectAltitudeCentreTests.structure,
+                    preview: .nothingCompiled),
+                .notice(.neverCompiled),
+                "\(shape) with nothing compiled: altitude, and a notice saying "
+                + "so — the bare corkboard is what read as 'basically Author'")
+            XCTAssertEqual(
+                ProjectWindow.publishCentre(
+                    persona: .publish, subject: subject,
+                    structure: ProjectAltitudeCentreTests.structure,
+                    preview: Self.unreadable),
+                .notice(.unreadableCatalog(reason: Self.unreadableReason)),
+                "\(shape) with an unreadable catalog: altitude, and a DIFFERENT "
+                + "notice carrying the sentence that names the file")
+        }
+
+        for preview: PublishPreviewResolution in [compiled, .nothingCompiled, Self.unreadable] {
             XCTAssertNil(
-                ProjectWindow.publishPreviewCentre(persona: .publish,
-                                                   preview: resolution),
-                "\(resolution): with nothing to draw, the overlay stays down "
-                + "and the writer gets the project at altitude")
+                ProjectWindow.publishCentre(
+                    persona: .publish, subject: .item("chapter-1"),
+                    structure: ProjectAltitudeCentreTests.structure,
+                    preview: preview),
+                "a chapter in Publish is the EDITOR whatever the catalog says "
+                + "(\(preview)) — Denver, 2026-08-12: \"I might tweak something "
+                + "for layout\". Nothing is layered over it, not even a notice")
         }
     }
 
-    // MARK: - The rule
+    /// **A research subject is project level too**, which is spec §4's "—" row
+    /// read forward: `.nothingMoves` means neither column acts on it, so it
+    /// falls through to whatever Publish shows when the tree names no document.
+    func test_aResearchSubjectInPublishIsProjectLevel() {
+        XCTAssertEqual(
+            ProjectWindow.publishCentre(
+                persona: .publish, subject: .research("r1"),
+                structure: Self.oneDocument,
+                preview: .ready(newestFirst: [Self.aBook])),
+            .books([Self.aBook]),
+            "a research note in Publish resolves to no manuscript document, so "
+            + "it is project level and the book is what covers it")
+        XCTAssertEqual(
+            ProjectWindow.publishCentre(
+                persona: .publish, subject: .research("r1"),
+                structure: Self.oneDocument, preview: .nothingCompiled),
+            .notice(.neverCompiled))
+    }
 
-    /// **Publish's alone, and only with something compiled** — over the whole
-    /// product of personas and resolutions, so a fifth persona has to answer it.
-    func test_theOverlayIsPublishsAloneAndOnlyWithSomethingCompiled() throws {
-        let ready = Self.publication(version: "1.0", outputPath: "Exports/b.pdf",
-                                     compiledAt: Date())
+    /// **Publish's alone** — over the whole product of personas and resolutions,
+    /// so a fifth persona has to answer it.
+    func test_theLayerIsPublishsAloneWhateverTheCatalogSays() {
         for persona in Persona.allCases {
-            XCTAssertEqual(
-                ProjectWindow.publishPreviewCentre(persona: persona,
-                                                   preview: .ready(ready)) != nil,
-                persona.previewsThePublishedBook,
-                "\(persona): the overlay is gated on the ONE spelling of "
-                + "\"this persona's centre is the compiled book\"")
-            for degrade: PublishPreviewResolution in [.nothingCompiled, Self.unreadable] {
-                XCTAssertNil(
-                    ProjectWindow.publishPreviewCentre(persona: persona,
-                                                       preview: degrade),
-                    "\(persona) with \(degrade)")
+            for preview: PublishPreviewResolution in [
+                .ready(newestFirst: [Self.aBook]), .nothingCompiled, Self.unreadable
+            ] {
+                let covered = ProjectWindow.publishCentre(
+                    persona: persona, subject: .project,
+                    structure: Self.oneDocument, preview: preview) != nil
+                XCTAssertEqual(
+                    covered, persona.previewsThePublishedBook,
+                    "\(persona) with \(preview): the layer is gated on the ONE "
+                    + "spelling of \"this persona's centre is the compiled "
+                    + "book\", and that gate decides the notices too")
             }
         }
     }
@@ -344,70 +502,163 @@ final class PublishPreviewCentreTests: XCTestCase {
         XCTAssertEqual(Persona.allCases.filter(\.previewsThePublishedBook), [.publish])
     }
 
-    /// **`subjectShowsAltitude` is untouched**, which is what makes the
-    /// uncompiled truth table identical to the one stage 3a left: the preview is
-    /// a layer ABOVE it rather than a change to it.
-    func test_theAltitudeRuleIsUnchangedByThisTask() {
+    /// **The two degrades leave the centre to altitude — with DIFFERENT notices
+    /// over it** (Denver's ruling 3, RULING-7's shape given a surface).
+    ///
+    /// This is the re-cut of `test_bothDegradesLeaveTheCentreToAltitude`, which
+    /// asserted only that neither drew a book. That was true and insufficient:
+    /// it was equally green while the writer saw the same unexplained corkboard
+    /// for both facts.
+    func test_bothDegradesLeaveTheCentreToAltitudeUnderTwoDifferentNotices() {
+        let never = ProjectWindow.publishCentre(
+            persona: .publish, subject: .project, structure: Self.oneDocument,
+            preview: .nothingCompiled)
+        let unreadable = ProjectWindow.publishCentre(
+            persona: .publish, subject: .project, structure: Self.oneDocument,
+            preview: Self.unreadable)
+
+        for (resolution, centre) in [(PublishPreviewResolution.nothingCompiled, never),
+                                     (Self.unreadable, unreadable)] {
+            guard case .notice = centre else {
+                XCTFail("\(resolution): a notice is what stands over altitude now")
+                return
+            }
+            XCTAssertTrue(
+                ProjectWindow.subjectShowsAltitude(
+                    persona: .publish, subject: .project,
+                    structure: Self.oneDocument),
+                "\(resolution): …and altitude is still what it stands OVER — "
+                + "the corkboard is real content, not an empty state")
+        }
+        XCTAssertNotEqual(never, unreadable,
+                          "one notice for both facts is the collapse RULING-7 "
+                          + "forbids, and the whole point of the distinction "
+                          + "living in the resolution")
+        XCTAssertEqual(never, .notice(.neverCompiled))
+        XCTAssertEqual(unreadable, .notice(.unreadableCatalog(reason: Self.unreadableReason)))
+    }
+
+    /// **The copy differs in every part a writer reads** — headline, detail and
+    /// glyph — because "distinct" is what the ruling asks for and equal strings
+    /// would satisfy the case-inequality above.
+    func test_theTwoNoticesLookAndReadDifferently() {
+        let never = PublishCentreNotice.neverCompiled
+        let unreadable = PublishCentreNotice.unreadableCatalog(reason: Self.unreadableReason)
+
+        XCTAssertNotEqual(never.headline, unreadable.headline)
+        XCTAssertNotEqual(never.detail, unreadable.detail)
+        XCTAssertNotEqual(never.symbol, unreadable.symbol)
+        XCTAssertTrue(unreadable.detail.contains(Self.unreadableReason),
+                      "the naming banner carries the error's OWN sentence, which "
+                      + "is what names the file — the resolver kept it precisely "
+                      + "so this surface would not have to invent one")
+        XCTAssertFalse(never.headline.isEmpty)
+        XCTAssertFalse(never.detail.isEmpty)
+    }
+
+    /// **`subjectShowsAltitude` is untouched by any of this** — the layer is
+    /// composed FROM it rather than a change to it.
+    func test_theAltitudeRuleIsUnchangedAndIsWhatTheLayerComposes() {
         for (subject, shape) in ProjectAltitudeCentreTests.notADocument {
             XCTAssertTrue(
                 ProjectWindow.subjectShowsAltitude(
                     persona: .publish, subject: subject,
                     structure: ProjectAltitudeCentreTests.structure),
-                "Publish with \(shape): still altitude, exactly as before — the "
-                + "preview does not reach this rule")
+                "Publish with \(shape): still altitude, exactly as before")
         }
         XCTAssertFalse(
             ProjectWindow.subjectShowsAltitude(
                 persona: .publish, subject: .item("chapter-1"),
                 structure: ProjectAltitudeCentreTests.structure),
-            "…and a document is still not altitude; what covers it in Publish "
-            + "is the preview layer, decided somewhere else entirely")
+            "…and a document is not altitude — which, since the ruling, is also "
+            + "why nothing covers it in Publish")
     }
 
     // MARK: - The status footer
 
-    /// **The footer refuses over the preview**, for altitude's own argument: its
-    /// four readings — the goal capsule, the live session words, the `¶id` under
-    /// the cursor, the current element — are about a document in the centre, and
-    /// over a compiled book there is no such document on screen.
-    func test_theFooterIsSilentOverThePreviewAndSpeaksUnderneathIt() {
-        XCTAssertFalse(
-            ProjectWindow.showsStatusFooter(
-                persona: .publish, subject: .item("doc1"), showsPaletteWall: false,
-                publishPreview: .ready(Self.publication(
-                    version: "1.0", outputPath: "Exports/b.pdf", compiledAt: Date())),
-                structure: Self.oneDocument),
-            "the preview covers the document the footer would be reporting on")
-        XCTAssertTrue(
-            ProjectWindow.showsStatusFooter(
-                persona: .publish, subject: .item("doc1"), showsPaletteWall: false,
-                publishPreview: .nothingCompiled, structure: Self.oneDocument),
-            "control: with nothing compiled, Publish over a document is the "
-            + "editor and the footer reports exactly as it did before this task")
-    }
-
-    /// The other personas cannot be silenced by a resolution they never read —
-    /// otherwise the refusal above would be a fact about the value rather than
-    /// about the overlay.
-    func test_aReadyPublicationSilencesNobodyElsesFooter() {
-        let ready = PublishPreviewResolution.ready(
-            Self.publication(version: "1.0", outputPath: "Exports/b.pdf",
-                             compiledAt: Date()))
-        for persona in [Persona.author, .review] {
+    /// **A document in Publish reports exactly as it does in Author** — the
+    /// footer's four readings are about the document in the centre, and since
+    /// the ruling that document is on screen.
+    func test_theFooterSpeaksOverAChapterInPublishAsItDoesInAuthor() {
+        for persona in [Persona.author, .review, .publish] {
             XCTAssertTrue(
                 ProjectWindow.showsStatusFooter(
-                    persona: persona, subject: .item("doc1"), showsPaletteWall: false,
-                    publishPreview: ready, structure: Self.oneDocument),
-                "\(persona): a compiled book in another persona's centre is not "
-                + "this persona's business")
+                    persona: persona, subject: .item("doc1"),
+                    showsPaletteWall: false, structure: Self.oneDocument),
+                "\(persona): the chapter is in the centre column, so the goal "
+                + "capsule, the session words, the `¶id` and the element all "
+                + "have something to be about")
         }
+    }
+
+    /// **And refuses at project level, where the book or a notice stands** — by
+    /// the altitude clause, which is the only clause left that can answer it.
+    func test_theFooterIsSilentAtProjectLevelInPublish() {
+        for (subject, shape) in ProjectAltitudeCentreTests.notADocument {
+            XCTAssertFalse(
+                ProjectWindow.showsStatusFooter(
+                    persona: .publish, subject: subject, showsPaletteWall: false,
+                    structure: ProjectAltitudeCentreTests.structure),
+                "Publish with \(shape): a word count under a compiled book — or "
+                + "under a 'nothing published yet' banner — is a claim about a "
+                + "document that is not on screen")
+        }
+    }
+
+    /// **Why the footer needs no publish clause of its own any more.**
+    ///
+    /// The clause `showsStatusFooter` carried from stage 3b until this revision
+    /// was removed rather than kept, and this is the assertion that removal
+    /// rests on: wherever `publishCentre` answers anything at all,
+    /// `subjectShowsAltitude` is already true, so the altitude clause has
+    /// already refused. Asserted over the whole product — every persona, every
+    /// subject shape, every resolution — because a parameter that cannot change
+    /// an answer is exactly what the find-overlay question was settled with a
+    /// test instead of an argument.
+    func test_theBookOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn() {
+        var covered = 0
+        let subjects: [BinderSubject?] = [
+            nil, .project, .item("chapter-1"), .item("part-one"),
+            .item("no-such-id"), .research("r1")
+        ]
+        for persona in Persona.allCases {
+            for subject in subjects {
+                for preview: PublishPreviewResolution in [
+                    .ready(newestFirst: [Self.aBook]), .nothingCompiled, Self.unreadable
+                ] {
+                    guard ProjectWindow.publishCentre(
+                        persona: persona, subject: subject,
+                        structure: ProjectAltitudeCentreTests.structure,
+                        preview: preview) != nil else { continue }
+                    covered += 1
+                    XCTAssertTrue(
+                        ProjectWindow.subjectShowsAltitude(
+                            persona: persona, subject: subject,
+                            structure: ProjectAltitudeCentreTests.structure),
+                        "\(persona)/\(String(describing: subject))/\(preview): "
+                        + "Publish's layer covered something altitude does NOT "
+                        + "cover — the footer lost the clause that used to "
+                        + "catch that case")
+                    XCTAssertFalse(
+                        ProjectWindow.showsStatusFooter(
+                            persona: persona, subject: subject,
+                            showsPaletteWall: false,
+                            structure: ProjectAltitudeCentreTests.structure),
+                        "…and the footer must be silent under it")
+                }
+            }
+        }
+        XCTAssertGreaterThan(covered, 0,
+                             "the loop never reached a covered case, so the "
+                             + "implication above is vacuously true and says "
+                             + "nothing")
     }
 
     // MARK: - Where a research subject lands in Publish
 
     /// **Publish stops acting on a research subject** — spec §4's "—" row. The
     /// placement answers `.nothingMoves`, so the subject falls through to the
-    /// manuscript arm: the preview if there is one, altitude if there is not.
+    /// manuscript arm: the book if there is one, altitude and a notice if not.
     func test_publishNoLongerTakesTheCentreForAResearchSubject() {
         XCTAssertEqual(
             ProjectWindow.researchSubjectPlacement(
@@ -429,17 +680,6 @@ final class PublishPreviewCentreTests: XCTestCase {
             + "routing anybody")
     }
 
-    /// And with nothing compiled it lands where the spec says it lands: the
-    /// project at altitude, rather than a blank centre.
-    func test_aResearchSubjectInUncompiledPublishReachesAltitude() {
-        XCTAssertTrue(
-            ProjectWindow.subjectShowsAltitude(
-                persona: .publish, subject: .research("r1"),
-                structure: Self.oneDocument),
-            "spec §4: \"— (project altitude shown)\" — the centre never renders "
-            + "nothing")
-    }
-
     // MARK: - Mounted: the book takes the centre
 
     /// **The project's own subject in Publish draws the compiled book.**
@@ -447,7 +687,8 @@ final class PublishPreviewCentreTests: XCTestCase {
         let store = try await novel()
         let publication = try await compileOne(into: store)
         let mount = try await host(store: store, persona: .publish,
-                                   subject: .project, preview: .ready(publication))
+                                   subject: .project,
+                                   preview: .ready(newestFirst: [publication]))
 
         await pumpUntil(deadline: 5) { !self.pdfViews(in: mount.window).isEmpty }
 
@@ -470,29 +711,31 @@ final class PublishPreviewCentreTests: XCTestCase {
                       + "the truth table upside down")
     }
 
-    /// **Denver's decision, mounted: a piece subject shows the SAME preview.**
-    /// The gate takes no subject at all, so this is the structural property made
-    /// visible rather than a second rule.
-    func test_aDocumentSubjectInPublishShowsTheSameBookAndNotTheEditor() async throws {
+    /// **Denver's ruling 1, mounted and in the direction that changed: a chapter
+    /// subject in Publish opens the EDITOR, with a compiled book in hand.**
+    ///
+    /// This is the inverse of the test that shipped in stage 3b
+    /// (`…ShowsTheSameBookAndNotTheEditor`), which is the point — the merged
+    /// behaviour is the defect now.
+    func test_aDocumentSubjectInPublishOpensTheEditorEvenWithABookCompiled() async throws {
         let store = try await novel()
         let publication = try await compileOne(into: store)
         let chapter = try XCTUnwrap(
             TreeWalk.first(in: store.manifest.structure, where: { $0.type == .document }))
         let mount = try await host(store: store, persona: .publish,
                                    subject: .item(chapter.id),
-                                   preview: .ready(publication))
+                                   preview: .ready(newestFirst: [publication]))
 
-        await pumpUntil(deadline: 5) { !self.pdfViews(in: mount.window).isEmpty }
+        await pumpUntil(deadline: 5) { !self.textViews(in: mount.window).isEmpty }
 
-        XCTAssertFalse(pdfViews(in: mount.window).isEmpty,
-                       "a chapter subject in Publish must show the book, not "
-                       + "the chapter — Denver's decision. Views: "
-                       + "\(viewNames(in: mount.window))")
-        let hit = try middleOfTheColumn(in: mount.window)
-        let pdf = try XCTUnwrap(pdfViews(in: mount.window).first)
-        XCTAssertTrue(hit === pdf || hit.isDescendant(of: pdf),
-                      "the middle of the column hit-tests to \(type(of: hit)), "
-                      + "so the preview is not covering what is underneath it")
+        XCTAssertFalse(textViews(in: mount.window).isEmpty,
+                       "a chapter subject in Publish must open the chapter — "
+                       + "Denver, 2026-08-12: \"I might tweak something for "
+                       + "layout\". Views: \(viewNames(in: mount.window))")
+        XCTAssertTrue(pdfViews(in: mount.window).isEmpty,
+                      "…and the book must not be drawn over it")
+        XCTAssertNil(altitudeTable(in: mount.window),
+                     "…nor the corkboard")
     }
 
     /// **A research subject in Publish falls through the arm that used to take
@@ -504,7 +747,7 @@ final class PublishPreviewCentreTests: XCTestCase {
         let note = try await store.addResearchTextNote(parentId: nil, title: "Ships")
         let mount = try await host(store: store, persona: .publish,
                                    subject: .research(note.id),
-                                   preview: .ready(publication))
+                                   preview: .ready(newestFirst: [publication]))
 
         await pumpUntil(deadline: 5) { !self.pdfViews(in: mount.window).isEmpty }
 
@@ -513,8 +756,40 @@ final class PublishPreviewCentreTests: XCTestCase {
                        + "in Publish. Views: \(viewNames(in: mount.window))")
     }
 
-    /// **With nothing compiled, Publish is exactly what stage 3a left**: a
-    /// document subject opens in the editor.
+    /// **The picker swaps the rendered PDF**, driven through the binding the
+    /// header writes — the delivery path, not the label function.
+    func test_pickingAnOlderPublicationSwapsTheRenderedPDF() async throws {
+        let store = try await novel()
+        let older = try await append(to: PublicationStore(projectURL: store.url),
+                                     in: store.url, version: "1.0", minutesAgo: 60)
+        let newer = try await append(to: PublicationStore(projectURL: store.url),
+                                     in: store.url, version: "1.1", minutesAgo: 5)
+        let mount = try await host(store: store, persona: .publish, subject: .project,
+                                   preview: .ready(newestFirst: [newer, older]))
+
+        await pumpUntil(deadline: 5) { !self.pdfViews(in: mount.window).isEmpty }
+        let pdf = try XCTUnwrap(pdfViews(in: mount.window).first)
+        XCTAssertEqual(pdf.document?.documentURL?.lastPathComponent,
+                       URL(fileURLWithPath: newer.outputPath).lastPathComponent,
+                       "premise: the column opens on the newest book")
+
+        mount.box.selectedPublicationID = older.publicationID
+        await pumpUntil(deadline: 5) {
+            self.pdfViews(in: mount.window).first?.document?.documentURL?
+                .lastPathComponent
+                == URL(fileURLWithPath: older.outputPath).lastPathComponent
+        }
+
+        XCTAssertEqual(pdfViews(in: mount.window).first?.document?.documentURL?
+            .lastPathComponent,
+                       URL(fileURLWithPath: older.outputPath).lastPathComponent,
+                       "picking the previous version must put that file on "
+                       + "screen — the header's whole purpose")
+    }
+
+    /// **With nothing compiled, a chapter in Publish opens in the editor** —
+    /// unchanged by the ruling, and the control that says the test above is
+    /// about the compiled case rather than about a persona that stopped working.
     func test_uncompiledPublishStillOpensTheChapterInTheEditor() async throws {
         let store = try await novel()
         let chapter = try XCTUnwrap(
@@ -526,14 +801,19 @@ final class PublishPreviewCentreTests: XCTestCase {
         await pumpUntil(deadline: 5) { !self.textViews(in: mount.window).isEmpty }
 
         XCTAssertFalse(textViews(in: mount.window).isEmpty,
-                       "the chapter must still open — the degrade is altitude "
-                       + "for a non-document subject, not a dead persona")
+                       "the chapter must still open")
         XCTAssertTrue(pdfViews(in: mount.window).isEmpty,
                       "…and nothing is drawn over it")
     }
 
-    /// **And the project row in uncompiled Publish is still the corkboard.**
-    func test_uncompiledPublishStillShowsAltitudeForTheProjectRow() async throws {
+    /// **The project row in uncompiled Publish is the corkboard, and the notice
+    /// stands over it without taking the writer's clicks** (Denver's ruling 2).
+    ///
+    /// The hit test is the load-bearing half: the banner fills the column so it
+    /// can sit at its head, and without `allowsHitTesting(false)` that frame
+    /// swallows every click meant for the cards and rows underneath — the exact
+    /// surface the notice exists to explain.
+    func test_uncompiledPublishShowsAltitudeUnderANoticeThatTakesNoClicks() async throws {
         let store = try await novel()
         let mount = try await host(store: store, persona: .publish,
                                    subject: .project, preview: .nothingCompiled)
@@ -541,9 +821,49 @@ final class PublishPreviewCentreTests: XCTestCase {
         await pumpUntil(deadline: 5) { self.altitudeTable(in: mount.window) != nil }
 
         XCTAssertNotNil(altitudeTable(in: mount.window),
-                        "stage 3a's degrade is what an uncompiled Publish "
-                        + "still gets")
+                        "stage 3a's altitude is what an uncompiled Publish "
+                        + "still shows")
         XCTAssertTrue(pdfViews(in: mount.window).isEmpty)
+
+        let hit = try middleOfTheColumn(in: mount.window)
+        let table = try XCTUnwrap(altitudeTable(in: mount.window))
+        XCTAssertTrue(hit === table || hit.isDescendant(of: table)
+                      || table.isDescendant(of: hit),
+                      "the middle of the column hit-tests to \(type(of: hit)) — "
+                      + "the banner is eating the clicks meant for the corkboard "
+                      + "it is explaining")
+
+        // Last, because reading the copy needs an accessibility tree and skips
+        // without one: every assertion above must have run first.
+        let shown = try labels(in: mount.window)
+        XCTAssertTrue(
+            shown.contains { $0.contains(PublishCentreNotice.neverCompiled.headline) },
+            "the standing notice must actually be on screen — a bare corkboard "
+            + "in Publish is what read as \"basically Author\". Labels: \(shown)")
+    }
+
+    /// **And the unreadable catalog gets its own banner over the same
+    /// corkboard** (ruling 3) — different words, and the file's name in them.
+    func test_anUnreadableCatalogShowsANamingBannerOverAltitude() async throws {
+        let store = try await novel()
+        let mount = try await host(store: store, persona: .publish,
+                                   subject: .project, preview: Self.unreadable)
+
+        await pumpUntil(deadline: 5) { self.altitudeTable(in: mount.window) != nil }
+
+        XCTAssertNotNil(altitudeTable(in: mount.window),
+                        "the altitude fallback stays — Denver kept it and added "
+                        + "the banner beside it")
+        let shown = try labels(in: mount.window)
+        XCTAssertTrue(
+            shown.contains { $0.contains(Self.unreadableReason) },
+            "the banner carries the error's own sentence, which names the file. "
+            + "Labels: \(shown)")
+        XCTAssertFalse(
+            shown.contains { $0.contains(PublishCentreNotice.neverCompiled.headline) },
+            "…and it must NOT be the never-compiled notice: telling a writer "
+            + "their book was never made when it is sitting there unreadable is "
+            + "RULING-7's forbidden collapse, now with a surface to happen on")
     }
 
     // MARK: - Mounted: the host survives the new layer
@@ -553,29 +873,30 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// arm would unmount the host on every hop, and its `.onDisappear` is
     /// `doc.close()` + `documentStore.unregister(path:)` + `loads.abandon()`.
     ///
-    /// The trip is the one a writer makes while checking a proof: the book in
-    /// Publish, back to the chapter in Author, up to the project at altitude,
-    /// and into Publish again.
+    /// The trip is the one a writer makes while checking a proof — and since
+    /// ruling 1 it is a trip they make *within Publish* as well: the book at the
+    /// project row, the chapter to fix the layout, and back up.
     func test_thePreviewEditorAltitudeRoundTripNeverTearsTheHostDown() async throws {
         let store = try await novel()
         let publication = try await compileOne(into: store)
         let chapter = try XCTUnwrap(
             TreeWalk.first(in: store.manifest.structure, where: { $0.type == .document }))
         let mount = try await host(store: store, persona: .publish,
-                                   subject: .item(chapter.id),
-                                   preview: .ready(publication))
+                                   subject: .project,
+                                   preview: .ready(newestFirst: [publication]))
 
         await pumpUntil(deadline: 5) { !self.pdfViews(in: mount.window).isEmpty }
         XCTAssertEqual(mount.hostLife.appearances, 1, "premise: the host mounted")
         XCTAssertEqual(mount.hostLife.disappearances, 0, "premise: and is still up")
 
-        mount.box.persona = .author
+        // The gesture the ruling creates: fix the layout without leaving Publish.
+        mount.box.subject = .item(chapter.id)
         await pumpUntil(deadline: 5) { self.pdfViews(in: mount.window).isEmpty }
-        XCTAssertTrue(pdfViews(in: mount.window).isEmpty,
-                      "the book stayed up after the writer left Publish")
         XCTAssertFalse(textViews(in: mount.window).isEmpty,
-                       "…and the chapter is underneath, in the host that never "
-                       + "went away")
+                       "the chapter opened in the host that was already there")
+
+        mount.box.persona = .author
+        await pumpUntil(deadline: 5) { !self.textViews(in: mount.window).isEmpty }
 
         mount.box.subject = .project
         await pumpUntil(deadline: 5) { self.altitudeTable(in: mount.window) != nil }
@@ -597,36 +918,37 @@ final class PublishPreviewCentreTests: XCTestCase {
     }
 
     /// **The control that makes the zero above mean something**: the same hop
-    /// through the shape this task rejected — the preview as an arm of its own
-    /// beside the editor. The counter is the same counter; if it could not see a
-    /// teardown, the assertion above would be green over any shape at all.
+    /// through the shape this task rejected — the covering surface as an arm of
+    /// its own beside the editor. The counter is the same counter; if it could
+    /// not see a teardown, the assertion above would be green over any shape at
+    /// all.
     ///
-    /// The hop runs prose → book here rather than book → prose, because that is
-    /// the direction in which the arm shape has a host to lose: with the preview
-    /// as an arm, a window that opens in Publish never mounted one.
+    /// The hop is chapter → project, which is the one every persona makes and
+    /// the one ruling 1 puts back inside Publish: with an arm shape it costs
+    /// `doc.close()`, `unregister(path:)` and `loads.abandon()` every time.
     func test_control_thePreviewAsItsOwnArmTearsTheHostDown() async throws {
         let store = try await novel()
         let publication = try await compileOne(into: store)
         let chapter = try XCTUnwrap(
             TreeWalk.first(in: store.manifest.structure, where: { $0.type == .document }))
-        let mount = try await host(store: store, persona: .author,
+        let mount = try await host(store: store, persona: .publish,
                                    subject: .item(chapter.id),
-                                   preview: .ready(publication),
+                                   preview: .ready(newestFirst: [publication]),
                                    shape: .ownArm)
 
-        await pumpUntil(deadline: 5) { !self.textViews(in: mount.window).isEmpty }
+        await pumpUntil(deadline: 5) { mount.hostLife.appearances == 1 }
         XCTAssertEqual(mount.hostLife.appearances, 1,
-                       "premise: the arm shape mounts the host on the prose")
+                       "premise: the arm shape mounts the host on the chapter")
 
-        mount.box.persona = .publish
+        mount.box.subject = .project
         await pumpUntil(deadline: 5) { !self.pdfViews(in: mount.window).isEmpty }
 
         XCTAssertGreaterThanOrEqual(
             mount.hostLife.disappearances, 1,
-            "the arm shape tears the host down on the way into Publish — which "
-            + "is what the layered shape's zero is measured against, and why "
-            + "this test exists rather than a comment saying an arm would be "
-            + "worse")
+            "the arm shape tears the host down on the way from the chapter to "
+            + "the book — which is what the layered shape's zero is measured "
+            + "against, and why this test exists rather than a comment saying "
+            + "an arm would be worse")
     }
 
     // MARK: - Mounted: the compile that finishes while the writer watches
@@ -666,6 +988,80 @@ final class PublishPreviewCentreTests: XCTestCase {
                     "the compile finished and the centre column never heard "
                     + "about it — the writer has to relaunch to see their own "
                     + "book")
+    }
+
+    /// **A new compile snaps the preview back to the newest** (Denver's ruling
+    /// 4), taking whatever the writer had picked with it — because the thing
+    /// they just made is what they want to look at.
+    func test_aNewCompileTakesTheWritersPickBackToTheNewest() async throws {
+        let project = try makeProject()
+        let stores = PublishingStores.sharedFor(
+            projectID: ProjectIdentifier.id(for: project), projectURL: project)
+        let first = try await append(to: stores.publicationStore, in: project,
+                                     version: "1.0", minutesAgo: 30)
+        _ = try await append(to: stores.publicationStore, in: project,
+                             version: "1.1", minutesAgo: 20)
+
+        let box = PublishCentreProbeBox(persona: .publish)
+        _ = mountRefreshProbe(projectURL: project, box: box)
+        // The window must be RESOLVED before the post, or ADR 0021's liveness
+        // guard drops it and this test measures nothing — the sibling event
+        // test's premise, and the reason it is asserted rather than assumed.
+        await pumpUntil(deadline: 5) {
+            box.modifierWindow != nil && box.preview.publications.count == 2
+        }
+        XCTAssertTrue(MaughamEvent.isLive(box.modifierWindow),
+                      "premise: the receiver has a live window")
+
+        box.selectedPublicationID = first.publicationID
+        XCTAssertEqual(
+            PublishPreviewResolver.shown(box.selectedPublicationID,
+                                         in: box.preview.publications)?.publicationID,
+            first.publicationID,
+            "premise: the writer is looking at the older proof")
+
+        let third = try await append(to: stores.publicationStore, in: project,
+                                     version: "1.2", minutesAgo: 0)
+        MaughamEvent.post(.maughamPublicationCompleted, to: .project(for: project))
+
+        await pumpUntil(deadline: 5) {
+            box.preview.publication?.publicationID == third.publicationID
+        }
+        XCTAssertNil(box.selectedPublicationID,
+                     "a compile that finishes must put the writer on the book "
+                     + "they just made — a manual pick that survives it leaves "
+                     + "them staring at an old proof wondering what happened")
+        XCTAssertEqual(
+            PublishPreviewResolver.shown(box.selectedPublicationID,
+                                         in: box.preview.publications)?.publicationID,
+            third.publicationID)
+    }
+
+    /// **…and a refresh that brings no new book leaves the pick alone.** The
+    /// reset is keyed on the newest publication changing rather than on the
+    /// refresh happening, so walking out of Publish and back does not move the
+    /// page under the writer.
+    func test_arrivingInPublishAgainKeepsTheWritersPick() async throws {
+        let project = try makeProject()
+        let stores = PublishingStores.sharedFor(
+            projectID: ProjectIdentifier.id(for: project), projectURL: project)
+        let older = try await append(to: stores.publicationStore, in: project,
+                                     version: "1.0", minutesAgo: 30)
+        _ = try await append(to: stores.publicationStore, in: project,
+                             version: "1.1", minutesAgo: 20)
+
+        let box = PublishCentreProbeBox(persona: .author)
+        _ = mountRefreshProbe(projectURL: project, box: box)
+        await pumpUntil(deadline: 5) { box.preview.publications.count == 2 }
+        box.selectedPublicationID = older.publicationID
+
+        box.persona = .publish
+        pump(1.0)   // the arrival refresh reads the catalog off disk
+
+        XCTAssertEqual(box.selectedPublicationID, older.publicationID,
+                       "arriving in Publish re-asks the catalog, and the answer "
+                       + "was the same book — nothing happened that the writer "
+                       + "should be moved by")
     }
 
     /// **Arriving in Publish re-asks**, which is also what covers the file that
@@ -716,9 +1112,14 @@ final class PublishPreviewCentreTests: XCTestCase {
                       "…altitude over it")
         XCTAssertTrue(arm.contains("PublishPreviewCentre("),
                       "…and the book over both")
-        XCTAssertTrue(arm.contains("Self.publishPreviewCentre("),
-                      "the layer is gated on the named rule rather than on a "
-                      + "second spelling written out here")
+        XCTAssertTrue(arm.contains("PublishCentreNoticeBanner("),
+                      "…with the notice standing in the same place when there "
+                      + "is no book")
+        XCTAssertTrue(arm.contains("Self.publishCentre("),
+                      "both are gated on the ONE named rule rather than on a "
+                      + "second spelling written out here — and a second gate "
+                      + "is how a 'nothing published yet' banner ends up over a "
+                      + "compiled book")
 
         let altitudeAt = try XCTUnwrap(arm.range(of: "ProjectAltitudePane("))
         let bookAt = try XCTUnwrap(arm.range(of: "PublishPreviewCentre("))
@@ -732,8 +1133,47 @@ final class PublishPreviewCentreTests: XCTestCase {
             "one mount for the book, in the centre column's overlay. A second "
             + "is a surface nobody decided to add")
         XCTAssertEqual(
+            Self.occurrences(of: "PublishCentreNoticeBanner(", in: source), 1,
+            "and one for the notice, for the same reason")
+        XCTAssertEqual(
             Self.occurrences(of: "manuscriptEditor(", in: source), 2,
             "the declaration and exactly ONE call — unchanged by this task")
+    }
+
+    /// **The centre's rule asks the subject question that already exists.**
+    ///
+    /// Ruling 1 made the layer subject-dependent, and the risk that arrives with
+    /// it is a second document-resolution rule beside `subjectShowsAltitude` —
+    /// two answers free to disagree about what a document is, with a PDF over
+    /// the chapter a writer is fixing as the visible cost. The rule composes it
+    /// instead, and this is the census that says so.
+    func test_theRuleComposesTheWindowsOwnDocumentQuestion() throws {
+        let source = try Self.source(of: "Views/ProjectWindow.swift")
+        let rule = try XCTUnwrap(
+            Self.declaration(named: "static func publishCentre(", in: source))
+
+        XCTAssertTrue(rule.contains("subjectShowsAltitude("),
+                      "the project-level question is asked of the function that "
+                      + "already answers it")
+        XCTAssertFalse(rule.contains("selectionIsDocument("),
+                       "…and not re-derived from the primitive underneath it, "
+                       + "which is how the two would come to disagree")
+        XCTAssertFalse(rule.contains("TreeWalk."),
+                       "…nor by walking the structure a third time")
+
+        // The behavioural half of the same claim, so this census is a bridge to
+        // a property rather than the property itself.
+        for (subject, shape) in ProjectAltitudeCentreTests.notADocument {
+            XCTAssertEqual(
+                ProjectWindow.publishCentre(
+                    persona: .publish, subject: subject,
+                    structure: ProjectAltitudeCentreTests.structure,
+                    preview: .ready(newestFirst: [Self.aBook])) != nil,
+                ProjectWindow.subjectShowsAltitude(
+                    persona: .publish, subject: subject,
+                    structure: ProjectAltitudeCentreTests.structure),
+                "\(shape): the two must answer together in Publish")
+        }
     }
 
     /// **`previewsThePublishedBook` is the ONE spelling, and the centre rule's
@@ -860,6 +1300,45 @@ final class PublishPreviewCentreTests: XCTestCase {
         collect(MaughamTextView.self, in: window)
     }
 
+    /// **Every accessibility label and value in the mounted tree** — how a
+    /// SwiftUI `Text` is read from AppKit, and the only way to assert a piece of
+    /// COPY is on SCREEN rather than merely constructible.
+    ///
+    /// The walk is over the accessibility tree rather than the view tree,
+    /// because SwiftUI publishes elements that are not views — `TreeFindOverlay
+    /// Tests`' idiom verbatim, KVC and all, including its skip: SwiftUI builds
+    /// no accessibility tree at all unless an assistive client is attached to
+    /// the process.
+    private func labels(in window: NSWindow) throws -> [String] {
+        var role: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(
+            AXUIElementCreateApplication(getpid()), kAXRoleAttribute as CFString, &role)
+        guard error == .success, role != nil else {
+            throw XCTSkip(
+                "no assistive client could be attached to this process, so "
+                + "SwiftUI builds no accessibility tree to read the notice from")
+        }
+        guard let root = window.contentView else { return [] }
+        return axElements(under: root).flatMap { element -> [String] in
+            [axAttribute(element, "accessibilityLabel") as? String,
+             axAttribute(element, "accessibilityValue") as? String]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+        }
+    }
+
+    private func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {
+        guard let object = element as? NSObject,
+              object.responds(to: NSSelectorFromString(attribute)) else { return nil }
+        return object.value(forKey: attribute)
+    }
+
+    private func axElements(under root: AnyObject, depth: Int = 0) -> [AnyObject] {
+        guard depth < 40 else { return [] }
+        let children = axAttribute(root, "accessibilityChildren") as? [AnyObject] ?? []
+        return [root] + children.flatMap { axElements(under: $0, depth: depth + 1) }
+    }
+
     private func middleOfTheColumn(in window: NSWindow) throws -> NSView {
         let content = try XCTUnwrap(window.contentView)
         // The premise, read off the window this display actually granted:
@@ -970,9 +1449,17 @@ final class PublishPreviewCentreTests: XCTestCase {
         context.closePDF()
     }
 
-    /// A stand-in for the arm the reconcile will make live.
+    /// The sentence a real `PublicationStore.ReadError` carries — shortened, but
+    /// the same shape: it NAMES the file, which is what the banner shows.
+    static let unreadableReason =
+        "The publications catalog “publications.otherdevice.jsonl” exists but can't be read."
     static let unreadable = PublishPreviewResolution
-        .unreadableCatalog(reason: "the catalog could not be read")
+        .unreadableCatalog(reason: unreadableReason)
+
+    /// A book to put in a resolution when the test is about the rule rather than
+    /// about disk.
+    static let aBook = publication(version: "1.0", outputPath: "Exports/b.pdf",
+                                   compiledAt: Date(timeIntervalSince1970: 1_770_000_000))
 
     static let oneDocument: [StructureItem] = [
         StructureItem(id: "doc1", title: "Chapter One", type: .document,
@@ -1005,14 +1492,16 @@ final class PublishPreviewCentreTests: XCTestCase {
 // MARK: - Probes
 
 /// The window state the centre column reads, held outside the view so a test can
-/// move the persona, the subject and the resolved publication the way the window
-/// does.
+/// move the persona, the subject, the resolved publications and the header's
+/// pick the way the window does.
 @Observable
 @MainActor
 final class PublishCentreProbeBox {
     var subject: BinderSubject?
     var persona: Persona
     var preview: PublishPreviewResolution = .nothingCompiled
+    /// The header picker's window-transient choice — `nil` is "the newest".
+    var selectedPublicationID: String?
     /// The window the REFRESH MODIFIER actually got, which is not the same fact
     /// as the window the test made: `WindowAccessor` resolves it a runloop turn
     /// later, and ADR 0021's project scope drops a post whose receiver has no
@@ -1047,6 +1536,11 @@ struct PublishCentreProbeView: View {
 
     private var subject: Binding<BinderSubject?> {
         Binding(get: { box.subject }, set: { box.subject = $0 })
+    }
+
+    private var selection: Binding<String?> {
+        Binding(get: { box.selectedPublicationID },
+                set: { box.selectedPublicationID = $0 })
     }
 
     private var referencePiece: StructureItem? {
@@ -1088,15 +1582,11 @@ struct PublishCentreProbeView: View {
             ZStack {
                 editor
                 if showsAltitude { altitude }
-                if let publication = book { PublishPreviewCentre(
-                    publication: publication, projectURL: store.url,
-                    title: store.manifest.title) }
+                publishLayer
             }
         case .ownArm:
-            if let publication = book {
-                PublishPreviewCentre(publication: publication,
-                                     projectURL: store.url,
-                                     title: store.manifest.title)
+            if case .books(let publications) = publishCentre {
+                book(publications)
             } else if showsAltitude {
                 altitude
             } else {
@@ -1105,15 +1595,31 @@ struct PublishCentreProbeView: View {
         }
     }
 
+    @ViewBuilder
+    private var publishLayer: some View {
+        switch publishCentre {
+        case .books(let publications): book(publications)
+        case .notice(let notice): PublishCentreNoticeBanner(notice: notice)
+        case .none: EmptyView()
+        }
+    }
+
+    private func book(_ publications: [Publication]) -> some View {
+        PublishPreviewCentre(publications: publications, projectURL: store.url,
+                             title: store.manifest.title,
+                             selectedPublicationID: selection)
+    }
+
     private var showsAltitude: Bool {
         ProjectWindow.subjectShowsAltitude(persona: box.persona,
                                            subject: box.subject,
                                            structure: store.manifest.structure)
     }
 
-    private var book: Publication? {
-        ProjectWindow.publishPreviewCentre(persona: box.persona,
-                                           preview: box.preview)
+    private var publishCentre: PublishCentre? {
+        ProjectWindow.publishCentre(persona: box.persona, subject: box.subject,
+                                    structure: store.manifest.structure,
+                                    preview: box.preview)
     }
 
     private var editor: some View {
@@ -1146,7 +1652,10 @@ private struct PublishRefreshProbeView: View {
             .modifier(PublishPreviewModifier(
                 projectURL: projectURL, window: window, persona: box.persona,
                 publishPreview: Binding(get: { box.preview },
-                                        set: { box.preview = $0 })))
+                                        set: { box.preview = $0 }),
+                selectedPublicationID: Binding(
+                    get: { box.selectedPublicationID },
+                    set: { box.selectedPublicationID = $0 })))
             .onChange(of: window) { _, next in box.modifierWindow = next }
     }
 }

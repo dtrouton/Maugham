@@ -309,14 +309,12 @@ final class ResearchSubjectRoutingTests: XCTestCase {
                 ProjectWindow.showsStatusFooter(persona: persona,
                                                 subject: .item("doc1"),
                                                 showsPaletteWall: false,
-                                                publishPreview: .nothingCompiled,
                                                 structure: Self.oneDocument),
                 "control: \(persona) over a manuscript document still reports")
             XCTAssertFalse(
                 ProjectWindow.showsStatusFooter(persona: persona,
                                                 subject: .research("r1"),
                                                 showsPaletteWall: false,
-                                                publishPreview: .nothingCompiled,
                                                 structure: Self.oneDocument),
                 "\(persona) with a research item in the centre has no document "
                 + "for the footer to be about")
@@ -330,7 +328,6 @@ final class ResearchSubjectRoutingTests: XCTestCase {
                 ProjectWindow.showsStatusFooter(persona: persona,
                                                 subject: .item("doc1"),
                                                 showsPaletteWall: false,
-                                                publishPreview: .nothingCompiled,
                                                 structure: Self.oneDocument),
                 "\(persona): a document subject cannot conjure a footer over a "
                 + "centre column that is not a document")
@@ -355,7 +352,6 @@ final class ResearchSubjectRoutingTests: XCTestCase {
                 ProjectWindow.showsStatusFooter(persona: persona,
                                                 subject: .item("doc1"),
                                                 showsPaletteWall: true,
-                                                publishPreview: .nothingCompiled,
                                                 structure: Self.oneDocument),
                 "\(persona): the wall is centred over the document — the "
                 + "footer's four readings have nothing under them to report on")
@@ -363,14 +359,12 @@ final class ResearchSubjectRoutingTests: XCTestCase {
                 ProjectWindow.showsStatusFooter(persona: persona,
                                                 subject: .item("doc1"),
                                                 showsPaletteWall: false,
-                                                publishPreview: .nothingCompiled,
                                                 structure: Self.oneDocument),
                 "control: \(persona) with the wall closed still reports")
         }
         XCTAssertFalse(
             ProjectWindow.showsStatusFooter(persona: .plan, subject: .item("doc1"),
                                             showsPaletteWall: true,
-                                            publishPreview: .nothingCompiled,
                                             structure: Self.oneDocument),
             "Plan never shows the footer regardless — its centre is the board, "
             + "not a document, wall or no wall")
