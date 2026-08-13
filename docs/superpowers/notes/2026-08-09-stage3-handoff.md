@@ -132,6 +132,22 @@ all-red gate learning that).
   DerivedData mcp binary held the shared dev socket and poisoned gates for
   a whole night. `ps ax | grep -E "xcodebuild|maugham-mcp|MacOS/Maugham"`;
   kill only DerivedData-path processes, never `/Applications`.
+- **RESOLVED 2026-08-13 — the five `TreeTravelRowMountingTests` click tests
+  were never a flake, they were an unread premise.** A synthetic click is
+  only turned into a click while the test host is the ACTIVE application;
+  with the screen locked (`com.apple.loginwindow` frontmost) or the writer
+  working in another app, `NSApp.isActive` is false, there is no key window,
+  and AppKit drops the `mouseDown` before any view sees it — measured over
+  all three deliveries (`NSApp.sendEvent`, `window.sendEvent`, both):
+  `selectedRow` -1 every time, and the posted `mouseUp` comes back out of the
+  queue undigested, so the row's tracking loop never opened. The premise
+  cannot be forced (40 `NSApp.activate` calls across 40s, plus an external
+  `open` of the host bundle — never flipped). The click helper now asks for
+  activation and, only if the click MEASURABLY did not land, skips by name.
+  So: green when the Mac can give the host a key window (idle/unlocked, CI);
+  five named skips otherwise, instead of five 5.7s deadline burns that
+  reddened a whole gate. That also explains the 05:45-green / 06:10-red pair
+  at identical code.
 - **Never kill a run on one ps snapshot** — sample CPU over 10s AND check
   the log/xcresult advanced; one healthy 6-worker run died to a
   pattern-matched glance. The gate lock protects gates from gates, not

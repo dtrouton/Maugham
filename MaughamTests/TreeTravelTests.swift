@@ -217,6 +217,12 @@ final class TreeTravelReceiverTests: XCTestCase {
 /// `.dropDestination` install — unwidened by the added gesture.
 /// `BinderProjectRowTests.test_theProjectRowIsNeitherDraggableNorADropTarget`'s
 /// own shape.
+///
+/// **The five click tests here need the test host to be the ACTIVE
+/// application, and say so out loud when it isn't** — see `click(at:…)`'s
+/// premise helpers for the measurement. Seeing them SKIPPED in a gate means
+/// the machine could not give them a key window (a locked screen, or a front
+/// app that would not yield), not that the tree stopped working.
 @MainActor
 final class TreeTravelRowMountingTests: XCTestCase {
 
@@ -281,8 +287,8 @@ final class TreeTravelRowMountingTests: XCTestCase {
                           + "container rather than the label leaf — the "
                           + "TaskRow scar (tripwire 9)")
 
-        await click(at: CGPoint(x: label.midX, y: label.midY),
-                    in: table, window: window)
+        try await click(at: CGPoint(x: label.midX, y: label.midY),
+                        in: table, window: window)
         await pumpUntil(deadline: 5) { probe.subject == .item(firstDoc.id) }
 
         XCTAssertEqual(table.selectedRow, 1,
@@ -316,8 +322,8 @@ final class TreeTravelRowMountingTests: XCTestCase {
         XCTAssertTrue(ready, "the probe's window never resolved — premise")
 
         let label = try XCTUnwrap(labelFrame(ofRow: 1, in: table))
-        await click(at: CGPoint(x: label.midX, y: label.midY),
-                    in: table, window: window, clicks: 2)
+        try await click(at: CGPoint(x: label.midX, y: label.midY),
+                        in: table, window: window, clicks: 2)
         await pumpUntil(deadline: 5) { probe.persona == .author }
 
         XCTAssertEqual(probe.persona, .author,
@@ -348,8 +354,8 @@ final class TreeTravelRowMountingTests: XCTestCase {
                              "there is no whitespace past this label to click "
                              + "— premise failing")
 
-        await click(at: CGPoint(x: past, y: rect.midY),
-                    in: table, window: window, clicks: 2)
+        try await click(at: CGPoint(x: past, y: rect.midY),
+                        in: table, window: window, clicks: 2)
         await waitOut(0.5)
 
         XCTAssertEqual(probe.persona, .plan,
@@ -396,8 +402,8 @@ final class TreeTravelRowMountingTests: XCTestCase {
         defer { TreeTravelClickWatcher.shared.start() }
 
         let label = try XCTUnwrap(labelFrame(ofRow: 1, in: table))
-        await click(at: CGPoint(x: label.midX, y: label.midY),
-                    in: table, window: window, clicks: 2)
+        try await click(at: CGPoint(x: label.midX, y: label.midY),
+                        in: table, window: window, clicks: 2)
         await waitOut(0.5)
 
         XCTAssertEqual(probe.persona, .plan,
@@ -423,8 +429,8 @@ final class TreeTravelRowMountingTests: XCTestCase {
         let (window, probe, table) = try await hostBinder(store: store)
 
         let label = try XCTUnwrap(labelFrame(ofRow: 1, in: table))
-        await click(at: CGPoint(x: label.midX, y: label.midY),
-                    in: table, window: window)
+        try await click(at: CGPoint(x: label.midX, y: label.midY),
+                        in: table, window: window)
         await pumpUntil(deadline: 5) { probe.subject == .item(firstDoc.id) }
 
         // **The delivery premise, asserted before the contract** — a synthetic
@@ -720,17 +726,108 @@ final class TreeTravelRowMountingTests: XCTestCase {
         return found
     }
 
-    private func click(row: Int, in table: NSTableView, window: NSWindow) async {
+    private func click(row: Int, in table: NSTableView, window: NSWindow) async throws {
         let rect = table.rect(ofRow: row)
-        await click(at: CGPoint(x: rect.midX, y: rect.midY),
-                    in: table, window: window)
+        try await click(at: CGPoint(x: rect.midX, y: rect.midY),
+                        in: table, window: window)
+    }
+
+    /// **The premise every synthetic click here rests on, read off the
+    /// environment it actually got** — the CI-display-width rule (CLAUDE.md)
+    /// applied to activation instead of geometry: a mounted test must check
+    /// what the machine affords rather than assume it.
+    ///
+    /// A synthetic mouse event is only turned into a *click* if the test host
+    /// is the ACTIVE application. When it is not — the screen is locked, so
+    /// `com.apple.loginwindow` is frontmost, or the writer is working in
+    /// another app and macOS's cooperative activation refuses to yield —
+    /// AppKit drops the `mouseDown` before any view sees it, and the whole
+    /// suite's technique stops working. Measured directly, 2026-08-13, three
+    /// deliveries in one build with `NSApp.isActive == false` and
+    /// `NSApp.keyWindow == nil`:
+    ///
+    /// | delivery                    | monitor fires | `selectedRow` |
+    /// |-----------------------------|---------------|---------------|
+    /// | `NSApp.sendEvent` (ours)    | yes           | -1            |
+    /// | `window.sendEvent`          | **no**        | -1            |
+    /// | both                        | yes           | -1            |
+    ///
+    /// The drain is the tell: the posted `mouseUp` comes back OUT of the queue
+    /// undigested, so `-[NSTableView mouseDown:]` never opened its
+    /// drag-disambiguation loop — the click was never delivered at all. The
+    /// window's own `isKeyWindow` override does not buy its way past this;
+    /// AppKit reads the real key status, and there is no key window in an
+    /// inactive app. Nor can the premise be forced: `NSApp.activate` was called
+    /// 40 times across 40 seconds against a locked screen, and an external
+    /// `open` of the host bundle was tried alongside it — `isActive` never
+    /// flipped.
+    ///
+    /// So the click first ASKS for the premise — `NSApp.activate()`, which
+    /// costs nothing when the host is already active and is granted whenever
+    /// the front app yields — and then, if the click demonstrably did not land,
+    /// skips BY NAME. A named skip beats five 5.7-second poll-deadline burns
+    /// that turn a whole gate red for a reason that has nothing to do with the
+    /// code under test.
+    ///
+    /// **The skip is decided AFTERWARDS, on a measurement, never on
+    /// `NSApp.isActive` alone.** Reading the flag up front and skipping on it
+    /// would be a guess about a state this session could not reproduce (the
+    /// machine was locked throughout), and a wrong guess there is the worst
+    /// outcome available: five tests that silently stop running in the very
+    /// environment they were green in. So the discriminator is the conjunction
+    /// of a fact about the click — the row under the point is not the row that
+    /// ended up selected, i.e. AppKit never turned these events into a click —
+    /// and a fact about the machine, that the host is not the active app. Where
+    /// the click DOES land, nothing is skipped whatever the flag says; where
+    /// the host IS active, a click that fails to select is a real failure and
+    /// the test's own assertions say so in their own words.
+    ///
+    /// **The check lives in `click` rather than in the five tests** so a click
+    /// test added later cannot forget it — the same reason the quiescing drain
+    /// below is here and not at the call sites.
+    ///
+    /// The `window.sendEvent` row above also records why this helper posts to
+    /// `NSApp` at all: `TreeTravelClickWatcher` is an `NSEvent` LOCAL MONITOR,
+    /// and local monitors are run by `NSApplication`'s own dispatch. Sending
+    /// straight to the window — `SceneNavigatorProjectRowTests`' technique,
+    /// which works there because those rows carry no `.draggable` and open no
+    /// tracking loop — bypasses the watcher entirely and would prove nothing
+    /// about travel.
+    private func askForTheClickPremise(_ window: NSWindow) async {
+        let app = NSApplication.shared
+        guard !app.isActive else { return }
+        app.activate()
+        window.makeKeyAndOrderFront(nil)
+        _ = await pumpUntil(deadline: 1) { app.isActive }
+    }
+
+    /// Raised after the click, never before — see ``askForTheClickPremise``.
+    private func skipIfTheClickWasNeverDelivered(
+        at point: CGPoint, in table: NSTableView, function: StaticString
+    ) throws {
+        let app = NSApplication.shared
+        let row = table.row(at: point)
+        guard !app.isActive, row >= 0, table.selectedRow != row else { return }
+        let frontmost = NSWorkspace.shared.frontmostApplication?
+            .bundleIdentifier ?? "unknown"
+        throw XCTSkip(
+            "\(function): no key window is attainable, and the synthetic click "
+            + "was measurably not delivered — the point is over row \(row), "
+            + "`selectedRow` is \(table.selectedRow), and the test host is not "
+            + "the active application (frontmost: \(frontmost)). AppKit drops a "
+            + "synthetic mouseDown aimed at a window that is not really key, so "
+            + "this test's delivery premise cannot hold here. It runs whenever "
+            + "the host can activate: an unlocked Mac whose front app yields, "
+            + "and CI, where the host is the only app.")
     }
 
     /// `clicks: 2` sends the pair AppKit itself would: two down/up pairs with
     /// ascending `clickCount`, which is what `NSEvent.clickCount == 2` — the
     /// watcher's own discriminator — is reading.
     private func click(at point: CGPoint, in table: NSTableView,
-                       window: NSWindow, clicks: Int = 1) async {
+                       window: NSWindow, clicks: Int = 1,
+                       function: StaticString = #function) async throws {
+        await askForTheClickPremise(window)
         let inWindow = table.convert(point, to: nil)
         let app = NSApplication.shared
         // **The queue has to be QUIET before the pair goes in** — this helper's
@@ -784,6 +881,8 @@ final class TreeTravelRowMountingTests: XCTestCase {
             pump(0.02)
         }
         await waitOut(0.4)
+        try skipIfTheClickWasNeverDelivered(at: point, in: table,
+                                            function: function)
     }
 
     /// Matched by class NAME, same as `BinderProjectRowTests` — the type is
