@@ -474,6 +474,14 @@ ran overnight.
   `origin/main` ref stale; merging without fetching would have been a
   silent no-op that looked clean.
 
+- **One-sighting load flake (2026-08-13, full gate 20:50)**:
+  `PublishPreviewCentreTests.test_thePreviewEditorAltitudeRoundTripNeverTearsTheHostDown`
+  failed in-suite with `XCTAssertFalse failed - the chapter opened in the
+  host that was already there` (0.45s, not a deadline), green in isolation
+  and green on the immediate rerun of the full gate. The recorder counted
+  an extra host appearance under parallel load only. If it recurs on a
+  quiet machine it is real; the xcresult discipline exists for exactly
+  this row.
 - **Second sighting** of
   `ScreenplaySingleParseTests.test_applyTypography_usesPassedScript_notReparse`
   (0.000s, fontd cold-start shape, green in isolation, no rival build) —
