@@ -2634,9 +2634,13 @@ struct ProjectWindow: View {
     /// pane's own private selection, and both halves died with the strip in
     /// stage 2b Task 7. What replaces them is one write, and it is strictly more
     /// than the two it replaces: `researchSubjectPlacement` routes a research
-    /// subject to the centre column in Author, Review and Publish and beside the
-    /// board in Plan, so **Open** now works from Plan — where the old pair could
-    /// only work by dragging the writer's left column out from under them.
+    /// subject to the centre column in Author and Review and beside the board in
+    /// Plan, so **Open** now works from Plan — where the old pair could only work
+    /// by dragging the writer's left column out from under them. (Publish is the
+    /// fourth answer and it is `.nothingMoves`, stage 3b Task 5: neither column
+    /// acts on the item, so the subject falls through to project level — the
+    /// compiled book, or altitude and its notice. This line claimed Publish took
+    /// the centre for a slice after that stopped being true.)
     ///
     /// **And the tree opens far enough to show the row** (stage-3a Task 4).
     /// This was the one thing the old segment force did that the subject write

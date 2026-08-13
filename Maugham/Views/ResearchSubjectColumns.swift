@@ -127,10 +127,13 @@ extension ProjectWindow {
     /// each right on its own.
     ///
     /// **What it does NOT do is decide anything about the columns.** Where the
-    /// centre takes the item (Author, Review, Publish) this writes nothing at
-    /// all, so a writer's pane choice in those personas is never moved by a
-    /// research click — the guard is the placement's own answer, asked rather
-    /// than a second `centresTheCanvas` test.
+    /// centre takes the item (Author, Review) — and where nothing moves at all
+    /// (Publish, whose centre is the book) — this writes nothing, so a writer's
+    /// pane choice in those personas is never moved by a research click; the
+    /// guard is the placement's own answer, asked rather than a second
+    /// `centresTheCanvas` test. The Publish half of that list read "the centre
+    /// takes the item" for a slice after stage 3b Task 5 made it `.nothingMoves`
+    /// — the right conclusion (nothing is written) from a false premise.
     ///
     /// `inout` and static so the whole rule is drivable without a window, and so
     /// the three sites that reveal — the subject observer

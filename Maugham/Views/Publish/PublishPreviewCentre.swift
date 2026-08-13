@@ -129,8 +129,34 @@ struct PublishPreviewCentre: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
+    /// **The header, and the one place this view branches on VoiceOver rather
+    /// than on layout.**
+    ///
+    /// With a single publication the row is four labels and no control, so it is
+    /// COMBINED into one sentence — *"The Novel, v1.0 · ES · 12 Aug 2026 at
+    /// 15:04"* — which is what this column read before the picker existed and is
+    /// the right reading: four fragments swept past one arrow key at a time say
+    /// less than the sentence they make together.
+    ///
+    /// With a choice to make the row must NOT combine, and that is the whole
+    /// reason for the branch: `.combine` flattens its children into one static
+    /// element, and the child it would flatten here is the `Picker` — the only
+    /// way to reach another publication without a mouse. Combining it away
+    /// would trade a slightly better sentence for a control a VoiceOver user
+    /// cannot operate. Uncombined, the title reads itself and the picker
+    /// announces its own label and value.
     @ViewBuilder
     private var header: some View {
+        if publications.count > 1 {
+            headerRow
+        } else {
+            headerRow
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(accessibilityLabel)
+        }
+    }
+
+    private var headerRow: some View {
         HStack(spacing: 8) {
             Image(systemName: "book.closed")
                 .foregroundStyle(.secondary)
@@ -147,7 +173,6 @@ struct PublishPreviewCentre: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .accessibilityLabel(accessibilityLabel)
     }
 
     /// **Every readable PDF, newest first** — EPUBs are the Exports footer's

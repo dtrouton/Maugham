@@ -787,6 +787,68 @@ final class PublishPreviewCentreTests: XCTestCase {
                        + "screen — the header's whole purpose")
     }
 
+    /// **One publication reads as ONE sentence** — the header this column had
+    /// before the picker existed, restored for the case that still has no
+    /// control in it: four fragments swept past one arrow key at a time say less
+    /// than the sentence they make together.
+    func test_aSingleBookHeaderReadsAsOneCombinedSentence() async throws {
+        let store = try await novel()
+        let publication = try await compileOne(into: store)
+        let mount = try await host(store: store, persona: .publish, subject: .project,
+                                   preview: .ready(newestFirst: [publication]))
+        await pumpUntil(deadline: 5) { !self.pdfViews(in: mount.window).isEmpty }
+
+        // **Read off label AND value.** A combined `AXStaticText` carries its
+        // sentence as its VALUE — a predicate over the label alone finds
+        // nothing here and would be equally silent over a header that never
+        // combined at all.
+        let sentence = "\(store.manifest.title), v\(publication.version)"
+        let elements = try axElements(in: mount.window,
+                                      until: { Self.text(of: $0).contains(sentence) })
+        XCTAssertTrue(
+            elements.contains { Self.text(of: $0).contains(sentence) },
+            "the single-publication header must combine into one element — the "
+            + "book's name and which printing it is belong in the same "
+            + "sentence. Elements: "
+            + "\(elements.map { "\($0.role)|\($0.label)|\($0.value)" })")
+    }
+
+    /// **…and the header with a CHOICE in it must not combine**, which is the
+    /// reason the view branches at all: `.combine` flattens its children into
+    /// one static element, and the child it would flatten here is the picker —
+    /// the only way to reach another publication without a mouse.
+    func test_theHeaderWithAChoiceKeepsThePickerReachable() async throws {
+        let store = try await novel()
+        let older = try await append(to: PublicationStore(projectURL: store.url),
+                                     in: store.url, version: "1.0", minutesAgo: 60)
+        let newer = try await append(to: PublicationStore(projectURL: store.url),
+                                     in: store.url, version: "1.1", minutesAgo: 5)
+        let mount = try await host(store: store, persona: .publish, subject: .project,
+                                   preview: .ready(newestFirst: [newer, older]))
+        await pumpUntil(deadline: 5) { !self.pdfViews(in: mount.window).isEmpty }
+
+        let isPicker: ((role: String, label: String, value: String)) -> Bool = {
+            Self.text(of: $0).contains("Publication")
+                || $0.role == "AXPopUpButton" || $0.role == "AXMenuButton"
+        }
+        let elements = try axElements(in: mount.window, until: isPicker)
+        // The premise FIRST: without it the absence asserted below is equally
+        // true of a tree SwiftUI has not built yet, and this test would pass
+        // over a header that combined everything away.
+        XCTAssertTrue(
+            elements.contains(where: isPicker),
+            "the picker must be an element of its own, or a VoiceOver user "
+            + "cannot reach the other printings at all. Elements: "
+            + "\(elements.filter { !$0.label.isEmpty }.map { "\($0.role):\($0.label)" })")
+        XCTAssertFalse(
+            elements.contains {
+                Self.text(of: $0).contains("\(store.manifest.title), v")
+            },
+            "…and the combined sentence is the SINGLE-publication header's: "
+            + "here it would have flattened that picker into a static string. "
+            + "Elements: \(elements.map { "\($0.role)|\($0.label)|\($0.value)" })")
+    }
+
     /// **With nothing compiled, a chapter in Publish opens in the editor** —
     /// unchanged by the ruling, and the control that says the test above is
     /// about the compiled case rather than about a persona that stopped working.
@@ -1310,21 +1372,57 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// no accessibility tree at all unless an assistive client is attached to
     /// the process.
     private func labels(in window: NSWindow) throws -> [String] {
+        try axElements(in: window).flatMap { [$0.label, $0.value] }
+            .filter { !$0.isEmpty }
+    }
+
+    /// The same walk, keeping each element whole — role beside label — because
+    /// "the picker is still an element of its own" is a claim about an element
+    /// and not about a string.
+    ///
+    /// `until:` is the retry the established idiom carries (`TreeFindOverlay
+    /// Tests.closeButton`): SwiftUI builds its accessibility tree lazily, so the
+    /// first read of a freshly mounted subtree is routinely a row of empty
+    /// labels. The last read is returned either way, so a failure prints what
+    /// was actually there.
+    private func axElements(
+        in window: NSWindow,
+        until satisfied: ((role: String, label: String, value: String)) -> Bool = { _ in true }
+    ) throws -> [(role: String, label: String, value: String)] {
+        var elements = try axElements(in: window)
+        for _ in 0..<20 where !elements.contains(where: satisfied) {
+            pump(0.1)
+            elements = try axElements(in: window)
+        }
+        return elements
+    }
+
+    private func axElements(in window: NSWindow) throws
+    -> [(role: String, label: String, value: String)] {
         var role: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(
             AXUIElementCreateApplication(getpid()), kAXRoleAttribute as CFString, &role)
         guard error == .success, role != nil else {
             throw XCTSkip(
                 "no assistive client could be attached to this process, so "
-                + "SwiftUI builds no accessibility tree to read the notice from")
+                + "SwiftUI builds no accessibility tree to read the header from")
         }
         guard let root = window.contentView else { return [] }
-        return axElements(under: root).flatMap { element -> [String] in
-            [axAttribute(element, "accessibilityLabel") as? String,
-             axAttribute(element, "accessibilityValue") as? String]
-                .compactMap { $0 }
-                .filter { !$0.isEmpty }
+        return axElements(under: root).map { element in
+            (role: axAttribute(element, "accessibilityRole") as? String ?? "",
+             label: axAttribute(element, "accessibilityLabel") as? String ?? "",
+             value: axAttribute(element, "accessibilityValue") as? String ?? "")
         }
+    }
+
+    /// What an element SAYS — its label if it has one, else its value. A
+    /// combined `Text` row is an `AXStaticText` whose sentence is the value, and
+    /// a control's is its label, so any assertion about copy on screen has to
+    /// read both or it is asserting about the wrong field.
+    private static func text(
+        of element: (role: String, label: String, value: String)
+    ) -> String {
+        element.label.isEmpty ? element.value : element.label
     }
 
     private func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {
