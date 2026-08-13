@@ -160,6 +160,19 @@ was installed with. Without it, a kill-and-respawn lets the dead process's EOF
 resolve the new run's continuation — the shape tripwire 2 warns about
 (flag-based loop guards leak) arriving in a subprocess.
 
+**The death verdict is a JOIN of two independent deliveries.** stdout's EOF
+(the anchor — every byte read) and the process's exit (the status, and the
+proof the stderr drain cannot block) must both arrive, bounded by
+`defaultDeathReapGrace` (2s, injectable), with timeout falling back to the
+honest "the CLI closed its output". Either event can precede the other: EOF
+leads a clean close, but an inherited pipe held by a spawned grandchild
+outlives SIGTERM, so the process exits first and `waitpid` proves it is gone.
+Before this join, an EOF-only verdict collapsed the writer's diagnostic to a
+sentence with no body and no essence (issue #36). The generation guard is what
+makes the wait safe: a verdict returned to a retired generation is ignored, so
+a send inside the grace spawns fresh rather than reusing the process that is
+dying.
+
 ## The `--resume` fallback — pre-authorized, and NOT built
 
 Spec §3.4 pre-authorizes a swap: if the warm process proves brittle in the
