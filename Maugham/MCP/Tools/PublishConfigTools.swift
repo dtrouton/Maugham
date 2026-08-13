@@ -52,6 +52,17 @@ public enum SetPublishConfigTool: MCPTool {
         guard let patchObj = outer?["patch"] else {
             throw MCPError.invalidArgument("patch required")
         }
+        // A JSON Merge Patch (RFC 7396) applied to a config object is itself an
+        // object; the input schema says so (`patch: {type: object}`). Enforce it
+        // BEFORE JSONSerialization.data(withJSONObject:), which raises an
+        // uncatchable NSInvalidArgumentException — aborting the whole MCP server —
+        // when handed a top-level scalar, null, or array. A key deleted via
+        // RFC 7396's null lives INSIDE the object and is unaffected. (RULING-7:
+        // say so rather than appear broken.)
+        guard patchObj is [String: Any] else {
+            throw MCPError.invalidArgument(
+                "patch must be a JSON object (RFC 7396 merge patch); a scalar, null, or array is not a valid patch")
+        }
         let entry = try resolveProject(projectID, in: registry)
         let patchData = try JSONSerialization.data(withJSONObject: patchObj, options: [])
         let cfgStore = PublishConfigStore(projectURL: entry.url)

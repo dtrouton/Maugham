@@ -91,11 +91,27 @@ public enum ListPublishFilesTool: MCPTool {
         var files: [[String: Any]] = []
         var buildArtifacts: [[String: Any]] = []
 
-        if FileManager.default.fileExists(atPath: publishRoot.path),
-           let enumerator = FileManager.default.enumerator(
-            at: publishRoot,
-            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]) {
+        // An ABSENT publish directory is the legitimate not-configured-yet state
+        // and reads as an empty tree. A PRESENT-but-unreadable one must NOT read
+        // as empty (RULING-7: unreadable is never presented as empty) — and its
+        // emptiness is silent: `enumerator(at:)` returns a NON-nil enumerator that
+        // simply yields nothing, so the readability has to be checked directly.
+        if FileManager.default.fileExists(atPath: publishRoot.path) {
+            guard FileManager.default.isReadableFile(atPath: publishRoot.path) else {
+                throw MCPError.toolError(payload: .init(
+                    error: "publish_dir_unreadable",
+                    message: "The publish directory (.maugham/publish/) exists but could not be read.",
+                    hint: "Check the directory's permissions, or wait for iCloud to finish syncing, then retry."))
+            }
+            guard let enumerator = FileManager.default.enumerator(
+                at: publishRoot,
+                includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
+                options: [.skipsHiddenFiles]) else {
+                throw MCPError.toolError(payload: .init(
+                    error: "publish_dir_unreadable",
+                    message: "The publish directory (.maugham/publish/) exists but could not be enumerated.",
+                    hint: "Check the directory's permissions, or wait for iCloud to finish syncing, then retry."))
+            }
             let rootPath = publishRoot.standardizedFileURL.path + "/"
             let iso = ISO8601DateFormatter()
             while let item = enumerator.nextObject() as? URL {

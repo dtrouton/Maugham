@@ -234,15 +234,28 @@ final class MCPToolsPublishingCharacterization: XCTestCase {
         XCTAssertEqual(image?.message, "image not found: cover.jpg")
     }
 
-    /// The DIRECTORY has no such protection: an unreadable `.maugham/publish/`
-    /// is reported as an empty publish tree, not as a failure. `list_publish_files`
-    /// builds its enumerator with `try?` and a nil enumerator reads as "no files".
-    func test_listPublishFiles_unreadableDirectoryReadsAsEmpty() async throws {
+    /// M10-MT-037 (fix loop, RULING-7 "unreadable is never presented as empty").
+    /// An unreadable `.maugham/publish/` used to read as an empty publish tree
+    /// (a nil enumerator → "no files"). It now REFUSES by name. The ABSENT
+    /// directory — the not-configured-yet state — still reads as an empty tree,
+    /// so absent and unreadable are now different answers.
+    func test_listPublishFiles_unreadableDirectoryRefusesNotEmpty() async throws {
         try lock(publishDir)
+        let err = await XCTUnwrapThrow {
+            _ = try await ListPublishFilesTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)"}"#.utf8), registry: registry)
+        }
+        let p = rendered(err)
+        XCTAssertEqual(p.error, "publish_dir_unreadable")
+        XCTAssertTrue(p.message.contains("could not be read"), p.message)
+
+        // Control: absent directory still reads as an empty tree, no error.
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: publishDir.path)
+        try FileManager.default.removeItem(at: publishDir)
         let resp = json(try await ListPublishFilesTool.handle(
             paramsJSON: Data(#"{"project_id":"\#(pid!)"}"#.utf8), registry: registry))
         XCTAssertEqual((resp["files"] as? [Any])?.count, 0)
-        XCTAssertEqual((resp["build_artifacts"] as? [Any])?.count, 0)
         XCTAssertNil(resp["error"])
     }
 
@@ -317,19 +330,42 @@ final class MCPToolsPublishingCharacterization: XCTestCase {
         XCTAssertTrue(p?.message.contains("Code=257") == true)
     }
 
-    /// DEFECT PIN (deliberately not exercised end-to-end). `SetPublishConfigTool`
-    /// guards only that `patch` is PRESENT, then hands the value straight to
-    /// `JSONSerialization.data(withJSONObject:)`. A scalar — `"patch":"hello"`
-    /// or `"patch":null` — is not a valid top-level JSON object, and that call
-    /// raises an Objective-C `NSInvalidArgumentException`, which Swift cannot
-    /// catch: the probe run aborted the host process
-    /// ("Crash: Maugham at <external symbol>. libsystem_c.dylib: abort()
-    /// called"). Calling the handler here would take the whole test process
-    /// down with it, so this pins the precondition instead — the values a
-    /// client can send that the handler forwards unchecked.
-    func test_setPublishConfig_nonObjectPatchIsUnguarded() throws {
-        XCTAssertFalse(JSONSerialization.isValidJSONObject("hello"))
-        XCTAssertFalse(JSONSerialization.isValidJSONObject(NSNull()))
+    /// M10-MT-038 (fix loop, RULING-7 "say so rather than appear broken").
+    /// A non-object `patch` — a scalar `"hello"`, a top-level `null`, or an
+    /// array — used to reach `JSONSerialization.data(withJSONObject:)`, which
+    /// raises an uncatchable NSInvalidArgumentException and ABORTED the whole
+    /// MCP server. It is now refused with the named `invalid_argument` the tool
+    /// already gives for a missing patch, and the process survives (this test
+    /// calling the handler end-to-end is itself the proof: pre-fix it crashed
+    /// the host). The RFC-7396 null-deletes-a-key feature is unaffected — that
+    /// null lives inside the object, not at the top level.
+    func test_setPublishConfig_nonObjectPatchIsRefusedNotCrashing() async throws {
+        for patch in [#""hello""#, "null", "[1,2,3]", "42"] {
+            let p = rendered(await XCTUnwrapThrow {
+                _ = try await SetPublishConfigTool.handle(
+                    paramsJSON: Data(#"{"project_id":"\#(pid!)","patch":\#(patch)}"#.utf8),
+                    registry: registry)
+            })
+            XCTAssertEqual(p.error, "invalid_argument", "patch=\(patch)")
+            XCTAssertTrue(p.message.contains("must be a JSON object"), "patch=\(patch): \(p.message)")
+        }
+        // The null-deletes-a-key feature (RFC 7396) still works: an OBJECT patch
+        // carrying an inner null is accepted, not swept up by the guard.
+        let ok = try await SetPublishConfigTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","patch":{"metadata":{"subtitle":null}}}"#.utf8),
+            registry: registry)
+        XCTAssertNotNil(json(ok)["config"])
+    }
+
+    /// Helper: run a throwing async body and return the error it throws, failing
+    /// the test if it does not throw. (XCTAssertThrowsError has no async form.)
+    private func XCTUnwrapThrow(
+        _ body: () async throws -> Void,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async -> Error {
+        do { try await body(); XCTFail("expected a thrown error", file: file, line: line) }
+        catch { return error }
+        return MCPError.internalError("unreachable")
     }
 
     // MARK: - compile refusals
