@@ -296,23 +296,37 @@
  },
  {
   "claim_id": "M10-MT-037",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-7",
   "clause_that_reaches_it": "Unreadable is never presented as empty",
-  "why_in_scope": "list_publish_files builds its enumerator with try? and a nil enumerator reads as 'no files', so an unreadable .maugham/publish/ directory is presented to Claude as an empty publish tree. (The single-file readers on the same family — read_publish_file, get_publish_config — DO distinguish absent from unreadable and comply; the directory reader is the violation)",
+  "why_in_scope": "a present-but-unreadable publish directory was read as an empty tree; it now refuses with a named publish_dir_unreadable, while an absent directory still reads as empty — absent and unreadable are now different answers",
   "intent_expressed_when": "not at all — the file readers distinguish the cases; the directory try? does not",
   "call_path": "list_publish_files over an unreadable .maugham/publish/ directory",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "4218bcdc",
+   "date": "2026-08-13",
+   "authorised_by": "RULING-7 (standing); Denver 2026-08-13 'open fix loops'",
+   "pinned_by": "MCPToolsPublishingCharacterization.test_listPublishFiles_unreadableDirectoryRefusesNotEmpty",
+   "note": "the emptiness was silent — enumerator(at:) returns non-nil yielding nothing — so readability is checked directly (isReadableFile)"
+  }
  },
  {
   "claim_id": "M10-MT-038",
-  "outcome": "VIOLATES",
+  "outcome": "COMPLIES",
   "ruling": "RULING-7",
   "clause_that_reaches_it": "A capture this build cannot handle says so rather than appearing broken",
-  "why_in_scope": "set_publish_config guards only that patch is PRESENT, then hands it to JSONSerialization.data(withJSONObject:); a scalar patch value raises an uncatchable NSInvalidArgumentException that ABORTS the whole MCP server — the tool, handed input it cannot process, takes the server down rather than saying it cannot handle it, the strongest form of 'appearing broken'. (The validate-first ordering on well-typed patches complies with RULING-52 and is noted)",
+  "why_in_scope": "a non-object patch value used to abort the whole MCP server via an uncatchable ObjC exception; it is now refused with a named invalid_argument, so the tool says it cannot handle the input rather than taking the server down",
   "intent_expressed_when": "not at all",
   "call_path": "set_publish_config with a scalar (string/null) patch value",
-  "violation_or_enhancement": "violation"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "4218bcdc",
+   "date": "2026-08-13",
+   "authorised_by": "RULING-7 (standing); Denver 2026-08-13 'open fix loops'",
+   "pinned_by": "MCPToolsPublishingCharacterization.test_setPublishConfig_nonObjectPatchIsRefusedNotCrashing",
+   "note": "the crash was reachable with well-formed JSON (\"patch\": null); RFC-7396 null-deletes-a-key is unaffected"
+  }
  },
  {
   "claim_id": "M10-MT-039",
@@ -342,8 +356,8 @@
  {
   "_summary": {
    "reached": 27,
-   "complies": 15,
-   "violates": 12,
+   "complies": 17,
+   "violates": 10,
    "no_ruling": 14,
    "total": 41,
    "coverage": "66%",

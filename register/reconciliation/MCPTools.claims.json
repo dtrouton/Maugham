@@ -580,13 +580,13 @@
   "claim_id": "M10-MT-037",
   "scope": "read_publish_file / list_publish_files / get_publish_config — absent vs unreadable",
   "kind": "POSTCONDITION",
-  "statement": "read_publish_file distinguishes the two (absent → named invalid_argument; unreadable-yet-present → internal_error carrying the raw Cocoa error, which does say 'permission' and leaks the absolute on-disk path); get_publish_config keeps absent as the documented source:\"defaults\" and never silently defaults a corrupt/unreadable one (both throw as internal_error). But an unreadable publish DIRECTORY has NO such protection: list_publish_files builds its enumerator with try? and a nil enumerator reads as 'no files', so an unreadable .maugham/publish/ is reported as an empty publish tree",
+  "statement": "list_publish_files distinguishes ABSENT from UNREADABLE: an absent .maugham/publish/ reads as an empty tree (the not-configured-yet state), while a present-but-unreadable one REFUSES with a named publish_dir_unreadable (message + a permissions/iCloud hint) rather than presenting the unreadable directory as empty — its emptiness was silent because enumerator(at:) returns a non-nil enumerator that yields nothing, so readability is now checked directly (isReadableFile). The single-file readers on the family (read_publish_file, get_publish_config) already distinguished absent from unreadable.",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "MCPToolsPublishingCharacterization.test_readPublishFile_absentIsInvalidArgument_unreadableIsInternalError; MCPToolsPublishingCharacterization.test_getPublishConfig_absentIsDefaults_corruptAndUnreadableAreInternalError; MCPToolsPublishingCharacterization.test_listPublishFiles_unreadableDirectoryReadsAsEmpty"
+   "ref": "MCPToolsPublishingCharacterization.test_listPublishFiles_unreadableDirectoryRefusesNotEmpty; MCPToolsPublishingCharacterization.test_readPublishFile_absentIsInvalidArgument_unreadableIsInternalError; MCPToolsPublishingCharacterization.test_getPublishConfig_absentIsDefaults_corruptAndUnreadableAreInternalError"
   },
   "warrant": "HIGH",
-  "intent": "UNKNOWN — the file readers distinguish the cases (good); the directory try? that reads unreadable-as-empty is the gap",
+  "intent": "INTENTIONAL — fixed this branch under RULING-7 (fix loop)",
   "reachability": "LIVE — publish-file reads over absent/unreadable files and an unreadable publish directory",
   "evidence": {
    "property_test": null
@@ -596,13 +596,13 @@
   "claim_id": "M10-MT-038",
   "scope": "set_publish_config / set_piece_style — validate-first (RULING-52), and a non-object patch crash",
   "kind": "POSTCONDITION",
-  "statement": "set_publish_config half-lands nothing: a patch whose TYPES don't fit throws out of the decode before any save (rendered internal_error though the fault is the caller's); a patch that decodes but fails validation returns the ordinary body with errors and saves nothing; an unreadable config refuses the patch rather than patching a default over the writer's real one. set_piece_style likewise validates fully before touching disk (unknown piece / unreadable config → pieces/ never created, no style file). BUT set_publish_config guards only that patch is PRESENT then hands the value to JSONSerialization.data(withJSONObject:); a scalar patch ('patch':'hello' or null) is not a valid top-level object and raises an uncatchable Objective-C NSInvalidArgumentException that aborts the host process",
+  "statement": "set_publish_config REFUSES a non-object patch (a top-level scalar, null, or array) with the named invalid_argument it already gives for a missing patch, BEFORE JSONSerialization.data(withJSONObject:) — which previously raised an uncatchable NSInvalidArgumentException that aborted the whole MCP server (reachable with well-formed JSON via \"patch\": null). RFC-7396's null-deletes-a-key is unaffected (that null lives inside the object). Validate-first ordering on well-typed patches is unchanged (a type mismatch throws before any save; a validation failure returns errors and saves nothing), and set_piece_style likewise validates fully before touching disk.",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "MCPToolsPublishingCharacterization.test_setPublishConfig_malformedPatchPersistsNothing; MCPToolsPublishingCharacterization.test_setPublishConfig_unreadableConfigRefusesBeforeWriting; MCPToolsPublishingCharacterization.test_setPieceStyle_refusalsLeaveNothingBehind; MCPToolsPublishingCharacterization.test_setPublishConfig_nonObjectPatchIsUnguarded"
+   "ref": "MCPToolsPublishingCharacterization.test_setPublishConfig_nonObjectPatchIsRefusedNotCrashing; MCPToolsPublishingCharacterization.test_setPublishConfig_malformedPatchPersistsNothing; MCPToolsPublishingCharacterization.test_setPublishConfig_unreadableConfigRefusesBeforeWriting; MCPToolsPublishingCharacterization.test_setPieceStyle_refusalsLeaveNothingBehind"
   },
   "warrant": "HIGH",
-  "intent": "UNKNOWN — the validate-first ordering is RULING-52's shape (good); the non-object-patch crash is an unguarded input, a defect (the test is documentation-only and does not trigger the abort in-suite)",
+  "intent": "INTENTIONAL — fixed this branch under RULING-7 (fix loop)",
   "reachability": "LIVE — set_publish_config with a scalar patch value crashes the whole MCP server",
   "evidence": {
    "property_test": null
