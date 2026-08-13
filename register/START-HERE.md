@@ -59,8 +59,9 @@ why. **Read `register/RULINGS.md` and nothing else.**
 | `Publish/Republisher` (+`CompileOrchestrator`) | 11 | 91% | 10 / 0 | — |
 | `Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings) | 12 | 75% | 9 / 0 | — |
 | `OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice) | 17 | 100% | 17 / 0 | — |
+| `MCP/Tools/` failure tail (all tool families; RULING-21 lens) | 41 | 66% | 15 / 12 | — |
 
-The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 274 further claims in their own files. **443 claims in the experiment, 422 reconciled.** The app layer stands at **171 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
+The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 315 further claims in their own files. **484 claims in the experiment, 463 reconciled.** The app layer stands at **186 complies / 12 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
 App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`). Exception: the OpLog row's pins live where their subjects do — `MaughamTests/OpLog/` and the MaughamCore package tests (`core-tests`/`behavioural-claims`) — not under `Claims/`.
 

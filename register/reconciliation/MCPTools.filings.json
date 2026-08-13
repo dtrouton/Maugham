@@ -1,0 +1,401 @@
+[
+ {
+  "claim_id": "M10-MT-001",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "the shared renderer is a mechanism, not a reachable behaviour of its own — its instances are filed on the per-surface claims. The writer-facing question it raises (must a refusal served to Claude carry the authored LocalizedError prose + a hint, or is the raw cause enough?) is a GAP-CANDIDATE: RULING-7 demands a refusal 'names its real cause', which the reflected form does — the filename and 'couldn't be opened' survive — so no current clause is violated. Proposed sub-ruling in the report"
+ },
+ {
+  "claim_id": "M10-MT-002",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "A reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
+  "why_in_scope": "read_document's manuscript arm reads the op log (a durable store, RULING-54's named first consumer) and REFUSES an unreadable file rather than deriving a shortened manuscript — the error is surfaced, never presented as empty",
+  "intent_expressed_when": "earlier — M9-OL-004 made the closed-doc derivation strict",
+  "call_path": "read_document on a closed doc whose op log is unreadable",
+  "violation_or_enhancement": "neither — the render losing the authored prose is an enhancement, filed as the M10-MT-001 gap"
+ },
+ {
+  "claim_id": "M10-MT-003",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "GAP-CANDIDATE (handoff: file, don't decide). A manifest doc with no op log reads as empty while its .md holds words — mechanically the ADR-0018 un-bootstrapped state (op log is the source of truth, no ops = no content), but at the tool boundary 'genuinely empty' and 'history not yet minted, words in the .md' are byte-identical. Whether that is the ADR working or the writer's words presented to Claude as empty (RULING-21) is Denver's call"
+ },
+ {
+  "claim_id": "M10-MT-004",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "GAP-CANDIDATE (corrupt-but-readable cluster, with M10-MT-018 and M10-MT-036). A torn final op line is dropped silently and the manuscript comes back shorter with no report. RULING-54's scope is the UNREADABLE file; a corrupt line in a READABLE file is explicitly outside it, and a torn half-written line is not recoverable authored content. Whether a silent shortening must be flagged like an unreadable file is unruled"
+ },
+ {
+  "claim_id": "M10-MT-005",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "A second surface or a second code path may not answer it differently",
+  "why_in_scope": "the writer's question here is 'what happens to my project scan when one document is unreadable' — one question, answered three ways across the scanning family (search_text silently skips; find_references/list_all_links/list_scenes refuse the whole call; get_outline/get_metadata answer unaffected), and a caller cannot tell which from the schema",
+  "intent_expressed_when": "not at all — search_text's skip is commented deliberate in isolation, but the family-wide divergence is defended nowhere",
+  "call_path": "any cross-doc scan over a project with one unreadable op log",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M10-MT-006",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "A refusal names its real cause",
+  "why_in_scope": "an oversized manuscript refuses with a payload_too_large that names the cause and the remedy (search_text, per-chapter splitting) plus typed byte counts — the refusal is honest and actionable, served to Claude (RULING-21 writer-facing)",
+  "intent_expressed_when": "earlier — the per-tool enforce-with-tailored-hint is the documented pattern (AREA.md)",
+  "call_path": "read_document on a >900KB manuscript",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M10-MT-007",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-21",
+  "clause_that_reaches_it": "An ANSWER about the writer's content must be true; only a REPAIR may be silent",
+  "why_in_scope": "a read-only recovery document is kept out of the registry read_document resolves through, so MCP sees a CLOSED doc and gets the strict refusal — never the partial recovery state. Claude is never served a partial view as though it were the whole truth; the answer it gets (refusal) is true",
+  "intent_expressed_when": "earlier — spec 4; the non-registration is census-held in ReadOnlyRecoveryTests",
+  "call_path": "MCP read while a doc is in read-only recovery on the desktop",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M10-MT-008",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "GAP-CANDIDATE (handoff: file, don't decide). A quarantined-and-continued document is an ordinary document to every read tool — the surviving log is the truth-so-far and the archive under .maugham/conflicts/quarantine/ is invisible. Whether it is honest under RULING-21 for a tool to answer a question whose answer lives partly in the invisible archive is a genuine gap; the archive is a load-path artifact, not something a read tool ever chose to hide"
+ },
+ {
+  "claim_id": "M10-MT-009",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-4",
+  "clause_that_reaches_it": "Derived or transient material — a failed transcription, a superseded render, a cache — may be dropped, but the drop must be reported",
+  "why_in_scope": "session stats are derived aggregates over a durable sessions.json; an unreadable or corrupt file drops the stats to an all-zero aggregate that is indistinguishable from a genuine no-activity zero — the drop is dropped SILENTLY, where RULING-4 requires the drop of derived material to be reported",
+  "intent_expressed_when": "not at all",
+  "call_path": "get_session_stats over an unreadable or corrupt sessions.json",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M10-MT-010",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Unreadable is never presented as empty",
+  "why_in_scope": "read_document's research arm reads a research .md via (try? String(contentsOf:)) ?? \"\", so a missing or present-but-unreadable research file is answered as an empty document — the writer's research content, unreadable, presented to Claude as empty. (Not RULING-54's scope: a plain-file read, not a JSONLAppendStore consumer; RULING-7a is unqualified and reaches it)",
+  "intent_expressed_when": "not at all — the kind refusals on the same arm are deliberate, the ??\"\" file fallback is not defended",
+  "call_path": "read_document on a research item whose file is gone or unreadable",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M10-MT-011",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "a path-traversal guard (SafeRelativePath refuses a research path escaping the project root, naming the item and the path). A safety mechanism, not a product decision any ruling settles; the refusal happens to be well-shaped but no ruling reaches the traversal guard itself"
+ },
+ {
+  "claim_id": "M10-MT-012",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "A second surface or a second code path may not answer it differently",
+  "why_in_scope": "the question 'this project id is not open' is answered byte-identically across all nine project-scoped core-read tools, because they route through one shared resolveProject helper — one question, one answer, with a named code, the id in fields, and a hint",
+  "intent_expressed_when": "earlier — MCPError.unknownProjectID is the single constructor",
+  "call_path": "any project-scoped tool with a stale/foreign project id",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M10-MT-013",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "A second surface or a second code path may not answer it differently",
+  "why_in_scope": "the question 'this call's arguments are malformed' gets ONE answer across every tool and every malformation kind — invalid_argument naming the method — because MCPTool.decodeParams is the single collapse point. (Naming the method but not the offending field is an enhancement, not a second answer)",
+  "intent_expressed_when": "earlier — decodeParams is shared",
+  "call_path": "any tool call with a malformed argument object",
+  "violation_or_enhancement": "neither — finer field-granularity would be an enhancement"
+ },
+ {
+  "claim_id": "M10-MT-014",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "list_projects takes no parameters, so accepting garbage arguments is the absence of a validation surface, not a product decision. No ruling reaches a paramless tool's argument tolerance"
+ },
+ {
+  "claim_id": "M10-MT-015",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "ADR-0018 working as designed: read_document derives from the op log, so a deleted .md costs it nothing (it reads the full text of a doc no longer on disk) while get_outline loses only an mtime stamp. A behaviour the architecture guarantees, reached by no ruling"
+ },
+ {
+  "claim_id": "M10-MT-016",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "A refusal names its real cause",
+  "why_in_scope": "the annotation creation tools refuse an unknown paragraph with paragraph_not_found (hint + current_paragraph_count) and a non-matching quote with span_not_found (quote + paragraph_id + hint), and a quote against an unknown paragraph surfaces the more specific paragraph error — every refusal names its real cause with a machine code, a hint and typed fields. The exemplar shape",
+  "intent_expressed_when": "earlier — MCPError.paragraphNotFound / spanNotFound are purpose-built",
+  "call_path": "annotation creation against a stale paragraph id or paraphrased quote",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M10-MT-017",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "A reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
+  "why_in_scope": "add_comment / list_annotations / list_tasks over a closed doc with an unreadable op log all REFUSE (withAnnotationDocument's transient Document.load refuses strictly) — none answers 'empty' or 'no annotations' over an unreadable history",
+  "intent_expressed_when": "earlier — M9-OL-004",
+  "call_path": "annotation/task tool against a closed doc with an unreadable op log",
+  "violation_or_enhancement": "neither — the render losing the authored prose is the M10-MT-001 gap"
+ },
+ {
+  "claim_id": "M10-MT-018",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "GAP-CANDIDATE (corrupt-but-readable cluster, with M10-MT-004 and M10-MT-036). An op log readable but undecodable derives an empty document, so list_annotations returns [] and add_comment reports current_paragraph_count 0 — Claude cannot tell 'no annotations' from 'history failed to decode'. RULING-54's scope is the unreadable FILE; readable-but-undecodable falls outside its wording and is unruled"
+ },
+ {
+  "claim_id": "M10-MT-019",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "ADR-0018 corollary: the op log is the truth, so a missing .md is not a precondition failure — add_craft_note against a manifest doc with no file succeeds and mints an op log. Whether a write should first check the file resolves is a minor gap; no ruling reaches it"
+ },
+ {
+  "claim_id": "M10-MT-020",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "A second surface or a second code path may not answer it differently",
+  "why_in_scope": "the writer's question 'this id names nothing' is answered in three qualities across the annotation/research family — get_task's structured task_not_found (hint + field), get_annotation's and unknown-document's bare invalid_argument (no code, no hint), and move_research_item's internal_error enum dumps (structureMissing not even naming the offending id). One question, three answers; task_not_found proves the intended shape exists",
+  "intent_expressed_when": "not at all",
+  "call_path": "any unknown-id refusal across get_task / get_annotation / move_research_item",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M10-MT-021",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "list_annotations silently drops filter tokens that match no enum case and widens an emptied filter to the default set. A lenient-parse DX quirk; RULING-22's surprise scope is the WRITER's expectation on Maugham's own surfaces and does not cleanly extend to a filter Claude itself sent. Minor gap, not stretched to a ruling"
+ },
+ {
+  "claim_id": "M10-MT-022",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "GAP-CANDIDATE. link_research validates neither id and reports linked:true, persisting a dangling link to a nonexistent research item. 'linked:true' is not strictly false (a link record was written), so RULING-7 'never misrepresents a failure' does not cleanly reach — there is no failure, only an unvalidated success. AREA.md's 'tools fail loudly on unknown ids' is a doc claim, not a ruling. Whether write tools must validate their id arguments is the proposed sub-ruling"
+ },
+ {
+  "claim_id": "M10-MT-023",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "unlink_research is documented idempotent (no-op if the link is absent), reporting linked:false whether it removed a link, found none, or was handed unknown ids. The documented idempotence is the decision; conflating the unknown-id case with the no-link case is a corollary no ruling forbids"
+ },
+ {
+  "claim_id": "M10-MT-024",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-52",
+  "clause_that_reaches_it": "a PARTIAL failure names both halves — what landed and what did not",
+  "why_in_scope": "add_note under a disk that fails mid-create leaves an EMPTY orphan .md in research/ and holds the note in the in-memory manifest while the on-disk manifest does not — an operation that already changed the project then failed, whose refusal names the manifest and says nothing about the file that landed. RULING-52's exact shape; the fix route it names (validate first, or name what already landed) is met by neither",
+  "intent_expressed_when": "not at all",
+  "call_path": "add_note (or MCP research promote) under a disk that fails between file-create and manifest-save",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M10-MT-025",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-52",
+  "clause_that_reaches_it": "either it validates first so a refusal leaves nothing behind",
+  "why_in_scope": "move_research_item validates the whole batch before touching the filesystem, so one unknown id in a batch moves NOTHING — a refusal leaves the tree byte-identical, RULING-52's validate-first route. (The refusal rendering as a bare structureMissing is the M10-MT-020 / M10-MT-001 render gap, not a partial-failure defect)",
+  "intent_expressed_when": "earlier — 'Validates the whole batch up front — one invalid id moves nothing' is documented",
+  "call_path": "move_research_item with a batch containing an unknown id",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M10-MT-026",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "A reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
+  "why_in_scope": "read_craft_intent and read_visual_language read a statement through ProjectStore.statementText, which throws for an unreadable-yet-present statement log; both readers let it throw rather than answering exists:false, so the forbidden shape (unreadable presented as an undeclared statement) does NOT occur, and sharing statementText they cannot disagree",
+  "intent_expressed_when": "earlier — the RULING-54 statement slice made statementText strict",
+  "call_path": "read_craft_intent / read_visual_language over an unreadable statement op log",
+  "violation_or_enhancement": "neither — the render losing the authored prose is the M10-MT-001 gap"
+ },
+ {
+  "claim_id": "M10-MT-027",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-52",
+  "clause_that_reaches_it": "either it validates first so a refusal leaves nothing behind",
+  "why_in_scope": "add_canvas_scraps validates every one of its six refusal shapes before CanvasClaudeWrite.apply is reached, so a refused write leaves canvas.md and .maugham/canvas.json uncreated — the tree byte-identical. RULING-52's validate-first route, and each refusal names its own cause with a machine code (two carrying a typed index field)",
+  "intent_expressed_when": "earlier — spec 8A.2 reasons the validate-before-write membrane",
+  "call_path": "add_canvas_scraps with any malformed argument",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M10-MT-028",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Unreadable is never presented as empty",
+  "why_in_scope": "list_canvas over an unreadable sidecar is answered as an EMPTY canvas with nothing saying so — CanvasStore.load COMPUTES the distinction (SidecarState.refused exists precisely to tell 'nothing here' from 'something unreadable here') and CanvasClaudeWrite.readScene drops it, so the writer's arrangement, present but unreadable, reaches Claude as empty",
+  "intent_expressed_when": "not at all — the .refused state exists to be surfaced and is discarded",
+  "call_path": "list_canvas over an unreadable .maugham/canvas.json (closed canvas)",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M10-MT-029",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Unreadable is never presented as empty",
+  "why_in_scope": "add_canvas_scraps on a project whose sidecar is .refused loads the empty fallback scene (treating unreadable as empty), adds Claude's cards, and saves — REPLACING the writer's arrangement with one holding Claude's card alone. SidecarState.acceptsARepairWrite is the rule forbidding exactly a repair-write over unreadable state and the MCP write path never consults it; the harm is the write built on presenting unreadable-as-empty",
+  "intent_expressed_when": "not at all — acceptsARepairWrite exists to forbid this",
+  "call_path": "add_canvas_scraps over an unreadable sidecar (the writer's arrangement present but unreadable)",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M10-MT-030",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Unreadable is never presented as empty",
+  "why_in_scope": "InboxStore.refresh RECORDS an unreadable device manifest (M8-IN-012, so the pane can say so) but list_inbox returns the readable subset with no notice and the per-entry tools answer a capture in that manifest as 'not found or already resolved' — the store surfaced the unreadable file and the tool layer presents it to Claude as empty/absent, the exact shape M8-IN-012 fixed one layer down",
+  "intent_expressed_when": "not at all — the store-side record is deliberate; the tool not carrying it is the gap",
+  "call_path": "list_inbox / read_inbox_entry with one device manifest unreadable",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M10-MT-031",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Unreadable is never presented as empty",
+  "why_in_scope": "a palette card whose file cannot be read drops out of loadPaletteCards' parsed set, so it vanishes from list_palette_cards and read_palette_card on its valid id answers 'unknown card_id … call list_palette_cards for valid ids' — an unreadable card, the writer's content, presented to Claude as an unknown/absent one, and the listing it is sent to has lost it too",
+  "intent_expressed_when": "not at all",
+  "call_path": "list_palette_cards / read_palette_card with one unreadable card file",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M10-MT-032",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-52",
+  "clause_that_reaches_it": "either it validates first so a refusal leaves nothing behind",
+  "why_in_scope": "write_translation builds every record before writing any (TranslationStore.appendBatch), so one text entry naming an unknown paragraph rejects the whole batch — its delete siblings included — the refusal names the offending id, and nothing is written (no translation file, no directory). A refused write leaves nothing behind, RULING-52's validate-first route",
+  "intent_expressed_when": "earlier — the build-all-before-write atomicity is documented on appendBatch",
+  "call_path": "write_translation with one entry naming an unknown paragraph id",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M10-MT-033",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "A reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
+  "why_in_scope": "the translation readers refuse over an unreadable op log rather than deriving empty, and the project-wide translation_status walk fails WHOLE on one unreadable document (naming the file) rather than reading it as empty — the error is surfaced, never presented as empty",
+  "intent_expressed_when": "earlier — the RULING-54 strict-read contract",
+  "call_path": "read_translation / translation_status over a project with one unreadable document log",
+  "violation_or_enhancement": "neither — the whole-report-fails-vs-per-doc-report is an unruled reporting-shape gap; the render losing the authored prose is the M10-MT-001 gap"
+ },
+ {
+  "claim_id": "M10-MT-034",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "A refusal names its real cause",
+  "why_in_scope": "get_help on an unknown topic names the real cause — topicMissing(\"no-such-topic\"), the offending topic in the message — so a caller learns which topic failed. (That it renders under the internal_error code rather than a not_found, and withholds the available-topics list it is holding, are enhancements — the M10-MT-001 render gap)",
+  "intent_expressed_when": "not at all — the cause survives incidentally through the enum interpolation",
+  "call_path": "get_help with an unknown topic",
+  "violation_or_enhancement": "neither — mapping to a named code and listing available topics are enhancements"
+ },
+ {
+  "claim_id": "M10-MT-035",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-54",
+  "clause_that_reaches_it": "A reader of a durable store treats an unreadable-yet-present file as an ERROR to surface, never as empty",
+  "why_in_scope": "PublicationStore.load throws for an unreadable catalog and list_publications / read_publication_page / republish all let it out (refuse) rather than reading a short/empty list — none arms an overwrite off a truncated catalog. compile is the one caller that renders the full errorDescription; the other three fall through, but all four SURFACE the error rather than presenting empty",
+  "intent_expressed_when": "earlier — M9-OL-009 made the catalog read strict",
+  "call_path": "list_publications / read_publication_page / republish over an unreadable catalog",
+  "violation_or_enhancement": "neither — compile-renders-full vs the-other-three-fall-through is the M10-MT-001 render gap, not a refuse-vs-empty defect"
+ },
+ {
+  "claim_id": "M10-MT-036",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "GAP-CANDIDATE (corrupt-but-readable cluster, with M10-MT-004 and M10-MT-018). A catalog readable but carrying undecodable lines reads short — the failed rows are dropped, no diagnostic key, and write-adjacent consumers proceed against the shorter list. RULING-54 (and M9-OL-009's fix) covers the unreadable FILE only; a corrupt line in a readable catalog is outside its wording and unruled"
+ },
+ {
+  "claim_id": "M10-MT-037",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "Unreadable is never presented as empty",
+  "why_in_scope": "list_publish_files builds its enumerator with try? and a nil enumerator reads as 'no files', so an unreadable .maugham/publish/ directory is presented to Claude as an empty publish tree. (The single-file readers on the same family — read_publish_file, get_publish_config — DO distinguish absent from unreadable and comply; the directory reader is the violation)",
+  "intent_expressed_when": "not at all — the file readers distinguish the cases; the directory try? does not",
+  "call_path": "list_publish_files over an unreadable .maugham/publish/ directory",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M10-MT-038",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "A capture this build cannot handle says so rather than appearing broken",
+  "why_in_scope": "set_publish_config guards only that patch is PRESENT, then hands it to JSONSerialization.data(withJSONObject:); a scalar patch value raises an uncatchable NSInvalidArgumentException that ABORTS the whole MCP server — the tool, handed input it cannot process, takes the server down rather than saying it cannot handle it, the strongest form of 'appearing broken'. (The validate-first ordering on well-typed patches complies with RULING-52 and is noted)",
+  "intent_expressed_when": "not at all",
+  "call_path": "set_publish_config with a scalar (string/null) patch value",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M10-MT-039",
+  "outcome": "VIOLATES",
+  "ruling": "RULING-8",
+  "clause_that_reaches_it": "A second surface or a second code path may not answer it differently",
+  "why_in_scope": "the writer's question 'the compile refused' reaches Claude in two incompatible shapes depending on how far in it failed — a thrown tool error (isError:true) for pre-resolution refusals, and an ordinary success response with status:\"failed\" for post-resolution ones — so a client keying on isError sees a post-resolution refusal as a success. One outcome, two protocol answers",
+  "intent_expressed_when": "not at all — status:failed for compile outcomes is deliberate, but the split with the throwing channel is defended nowhere",
+  "call_path": "compile refusals of both kinds (invalid language tag vs version collision / mint-gate in-flight)",
+  "violation_or_enhancement": "violation"
+ },
+ {
+  "claim_id": "M10-MT-040",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-7",
+  "clause_that_reaches_it": "A refusal names its real cause",
+  "why_in_scope": "read_preview_page distinguishes 'no preview' (named invalid_argument) from an unopenable PDF (internal_error naming the absolute path); read_publication_page and republish name the path/artifact that failed — the real cause reaches Claude in every case, even where the code category is generic. (Distinguishing corrupt from deleted, and mapping to a named code, are enhancements — the M10-MT-001 gap)",
+  "intent_expressed_when": "earlier — the named cases (no-preview, unknown publication_id) show the intended shape",
+  "call_path": "preview/publication reads over missing artifacts; republish with a bad snapshot id",
+  "violation_or_enhancement": "neither"
+ },
+ {
+  "claim_id": "M10-MT-041",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "GAP-CANDIDATE, highest priority. write_publish_file refuses '..' but PublishPath.validateAndResolve standardizes without resolving SYMLINKS, so a symlink already inside .maugham/publish/ lets a write place bytes anywhere on disk and report status:written — a write tool escaping the planning-plane sandbox. The membrane is CLAUDE.md tripwire 4 / ADR 0004 / constitution must-not #1, an architectural invariant with NO behavioural ruling behind it. Proposed sub-ruling: a write tool's path validation resolves symlinks; a write never lands outside the plane it declares"
+ },
+ {
+  "_summary": {
+   "reached": 27,
+   "complies": 15,
+   "violates": 12,
+   "no_ruling": 14,
+   "total": 41,
+   "coverage": "66%",
+   "by_ruling": {
+    "RULING-21": [
+     "M10-MT-007"
+    ],
+    "RULING-4": [
+     "M10-MT-009"
+    ],
+    "RULING-52": [
+     "M10-MT-024",
+     "M10-MT-025",
+     "M10-MT-027",
+     "M10-MT-032"
+    ],
+    "RULING-54": [
+     "M10-MT-002",
+     "M10-MT-017",
+     "M10-MT-026",
+     "M10-MT-033",
+     "M10-MT-035"
+    ],
+    "RULING-7": [
+     "M10-MT-006",
+     "M10-MT-010",
+     "M10-MT-016",
+     "M10-MT-028",
+     "M10-MT-029",
+     "M10-MT-030",
+     "M10-MT-031",
+     "M10-MT-034",
+     "M10-MT-037",
+     "M10-MT-038",
+     "M10-MT-040"
+    ],
+    "RULING-8": [
+     "M10-MT-005",
+     "M10-MT-012",
+     "M10-MT-013",
+     "M10-MT-020",
+     "M10-MT-039"
+    ]
+   },
+   "gap_candidates": [
+    "M10-MT-001 — the authored-prose-to-Claude question: must a writer-facing refusal carry the LocalizedError prose + a hint + the right error category, or is the raw cause enough? (spans 002/017/026/034/035/040 — all COMPLY on refuse-not-empty but render the raw enum/Cocoa form)",
+    "M10-MT-003 — a manifest doc with no op log reads as empty while its .md holds words (ADR working vs words-as-empty)",
+    "M10-MT-004 / M10-MT-018 / M10-MT-036 — the corrupt-but-readable cluster: a torn op line, an undecodable op log, and corrupt catalog lines all read short/empty silently; RULING-54 covers only the unreadable FILE",
+    "M10-MT-008 — a quarantined-and-continued doc answers from its surviving log while the archive is invisible to every tool",
+    "M10-MT-022 — must write tools validate their id arguments? link_research reports success and persists a dangling link",
+    "M10-MT-041 — highest priority: a write tool escaping the planning-plane sandbox via an unresolved symlink; the membrane has no behavioural ruling"
+   ]
+  }
+ }
+]

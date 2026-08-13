@@ -1,0 +1,659 @@
+[
+ {
+  "claim_id": "M10-MT-001",
+  "scope": "MCPToolsCallHandler.toolErrorPayload(for:) — the default arm",
+  "kind": "POSTCONDITION",
+  "statement": "any error a tool throws that is not an MCPError case is rendered to Claude as {error: \"internal_error\", message: \"\\(error)\"} — the Swift value's debug/reflection form — with no hint and no fields. A thrown LocalizedError's errorDescription (the authored, writer-facing prose) is DISCARDED, because the default arm interpolates the raw error rather than reading its localizedDescription. This is the single shared cause behind every 'internal_error enum dump' below",
+  "kind_note": "the renderer is the composition point; the per-surface claims are its reachable instances",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_anUnreadableOpLogFile_refusesAsInternalErrorInSwiftEnumDebugForm; MCPToolsAnnotationResearchCharacterization.test_closedDocUnreadableOpLog_refusesAsInternalErrorLosingTheAuthoredText"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the handler's header defends converting failures to structured isError results, but names no arm for LocalizedError; the discard is a gap, not a defended choice",
+  "reachability": "LIVE — any unmapped throw from any tool",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-002",
+  "scope": "read_document — unreadable-yet-present op-log file (RULING-54 seam)",
+  "kind": "POSTCONDITION",
+  "statement": "the manuscript arm HONOURS RULING-54 — an unreadable op-log file refuses rather than deriving a shortened manuscript — but the refusal reaches Claude as internal_error carrying OpLogStore.ReadError.unreadableFile's reflected form: the FILENAME and the OS cause survive, the authored errorDescription ('Your words are intact inside it…') and the recovery guidance do not, and there is no hint or fields",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_anUnreadableOpLogFile_refusesAsInternalErrorInSwiftEnumDebugForm"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the refusal is deliberate (M9-OL-004); the lossy rendering is the shared M10-MT-001 gap",
+  "reachability": "LIVE — read_document on a closed doc whose op log a permissions break or iCloud stub has made unreadable",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-003",
+  "scope": "read_document — document with NO op log while the .md holds words",
+  "kind": "POSTCONDITION",
+  "statement": "a closed document whose op log is ABSENT reads as an EMPTY document — text: \"\", word_count: 0, no refusal — while the .md beside it still holds the writer's words on disk. Mechanically this is the ADR-0018 un-bootstrapped state (loadSyncMerged returns [] without throwing; the throw fires only for present-and-unreadable), but at the tool boundary 'genuinely empty' and 'history not yet created, words sitting in the .md' are byte-identical",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_aDocumentWithNoOpLogReadsAsEmptyRatherThanRefusing"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL-mechanism — DerivedManuscript.materialize documents 'Empty string when the doc has no ops'; the tool-boundary ambiguity is not itself defended",
+  "reachability": "LIVE — read_document on a manifest doc never opened in Maugham (no op log minted yet)",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-004",
+  "scope": "read_document — torn final op line",
+  "kind": "POSTCONDITION",
+  "statement": "a torn final op line (what a crash mid-append leaves) is dropped silently by OpLogStore.loadSyncMerged's per-line try?, so read_document returns a SHORTER manuscript with no error and nothing in the payload to say a line was skipped — the opposite of the whole-file case, which refuses",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_aTornOpLineIsDroppedSilentlyAndTheManuscriptComesBackShorter"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the per-line tolerance is deliberate for the append-crash case; whether the drop should be reported is unruled",
+  "reachability": "crash-window only — read_document after a crash mid-append",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-005",
+  "scope": "the scanning tools — one unreadable document splits the family three ways",
+  "kind": "POSTCONDITION",
+  "statement": "one unreadable document splits the read family THREE ways, and a caller cannot tell which from a tool's schema: search_text SKIPS it (ProjectSearchEngine's per-doc try?, no per-document error channel — matches inside it silently absent); find_references, list_all_links and list_scenes REFUSE the whole call (bare try, internal_error enum dump); get_outline and get_metadata are UNAFFECTED (neither reads the op log). The same writer question — scan my project — is answered three ways",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_oneUnreadableDocumentSplitsTheScanningToolsThreeWays; MCPToolsCoreReadCharacterization.test_listScenes_refusesTheWholeScriptForOneUnreadableSceneDocument"
+  },
+  "warrant": "HIGH",
+  "intent": "PARTLY-INTENTIONAL — search_text's skip is commented deliberate (ProjectSearchEngine.swift:49-50); the divergence across the family is not defended anywhere",
+  "reachability": "LIVE — any cross-doc scan over a project with one unreadable op log",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-006",
+  "scope": "read_document — oversized document",
+  "kind": "POSTCONDITION",
+  "statement": "read_document's own MCPResponseBudget.enforce refuses an oversized manuscript before the central backstop can, so the refusal carries the document-specific payload_too_large hint (naming search_text and per-chapter splitting) plus typed byte counts — a named, actionable refusal",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_anOversizedDocumentRefusesWithPayloadTooLargeAndANarrowingHint"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the per-tool enforce call with a tailored hint is the documented pattern (AREA.md hard rules)",
+  "reachability": "LIVE — read_document on a >900KB manuscript",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-007",
+  "scope": "read_document — read-only recovery document invisible to the registry",
+  "kind": "INVARIANT",
+  "statement": "a read-only recovery Document is never entered in DocumentStore's registry, the collection read_document resolves an open document through, so while the writer looks at a partial view MCP still sees a CLOSED document and gets the strict refusal — never the partial state. Registering the same instance flips the answer, which makes the non-registration load-bearing rather than incidental",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_aReadOnlyRecoveryDocumentIsInvisibleToTheRegistryMCPResolvesThrough"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — spec 4; wiring census in ReadOnlyRecoveryTests (DocumentTools.swift:89-91 → DocumentStore.swift:730-734, EditorHost.swift:434-449)",
+  "reachability": "LIVE — MCP read while a doc is in read-only recovery on the desktop",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-008",
+  "scope": "the read tools — the quarantine archive is invisible",
+  "kind": "INVARIANT",
+  "statement": "the quarantine archive (under .maugham/conflicts/quarantine/) is written by the LOAD path (Document.load → IntegrityQuarantine.record), never by an MCP read, and once written no read tool mentions it: a quarantined-and-continued document is an ordinary document to Claude, the surviving log presented as the whole truth with the archived lines invisible",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_theQuarantineArchiveIsInvisibleToEveryCoreReadTool"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL-mechanism — the archive is a load-path artifact (Document+Load.swift:292-302 → IntegrityQuarantine.swift:30,46); whether a tool should surface it is unruled",
+  "reachability": "LIVE — MCP read of a doc whose load quarantined divergent ops",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-009",
+  "scope": "get_session_stats — every unreadable log state reports zero",
+  "kind": "POSTCONDITION",
+  "statement": "get_session_stats swallows every failure of its underlying store: no DocumentStore at all, a sessions.json full of garbage, and a sessions.json that exists but cannot be read all return the same all-zero aggregate. There is no code path by which this tool reports it could not read the log — RULING-54's opposite, on a stats surface rather than a manuscript one",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_getSessionStatsReportsZeroForEveryUnreadableLogState"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — session stats are derived/transient; whether an unreadable stats file must be surfaced is exactly RULING-54's per-consumer question",
+  "reachability": "LIVE — get_session_stats over an unreadable or corrupt sessions.json",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-010",
+  "scope": "read_document research arm — unreadable/missing research file reads as empty",
+  "kind": "POSTCONDITION",
+  "statement": "the research arm NAMES every non-readable research KIND (best refusals in the family: message names the item by title and the real reason) — but a research DOCUMENT whose file is missing, or present-and-unreadable, does NOT refuse: (try? String(contentsOf:)) ?? \"\" turns both into an empty document. The same tool therefore obeys RULING-54 on its manuscript arm and contradicts it on its research arm",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_theResearchArmNamesEveryBadKindButReadsAnUnreadableFileAsEmpty"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the kind refusals are deliberate; the ??\"\" fallback on the file read is not defended",
+  "reachability": "LIVE — read_document on a research item whose file is gone or unreadable",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-011",
+  "scope": "read_document research arm — path escaping the project root",
+  "kind": "POSTCONDITION",
+  "statement": "a manifest-supplied research path that escapes the project root is refused by SafeRelativePath before any read, and the refusal names both the item and the offending path",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_theResearchArmRefusesAPathThatEscapesTheProjectRoot"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — SafeRelativePath is the guard",
+  "reachability": "LIVE — read_document on a research item with a traversal path in the manifest",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-012",
+  "scope": "the project-scoped read tools — unknown project id is identical everywhere",
+  "kind": "POSTCONDITION",
+  "statement": "every project-scoped core-read tool routes its unknown-project refusal through the one shared resolveProject helper, so all nine give a byte-identical structured payload: code unknown_project_id, the id echoed in fields, and the two-server hint — one question, one answer (RULING-8) with a named, actionable refusal (RULING-7)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_everyProjectScopedCoreReadTool_refusesAnUnknownProjectIdIdentically; MCPToolsPlanningPlaneCharacterization.test_everyToolInTheFamilyRefusesAnUnknownProjectIdentically; MCPToolsPublishingCharacterization.test_unknownProjectAndMissingParams_areNamed"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — MCPError.unknownProjectID is the single constructor",
+  "reachability": "LIVE — any tool call with a stale/foreign project id",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-013",
+  "scope": "the tools — malformed params collapse to one fieldless message",
+  "kind": "POSTCONDITION",
+  "statement": "MCPTool.decodeParams renders every malformation — absent params, an empty object, a wrong-typed required field, and bytes that are not JSON — as ONE invalid_argument message that names the METHOD and nothing else: which field was wrong is not recoverable, there is no hint, and decodeParams swallows the underlying DecodingError with try? before it can say more. Uniform across families",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_everyMalformationOfParamsRendersTheSameFieldlessMessage; MCPToolsAnnotationResearchCharacterization.test_malformedParams_collapseToOneUndifferentiatedMessage; MCPToolsPlanningPlaneCharacterization.test_malformedParamsCollapseToOneUnfieldedRefusalNamingOnlyTheMethod"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the collapse is a consequence of the try? decode, not a defended choice",
+  "reachability": "LIVE — any tool call with a malformed argument object",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-014",
+  "scope": "list_projects — arguments ignored entirely",
+  "kind": "POSTCONDITION",
+  "statement": "list_projects is the one core-read tool that takes no project id and decodes no params at all, so garbage arguments are accepted rather than refused; an empty registry answers [], not an error",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_listProjects_ignoresItsArgumentsEntirely"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL-mechanism — the tool has no parameters to validate",
+  "reachability": "LIVE — list_projects with any arguments",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-015",
+  "scope": "get_outline / read_document — a deleted .md",
+  "kind": "POSTCONDITION",
+  "statement": "deleting the manuscript .md costs get_outline its modified stamp (an mtime read → null) but costs read_document nothing at all: it derives from the op log (ADR 0018), so Claude still reads the full anchored text of a document that no longer exists on disk. get_outline's word_count is cache-only (ProjectStore.cachedWordCount) and a null there says 'not cached yet', never 'unreadable'",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsCoreReadCharacterization.test_deletingTheMarkdownCostsTheOutlineItsMtimeButNotTheDocumentItsText; MCPToolsCoreReadCharacterization.test_getOutlineWordCountIsCacheOnlyAndSaysNothingAboutReadability"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ADR 0018 (op log is the source of truth; the .md is derived)",
+  "reachability": "LIVE — read after an external .md deletion",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-016",
+  "scope": "add_comment / add_suggested_change / add_query / add_craft_note — unknown paragraph and non-matching quote",
+  "kind": "POSTCONDITION",
+  "statement": "the annotation creation tools produce NAMED structured refusals: an unknown paragraph id → paragraph_not_found with a hint and current_paragraph_count in fields; a non-matching quote → span_not_found with the quote and paragraph_id in fields and a hint to omit quote; and a quote against an unknown paragraph surfaces the more specific paragraph_not_found (resolveSpanAnchor returns nil rather than throwing). The best-shaped refusals in the whole tool surface",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsAnnotationResearchCharacterization.test_addComment_quoteNotInParagraph_isNamedWithQuoteAndHint; MCPToolsAnnotationResearchCharacterization.test_addComment_quoteWithUnknownParagraph_reportsTheParagraph"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — MCPError.paragraphNotFound / spanNotFound are purpose-built constructors with hints and fields",
+  "reachability": "LIVE — annotation creation against a stale paragraph id or paraphrased quote",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-017",
+  "scope": "annotation tools — closed doc whose op log is unreadable",
+  "kind": "POSTCONDITION",
+  "statement": "add_comment, list_annotations and list_tasks over a closed doc whose op log is unreadable all REFUSE (withAnnotationDocument's transient Document.load refuses strictly, M9-OL-004) — none answers 'empty' — but each arrives as the generic internal_error fall-through with the ReadError reflection dump: the file name survives, the authored 'Your words are intact inside it' prose is discarded, no hint, no fields",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsAnnotationResearchCharacterization.test_closedDocUnreadableOpLog_refusesAsInternalErrorLosingTheAuthoredText"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — refusal deliberate, lossy rendering is M10-MT-001's shared gap",
+  "reachability": "LIVE — annotation tool against a closed doc with an unreadable op log",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-018",
+  "scope": "annotation tools — closed doc whose op log is readable but UNDECODABLE",
+  "kind": "POSTCONDITION",
+  "statement": "an op log whose bytes CAN be read but decode to nothing derives an EMPTY document: list_annotations returns [] with no signal, and add_comment reports current_paragraph_count: 0. Claude cannot tell a document with no annotations from one whose entire history failed to decode — the undecodable case reads as empty where the unreadable case (M10-MT-017) refuses",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsAnnotationResearchCharacterization.test_closedDocUndecodableOpLog_readsAsAnEmptyDocument"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the readable-but-undecodable case falls outside RULING-54's unreadable-file wording; unruled",
+  "reachability": "LIVE — annotation read of a doc whose op-log lines are corrupt-but-readable",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-019",
+  "scope": "annotation/task tools — a document whose .md file is absent",
+  "kind": "POSTCONDITION",
+  "statement": "a manifest document whose .md is gone answers as an empty document to list_annotations ([]) — and add_craft_note against it SUCCEEDS, returning an annotation id and minting an op log for a document that is not on disk; nothing in the call path checks the manifest path resolves to a file",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsAnnotationResearchCharacterization.test_closedDocFileMissing_listAnnotationsAnswersEmpty; MCPToolsAnnotationResearchCharacterization.test_addCraftNote_againstAMissingFile_succeedsAndMintsAnOpLog"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL-mechanism — ADR 0018 makes the op log the truth, so a missing .md is not a precondition failure; the write-succeeds corollary is not separately defended",
+  "reachability": "LIVE — annotation against a manifest doc whose file was removed out of band",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-020",
+  "scope": "the annotation/research family — unknown-id refusals answer one question in three shapes",
+  "kind": "POSTCONDITION",
+  "statement": "the same writer question — 'this id names nothing' — is answered in three different qualities across the family: get_task → structured task_not_found with a hint and a typed field; get_annotation and an unknown document_id → bare invalid_argument (cause in prose, no code to route on, no hint, no fields); move_research_item's store refusals (parentNotFound, structureMissing, 'Unknown loose piece') → internal_error carrying the Swift enum dump, structureMissing not even naming the offending id. The authored ProjectStoreError.errorDescription the binder's alerts show is discarded on the internal_error path",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsAnnotationResearchCharacterization.test_getAnnotation_unknownId_isUnnamedInvalidArgument; MCPToolsAnnotationResearchCharacterization.test_unknownDocumentAndProject_refuseWithDifferentShapes; MCPToolsAnnotationResearchCharacterization.test_moveResearchItem_storeRefusals_renderAsInternalErrorEnumDumps"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — no site defends the divergence; task_not_found shows the intended shape exists",
+  "reachability": "LIVE — any unknown-id refusal across get_task/get_annotation/move_research_item",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-021",
+  "scope": "list_annotations — unrecognised filter vocabulary widens to the default",
+  "kind": "POSTCONDITION",
+  "statement": "kinds/statuses tokens that match no enum case are dropped, and a filter left empty by that drop collapses to the DEFAULT ([open], all kinds): a caller asking for statuses:[\"not_a_status\"] is answered with the open annotations as though it had asked for them — a request that matched nothing is answered as if it matched the default set, with no signal the token was unrecognised",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsAnnotationResearchCharacterization.test_listAnnotations_unrecognisedFilterTokens_returnTheDefaultSet"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — lenient token parsing; the silent-widen-to-default is not defended",
+  "reachability": "LIVE — list_annotations with a mistyped kind/status filter",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-022",
+  "scope": "link_research — unknown ids report success and can persist a dangling link",
+  "kind": "POSTCONDITION",
+  "statement": "link_research validates NEITHER id: with an unknown document it reports linked: true having written nothing; with a REAL document and an unknown research id it reports linked: true and PERSISTS a link to a research item that does not exist. A false success on a write tool, and a dangling link left in the manifest",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsAnnotationResearchCharacterization.test_linkResearch_unknownIds_reportSuccess_andCanPersistADanglingLink"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — no validation present; AREA.md claims 'tools fail loudly on unknown ids', which this contradicts",
+  "reachability": "LIVE — link_research with a stale or wrong research/document id",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-023",
+  "scope": "unlink_research — idempotent success masks unknown ids",
+  "kind": "POSTCONDITION",
+  "statement": "unlink_research is documented idempotent ('no-op if the link doesn't exist') and reports linked: false whether it removed a link, found no link, or was handed two ids that name nothing — the absent-link and unknown-id cases are indistinguishable to the caller",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsAnnotationResearchCharacterization.test_unlinkResearch_absentLinkAndUnknownIds_reportTheSameSuccess"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the tool documents idempotence; the unknown-id conflation is a corollary",
+  "reachability": "LIVE — unlink_research on an absent or unknown link",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-024",
+  "scope": "add_note — validate-first vs fail-after-write (RULING-52 seam)",
+  "kind": "POSTCONDITION",
+  "statement": "add_note's OWN validation is clean — an unknown parent_group_id refuses with nothing created on disk and nothing in the manifest — but a failure INSIDE the create path is not: with the project root unwritable the note's .md is created FIRST and the manifest save then fails, so the call refuses while an EMPTY half-landed.md is left in research/, the in-memory manifest (what the binder shows this session) holds the note, the on-disk manifest does not, and the body Claude sent was never written. The refusal names the manifest and says nothing about the file that landed",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsAnnotationResearchCharacterization.test_addNote_unknownParentGroup_writesNothing; MCPToolsAnnotationResearchCharacterization.test_addNote_manifestUnwritable_refusesAfterCreatingAnEmptyOrphanFile; MCPToolsAnnotationResearchCharacterization.test_addNote_researchFolderUnwritable_leavesNothingButLeaksTheRawNSError"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the create-then-save ordering is not defended as a partial-failure contract; RULING-52 names exactly this shape",
+  "reachability": "LIVE — add_note (or MCP research promote) under a disk that fails mid-create",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-025",
+  "scope": "move_research_item — argument validation and whole-batch atomicity",
+  "kind": "POSTCONDITION",
+  "statement": "move_research_item's own argument validation is a named-enough invalid_argument that says what to do (empty research_ids, a target that is not 'shared'), and one unknown id in a batch moves NOTHING — the store validates the whole batch before touching the filesystem — but the batch-refusal itself renders as the bare internal_error 'structureMissing' with the offending id nowhere in the payload",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsAnnotationResearchCharacterization.test_moveResearchItem_argumentValidation_isInvalidArgument; MCPToolsAnnotationResearchCharacterization.test_moveResearchItem_batchWithOneUnknownId_movesNothing"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — 'Validates the whole batch up front — one invalid id moves nothing' is documented; the render quality is the M10-MT-001 gap",
+  "reachability": "LIVE — move_research_item with a bad argument or a batch containing an unknown id",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-026",
+  "scope": "read_craft_intent / read_visual_language — unreadable-yet-present statement (RULING-54 seam)",
+  "kind": "POSTCONDITION",
+  "statement": "ProjectStore.statementText(of:) THROWS for an unreadable-yet-present statement log, and BOTH spine readers let that throw out rather than answering exists: false — the forbidden shape (an unreadable statement presented as an undeclared one) does NOT occur, and the two readers cannot disagree because they share statementText. What Claude sees is the internal_error fall-through carrying ReadError.unreadableFile's raw form: filename and 'couldn't be opened' survive, the LocalizedError prose and any hint do not. A warm DerivedManuscriptCache does not serve stale text over the now-unreadable log (the (mtime,size) token invalidates)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPlanningPlaneCharacterization.test_anUnreadableStatementRefusesRatherThanReadingAsAbsent; MCPToolsPlanningPlaneCharacterization.test_aWarmDerivedCacheDoesNotServeStaleTextOverAnUnreadableLog; MCPToolsPlanningPlaneCharacterization.test_aDeclaredButEmptyStatementReadsAsPresentWithEmptyText"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — refusal-not-absent is the correct RULING-54 outcome; the lossy render is M10-MT-001's shared gap",
+  "reachability": "LIVE — read_craft_intent/read_visual_language over an unreadable statement op log",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-027",
+  "scope": "add_canvas_scraps — validate-first (RULING-52 seam)",
+  "kind": "POSTCONDITION",
+  "statement": "every one of add_canvas_scraps' six refusal shapes (empty/blank scrap, unknown source_item_id, a group-typed source, a connect pair of wrong arity, out of range, self-referential, or repeated/reversed) names its own cause with a machine code, the two indexed refusals carry the index as a typed field, and every refusal leaves the project tree byte-identical — validation completes before CanvasClaudeWrite.apply is reached, so neither canvas.md nor .maugham/canvas.json is created. A refused write leaves nothing behind",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPlanningPlaneCharacterization.test_everyAddCanvasScrapsRefusalIsNamedAndWritesNothing; MCPToolsPlanningPlaneCharacterization.test_theIndexedCanvasRefusalsCarryTheirIndexAsAField"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — spec 8A.2 reasons the validate-before-write membrane; this is RULING-52's validate-first route",
+  "reachability": "LIVE — add_canvas_scraps with any malformed argument",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-028",
+  "scope": "list_canvas — an unreadable canvas sidecar reads as an empty canvas",
+  "kind": "POSTCONDITION",
+  "statement": "an arrangement this build cannot read is reported to Claude as an EMPTY canvas with nothing in the payload saying so. CanvasStore.load() computes the distinction (SidecarState.refused exists precisely so a reader can tell 'nothing here' from 'something here I cannot read'), and CanvasClaudeWrite.readScene drops it: it returns (scene, scraps, fromOpenCanvas) and no state, so list_canvas has nothing to report. The scrap TEXT is still in canvas.md and readable, but with no nodes on the wire the words are unreachable",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPlanningPlaneCharacterization.test_anUnreadableCanvasSidecarIsReportedAsAnEmptyCanvas"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — SidecarState.refused exists and is dropped by readScene; the drop is a gap, not a defended choice",
+  "reachability": "LIVE — list_canvas over an unreadable .maugham/canvas.json (closed canvas)",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-029",
+  "scope": "add_canvas_scraps — a write stamps over an unreadable sidecar",
+  "kind": "POSTCONDITION",
+  "statement": "add_canvas_scraps on a project whose sidecar is .refused loads the empty fallback scene, adds Claude's cards to it, and saves — REPLACING the writer's arrangement with a sidecar holding Claude's card alone. SidecarState.acceptsARepairWrite is the rule that forbids exactly this and nothing on the MCP write path consults it; the writer's scrap text survives in canvas.md as an orphan with no node. (Control: with no sidecar at all the same call is an ordinary success that mints one)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPlanningPlaneCharacterization.test_addCanvasScrapsStampsOverAnUnreadableSidecar; MCPToolsPlanningPlaneCharacterization.test_addCanvasScrapsOverAnAbsentSidecarSimplyMintsOne"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — acceptsARepairWrite exists to forbid this and is not consulted; strong defect candidate",
+  "reachability": "LIVE — add_canvas_scraps over an unreadable sidecar (a writer's arrangement present but unreadable)",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-030",
+  "scope": "list_inbox / read_inbox_entry — the store's unreadable-manifest record is not on the wire",
+  "kind": "POSTCONDITION",
+  "statement": "InboxStore.refresh records an unreadable device manifest (M8-IN-012, so the pane can say a device's captures cannot be read) — but list_inbox returns the readable subset with NO notice: its response has one key, entries, and the record the store just made is not surfaced. Claude cannot distinguish 'that device has no captures' from 'that device's captures could not be read', and the per-entry tools report a capture that is intact in an unreadable manifest as 'not found or already resolved' — word for word the answer an id that never existed gets",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPlanningPlaneCharacterization.test_listInboxPresentsTheReadableSubsetWithNoNoticeOfTheUnreadableOne; MCPToolsPlanningPlaneCharacterization.test_anEntryInAnUnreadableManifestIsReportedAsNotFound"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the store-side record (M8-IN-012) is deliberate; the tool surface not carrying it is the new gap this pins",
+  "reachability": "LIVE — list_inbox/read_inbox_entry with one device manifest unreadable",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-031",
+  "scope": "list_palette_cards / read_palette_card — an unreadable card is presented as an unknown id",
+  "kind": "POSTCONDITION",
+  "statement": "a palette card whose file cannot be read drops out of the parsed set (loadPaletteCards parses the markdown), so it vanishes from list_palette_cards while the manifest still holds it, and read_palette_card on its perfectly valid id answers 'unknown card_id … call list_palette_cards for valid ids' — sending the caller to a listing that has also lost it. An unreadable card and a card that never existed are the same answer",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPlanningPlaneCharacterization.test_anUnreadablePaletteCardIsPresentedAsAnUnknownId; MCPToolsPlanningPlaneCharacterization.test_readPaletteCardNamesAnUnknownIdAndPointsAtTheListing"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the parse-drop is a mechanism consequence; presenting unreadable as unknown is RULING-54's forbidden shape on the palette surface",
+  "reachability": "LIVE — palette read with one unreadable card file",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-032",
+  "scope": "write_translation — whole-batch atomicity and named rejection",
+  "kind": "POSTCONDITION",
+  "statement": "one text entry naming an unknown paragraph rejects the whole batch — its delete siblings included — the refusal names the offending id, and NOTHING is written (no translation file, no .maugham/translations directory). read_translation's two ids behave differently on purpose: an unknown LANGUAGE is not an error (every paragraph reads missing, as documented) while an unknown DOCUMENT refuses by name",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPlanningPlaneCharacterization.test_writeTranslationRejectsTheWholeBatchByNameAndWritesNothing; MCPToolsPlanningPlaneCharacterization.test_theOtherWriteTranslationRefusalsNameTheirCause; MCPToolsPlanningPlaneCharacterization.test_readTranslationAcceptsAnUnknownLanguageAndRefusesAnUnknownDocument"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — TranslationStore.appendBatch builds every record before writing any (documented atomicity); the missing-language-reads-missing is documented",
+  "reachability": "LIVE — write_translation with a bad id; read_translation with an unknown language/document",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-033",
+  "scope": "translation_status / the translation readers — unreadable op log fails the whole report",
+  "kind": "POSTCONDITION",
+  "statement": "the translation readers take the same internal_error fall-through the statement readers take over an unreadable op log (RULING-54 holds — nothing derives short — the render is the same raw enum dump), and the PROJECT-WIDE translation_status walk fails WHOLE on one unreadable document: the refusal names the file, and rows for every other document never arrive (no per-document error channel)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPlanningPlaneCharacterization.test_theTranslationReadersRefuseOverAnUnreadableOpLogWithTheSameFallThrough; MCPToolsPlanningPlaneCharacterization.test_projectWideTranslationStatusFailsWholeOnOneUnreadableDocument"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — whole-report-fails vs per-doc-report is unruled; the render is M10-MT-001's gap",
+  "reachability": "LIVE — translation_status over a project with one unreadable document log",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-034",
+  "scope": "get_help — unknown topic is an unnamed enum dump that withholds the topic list",
+  "kind": "POSTCONDITION",
+  "statement": "an unknown help topic is an unnamed internal_error whose message is a Swift enum dump: HelpTopicIndex.LoadError is not LocalizedError and is not mapped, so toolErrorPayload's default arm renders topicMissing(\"no-such-topic\") verbatim — no hint, and no list of the topics that DO exist, which the tool is holding at that moment. get_help and list_maugham_tools decode leniently (nil params and a wrong-typed topic both fall back to the full listing rather than refusing)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPlanningPlaneCharacterization.test_getHelpRendersAnUnknownTopicAsARawEnumDump; MCPToolsPlanningPlaneCharacterization.test_theParameterlessToolsDecodeLenientlyRatherThanRefusing"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the unmapped LoadError is M10-MT-001's gap on the help surface; withholding the available-topics list is an unforced omission",
+  "reachability": "LIVE — get_help with an unknown topic",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-035",
+  "scope": "list_publications / read_publication_page / republish — unreadable catalog, and the one caller that renders it well",
+  "kind": "POSTCONDITION",
+  "statement": "PublicationStore.load throws a named ReadError.unreadableFile carrying the RULING-54 sentence in errorDescription (M9-OL-009 — an unreadable catalog must refuse pre-flight so a shorter list cannot arm an overwrite). list_publications, read_publication_page and republish let it escape to the generic fall-through (internal_error, reflected form — filename and OS cause survive, the guidance sentence does not), while compile is the one caller that CATCHES it and renders the full errorDescription plus the 'nothing landed' line inside an ordinary status: failed body",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPublishingCharacterization.test_unreadableCatalog_rendersAsInternalErrorLosingTheRuling54Sentence; MCPToolsPublishingCharacterization.test_unreadableCatalog_refusesCompilePreFlightWithTheFullSentence"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the refusal is deliberate (M9-OL-009); compile proves the good render exists, which makes the other three callers' fall-through a gap not a constraint",
+  "reachability": "LIVE — any publications read over an unreadable catalog",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-036",
+  "scope": "list_publications — a corrupt-but-readable catalog reads short with no diagnostic",
+  "kind": "POSTCONDITION",
+  "statement": "the catalog strictness is about UNREADABLE files only: a catalog readable but carrying undecodable lines is silently short — the rows that failed to parse are dropped, the response carries no diagnostic key, and every write-adjacent consumer proceeds against the shorter list. The exact shape M9-OL-009 closed for the unreadable-file case, still open for the corrupt-line case",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPublishingCharacterization.test_corruptCatalogLines_readShortWithNoDiagnostic"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the per-line tolerance mirrors the op-log torn-line case (M10-MT-004); unruled for the catalog",
+  "reachability": "LIVE — publications read over a catalog with corrupt lines",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-037",
+  "scope": "read_publish_file / list_publish_files / get_publish_config — absent vs unreadable",
+  "kind": "POSTCONDITION",
+  "statement": "read_publish_file distinguishes the two (absent → named invalid_argument; unreadable-yet-present → internal_error carrying the raw Cocoa error, which does say 'permission' and leaks the absolute on-disk path); get_publish_config keeps absent as the documented source:\"defaults\" and never silently defaults a corrupt/unreadable one (both throw as internal_error). But an unreadable publish DIRECTORY has NO such protection: list_publish_files builds its enumerator with try? and a nil enumerator reads as 'no files', so an unreadable .maugham/publish/ is reported as an empty publish tree",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPublishingCharacterization.test_readPublishFile_absentIsInvalidArgument_unreadableIsInternalError; MCPToolsPublishingCharacterization.test_getPublishConfig_absentIsDefaults_corruptAndUnreadableAreInternalError; MCPToolsPublishingCharacterization.test_listPublishFiles_unreadableDirectoryReadsAsEmpty"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the file readers distinguish the cases (good); the directory try? that reads unreadable-as-empty is the gap",
+  "reachability": "LIVE — publish-file reads over absent/unreadable files and an unreadable publish directory",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-038",
+  "scope": "set_publish_config / set_piece_style — validate-first (RULING-52), and a non-object patch crash",
+  "kind": "POSTCONDITION",
+  "statement": "set_publish_config half-lands nothing: a patch whose TYPES don't fit throws out of the decode before any save (rendered internal_error though the fault is the caller's); a patch that decodes but fails validation returns the ordinary body with errors and saves nothing; an unreadable config refuses the patch rather than patching a default over the writer's real one. set_piece_style likewise validates fully before touching disk (unknown piece / unreadable config → pieces/ never created, no style file). BUT set_publish_config guards only that patch is PRESENT then hands the value to JSONSerialization.data(withJSONObject:); a scalar patch ('patch':'hello' or null) is not a valid top-level object and raises an uncatchable Objective-C NSInvalidArgumentException that aborts the host process",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPublishingCharacterization.test_setPublishConfig_malformedPatchPersistsNothing; MCPToolsPublishingCharacterization.test_setPublishConfig_unreadableConfigRefusesBeforeWriting; MCPToolsPublishingCharacterization.test_setPieceStyle_refusalsLeaveNothingBehind; MCPToolsPublishingCharacterization.test_setPublishConfig_nonObjectPatchIsUnguarded"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the validate-first ordering is RULING-52's shape (good); the non-object-patch crash is an unguarded input, a defect (the test is documentation-only and does not trigger the abort in-suite)",
+  "reachability": "LIVE — set_publish_config with a scalar patch value crashes the whole MCP server",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-039",
+  "scope": "compile — two refusal channels (thrown vs status:failed)",
+  "kind": "POSTCONDITION",
+  "statement": "compile has two refusal channels and which one a caller gets depends on how far in it failed: refusals AFTER version resolution (an unresolved language edition, a version collision, the PublishMintGate in-flight refusal) arrive as an ordinary SUCCESS response with status:\"failed\" and a named remedy — so a client keying on isError sees the call as having worked — while refusals BEFORE version resolution (an invalid language tag, malformed params) THROW as tool errors. dry_run mints nothing (no Publication, no catalog, no version bump, no Exports/, no snapshot) but is NOT inert: it rewrites .maugham/publish/EMISSION.md, which the orchestrator documents as deliberate",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPublishingCharacterization.test_compileRefusals_arriveAsStatusFailedNotAsToolErrors; MCPToolsPublishingCharacterization.test_compile_mintGateInFlightRefusalNamesThePollingRemedy; MCPToolsPublishingCharacterization.test_compile_earlyRefusalsThrowInsteadOfReturningFailed; MCPToolsPublishingCharacterization.test_compileDryRun_mintsNothingButStillRewritesEmissionMd"
+  },
+  "warrant": "HIGH",
+  "intent": "PARTLY-INTENTIONAL — status:failed for compile outcomes is deliberate; the two-channel split (isError vs status:failed for what a caller experiences as one 'it refused') is not defended, RULING-8 territory",
+  "reachability": "LIVE — compile refusals of both kinds; dry_run",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-040",
+  "scope": "read_preview_page / read_publication_page / republish — artifact-level failures name the path but not the cause",
+  "kind": "POSTCONDITION",
+  "statement": "read_preview_page distinguishes 'no preview' (named, actionable invalid_argument) from a preview PDF that exists and won't open (generic internal_error naming the absolute path but not whether it is corrupt, truncated or unreadable); read_publication_page over a catalog row whose output file is gone renders internal_error naming the absolute path but not distinguishing 'deleted' from 'corrupt' and not pointing at the now-dangling catalog row; republish with an unknown snapshot_id never reaches a named refusal — the snapshot read throws a raw Cocoa 'no such file' into the fall-through, where read_publication_page's unknown publication_id IS a named invalid_argument",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPublishingCharacterization.test_readPreviewPage_noPreviewIsNamed_unopenablePdfIsInternalError; MCPToolsPublishingCharacterization.test_readPublicationPage_missingOutputFileIsInternalError; MCPToolsPublishingCharacterization.test_republish_unknownSnapshotIdSurfacesTheRawCocoaError"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the named cases show the intended shape; the raw-Cocoa fall-throughs are the M10-MT-001 gap on publishing surfaces",
+  "reachability": "LIVE — preview/publication reads over missing artifacts; republish with a bad snapshot id",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M10-MT-041",
+  "scope": "write_publish_file / delete_publish_file — .. is refused but a symlink escapes the sandbox",
+  "kind": "POSTCONDITION",
+  "statement": "'..' is refused on both write paths (named invalid_argument, nothing lands) but PublishPath.validateAndResolve standardizes WITHOUT resolving symlinks, so a symlink already inside .maugham/publish/ lets write_publish_file place bytes anywhere on disk and report {\"status\":\"written\"}. Not reachable through the publish tools alone (they cannot create the symlink), but reachable through a symlink the writer, an unpacked archive, or a sync client left there — a write tool escaping the planning-plane sandbox (tripwire 4 / membrane)",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "MCPToolsPublishingCharacterization.test_publishPath_refusesDotDotButFollowsASymlinkOutOfTheProject"
+  },
+  "warrant": "HIGH",
+  "intent": "UNKNOWN — the .. guard is deliberate; the symlink gap is an unclosed hole in the same guard, a defect candidate with a security dimension",
+  "reachability": "LIVE-conditional — write_publish_file to a path whose parent is a pre-existing symlink out of the project",
+  "evidence": {
+   "property_test": null
+  }
+ }
+]

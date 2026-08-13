@@ -29,6 +29,7 @@ APP_MODULES = [
     ("Publications", "`Publish/Republisher` (+`CompileOrchestrator`)", "—"),
     ("Inbox", "`Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings)", "—"),
     ("OpLog", "`OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice)", "—"),
+    ("MCPTools", "`MCP/Tools/` failure tail (all tool families; RULING-21 lens)", "—"),
 ]
 CORE_RECONCILED, CORE_TOTAL = 148, 169
 
