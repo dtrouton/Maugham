@@ -205,7 +205,7 @@ final class ClaudeCLISessionTests: XCTestCase {
         isEnabled: @escaping () -> Bool = { true },
         idleTimeout: TimeInterval = 600,
         runTimeout: TimeInterval = 20,
-        deathReapGrace: TimeInterval = ClaudeCLISession.deathReapGrace,
+        deathReapGrace: TimeInterval = ClaudeCLISession.defaultDeathReapGrace,
         locator: (@Sendable () -> URL?)? = nil
     ) -> ClaudeCLISession {
         ClaudeCLISession(
@@ -462,12 +462,20 @@ final class ClaudeCLISessionTests: XCTestCase {
 
     /// The bounded join's other door: if the exit never arrives inside the
     /// grace, the session says today's honest sentence rather than hanging
-    /// toward the run timeout. Grace 0.2s against a 0.4s linger makes the
-    /// fallback the certain outcome; nothing here asserts a status, because
-    /// the whole point is that none was learnable in time.
+    /// toward the run timeout. Nothing here asserts a status, because the whole
+    /// point is that none was learnable in time.
+    ///
+    /// **A 0.1 s grace against the fixture's 0.4 s linger, and the direction of
+    /// the margin is the reason for those numbers.** `sleep` is a floor, so
+    /// under load the child's exit can only arrive LATER, which widens the gap;
+    /// the only way this test loses is the grace task waking more than 300 ms
+    /// behind its own deadline, which is also the only thing it could lose to.
+    /// Shrinking the grace rather than lengthening the linger keeps the pair
+    /// fast — the linger is shared with the test above, whose join completes at
+    /// the exit and would pay for every millisecond of it.
     func test_aDeathWhoseReapOutlivesTheGraceFallsBackToTheHonestSentence() async throws {
         let cli = try makeFakeCLI(mode: .dieAfterClosingStdout)
-        let session = makeSession(cli: cli, deathReapGrace: 0.2)
+        let session = makeSession(cli: cli, deathReapGrace: 0.1)
 
         let event = await session.send(message: "hello", systemPreamble: nil)
 

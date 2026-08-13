@@ -50,7 +50,7 @@ final class ClaudeCLISession: CompilerRunner {
     /// The default of the above, and the only number here that answers "how
     /// long is a reap allowed to lag?" — generous against a loaded CI VM,
     /// short against the 120 s run timeout it exists to keep a death away from.
-    static let deathReapGrace: TimeInterval = 2
+    static let defaultDeathReapGrace: TimeInterval = 2
 
     // MARK: - Session state
 
@@ -131,7 +131,7 @@ final class ClaudeCLISession: CompilerRunner {
          isEnabled: @escaping () -> Bool,
          idleTimeout: TimeInterval = 600,
          runTimeout: TimeInterval = 120,
-         deathReapGrace: TimeInterval = ClaudeCLISession.deathReapGrace,
+         deathReapGrace: TimeInterval = ClaudeCLISession.defaultDeathReapGrace,
          locator: @escaping @Sendable () -> URL? = { ClaudeCLISession.locateCLI() }) {
         self.model = model
         self.mcpConfigPath = mcpConfigPath
@@ -271,12 +271,18 @@ final class ClaudeCLISession: CompilerRunner {
     private func ensureProcess(cli: URL) -> CompilerRunFailure? {
         // `deathEOFSeen` as well as `isRunning`: a process whose stdout has
         // reached EOF can never answer again, and while the death join waits
-        // out its grace for the exit that process is still technically alive.
-        // Before the join, EOF tore down immediately and the next send got a
-        // fresh CLI; without this a send landing inside the grace would write
-        // its turn down a dead session's stdin. Nothing is in flight here — a
-        // turn mid-join holds the session against a second send — so tearing
-        // down early only brings forward what the completion would have done.
+        // out its grace for the exit, that process is still technically alive.
+        // **This is the only guard on the idle-death path, and `send`'s own
+        // guards do not cover it.** A session that died between turns has
+        // `isRunning == false` and no continuation, so a ⌘R landing inside the
+        // grace sails through `send` and arrives here: without this line it
+        // would reuse the lingering process, write the new turn down the stdin
+        // of a CLI that has already closed its output, and then be resolved by
+        // the OLD process's exit carrying the OLD death's detail. Before the
+        // join, EOF tore down at once and that send got a fresh CLI; this keeps
+        // it so. A turn mid-join holds the session against a second send, so
+        // nothing is ever in flight here and tearing down early only brings
+        // forward what the completion would have done.
         if let process, process.isRunning, !deathEOFSeen { return nil }
         teardown()
 
