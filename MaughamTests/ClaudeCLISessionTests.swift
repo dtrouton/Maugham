@@ -34,6 +34,15 @@ final class ClaudeCLISessionTests: XCTestCase {
         /// login. The last line written is blank, so a test can tell "the last
         /// line" from "the last line with something on it".
         case dieWithStderr
+        /// Close stdout FIRST, say why on stderr, linger, and only then exit
+        /// non-zero — issue #36's race made deterministic.
+        ///
+        /// The session sees stdout's EOF while the child demonstrably still
+        /// lives, which on a loaded machine is exactly what a lagging reap
+        /// looks like. It also carries the sharper half: the *why* is written
+        /// AFTER the stdout close, so a diagnostic can only report it if the
+        /// session waits for the exit before reading stderr.
+        case dieAfterClosingStdout
         /// Emit the partial-message events a real turn emits — captured
         /// verbatim from `claude` 2.1.222 on 2026-08-08 — and then answer.
         ///
@@ -145,6 +154,16 @@ final class ClaudeCLISessionTests: XCTestCase {
           exit 1
         fi
 
+        if [ "$MODE" = "dieAfterClosingStdout" ]; then
+          IFS= read -r _line
+          exec 1>&-
+          echo "Loading configuration" >&2
+          echo "Invalid API key - Please run /login" >&2
+          echo "" >&2
+          sleep 0.4
+          exit 1
+        fi
+
         while IFS= read -r _line; do
           if [ "$MODE" = "slowWhileFlagged" ]; then
             # Short sleeps, not one long one: bash defers a trapped signal until
@@ -186,6 +205,7 @@ final class ClaudeCLISessionTests: XCTestCase {
         isEnabled: @escaping () -> Bool = { true },
         idleTimeout: TimeInterval = 600,
         runTimeout: TimeInterval = 20,
+        deathReapGrace: TimeInterval = ClaudeCLISession.defaultDeathReapGrace,
         locator: (@Sendable () -> URL?)? = nil
     ) -> ClaudeCLISession {
         ClaudeCLISession(
@@ -195,6 +215,7 @@ final class ClaudeCLISessionTests: XCTestCase {
             isEnabled: isEnabled,
             idleTimeout: idleTimeout,
             runTimeout: runTimeout,
+            deathReapGrace: deathReapGrace,
             locator: locator ?? { nil })
     }
 
@@ -412,6 +433,53 @@ final class ClaudeCLISessionTests: XCTestCase {
         let event = await session.send(message: "hello", systemPreamble: nil)
 
         XCTAssertEqual(event, .failed(.sessionDied(detail: "the CLI exited with status 3")))
+        session.shutdown()
+    }
+
+    /// Issue #36's race, made deterministic and permanent: stdout's EOF and
+    /// the child's exit are independent deliveries, and on a loaded machine
+    /// the EOF wins — `receiveEOF` used to poll `isRunning` at that instant,
+    /// give up on the status, and collapse the writer's diagnostic to "the
+    /// CLI closed its output" (CI runs 31613211133, 31627910133, 31668027497).
+    /// The fixture closes stdout, says why on stderr, LINGERS, then exits —
+    /// so EOF always arrives with the child alive, and only a session that
+    /// waits for the exit can name the status and carry the last word.
+    func test_aDeathReapedLateStillCarriesItsStatusAndLastWord() async throws {
+        let cli = try makeFakeCLI(mode: .dieAfterClosingStdout)
+        let session = makeSession(cli: cli)
+
+        let event = await session.send(message: "hello", systemPreamble: nil)
+
+        guard case .failed(.sessionDied(let detail)) = event else {
+            return XCTFail("expected .sessionDied, got \(event)")
+        }
+        XCTAssertTrue(detail.contains("status 1"), "got: \(detail)")
+        XCTAssertTrue(detail.contains("Invalid API key - Please run /login"),
+                      "stderr written after the stdout close is still the essence; got: \(detail)")
+
+        session.shutdown()
+    }
+
+    /// The bounded join's other door: if the exit never arrives inside the
+    /// grace, the session says today's honest sentence rather than hanging
+    /// toward the run timeout. Nothing here asserts a status, because the whole
+    /// point is that none was learnable in time.
+    ///
+    /// **A 0.1 s grace against the fixture's 0.4 s linger, and the direction of
+    /// the margin is the reason for those numbers.** `sleep` is a floor, so
+    /// under load the child's exit can only arrive LATER, which widens the gap;
+    /// the only way this test loses is the grace task waking more than 300 ms
+    /// behind its own deadline, which is also the only thing it could lose to.
+    /// Shrinking the grace rather than lengthening the linger keeps the pair
+    /// fast — the linger is shared with the test above, whose join completes at
+    /// the exit and would pay for every millisecond of it.
+    func test_aDeathWhoseReapOutlivesTheGraceFallsBackToTheHonestSentence() async throws {
+        let cli = try makeFakeCLI(mode: .dieAfterClosingStdout)
+        let session = makeSession(cli: cli, deathReapGrace: 0.1)
+
+        let event = await session.send(message: "hello", systemPreamble: nil)
+
+        XCTAssertEqual(event, .failed(.sessionDied(detail: "the CLI closed its output")))
         session.shutdown()
     }
 
