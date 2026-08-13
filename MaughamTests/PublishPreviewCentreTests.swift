@@ -947,15 +947,43 @@ final class PublishPreviewCentreTests: XCTestCase {
                                    subject: .project,
                                    preview: .ready(newestFirst: [publication]))
 
-        await pumpUntil(deadline: 5) { !self.pdfViews(in: mount.window).isEmpty }
+        await pumpUntil(deadline: 5) {
+            !self.pdfViews(in: mount.window).isEmpty && mount.hostLife.appearances == 1
+        }
         XCTAssertEqual(mount.hostLife.appearances, 1, "premise: the host mounted")
         XCTAssertEqual(mount.hostLife.disappearances, 0, "premise: and is still up")
 
         // The gesture the ruling creates: fix the layout without leaving Publish.
+        //
+        // **Wait for the chapter's own surface, not for the book's absence.**
+        // The two are separate passes with an async load between them: the
+        // subject change removes the preview layer in the render it causes,
+        // while the text view arrives only after `EditorHost.onChange(of:
+        // selectedItemId)` has awaited `loadDocumentIfNeeded()` and the
+        // resulting state change has been rendered. Measured on a 1 ms poll,
+        // the book is gone ~80 ms before the surface exists — with the counter
+        // reading 1/0 throughout, so an empty column in that window is a
+        // half-finished hop and NOT a teardown. Waiting on the departure and
+        // asserting the arrival made the gap a coin flip decided by how the
+        // worker's runloop happened to be serviced; it came up tails twice in
+        // the parallel gate and never once in isolation.
         mount.box.subject = .item(chapter.id)
-        await pumpUntil(deadline: 5) { self.pdfViews(in: mount.window).isEmpty }
+        await pumpUntil(deadline: 5) {
+            self.pdfViews(in: mount.window).isEmpty
+                && !self.textViews(in: mount.window).isEmpty
+        }
+        XCTAssertTrue(pdfViews(in: mount.window).isEmpty,
+                      "the book gives way to the prose")
         XCTAssertFalse(textViews(in: mount.window).isEmpty,
                        "the chapter opened in the host that was already there")
+        // Pinned at the hop as well as at the end: the counter is what carries
+        // the never-torn claim, so if a hop ever DOES cost a teardown it must
+        // fail here, naming the hop, rather than surfacing as an empty column
+        // that reads like a slow render.
+        XCTAssertEqual(mount.hostLife.disappearances, 0,
+                       "…the same host, not a fresh one on the chapter")
+        XCTAssertEqual(mount.hostLife.appearances, 1,
+                       "…and it never re-appeared on the way in")
 
         mount.box.persona = .author
         await pumpUntil(deadline: 5) { !self.textViews(in: mount.window).isEmpty }
@@ -1003,7 +1031,14 @@ final class PublishPreviewCentreTests: XCTestCase {
                        "premise: the arm shape mounts the host on the chapter")
 
         mount.box.subject = .project
-        await pumpUntil(deadline: 5) { !self.pdfViews(in: mount.window).isEmpty }
+        // Waits on the quantity it asserts, for the reason the layered test
+        // records: `.onDisappear` is not guaranteed to have run by the render
+        // that puts the book on screen, and a control that can time out early
+        // is a control that can stop proving the counter works.
+        await pumpUntil(deadline: 5) {
+            !self.pdfViews(in: mount.window).isEmpty
+                && mount.hostLife.disappearances >= 1
+        }
 
         XCTAssertGreaterThanOrEqual(
             mount.hostLife.disappearances, 1,
