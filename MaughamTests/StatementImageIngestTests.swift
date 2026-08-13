@@ -59,11 +59,48 @@ final class StatementImageIngestTests: XCTestCase {
     /// `<slug>_assets` from the note's filename, which is why `visual-language.md`
     /// yields its well with no literal anywhere in production code.
     private func well(beside statement: Statement, in projectURL: URL) -> URL {
-        let file = projectURL.appendingPathComponent(statement.path)
+        well(besideStatementAt: statement.path, in: projectURL)
+    }
+
+    /// The same derivation over a path alone, for the failure tests below: they
+    /// need to know where the well WILL be before the statement that owns it
+    /// exists, and a second spelling of `<slug>_assets` here would be a copy of
+    /// the rule `ImagePasteHandler.destination` owns.
+    private func well(besideStatementAt path: String, in projectURL: URL) -> URL {
+        let file = projectURL.appendingPathComponent(path)
         return file
             .deletingLastPathComponent()
             .appendingPathComponent(
                 "\(file.deletingPathExtension().lastPathComponent)_assets")
+    }
+
+    /// The relative path a fresh novel mints a statement of this kind at, read
+    /// off a REAL mint in a sibling project of the same factory.
+    ///
+    /// `vacantStatementPath` owns that convention — it steers around an occupied
+    /// `visual-language.md` — so asking a sibling is how a test learns the path
+    /// before minting without spelling one. Both projects come from
+    /// `ProjectFactory.createNovelProject` with nothing in the way, so the answer
+    /// is the same in each.
+    private func conventionalPath(
+        of kind: Statement.Kind, named name: String
+    ) async throws -> String {
+        let sibling = try await fixture(named: name)
+        return try await sibling.store.createStatement(kind: kind, scope: .project).path
+    }
+
+    /// Put a regular FILE where the statement's assets directory must go, so the
+    /// saver's own `createDirectory` throws — a disk that says no *after* the
+    /// mint, which is the whole failure ordering S6 is about. Returns the plant,
+    /// so a test can remove it and prove the same call then lands.
+    private func plantAFileWhereTheWellMustGo(
+        forStatementAt path: String, in projectURL: URL
+    ) throws -> URL {
+        let plant = well(besideStatementAt: path, in: projectURL)
+        try FileManager.default.createDirectory(
+            at: plant.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("a file, where a directory has to be".utf8).write(to: plant)
+        return plant
     }
 
     private func pngBytes(_ side: Int = 8) throws -> Data {
@@ -444,5 +481,144 @@ final class StatementImageIngestTests: XCTestCase {
         let assets = well(beside: landed.statement, in: fixture.projectURL)
         XCTAssertTrue(landed.ref.contains("\(assets.lastPathComponent)/"),
                       "control: a real picture lands in the derived well; got \(landed.ref)")
+    }
+
+    /// S6 (issue #29): the NSImage arm minted the statement BEFORE the save
+    /// could fail. An unencodable bitmap must refuse with nothing behind —
+    /// not even the empty statement it would have gone into.
+    ///
+    /// The twin of `test_aTextFileIsRefusedOnItsWayIntoVisualLanguage` for the
+    /// other arm: the fileURL arm asks `isIngestableImage` before it mints, and
+    /// this one now re-encodes before it mints, so both refuse the writer's own
+    /// bad input at the same point.
+    func test_anUnencodableImageLeavesNoStatementBehind() async throws {
+        let fixture = try await fixture(named: "VisualLanguageUnencodable")
+        XCTAssertNil(fixture.store.statement(kind: .visualLanguage, scope: .project),
+                     "precondition: nothing here yet, so what the assertion below "
+                     + "reads can only have come from this call")
+
+        do {
+            _ = try await fixture.store.addImage(
+                toStatement: .visualLanguage, scope: .project, image: NSImage())
+            XCTFail("a zero-size NSImage has no bitmap to encode")
+        } catch let error as ImagePasteHandler.ImagePasteError {
+            guard case .encodingFailed = error else {
+                return XCTFail("expected .encodingFailed, got \(error)")
+            }
+        }
+
+        XCTAssertNil(fixture.store.statement(kind: .visualLanguage, scope: .project),
+                     "a refused picture leaves nothing behind — not even the statement")
+
+        // Control: the same call with a real picture through the same arm mints
+        // one, so the assertion above is about the refusal and not about an arm
+        // that mints nothing at all.
+        let landed = try await fixture.store.addImage(
+            toStatement: .visualLanguage, scope: .project, image: try makeImage())
+        XCTAssertEqual(
+            landed.statement.id,
+            try XCTUnwrap(fixture.store.statement(kind: .visualLanguage, scope: .project)).id)
+    }
+
+    /// **The disk-failure case, both arms.** A regular FILE planted where the
+    /// assets DIRECTORY must go makes the saver's `createDirectory` throw — the
+    /// one failure neither arm can validate its way out of, because it happens
+    /// after the mint. The rollback is what makes "a refused picture leaves
+    /// nothing behind" true of the disk's refusals too.
+    ///
+    /// Healed at the end: with the plant removed the same call lands, so the two
+    /// refusals above are the planted disk and not an ingest that refuses
+    /// everything.
+    func test_aDiskFailureAfterTheMintRollsTheStatementBack() async throws {
+        let fixture = try await fixture(named: "VisualLanguageDiskFailure")
+        let path = try await conventionalPath(
+            of: .visualLanguage, named: "VisualLanguageDiskFailureProbe")
+        let plant = try plantAFileWhereTheWellMustGo(
+            forStatementAt: path, in: fixture.projectURL)
+        let statementFile = fixture.projectURL.appendingPathComponent(path)
+
+        let png = fixture.projectURL.appendingPathComponent("real.png")
+        try pngBytes().write(to: png)
+
+        // The fileURL arm: `isIngestableImage` passes, the mint lands, and the
+        // copy's own directory creation is what throws.
+        do {
+            _ = try await fixture.store.addImage(
+                toStatement: .visualLanguage, scope: .project, fileURL: png)
+            XCTFail("no well can be created where a regular file already is")
+        } catch {}
+        XCTAssertNil(fixture.store.statement(kind: .visualLanguage, scope: .project),
+                     "the mint this call made must not outlive the save that failed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: statementFile.path),
+                       "and the empty file went with the manifest row — a row-less "
+                       + "file is inert, but here neither should be left")
+
+        // The NSImage arm on the same planted disk: the encode succeeds, so the
+        // mint happens and the write is what fails.
+        do {
+            _ = try await fixture.store.addImage(
+                toStatement: .visualLanguage, scope: .project, image: try makeImage())
+            XCTFail("no well can be created where a regular file already is")
+        } catch {}
+        XCTAssertNil(fixture.store.statement(kind: .visualLanguage, scope: .project),
+                     "both arms roll their own mint back, not just the file one")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: statementFile.path))
+
+        // Heal.
+        try FileManager.default.removeItem(at: plant)
+        let landed = try await fixture.store.addImage(
+            toStatement: .visualLanguage, scope: .project, fileURL: png)
+        XCTAssertEqual(
+            landed.statement.id,
+            try XCTUnwrap(fixture.store.statement(kind: .visualLanguage, scope: .project)).id,
+            "with the disk healed the same call lands, so the refusals above were "
+            + "the plant and not an ingest that refuses everything")
+        XCTAssertEqual(files(in: well(beside: landed.statement, in: fixture.projectURL)).count, 1)
+    }
+
+    /// **And the guard that makes rollback safe under find-or-create:** a save
+    /// failure on a SECOND picture must NOT delete the writer's existing
+    /// statement — this call did not mint it.
+    ///
+    /// Nothing else distinguishes the two cases at the point of failure: the
+    /// statement's file is empty and its op log has no words either way (the ref
+    /// goes in through the caller's own append), so `rollbackUnusedStatement`
+    /// would happily remove a declaration the writer made yesterday. Only the
+    /// question asked BEFORE `createStatement` can tell them apart.
+    func test_aSaveFailureOnASecondPictureKeepsTheExistingStatement() async throws {
+        let fixture = try await fixture(named: "VisualLanguageSecondPicture")
+        let png = fixture.projectURL.appendingPathComponent("real.png")
+        try pngBytes().write(to: png)
+
+        let first = try await fixture.store.addImage(
+            toStatement: .visualLanguage, scope: .project, fileURL: png)
+        let assets = well(beside: first.statement, in: fixture.projectURL)
+        XCTAssertEqual(files(in: assets).count, 1, "control: the first picture landed")
+
+        // Break the well under the statement the writer now has.
+        try FileManager.default.removeItem(at: assets)
+        _ = try plantAFileWhereTheWellMustGo(
+            forStatementAt: first.statement.path, in: fixture.projectURL)
+
+        for arm in ["fileURL", "NSImage"] {
+            do {
+                _ = arm == "fileURL"
+                    ? try await fixture.store.addImage(
+                        toStatement: .visualLanguage, scope: .project, fileURL: png)
+                    : try await fixture.store.addImage(
+                        toStatement: .visualLanguage, scope: .project, image: try makeImage())
+                XCTFail("the \(arm) arm should have failed on the planted well")
+            } catch {}
+
+            let still = try XCTUnwrap(
+                fixture.store.statement(kind: .visualLanguage, scope: .project),
+                "the \(arm) arm FOUND the writer's statement rather than minting "
+                + "it, and a save failure must never delete a declaration it did "
+                + "not make")
+            XCTAssertEqual(still.id, first.statement.id)
+            XCTAssertTrue(FileManager.default.fileExists(
+                atPath: fixture.projectURL.appendingPathComponent(still.path).path),
+                "and its file is still there")
+        }
     }
 }

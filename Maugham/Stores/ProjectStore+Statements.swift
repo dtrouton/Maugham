@@ -236,6 +236,86 @@ extension ProjectStore {
         return created
     }
 
+    /// Undo one `createStatement` whose purpose failed before anything reached
+    /// it (issue #29: an image save that threw, a superseded mint nothing was
+    /// deposited into). `createStatement` commits exactly two things — an empty
+    /// file and a manifest row — and this removes exactly those two, **manifest
+    /// FIRST**: a row pointing at a missing file is a dangle every reader hits,
+    /// while a stray empty file with no row is inert, and `vacantStatementPath`
+    /// steers the next mint around it.
+    ///
+    /// **REFUSES — returning false**, because a refusal is a normal answer on a
+    /// failure path and not a second failure for the caller to handle:
+    ///
+    /// - when a pane has the statement **open**, whatever its text says: a
+    ///   `Document` whose file was deleted under it is a writer typing into
+    ///   nothing;
+    /// - when its op-log **derivation has words**. That question is asked of the
+    ///   derivation and never of the `.md` (tripwire 20) — the op log is the
+    ///   record of whether any deposit ever landed, and an unreadable log
+    ///   (RULING-54 throws) cannot prove emptiness, so it refuses too;
+    /// - when the **file has bytes** even though the derivation is empty. Not
+    ///   belt-and-braces: a freshly promoted Collection piece carries its
+    ///   intent's prose in the `.md` with no `.maugham/` at all
+    ///   (`stagePromotedIntent`), so the derive says `""` over a file full of
+    ///   paragraphs. A `stat` and never a read — the same non-zero-size question
+    ///   `propagateWikiLinkRename` asks for the same state, which is why it is
+    ///   not the manuscript-as-truth read ADR 0018 forbids;
+    /// - when the manifest **no longer knows** it. Identity is the manifest `id`
+    ///   (tripwire 22), so a stale handle naming a path a *later* statement now
+    ///   lives at removes nothing.
+    ///
+    /// The removal is a direct `removeItem` rather than the typed mover
+    /// (tripwire 14) because it is the exact inverse of `createStatement`'s own
+    /// direct `Data().write(to:)`, and the mover's discipline is
+    /// close-before-surgery for a path with a live autosave on it — which the
+    /// open refusal above has already established there is not.
+    ///
+    /// **The caller must NOT already hold `lockStatementOpen` for this id — the
+    /// gate is not reentrant.** This takes it unconditionally at entry, and
+    /// `lockStatementOpen` parks a caller that finds the id in flight on a
+    /// continuation resumed only by `unlockStatementOpen`, so a re-entrant call
+    /// waits on a lock it is itself holding: a **hang**, with no error and
+    /// nothing red to explain it. The rollback callers are failure paths inside
+    /// `createStatement`'s own callers, which hold nothing — but a future one
+    /// reaching for this from inside `withStatementDocument`'s gate, or from a
+    /// pane that has taken it to load, is the shape to refuse at review.
+    @discardableResult
+    public func rollbackUnusedStatement(_ statement: Statement) async -> Bool {
+        // Under the open gate, so a pane cannot bind this statement between the
+        // check below and the file going away.
+        await lockStatementOpen(statement.id)
+        defer { unlockStatementOpen(statement.id) }
+        guard openStatementDocument(id: statement.id) == nil else { return false }
+
+        guard let derived = try? statementText(of: statement),
+              derived.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return false }
+
+        let fileURL = url.appendingPathComponent(statement.path)
+        let size = (try? FileManager.default.attributesOfItem(
+            atPath: fileURL.path))?[.size] as? Int ?? 0
+        guard size == 0 else { return false }
+
+        guard let row = manifest.statements.firstIndex(where: { $0.id == statement.id })
+        else { return false }
+        let previouslyModified = manifest.modified
+        manifest.statements.remove(at: row)
+        manifest.modified = Date()
+        do {
+            try await saveManifest()
+        } catch {
+            // The row could not be dropped, so put it back — including the
+            // stamp, since nothing was modified — and refuse. Deleting the file
+            // under a live row is the dangle this order exists to avoid.
+            manifest.statements.insert(statement, at: row)
+            manifest.modified = previouslyModified
+            return false
+        }
+        try? FileManager.default.removeItem(at: fileURL)
+        return true
+    }
+
     // MARK: - Writing into one
 
     /// Run `mutate` against a statement's `Document` — the one somebody already

@@ -332,8 +332,14 @@ struct PromotionPerformer {
         // whatever card is chosen; a missing card does not. The more fundamental
         // refusal goes first, and `test_aPromotionWhosePictureAndCardAreBothGone
         // NamesThePictureFirst` pins it so the next hoist is a decision.
+        //
+        // **`assetURL` throws its own refusal before this one can be reached**
+        // (F8), and that is the right order: a path that escapes the project is
+        // not a picture that is gone, and answering it in the writer's "no
+        // longer in the project" words would describe a file that is very much
+        // there.
         for picture in plan.pictures
-        where !FileManager.default.fileExists(atPath: assetURL(picture).path) {
+        where !FileManager.default.fileExists(atPath: try assetURL(picture).path) {
             throw PromotionFailure.pictureIsGone(path: picture.assetPath,
                                                  source: plan.source)
         }
@@ -622,7 +628,7 @@ struct PromotionPerformer {
         // images survive rather than assuming it.
         for picture in plan.pictures {
             _ = try await store.addImage(toPaletteCard: itemID,
-                                         fileURL: assetURL(picture))
+                                         fileURL: try assetURL(picture))
         }
 
         let title = TreeWalk.find(id: itemID, in: store.manifest.research)?.title ?? plan.title
@@ -759,7 +765,7 @@ struct PromotionPerformer {
     private func performResearchAsset(_ plan: PromotionPlan) async throws -> PromotionResult {
         let picture = try requirePicture(plan)
         let item = try await store.createResearchAsset(scope: scope(for: plan.source),
-                                                       fromURL: assetURL(picture))
+                                                       fromURL: try assetURL(picture))
         // The MARK, because this promotion produced an artifact of its own —
         // "I am this thing" is true of it, which is what `promotedItemID` means.
         mark(item.id, for: plan.source, named: Self.pictureStep,
@@ -795,7 +801,7 @@ struct PromotionPerformer {
         // `<slug>_assets/`, appends the path, and preserves everything else on
         // the card; the canvas is a caller here, never a storage decision.
         let card = try await store.addImage(toPaletteCard: cardID,
-                                            fileURL: assetURL(picture))
+                                            fileURL: try assetURL(picture))
         recordPicture(in: cardID, on: picture.node)
         return PromotionResult(createdItemID: cardID, title: card.title, writtenLinks: [])
     }
@@ -822,9 +828,24 @@ struct PromotionPerformer {
 
     /// The owned file, absolute. The stored path is project-relative and stays
     /// that way — see `CanvasItemReference.owned(path:)` for what an absolute one
-    /// costs — so this is the one place it is resolved against the project.
-    private func assetURL(_ picture: PromotedPicture) -> URL {
-        store.url.appendingPathComponent(picture.assetPath)
+    /// costs — so this is the one place it is resolved against the project, and
+    /// therefore the one place the containment gate runs (F8, issue #28).
+    ///
+    /// **It throws, and the throw is the point.** The path comes from a sidecar,
+    /// and promotion is the act that reads the file it names and writes a copy
+    /// into the writer's research tree — so a `../` here files a file the project
+    /// does not own as though it were the project's. `SafeRelativePath.resolve`
+    /// returns exactly the URL `appendingPathComponent` returned before it, so
+    /// nothing about a legitimate path changes.
+    ///
+    /// **`PathError` reaches the writer as itself rather than as a
+    /// `PromotionFailure`**: every case of that enum is a sentence about
+    /// something the writer did — a name they left blank, a card they deleted —
+    /// and a corrupted or hostile sidecar is not one of those. It surfaces the
+    /// way every other unexpected failure on this path does, through
+    /// `perform`'s `throws` and `ProjectWindow.commit`'s `localizedDescription`.
+    private func assetURL(_ picture: PromotedPicture) throws -> URL {
+        try SafeRelativePath.resolve(picture.assetPath, under: store.url)
     }
 
     /// **Stamp WITHOUT clearing, and that is the difference from `record`.**

@@ -720,8 +720,42 @@ struct StatementEditorHost: View {
         Task { @MainActor in
             defer { mintingScopes.remove(wanted) }
             do {
+                // Asked BEFORE the create, because `createStatement` is
+                // find-or-create and its answer cannot say which it did. A
+                // statement this mint FOUND is somebody else's — the promotion
+                // that made it, or the pane's own earlier visit — and is never
+                // ours to withdraw.
+                let mintedHere = store.statement(kind: kind, scope: scope) == nil
                 let created = try await store.createStatement(kind: kind, scope: scope)
-                _ = await load(created, for: wanted)
+                let bound = await load(created, for: wanted)
+                // **A mint that neither bound nor deposited leaves nothing**
+                // (issue #29, S5's residue). Issue #21 made every arm of a
+                // superseded mint deliver the words it was started for; this is
+                // the case with none to deliver — one character, its backspace,
+                // and the writer gone before the file existed — where what
+                // survived was an empty file and a manifest row declaring an
+                // intent nobody stated.
+                //
+                // **It cannot eat a delivery, and the argument is the store
+                // verb's rather than this line's.** The refusing arms deposit
+                // and close BEFORE returning false, which empties the box — so
+                // "nothing is waiting" is true of a mint that has just
+                // delivered, and `rollbackUnusedStatement` is what tells the two
+                // apart — by asking the op-log derivation whether anything
+                // landed, and the file whether it has bytes; measured, the
+                // close leaves the character in both, so either refusal alone
+                // holds. Words still waiting keep the statement outright: the
+                // writer's next keystroke on that scope retries the mint and it
+                // collects them into the file already there.
+                //
+                // Safe outside the open gate, and it has to be: `load` takes
+                // `lockStatementOpen` and releases it on the way out
+                // (`defer`), and the verb takes the same non-reentrant gate
+                // itself — called from inside `load`'s, it would wait on a lock
+                // this task is holding.
+                if !bound, mintedHere, !target.hasWordsWaiting(for: wanted) {
+                    await store.rollbackUnusedStatement(created)
+                }
             } catch {
                 _statementEditorLog.error(
                     "Could not create statement: \(error, privacy: .public)")

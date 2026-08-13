@@ -66,21 +66,59 @@ final class CanvasStore {
     private var sidecarURL: URL { projectRoot.appendingPathComponent(Self.sidecarRelativePath) }
     private var scrapsURL: URL { projectRoot.appendingPathComponent(Self.scrapsRelativePath) }
 
-    func load() -> (scene: CanvasScene, scraps: [CanvasNodeID: String]) {
+    /// What the sidecar turned out to be — **and it is not decoration**.
+    ///
+    /// An empty scene is returned for three different situations, and one of them
+    /// is not like the others: a file this build could not read is a file that
+    /// still holds the writer's arrangement, for some other build. Without this
+    /// distinction a reader cannot tell "there was nothing here" from "there is
+    /// something here I do not understand", and F9's load-time repair would
+    /// answer the second by saving a current-schema sidecar over it — losing
+    /// every region, line, position, mark and binding in it, on **open**.
+    enum SidecarState: Equatable {
+        /// Decoded, at a schema this build understands.
+        case decoded
+        /// No file. Nothing to lose, so a writer-facing repair may be saved.
+        case absent
+        /// **Present and unreadable** — undecodable bytes, or a schema from a
+        /// newer build. The layout in it is not ours to overwrite.
+        case refused
+
+        /// Whether a repair made at load time may be WRITTEN back.
+        ///
+        /// The rule has one home because it is the whole point of the enum: an
+        /// arrangement this build cannot read is one it must not stamp over
+        /// merely because the writer looked at the canvas.
+        var acceptsARepairWrite: Bool { self != .refused }
+    }
+
+    /// What a load found. **A struct rather than the pair**, so a reader cannot
+    /// take the scene without the fact that it may be empty for a reason that
+    /// forbids writing over it.
+    struct Loaded {
+        var scene: CanvasScene
+        var scraps: [CanvasNodeID: String]
+        var sidecar: SidecarState
+    }
+
+    func load() -> Loaded {
         // canvas.md is scrap CONTENT, not a manuscript — it never goes through
         // the op log (spec §8); this function IS its reconciler.
         let scraps = (try? String(contentsOf: scrapsURL, encoding: .utf8)) // adr-0018-ok: canvas.md scrap text, not manuscript
             .map(ScrapText.parse) ?? [:]
 
         // canvas.json is the derived sidecar, not a manuscript.
-        guard let data = try? Data(contentsOf: sidecarURL), // adr-0018-ok: canvas.json derived sidecar, not manuscript
-              let dto = try? JSONDecoder().decode(CanvasSceneDTO.self, from: data),
-              dto.schemaVersion <= CanvasSceneDTO.currentSchemaVersion else {
-            // Corrupt, absent, or from a newer build. An empty layout with the
-            // words intact is a recoverable state; a crash is not.
-            return (CanvasScene(), scraps)
+        guard let data = try? Data(contentsOf: sidecarURL) else { // adr-0018-ok: canvas.json derived sidecar, not manuscript
+            return Loaded(scene: CanvasScene(), scraps: scraps, sidecar: .absent)
         }
-        return (dto.scene, scraps)
+        guard let dto = try? JSONDecoder().decode(CanvasSceneDTO.self, from: data),
+              dto.schemaVersion <= CanvasSceneDTO.currentSchemaVersion else {
+            // Corrupt, or from a newer build. An empty layout with the words
+            // intact is a recoverable state; a crash is not — and the FILE is
+            // left alone, because it is somebody's arrangement.
+            return Loaded(scene: CanvasScene(), scraps: scraps, sidecar: .refused)
+        }
+        return Loaded(scene: dto.scene, scraps: scraps, sidecar: .decoded)
     }
 
     func save(scene: CanvasScene, scraps: [CanvasNodeID: String]) {
@@ -126,8 +164,12 @@ final class CanvasStore {
     }
 
     private func writeNow(scene: CanvasScene, scraps: [CanvasNodeID: String]) {
-        writeSidecar(scene)
+        // Content first, derived second (F11, issue #28): both writes are
+        // individually atomic but the PAIR is not, and a crash in the gap must
+        // only ever lag the deletable sidecar — never leave a node in
+        // canvas.json whose words missed canvas.md.
         try? ScrapText.render(scraps).write(to: scrapsURL, atomically: true, encoding: .utf8)
+        writeSidecar(scene)
     }
 
     private func writeSidecar(_ scene: CanvasScene) {

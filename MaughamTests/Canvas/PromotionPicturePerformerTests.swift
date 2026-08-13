@@ -439,6 +439,41 @@ final class PromotionPicturePerformerTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(model.scene.node(owned)).promotedItemID, "and marked nothing")
     }
 
+    /// **An owned path that escapes the project refuses, and copies nothing**
+    /// (F8, issue #28). The path is sidecar-supplied — `.maugham/canvas.json` is
+    /// an ordinary file on disk — and promotion is the act that reads it and
+    /// writes what it finds INTO the writer's research tree. So the file this
+    /// refuses to copy is a real one, sitting where a `../` reaches it: without
+    /// the containment gate this promotion files a copy of a file outside the
+    /// project as a research asset, and the refusal is the whole test.
+    ///
+    /// It fails through the performer's existing surface — `perform` throws and
+    /// `ProjectWindow.commit` shows `localizedDescription` — rather than through
+    /// a refusal of its own, because `PromotionFailure`'s cases are sentences
+    /// about a writer's own mistakes and this is not one.
+    func test_anOwnedPathThatEscapesTheProjectRefusesAndCopiesNothing() async throws {
+        let (root, store) = try await makeProject()
+        // Outside the project, inside the test's temp tree so it is cleaned up.
+        let outside = root.deletingLastPathComponent().appendingPathComponent("escape.png")
+        try Data("a file this project does not own".utf8).write(to: outside)
+        let escaping = "../escape.png"
+        let model = makeModel(at: root, ownedPath: escaping)
+        let request = try plan(owned, .researchAsset, store: store, model: model)
+
+        do {
+            _ = try await PromotionPerformer(store: store, model: model).perform(request)
+            XCTFail("an escaping owned path must refuse")
+        } catch {
+            XCTAssertEqual(error as? SafeRelativePath.PathError, .escapesRoot(escaping),
+                           "the escape was resolved rather than refused — found: \(error)")
+        }
+        XCTAssertTrue(store.manifest.research.isEmpty, "and filed nothing")
+        XCTAssertNil(try XCTUnwrap(model.scene.node(owned)).promotedItemID, "and marked nothing")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outside.path),
+                      "the bait file is gone, so the assertions above are not about "
+                      + "containment at all")
+    }
+
     func test_aDeletedPaletteCardRefusesInTheWritersWords() async throws {
         let (root, store) = try await makeProject()
         let card = try await makeFurnishedCard(in: store)

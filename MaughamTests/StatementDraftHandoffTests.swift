@@ -335,4 +335,228 @@ final class StatementDraftHandoffTests: XCTestCase {
                        + "PROJECT's intent — the words followed the pane instead "
                        + "of the scope they were typed for")
     }
+
+    // MARK: - The residue: a mint that neither bound nor deposited (issue #29)
+
+    /// **A mint that delivered nothing leaves nothing** (issue #29, S5's
+    /// residue).
+    ///
+    /// Issue #21 made every arm of a superseded mint DELIVER the words it was
+    /// started for. What it could not answer is the case where there are none to
+    /// deliver: one character, the backspace that takes it away, and then the
+    /// writer moves on — all before the mint has created the file those
+    /// characters were for. The statement was created anyway, and what survived
+    /// was an empty `intent/<slug>.md` and a manifest row declaring an intent
+    /// nobody stated: `read_craft_intent` answers `exists: true` with nothing in
+    /// it, and the pane offers a document the writer never wrote.
+    ///
+    /// **Not the same case as a statement the writer VISITED.** A mint that
+    /// bound is honest even when it is left empty — the editor really was on
+    /// that scope. This is only the mint whose editor never took the file at
+    /// all.
+    ///
+    /// **The wedge is the main actor, not a gate, and that is forced rather than
+    /// chosen.** The suite's other tests park the mint on
+    /// `lockStatementOpen`, which needs the statement's id in advance — so they
+    /// pre-create it, which makes the mint find one rather than mint one, and a
+    /// mint that found its statement must never roll it back. There is no other
+    /// hold available: `ProjectStore`, `DocumentStore`, `OpLogStore`, `Document`
+    /// and `PendingBuffer` are all `@MainActor` and the mint's path holds no true
+    /// suspension, so once its detached `Task` starts it runs to completion
+    /// without yielding. What that same fact gives is a wedge of its own: the
+    /// keystroke ENQUEUES that `Task`, so everything the test does before its
+    /// next suspension happens first, in order, with the mint provably still
+    /// waiting for its turn. Both halves are asserted below rather than assumed.
+    ///
+    /// ⌘⌥V is the writer's departure (issue #21's door 2, through the same
+    /// `detailSegment` binding the picker and the key equivalent write) because
+    /// `DetailPaneToggle.segmentContent` tears this host down, and SwiftUI does
+    /// that inside the forced layout pass — synchronously, before the mint's
+    /// turn. A scope change cannot serve here: `reconcile` names the new
+    /// destination from a `.task(id:)` body, which is itself an enqueued job, and
+    /// the mint's was enqueued first.
+    func test_aMintThatNeitherBoundNorDepositedLeavesNoStatement() async throws {
+        let fixture = try await fixture(named: "MintWithNothingToDeposit")
+        let docId = fixture.documentItemId
+
+        let window = await fixture.hostTheBinderBesideThePane(subject: .item(docId))
+        let onChapter = try fixture.textView(in: window)
+        XCTAssertNil(fixture.store.statement(kind: .intent, scope: .document(docId)),
+                     "precondition: the chapter has no intent, so the first "
+                     + "keystroke is the one that mints it — which is the whole "
+                     + "case this test is about")
+
+        // The writer's whole part, in ONE main-actor turn: a character, the
+        // backspace that takes it back, and ⌘⌥V.
+        press("x", into: onChapter)
+        press("", into: onChapter, replacing: NSRange(location: 0, length: 1))
+        XCTAssertEqual(onChapter.string, "",
+                       "the backspace never reached the editor, so a character is "
+                       + "still waiting and this test is about the other case")
+        fixture.probe.detailSegment = .visualLanguage
+        // Forced rather than pumped: a pump would give the mint its turn, and
+        // what has to happen first is the host's teardown (`.onDisappear` →
+        // `leave()`, which clears the destination the mint checks itself
+        // against). SwiftUI performs it inside this layout pass.
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        XCTAssertNil(fixture.store.statement(kind: .intent, scope: .document(docId)),
+                     "the mint took its turn before the writer left, so it bound "
+                     + "an editor that was still there — the wedge did not work "
+                     + "and nothing below is evidence")
+        XCTAssertFalse(fixture.allTextViews(in: window).contains { $0 === onChapter },
+                       "the intent host is still mounted, so `leave()` has not run "
+                       + "and the mint is free to bind — the wedge did not work "
+                       + "and nothing below is evidence")
+
+        let folder = fixture.projectURL.appendingPathComponent(
+            StatementConvention.documentIntentFolder)
+        await fixture.pumpUntil(deadline: 5) {
+            FileManager.default.fileExists(atPath: folder.path)
+        }
+        // fixed window: the assertions below are absences, and an absence needs a
+        // span of wall clock to mean anything.
+        await fixture.waitOut(0.3)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.path),
+                      "the mint never ran at all — the folder its file was going "
+                      + "in is not there, so the assertions below would pass over "
+                      + "nothing")
+        XCTAssertNil(fixture.store.statement(kind: .intent, scope: .document(docId)),
+                     "a mint that neither bound nor deposited left its statement "
+                     + "behind: an empty intent for a chapter whose writer typed "
+                     + "one character and took it back. `read_craft_intent` now "
+                     + "answers exists:true over nothing, and the pane offers a "
+                     + "document nobody wrote (issue #29, S5's residue)")
+        XCTAssertEqual(
+            (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [], [],
+            "the manifest row went and the empty file stayed — a stray file with "
+            + "no row is inert, but the rollback removes both and this says so")
+    }
+
+    /// **And the same mint WITH words to deliver keeps its statement** — the
+    /// control on the one above, and the case that would cost the writer a
+    /// sentence if the rollback were a line looser.
+    ///
+    /// The interleaving is identical (issue #21's door 2, with the statement
+    /// minted by the mint itself rather than pre-created), so this is the first
+    /// test in the suite where the delivery and the rollback meet: the refusing
+    /// arm DEPOSITS the character and closes the `Document`, which empties the
+    /// box — so "are words waiting" is false by the time the mint asks, and what
+    /// stands between the writer's character and a `removeItem` is
+    /// `rollbackUnusedStatement`'s own emptiness refusals.
+    ///
+    /// Falsified by dropping **both** of them: measured 2026-08-12, the close
+    /// leaves the character in the op log AND in the `.md`, so the derivation
+    /// refusal and the non-zero-size refusal each hold this alone — which is why
+    /// removing either one on its own leaves this green. A test that named one
+    /// guard would have been describing a belt as the braces.
+    func test_aMintThatDepositedTheWritersCharacterKeepsItsStatement() async throws {
+        let fixture = try await fixture(named: "MintWithWordsToDeposit")
+        let docId = fixture.documentItemId
+
+        let window = await fixture.hostTheBinderBesideThePane(subject: .item(docId))
+        let onChapter = try fixture.textView(in: window)
+        XCTAssertNil(fixture.store.statement(kind: .intent, scope: .document(docId)),
+                     "precondition: the chapter has no intent")
+
+        press("x", into: onChapter)
+        fixture.probe.detailSegment = .visualLanguage
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        XCTAssertNil(fixture.store.statement(kind: .intent, scope: .document(docId)),
+                     "the mint took its turn before the writer left, so nothing "
+                     + "below is evidence")
+        XCTAssertFalse(fixture.allTextViews(in: window).contains { $0 === onChapter },
+                       "the intent host is still mounted, so `leave()` has not run "
+                       + "and nothing below is evidence")
+
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.store.statement(kind: .intent, scope: .document(docId)) != nil
+        }
+        let chapterIntent = try XCTUnwrap(
+            fixture.store.statement(kind: .intent, scope: .document(docId)),
+            "the mint created nothing, so there is nothing to have kept: the "
+            + "writer's character reached no file at all")
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.derivedText(forDocId: chapterIntent.id) == "x"
+        }
+
+        XCTAssertNotNil(fixture.store.statement(kind: .intent, scope: .document(docId)),
+                        "the mint delivered the writer's character into the "
+                        + "statement it had just created and then ROLLED THAT "
+                        + "STATEMENT BACK — the deposit empties the box, so "
+                        + "\u{201C}nothing was waiting\u{201D} is true of a mint "
+                        + "that has just delivered, and only the op log knows the "
+                        + "difference")
+        XCTAssertEqual(fixture.derivedText(forDocId: chapterIntent.id), "x",
+                       "the character the writer typed is not in the chapter's "
+                       + "intent (issue #21's door 2, which must stay closed)")
+    }
+
+    /// **And a mint that FOUND its statement never withdraws it**, however
+    /// empty and however little it delivered.
+    ///
+    /// `createStatement` is find-or-create and its answer cannot say which it
+    /// did, so the mint asks before it calls. Everything else here is the test
+    /// above — the same keystroke, the same backspace, the same ⌘⌥V — with the
+    /// statement created out of band first, the way a canvas promotion into this
+    /// scope makes one while the pane is showing it (the pane established there
+    /// was none and nothing re-runs `reconcile`, so the keystroke still starts a
+    /// mint). Rolling back there is deleting somebody else's file because our
+    /// own errand failed. Falsified by dropping the `mintedHere` question.
+    func test_aMintThatFoundItsStatementNeverRollsItBack() async throws {
+        let fixture = try await fixture(named: "MintFoundItsStatement")
+        let docId = fixture.documentItemId
+
+        let window = await fixture.hostTheBinderBesideThePane(subject: .item(docId))
+        let onChapter = try fixture.textView(in: window)
+        XCTAssertNil(fixture.store.statement(kind: .intent, scope: .document(docId)),
+                     "precondition: the pane resolves the chapter as having no "
+                     + "intent, which is what leaves the keystroke minting")
+
+        // Made by somebody else, after the pane resolved — and left empty, so
+        // nothing but `mintedHere` stands between it and the rollback.
+        let madeElsewhere = try await fixture.store.createStatement(
+            kind: .intent, scope: .document(docId))
+
+        press("x", into: onChapter)
+        press("", into: onChapter, replacing: NSRange(location: 0, length: 1))
+        fixture.probe.detailSegment = .visualLanguage
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(fixture.allTextViews(in: window).contains { $0 === onChapter },
+                       "the intent host is still mounted, so `leave()` has not run "
+                       + "and nothing below is evidence")
+        // fixed window: the assertion is that something SURVIVES, and a
+        // withdrawal needs a span of wall clock to have failed to happen in.
+        await fixture.waitOut(0.6)
+
+        XCTAssertNotNil(fixture.store.statement(kind: .intent, scope: .document(docId)),
+                        "the mint withdrew a statement it did not create — it "
+                        + "found this one, and a mint whose own errand delivered "
+                        + "nothing has no claim on somebody else's file")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: fixture.projectURL.appendingPathComponent(madeElsewhere.path).path),
+            "and took the file with it")
+    }
+
+    /// One keystroke, delivered without waiting on it — so a test can put two
+    /// keystrokes and the writer's departure inside ONE main-actor turn.
+    ///
+    /// `StatementMountFixture.type` awaits at the end, which is right for every
+    /// other test here and wrong for these two: the mint is a detached `Task`
+    /// the keystroke ENQUEUES, and the first suspension is what gives it its
+    /// turn. Same production sequence otherwise — AppKit's own
+    /// `shouldChangeText` → `didChangeText`, which is what fires the
+    /// coordinator's delegate methods and, through them, the binding.
+    private func press(_ text: String, into textView: NSTextView,
+                       replacing range: NSRange? = nil) {
+        let target = range ?? textView.selectedRange()
+        guard textView.shouldChangeText(in: target, replacementString: text) else { return }
+        textView.textStorage?.replaceCharacters(in: target, with: text)
+        textView.setSelectedRange(
+            NSRange(location: target.location + (text as NSString).length, length: 0))
+        textView.didChangeText()
+    }
 }

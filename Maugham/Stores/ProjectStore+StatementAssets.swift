@@ -44,13 +44,31 @@ extension ProjectStore {
     /// It opens no `Document` and so takes no `lockStatementOpen` of its own —
     /// that gate is over the *opening*. Putting the ref into the text is the
     /// caller's next act, and `ProjectStore.appendToStatement` is what takes the
-    /// gate when nobody has the statement open.
+    /// gate when nobody has the statement open. **That is also what leaves it
+    /// free to roll back below**: `rollbackUnusedStatement` takes the same gate
+    /// unconditionally and it is not reentrant, so a lock taken here would hang
+    /// on the failure path rather than clean up on it.
+    ///
+    /// **Nothing is left behind by a refusal, in either order it can fail**
+    /// (issue #29, S6). The encode comes first, so the writer's own bad bitmap
+    /// refuses before there is a statement — the file-URL twin's ordering. What
+    /// is left after that is the disk's refusal, which can only happen after the
+    /// mint, and that is rolled back.
     public func addImage(
         toStatement kind: Statement.Kind, scope: Statement.Scope, image: NSImage
     ) async throws -> StatementPicture {
+        let png = try ImagePasteHandler.encodePNG(image)
+        let mintedHere = statement(kind: kind, scope: scope) == nil
         let statement = try await createStatement(kind: kind, scope: scope)
-        return StatementPicture(statement: statement,
-                                ref: try addImage(to: statement, image: image))
+        do {
+            return StatementPicture(
+                statement: statement,
+                ref: try ImagePasteHandler.saveAndReferenceData(
+                    png, ext: "png", forNoteAt: statement.path, in: url))
+        } catch {
+            await rollBack(statement, ifMintedHere: mintedHere)
+            throw error
+        }
     }
 
     /// Save `image` beside a statement that **already exists**, synchronously.
@@ -79,7 +97,10 @@ extension ProjectStore {
     /// That ordering is why the guard is asked here rather than left to the
     /// saver: `createStatement` writes a file and a manifest entry, and a `.txt`
     /// dropped by mistake must not be what declares the writer's visual
-    /// language to exist.
+    /// language to exist. **And a save that fails after the mint rolls the mint
+    /// back**, so the guarantee holds for the disk's refusals too (issue #29,
+    /// S6) — the copy below can throw with the statement already committed, and
+    /// until then that was an empty visual language the writer never declared.
     public func addImage(
         toStatement kind: Statement.Kind, scope: Statement.Scope, fileURL: URL
     ) async throws -> StatementPicture {
@@ -87,11 +108,52 @@ extension ProjectStore {
             throw ImagePasteHandler.ImagePasteError.notAnImage(
                 filename: fileURL.lastPathComponent)
         }
+        let mintedHere = statement(kind: kind, scope: scope) == nil
         let statement = try await createStatement(kind: kind, scope: scope)
-        return StatementPicture(
-            statement: statement,
-            ref: try ImagePasteHandler.saveAndReferenceFile(
-                from: fileURL, forNoteAt: statement.path, in: url))
+        do {
+            return StatementPicture(
+                statement: statement,
+                ref: try ImagePasteHandler.saveAndReferenceFile(
+                    from: fileURL, forNoteAt: statement.path, in: url))
+        } catch {
+            await rollBack(statement, ifMintedHere: mintedHere)
+            throw error
+        }
+    }
+
+    /// Undo the mint an ingest made for a picture that never arrived.
+    ///
+    /// **`mintedHere` is the whole guard, and it cannot be recovered after the
+    /// fact.** `createStatement` is find-or-create, so both arms above are
+    /// holding a statement that is either this call's mint or the writer's
+    /// existing declaration — and at the moment of failure the two are
+    /// indistinguishable from disk: a statement whose only content is picture
+    /// refs has an empty file and an op log with no words either way, because
+    /// the ref goes in through the caller's own append. Only the question asked
+    /// BEFORE `createStatement` tells them apart, which is why each arm asks it
+    /// and passes the answer here.
+    ///
+    /// **Both callers roll back only where the save threw before anything
+    /// landed**, which in both arms is true because the save is the final act:
+    /// the well's own `createDirectory` and the copy/write are inside it, and a
+    /// picture already in the well must never have its statement removed — an
+    /// orphaned photograph is worse than an empty statement.
+    ///
+    /// `rollbackUnusedStatement` refuses on its own account too (an open pane,
+    /// words in the derivation, a non-empty file, an unknown row), so this is
+    /// the *first* of two questions rather than the only one.
+    ///
+    /// **What it deliberately does not undo: the well itself.** A save that gets
+    /// past `createDirectory` and fails on the write leaves an empty
+    /// `<slug>_assets/` behind. That is the exact inverse of `createStatement`'s
+    /// two commits and no more, on purpose — an empty directory holds nothing,
+    /// is invisible in the binder, and the next mint of the same statement takes
+    /// the same path and reuses it. Removing it would mean deciding it was ours
+    /// to remove, which for a well the writer may have put a photograph in a
+    /// second earlier is not a thing this failure path can know.
+    private func rollBack(_ statement: Statement, ifMintedHere mintedHere: Bool) async {
+        guard mintedHere else { return }
+        await rollbackUnusedStatement(statement)
     }
 }
 

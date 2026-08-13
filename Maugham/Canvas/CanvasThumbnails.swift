@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import MaughamCore
 
 /// The canvas's thumbnails: **decode small, cache by path, never on the frame
 /// path.**
@@ -324,7 +325,25 @@ public final class CanvasThumbnails {
         while !queue.isEmpty {
             let key = queue.removeFirst()
             guard entries[key] == nil else { continue }
-            let url = URL(fileURLWithPath: key.root).appendingPathComponent(key.path)
+            // **The one place in this file the path becomes a filesystem URL, so
+            // the one place the containment gate runs** (F8, issue #28). An
+            // owned path is a claim about a file THIS project owns
+            // (`Maugham/Canvas/AREA.md`) and it arrives from a sidecar, which is
+            // an ordinary file on disk — a `../` in `canvas.json` otherwise
+            // draws a photograph the project does not own on the writer's
+            // canvas. `SafeRelativePath.resolve` returns exactly the URL
+            // `appendingPathComponent` built before it, so nothing about a
+            // legitimate path moves.
+            //
+            // A refused path is cached as a FAILURE, like a file that is not an
+            // image: refused once, never re-queued. Without that the card naming
+            // it asks again on every frame that draws it — the per-frame work
+            // this file exists to prevent, arriving through the refusal path.
+            guard let url = try? SafeRelativePath.resolve(
+                key.path, under: URL(fileURLWithPath: key.root)) else {
+                store(nil, for: key)
+                continue
+            }
             let bucket = key.bucket
             let image = await Task.detached(priority: .utility) {
                 Self.decode(url, maxPixelSize: bucket)
@@ -337,6 +356,14 @@ public final class CanvasThumbnails {
     }
 
     // MARK: - The decode
+
+    /// No single decode may begin on a source claiming more pixels than this
+    /// (F13, issue #28) — 200 MP passes any real camera or panorama and
+    /// refuses the bomb class. Dimensions come from the header without
+    /// decoding; a source with UNREADABLE dimensions proceeds, because the
+    /// bomb must declare its size to work and the thumbnailer already fails
+    /// honestly on garbage.
+    nonisolated static let sourcePixelCap = 200_000_000
 
     /// One decode, at thumbnail size, through `CGImageSource`.
     ///
@@ -352,10 +379,43 @@ public final class CanvasThumbnails {
     /// which for a phone capture is often 160 px and for a PNG is nothing at all.
     /// `…WithTransform` applies the EXIF orientation, so a photograph taken in
     /// portrait is not drawn on its side.
-    private nonisolated static func decode(_ url: URL, maxPixelSize: Int) -> CGImage? {
+    ///
+    /// **The bucket ladder bounds the OUTPUT; it does not bound ImageIO's peak
+    /// working set while producing it, which is proportional to the SOURCE**
+    /// (F13, issue #28). A tiny-on-disk file that *claims* an enormous pixel
+    /// count — a decompression bomb — can spike memory before
+    /// `kCGImageSourceThumbnailMaxPixelSize` ever gets a say, so the gate below
+    /// reads the claimed dimensions from the header, without decoding, and
+    /// refuses before the thumbnailer runs.
+    ///
+    /// `internal` rather than `private` so the test can exercise the cap
+    /// directly: a forged-huge-header fixture fails to decode for other
+    /// reasons (ImageIO validates the file against the claim) and cannot
+    /// discriminate the gate from an ordinary decode failure — only a small
+    /// cap against an honest, decodable fixture can.
+    nonisolated static func decode(_ url: URL, maxPixelSize: Int,
+                                   sourcePixelCap: Int = CanvasThumbnails.sourcePixelCap) -> CGImage? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else {
             return nil
+        }
+        // Header only — no decode. A source with UNREADABLE dimensions proceeds
+        // rather than refusing, so this is **a floor over sources that declare
+        // themselves, not a guarantee**: a TIFF claiming 65535×65535 can return
+        // a properties dict with no pixel-width/height keys at all and sail
+        // straight past this (measured, #28 review), failing harmlessly on its
+        // own merits at the thumbnailer a few lines down. Refusing everything
+        // that will not state its size would refuse honest files too.
+        //
+        // `multipliedReportingOverflow` because the claim is the ATTACKER's
+        // number: two Ints out of a header multiply to a trap on overflow, and a
+        // crash is a worse answer than a refusal. An overflowing product is over
+        // any cap by construction.
+        if let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let width = props[kCGImagePropertyPixelWidth] as? Int,
+           let height = props[kCGImagePropertyPixelHeight] as? Int {
+            let (pixels, overflowed) = width.multipliedReportingOverflow(by: height)
+            if overflowed || pixels > sourcePixelCap { return nil }
         }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

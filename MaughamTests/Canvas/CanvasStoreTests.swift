@@ -4,6 +4,11 @@ import AppKit
 
 final class CanvasStoreTests: XCTestCase {
 
+    /// The sidecar-deletion test attaches a `CanvasModel`, which measures the
+    /// cards it puts back through production typography — so this suite resolves
+    /// a font in a parallel worker's first moments.
+    override class func setUp() { FontWarmup.ensure() }
+
     private var root: URL!
 
     override func setUpWithError() throws {
@@ -44,6 +49,30 @@ final class CanvasStoreTests: XCTestCase {
         let loaded = CanvasStore(projectRoot: root).load()
         XCTAssertTrue(loaded.scene.isEmpty)
         XCTAssertTrue(loaded.scraps.isEmpty)
+        XCTAssertEqual(loaded.sidecar, .absent,
+                       "nothing to lose — a load-time repair may be saved here")
+    }
+
+    /// **An empty scene is three different situations and only the reader can
+    /// tell them apart** (#28 whole-branch review). Pinned at the source, so the
+    /// discriminator `CanvasModel.attach` acts on is decided in one place rather
+    /// than re-derived by whoever needs it.
+    func test_loadSaysWhetherAnEmptySceneMeansNothingOrSomethingItCannotRead() throws {
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().sidecar, .absent)
+
+        CanvasStore(projectRoot: root).save(scene: sampleScene(), scraps: [:])
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().sidecar, .decoded)
+
+        let file = root.appendingPathComponent(CanvasStore.sidecarRelativePath)
+        try "not json at all".write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().sidecar, .refused,
+                       "damaged bytes are somebody's arrangement, not an empty canvas")
+
+        try #"{"schemaVersion":999,"nodes":[]}"#.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().sidecar, .refused,
+                       "so is a schema from a newer build")
+        XCTAssertFalse(CanvasStore.SidecarState.refused.acceptsARepairWrite,
+                       "which is the whole point: a refused sidecar is not written over")
     }
 
     func test_sidecarAndScrapsLandAtTheirDocumentedPaths() {
@@ -58,6 +87,11 @@ final class CanvasStoreTests: XCTestCase {
 
     /// Spec §8: the sidecar is derived UI state, deletable without loss of
     /// content. Deleting it must lose positions but never words.
+    ///
+    /// **`load()` is a pure reader and stays one** — every scrap is technically
+    /// an orphan here, and the recovery is the MODEL's (F9, issue #28): the
+    /// second half asserts the words come back **visibly**, as cards the writer
+    /// can see, rather than only as entries in a dictionary nothing draws.
     func test_deletingTheSidecar_losesLayoutButKeepsTheWords() throws {
         let store = CanvasStore(projectRoot: root)
         store.save(scene: sampleScene(), scraps: [CanvasNodeID("s1"): "The falls at night."])
@@ -66,6 +100,15 @@ final class CanvasStoreTests: XCTestCase {
         let loaded = CanvasStore(projectRoot: root).load()
         XCTAssertTrue(loaded.scene.isEmpty)
         XCTAssertEqual(loaded.scraps[CanvasNodeID("s1")], "The falls at night.")
+
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        XCTAssertNotNil(model.scene.node(CanvasNodeID("s1")),
+                        "an empty layout with the words intact is a RECOVERABLE "
+                        + "state — opening the canvas puts a card back under every "
+                        + "scrap, or the writer's words are on disk and nowhere "
+                        + "they can be read")
+        XCTAssertEqual(model.scraps[CanvasNodeID("s1")], "The falls at night.")
     }
 
     /// ADR 0015 — a sidecar from a newer build must not throw the canvas away.
@@ -160,5 +203,29 @@ final class CanvasStoreTests: XCTestCase {
         store.flush()
         XCTAssertEqual(CanvasStore(projectRoot: root).load().scraps[CanvasNodeID("s1")],
                        "what the writer actually typed")
+    }
+
+    /// F11 (issue #28): the content file must hit disk before the derived one.
+    /// A crash in the gap between the two writes may only ever LAG `canvas.json`
+    /// — the old order could resurrect a node in the sidecar whose words never
+    /// reached `canvas.md`, and the scrap reloads empty (constitution must #1).
+    /// Black-box I/O cannot see the interleaving, so this pins the source.
+    func test_writeNowPutsContentBeforeDerived() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // MaughamTests/Canvas
+            .deletingLastPathComponent()          // MaughamTests
+            .deletingLastPathComponent()          // repo root
+            .appendingPathComponent("Maugham/Canvas/CanvasStore.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        guard let fn = text.range(of: "func writeNow") else {
+            return XCTFail("writeNow not found — if it was renamed, move this pin with it")
+        }
+        let tail = text[fn.lowerBound...]
+        guard let content = tail.range(of: "ScrapText.render"),
+              let derived = tail.range(of: "writeSidecar(") else {
+            return XCTFail("writeNow no longer names both writes — re-pin the new spellings")
+        }
+        XCTAssertTrue(content.lowerBound < derived.lowerBound,
+            "canvas.md (content) must be written before canvas.json (derived)")
     }
 }

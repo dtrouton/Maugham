@@ -2911,9 +2911,16 @@ final class TripwireGrepTests: XCTestCase {
     ///   by circumstance before it took the gate and no longer relying on that.
     /// - `ProjectStore+CollectionPieces.swift:promotePieceToProject` — takes the
     ///   gate while opening nothing, because it MOVES the file the gate is over.
+    /// - `ProjectStore+Statements.swift:rollbackUnusedStatement` (issue #29) —
+    ///   the second taker that opens nothing, for `promotePieceToProject`'s
+    ///   reason one verb further: it DELETES the file the gate is over. Its
+    ///   refusal is "somebody has this open", and without the gate a pane could
+    ///   bind between that check and the removal — a writer typing into a
+    ///   `Document` whose file has gone.
     private static let statementOpenGateTakers: Set<String> = [
         "ProjectStore+Statements.swift:lockStatementOpen",
         "ProjectStore+Statements.swift:withStatementDocument",
+        "ProjectStore+Statements.swift:rollbackUnusedStatement",
         "ProjectStore+StatementAdoption.swift:adopt",
         "ProjectStore+CollectionPieces.swift:promotePieceToProject",
         "StatementEditorHost.swift:load",
