@@ -42,6 +42,15 @@ final class ClaudeCLISession: CompilerRunner {
     private let isEnabled: () -> Bool
     private let idleTimeout: TimeInterval
     private let runTimeout: TimeInterval
+    /// How long the death join will wait for the child's exit once stdout has
+    /// reached EOF, before falling back to the statusless sentence. See
+    /// `tryCompleteDeath`.
+    private let deathReapGrace: TimeInterval
+
+    /// The default of the above, and the only number here that answers "how
+    /// long is a reap allowed to lag?" — generous against a loaded CI VM,
+    /// short against the 120 s run timeout it exists to keep a death away from.
+    static let deathReapGrace: TimeInterval = 2
 
     // MARK: - Session state
 
@@ -59,6 +68,12 @@ final class ClaudeCLISession: CompilerRunner {
     private var inFlight: CheckedContinuation<CompilerRunEvent, Never>?
     private var runTimeoutTask: Task<Void, Never>?
     private var idleTask: Task<Void, Never>?
+
+    /// The death join's two halves (issue #36): whether stdout has reached EOF,
+    /// and the countdown that bounds the wait for the exit that has not landed
+    /// yet. Both are plain main-actor state — see `tryCompleteDeath`.
+    private var deathEOFSeen = false
+    private var deathGraceTask: Task<Void, Never>?
 
     /// Bumped on every teardown. Callbacks from a retired process carry the
     /// generation they were installed with and are ignored once it moves on —
@@ -116,6 +131,7 @@ final class ClaudeCLISession: CompilerRunner {
          isEnabled: @escaping () -> Bool,
          idleTimeout: TimeInterval = 600,
          runTimeout: TimeInterval = 120,
+         deathReapGrace: TimeInterval = ClaudeCLISession.deathReapGrace,
          locator: @escaping @Sendable () -> URL? = { ClaudeCLISession.locateCLI() }) {
         self.model = model
         self.mcpConfigPath = mcpConfigPath
@@ -123,6 +139,7 @@ final class ClaudeCLISession: CompilerRunner {
         self.isEnabled = isEnabled
         self.idleTimeout = idleTimeout
         self.runTimeout = runTimeout
+        self.deathReapGrace = deathReapGrace
         self.locator = locator
     }
 
@@ -252,7 +269,15 @@ final class ClaudeCLISession: CompilerRunner {
     /// Ensure a live subprocess, spawning lazily. Returns a failure when one
     /// could not be had; `nil` on success.
     private func ensureProcess(cli: URL) -> CompilerRunFailure? {
-        if let process, process.isRunning { return nil }
+        // `deathEOFSeen` as well as `isRunning`: a process whose stdout has
+        // reached EOF can never answer again, and while the death join waits
+        // out its grace for the exit that process is still technically alive.
+        // Before the join, EOF tore down immediately and the next send got a
+        // fresh CLI; without this a send landing inside the grace would write
+        // its turn down a dead session's stdin. Nothing is in flight here — a
+        // turn mid-join holds the session against a second send — so tearing
+        // down early only brings forward what the completion would have done.
+        if let process, process.isRunning, !deathEOFSeen { return nil }
         teardown()
 
         let proc = Process()
@@ -292,12 +317,23 @@ final class ClaudeCLISession: CompilerRunner {
         stderr.fileHandleForReading.readabilityHandler = { fh in
             if tail.consume(from: fh) { fh.readabilityHandler = nil }
         }
+        // The SECOND death signal (issue #36): stdout's EOF and the child's
+        // exit are independent deliveries with no ordering, and the EOF used to
+        // carry the whole verdict — polling `isRunning` at that instant and
+        // giving up on the status when the reap lagged. Now both funnel into
+        // one completion. Same hop as every other callback: nothing off the
+        // main actor touches session state, and the generation is frozen in
+        // here exactly as the reader's is.
+        proc.terminationHandler = { [weak self] _ in
+            Task { @MainActor in self?.processDidExit(generation: gen) }
+        }
 
         do {
             try proc.run()
         } catch {
             stdout.fileHandleForReading.readabilityHandler = nil
             stderr.fileHandleForReading.readabilityHandler = nil
+            proc.terminationHandler = nil
             return .cliNotFound
         }
 
@@ -508,16 +544,62 @@ final class ClaudeCLISession: CompilerRunner {
         }
     }
 
+    /// stdout reached EOF: every byte the child wrote has been read. One half
+    /// of the death join, and the half that anchors it.
     private func receiveEOF(generation gen: Int) {
         guard gen == generation else { return }
+        deathEOFSeen = true
+        tryCompleteDeath(generation: gen, graceExpired: false)
+    }
+
+    /// The child was reaped: its status is knowable, and its stderr has no
+    /// writer left. The other half.
+    private func processDidExit(generation gen: Int) {
+        guard gen == generation else { return }
+        tryCompleteDeath(generation: gen, graceExpired: false)
+    }
+
+    /// The death verdict, spoken once, after BOTH halves have landed — EOF on
+    /// stdout (every byte read; the anchor, because EOF is ordered behind the
+    /// last byte and an exit-first resolve would truncate a CLI that prints its
+    /// result and dies) and the child's exit (the status, and the proof that
+    /// `stderrEssence`'s synchronous drain cannot block: a reaped writer holds
+    /// no fd). `DeclaredWorldDeriver.OneShotOutput` is the same join one
+    /// abstraction over; here the lock is unnecessary because both signals hop
+    /// to the main actor and the GENERATION guard is the mutual exclusion — a
+    /// shutdown, cancel or timeout inside the wait bumps `generation` via
+    /// `teardown` and resolves the turn itself, and the late completion bails
+    /// above. The grace is the bounded-join door: if the exit never arrives (a
+    /// stranger holding the process), fall back to the statusless sentence
+    /// rather than hanging into the run timeout.
+    private func tryCompleteDeath(generation gen: Int, graceExpired: Bool) {
+        guard gen == generation, deathEOFSeen else { return }
+        let exited = process.map { !$0.isRunning } ?? true
+        if !exited && !graceExpired {
+            if deathGraceTask == nil {
+                let budget = deathReapGrace
+                deathGraceTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(max(0, budget) * 1_000_000_000))
+                    guard !Task.isCancelled else { return }
+                    self?.tryCompleteDeath(generation: gen, graceExpired: true)
+                }
+            }
+            return
+        }
+        deathGraceTask?.cancel()
+        deathGraceTask = nil
+        // Read after the join and before `teardown` drops the pipe. Only for a
+        // nonzero exit — a clean one has nothing to explain. The synchronous
+        // read is safe by construction now rather than by inference: the join
+        // only reaches here with the child reaped (or the grace spent, where
+        // the status is nil and nothing is read at all), so the pipe's write
+        // end is closed and `availableData` returns at EOF rather than waiting
+        // for a writer that still exists. It is also why the *why* survives:
+        // stderr written after the stdout close has landed by the time the
+        // exit does.
         let token = runToken
         let hadRun = inFlight != nil
         let status = process.map { $0.isRunning ? nil : $0.terminationStatus } ?? nil
-        // Read before `teardown` drops the pipe. Only for a nonzero exit — a
-        // clean one has nothing to explain, and only that case is safe to read
-        // synchronously: a non-nil status means the process is gone, so its
-        // write end is closed and `availableData` returns at EOF rather than
-        // waiting for a writer that no longer exists.
         let essence = (status ?? 0) != 0 ? stderrEssence() : nil
         teardown()
         if hadRun {
@@ -683,6 +765,10 @@ final class ClaudeCLISession: CompilerRunner {
         runTimeoutTask = nil
         stdoutPipe?.fileHandleForReading.readabilityHandler = nil
         stderrPipe?.fileHandleForReading.readabilityHandler = nil
+        process?.terminationHandler = nil
+        deathGraceTask?.cancel()
+        deathGraceTask = nil
+        deathEOFSeen = false
         try? stdinHandle?.close()
         if let process, process.isRunning {
             process.terminate()
