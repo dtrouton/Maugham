@@ -51,7 +51,7 @@ For an intent-first revision audit of sensory groundedness, see [The Sense Pass]
 
 ### When Claude adds a research note
 
-A small banner appears at the top of the editor pane: *"Claude added 'Sarah Voice' to research."* Click **Show** to jump to the note. The banner auto-dismisses after 8 seconds.
+A small banner appears at the top of the editor pane: *"Claude added 'Sarah Voice' to research."* Click **Show** to jump to the note — it opens whatever the tree needs to (the Research section, and a piece's own fold when the note belongs to one) and scrolls to it. The banner auto-dismisses after 8 seconds.
 
 ### Turning it off
 

@@ -467,7 +467,7 @@ private struct DoorHitAreaProbeView: View {
     var body: some View {
         BinderView(store: store, selectedSubject: $subject,
                    treeState: treeState,
-                   canOpenPaletteWall: true,
+                   paletteWallTravels: false,
                    onOpenPaletteWall: onOpenPaletteWall)
     }
 }

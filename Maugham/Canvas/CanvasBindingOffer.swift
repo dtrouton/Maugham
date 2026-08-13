@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// §4's third row: **a document with nothing bound**. The board dims, and the
-/// canvas says what to do next.
+/// §4's third row: **a document with nothing bound** — and, since stage 3b, the
+/// same shape one subject over: **a research item whose card is not on this
+/// canvas**. The board dims, and the canvas says what to do next.
 ///
 /// **Standing chrome, not a banner** (§4.1). It is state-derived and persists
 /// for exactly as long as the state does, which is why a self-dismissing
@@ -19,12 +20,44 @@ import SwiftUI
 /// test then has to prove is only that the view reads it.
 enum CanvasBindingOffer {
 
-    static let headline = "Nothing on this canvas is bound to this document yet."
+    /// What the chrome says: the state the writer is looking at, then the gesture
+    /// that changes it.
+    ///
+    /// **A value rather than two loose strings, since stage 3b**, because there
+    /// are now two of these and the pair is the unit: a headline from one state
+    /// over an instruction from the other names a gesture that will not do what
+    /// the sentence above it promises, and nothing about two `String` constants
+    /// makes that unspellable. `Equatable` so a test can assert *which* message
+    /// the decision returned — with two of them, "chrome appeared" has stopped
+    /// being the same claim as "the right chrome appeared".
+    struct Message: Equatable {
+        let headline: String
+        let instruction: String
+    }
 
-    /// The next move, in the writer's own verb — the guide calls the gesture
-    /// *"drag on empty canvas to draw one"*, and the binding is what §4.1's
-    /// invariant adds to it while the board is dimmed.
-    static let instruction = "Drag out a region and it binds to it."
+    /// §4's third row: a manuscript document with nothing on this canvas bound to
+    /// it. The instruction is the next move in the writer's own verb — the guide
+    /// calls the gesture *"drag on empty canvas to draw one"*, and the binding is
+    /// what §4.1's invariant adds to it while the board is dimmed.
+    static let nothingBound = Message(
+        headline: "Nothing on this canvas is bound to this document yet.",
+        instruction: "Drag out a region and it binds to it.")
+
+    /// §4's *"its card highlighted on the board"* with no card to highlight
+    /// (stage 3b). The board still dims — that is Task 1's ruling and the reason
+    /// this message has to exist: undimming would make the click on a research
+    /// row indistinguishable from a click on the project row, and dimming
+    /// silently leaves the writer a dark board with nothing lit and nothing said.
+    ///
+    /// **It names the TREE and never the sweep.** A research subject's sweep
+    /// draws a plain region and binds nothing (§4.1's group precedent — the
+    /// canvas never guesses a piece the writer never named), so *"drag out a
+    /// region"* here would promise something the gesture does not do. The gesture
+    /// that answers this state is the one that puts the card on the board:
+    /// dragging the row out of the binder (spec §8A.1).
+    static let cardNotHere = Message(
+        headline: "This item isn't on this canvas yet.",
+        instruction: "Drag its row from the tree to place it.")
 
     /// **TWO signals, and one of them is not enough.**
     ///
@@ -36,11 +69,25 @@ enum CanvasBindingOffer {
     /// would promise something the gesture does not do. It is also true of
     /// nothing at all on the project row, where the board is not dimmed.
     ///
-    /// So the subject's own case is the second signal and it is asked FIRST: only
-    /// a `.piece` — one manuscript document — can be bound to.
-    static func isOffered(subject: CanvasSubject, highlight: CanvasHighlight) -> Bool {
-        guard case .piece = subject else { return false }
-        return highlight.litNothing
+    /// So the subject's own case is the second signal and it is asked FIRST — and
+    /// since stage 3b it is asked as a `switch`, because it now chooses BETWEEN
+    /// two messages rather than gating one. Both arms read the same `litNothing`:
+    /// a chapter with a lit region and an item with its card on the board are the
+    /// same state, *the board is answering you*, and chrome over either would be
+    /// contradicting what the writer is looking at.
+    ///
+    /// **ONE decision function, deliberately** — the returned `Message?` is both
+    /// "is there chrome" and "which", so no second predicate can disagree with
+    /// this one about whether the middle of the board is occupied.
+    static func message(subject: CanvasSubject, highlight: CanvasHighlight) -> Message? {
+        switch subject {
+        case .piece:
+            return highlight.litNothing ? nothingBound : nil
+        case .research:
+            return highlight.litNothing ? cardNotHere : nil
+        case .group, .wholeProject:
+            return nil
+        }
     }
 }
 
@@ -57,12 +104,19 @@ enum CanvasBindingOffer {
 /// and this is not on the board. Combined into one element so the offer is one
 /// announcement rather than two fragments.
 struct CanvasBindingOfferView: View {
+
+    /// Which of the two states the board is in — decided by
+    /// `CanvasBindingOffer.message(subject:highlight:)` and never re-derived
+    /// here. This view knows how the sentences look and nothing about when they
+    /// appear.
+    let message: CanvasBindingOffer.Message
+
     var body: some View {
         VStack(spacing: 4) {
-            Text(CanvasBindingOffer.headline)
+            Text(message.headline)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            Text(CanvasBindingOffer.instruction)
+            Text(message.instruction)
                 .font(.callout)
                 .foregroundStyle(.tertiary)
         }

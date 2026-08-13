@@ -14,6 +14,14 @@ The EPUB output produces a structurally clean file with one `<section>` per piec
 
 Compiled PDFs and EPUBs appear in the project's `Exports/` folder, which is shown as a footer beneath the binder tree in Author, Review, and Publish (Plan's centre column is the planning canvas, so it doesn't carry this footer). You can open the file from there or find it in Finder alongside your manuscript folder.
 
+### The Publish persona's centre column
+
+Switch to Publish (⌘4) and the centre column shows your compiled book — full-width, scrollable, the real PDF. It shows at *project* level: the project row, a group, or nothing selected. Select a chapter and the editor opens on it exactly as it does in Author, because a proof you're reading is a proof you're about to fix — a line to re-break, a heading to shorten. Click back up to the project row and the book is there again, on the same open document underneath.
+
+Where there's more than one compiled PDF, the header carries a picker: version, language and compile time, newest first, and choosing one puts that file on screen. It's for comparing a proof against the last one, or a translated edition against its source. EPUBs aren't listed — they're not pages this column can draw, and they're in the Exports footer. The choice lasts as long as the window: a new compile snaps the preview back to the book you just made, and so does reopening the project.
+
+Nothing compiled yet? Publish shows the project at altitude — the same corkboard/table Author and Review show for the project row (see [Structure & the Binder → The project row](structure-and-binder.md#the-project-row)) — with a standing note saying there's no compiled book yet. If the publications catalog is there but can't be read, you get the corkboard and a different notice, one that names the file and says what went wrong: a book that can't be read from disk is never reported as a book you never made. Selecting a research note or palette card in Publish leaves the centre column on the book (or on the corkboard and its notice) — Publish has no rendering of its own for research material.
+
 ### The publish configuration
 
 The template, preamble, per-piece style files, and a small `config.json` live under `.maugham/publish/` inside your project folder. `EMISSION.md` in that folder is the authoritative contract describing what the body emitter produces for each source pattern — Claude reads it to understand what LaTeX the emitter will generate before writing template hooks. If you want to inspect or hand-edit the template, it's plain text at `.maugham/publish/template.tex`.

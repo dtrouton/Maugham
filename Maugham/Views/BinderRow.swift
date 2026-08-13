@@ -70,6 +70,13 @@ struct BinderRow: View {
                 Text(item.title)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    // The LABEL LEAF only (tripwire 9) — never the row's own
+                    // `.contentShape(Rectangle())` below, which is what
+                    // `.draggable` needs to keep dragging from anywhere in the
+                    // row's interior. A hit-test-transparent MARK, not a
+                    // gesture: a SwiftUI tap gesture here eats the single click
+                    // that selects the row. See TreeTravel.swift.
+                    .treeTravelOnDoubleClick(.item(item.id))
                 Spacer()
             }
             .contentShape(Rectangle())

@@ -98,3 +98,46 @@ struct PaletteCardReadView: View {
         }
     }
 }
+
+/// **Loads one card + its images by id, then hands them to
+/// `PaletteCardReadView`** — the load step behind this task's two new
+/// read-only mounts (Review's centre column, Review's wall). `AssistantColumn`
+/// has its own version of the same load (`paletteImages(of:)`) because it
+/// resolves a `PinnedReference` first and already has the `PaletteCard` in
+/// hand by the time it needs images; this host exists for the two callers that
+/// start from a bare card id, which is what `PaletteCardEditor.seed()` also
+/// starts from (`store.loadPaletteCards().first { $0.researchItemId == … }`,
+/// the load this mirrors).
+///
+/// A read-only mount has nothing to save, so unlike `PaletteCardEditor` this
+/// re-loads fresh per `cardId` and keeps no draft.
+struct PaletteCardReadHost: View {
+    let store: ProjectStore
+    let cardId: String
+
+    @State private var card: PaletteCard?
+
+    var body: some View {
+        Group {
+            if let card {
+                PaletteCardReadView(card: card, images: images(of: card))
+            } else {
+                ContentUnavailableView(
+                    "Card unavailable",
+                    systemImage: "paintpalette",
+                    description: Text("This palette card could not be loaded."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .task(id: cardId) {
+            card = store.loadPaletteCards().first { $0.researchItemId == cardId }
+        }
+    }
+
+    private func images(of card: PaletteCard) -> [NSImage] {
+        card.imagePaths.compactMap {
+            NSImage(contentsOf: store.url.appendingPathComponent($0))
+        }
+    }
+}

@@ -798,6 +798,58 @@ class CanvasViewMountingCase: XCTestCase {
                                                       secondScrapID: secondScrapText])
     }
 
+    // MARK: - A research item's own card (§4, stage 3b)
+
+    /// The research item the fixture below puts a card on the board for, and the
+    /// title its card reads out — which is how a test finds that card at all.
+    let researchItemID = "r-1"
+    let researchCardTitle = "the tide table"
+    var researchItemIndex: CanvasItemIndex {
+        CanvasItemIndex(entriesByID: [researchItemID: .init(title: researchCardTitle,
+                                                            kind: .researchNote)])
+    }
+
+    /// A board whose research card is at (600, 500) — well outside nothing, but
+    /// far enough from the origin that a camera move is unmistakable — with two
+    /// scraps BELOW it at (620, 700) and (200, 900).
+    ///
+    /// **The card's id is DERIVED** (`CanvasNodeID.item(_:)`) — a fixture minting
+    /// its own would be a card the production join can never find, and every
+    /// assertion about the dim and the reveal would be vacuous.
+    ///
+    /// **The card is FIRST in reading order, and that is load-bearing.** Measured
+    /// on macOS 26.6.1, 2026-08-12: of the synthetic children `CanvasAXChildren`
+    /// publishes, only the first carries an exact frame — a ladder of six cards
+    /// 20 pt apart in x and at content y 20 / 150 / 300 / 450 / 520 / 560
+    /// published y 20 / 251.5 / 502.5 / 754 / 925.5 / 1066.5, an error growing by
+    /// ~101 pt per position in the list while x stayed exact. That is why the
+    /// suite's other absolute-frame test reads the card at (20, 20) and the rest
+    /// assert ORDERING. So the one card these tests need a real reading of is put
+    /// at the top of the board, and it stays there after the drag below (content
+    /// y 540 is still above 700).
+    func researchCardProjectRoot() throws -> URL {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: .item(researchItemID),
+                                kind: .item(.project(id: researchItemID)),
+                                origin: CGPoint(x: 600, y: 500),
+                                width: 200, cachedHeight: 140))
+        scene.insert(CanvasNode(id: scrapID, kind: .scrap, origin: CGPoint(x: 620, y: 700),
+                                width: 240, cachedHeight: 60))
+        scene.insert(CanvasNode(id: secondScrapID, kind: .scrap,
+                                origin: CGPoint(x: 200, y: 900), width: 240, cachedHeight: 60))
+        return try projectRoot(scene: scene, scraps: [scrapID: scrapText,
+                                                      secondScrapID: secondScrapText])
+    }
+
+    /// Where a card the fixture placed is drawn RIGHT NOW, read back through the
+    /// published accessibility frame — which is `camera.viewPoint(fromContent:)`
+    /// applied to the card's own rectangle, and therefore the only reading of the
+    /// camera a mounted test can take (`camera` is private `@State`).
+    func publishedFrame(ofCardValued value: String, in window: NSWindow) throws -> CGRect {
+        try viewFrame(ofPublished: try axCard(valued: value, in: try axTree(in: window)),
+                      in: window)
+    }
+
     /// The label an assistive client would actually be handed for a card.
     func axLabel(ofCardValued value: String, in window: NSWindow) throws -> String {
         let element = try axCard(valued: value, in: try axTree(in: window))

@@ -1250,10 +1250,10 @@ final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {
     /// The subject is built the way the window builds it — `CanvasSubject.resolve`
     /// over a structure the id is not in — because that conversion is where the
     /// defect was: an unresolvable id mapped to `.group([])`, which dims
-    /// everything and lights nothing, while `CanvasBindingOffer.isOffered` guards
-    /// `case .piece` and so (correctly, for a group) says nothing. Delete the
-    /// chapter the canvas is filtered on and the board went dark with no lit set,
-    /// no offer and no account of why.
+    /// everything and lights nothing, while `CanvasBindingOffer.message` answers
+    /// only a `.piece` or a `.research` subject and so (correctly, for a group)
+    /// says nothing. Delete the chapter the canvas is filtered on and the board
+    /// went dark with no lit set, no offer and no account of why.
     ///
     /// Read through the published tree because that is where "the board is
     /// dimmed" is observable at all from outside the view: `highlight` is
@@ -1268,7 +1268,7 @@ final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {
         let window = host(CanvasView(
             model: makeModel(), projectRoot: try boundRegionProjectRoot(),
             paletteSwatchHexes: { [] },
-            subject: CanvasSubject.resolve(.item("ch3"), in: structure)))
+            subject: CanvasSubject.resolve(.item("ch3"), in: structure, research: [])))
 
         XCTAssertFalse(try axLabel(ofCardValued: secondScrapText, in: window)
                         .contains(CanvasAccessibility.dimmedTerm),
@@ -1279,12 +1279,124 @@ final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {
         XCTAssertFalse(try axLabel(ofCardValued: scrapText, in: window)
                         .contains(CanvasAccessibility.dimmedTerm))
 
-        try retarget(window, at: CanvasSubject.resolve(.item("ch2"), in: structure))
+        try retarget(window, at: CanvasSubject.resolve(.item("ch2"), in: structure, research: []))
         XCTAssertTrue(try axLabel(ofCardValued: secondScrapText, in: window)
                         .contains(CanvasAccessibility.dimmedTerm),
                       "control: an id that RESOLVES still filters the board, so the "
                       + "reading above is about the unresolvable id and not about "
                       + "this window never dimming at all")
+    }
+
+    // MARK: - A research subject's card comes into view (§4, stage 3b)
+
+    /// **The arrival, on the delivery path.** The writer clicks a research row
+    /// whose card is nowhere near the top-left of their board: the card comes to
+    /// `CanvasCamera.revealViewPoint`, and the zoom is untouched.
+    ///
+    /// Read off the card's published accessibility frame, which is the camera the
+    /// only way a mounted test can see it — `camera` is private `@State`, and
+    /// that frame is `camera.viewPoint(fromContent:)` applied to the card's own
+    /// rectangle.
+    @MainActor
+    func test_selectingAResearchRowBringsItsCardIntoView() throws {
+        let window = host(CanvasView(model: makeModel(),
+                                     projectRoot: try researchCardProjectRoot(),
+                                     paletteSwatchHexes: { [] },
+                                     itemIndex: researchItemIndex))
+        let before = try publishedFrame(ofCardValued: researchCardTitle, in: window)
+        XCTAssertEqual(before.origin.x, 600, accuracy: 0.5,
+                       "precondition: nothing has moved the camera off identity")
+        XCTAssertEqual(before.origin.y, 500, accuracy: 0.5)
+
+        try retarget(window, at: .research(researchItemID))
+
+        let after = try publishedFrame(ofCardValued: researchCardTitle, in: window)
+        XCTAssertEqual(after.origin.x, CanvasCamera.revealViewPoint.x, accuracy: 0.5,
+                       "the card the writer selected did not come to the reveal "
+                       + "point — a lit card they cannot see is a board gone dim "
+                       + "with no answer anywhere on it")
+        XCTAssertEqual(after.origin.y, CanvasCamera.revealViewPoint.y, accuracy: 0.5)
+        XCTAssertEqual(after.width, before.width, accuracy: 0.5,
+                       "the reveal changed the ZOOM — it may only pan "
+                       + "(`CanvasCamera.bring`'s own rule)")
+    }
+
+    /// **A restore is not an arrival** (design call 3's second half). The window
+    /// reopens onto a research subject: the board dims to its card exactly as it
+    /// dims onto a chapter, and the camera stays where the writer left it.
+    ///
+    /// This is what the missing `initial:` buys, and nothing else in the suite
+    /// can see it — with `initial: true` the dim would be identical and the
+    /// viewport would have jumped on window-open.
+    @MainActor
+    func test_aRestoredResearchSubjectDimsWithoutMovingTheCamera() throws {
+        let window = host(CanvasView(model: makeModel(),
+                                     projectRoot: try researchCardProjectRoot(),
+                                     paletteSwatchHexes: { [] },
+                                     subject: .research(researchItemID),
+                                     itemIndex: researchItemIndex))
+
+        XCTAssertTrue(try axLabel(ofCardValued: scrapText, in: window)
+                        .contains(CanvasAccessibility.dimmedTerm),
+                      "precondition: a restored research subject still DIMS, so a "
+                      + "scrap that is not the item's card recedes — without it "
+                      + "this test is about a canvas that filtered nothing")
+
+        let frame = try publishedFrame(ofCardValued: researchCardTitle, in: window)
+        XCTAssertEqual(frame.origin.x, 600, accuracy: 0.5,
+                       "the camera moved on window-open: a restored subject was "
+                       + "treated as an arrival, so reopening a project yanks the "
+                       + "viewport away from where the writer left it")
+        XCTAssertEqual(frame.origin.y, 500, accuracy: 0.5)
+    }
+
+    /// **Tripwire 30, on the delivery path.** After the arrival the writer drags
+    /// the revealed card and then clicks its row again: the card moves under the
+    /// pointer, and the camera never moves again.
+    ///
+    /// A reveal keyed on the structural counter (bumped when a drag ends) or on
+    /// the redraw counter (bumped per frame) would snatch the card back to the
+    /// reveal point under the writer's own hand.
+    @MainActor
+    func test_movingTheRevealedCardNeverRecentersTheCamera() throws {
+        let window = host(CanvasView(model: makeModel(),
+                                     projectRoot: try researchCardProjectRoot(),
+                                     paletteSwatchHexes: { [] },
+                                     itemIndex: researchItemIndex))
+        try retarget(window, at: .research(researchItemID))
+        let arrived = try publishedFrame(ofCardValued: researchCardTitle, in: window)
+        XCTAssertEqual(arrived.origin.x, CanvasCamera.revealViewPoint.x, accuracy: 0.5,
+                       "precondition: the arrival happened, or the drag below is "
+                       + "being measured from an unrevealed board")
+
+        // Inside the card, which is now at the reveal point. The pump between the
+        // samples ages them past `maximumFlickAge`, so the release is a placement
+        // rather than a flick and the card ends exactly where it was let go.
+        let events = try eventView(in: window)
+        let grab = CGPoint(x: arrived.origin.x + 10, y: arrived.origin.y + 10)
+        let drop = CGPoint(x: grab.x + 40, y: grab.y + 40)
+        events.applyMouseDown(at: grab, clickCount: 1)
+        events.applyMouseDragged(to: drop)
+        pump(0.3)
+        events.applyMouseUp(at: drop)
+        pump()
+
+        let afterDrag = try publishedFrame(ofCardValued: researchCardTitle, in: window)
+        XCTAssertEqual(afterDrag.origin.x, arrived.origin.x + 40, accuracy: 1,
+                       "the card is not where the writer put it: either the drag "
+                       + "never reached it, or the camera moved with it — and a "
+                       + "camera that re-centres on the scene counter snatches the "
+                       + "card back the moment the drag ends")
+        XCTAssertEqual(afterDrag.origin.y, arrived.origin.y + 40, accuracy: 1)
+
+        // The writer clicks the SAME row again. `.onChange` fires on a change, so
+        // this must be inert — a re-select that re-revealed would undo the move
+        // they just made.
+        try retarget(window, at: .research(researchItemID))
+        let afterReselect = try publishedFrame(ofCardValued: researchCardTitle, in: window)
+        XCTAssertEqual(afterReselect.origin.x, afterDrag.origin.x, accuracy: 0.5,
+                       "selecting the row that is already selected moved the camera")
+        XCTAssertEqual(afterReselect.origin.y, afterDrag.origin.y, accuracy: 0.5)
     }
 
     /// Decision 1, asked of the published tree rather than of the list.

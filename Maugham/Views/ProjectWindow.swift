@@ -54,13 +54,29 @@ struct ProjectWindow: View {
     @State private var selectedSubject: BinderSubject?
     @State private var selectedPaletteCardId: String?
     /// The palette wall's door (shell-finish stage 2b Task 5) — the Palette
-    /// tree section's own "Open Wall" affordance writes this, which is what
-    /// carried the wall across Task 7's deletion of the binder strip it used to
-    /// be reached through. `showsPaletteWallCentre` is what turns this (plus
+    /// tree section's own "Open Wall" affordance opens it (through
+    /// `pressPaletteWallDoor`, which either writes this or travels — stage 3b
+    /// Task 4), and that door is what carried the wall across Task 7's deletion
+    /// of the binder strip it used to be reached through. `showsPaletteWallCentre` is what turns this (plus
     /// the persona) into a routing decision; `PaletteWallModifier` is what
     /// turns it into the inspector stash/restore the old `.palette` segment
     /// used to own.
     @State private var showsPaletteWall: Bool = false
+    /// **The travel token** (shell-finish stage 3b Task 4, Denver's 2026-08-12
+    /// ruling: the door in Plan takes the writer to Author with the wall open).
+    ///
+    /// It exists because the two halves cannot happen in one pass: a persona
+    /// change CLOSES the wall (`closePaletteWallOnPersonaChange`), so a door
+    /// that opened the wall and then switched persona would have the switch
+    /// shut it. So the press arms this, and `PaletteWallModifier`'s own persona
+    /// observer consumes it — inside that one handler, immediately after the
+    /// close — which is what "opened AFTER the switch lands" means without any
+    /// ordering resting on which modifier SwiftUI delivers first (tripwire 2).
+    ///
+    /// Window state, never persisted: it is a one-shot about a press that has
+    /// already happened, and a token surviving a relaunch would open a wall
+    /// nobody asked for.
+    @State private var wallTravelPending: Bool = false
     /// The inspector's visibility captured on entry to the palette wall, so
     /// leaving restores it exactly (spec: no stuck-hidden inspector). `nil`
     /// when the wall is closed. Owned by `PaletteWallModifier`.
@@ -125,6 +141,21 @@ struct ProjectWindow: View {
     @State private var detailSegment: DetailSegment = .inspector
     @State private var persona: Persona = .default
     @State private var outlineLayout: OutlineLayout = .table
+    /// **The books the Publish persona's centre column can draw** (stage 3b
+    /// Task 5, a list since the 2026-08-12 revision gave the header a picker).
+    ///
+    /// A resolution rather than a `[Publication]` because the two ways of having
+    /// nothing to draw are different facts — never compiled, versus a catalog
+    /// that cannot be read — and the surface they share (the project at
+    /// altitude) must not be what erases the difference: each carries its own
+    /// notice. `PublishPreviewModifier` is its only writer; nothing here polls.
+    @State private var publishPreview: PublishPreviewResolution = .nothingCompiled
+    /// **Which of them the writer is looking at, by `publicationID`** — `nil` is
+    /// the newest. Window `@State` and deliberately NOT `UIState`: Denver's
+    /// ruling is that the pick is transient, so a relaunch opens on the newest
+    /// book rather than on whatever proof was being checked last week. A new
+    /// compile clears it too (`PublishPreviewModifier`).
+    @State private var publishSelectedPublicationID: String?
     @State private var mcpBanner = MCPBannerModel()
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var showingBootstrapNotice: Bool = false
@@ -350,11 +381,16 @@ struct ProjectWindow: View {
         .onKeyWindowCommand(.maughamRevealResearchSection, window: window) { _ in
             guard !treeFindActive else { return }
             treeState.researchSectionExpanded = true
+            // The header lands on screen too (stage-3b Task 8) — expanding a
+            // section scrolled far off-screen makes it TRUE without making it
+            // VISIBLE.
+            treeState.scrollRequest = .researchHeader
         }
         // ⌘⌥P's twin, for the Palette section.
         .onKeyWindowCommand(.maughamRevealPaletteSection, window: window) { _ in
             guard !treeFindActive else { return }
             treeState.paletteSectionExpanded = true
+            treeState.scrollRequest = .paletteHeader
         }
         .onGlobalEvent(.maughamAppWillTerminate) { _ in
             // Best-effort flush. Task is fire-and-forget; NSApplication may
@@ -407,7 +443,8 @@ struct ProjectWindow: View {
             detailSegment: $detailSegment,
             persona: $persona,
             restoreOutcome: $restoreOutcome,
-            mcpBanner: mcpBanner))
+            mcpBanner: mcpBanner,
+            treeState: treeState))
         .modifier(CheckpointModifier(
             documentStore: documentStore,
             store: store,
@@ -421,6 +458,16 @@ struct ProjectWindow: View {
                                        persona: $persona,
                                        detailSegment: $detailSegment,
                                        documentStore: documentStore))
+        // Denver's travel rule (shell-finish stage 3b): a double-click on any
+        // tree row in Plan takes the writer to Author, on that row's subject.
+        // One line, because this body has no expression budget (the Release
+        // type-check ceiling) — the whole rule is in `TreeTravel.swift`, and
+        // THIS LINE is what makes it reachable.
+        .modifier(TreeTravelModifier(window: window,
+                                     persona: $persona,
+                                     detailSegment: $detailSegment,
+                                     selectedSubject: $selectedSubject,
+                                     documentStore: documentStore))
         .modifier(FocusPostureModifier(
             window: window,
             documentStore: documentStore,
@@ -466,6 +513,7 @@ struct ProjectWindow: View {
             inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette,
             selectedPaletteCardId: $selectedPaletteCardId,
             selectedSubject: $selectedSubject,
+            wallTravelPending: $wallTravelPending,
             persona: persona))
         // A research subject arriving while the canvas holds the centre reveals
         // the column that previews it — one line, because this body has no
@@ -477,6 +525,17 @@ struct ProjectWindow: View {
                                          selectedSubject: $selectedSubject,
                                          showInspector: $showInspector,
                                          detailSegment: $detailSegment))
+        // The compiled book the Publish persona's centre column draws, kept
+        // current by a compile finishing, a window opening and an arrival into
+        // Publish — one line, because this body has no expression budget (the
+        // Release type-check ceiling), and the whole of the rule is in the
+        // modifier. Delete this line and every token in that file is still
+        // present, every decision test still green, and a writer's compile never
+        // reaches the centre column.
+        .modifier(PublishPreviewModifier(
+            projectURL: url, window: window, persona: persona,
+            publishPreview: $publishPreview,
+            selectedPublicationID: $publishSelectedPublicationID))
         .modifier(CanvasPromotionModifier(window: window, store: store,
                                           model: canvasModel, persona: persona))
         // The writer's notice that Claude added cards to their canvas, and the way
@@ -643,6 +702,11 @@ struct ProjectWindow: View {
         @Binding var inspectorWasVisibleBeforePalette: Bool?
         @Binding var selectedPaletteCardId: String?
         @Binding var selectedSubject: BinderSubject?
+        /// The door-in-Plan travel token — see `ProjectWindow.wallTravelPending`
+        /// and `applyWallTravelOnPersonaChange`. Consumed below, in the same
+        /// handler that closes the wall and after it, so nothing about the
+        /// order depends on which modifier SwiftUI runs first.
+        @Binding var wallTravelPending: Bool
         /// The window's working mode — watched, never written. See
         /// `ProjectWindow.closePaletteWallOnPersonaChange`.
         let persona: Persona
@@ -662,10 +726,19 @@ struct ProjectWindow: View {
                 // **The wall belongs to the persona it was opened in** (final
                 // review's I3). Here rather than at the three sites that write
                 // `persona`, two of which never touch `PersonaModifier` at all.
+                //
+                // **And the travel arrives here too, second** (stage 3b Task
+                // 4): the close is unconditional and the travel is what asks
+                // for a wall on the far side of it, so the two lines are one
+                // rule about one persona change rather than two observers
+                // racing. Swap them and the wall opens and is immediately shut.
                 .onChange(of: persona) { _, _ in
                     ProjectWindow.closePaletteWallOnPersonaChange(
                         showsPaletteWall: &showsPaletteWall,
                         stash: &inspectorWasVisibleBeforePalette)
+                    ProjectWindow.applyWallTravelOnPersonaChange(
+                        pending: &wallTravelPending,
+                        showsPaletteWall: &showsPaletteWall)
                 }
         }
     }
@@ -695,6 +768,11 @@ struct ProjectWindow: View {
         /// when a restore gave back less than was deleted (RULING-40/42).
         @Binding var restoreOutcome: String?
         let mcpBanner: MCPBannerModel
+        /// The tree's disclosure/selection state (stage-3a Task 4) — held here
+        /// too, since Task 8, for the find-match handler's scroll request. An
+        /// `@Observable` reference type, so a plain `let` reaches the same
+        /// object `ProjectWindow` owns; nothing here needs a `Binding` to it.
+        let treeState: BinderTreeSectionsState
 
         func body(content: Content) -> some View {
             content
@@ -834,12 +912,26 @@ struct ProjectWindow: View {
                 // Author/Review/Publish, beside the canvas in Plan). The second
                 // write went with those panes in the kill task; the subject is
                 // now the only thing a match click moves.
+                // **The full arrival posture, both arms** (stage-3b Task 8).
+                // A research match gets `openResearchItem`'s own shape —
+                // `reveal`, then the scroll request from what it returned;
+                // the section is already expanding beneath the overlay from
+                // the subject write above, and the row itself is on screen
+                // once Escape hands the column back and the tree's own
+                // mount consumes the pending scroll. A manuscript match's
+                // row is never behind anything closable, so it scrolls
+                // straight to its own tag. The overlay stays up either way —
+                // no `applyCloseFind` here — and the editor's own text
+                // scroll is untouched: that is `EditorCoordinator`'s
+                // independent observer, not this handler's.
                 .onKeyWindowCommand(.maughamFindMatchSelected, window: window) { note in
                     guard let store,
                           let match = note.userInfo?["match"] as? SearchMatch,
                           let subject = ProjectWindow.matchSubject(match, in: store)
                     else { return }
                     selectedSubject = subject
+                    treeState.scrollRequest = ProjectWindow.findMatchScrollTarget(
+                        for: subject, store: store, treeState: treeState)
                 }
                 .onProjectEvent(.maughamMCPNoteAdded, url: url, window: window) { note in
                     guard let info = note.userInfo,
@@ -1048,7 +1140,7 @@ struct ProjectWindow: View {
                 renamingItemId: $pendingPieceRenameId,
                 treeState: treeState,
                 persona: persona,
-                onOpenPaletteWall: { showsPaletteWall = true },
+                onOpenPaletteWall: { openPaletteWall() },
                 onRestoreOutcome: { restoreOutcome = $0 }
             )
         case .standard:
@@ -1060,13 +1152,32 @@ struct ProjectWindow: View {
                 treeState: treeState,
                 treeFindActive: $treeFindActive,
                 persona: persona,
-                onOpenPaletteWall: { showsPaletteWall = true },
+                onOpenPaletteWall: { openPaletteWall() },
                 // **One sink for both restore paths** (final review's I1). ⌘⌥Z
                 // and the disclosure's own Restore say the same kind of thing —
                 // RULING-40's refusal, RULING-42's shortfall — and only this
                 // alert is mounted unconditionally, so only it can be shown by a
                 // restore that empties the trash and takes the rows with it.
                 onRestoreOutcome: { restoreOutcome = $0 })
+        }
+    }
+
+    /// The Palette section's "Open Wall" door, from either tree shell. The
+    /// decision and every state write are `pressPaletteWallDoor`'s (so a test
+    /// drives production's own function rather than a copy of it); what stays
+    /// here is the `UIState` write, which needs the document store this view
+    /// owns.
+    private func openPaletteWall() {
+        guard let change = Self.pressPaletteWallDoor(
+            persona: &persona,
+            detailSegment: &detailSegment,
+            showsPaletteWall: &showsPaletteWall,
+            wallTravelPending: &wallTravelPending,
+            memory: documentStore?.uiState.personaMemory ?? .empty)
+        else { return }
+        documentStore?.updateUIState {
+            $0.persona = change.persona
+            $0.personaMemory = change.memory
         }
     }
 
@@ -1265,6 +1376,19 @@ struct ProjectWindow: View {
     /// some input alone — the research clause still owns the research subject,
     /// which this one would otherwise answer for on its way past — so no clause
     /// here is a restatement of another.
+    /// **The published-book term had a clause of its own here from stage 3b
+    /// Task 5 until the 2026-08-12 revision, and it is gone because it can no
+    /// longer change an answer.** Denver's ruling made the book a PROJECT-level
+    /// surface — a chapter in Publish opens the editor, so the footer speaks
+    /// there exactly as it does in Author — and `publishCentre` now refuses
+    /// unless `subjectShowsAltitude` is already true. Whatever the preview or
+    /// either notice covers, the altitude clause below has therefore already
+    /// refused; a fifth clause would be a parameter that cannot move the
+    /// result, which is the shape the find-overlay question was answered with a
+    /// test rather than an argument. `PublishPreviewCentreTests
+    /// .test_theBookOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn`
+    /// asserts the implication over the whole product rather than leaving it to
+    /// this comment.
     static func showsStatusFooter(persona: Persona,
                                   subject: BinderSubject?,
                                   showsPaletteWall: Bool,
@@ -1277,6 +1401,54 @@ struct ProjectWindow: View {
         else { return false }
         return !subjectShowsAltitude(persona: persona, subject: subject,
                                      structure: structure)
+    }
+
+    /// **What Publish puts over the manuscript stack — the book, a notice, or
+    /// nothing at all** (stage 3b Task 5, re-cut by Denver's rulings of
+    /// 2026-08-12).
+    ///
+    /// One function answering both *"does anything cover the centre?"* and
+    /// *"what covers it?"*, for `ResearchSubjectPlacement.centreItemID`'s
+    /// reason: two spellings of the same gate are two answers free to disagree
+    /// about what is in the centre column — and here that disagreement would be
+    /// a "nothing published yet" notice over a compiled book.
+    ///
+    /// **It takes the subject as of this revision, and asks the ONE existing
+    /// question about it.** Denver walked back "a piece subject shows the same
+    /// preview": *"a chapter/piece subject in Publish ALWAYS opens the editor —
+    /// I might tweak something for layout"*, and the book shows at PROJECT level
+    /// (the project row, a group, or nothing selected). That is exactly
+    /// `subjectShowsAltitude`, so this composes it rather than spelling a second
+    /// document-resolution rule beside it — two of those are two answers free to
+    /// disagree about what a document is, and the disagreement here would put a
+    /// PDF over the chapter a writer is fixing.
+    ///
+    /// A research subject in Publish is `.nothingMoves` (spec §4's "—" row) and
+    /// resolves to no manuscript document, so it lands here as project level and
+    /// gets the book — which is what the spec's "project altitude shown" degrade
+    /// always meant.
+    static func publishCentre(persona: Persona,
+                              subject: BinderSubject?,
+                              structure: [StructureItem],
+                              preview: PublishPreviewResolution) -> PublishCentre? {
+        guard persona.previewsThePublishedBook else { return nil }
+        guard subjectShowsAltitude(persona: persona, subject: subject,
+                                   structure: structure) else { return nil }
+        switch preview {
+        case .ready(let publications):
+            // `.ready` is non-empty by construction (the resolver answers
+            // `.nothingCompiled` when its walk finds nothing readable). The
+            // ternary is what makes this switch total without inventing a third
+            // arm nobody can reach; `PublishPreviewCentreTests` pins the
+            // resolver's half of that invariant.
+            return publications.isEmpty
+                ? .notice(.neverCompiled)
+                : .books(publications)
+        case .nothingCompiled:
+            return .notice(.neverCompiled)
+        case .unreadableCatalog(let reason):
+            return .notice(.unreadableCatalog(reason: reason))
+        }
     }
 
     /// **Does the centre column show the project at altitude rather than a
@@ -1334,6 +1506,33 @@ struct ProjectWindow: View {
             return TreeWalk.first(in: store.manifest.research) {
                 $0.path == match.documentPath
             }.map { .research($0.id) }
+        }
+    }
+
+    /// **What a find match's subject earns as a scroll target** (stage-3b
+    /// Task 8) — one function for both of `matchSubject`'s arms, kept pure
+    /// and static for the same reason `matchSubject` is: the routing is
+    /// drivable without a mounted window.
+    ///
+    /// A research match reveals whatever section or fold holds it and scrolls
+    /// to what `reveal` says is now on screen — `openResearchItem`'s own
+    /// shape, and `nil` when `reveal` finds no tree that draws the id (a
+    /// stale match, same reasoning as `matchSubject`'s own `nil`). A
+    /// manuscript (or project) match's row is never behind anything
+    /// closable — `reveal` only ever opens research furniture, never a
+    /// structural group — so it scrolls straight to its own tag.
+    static func findMatchScrollTarget(
+        for subject: BinderSubject, store: ProjectStore,
+        treeState: BinderTreeSectionsState
+    ) -> TreeScrollTarget? {
+        switch subject {
+        case .research(let id):
+            return treeState.reveal(id, structure: store.manifest.structure,
+                                    research: store.manifest.research,
+                                    projectType: store.manifest.type)
+                .map(TreeScrollTarget.row)
+        case .item, .project:
+            return .row(subject)
         }
     }
 
@@ -1423,7 +1622,7 @@ struct ProjectWindow: View {
         // the door's own disabled state already keeps.
         if Self.showsPaletteWallCentre(showsPaletteWall: showsPaletteWall, persona: persona) {
             PaletteWallCentre(store: store, selectedPaletteCardId: $selectedPaletteCardId,
-                              onClose: { showsPaletteWall = false })
+                              onClose: { showsPaletteWall = false }, persona: persona)
         // **Above `editorRoute` and never inside it**, because the canvas
         // branch below must stay the one the canvas is mounted from: a
         // `.research` subject in Plan resolves to `.besideTheCanvas` and never
@@ -1432,7 +1631,8 @@ struct ProjectWindow: View {
         } else if let id = Self.researchSubjectPlacement(
             persona: persona, subject: selectedSubject).centreItemID {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: id, previewVisible: researchPreviewVisible)
+                                  itemID: id, previewVisible: researchPreviewVisible,
+                                  readOnly: !persona.editsResearchInTheCentre)
         } else if route == .canvas {
             canvasCentre(store: store, documentStore: documentStore)
         } else if route == .collectionReference,
@@ -1465,6 +1665,18 @@ struct ProjectWindow: View {
     /// still be reached did: mount the editor on whatever document the tree
     /// names. A screenplay reaches it too; its tree is the slugline navigator,
     /// and the underlying `.fountain` is the same file.
+    ///
+    /// **And Publish's own surface, as of stage 3b Task 5 — a THIRD layer of
+    /// the same stack**, over altitude and over the host: the compiled book at
+    /// project level, or a banner naming which kind of nothing there is (never
+    /// compiled, or a catalog that cannot be read). Over a CHAPTER the layer
+    /// does not appear at all — Denver, 2026-08-12: *"a chapter/piece subject in
+    /// Publish ALWAYS opens the editor — I might tweak something for layout"* —
+    /// which is `publishCentre` composing `subjectShowsAltitude` rather than
+    /// anything spelled here. It is a layer for the reason altitude is: a fourth
+    /// `editorPane` arm would tear the host down every time the writer walked
+    /// from the proof back to the prose, and that walk is now the ordinary
+    /// gesture rather than an unusual one.
     ///
     /// **And the project at altitude, as of stage 3a Task 2 — layered INSIDE
     /// this arm rather than beside it.** When the tree names no single document
@@ -1514,6 +1726,33 @@ struct ProjectWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(nsColor: .windowBackgroundColor))
             }
+            // **Publish's own layer, LAST of the three** (stage 3b Task 5,
+            // re-cut 2026-08-12). Above altitude rather than beside it: at
+            // project level in Publish the subject answers both rules, and the
+            // writer asked for the book — a corkboard over a compiled PDF is
+            // the truth table upside down. And when there is no book, the
+            // banner says WHICH kind of nothing it is, standing over the
+            // corkboard rather than replacing it.
+            //
+            // Both arms are project-level by construction: `publishCentre`
+            // composes `subjectShowsAltitude`, so a chapter subject in Publish
+            // reaches neither and opens in the host underneath — Denver's
+            // 2026-08-12 ruling, made structural rather than asserted twice.
+            switch Self.publishCentre(persona: persona,
+                                      subject: selectedSubject,
+                                      structure: store.manifest.structure,
+                                      preview: publishPreview) {
+            case .books(let publications):
+                PublishPreviewCentre(
+                    publications: publications,
+                    projectURL: store.url,
+                    title: store.manifest.title,
+                    selectedPublicationID: $publishSelectedPublicationID)
+            case .notice(let notice):
+                PublishCentreNoticeBanner(notice: notice)
+            case .none:
+                EmptyView()
+            }
         }
     }
 
@@ -1537,8 +1776,13 @@ struct ProjectWindow: View {
                    // not hold and should not start holding — the same reason
                    // `itemIndex` below is built on this body path rather than
                    // on the canvas's, which re-evaluates per drag frame.
+                   // The research tree rides beside the structure for the same
+                   // reason (stage 3b): §4's research subject lights its own
+                   // card, and telling a live research id from one whose note
+                   // the writer deleted needs the manifest's other tree.
                    subject: CanvasSubject.resolve(selectedSubject,
-                                                  in: store.manifest.structure),
+                                                  in: store.manifest.structure,
+                                                  research: store.manifest.research),
                    // Spec §4.1: Escape is the keyboard spelling of the project
                    // row, so it writes the value that row's own `.tag` carries
                    // (`BinderView.projectRow`) into the same `@State` on the
@@ -1911,6 +2155,78 @@ struct ProjectWindow: View {
         guard showsPaletteWall else { return }
         stash = nil
         showsPaletteWall = false
+    }
+
+    /// **The other half of the same persona change** (shell-finish stage 3b
+    /// Task 4): the wall the writer asked for in Plan, opened now that the
+    /// switch to Author has landed.
+    ///
+    /// Called from `PaletteWallModifier`'s `.onChange(of: persona)` and only
+    /// there, AFTER `closePaletteWallOnPersonaChange`. The order is the whole
+    /// point: the close is unconditional, so a travel consumed first would open
+    /// a wall the close then shuts, and the writer would arrive in Author with
+    /// the same nothing the disabled door used to give them.
+    ///
+    /// **A one-shot.** Clearing the token before opening is what keeps the wall
+    /// from following the writer around — ⌘1 back to Plan closes it, and ⌘2 must
+    /// not bring it back.
+    static func applyWallTravelOnPersonaChange(pending: inout Bool,
+                                               showsPaletteWall: inout Bool) {
+        guard pending else { return }
+        pending = false
+        showsPaletteWall = true
+    }
+
+    /// Whether the Palette section's "Open Wall" door travels from this persona
+    /// rather than opening the wall where the writer already is.
+    ///
+    /// **`TreeTravel.treeTravelDestination`, not a second predicate.** It is the
+    /// same question Denver's tree-travel rule asks on the same day — the door
+    /// is a tree affordance, and "the centre column here is the board, so there
+    /// is somewhere to travel to" has one answer, not one per affordance. Two
+    /// spellings is how the door's tooltip and the door's action come to
+    /// disagree; `PaletteWallDoorTests` pins them to this one.
+    static func paletteWallDoorTravels(persona: Persona) -> Bool {
+        TreeTravel.treeTravelDestination(persona: persona) != nil
+    }
+
+    /// **Pressing the wall's door.** Either the wall opens here, or the writer
+    /// travels to where it opens — Denver, 2026-08-12.
+    ///
+    /// Returns the persona change to persist, or `nil` when nobody moved. The
+    /// state writes are inout rather than a returned value because the two arms
+    /// write different things and a caller assembling them from a description
+    /// would be the second spelling this function exists to prevent; the window
+    /// keeps only the `UIState` write, which needs its `documentStore`.
+    ///
+    /// **It does NOT open the wall on the travelling arm**, and it writes no
+    /// subject: the persona change closes the wall
+    /// (`closePaletteWallOnPersonaChange`) and a subject change closes it too
+    /// (`PaletteWallModifier`'s second observer), so either would undo the very
+    /// thing the press asked for. What crosses the switch is the token.
+    @discardableResult
+    static func pressPaletteWallDoor(
+        persona: inout Persona,
+        detailSegment: inout DetailSegment,
+        showsPaletteWall: inout Bool,
+        wallTravelPending: inout Bool,
+        memory: PersonaMemory
+    ) -> PersonaModifier.Change? {
+        guard let destination = TreeTravel.treeTravelDestination(persona: persona)
+        else {
+            showsPaletteWall = true
+            return nil
+        }
+        wallTravelPending = true
+        // The same discipline every deliberate persona move uses (`TreeTravel
+        // Modifier`, `ManuscriptNavigation.go`): the departing position is
+        // recorded, so ⌘1 brings the writer back to the board they left.
+        let change = PersonaModifier.applyPersonaChange(
+            to: destination, from: persona,
+            currentSegment: detailSegment, memory: memory)
+        persona = change.persona
+        detailSegment = change.segment
+        return change
     }
 
     static func applyPaletteWallChange(from old: Bool,
@@ -2318,9 +2634,13 @@ struct ProjectWindow: View {
     /// pane's own private selection, and both halves died with the strip in
     /// stage 2b Task 7. What replaces them is one write, and it is strictly more
     /// than the two it replaces: `researchSubjectPlacement` routes a research
-    /// subject to the centre column in Author, Review and Publish and beside the
-    /// board in Plan, so **Open** now works from Plan — where the old pair could
-    /// only work by dragging the writer's left column out from under them.
+    /// subject to the centre column in Author and Review and beside the board in
+    /// Plan, so **Open** now works from Plan — where the old pair could only work
+    /// by dragging the writer's left column out from under them. (Publish is the
+    /// fourth answer and it is `.nothingMoves`, stage 3b Task 5: neither column
+    /// acts on the item, so the subject falls through to project level — the
+    /// compiled book, or altitude and its notice. This line claimed Publish took
+    /// the centre for a slice after that stopped being true.)
     ///
     /// **And the tree opens far enough to show the row** (stage-3a Task 4).
     /// This was the one thing the old segment force did that the subject write
@@ -2329,9 +2649,10 @@ struct ProjectWindow: View {
     /// open/closed flag SwiftUI held privately, so the window could point every
     /// column at a note and still leave its row undrawn. The flags are
     /// `BinderTreeSectionsState`'s now (the window owns the object and the trees
-    /// take it), and `reveal` opens the section plus every group between the item
-    /// and the root. It only ever opens, so a writer's other groups are left
-    /// alone; an id the manifest does not hold opens nothing at all.
+    /// take it), and `reveal` opens the section — or, since stage-3b Task 7, the
+    /// piece FOLD — that holds the item, plus every group between it and that
+    /// root. It only ever opens, so a writer's other groups are left alone; an
+    /// id no tree draws a row for opens nothing at all.
     ///
     /// Reached from a promoted card's **Open** button (1C-c2), through
     /// `openPromotedArtifact`. The craft-intent inspector affordance was the
@@ -2344,7 +2665,15 @@ struct ProjectWindow: View {
     /// observer's reveal and this one ask the same function the same question.
     private func openResearchItem(_ itemId: String) {
         selectedSubject = .research(itemId)
-        treeState.reveal(itemId, research: store?.manifest.research ?? [])
+        if let store,
+           let revealed = treeState.reveal(itemId, structure: store.manifest.structure,
+                                            research: store.manifest.research,
+                                            projectType: store.manifest.type) {
+            // Arrival is visible, not just true (stage-3b Task 8): opening the
+            // section/fold makes the row EXIST; scrolling to what `reveal`
+            // returned is what puts it on screen.
+            treeState.scrollRequest = .row(revealed)
+        }
         Self.revealResearchColumn(persona: persona, subject: selectedSubject,
                                   showInspector: &showInspector,
                                   detailSegment: &detailSegment)
@@ -2699,7 +3028,14 @@ struct ProjectWindow: View {
         selectedSubject = .research(id)
         // The tree opens far enough to draw the note's row — `openResearchItem`
         // carries why this is a call here and not an observer of the subject.
-        treeState.reveal(id, research: store?.manifest.research ?? [])
+        if let store,
+           let revealed = treeState.reveal(id, structure: store.manifest.structure,
+                                            research: store.manifest.research,
+                                            projectType: store.manifest.type) {
+            // And it scrolls onto screen, `openResearchItem`'s twin write
+            // (stage-3b Task 8).
+            treeState.scrollRequest = .row(revealed)
+        }
         Self.revealResearchColumn(persona: persona, subject: selectedSubject,
                                   showInspector: &showInspector,
                                   detailSegment: &detailSegment)

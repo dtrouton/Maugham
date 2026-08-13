@@ -63,7 +63,17 @@ struct BinderPieceFold: View {
                 // `renamingItemId` matching two rows mounts two rename fields
                 // (finding I2). A contained fold's rows are drawn once and keep
                 // the verb.
-                offersRename: fold.semantic == .contained)
+                offersRename: fold.semantic == .contained,
+                // **The fold's own groups share the tree's set of open ids**
+                // (stage-3b Task 7). `ResearchTreeNode`'s `nil` default —
+                // SwiftUI holds the flag — was right while nothing outside a
+                // click ever opened one of these; the reveal is that
+                // something, and a group inside a piece's fold is exactly
+                // where a piece-scoped note it names can live. The ids are
+                // research ids either way, distinct across the manifest by
+                // construction, so one set cannot confuse a fold's group with
+                // a shared one.
+                expandedGroups: $state.expandedResearchGroups)
         }
     }
 

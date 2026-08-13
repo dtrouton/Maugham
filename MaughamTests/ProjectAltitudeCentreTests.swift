@@ -87,7 +87,20 @@ final class ProjectAltitudeCentreTests: XCTestCase {
 
     /// The other side of the same rule, and the one the writer is in for most of
     /// their hours: a document subject is the editor and nothing else.
+    ///
+    /// **It is true of Publish again as of Denver's 2026-08-12 ruling**, and
+    /// that is the whole of the ruling: stage 3b Task 5 put the compiled book
+    /// over a chapter in Publish, and *"a chapter/piece subject in Publish
+    /// ALWAYS opens the editor — I might tweak something for layout"* takes it
+    /// back off. So every manuscript persona is in the loop below, Publish
+    /// included, and the assertion beneath each one is that nothing at all is
+    /// layered over the chapter — with a compiled book in hand, which is the
+    /// case that would have failed before the revision.
     func test_aDocumentSubjectIsTheEditorAndNeverAltitude() {
+        let compiled = PublishPreviewResolution.ready(newestFirst: [
+            PublishPreviewCentreTests.publication(
+                version: "1.0", outputPath: "Exports/book.pdf", compiledAt: Date())
+        ])
         for persona in Self.manuscriptPersonas {
             XCTAssertFalse(
                 ProjectWindow.subjectShowsAltitude(
@@ -95,6 +108,15 @@ final class ProjectAltitudeCentreTests: XCTestCase {
                     structure: Self.structure),
                 "\(persona): a chapter is a document, and the editor is what "
                 + "opens on it")
+            for preview: PublishPreviewResolution in [.nothingCompiled, compiled] {
+                XCTAssertNil(
+                    ProjectWindow.publishCentre(
+                        persona: persona, subject: .item("chapter-1"),
+                        structure: Self.structure, preview: preview),
+                    "\(persona) with \(preview): …and nothing is drawn over it. "
+                    + "A compiled book over the chapter is exactly what Denver "
+                    + "walked back on 2026-08-12")
+            }
         }
     }
 
@@ -131,14 +153,21 @@ final class ProjectAltitudeCentreTests: XCTestCase {
         }
     }
 
-    /// **A research subject never reaches this question, and the proof is a pair
-    /// rather than a guard.** `editorPane` asks `researchSubjectPlacement`
-    /// first: in any persona that reaches the editor arm the research item has
-    /// already taken the centre, and in the one that does not (Plan) altitude
-    /// has already refused on the persona. Written over `Persona.allCases` so a
-    /// fifth persona has to answer it too.
+    /// **A research subject is answered before this question in every persona
+    /// but one, and the exception is deliberate.** `editorPane` asks
+    /// `researchSubjectPlacement` first: in Author and Review the item has
+    /// already taken the centre, and in Plan altitude has already refused on the
+    /// persona.
+    ///
+    /// **Publish stopped being one of them in stage 3b Task 5** — its placement
+    /// is `.nothingMoves` (spec §4's "—" row), so a research subject really does
+    /// reach `subjectShowsAltitude` there and really does answer TRUE. That is
+    /// the spec's own degrade ("— (project altitude shown)") rather than the
+    /// leak this test was written to catch, so it is asserted here as the one
+    /// exception rather than left to be discovered as a hole in the loop.
+    /// Written over `Persona.allCases` so a fifth persona has to answer it too.
     func test_aResearchSubjectIsTakenByTheArmAboveInEveryPersona() {
-        for persona in Persona.allCases {
+        for persona in Persona.allCases where !persona.previewsThePublishedBook {
             let takenAbove = ProjectWindow.researchSubjectPlacement(
                 persona: persona, subject: .research("res-1")).centreItemID != nil
             XCTAssertTrue(
@@ -149,6 +178,17 @@ final class ProjectAltitudeCentreTests: XCTestCase {
                 + "holding means `subjectShowsAltitude` has become reachable "
                 + "with a research subject, and it would answer TRUE")
         }
+        XCTAssertEqual(
+            ProjectWindow.researchSubjectPlacement(
+                persona: .publish, subject: .research("res-1")),
+            .nothingMoves,
+            "the exception: Publish hands the item to neither column")
+        XCTAssertTrue(
+            ProjectWindow.subjectShowsAltitude(
+                persona: .publish, subject: .research("res-1"),
+                structure: Self.structure),
+            "…so it falls through to here, and altitude is what the spec asks "
+            + "for — the centre never renders nothing")
     }
 
     /// **A Collection's reference piece keeps its own arm, and the ARM is what
@@ -355,9 +395,16 @@ final class ProjectAltitudeCentreTests: XCTestCase {
     }
 
     /// **Review and Publish show the same altitude for the project** — the
-    /// recorded decision: Review's overview is M3's and Publish's preview is
-    /// 3b's, and until they exist the degrade is what keeps the centre column
-    /// from rendering nothing at all.
+    /// recorded decision: Review's overview is M3's, and until it exists the
+    /// degrade is what keeps the centre column from rendering nothing at all.
+    ///
+    /// **Publish's half is now the UNCOMPILED case, and that is a narrowing
+    /// rather than a coincidence** (stage 3b Task 5). Publish's preview shipped:
+    /// with a compiled PDF in the catalog its centre is the book, layered over
+    /// this very view. The probe mounts no preview layer, so what this drives is
+    /// the degrade — which is exactly the state the sentence above is about, and
+    /// the compiled state is `PublishPreviewCentreTests`'. Review is unchanged
+    /// and keeps altitude whatever the catalog holds.
     func test_reviewAndPublishShowTheSameAltitudeAsAuthor() async throws {
         for persona in Self.manuscriptPersonas where persona != .author {
             let store = try await novel()
@@ -556,10 +603,12 @@ final class ProjectAltitudeCentreTests: XCTestCase {
 
     /// **Review and Publish open the chapter from the same click.** They show
     /// the same altitude (the test above), so they inherit the same way out of
-    /// it — and today the thing on the other side of the click is the editor in
-    /// each of them, because Review's overview is M3's and Publish's preview is
-    /// stage 3b's. Asserted rather than assumed: a persona that took some other
-    /// arm below the click would leave the writer on a card that does nothing.
+    /// it — and the thing on the other side of the click is the editor in each
+    /// of them: Review's overview is M3's, and Publish's preview (stage 3b Task
+    /// 5) is a layer that is not there while nothing has been compiled, which is
+    /// the state this fixture is in. Asserted rather than assumed: a persona
+    /// that took some other arm below the click would leave the writer on a card
+    /// that does nothing.
     func test_reviewAndPublishOpenTheChapterFromTheSameCardClick() async throws {
         for persona in Self.manuscriptPersonas where persona != .author {
             let store = try await novel()
@@ -1096,7 +1145,8 @@ private struct AltitudeCentreProbeView: View {
         if let id = ProjectWindow.researchSubjectPlacement(
             persona: persona, subject: probe.subject).centreItemID {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: id, previewVisible: false)
+                                  itemID: id, previewVisible: false,
+                                  readOnly: !persona.editsResearchInTheCentre)
         } else if route == .canvas {
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { [] })

@@ -77,31 +77,65 @@ struct CanvasHighlight: Equatable {
     /// `O(documents × regions)` — accepted, because this is on the structural
     /// path beside an accessibility rebuild that already sorts the whole scene,
     /// and the alternative is a third spelling of the rule.
+    ///
+    /// **A `switch` rather than `guard subject.dimsTheBoard`, since stage 3b.**
+    /// That guard was one line and it was also the whole of this function's
+    /// awareness of the subject's shape: `.research` arrived and fell straight
+    /// into the piece walk, where `pieces` is empty and the answer — a dimmed
+    /// board lighting nothing — is *plausible*, so the compiler and the suite
+    /// would both have stayed quiet. A switch makes the next case a build error
+    /// here. The tie the guard expressed (this function filters exactly when the
+    /// subject says the board dims) is now a test rather than a line:
+    /// `CanvasHighlightTests
+    /// .test_theDerivationAndTheSubjectAgreeAboutWhetherTheBoardIsFiltered`.
     static func resolve(subject: CanvasSubject, in scene: CanvasScene) -> CanvasHighlight {
-        guard subject.dimsTheBoard else { return .undimmed }
+        switch subject {
+        case .wholeProject:
+            return .undimmed
 
-        let pieces = Set(subject.pieces)
-        var nodes: Set<CanvasNodeID> = []
-        for piece in subject.pieces {
-            nodes.formUnion(RegionBinding.references(forPiece: piece, in: scene))
+        // **A research item lights ONE card and nothing else** (§4, stage 3b).
+        // The join is `CanvasNodeID.item(_:)`: a referenced card's id is derived
+        // from the research id it stands for, so this is a single dictionary hit
+        // rather than a scan, and it cannot collide — an owned picture's id is
+        // minted, never derived, so no research id spells one.
+        //
+        // No regions and no lines, and neither is an omission. A research item
+        // names no piece, so no `boundPieceID` can answer to it; and a line needs
+        // BOTH ends lit, which one card can never satisfy. `litNothing` then
+        // falls out for free when the card is not on this canvas — the signal the
+        // standing chrome reads.
+        case .research(let id):
+            let card = CanvasNodeID.item(id)
+            let nodes: Set<CanvasNodeID> = scene.node(card) == nil ? [] : [card]
+            return CanvasHighlight(isFiltering: true, nodes: nodes, regions: [], lines: [])
+
+        case .piece, .group:
+            let pieces = Set(subject.pieces)
+            var nodes: Set<CanvasNodeID> = []
+            for piece in subject.pieces {
+                nodes.formUnion(RegionBinding.references(forPiece: piece, in: scene))
+            }
+
+            // `unorderedRegions`, never `regions`: that accessor sorts the whole
+            // set on every access.
+            var regions: Set<CanvasRegionID> = []
+            for region in scene.unorderedRegions {
+                if let bound = region.boundPieceID, pieces.contains(bound) {
+                    regions.insert(region.id)
+                }
+            }
+
+            // `scene.lines` sorts, and this is the one place that cost is
+            // accepted: it is paid once per structural change rather than per
+            // frame, and there is no unordered accessor to reach for. A line is
+            // looked at once here so the draw never has to look one up.
+            var lines: Set<CanvasLineID> = []
+            for line in scene.lines where nodes.contains(line.from) && nodes.contains(line.to) {
+                lines.insert(line.id)
+            }
+
+            return CanvasHighlight(isFiltering: true, nodes: nodes,
+                                   regions: regions, lines: lines)
         }
-
-        // `unorderedRegions`, never `regions`: that accessor sorts the whole set
-        // on every access.
-        var regions: Set<CanvasRegionID> = []
-        for region in scene.unorderedRegions {
-            if let bound = region.boundPieceID, pieces.contains(bound) { regions.insert(region.id) }
-        }
-
-        // `scene.lines` sorts, and this is the one place that cost is accepted:
-        // it is paid once per structural change rather than per frame, and there
-        // is no unordered accessor to reach for. A line is looked at once here
-        // so the draw never has to look one up.
-        var lines: Set<CanvasLineID> = []
-        for line in scene.lines where nodes.contains(line.from) && nodes.contains(line.to) {
-            lines.insert(line.id)
-        }
-
-        return CanvasHighlight(isFiltering: true, nodes: nodes, regions: regions, lines: lines)
     }
 }

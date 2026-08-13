@@ -100,6 +100,74 @@ final class AltitudeKeyspaceTests: XCTestCase {
                       "⌘⌥P did not reopen the Palette section")
     }
 
+    // MARK: - ⌘⌥R / ⌘⌥P scroll the header onto screen (stage-3b Task 8)
+
+    /// **Arrival is visible, not just true.** Expanding a section scrolled far
+    /// off-screen makes `researchSectionExpanded` `true` without putting
+    /// anything a writer can see — this is the mounted proof that ⌘⌥R also
+    /// scrolls the header into the tree's visible rect.
+    func test_cmdOptRScrollsTheResearchHeaderOntoScreenWhenItWasFarBelow() async throws {
+        let store = try await novel(extraChapters: 60)
+        let box = AltitudeKeyspaceProbeBox()
+        let window = mount(store: store, box: box)
+        box.treeState.researchSectionExpanded = false
+        let table = try XCTUnwrap(firstTableView(in: window))
+        // With the section closed, its header is the row right after every
+        // chapter — the project row, then every chapter, then the header.
+        let headerRow = 1 + store.manifest.structure.count
+        XCTAssertFalse(isRowVisible(headerRow, in: table),
+                       "premise: sixty chapters push the header below the "
+                       + "mounted window's visible rect")
+
+        MaughamEvent.post(.maughamRevealResearchSection, to: .keyWindow)
+        await pumpUntil(deadline: 5) { self.isRowVisible(headerRow, in: table) }
+
+        XCTAssertTrue(isRowVisible(headerRow, in: table),
+                      "⌘⌥R expanded the section but did not scroll its header "
+                      + "onto screen")
+    }
+
+    /// ⌘⌥P's twin — the Palette header, with the Research section closed too
+    /// so the row arithmetic stays exact.
+    func test_cmdOptPScrollsThePaletteHeaderOntoScreenWhenItWasFarBelow() async throws {
+        let store = try await novel(extraChapters: 60)
+        let box = AltitudeKeyspaceProbeBox()
+        let window = mount(store: store, box: box)
+        box.treeState.researchSectionExpanded = false
+        box.treeState.paletteSectionExpanded = false
+        let table = try XCTUnwrap(firstTableView(in: window))
+        // The project row, every chapter, the (closed) Research header, then
+        // the Palette header.
+        let headerRow = 1 + store.manifest.structure.count + 1
+        XCTAssertFalse(isRowVisible(headerRow, in: table),
+                       "premise: the Palette header is off-screen too")
+
+        MaughamEvent.post(.maughamRevealPaletteSection, to: .keyWindow)
+        await pumpUntil(deadline: 5) { self.isRowVisible(headerRow, in: table) }
+
+        XCTAssertTrue(isRowVisible(headerRow, in: table),
+                      "⌘⌥P expanded the section but did not scroll its header "
+                      + "onto screen")
+    }
+
+    /// **The one-shot.** An unrelated state change after consumption must not
+    /// re-scroll: the request is cleared, not merely acted on once and left
+    /// standing.
+    func test_theScrollRequestIsClearedAfterConsumption() async throws {
+        let store = try await novel()
+        let box = AltitudeKeyspaceProbeBox()
+        _ = mount(store: store, box: box)
+        box.treeState.researchSectionExpanded = false
+
+        MaughamEvent.post(.maughamRevealResearchSection, to: .keyWindow)
+        await pumpUntil(deadline: 5) { box.treeState.scrollRequest == nil }
+
+        XCTAssertNil(box.treeState.scrollRequest,
+                     "the one-shot must clear itself once the mounted tree "
+                     + "has consumed it — a request left standing would "
+                     + "re-fire on any later mount")
+    }
+
     // MARK: - Refused while the find overlay covers the column
 
     /// **The overlay is the tree's replacement, not its sibling.**
@@ -158,10 +226,19 @@ final class AltitudeKeyspaceTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    private func novel() async throws -> ProjectStore {
+    /// - Parameter extraChapters: added on top of the factory's own first
+    ///   chapter — enough of them pushes the tree's furniture below a
+    ///   mounted window's visible rect, which is the premise the scroll
+    ///   tests need.
+    private func novel(extraChapters: Int = 0) async throws -> ProjectStore {
         let url = try await ProjectFactory.createNovelProject(
             named: "Novel-\(UUID().uuidString.prefix(6))", in: temp.url)
         let store = try await ProjectStore.load(from: url)
+        for i in 0..<extraChapters {
+            _ = try await store.addStructureItem(
+                parentId: nil, title: "Chapter \(i + 2)",
+                kind: .document(extension: "md"))
+        }
         await store.wordCountPopulationTask?.value
         return store
     }
@@ -193,6 +270,28 @@ final class AltitudeKeyspaceTests: XCTestCase {
         box.window = window
         pump(0.2)
         return window
+    }
+
+    private func firstTableView(in window: NSWindow) -> NSTableView? {
+        guard let root = window.contentView else { return nil }
+        var found: [NSTableView] = []
+        collect(NSTableView.self, in: root, into: &found)
+        return found.first
+    }
+
+    /// **Whether `row` is actually on screen**, not merely present in the
+    /// list — `documentVisibleRect` is the scroll view's own answer to what
+    /// a writer can see, and `⌘⌥R`/`⌘⌥P`'s scroll contract is about that
+    /// rect, not about `table.numberOfRows`.
+    private func isRowVisible(_ row: Int, in table: NSTableView) -> Bool {
+        guard row >= 0, row < table.numberOfRows,
+              let scrollView = table.enclosingScrollView else { return false }
+        return scrollView.documentVisibleRect.intersects(table.rect(ofRow: row))
+    }
+
+    private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {
+        if let hit = view as? T { out.append(hit) }
+        for sub in view.subviews { collect(type, in: sub, into: &out) }
     }
 }
 
@@ -240,10 +339,12 @@ private struct AltitudeKeyspaceProbeView: View {
         .onKeyWindowCommand(.maughamRevealResearchSection, window: box.window) { _ in
             guard !box.treeFindActive else { return }
             box.treeState.researchSectionExpanded = true
+            box.treeState.scrollRequest = .researchHeader
         }
         .onKeyWindowCommand(.maughamRevealPaletteSection, window: box.window) { _ in
             guard !box.treeFindActive else { return }
             box.treeState.paletteSectionExpanded = true
+            box.treeState.scrollRequest = .paletteHeader
         }
     }
 }

@@ -63,6 +63,9 @@ struct PieceRow: View {
                 Text(piece.title)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    // The LABEL LEAF only (tripwire 9), and a mark rather than
+                    // a gesture — see BinderRow's twin and TreeTravel.swift.
+                    .treeTravelOnDoubleClick(.item(piece.id))
                 Spacer()
                 if let status = piece.status, !status.isEmpty {
                     Circle()

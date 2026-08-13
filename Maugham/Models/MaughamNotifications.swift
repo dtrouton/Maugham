@@ -225,4 +225,14 @@ extension Notification.Name {
     /// by `AnnotationsPane.jump(_:)` and by clicking an interactive margin card.
     public static let maughamNavigateToAnnotation = Notification.Name(
         "maughamNavigateToAnnotation")
+    /// Posted by `treeTravelOnDoubleClick(_:)` — a double-click on a tree row's
+    /// LABEL LEAF (tripwire 9: never the row container, or the gesture eats
+    /// drag initiation the way `TaskRow.swift`'s once did). Denver's travel
+    /// rule, 2026-08-12: a double-click on any tree row in Plan takes the
+    /// writer to Author with that row's subject. `userInfo[MaughamEvent
+    /// .treeTravelSubjectKey]` (`BinderSubject`) is the row's OWN tag — never
+    /// read from `state.selection`, so the posted subject cannot drift from
+    /// what the writer actually clicked. Menu-command class: only the key
+    /// window travels. Scope: .keyWindow.
+    public static let maughamTreeTravel = Notification.Name("maugham.tree.travel")
 }

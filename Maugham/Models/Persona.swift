@@ -446,4 +446,66 @@ public extension Persona {
         case .author, .review, .publish: return false
         }
     }
+
+    /// **The one spelling of "the centre column is the compiled book"**
+    /// (shell-finish stage 3b Task 5, spec §4's Publish column).
+    ///
+    /// `centresTheCanvas`'s sibling and written for its reason: the alternative
+    /// is a `== .publish` at every gate that needs the question — the centre
+    /// column's own layer, the status footer's refusal, and the refresh that
+    /// re-asks on arrival — and the compiler cannot check that three equalities
+    /// spread over two files still mean the same thing. The canvas's version of
+    /// exactly this cost three sites a visible defect apiece before it was
+    /// named.
+    ///
+    /// **It is deliberately NOT derived from `centresTheCanvas`'s complement or
+    /// from `showsManuscriptDocuments`.** Publish's centre holds a manuscript
+    /// document whenever nothing has been compiled — that is stage 3a's degrade
+    /// and it still stands — so this is a third, independent fact about the
+    /// centre column rather than a partition of the other two.
+    ///
+    /// **The Exports footer stays the sole place the persona is named** (`persona
+    /// != .plan` in `ProjectWindow`): it is a control about exporting rather
+    /// than a rule about what the centre column draws, and every tree looks the
+    /// same, so what is left to gate on is what the writer is doing.
+    ///
+    /// Exhaustive with no `default:`, so a fifth persona has to say whether its
+    /// centre is the book rather than inheriting "no".
+    var previewsThePublishedBook: Bool {
+        switch self {
+        case .publish: return true
+        case .plan, .author, .review: return false
+        }
+    }
+
+    /// **The one spelling of "this persona's centre column edits research and
+    /// palette cards."** False only for `.review` (shell-finish stage 3b Task
+    /// 6, Denver's ruling): *Review adjudicates; it doesn't edit research or
+    /// palette cards from its own columns.* Read by `ResearchSubjectCentre`'s
+    /// mount (`ProjectWindow.editorPane`) and by `PaletteWallCentre`'s card arm
+    /// — the same value at both sites, so a reviewer can't reach a mutable
+    /// note through one door and a locked one through the other.
+    ///
+    /// The alternative is `== .review` at each of those two sites, which is
+    /// exactly the shape `centresTheCanvas` and `previewsThePublishedBook` were
+    /// each written to close off — a hardcoded equality ships the defect the
+    /// moment a fifth persona needs an answer, silently, because the compiler
+    /// has nothing to ask.
+    ///
+    /// **Publish answers `true` despite never being asked**: its centre is the
+    /// compiled book (`previewsThePublishedBook`), so `researchSubjectPlacement`
+    /// routes a Publish research subject to `.nothingMoves` before this
+    /// predicate is ever read there — Task 5's rule, unchanged. `true` is the
+    /// honest answer to the literal question ("if Publish's centre showed a
+    /// note, would it be editable") rather than a value chosen to make an
+    /// unreachable case look intentional.
+    ///
+    /// Exhaustive with no `default:`, so a fifth persona has to say whether its
+    /// centre edits research rather than inheriting "yes".
+    var editsResearchInTheCentre: Bool {
+        switch self {
+        case .review: return false
+        case .plan, .author, .publish: return true
+        }
+    }
 }

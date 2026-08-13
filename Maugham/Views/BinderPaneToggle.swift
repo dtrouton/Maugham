@@ -112,7 +112,7 @@ struct BinderPaneToggle: View {
     private var binderTree: some View {
         BinderView(store: store, selectedSubject: $selectedSubject,
                    treeState: treeState,
-                   canOpenPaletteWall: canOpenPaletteWall,
+                   paletteWallTravels: paletteWallTravels,
                    onOpenPaletteWall: onOpenPaletteWall)
     }
 
@@ -137,12 +137,16 @@ struct BinderPaneToggle: View {
                     .maughamNavigateToScene, to: .keyWindow,
                     payload: ["lineLocation": lineLocation])
             },
-            canOpenPaletteWall: canOpenPaletteWall,
+            paletteWallTravels: paletteWallTravels,
             onOpenPaletteWall: onOpenPaletteWall)
     }
 
-    /// The wall's own door, guarded on the PERSONA being Plan (stage 2b Task
-    /// 5's contract): Plan's centre column is the canvas, and the wall taking it
-    /// over there is stage 3's call.
-    private var canOpenPaletteWall: Bool { persona != .plan }
+    /// Whether the wall's door TRAVELS from here — the tooltip's whole job
+    /// (stage 3b Task 4). Asked of `ProjectWindow` rather than spelled `persona
+    /// == .plan` locally, because the same question decides what the press
+    /// actually does (`ProjectWindow.pressPaletteWallDoor`) and a door whose
+    /// label and behaviour came from two spellings is a door that can lie.
+    private var paletteWallTravels: Bool {
+        ProjectWindow.paletteWallDoorTravels(persona: persona)
+    }
 }

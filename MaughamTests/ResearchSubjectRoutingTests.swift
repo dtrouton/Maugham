@@ -62,7 +62,8 @@ final class ResearchSubjectRoutingTests: XCTestCase {
 
     // MARK: - Where the research subject lands
 
-    /// Every persona whose centre is a document hands it over.
+    /// Every persona whose centre is a document — and whose centre is not the
+    /// compiled book — hands it over.
     ///
     /// **It used to be asked of a (persona, segment) product**, and two of those
     /// segments were the stage-2a final review's Critical: `.find` and `.trash`
@@ -70,8 +71,17 @@ final class ResearchSubjectRoutingTests: XCTestCase {
     /// subject at all, so the item could never be dismissed. Both are window
     /// state now rather than surfaces, and shell-finish stage 2b Task 7 took the
     /// enum with them — so the persona is the whole question.
+    ///
+    /// **Publish left this population in stage 3b Task 5** (spec §4's "—" row):
+    /// its centre is the book, so it acts on a research subject in neither
+    /// column and the item falls through to the manuscript arm. Its own
+    /// assertion is `PublishPreviewCentreTests
+    /// .test_publishNoLongerTakesTheCentreForAResearchSubject`; the exclusion is
+    /// written as the predicate rather than as a name so a fifth persona whose
+    /// centre is a book joins it by construction.
     func test_aResearchSubjectTakesTheCentreInEveryPersonaThatCentresADocument() {
-        for persona in Persona.allCases where persona != .plan {
+        for persona in Persona.allCases
+        where persona != .plan && !persona.previewsThePublishedBook {
             XCTAssertEqual(
                 ProjectWindow.researchSubjectPlacement(
                     persona: persona, subject: .research("r1")),
@@ -429,6 +439,36 @@ final class ResearchSubjectRoutingTests: XCTestCase {
                      until: { mount.probe.subject == .research(note.id) })
 
         try await assertTheNoteIsInTheCentre(of: mount, note: note)
+    }
+
+    /// **Review reaches the same note through the same tree row — locked.**
+    /// (shell-finish stage 3b Task 6, Denver's ruling: Review adjudicates and
+    /// does not edit research from its own columns.) The routing this file
+    /// already pins is untouched — the note still reaches the centre — so this
+    /// is the one place a real tree click's result is checked against
+    /// `Persona.editsResearchInTheCentre` rather than only against
+    /// `ResearchSubjectPlacement`. `ReviewAdjudicationTests` covers the rest of
+    /// the contract (the palette card, the wall, the tree's verbs) with a
+    /// lighter direct mount; this is the click-to-lock path through production's
+    /// own tree.
+    func test_aNoteSelectedInReviewReachesTheCentreLocked() async throws {
+        let store = try await novel(notes: ["Ships"], cards: [])
+        let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
+        try seedNoteText(Self.noteText, at: note, in: store)
+
+        let mount = try await host(store: store, tree: .binder, persona: .review)
+        let table = try XCTUnwrap(firstTableView(in: mount.window))
+        await select(row: 1 + store.manifest.structure.count + 1, in: table,
+                     until: { mount.probe.subject == .research(note.id) })
+
+        await pumpUntil(deadline: 5) {
+            self.textViews(in: mount.window).contains { $0.string.contains(Self.noteText) }
+        }
+        let editor = try XCTUnwrap(
+            textViews(in: mount.window).first { $0.string.contains(Self.noteText) },
+            "Review must still show the note's own text — locked, not hidden")
+        XCTAssertEqual(editor.coordinator?.lockEditing, true,
+                       "the tree row's click must reach Review's lock, not just the direct mount")
     }
 
     // MARK: - Mounted: the palette card takes the card editor
@@ -894,7 +934,8 @@ private struct ResearchRoutingProbeView: View {
     private var centre: some View {
         if let id = placement.centreItemID {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: id, previewVisible: false)
+                                  itemID: id, previewVisible: false,
+                                  readOnly: !persona.editsResearchInTheCentre)
         } else if persona.centresTheCanvas {
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { canvasLoads.record(); return [] })

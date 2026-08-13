@@ -69,7 +69,8 @@ final class ManuscriptForceCensusTests: XCTestCase {
     /// see.** Deleting the call outright leaves no wrong spelling behind — the
     /// navigation simply stops, and every decision test next door still passes
     /// on a `ManuscriptNavigation` nothing reaches. So each receiver is asked
-    /// whether it still routes through it.
+    /// whether it still routes through the mechanism that decides the persona
+    /// alongside it.
     ///
     /// The receivers are named, not counted — and the third one, added by the
     /// F2 fix, is why. `.maughamNavigateToScene` existed all along, posted by
@@ -78,18 +79,63 @@ final class ManuscriptForceCensusTests: XCTestCase {
     /// coordinator exists, so a slugline click did nothing at all. The prose
     /// next door said "three receivers" over a list of two, and that undercount
     /// is precisely what stopped anyone asking about the third.
+    ///
+    /// **A fourth joined in shell-finish stage 3b, and it is a different
+    /// SHAPE on purpose** — `.maughamTreeTravel`'s receiver lives in its own
+    /// file (`TreeTravel.swift`, not inline in `ProjectWindow.swift`) and calls
+    /// `PersonaModifier.applyPersonaChange(` directly rather than
+    /// `ManuscriptNavigation.go(`. That is not a shortcut: `ManuscriptNavigation`
+    /// answers "does the CURRENT persona already show a manuscript document",
+    /// and the travel rule answers a different question — "is there a persona
+    /// to travel TO at all" (`Persona.centresTheCanvas`, the same discriminator,
+    /// asked directly). Routing the tree's double-click through
+    /// `ManuscriptNavigation` would let that rule decide a premise it was never
+    /// asked about. So the table below carries a (file, call) pair per
+    /// receiver rather than assuming both are constant — the moment a second
+    /// receiver shape exists, "the census reads one file for one call" is
+    /// itself the thing that goes stale silently.
     func test_everyNavigationReceiverStillRoutesThroughTheNavigation() throws {
-        let text = try source("Maugham/Views/ProjectWindow.swift")
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        for receiver in [".maughamNavigateToDocument", ".maughamNavigateToParagraph",
-                         ".maughamNavigateToScene"] {
+        struct Expectation {
+            let receiver: String
+            let file: String
+            let call: String
+        }
+        let expectations = [
+            Expectation(receiver: ".maughamNavigateToDocument",
+                       file: "Maugham/Views/ProjectWindow.swift",
+                       call: "ManuscriptNavigation.go("),
+            Expectation(receiver: ".maughamNavigateToParagraph",
+                       file: "Maugham/Views/ProjectWindow.swift",
+                       call: "ManuscriptNavigation.go("),
+            Expectation(receiver: ".maughamNavigateToScene",
+                       file: "Maugham/Views/ProjectWindow.swift",
+                       call: "ManuscriptNavigation.go("),
+            Expectation(receiver: ".maughamTreeTravel",
+                       file: "Maugham/Views/TreeTravel.swift",
+                       call: "PersonaModifier.applyPersonaChange("),
+        ]
+        for expectation in expectations {
+            let text = try source(expectation.file)
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            // The RECEIVE site, not any POST site in the same file — every
+            // `.onKeyWindowCommand`/`.onProjectEvent`/`.onDocumentEvent`
+            // registration takes a `window:` argument on the same line and a
+            // `MaughamEvent.post(...)` call never does (it takes `to:`
+            // instead). `.maughamTreeTravel` is posted AND received in the
+            // same file (`TreeTravel.swift`) with the post appearing first,
+            // so the bare `(\(receiver),` substring alone found the post —
+            // caught by this test itself failing against its own new entry
+            // before this line existed.
             let start = try XCTUnwrap(
-                lines.firstIndex(where: { $0.contains("(\(receiver),") }),
-                "\(receiver): no receiver for it at all in ProjectWindow")
+                lines.firstIndex(where: {
+                    $0.contains("(\(expectation.receiver),") && $0.contains("window:")
+                }),
+                "\(expectation.receiver): no receiver for it at all in "
+                + "\(expectation.file)")
             let body = lines[start..<min(start + 25, lines.count)].joined(separator: "\n")
-            XCTAssertTrue(body.contains("ManuscriptNavigation.go("),
-                          "\(receiver) no longer routes through "
-                          + "ManuscriptNavigation, so it moves the window "
+            XCTAssertTrue(body.contains(expectation.call),
+                          "\(expectation.receiver) no longer routes through "
+                          + "\(expectation.call), so it moves the window "
                           + "without deciding the persona — or has stopped "
                           + "moving it at all")
         }
@@ -102,7 +148,8 @@ final class ManuscriptForceCensusTests: XCTestCase {
     func test_theCensusIsReadingRealFiles() throws {
         for path in ["Maugham/Views/BinderPaneToggle.swift",
                      "Maugham/Views/CollectionBinderPaneToggle.swift",
-                     "Maugham/Views/ProjectWindow.swift"] {
+                     "Maugham/Views/ProjectWindow.swift",
+                     "Maugham/Views/TreeTravel.swift"] {
             XCTAssertFalse(try source(path).isEmpty, "\(path): read nothing")
         }
     }

@@ -132,6 +132,22 @@ all-red gate learning that).
   DerivedData mcp binary held the shared dev socket and poisoned gates for
   a whole night. `ps ax | grep -E "xcodebuild|maugham-mcp|MacOS/Maugham"`;
   kill only DerivedData-path processes, never `/Applications`.
+- **RESOLVED 2026-08-13 — the five `TreeTravelRowMountingTests` click tests
+  were never a flake, they were an unread premise.** A synthetic click is
+  only turned into a click while the test host is the ACTIVE application;
+  with the screen locked (`com.apple.loginwindow` frontmost) or the writer
+  working in another app, `NSApp.isActive` is false, there is no key window,
+  and AppKit drops the `mouseDown` before any view sees it — measured over
+  all three deliveries (`NSApp.sendEvent`, `window.sendEvent`, both):
+  `selectedRow` -1 every time, and the posted `mouseUp` comes back out of the
+  queue undigested, so the row's tracking loop never opened. The premise
+  cannot be forced (40 `NSApp.activate` calls across 40s, plus an external
+  `open` of the host bundle — never flipped). The click helper now asks for
+  activation and, only if the click MEASURABLY did not land, skips by name.
+  So: green when the Mac can give the host a key window (idle/unlocked, CI);
+  five named skips otherwise, instead of five 5.7s deadline burns that
+  reddened a whole gate. That also explains the 05:45-green / 06:10-red pair
+  at identical code.
 - **Never kill a run on one ps snapshot** — sample CPU over 10s AND check
   the log/xcresult advanced; one healthy 6-worker run died to a
   pattern-matched glance. The gate lock protects gates from gates, not
@@ -324,3 +340,163 @@ meanings; collapse the Research section then Claude Show → section expands;
 Plan untouched (project row → undimmed board); find overlay: tree selection/
 expansion survives open/close (the Task 4 behaviour change). **Not yet run —
 this addendum records the list, not a result.**
+
+## Addendum, 2026-08-12: stage 3b BUILT and MERGED — the shell finish is code-complete
+
+*Written at the close of 3b's ten-task plan
+(`docs/superpowers/plans/2026-08-12-shell-finish-stage3b-centre-rule.md`),
+merged to local main at `ffa51137`, UNPUSHED. The whole-branch review found
+no Critical (the 3a break in the streak holds — the reconcile agent caught
+the sharpest emergent seam mid-branch instead: upstream's throwing
+`PublicationStore.load()` landing in the new preview resolver). One fix
+wave (docs) applied and re-reviewed. Full no-skip gate green at the merge.
+The branch reconciles origin/main at `ff88aed4` (strict-read ×2 +
+recovery-plan-a); recovery Plan B (`1bb3079f`) was then merged in as
+`662f2ded` — zero fix commits, one AREA.md prose conflict, full no-skip
+gate green (5,612 Mac + 535 core), so main is one line holding BOTH
+milestones, unpushed.*
+
+### What 3b built (pointers, not restatements — the plan and AREA.md files carry the detail)
+
+Travel (double-click any Plan tree row → Author with that subject;
+`TreeTravel.swift`; Open Wall in Plan travels with the wall opened after the
+switch lands); Publish's whole-book PDF preview centre
+(`PublishPreviewCentre`/`PublishPreviewResolver`,
+`Persona.previewsThePublishedBook`; research subjects there are
+`.nothingMoves`); the canvas research highlight (`CanvasSubject.research`,
+absent-card standing chrome, arrival camera pan — never on restore);
+Review's read-only research/card centre (`Persona.editsResearchInTheCentre`,
+locked note editor with the image-paste hole closed, `PaletteCardReadView`
+in centre and wall); bound fold disclosure + the narrowed `reveal` (returns
+the row it opened); tree scroll-to-section/row + the find research match's
+full arrival posture; Link Research… back as a document-row context-menu
+verb (`.sharedPlusLink` rows) with the resurrected picker surfacing errors.
+
+### Denver's 3b smoke (recorded, NOT yet run)
+
+- **Travel**: double-click each row kind in Plan — chapter, project row,
+  research note, palette card, collection piece, screenplay script row —
+  lands Author with that subject; single click still only selects; a drag
+  still starts from the row interior. (Real AppKit double-click delivery is
+  synthetically untestable — measured; this smoke is the only end-to-end.)
+- **Wall travel**: Plan → Open Wall → lands Author with the wall; Esc
+  closes; ⌘1 then ⌘2 — the wall must NOT reappear.
+- **Publish**: with a compiled book — project/chapter/research rows all keep
+  the preview; footer absent; delete the export in Finder, leave and
+  re-enter Publish → altitude. Uncompiled — project/group → altitude,
+  chapter → editor, corkboard card click still opens the chapter.
+- **Review**: research note and palette card (centre AND wall) read-only —
+  typing lands nothing, ⌘V of an image writes NO file; the tree's
+  create/rename/delete still work.
+- **Canvas**: click a research row in Plan — its card lights, board dims,
+  camera brings an off-screen card into view; a research item with no card →
+  "This item isn't on this canvas yet." chrome; Escape → whole board;
+  relaunch with a research subject → dims but camera stays.
+- **Reveal/scroll**: ⌘⌥R/⌘⌥P scroll the section header on-screen; Claude
+  Show on a Collection piece's note opens the FOLD (not the shared
+  section) and scrolls to the piece row; a find research match's row is
+  visible after Esc.
+- **Link Research…**: on a novel chapter row's context menu; toggles link
+  live; the chapter's fold updates without relaunch; no verb on groups,
+  collection pieces, screenplay rows.
+
+### Denver decisions owed (carried out of 3b)
+
+1. **Unreadable-catalog copy never renders** (reconcile finding): both
+   preview degrades fall to altitude and the writer with an UNREADABLE
+   publications catalog sees exactly what a never-compiled writer sees —
+   RULING-54's shape one level up. Pinned deliberately by
+   `PublishPreviewCentreTests.test_bothDegradesLeaveTheCentreToAltitude`;
+   the register session has it queued for a VIOLATES filing once 3b is on
+   main. Cheap fix if ruled: render the error's own sentence in the
+   degrade placeholder.
+2. **Return-to-Plan is a mount, not a subject change**: a research subject
+   selected elsewhere gets no camera reveal on ⌘1 back into Plan — follows
+   from "a restore is not an arrival"; a Denver call if it feels wrong live.
+3. **Preview staleness position**: no file watcher — an export deleted (or
+   a second device's compile) while standing in Publish stays stale until
+   leave-and-return.
+
+### Post-merge smoke-find wave (2026-08-12/13, Denver's first live pass)
+
+Denver's smoke found two things the same evening; both are fixed on main
+(`24ab9341`+`296b6d5b` the click regression, `f9842f4b`+`9d4807f8` the
+Publish revision), each with its own review + fix round:
+
+- **The click regression**: 3b's `.onTapGesture(count: 2)` on row labels
+  consumed the mouseDown before NSTableView saw it — a single click on a
+  row's NAME stopped selecting. The travel double-click now rides a
+  non-consuming NSEvent local monitor (`TreeTravelClickWatcher`) over
+  nil-hitTest marker views; single-click select, double-click travel and
+  drag all coexist, and the mounted tests now click the LABEL's own frame
+  (the previously dead region). One deliberate behaviour ride-along:
+  double-click-then-drag now travels (NSTableView.doubleAction semantics).
+- **The Publish revision (Denver's live rulings, superseding one recorded
+  3b decision)**: a chapter/piece in Publish ALWAYS opens the editor (the
+  layout-tweak loop); the preview is PROJECT-level only; uncompiled shows
+  altitude + a "no compiled book yet" notice; an unreadable catalog shows
+  altitude + a NAMING banner carrying the error's own sentence (Denver's
+  RULING-7-shaped decision, delivered via the register session — the
+  "unreadable renders as empty" item from this addendum's decisions list
+  is thereby RESOLVED); the preview header gained a publication picker
+  (readable PDFs, newest first, window-transient, compile snaps to
+  newest). Follow-up if it ever bites: the picker listing opens every
+  readable PDF per refresh — a cap is the honest fix.
+
+**Smoke items added by the wave**: single-click and DRAG rows by their
+names (drag-from-label is argued + census-pinned but not machine-driven);
+double-click travel per row kind; Publish — chapter edits with footer,
+picker swaps versions, both degrade notices read distinctly.
+
+**Harness lesson, measured three ways**: mounted synthetic-click tests
+need the test host to be the ACTIVE app. A locked screen (loginwindow
+frontmost) or a user actively holding another app denies activation and
+AppKit drops the mouseDown — the failure reads as `selectedRow == -1` at a
+poll deadline, indistinguishable from a code bug without checking
+`CGSSessionScreenIsLocked` / `NSApp.isActive`. The click tests now read
+that premise off the machine and SKIP BY NAME when it is unattainable
+(`12ca6bc9`) — so a gate run on a locked/in-use Mac is green-with-skips
+rather than red, and the click behaviour is machine-verified only on an
+idle unlocked Mac or CI. Check the skip list before trusting a gate that
+ran overnight.
+
+### Flakes and process residue
+
+- **The composition smoke** (3b × recovery, suggested by the Plan B
+  reconcile): a project with a set-aside record → ⌘S over a read-only
+  recovery view (the flash must not fire) → double-click a tree row in
+  Plan to travel to Author → the History pane's standing notice follows
+  the document. Also: the auto-return hook runs on every normal document
+  bind, and the travel double-click makes binds more frequent than when
+  that trade was measured — no defect found (early-returns on an empty
+  held set), just worth a glance live.
+- **`git fetch` before any reconcile** — the Plan B merge found the local
+  `origin/main` ref stale; merging without fetching would have been a
+  silent no-op that looked clean.
+
+- **One-sighting load flake (2026-08-13, full gate 20:50)**:
+  `PublishPreviewCentreTests.test_thePreviewEditorAltitudeRoundTripNeverTearsTheHostDown`
+  failed in-suite with `XCTAssertFalse failed - the chapter opened in the
+  host that was already there` (0.45s, not a deadline), green in isolation
+  and green on the immediate rerun of the full gate. The recorder counted
+  an extra host appearance under parallel load only. **RESOLVED same
+  evening after a second sighting (`90eb1562`)**: a wait/assert mismatch —
+  the hop waited for the BOOK's departure but asserted the PROSE's
+  arrival, two render passes separated by an ~80 ms async document load;
+  a busy worker's runloop decided which side the poll landed on. The fix
+  waits for the state it asserts and pins the lifetime counter at the hop
+  too. The residual shape to watch elsewhere: waiting on the old
+  surface's departure while asserting the new one's arrival.
+- **Second sighting** of
+  `ScreenplaySingleParseTests.test_applyTypography_usesPassedScript_notReparse`
+  (0.000s, fontd cold-start shape, green in isolation, no rival build) —
+  if a third arrives, wire `FontWarmup.ensure()` into that suite.
+- A NEW mounted-click harness rule, root-caused mid-branch: a synthetic
+  click posted into `NSApp`'s queue must first drain it to empty and see it
+  STAY empty (stale `appKitDefined` traffic from `makeKeyAndOrderFront`
+  otherwise feeds the drag-disambiguation loop and eats the click pair —
+  load-dependent, so it passed three same-day gates first).
+  `TreeTravelTests.click(row:in:window:)` is the canonical quiescing shape.
+- The wall arrival is race-free only because `showInspector = true` lives
+  solely in the ⌘1–⌘4 handler, not a persona observer — recorded on the
+  code; don't move it.

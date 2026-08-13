@@ -85,15 +85,46 @@ struct ResearchTreeNode<Tag: Hashable>: View {
     /// **Where a group row's open/closed flag lives** — the ids that are OPEN,
     /// held by whoever mounts the tree (stage-3a Task 4).
     ///
-    /// `nil` keeps SwiftUI's own private flag, and that is what the per-piece
-    /// folds pass: nothing outside a fold ever needs to open one of its groups,
-    /// and state nobody writes is surface without a customer. The tree's
-    /// Research section passes `BinderTreeSectionsState.expandedResearchGroups`,
-    /// because `reveal` has to be able to open the groups between a revealed
-    /// item and the root.
+    /// `nil` keeps SwiftUI's own private flag, and it is what the research
+    /// PANES pass — surfaces nothing reveals into. The binder tree's Research
+    /// section passes `BinderTreeSectionsState.expandedResearchGroups`, because
+    /// `reveal` has to be able to open the groups between a revealed item and
+    /// the root — **and since stage-3b Task 7 so does every per-piece fold**:
+    /// this comment used to say a fold passes `nil` because nothing outside it
+    /// opens one of its groups, which stopped being true the moment `reveal`
+    /// learned that a collection piece's note lives in that piece's fold and can
+    /// be nested in a group inside it.
     var expandedGroups: Binding<Set<String>>? = nil
+    /// **Whether this row carries `.id(tagFor(item))`, for a scroll-to-row
+    /// request** (stage-3b Task 8) — `false` (the default) everywhere except
+    /// the shared Research section's own call.
+    ///
+    /// **Not the fold's.** A novel chapter's LINKED fold draws the SAME tag a
+    /// second time in one `List` — the row and its twin in the shared section
+    /// — and `ScrollViewProxy.scrollTo` over two identical ids is ambiguous;
+    /// `BinderTreeSectionsState.reveal` already resolves the question by
+    /// returning the SHARED row for a linked note, never the fold's copy of it,
+    /// so the shared section's `.id` is the only one that should exist. A
+    /// Collection's CONTAINED fold never duplicates a row at all, but it needs
+    /// no `.id` either way: `reveal` answers a piece-scoped note with the
+    /// PIECE's own row (a closed fold has no note row yet at reveal time), so
+    /// nothing ever asks to scroll to a fold row by its own tag.
+    ///
+    /// Propagated to every descendant in `childNodes` — a nested item three
+    /// groups down is exactly as reachable as a root one.
+    var appliesScrollIdentity: Bool = false
 
+    @ViewBuilder
     var body: some View {
+        if appliesScrollIdentity {
+            coreBody.id(tagFor(item))
+        } else {
+            coreBody
+        }
+    }
+
+    @ViewBuilder
+    private var coreBody: some View {
         if item.type == .group, expandsGroups {
             // Two spellings of one row, because the two initialisers are
             // genuinely different views: a `.constant` binding would make a
@@ -141,7 +172,12 @@ struct ResearchTreeNode<Tag: Hashable>: View {
                 // A nested group is reached by opening its parent, so the whole
                 // subtree reads the same set — a reveal names every ancestor and
                 // one of them may be three levels down.
-                expandedGroups: expandedGroups))
+                expandedGroups: expandedGroups,
+                // Propagated, not re-decided: a nested item in the shared
+                // section is exactly as scroll-reachable as a root one, and a
+                // nested item in a fold carries the same "no id" answer its
+                // root does.
+                appliesScrollIdentity: appliesScrollIdentity))
         }
     }
 
