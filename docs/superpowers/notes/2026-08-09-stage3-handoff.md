@@ -417,6 +417,49 @@ verb (`.sharedPlusLink` rows) with the resurrected picker surfacing errors.
    a second device's compile) while standing in Publish stays stale until
    leave-and-return.
 
+### Post-merge smoke-find wave (2026-08-12/13, Denver's first live pass)
+
+Denver's smoke found two things the same evening; both are fixed on main
+(`24ab9341`+`296b6d5b` the click regression, `f9842f4b`+`9d4807f8` the
+Publish revision), each with its own review + fix round:
+
+- **The click regression**: 3b's `.onTapGesture(count: 2)` on row labels
+  consumed the mouseDown before NSTableView saw it — a single click on a
+  row's NAME stopped selecting. The travel double-click now rides a
+  non-consuming NSEvent local monitor (`TreeTravelClickWatcher`) over
+  nil-hitTest marker views; single-click select, double-click travel and
+  drag all coexist, and the mounted tests now click the LABEL's own frame
+  (the previously dead region). One deliberate behaviour ride-along:
+  double-click-then-drag now travels (NSTableView.doubleAction semantics).
+- **The Publish revision (Denver's live rulings, superseding one recorded
+  3b decision)**: a chapter/piece in Publish ALWAYS opens the editor (the
+  layout-tweak loop); the preview is PROJECT-level only; uncompiled shows
+  altitude + a "no compiled book yet" notice; an unreadable catalog shows
+  altitude + a NAMING banner carrying the error's own sentence (Denver's
+  RULING-7-shaped decision, delivered via the register session — the
+  "unreadable renders as empty" item from this addendum's decisions list
+  is thereby RESOLVED); the preview header gained a publication picker
+  (readable PDFs, newest first, window-transient, compile snaps to
+  newest). Follow-up if it ever bites: the picker listing opens every
+  readable PDF per refresh — a cap is the honest fix.
+
+**Smoke items added by the wave**: single-click and DRAG rows by their
+names (drag-from-label is argued + census-pinned but not machine-driven);
+double-click travel per row kind; Publish — chapter edits with footer,
+picker swaps versions, both degrade notices read distinctly.
+
+**Harness lesson, measured three ways**: mounted synthetic-click tests
+need the test host to be the ACTIVE app. A locked screen (loginwindow
+frontmost) or a user actively holding another app denies activation and
+AppKit drops the mouseDown — the failure reads as `selectedRow == -1` at a
+poll deadline, indistinguishable from a code bug without checking
+`CGSSessionScreenIsLocked` / `NSApp.isActive`. The click tests now read
+that premise off the machine and SKIP BY NAME when it is unattainable
+(`12ca6bc9`) — so a gate run on a locked/in-use Mac is green-with-skips
+rather than red, and the click behaviour is machine-verified only on an
+idle unlocked Mac or CI. Check the skip list before trusting a gate that
+ran overnight.
+
 ### Flakes and process residue
 
 - **The composition smoke** (3b × recovery, suggested by the Plan B
