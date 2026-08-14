@@ -6,12 +6,21 @@ import MaughamCore
 extension ProjectStore {
 
     /// Update an item's inspector fields. `nil` arguments mean "leave unchanged";
-    /// to explicitly clear a field, pass an empty string for synopsis/status,
-    /// an empty array for tags/links, or `0` for wordTarget.
+    /// to explicitly clear a field, pass an empty string for synopsis, an empty
+    /// array for tags/links, or `0` for wordTarget.
+    ///
+    /// **There is no `status:` argument, and its absence is the point** (M3 P1
+    /// Task 4). `StructureItem.status` — the free-string draft/revising/final
+    /// field — was written from here by the two inspector status pickers, and
+    /// those pickers are now the per-pass ladder writing through
+    /// ``setPassState(id:passId:_:)``. The field survives as a LEGACY READ:
+    /// `ReviewStatus.derived` falls back to it for a project that has no pass
+    /// states yet, and the promotion seam carries it. Nothing writes it, and
+    /// re-adding the argument here would put a second, un-derived answer back
+    /// beside the ladder's — pinned by `PersonaPaneRegistryTests`' census.
     public func updateInspector(
         id: String,
         synopsis: String? = nil,
-        status: String? = nil,
         tags: [String]? = nil,
         wordTarget: Int? = nil,
         pageTarget: Int? = nil,
@@ -22,7 +31,6 @@ extension ProjectStore {
         }
         mutateItem(id: id) { item in
             if let synopsis { item.synopsis = synopsis }
-            if let status { item.status = status }
             if let tags { item.tags = tags.isEmpty ? nil : tags }
             if let wordTarget {
                 // Treat 0 as "clear the target."
@@ -32,6 +40,43 @@ extension ProjectStore {
                 item.pageTarget = pageTarget == 0 ? nil : pageTarget
             }
             if let links { item.links = links.isEmpty ? nil : links }
+        }
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
+    /// Set — or clear — where one piece stands on ONE named review pass (M3 P1
+    /// Task 4). The verb behind the inspector's pass ladder, and the one
+    /// channel every future writer of `StructureItem.passStates` goes through
+    /// (`PersonaPaneRegistryTests`' census).
+    ///
+    /// **Deliberately a verb of its own rather than a `passStates:` argument on
+    /// ``updateInspector(id:synopsis:tags:wordTarget:pageTarget:links:)``.**
+    /// That call's convention is whole-field replacement — pass the new array,
+    /// get the new array — and a ladder row knows only about its own pass. A
+    /// whole-map argument would make every row read-modify-write the dictionary
+    /// at the call site, so two rows set in the same runloop turn (or a board
+    /// cell and an inspector row on the same piece) would each write the map
+    /// they read before the other landed, and the later save would silently
+    /// drop the earlier pass. Naming the pass makes that impossible.
+    ///
+    /// `nil` REMOVES the key rather than storing a "not started" value —
+    /// `PassState` has no such case on purpose, and an absent key is what
+    /// `ReviewStatus.derived` scores as untouched. An emptied map is stored as
+    /// `nil`, never `[:]`: both read the same, and absence is what keeps a
+    /// cleared pass from leaving `"passStates": {}` in the manifest forever.
+    public func setPassState(id: String, passId: String, _ state: PassState?) async throws {
+        guard findItem(id: id, in: manifest.structure) != nil else {
+            throw ProjectStoreError.structureMissing
+        }
+        mutateItem(id: id) { item in
+            var states = item.passStates ?? [:]
+            if let state {
+                states[passId] = state
+            } else {
+                states.removeValue(forKey: passId)
+            }
+            item.passStates = states.isEmpty ? nil : states
         }
         manifest.modified = Date()
         try await saveManifest()

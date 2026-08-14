@@ -240,7 +240,11 @@ final class ProjectStoreMutationTests: XCTestCase {
 
     // MARK: - updateInspector
 
-    func test_updateInspector_setsSynopsisAndStatus() async throws {
+    /// Was `…setsSynopsisAndStatus` until M3 P1 Task 4 removed the `status:`
+    /// argument — the free-string field is legacy-read-only now, and the
+    /// review verdict is written one pass at a time through `setPassState`
+    /// (`ProjectStoreInspectorTests`).
+    func test_updateInspector_setsSynopsis() async throws {
         let url = try await ProjectFactory.createShortStoryProject(
             named: "Insp", in: temp.url)
         let store = try await ProjectStore.load(from: url)
@@ -249,11 +253,11 @@ final class ProjectStoreMutationTests: XCTestCase {
         try await store.updateInspector(
             id: rootItem.id,
             synopsis: "Larry returns from the war.",
-            status: "revising")
+            tags: ["war"])
 
         let updated = store.manifest.structure[0]
         XCTAssertEqual(updated.synopsis, "Larry returns from the war.")
-        XCTAssertEqual(updated.status, "revising")
+        XCTAssertEqual(updated.tags, ["war"])
     }
 
     func test_updateInspector_partial_keepsOtherField() async throws {
@@ -262,14 +266,14 @@ final class ProjectStoreMutationTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         let rootId = store.manifest.structure[0].id
         try await store.updateInspector(
-            id: rootId, synopsis: "First", status: "draft")
+            id: rootId, synopsis: "First", tags: ["one"])
         try await store.updateInspector(
-            id: rootId, synopsis: nil, status: "final")
+            id: rootId, synopsis: nil, tags: ["two"])
 
         let updated = store.manifest.structure[0]
         // synopsis: nil means "leave unchanged"
         XCTAssertEqual(updated.synopsis, "First")
-        XCTAssertEqual(updated.status, "final")
+        XCTAssertEqual(updated.tags, ["two"])
     }
 
     func test_updateInspector_invalidId_throws() async throws {
@@ -278,7 +282,7 @@ final class ProjectStoreMutationTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         do {
             try await store.updateInspector(
-                id: "nope", synopsis: "x", status: "x")
+                id: "nope", synopsis: "x")
             XCTFail("expected throw")
         } catch ProjectStoreError.structureMissing {}
     }

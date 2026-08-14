@@ -46,14 +46,20 @@ struct OutlineTable: View {
                 Text(item.title)
             }
             TableColumn("Status") { item in
+                // Dot AND text read the same projection (M3 P1 Task 4). The
+                // text used to print the raw legacy `status` string beside a
+                // derived dot, which was already two answers to one question —
+                // and once the ladder is the only writer, the string would
+                // have sat at "draft" (or "—") under a green dot for ever.
+                let status = ReviewStatus.derived(
+                    passStates: item.passStates,
+                    passes: store.manifest.effectiveReviewPasses,
+                    legacyStatus: item.status)
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(StatusSwatch.color(for: ReviewStatus.derived(
-                            passStates: item.passStates,
-                            passes: store.manifest.effectiveReviewPasses,
-                            legacyStatus: item.status)))
+                        .fill(StatusSwatch.color(for: status))
                         .frame(width: 6, height: 6)
-                    Text(item.status ?? "—")
+                    Text(StatusSwatch.label(for: status))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

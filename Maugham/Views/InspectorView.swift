@@ -8,7 +8,6 @@ struct InspectorView: View {
     let onOpenProjectSettings: () -> Void
 
     @State private var draftSynopsis: String = ""
-    @State private var draftStatus: String = "draft"
     @State private var draftTags: [String] = []
     @State private var draftWordTarget: Int = 0
     @State private var draftPageTarget: Int = 0
@@ -22,13 +21,26 @@ struct InspectorView: View {
             if let item = currentItem, item.type == .document {
                 Section("Document") {
                     LabeledContent("Title", value: item.title)
-                    Picker("Status", selection: $draftStatus) {
-                        Text("Draft").tag("draft")
-                        Text("Revising").tag("revising")
-                        Text("Final").tag("final")
-                    }
-                    .pickerStyle(.menu)
-                    .onChange(of: draftStatus) { _, _ in scheduleSave() }
+                    // The review section (M3 P1 Task 4). The free-string
+                    // draft/revising/final picker that stood here is gone: the
+                    // status is now DERIVED from the passes below it.
+                    //
+                    // **It deliberately does not go through `scheduleSave()`.**
+                    // That path exists for the text fields — it debounces 500 ms
+                    // and then writes the WHOLE draft back, which is right for a
+                    // synopsis being typed and wrong for a discrete choice: a
+                    // pass state would land half a second late (invisible on the
+                    // board and the swatches meanwhile), a second choice inside
+                    // the window would cancel the first, and the write would
+                    // carry a draft snapshot taken before the writer touched the
+                    // menu. The ladder writes one pass, immediately, through the
+                    // verb that names it.
+                    PassLadder(
+                        item: item,
+                        passes: store.manifest.effectiveReviewPasses,
+                        onSet: { passId, state in
+                            setPass(passId, to: state, on: item.id)
+                        })
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Synopsis")
@@ -134,7 +146,6 @@ struct InspectorView: View {
         guard let item = currentItem,
               loadedItemId != item.id else { return }
         draftSynopsis = item.synopsis ?? ""
-        draftStatus = item.status ?? "draft"
         draftTags = item.tags ?? []
         draftWordTarget = item.wordTarget ?? 0
         draftLinks = item.links ?? []
@@ -142,11 +153,26 @@ struct InspectorView: View {
         draftPageTarget = store.manifest.targets?.pageTarget ?? 0
     }
 
+    /// The ladder's write — named rather than inline so a test can drive the
+    /// production body: this Form's pass menus build their `NSMenu` only when
+    /// they are opened for real (measured — `itemTitles` is empty at mount and
+    /// stays empty through `menu.update()`, a taller window and a second of
+    /// pumping), so the menu-item route that drives `PieceInspector`'s ladder
+    /// reaches nothing here.
+    ///
+    /// **It deliberately does not call `scheduleSave()`** — see the call site
+    /// for why the debounced whole-draft path is wrong for a discrete choice.
+    func setPass(_ passId: String, to state: PassState?, on itemId: String) {
+        Task { [weak store] in
+            guard let store else { return }
+            try? await store.setPassState(id: itemId, passId: passId, state)
+        }
+    }
+
     private func scheduleSave() {
         saveTask?.cancel()
         let id = loadedItemId
         let synopsis = draftSynopsis
-        let status = draftStatus
         let tags = draftTags
         let wordTarget = draftWordTarget
         let links = draftLinks
@@ -157,7 +183,6 @@ struct InspectorView: View {
             try? await store.updateInspector(
                 id: id,
                 synopsis: synopsis,
-                status: status,
                 tags: tags,
                 wordTarget: wordTarget,
                 links: links)

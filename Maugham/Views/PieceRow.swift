@@ -71,12 +71,18 @@ struct PieceRow: View {
                     // a gesture — see BinderRow's twin and TreeTravel.swift.
                     .treeTravelOnDoubleClick(.item(piece.id))
                 Spacer()
-                if let status = piece.status, !status.isEmpty {
+                // The presence question and the colour question are both
+                // `StatusSwatch`'s (M3 P1 Task 4). This guard used to read the
+                // raw legacy string, which stops being written this task — a
+                // piece ruled on entirely through the ladder would have drawn
+                // no dot at all. See `StatusSwatch.showsDot`.
+                if StatusSwatch.showsDot(
+                    passStates: piece.passStates, legacyStatus: piece.status) {
                     Circle()
                         .fill(StatusSwatch.color(for: ReviewStatus.derived(
                             passStates: piece.passStates,
                             passes: effectiveReviewPasses,
-                            legacyStatus: status)))
+                            legacyStatus: piece.status)))
                         .frame(width: 6, height: 6)
                 }
             }

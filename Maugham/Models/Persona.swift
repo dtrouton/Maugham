@@ -308,25 +308,40 @@ public extension Persona {
             // records the near-miss). Written down here so the next reader
             // cannot delete this entry on the weaker one.
             //
-            // The real reason: **the Inspector is the only place in the app a
-            // writer can set `StructureItem.status`** — the draft/revising/
-            // final field that Review is *about*. In Review the left column is
-            // the project's own tree (`TreePane`), and Review does not
-            // `centresTheCanvas`, so `ProjectWindow.inspectorRoute`
+            // The real reason: **the Inspector is where a writer rules on a
+            // review pass** — the record Review is *about*. In Review the left
+            // column is the project's own tree (`TreePane`), and Review does
+            // not `centresTheCanvas`, so `ProjectWindow.inspectorRoute`
             // returns `.collectionPiece` on a Collection and `.document`
-            // otherwise, and both arms land on a status control:
-            // `PieceInspector.statusSection` and `InspectorView`'s Status
-            // picker. Those two are the only callers of
-            // `ProjectStore.updateInspector(… status:)`, and no MCP tool writes
-            // the field — `ProjectTools` only reads it. Take `.inspector` off
-            // Review and the persona whose job is adjudicating a draft's state
-            // cannot record that state; the writer has to leave for another
-            // persona to mark the chapter final.
+            // otherwise, and both arms land on the pass LADDER
+            // (`PassLadder`, hosted by `PieceInspector.statusSection` and
+            // `InspectorView`'s Document section): one row per
+            // `ProjectManifest.effectiveReviewPasses` entry, each saying where
+            // this piece stands, with the derived `ReviewStatus` read-only
+            // above it. Those two files are the only callers of
+            // `ProjectStore.setPassState`, and no MCP tool writes the record.
+            // Take `.inspector` off Review and the persona whose job is
+            // adjudicating a draft cannot record a verdict at all; the writer
+            // has to leave for another persona to mark a chapter's Copyedit
+            // done.
+            //
+            // **This argument was re-made in M3 P1 Task 4, not merely
+            // reworded.** It used to rest on `StructureItem.status`, the free
+            // string the two inspector pickers wrote through
+            // `updateInspector(… status:)`. That argument survived its own
+            // control: the pickers are gone, the argument's field is
+            // legacy-read-only (`ReviewStatus.derived` falls back to it and
+            // nothing writes it), and the reasoning now names the thing that
+            // actually stands here.
             //
             // Pinned by `PersonaPaneRegistryTests
-            // .test_reviewKeepsTheInspectorBecauseItIsTheOnlyPlaceStatusIsWritten`,
-            // whose census goes red if a third status writer appears — at which
-            // point this argument needs re-making, not patching.
+            // .test_reviewKeepsTheInspectorBecauseItIsWhereAPassIsRuledOn`,
+            // whose census goes red if a third pass-state writer appears — at
+            // which point this argument needs re-making again, not patching.
+            // (M3 P1 Task 8's Review board is expected to be that third writer,
+            // and it does not weaken this: the board is Review's own centre
+            // column, so it adds a Review surface rather than moving the ladder
+            // out of the Inspector.)
             return [.annotations, .intent, .references, .tasks, .history, .inspector]
         case .publish:
             // Visual Language · Tasks · Translation · History · Inspector.

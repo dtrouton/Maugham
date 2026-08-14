@@ -485,8 +485,12 @@ final class PromotePieceTests: XCTestCase {
     /// exactly the record the Review board is about.
     func test_aPromotedPieceCarriesItsStatusAndItsPassStates() async throws {
         let (collection, store, piece) = try await makeCollectionWithPiece(mode: .prose)
-        try await store.updateInspector(id: piece.id, status: "revising")
+        // `status` is legacy-read-only as of M3 P1 Task 4 (no store verb
+        // writes it any more), so the fixture seeds it directly — the CARRY is
+        // what this test is about, and a project written by an older build
+        // still arrives with the string set.
         let idx = try XCTUnwrap(store.manifest.structure.firstIndex { $0.id == piece.id })
+        store.manifest.structure[idx].status = "revising"
         store.manifest.structure[idx].passStates = [
             "structural": .done, "line": .inProgress, "sensitivity": .unknown("awaiting_reader"),
         ]
@@ -513,8 +517,12 @@ final class PromotePieceTests: XCTestCase {
     /// whose real state lives in its own manifest.
     func test_convertingToAReferenceClearsPassStatesBesideStatus() async throws {
         let (collection, store, piece) = try await makeCollectionWithPiece(mode: .prose)
-        try await store.updateInspector(id: piece.id, status: "revising")
+        // `status` is legacy-read-only as of M3 P1 Task 4 (no store verb
+        // writes it any more), so the fixture seeds it directly — the CARRY is
+        // what this test is about, and a project written by an older build
+        // still arrives with the string set.
         let idx = try XCTUnwrap(store.manifest.structure.firstIndex { $0.id == piece.id })
+        store.manifest.structure[idx].status = "revising"
         store.manifest.structure[idx].passStates = ["structural": .done]
 
         let destination = collection.deletingLastPathComponent()
