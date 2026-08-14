@@ -36,6 +36,13 @@ public struct StructureItem: Codable, Equatable, Identifiable, Sendable, TreeNod
     public var links: [String]?
     public var children: [StructureItem]?
     public var linkedResearchIds: [String]?
+    /// Where this piece stands on each named review pass, keyed by the
+    /// `ReviewPass.id` (M3 P1). OPTIONAL on purpose — the synthesized decoder
+    /// stays untouched, so a manifest written before this milestone (no key at
+    /// all) still opens; a non-optional field would throw `keyNotFound` on
+    /// every existing project. An absent dictionary and an absent key both mean
+    /// untouched, which is why `PassState` has no `notStarted` case.
+    public var passStates: [String: PassState]?
 
     public init(
         id: String,
@@ -52,7 +59,8 @@ public struct StructureItem: Codable, Equatable, Identifiable, Sendable, TreeNod
         tags: [String]? = nil,
         links: [String]? = nil,
         children: [StructureItem]? = nil,
-        linkedResearchIds: [String]? = nil
+        linkedResearchIds: [String]? = nil,
+        passStates: [String: PassState]? = nil
     ) {
         self.id = id
         self.title = title
@@ -69,5 +77,6 @@ public struct StructureItem: Codable, Equatable, Identifiable, Sendable, TreeNod
         self.links = links
         self.children = children
         self.linkedResearchIds = linkedResearchIds
+        self.passStates = passStates
     }
 }
