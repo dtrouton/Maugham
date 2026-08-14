@@ -39,7 +39,18 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// would show the suggestion's text under a `rejected` status — the exact
     /// disagreement the repair exists to end. Refusing the project outright is
     /// the honest answer.
-    public static let currentSchemaVersion = 5
+    ///
+    /// 5 → 6 (M3 P1, review passes): the `reviewPasses` section on the
+    /// manifest, plus `passStates` on each `StructureItem` (Task 2). Both are
+    /// additive and absent-tolerant — a schema-5 manifest with neither key
+    /// opens fine — but the bump is load-bearing for the same reason 3 → 4
+    /// was: an older build that opened a newer manifest and re-saved it would
+    /// silently DROP a writer's per-piece pass state across an entire
+    /// collection, with nothing on disk to say it ever existed. Honest
+    /// refusal beats silent loss; this makes M3 a paired Mac + phone release
+    /// (shipped phone builds refuse a v6 manifest via `decodeGuardingSchema`
+    /// until updated — the M1A pattern).
+    public static let currentSchemaVersion = 6
 
     /// The filename used by every Maugham project for its manifest.
     /// Both the Mac app and the iOS companion look for this name in a
@@ -102,6 +113,29 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// what makes M1A a paired Mac + phone release.
     public var statements: [Statement]
 
+    /// The project's named editing passes (M3 P1, schema 6) — the Review
+    /// board's column headers. Non-optional, defaulting to `[]` in both the
+    /// memberwise init and `init(from:)`, so a schema-5 manifest (which has
+    /// no such key) still opens — the `statements` shape (`:206`).
+    ///
+    /// An empty or absent stored list is not itself the presets: read
+    /// `effectiveReviewPasses`, never this property, when what's wanted is
+    /// "what passes does this project have" — the presets are computed, not
+    /// written back (tripwire 11). This property exists so a customized list
+    /// round-trips, and so "no customization yet" is representable without a
+    /// migration that would have to write the presets into every existing
+    /// project's manifest.
+    public var reviewPasses: [ReviewPass]
+
+    /// The pass list a reader should actually use: the stored `reviewPasses`
+    /// when the writer has customized it, else `ReviewPass.presets`. Never
+    /// writes the presets back to `reviewPasses` — an absent or emptied list
+    /// stays absent/empty on disk until the writer actually customizes it
+    /// (tripwire 11, and Task 9's delete-all-restores-presets rule).
+    public var effectiveReviewPasses: [ReviewPass] {
+        reviewPasses.isEmpty ? ReviewPass.presets : reviewPasses
+    }
+
     public var targets: ProjectTargets?
 
     /// Per-project typography override. When non-nil, takes precedence over
@@ -161,6 +195,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         structure: [StructureItem],
         research: [ResearchItem],
         statements: [Statement] = [],
+        reviewPasses: [ReviewPass] = [],
         targets: ProjectTargets? = nil,
         typography: TypographySettings? = nil,
         showElementGutter: Bool? = nil
@@ -175,6 +210,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.structure = structure
         self.research = research
         self.statements = statements
+        self.reviewPasses = reviewPasses
         self.targets = targets
         self.typography = typography
         self.showElementGutter = showElementGutter
@@ -204,6 +240,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.structure = try c.decode([StructureItem].self, forKey: .structure)
         self.research = try c.decode([ResearchItem].self, forKey: .research)
         self.statements = try c.decodeIfPresent([Statement].self, forKey: .statements) ?? []
+        self.reviewPasses = try c.decodeIfPresent([ReviewPass].self, forKey: .reviewPasses) ?? []
         self.targets = try c.decodeIfPresent(ProjectTargets.self, forKey: .targets)
         self.typography = try c.decodeIfPresent(TypographySettings.self, forKey: .typography)
         self.showElementGutter = try c.decodeIfPresent(Bool.self, forKey: .showElementGutter)
