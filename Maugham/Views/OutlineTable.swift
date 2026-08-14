@@ -48,7 +48,10 @@ struct OutlineTable: View {
             TableColumn("Status") { item in
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(statusColor(item.status))
+                        .fill(StatusSwatch.color(for: ReviewStatus.derived(
+                            passStates: item.passStates,
+                            passes: store.manifest.effectiveReviewPasses,
+                            legacyStatus: item.status)))
                         .frame(width: 6, height: 6)
                     Text(item.status ?? "—")
                         .font(.caption)
@@ -71,14 +74,6 @@ struct OutlineTable: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-        }
-    }
-
-    private func statusColor(_ status: String?) -> Color {
-        switch status {
-        case "revising": return .orange
-        case "final":    return .green
-        default:         return .secondary
         }
     }
 }

@@ -4153,4 +4153,57 @@ final class TripwireGrepTests: XCTestCase {
          + "comment, the log category and the Logger call do not. Got:\n"
          + offenders.joined(separator: "\n"))
     }
+
+    // MARK: - No second statusColor switch (M3 P1 Task 3)
+
+    /// Recurrence-tripper: `OutlineTable`, `BinderRow`, `CorkboardGrid` and
+    /// `PieceRow` each carried their own `statusColor` switch over the legacy
+    /// free-string `status` — and had already drifted from each other
+    /// (`PieceRow` alone painted `.gray` for `"draft"`) before they converged
+    /// on `StatusSwatch.color(for: ReviewStatus)`, the ONE switch. A future
+    /// edit reaching for a quick local `statusColor` (the path of least
+    /// resistance when a view just wants "a color for this status") reopens
+    /// exactly the drift this task closed. `StatusSwatch.swift` itself names
+    /// its function `color(for:)`, never `statusColor`, so it never
+    /// self-matches.
+    func test_noPrivateStatusColorSwitchInViews() throws {
+        let offenders = try grepSwift(in: sourceDir, patterns: ["statusColor"])
+        XCTAssertTrue(offenders.isEmpty,
+            "A view file has its own statusColor switch again. Route through "
+            + "StatusSwatch.color(for: ReviewStatus.derived(...)) instead — the one "
+            + "place a ReviewStatus becomes a Color. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the statusColor tripwire FIRES on a planted private
+    /// switch, so the empty result above is read absence, not a pattern typo.
+    func test_theStatusColorTripwireFiresOnAPlantedSwitch() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-statuscolor-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct SomeNewRow: View {
+            let item: StructureItem
+            var body: some View {
+                Circle().fill(statusColor(item.status))
+            }
+            private func statusColor(_ status: String?) -> Color {
+                switch status {
+                case "revising": return .orange
+                case "final":    return .green
+                default:         return .secondary
+                }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SomeNewRow.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(in: tmp, patterns: ["statusColor"])
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check: both the call site and the private func declaration should "
+            + "fire. Got:\n" + offenders.joined(separator: "\n"))
+    }
 }

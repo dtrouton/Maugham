@@ -140,6 +140,7 @@ struct CollectionPiecesPane: View {
     private func pieceRow(for piece: StructureItem) -> some View {
         PieceRow(
             piece: piece,
+            effectiveReviewPasses: store.manifest.effectiveReviewPasses,
             renamingItemId: $renamingItemId,
             onRename: { id, newTitle in
                 Task {

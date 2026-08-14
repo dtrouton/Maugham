@@ -232,6 +232,7 @@ struct BinderView: View {
     private func row(for item: StructureItem) -> some View {
         BinderRow(
             item: item,
+            effectiveReviewPasses: store.manifest.effectiveReviewPasses,
             renamingItemId: $renamingItemId,
             onRename: { id, newTitle in
                 Task { await rename(id: id, to: newTitle) }

@@ -8,6 +8,10 @@ import UniformTypeIdentifiers
 /// non-rename branch, mirroring `BinderRow`'s pattern.
 struct PieceRow: View {
     let piece: StructureItem
+    /// The project's effective review-pass list — see `BinderRow`'s twin
+    /// property for why this is threaded rather than a hardcoded stand-in
+    /// (M3 P1 Task 3).
+    let effectiveReviewPasses: [ReviewPass]
     @Binding var renamingItemId: String?
     let onRename: (String, String) -> Void   // (pieceId, newTitle)
     /// Returns whether the drop was ACCEPTED, and this row returns exactly that
@@ -69,7 +73,10 @@ struct PieceRow: View {
                 Spacer()
                 if let status = piece.status, !status.isEmpty {
                     Circle()
-                        .fill(statusColor(status))
+                        .fill(StatusSwatch.color(for: ReviewStatus.derived(
+                            passStates: piece.passStates,
+                            passes: effectiveReviewPasses,
+                            legacyStatus: status)))
                         .frame(width: 6, height: 6)
                 }
             }
@@ -113,15 +120,6 @@ struct PieceRow: View {
                 return "film"
             }
             return "doc.text"
-        }
-    }
-
-    private func statusColor(_ status: String) -> Color {
-        switch status.lowercased() {
-        case "draft":     return .gray
-        case "revising":  return .orange
-        case "final":     return .green
-        default:          return .secondary
         }
     }
 
