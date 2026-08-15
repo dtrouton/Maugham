@@ -94,3 +94,30 @@ confounder in CLAUDE.md's build-flow notes) cannot produce a false red:
 
 If one of these goes red again: in-suite/in-isolation discriminator first,
 `ps ax | grep xcodebuild` for other sessions second, code archaeology last.
+
+
+## Reopened, 2026-08-15 (M3-P1)
+
+The resolution above did not hold. Two new facts from the M3-P1 branch:
+
+1. **A new failure mode: the indefinite hang.** `MCPServerLifecycleTests`
+   parked a full gate in `XCTWaiter` indefinitely (killed at 20 minutes) on
+   a QUIET machine — load 1–2, no rival `xcodebuild` — and the disable
+   experiment reproduced the hang on the unmodified parent commit
+   (`491a0e9d`), so no branch diff is implicated. This is not the 64s
+   deadline miss the resolution section explains; it is a park with no
+   deadline firing at all.
+2. **Load-dependent deadline misses recurred four times** across
+   2026-08-14/15 (machine at load 150–190 from concurrent sessions, and
+   once at load ~14), each time green in isolation with 16–1000× margins,
+   never twice the same test.
+
+Interim gate protocol (recorded in CLAUDE.md): run the suite minus the
+three MCP classes, plus those three in isolation; a hang in
+`MCPServerLifecycleTests` is the environment until this section is closed
+again. The hypothesis space for the hang starts at: something in the
+recovery/strict-read merges' MCP test-tool changes (2026-08-12/13), a
+socket left held by a crashed sibling process, or an `XCTWaiter`
+expectation whose fulfilling path can now early-return without
+fulfilling. Nobody has measured yet — this section records sightings, not
+a diagnosis.
