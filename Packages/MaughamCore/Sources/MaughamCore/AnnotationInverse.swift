@@ -28,6 +28,7 @@ public enum AnnotationInverse {
         switch kind {
         case .claudeReject:       expected = .rejected
         case .claudeArchive:      expected = .archived
+        case .annotationStet:     expected = .stetted
         case .annotationWithdraw: expected = nil   // withdrawn = absent from projection
         default:                  return .declined(.noInverse(kind))
         }
@@ -68,5 +69,30 @@ public enum AnnotationInverse {
                 authorSourceKind: authorSourceKind,
                 authorDisplayName: authorDisplayName,
                 authorCollaboratorId: authorCollaboratorId))
+    }
+
+    /// Compensating triage for undoing an `annotationTriage`: another triage
+    /// carrying the mark the note had BEFORE it. `priorMark: nil` means the
+    /// note was untriaged, and the revert op carries no mark — which is how
+    /// the deriver reads "back to untriaged", the same latest-op-wins rule
+    /// that made the original triage stick.
+    ///
+    /// Never a reopen: triage resolved nothing, so there is nothing to reopen.
+    /// This factory cannot decline — a triage is an overwrite, so drifting
+    /// state changes what the revert lands on but never whether it is valid.
+    public static func triageRevertOp(
+        annotationId: String,
+        priorMark: TriageMark?,
+        docId: String, device: String, session: String
+    ) -> Op {
+        Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .annotationTriage, changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                sourceAnnotationId: annotationId,
+                triageMark: priorMark?.rawValue))
     }
 }

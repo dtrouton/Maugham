@@ -45,6 +45,24 @@ public enum OpKind: String, Codable, Equatable, Sendable, CaseIterable {
     /// stays append-only; earlier resolutions are never mutated.
     case annotationReopen = "annotation_reopen"
 
+    /// The writer reading a note and letting the prose stand (M3 P2, the
+    /// queue). A RESOLUTION, alongside reject and archive — the note leaves
+    /// the open queue with `.stetted` — but a distinct one: reject says the
+    /// note was wrong, archive says it is no longer live, stet says the note
+    /// was read, considered, and the words stay as they are. References the
+    /// creation op via `provenance.sourceAnnotationId`, carries NO `changes`,
+    /// and its inverse is the ordinary `annotationReopen`.
+    case annotationStet = "annotation_stet"
+
+    /// The writer sorting an OPEN note into what they will do about it: do it,
+    /// decline it, discuss it (M3 P2). Deliberately NOT a lifecycle kind — a
+    /// triaged note is still open, and triage is a mark the queue sorts on,
+    /// never a settlement. The mark rides on `provenance.triageMark`; the
+    /// latest triage op per `sourceAnnotationId` wins, and one carrying no
+    /// mark returns the note to untriaged (which is how its inverse works,
+    /// `AnnotationInverse.triageRevertOp`).
+    case annotationTriage = "annotation_triage"
+
     // Task lifecycle (pane-created tasks; inline status changes use .typingBurst)
     case taskCreate         = "task_create"
     case taskStatusChange   = "task_status_change"

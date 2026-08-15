@@ -62,6 +62,26 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             // OpUndoRegistrar.register calls (Document+Annotations.swift).
             return .inverseCovered(mechanism: "compensating op of AnnotationInverse.reopenOp; reversed by the original resolution's OpUndoRegistrar redo")
 
+        case .annotationStet:
+            // AnnotationInverse.reopenOp gained the `.annotationStet → expected
+            // .stetted` arm in M3 P2 Task 1 (AnnotationInverse.swift, read to
+            // confirm), so a stet's inverse is the ordinary reopen — the same
+            // mechanism as reject and archive. NOTE FOR TASK 2: the
+            // writer-facing `Document.stetAnnotation` verb and its
+            // `OpUndoRegistrar` registration do not exist yet at Task 1, so
+            // nothing can WRITE this kind in a real project; this arm names the
+            // factory, and Task 2 must return here and name the registrar.
+            return .inverseCovered(mechanism: "AnnotationInverse.reopenOp(undoing: .annotationStet) — registrar lands with Document.stetAnnotation, M3 P2 Task 2")
+
+        case .annotationTriage:
+            // Triage is its own inverse's kind, the way annotationEdit is:
+            // AnnotationInverse.triageRevertOp appends another annotationTriage
+            // carrying the mark the note had before (nil = untriaged), and the
+            // deriver's latest-op-wins rule does the rest. NOTE FOR TASK 3: the
+            // `Document.triageAnnotation` verb and its registration land there;
+            // this arm names the factory only.
+            return .inverseCovered(mechanism: "AnnotationInverse.triageRevertOp (compensating annotationTriage) — registrar lands with Document.triageAnnotation, M3 P2 Task 3")
+
         // MARK: - Accept / revert (bespoke choreography, predates OpUndoRegistrar's generalization — see TaskInverse.swift doc comment on OpUndoRegistrar)
 
         case .claudeAccept:
@@ -163,7 +183,8 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
     func test_bucketMembership_matchesADR0023() {
         let covered: [OpKind] = [
             .claudeReject, .claudeArchive, .annotationWithdraw, .annotationEdit,
-            .annotationReopen, .claudeAccept, .claudeAcceptRevert,
+            .annotationReopen, .annotationStet, .annotationTriage,
+            .claudeAccept, .claudeAcceptRevert,
             .taskCreate, .taskStatusChange, .taskPriorityChange,
             .taskParentChange, .taskBodyEdit, .taskArchive,
             .checkpointRestore,

@@ -12,6 +12,25 @@ public enum AnnotationStatus: String, Codable, Equatable, Sendable, CaseIterable
     case accepted
     case rejected
     case archived
+    /// The writer read the note, considered it, and the words stand (M3 P2).
+    /// Widening this enum is safe where widening a wire enum would not be: the
+    /// status is a PROJECTION derived from op kinds, never decoded from disk,
+    /// which is also why it has no `.unknown` case.
+    case stetted
+}
+
+/// What the writer intends to do about an OPEN note — the queue's sort key
+/// (M3 P2). A mark, not a resolution: a triaged note is still open, and
+/// clearing the mark returns it to untriaged (`nil`).
+///
+/// No `.unknown` case, for `AnnotationStatus`'s reason: this is a projection
+/// the deriver parses out of `Op.Provenance.triageMark` and never re-encodes,
+/// so an unrecognised raw value derives `nil` rather than degrading the op —
+/// the raw string on the wire is untouched and a newer build still reads it.
+public enum TriageMark: String, Codable, Equatable, Sendable, CaseIterable {
+    case `do`
+    case decline
+    case discuss
 }
 
 public struct Annotation: Equatable, Sendable, Identifiable {
@@ -36,6 +55,14 @@ public struct Annotation: Equatable, Sendable, Identifiable {
     /// "previously rejected: …". Nil when the note was never rejected or is
     /// not currently open.
     public let previousRejectionReason: String?
+    /// The writer's triage of this OPEN note (M3 P2) — the latest
+    /// `annotation_triage` op's mark, or nil for untriaged. Independent of
+    /// `status`: triage sorts the queue, it never settles a note.
+    public let triage: TriageMark?
+    /// The `ReviewPass.id` that was active when the note was created (M3 P2),
+    /// stamped on the creation op's provenance. Nil for every note written
+    /// before passes existed, and for any written with no active pass.
+    public let reviewPassId: String?
 
     public init(
         id: String, kind: AnnotationKind, paragraphId: String?,
@@ -46,7 +73,9 @@ public struct Annotation: Equatable, Sendable, Identifiable {
         author: AnnotationAuthor? = nil, span: SpanAnchor? = nil,
         resolvedSpanRange: Range<Int>? = nil,
         language: String? = nil,
-        previousRejectionReason: String? = nil
+        previousRejectionReason: String? = nil,
+        triage: TriageMark? = nil,
+        reviewPassId: String? = nil
     ) {
         self.id = id; self.kind = kind; self.paragraphId = paragraphId
         self.body = body; self.suggestedText = suggestedText
@@ -58,6 +87,8 @@ public struct Annotation: Equatable, Sendable, Identifiable {
         self.resolvedSpanRange = resolvedSpanRange
         self.language = language
         self.previousRejectionReason = previousRejectionReason
+        self.triage = triage
+        self.reviewPassId = reviewPassId
     }
 }
 

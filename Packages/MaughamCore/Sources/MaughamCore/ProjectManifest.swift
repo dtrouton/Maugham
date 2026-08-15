@@ -50,7 +50,17 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// refusal beats silent loss; this makes M3 a paired Mac + phone release
     /// (shipped phone builds refuse a v6 manifest via `decodeGuardingSchema`
     /// until updated — the M1A pattern).
-    public static let currentSchemaVersion = 6
+    /// 6 → 7 (M3 P2, the queue): two new `OpKind` cases — `annotationStet` and
+    /// `annotationTriage` — under `OpKind`'s own SCHEMA CONTRACT note ("adding
+    /// a case ⇒ bump `ProjectManifest.currentSchemaVersion`"), plus the two
+    /// additive `Op.Provenance` fields they ride on (`triage_mark`,
+    /// `review_pass_id`). The op log is append-only, so the lossy `.unknown`
+    /// re-encode is not the danger here; the danger is an older build deriving
+    /// a project whose notes it silently mis-states — a stetted note reads as
+    /// still OPEN there, so the writer is shown a queue they already cleared
+    /// and can resolve the same note twice. Refusing the project outright is
+    /// the honest answer, and it makes M3 a paired Mac + phone release.
+    public static let currentSchemaVersion = 7
 
     /// The filename used by every Maugham project for its manifest.
     /// Both the Mac app and the iOS companion look for this name in a

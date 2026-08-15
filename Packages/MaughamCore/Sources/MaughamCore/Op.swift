@@ -72,6 +72,23 @@ public struct Op: Codable, Equatable, Sendable {
         public let spanSuffix: String?
         public let spanPosHint: Int?
 
+        // Triage mark — populated only on `annotation_triage` ops: the raw
+        // `TriageMark` value the writer sorted this note into, or nil for
+        // "back to untriaged". Kept a raw `String?` for the same reason every
+        // other tolerant field is: an unrecognised mark written by a newer
+        // build must survive the round-trip rather than degrade. The deriver
+        // parses it to `TriageMark?`. Additive: legacy op logs decode with all
+        // nil.
+        public let triageMark: String?
+
+        // Review-pass stamp — the id of the pass that was active when this
+        // annotation was created (`ReviewPass.id`; M3 P1's presets or the
+        // project's own). Surfaced as `Annotation.reviewPassId`. A flat
+        // optional scalar deliberately, never smuggled through `toolArgs` —
+        // the `language` tag is the anti-precedent, and it is still the one
+        // annotation field a reader has to JSON-decode a string to reach.
+        public let reviewPassId: String?
+
         enum CodingKeys: String, CodingKey {
             case sessionId = "session_id"
             case prompt
@@ -97,6 +114,8 @@ public struct Op: Codable, Equatable, Sendable {
             case spanPrefix = "span_prefix"
             case spanSuffix = "span_suffix"
             case spanPosHint = "span_pos_hint"
+            case triageMark = "triage_mark"
+            case reviewPassId = "review_pass_id"
         }
 
         public init(
@@ -112,7 +131,8 @@ public struct Op: Codable, Equatable, Sendable {
             authorSourceKind: String? = nil, authorDisplayName: String? = nil,
             authorCollaboratorId: String? = nil,
             spanQuote: String? = nil, spanPrefix: String? = nil,
-            spanSuffix: String? = nil, spanPosHint: Int? = nil
+            spanSuffix: String? = nil, spanPosHint: Int? = nil,
+            triageMark: String? = nil, reviewPassId: String? = nil
         ) {
             self.sessionId = sessionId
             self.prompt = prompt
@@ -138,6 +158,8 @@ public struct Op: Codable, Equatable, Sendable {
             self.spanPrefix = spanPrefix
             self.spanSuffix = spanSuffix
             self.spanPosHint = spanPosHint
+            self.triageMark = triageMark
+            self.reviewPassId = reviewPassId
         }
     }
 

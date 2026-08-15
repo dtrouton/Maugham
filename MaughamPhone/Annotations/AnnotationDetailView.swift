@@ -327,7 +327,7 @@ struct AnnotationDetailView: View {
     @ViewBuilder
     private var reopenAffordance: some View {
         switch current.status {
-        case .rejected, .archived:
+        case .rejected, .archived, .stetted:
             Button {
                 Task { await performReopen() }
             } label: {

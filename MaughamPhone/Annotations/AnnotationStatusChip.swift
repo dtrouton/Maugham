@@ -13,6 +13,7 @@ enum AnnotationStatusChip {
         case .accepted: return "Accepted"
         case .rejected: return "Rejected"
         case .archived: return "Archived"
+        case .stetted:  return "Stet"
         }
     }
 
@@ -23,6 +24,7 @@ enum AnnotationStatusChip {
         case .accepted: return "checkmark.circle"
         case .rejected: return "xmark.circle"
         case .archived: return "archivebox"
+        case .stetted:  return "checkmark.seal"
         }
     }
 }

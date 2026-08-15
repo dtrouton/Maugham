@@ -107,6 +107,12 @@ enum RewindImpact {
                 }
             case .rejected:
                 break
+            case .stetted:
+                // A stet moved no text, so rewinding past one restores no
+                // text either. Task 2 decides whether the preview should
+                // count a stet the way it counts an archive; until a verb
+                // can write one, there is nothing here to preview.
+                break
             }
         }
 

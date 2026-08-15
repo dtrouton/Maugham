@@ -344,14 +344,18 @@ extension Document {
             undo: { doc in
                 try? await doc.reopenAnnotation(id: id)
                 switch priorStatus {
-                case .archived, .rejected, .accepted:
+                case .archived, .rejected, .accepted, .stetted:
                     // The reopen may itself have declined (a peer already
                     // reopened it, the doc husked) — re-applying the prior
                     // status regardless is still right: it is the status the
                     // writer had, and the deriver takes the latest lifecycle
                     // op either way.
-                    let kind: OpKind = priorStatus == .archived ? .claudeArchive
-                        : priorStatus == .rejected ? .claudeReject : .claudeAccept
+                    let kind: OpKind = switch priorStatus {
+                    case .archived: .claudeArchive
+                    case .rejected: .claudeReject
+                    case .stetted:  .annotationStet
+                    default:        .claudeAccept
+                    }
                     do {
                         try await doc.appendLifecycleOp(
                             kind: kind, sourceAnnotationId: id,

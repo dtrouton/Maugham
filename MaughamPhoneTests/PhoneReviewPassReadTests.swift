@@ -20,16 +20,18 @@ private struct AlwaysLocalDownloader: UbiquitousDownloader {
     }
 }
 
-/// M3 P1's whole-branch review, seam 2: **a schema-6 manifest driven through
-/// the PHONE's decode path** — `ProjectsBrowser` → `CoordinatedFileIO` →
-/// `decodeGuardingSchema` — not just MaughamCore's own tests, which every
-/// platform shares but no platform's loader exercises.
+/// M3 P1's whole-branch review, seam 2: **a CURRENT-SCHEMA manifest driven
+/// through the PHONE's decode path** — `ProjectsBrowser` → `CoordinatedFileIO`
+/// → `decodeGuardingSchema` — not just MaughamCore's own tests, which every
+/// platform shares but no platform's loader exercises. (Written at the 5→6
+/// bump; version-relative since, so it follows the bump rather than pinning
+/// it — M3 P2 took the same fixture to v7 without editing a number.)
 ///
-/// The paired-release constraint this pins (`ProjectManifest`'s 5→6 contract
-/// row): a phone build carrying this branch must OPEN a v6 manifest with
-/// review-pass data intact, and must REFUSE one newer than it understands, via
-/// its own real loader. `PhoneStatementReadTests` is the M1A precedent for the
-/// 3→4 bump; this is the same net cast over the 5→6 fields.
+/// The paired-release constraint this pins: a phone build carrying this branch
+/// must OPEN a manifest at this build's schema with review-pass data intact,
+/// and must REFUSE one newer than it understands, via its own real loader.
+/// `PhoneStatementReadTests` is the M1A precedent for the 3→4 bump; this is
+/// the same net cast over the review-pass fields.
 ///
 /// The lossless half matters most on the phone: the phone never writes the
 /// manifest, so it can never clobber a pass state — but a phone build that
@@ -47,16 +49,16 @@ final class PhoneReviewPassReadTests: XCTestCase {
         return root
     }
 
-    /// A v6 manifest the Mac would write — a customized pass list plus a piece
-    /// carrying a known state AND a state no build can read yet — opens through
-    /// the phone's own loader with every field intact.
+    /// A current-schema manifest the Mac would write — a customized pass list
+    /// plus a piece carrying a known state AND a state no build can read yet —
+    /// opens through the phone's own loader with every field intact.
     ///
     /// Built from the same shared ingredients the Mac uses
     /// (`ProjectManifest.makeEncoder()`, memberwise init at
     /// `currentSchemaVersion`), so the fixture cannot drift from what
     /// production actually writes.
     @MainActor
-    func test_aMacWrittenV6ManifestWithPassDataOpensOnThePhoneIntact() async throws {
+    func test_aMacWrittenCurrentSchemaManifestWithPassDataOpensOnThePhoneIntact() async throws {
         let customPasses = [
             ReviewPass(id: "structural", name: "Structural"),
             ReviewPass(id: "sensitivity", name: "Sensitivity"),
@@ -71,7 +73,7 @@ final class PhoneReviewPassReadTests: XCTestCase {
                 "sensitivity": .unknown("deferred_to_editor"),
             ])
         let manifest = ProjectManifest(
-            id: "PRJ-V6-PASSES", type: .novel, title: "V6 Passes", author: "Tester",
+            id: "PRJ-CURRENT-PASSES", type: .novel, title: "Current Passes", author: "Tester",
             created: Date(timeIntervalSince1970: 1_700_000_000),
             modified: Date(timeIntervalSince1970: 1_700_000_500),
             structure: [piece], research: [],
@@ -79,7 +81,7 @@ final class PhoneReviewPassReadTests: XCTestCase {
         XCTAssertEqual(manifest.schemaVersion, ProjectManifest.currentSchemaVersion,
             "premise: the memberwise init stamps the current schema, which is what a Mac on this branch writes")
         let root = try makeProjectFolder(
-            "v6-passes", json: try ProjectManifest.makeEncoder().encode(manifest))
+            "current-passes", json: try ProjectManifest.makeEncoder().encode(manifest))
 
         let browser = ProjectsBrowser(downloads: DownloadCoordinator(downloader: AlwaysLocalDownloader()))
         await browser.refresh(root: root)
@@ -87,7 +89,7 @@ final class PhoneReviewPassReadTests: XCTestCase {
         XCTAssertTrue(browser.failures.isEmpty,
             "a current-schema manifest must not be refused by the phone's own gate: \(browser.failures)")
 
-        let browsed = try XCTUnwrap(browser.project(id: "PRJ-V6-PASSES"))
+        let browsed = try XCTUnwrap(browser.project(id: "PRJ-CURRENT-PASSES"))
         XCTAssertEqual(browsed.manifest.reviewPasses, customPasses,
             "the customized pass list must survive the phone's decode")
         XCTAssertEqual(browsed.manifest.effectiveReviewPasses, customPasses,

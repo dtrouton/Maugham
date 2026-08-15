@@ -18,7 +18,7 @@ final class AnnotationTypeTests: XCTestCase {
     func test_annotationStatus_allCases() {
         XCTAssertEqual(
             Set(AnnotationStatus.allCases.map(\.rawValue)),
-            ["open", "accepted", "rejected", "archived"])
+            ["open", "accepted", "rejected", "archived", "stetted"])
     }
 
     func test_filter_defaults_toOpenOnly() {

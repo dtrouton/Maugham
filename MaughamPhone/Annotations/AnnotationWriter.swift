@@ -213,6 +213,7 @@ struct AnnotationWriter {
         switch annotation.status {
         case .rejected: undone = .claudeReject
         case .archived: undone = .claudeArchive
+        case .stetted:  undone = .annotationStet
         case .open, .accepted:
             throw WriteError.notReopenable(annotationId: annotation.id)
         }
