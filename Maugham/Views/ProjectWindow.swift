@@ -48,12 +48,6 @@ struct ProjectWindow: View {
     /// `UIState.compilerModel` at `load()` and written back through
     /// `updateUIState` on change — the `outlineLayout` pattern.
     @State private var compilerModel: CompilerModelChoice = .standard
-    /// Which review pass each piece was last looked at through
-    /// (M3-P1 Task 5), seeded from `UIState.activePassMemory` at `load()` and
-    /// written back through `updateUIState` on change — the `outlineLayout`
-    /// pattern. Threading a piece's remembered pass onto the board itself is
-    /// a later task; this only carries the memory.
-    @State private var activePassMemory: ActivePassMemory = .empty
     /// **How wide the annotations queue is looking** (M3 P2 Task 7).
     ///
     /// Window state rather than the pane's own, because the board's
@@ -3017,16 +3011,16 @@ struct ProjectWindow: View {
     }
 
     /// Remember that `piece` was last looked at through `passId` —
-    /// `activePassMemory`'s write half, the `outlineLayout` pattern: update
-    /// the local `@State` so this window reflects it immediately, then
-    /// persist through `updateUIState` on the same debounce as every other
-    /// UI-state write. **The record has no reader in P1** — the chip click
-    /// (Task 8) writes it, and its consumer is M3 P2's queue pane, which
-    /// restores the pass a piece was last reviewed through. Writing ahead of
-    /// the reader is deliberate: the memory accumulates from the writer's
-    /// first chip click, so the queue arrives already primed.
+    /// `UIState.activePassMemory`'s write half, persisted through
+    /// `updateUIState` on the same debounce as every other UI-state write.
+    ///
+    /// **One copy on purpose.** P1 also kept a per-window `@State` mirror on
+    /// the `outlineLayout` pattern, written ahead of any reader; when P2's
+    /// readers arrived they all read `documentStore.uiState.activePassMemory`
+    /// directly — the store is `@Observable`, so a window sees the write
+    /// without a mirror, and the mirror could only ever disagree with it.
+    /// P2 deleted it. A future reader wanting this memory reads the store.
     private func recordActivePass(forPiece piece: String, passId: String) {
-        activePassMemory.record(piece: piece, passId: passId)
         documentStore?.updateUIState { $0.activePassMemory.record(piece: piece, passId: passId) }
     }
 
@@ -3323,7 +3317,6 @@ struct ProjectWindow: View {
             self.detailSegment = ds.uiState.detailSegment
             self.persona = ds.uiState.persona
             self.outlineLayout = ds.uiState.outlineLayout
-            self.activePassMemory = ds.uiState.activePassMemory
             applyNoChrome()
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {

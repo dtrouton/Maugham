@@ -996,12 +996,23 @@ extension Document {
     /// supplies a payload is `repairRejectedButSplicedAnnotations` (RULING-33),
     /// whose repair reject has to be both the newest lifecycle op and the
     /// newest changes-carrying op to make status and manuscript agree.
+    ///
+    /// `announcing` is the one seam in the announce contract, and it exists for
+    /// a caller that appends N ops for ONE writer-visible event: the deletion
+    /// sweep, which archives every note orphaned by a burst of paragraph
+    /// deletions. Every receiver of `.maughamAnnotationsChanged` walks the
+    /// whole project, so a sweep of a dozen notes posting a dozen times is a
+    /// dozen project walks for a single act. Pass `false` and announce ONCE
+    /// after the loop — never to skip announcing altogether.
+    /// `AnnotationChangeEventTests` polices both halves: the funnel still
+    /// announces by default, and the sweep is the only site that suppresses it.
     internal func appendLifecycleOp(
         kind: OpKind,
         sourceAnnotationId: String,
         userResponse: String?,
         synthesisSource: SynthesisSource? = nil,
-        changes: [Op.ParagraphChange] = []
+        changes: [Op.ParagraphChange] = [],
+        announcing: Bool = true
     ) async throws {
         // The other annotation funnel (reject / archive / the deletion sweep).
         // Recovery arm only: M5-AN-048 pins archive and reject as appending to
@@ -1022,7 +1033,7 @@ extension Document {
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
         invalidateTasksCache()
-        announceAnnotationsChanged()
+        if announcing { announceAnnotationsChanged() }
     }
 
     /// Merge a fresh sweep reason into any pending one. The merge unions
@@ -1063,25 +1074,36 @@ extension Document {
                 && ann.kind != .craftNote
                 && (ann.paragraphId.map { removed.contains($0) } ?? false)
         }
+        var archived = 0
         for orphan in orphans {
             do {
+                // `announcing: false` — one deletion burst is ONE event to
+                // every surface counting this project's notes, and each of
+                // them walks the whole project to answer it. The announce is
+                // batched below rather than skipped.
                 try await appendLifecycleOp(
                     kind: .claudeArchive,
                     sourceAnnotationId: orphan.id,
                     userResponse: nil,
-                    synthesisSource: reason.cause)
+                    synthesisSource: reason.cause,
+                    announcing: false)
                 // RULING-32: count what was actually archived, so the summary
                 // at the next burst boundary reports a number the log agrees
                 // with. Incremented on SUCCESS only — a swallowed append that
                 // still bumped the count would tell the writer a note went
                 // away that is still open in front of them.
                 _sweptSinceLastReport += 1
+                archived += 1
             } catch {
                 documentLog.error("sweepOrphanedAnnotations: archive append failed for \(orphan.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
         // appendLifecycleOp already invalidates the cache on each call;
-        // no extra invalidation needed here.
+        // no extra invalidation needed here. The announce is the one thing it
+        // did NOT do, and it is owed exactly once — and only if something was
+        // really archived, on the same rule as `_sweptSinceLastReport`: a
+        // sweep that swallowed every append changed nothing to hear about.
+        if archived > 0 { announceAnnotationsChanged() }
     }
 
     // MARK: - Convergence: status and manuscript may not disagree (RULING-33)

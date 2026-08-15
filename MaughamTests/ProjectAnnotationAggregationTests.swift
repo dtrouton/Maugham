@@ -256,7 +256,7 @@ final class ProjectAnnotationAggregationTests: XCTestCase {
 
     // MARK: - The cache
 
-    func test_asecondCallWithNothingChangedHitsTheCache() async throws {
+    func test_aSecondCallWithNothingChangedHitsTheCache() async throws {
         let f = try await makeFixture()
         try await openC1(f)
         _ = f.store.listAnnotationsAcrossProject()

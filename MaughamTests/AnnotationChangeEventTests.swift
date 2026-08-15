@@ -301,6 +301,102 @@ final class AnnotationChangeEventTests: XCTestCase {
         }
     }
 
+    /// **The one exemption from the census above, named.** `appendLifecycleOp`
+    /// announces by default; `announcing: false` exists for a caller that
+    /// appends N ops for ONE writer-visible event and takes the announce on
+    /// itself. Today that caller is the deletion sweep and only the sweep.
+    ///
+    /// The census would otherwise be satisfied by a funnel that CAN be silenced
+    /// from anywhere: `if announcing { announce… }` still contains the literal
+    /// the loop above looks for, so a seventh caller could quietly pass `false`
+    /// and post nothing at all. This pins the exemption to its one site and
+    /// checks that the site really does pay the announce back.
+    func test_theOnlySiteThatSuppressesTheAnnounceIsTheSweepWhichBatchesIt() throws {
+        let source = try Self.source(of: "OpLog/Document+Annotations.swift")
+        let funnel = try XCTUnwrap(
+            Self.declaration(named: "internal func appendLifecycleOp(", in: source),
+            "the lifecycle funnel is gone or renamed — this census is stale")
+        XCTAssertTrue(funnel.contains("announcing: Bool = true"),
+                      "the suppression must DEFAULT to announcing — a funnel "
+                      + "whose quiet form is the default announces nothing the "
+                      + "day a caller forgets the argument")
+        XCTAssertTrue(funnel.contains("if announcing { announceAnnotationsChanged() }"),
+                      "the funnel's announce is no longer the guarded form this "
+                      + "census is about")
+
+        let sweep = try XCTUnwrap(
+            Self.declaration(named: "internal func sweepOrphanedAnnotations(", in: source),
+            "the sweep is gone or renamed — this census is stale")
+        // The CALL, not the word: the sweep's own comment says
+        // `announcing: false` too, and a premise satisfied by a comment is no
+        // premise at all (measured — flipping the argument to `true` left this
+        // assertion green until it was pinned to the closing paren).
+        XCTAssertTrue(sweep.contains("announcing: false)"),
+                      "premise: the sweep is the batching caller")
+        XCTAssertTrue(sweep.contains("announceAnnotationsChanged()"),
+                      "the sweep suppresses the per-op announce and never pays "
+                      + "it back, so a burst of deletions archives notes that "
+                      + "no count outside this document hears about")
+
+        // Whole-tree: nobody else silences the funnel. A new batching caller is
+        // welcome — it just has to arrive here, next to the reason.
+        let tree = try Self.swiftSources(under: "Maugham")
+        var suppressors: [String] = []
+        for (path, text) in tree where text.contains("announcing: false") {
+            suppressors.append(path)
+        }
+        XCTAssertEqual(suppressors, ["OpLog/Document+Annotations.swift"],
+                       "a production site outside the sweep suppresses the "
+                       + "annotation announce: \(suppressors)")
+    }
+
+    /// …and the behaviour the census stands in front of: **one deletion burst,
+    /// one announcement**, however many notes it took with it. Every receiver
+    /// walks the whole project, so three archives posting three times is three
+    /// project walks for a single act of the writer's.
+    func test_aSweepArchivingSeveralNotesAnnouncesExactlyOnce() async throws {
+        let (_, doc) = try await loadedDoc(
+            "AnnEvent-Sweep", md: "One.\n\nTwo.\n\nThree.\n\nFour.\n")
+        // A note on each of the three paragraphs that are about to go.
+        let doomed = Array(doc.sequence.prefix(3))
+        XCTAssertEqual(doomed.count, 3, "premise: three paragraphs to orphan")
+        for pid in doomed {
+            _ = try await doc.addAnnotation(
+                kind: .comment, paragraphId: pid, body: "a note")
+        }
+
+        let said = try await announcements {
+            await doc.sweepOrphanedAnnotations(
+                reason: SweepReason(removed: Set(doomed), cause: .paragraphDeleted))
+        }
+
+        XCTAssertEqual(said.count, 1,
+                       "three notes archived by one deletion burst announced "
+                       + "\(said.count) times — every receiver walks the whole "
+                       + "project, so this is \(said.count) project walks for "
+                       + "one act")
+        XCTAssertEqual(said.first?.docId, doc.docId)
+    }
+
+    /// A sweep that archives NOTHING says nothing — the same rule
+    /// `_sweptSinceLastReport` follows, and the control that keeps the test
+    /// above from passing on an unconditional post.
+    func test_aSweepThatArchivesNothingAnnouncesNothing() async throws {
+        let (_, doc) = try await loadedDoc("AnnEvent-SweepEmpty")
+        let pid = try XCTUnwrap(doc.sequence.first)
+        _ = try await doc.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "a note")
+
+        let said = try await announcements {
+            // A paragraph id no annotation is anchored to.
+            await doc.sweepOrphanedAnnotations(
+                reason: SweepReason(removed: ["zzzz"], cause: .paragraphDeleted))
+        }
+
+        XCTAssertEqual(said, [],
+                       "a sweep that archived nothing announced a change")
+    }
+
     // MARK: - The cross-device gap
 
     /// **A closed document's op log changed under us** — a peer device's note
@@ -349,6 +445,40 @@ final class AnnotationChangeEventTests: XCTestCase {
                        + "puts a project-wide walk on every typing burst")
     }
 
+    /// The same guard, with the echo it is actually named for. The test above
+    /// fires the presenter over a document that has written **nothing**, so it
+    /// would pass against a merge path that simply found no new ops; this one
+    /// makes the writer's own annotation op the thing being echoed back, which
+    /// is the literal sequence in production — append, `NSFilePresenter` fires
+    /// on our own write, the merge sees ops it already has.
+    ///
+    /// The append's own announcement is consumed first, so what the assertion
+    /// sees is the echo alone rather than the write plus the echo.
+    func test_anOpenDocsPresenterEchoOfARealAppendAnnouncesNothingFurther() async throws {
+        let (dir, docURL) = try makeTestProject(
+            prefix: "AnnEvent-EchoReal", initialMd: "One.\n")
+        let ds = try await DocumentStore.open(url: dir)
+        defer { Task { await ds.close() } }
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+        ds.register(document: doc, for: "manuscript/c1.md")
+
+        let onTheWrite = try await announcements { _ = try await self.noteOn(doc) }
+        XCTAssertEqual(onTheWrite.count, 1,
+                       "premise: the append itself announced, exactly once")
+
+        let echo = try await announcementsSettling(expecting: 0) {
+            ds.presenterDidChangeSubitem(
+                at: dir.appendingPathComponent(".maugham/ops/\(doc.docId).jsonl"))
+        }
+
+        XCTAssertEqual(echo, [],
+                       "the presenter echoed the writer's own annotation op "
+                       + "back and it was announced a second time — every "
+                       + "receiver walks the whole project, so each of our own "
+                       + "writes would cost two of those walks")
+    }
+
     /// …and the other side of that guard: a FOREIGN annotation op merged into an
     /// open document is announced, because the surfaces that are not holding
     /// this document have no other way to hear about it.
@@ -391,6 +521,28 @@ final class AnnotationChangeEventTests: XCTestCase {
             .appendingPathComponent("Maugham", isDirectory: true)
         return try String(contentsOf: root.appendingPathComponent(relativePath),
                           encoding: .utf8)
+    }
+
+    /// Every Swift file under a target directory, keyed by its path relative to
+    /// that directory — so a census can say "nowhere else in the app" and mean
+    /// it, rather than trusting a list of files someone remembered to extend.
+    private static func swiftSources(under target: String) throws -> [(String, String)] {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // MaughamTests/
+            .deletingLastPathComponent()   // repo root
+            .appendingPathComponent(target, isDirectory: true)
+        let fm = FileManager.default
+        guard let walk = fm.enumerator(at: root, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var out: [(String, String)] = []
+        for case let url as URL in walk where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let relative = url.path.replacingOccurrences(
+                of: root.path + "/", with: "")
+            out.append((relative, text))
+        }
+        return out.sorted { $0.0 < $1.0 }
     }
 
     /// A member declaration, from its opening line to the closing brace at
