@@ -438,7 +438,11 @@ final class AnnotationPassStampTests: XCTestCase {
                       "the pass filter must join the pane's filter chain")
         XCTAssertTrue(text.contains("AnnotationPassFilter.resolved"),
                       "the pane's selection must resolve through the one rule")
-        XCTAssertTrue(text.contains("PassOrderAdvice.openEarlierPass"),
+        // `advice`, not `openEarlierPass`: the nudge derives from the piece's
+        // recorded active pass, and its entry point takes no filter selection
+        // (fix round 1 — `PassOrderAdviceTests` owns that truth table and the
+        // pane-side census that the two stay uncoupled).
+        XCTAssertTrue(text.contains("PassOrderAdvice.advice("),
                       "the advisory nudge must be rendered")
     }
 

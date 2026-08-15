@@ -113,4 +113,102 @@ final class PassOrderAdviceTests: XCTestCase {
             activePassId: "line", passes: passes,
             passStates: ["structural": .done]))
     }
+
+    // MARK: - What the nudge is keyed on (fix round 1)
+    //
+    // The nudge was keyed on the queue's resolved FILTER, which is a different
+    // fact of the same type: widening to "All Passes" made the caption vanish
+    // though nothing about the piece had changed, and a momentary glance at
+    // another pass drove it off the pass actually being worked. Spec §2 says
+    // the nudge fires when a later pass is WORKED while an earlier one is
+    // open, and *worked* is the piece's recorded active pass.
+    //
+    // `PassOrderAdvice.advice` therefore takes no selection at all. These
+    // tests vary the filter beside it and assert the two answers are
+    // independent — which is the defect, stated as a truth table.
+
+    /// The piece is being worked through Proof; Structural and Line are done,
+    /// Copyedit is not. Recorded-keyed, the advice is Copyedit. Filter-keyed,
+    /// each case below would give a different (wrong) answer — which is what
+    /// makes these two tests discriminating rather than decorative.
+    private var workingProof: (memory: ActivePassMemory, states: [String: PassState]) {
+        var memory = ActivePassMemory.empty
+        memory.record(piece: "piece-1", passId: "proof")
+        return (memory, ["structural": .done, "line": .done])
+    }
+
+    func test_theNudgeSurvivesWideningTheFilterToAllPasses() {
+        let (memory, states) = workingProof
+        // The lens says: show me everything.
+        XCTAssertNil(AnnotationPassFilter.resolved(
+            .allPasses, piece: "piece-1", memory: memory, passes: passes))
+        // The piece has not changed, so neither has the advice. Keyed on the
+        // filter this would be nil — no pass, no "earlier than" — and the
+        // caption would silently disappear.
+        XCTAssertEqual(
+            PassOrderAdvice.advice(
+                forPiece: "piece-1", memory: memory,
+                passes: passes, passStates: states)?.id,
+            "copyedit")
+    }
+
+    func test_aMomentaryExplicitPassSelectionDoesNotMoveTheNudge() {
+        let (memory, states) = workingProof
+        // The writer glances at the Line pass's notes.
+        XCTAssertEqual(
+            AnnotationPassFilter.resolved(
+                .pass("line"), piece: "piece-1", memory: memory, passes: passes),
+            "line")
+        // Keyed on the filter, the advice would become nil (Structural, the
+        // only pass before Line, is done). Keyed on what is being WORKED, it
+        // is still Copyedit.
+        XCTAssertEqual(
+            PassOrderAdvice.advice(
+                forPiece: "piece-1", memory: memory,
+                passes: passes, passStates: states)?.id,
+            "copyedit")
+    }
+
+    func test_noRecordedActivePassIsNoNudge() {
+        XCTAssertNil(PassOrderAdvice.advice(
+            forPiece: "piece-1", memory: .empty, passes: passes, passStates: nil))
+    }
+
+    func test_noPieceIsNoNudge() {
+        let (memory, states) = workingProof
+        XCTAssertNil(PassOrderAdvice.advice(
+            forPiece: nil, memory: memory, passes: passes, passStates: states))
+    }
+
+    /// The validated read reaches the nudge too: a recorded pass the project
+    /// has retired is not a pass being worked.
+    func test_aRetiredRecordedPassIsNoNudge() {
+        var memory = ActivePassMemory.empty
+        memory.record(piece: "piece-1", passId: "proof")
+        XCTAssertNil(PassOrderAdvice.advice(
+            forPiece: "piece-1", memory: memory,
+            passes: [ReviewPass(id: "line", name: "Line")], passStates: nil))
+    }
+
+    /// The pane's wiring, which the truth table above cannot see: the nudge
+    /// must call `advice` and must not reach for the filter's resolved pass.
+    /// `advice` taking no selection makes the coupling unspellable, but the
+    /// pane could still re-derive it inline — that is what this catches.
+    func test_thePaneNudgeCannotReachTheFilterSelection() throws {
+        let pane = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Views/AnnotationsPane.swift")
+        let text = try String(contentsOf: pane, encoding: .utf8)
+        let nudge = try XCTUnwrap(
+            text.range(of: "private var passOrderNudge: some View {"))
+        let body = try XCTUnwrap(
+            text.range(of: "// MARK:", range: nudge.upperBound..<text.endIndex))
+        let source = String(text[nudge.upperBound..<body.lowerBound])
+        XCTAssertTrue(source.contains("PassOrderAdvice.advice("),
+                      "the nudge derives from the piece's recorded active pass")
+        XCTAssertFalse(source.contains("resolvedPassId"),
+                       "the nudge must not key on the queue's filter")
+        XCTAssertFalse(source.contains("passSelection"),
+                       "nor on the selection behind it")
+    }
 }

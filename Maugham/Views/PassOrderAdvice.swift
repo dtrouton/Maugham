@@ -50,6 +50,33 @@ enum PassOrderAdvice {
         }
     }
 
+    /// **The pane's whole nudge decision.** The piece's RECORDED active pass —
+    /// what the writer is working this piece through — then `openEarlierPass`
+    /// against it. Nil when there is no piece, or none recorded for it.
+    ///
+    /// **There is deliberately no filter-selection parameter, and that absence
+    /// is the fix for a real defect** (task review, fix round 1). The nudge was
+    /// keyed on the queue's resolved filter, which is a different fact wearing
+    /// the same type: widening the view to *All Passes* made "Structural is
+    /// still open on this piece" vanish, though nothing about the piece had
+    /// changed, and a momentary glance at another pass drove the caption off
+    /// the pass actually being worked. Spec §2 is explicit — the nudge fires
+    /// when a later pass is WORKED while an earlier one is open — and *worked*
+    /// is the recorded pass, never the lens. Taking no selection argument makes
+    /// the coupling unspellable rather than merely absent today.
+    static func advice(
+        forPiece piece: String?,
+        memory: ActivePassMemory,
+        passes: [ReviewPass],
+        passStates: [String: PassState]?
+    ) -> ReviewPass? {
+        guard let piece,
+              let active = memory.validatedActivePass(forPiece: piece, in: passes)
+        else { return nil }
+        return openEarlierPass(
+            activePassId: active, passes: passes, passStates: passStates)
+    }
+
     /// The caption itself, so the pane and the test agree on the sentence.
     static func caption(for pass: ReviewPass) -> String {
         "\(pass.name) still open on this piece"

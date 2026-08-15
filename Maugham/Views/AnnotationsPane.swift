@@ -453,15 +453,21 @@ struct AnnotationsPane: View {
     /// writer who means to proofread before the structural pass is finished
     /// reads one sentence and carries on.
     ///
+    /// **Keyed on the piece's RECORDED active pass, never on `resolvedPassId`.**
+    /// The filter is a lens over the same piece; what the writer is *working*
+    /// it through does not change because they widened the view to see every
+    /// note (spec §2, and `PassOrderAdvice.advice`, whose signature has no
+    /// selection to hand it).
+    ///
     /// Document scope only: it is a statement about ONE piece's pass states,
     /// and in project scope every section is a different piece with different
     /// ones — a single caption there could only be wrong.
     @ViewBuilder
     private var passOrderNudge: some View {
-        if !scope.isProject, let passId = resolvedPassId,
-           let earlier = PassOrderAdvice.openEarlierPass(
-                activePassId: passId, passes: reviewPasses,
-                passStates: piecePassStates) {
+        if !scope.isProject,
+           let earlier = PassOrderAdvice.advice(
+                forPiece: document?.docId, memory: activePassMemory,
+                passes: reviewPasses, passStates: piecePassStates) {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "info.circle").font(.caption2)
                 Text(PassOrderAdvice.caption(for: earlier))
