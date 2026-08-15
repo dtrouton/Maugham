@@ -121,3 +121,45 @@ socket left held by a crashed sibling process, or an `XCTWaiter`
 expectation whose fulfilling path can now early-return without
 fulfilling. Nobody has measured yet — this section records sightings, not
 a diagnosis.
+
+### M3-P2 sightings and diagnostics, 2026-08-15
+
+P2 ran roughly ten full-ish gates over one day and hit the park about that
+often — frequently enough that the interim protocol above was the *normal*
+way to gate the branch rather than a fallback. Nothing was root-caused, but
+four facts were measured that the next hunt should not have to rediscover:
+
+1. **The buffered gate log hides which suite is hanging.** `xcodebuild`'s
+   output is buffered, so a parked run's log ends mid-stream with no clue in
+   it — and worse, the log reads as BINARY to `grep`, which then answers
+   "Binary file matches" and nothing else. The cause is a NUL byte in
+   `MaughamTests/MCP/Tools/PublishFileToolsTests.swift` (line 217, the fixture
+   for a JSON payload carrying a literal NUL — **deliberate test data, not a
+   corruption to clean up**) which the compiler echoes into the diagnostics.
+   So the gate log will read as binary for as long as that test exists:
+   **use `grep -a`** on every gate log, or the search silently tells you
+   nothing.
+2. **`sample <worker-pid>` identifies the park in about three seconds.** Find
+   the hosted app worker (`ps ax | grep Maugham.app`), sample it, and read the
+   stack: the park is an `XCTWaiter` wait over `MCPServer.blockingAccept`'s
+   `accept()` (`Maugham/MCP/MCPServer.swift:117`, inside the GCD hop that keeps
+   the blocking syscall off the cooperative pool) — an accept on the test's
+   isolated socket that never returns. This is far cheaper than re-running the gate to
+   see whether it hangs again, and it is the first thing to do rather than the
+   last.
+3. **The park is not always permanent.** One ~20-minute park RELEASED on its
+   own and the gate went on to pass with a wall time of 1130s. So "it is still
+   running after 15 minutes" does not prove a deadlock, and a killed run is not
+   evidence of one either — which also means a hang and a very slow release may
+   be the same phenomenon at two durations.
+4. **The park can happen BEFORE the MCP suites are dispatched at all.** In
+   several sightings the three MCP classes never appear in the started-test
+   list, yet the parked stack is `blockingAccept`. Whatever holds the accept is
+   therefore reachable from a worker that has not been given an MCP test —
+   which points at process/socket setup shared across workers rather than at
+   any one test's body, and makes "a socket left held by a crashed sibling"
+   the strongest of the three hypotheses above.
+
+Still owed on main: the root-cause hunt. The cheapest next step is (2) on a
+fresh park, plus an `lsof` of the isolated socket path at that moment to see
+who else holds it.
