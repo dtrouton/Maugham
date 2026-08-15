@@ -22,6 +22,7 @@ The persistence and coordination layer: project structure, documents, recents, s
   - `ProjectStore+WikiLink.swift` — `[[…]]` resolution and rename propagation
   - `ProjectStore+Search.swift` — search across the binder
   - `ProjectStore+Tasks.swift` — project-scope pane-created tasks + cross-project task aggregation
+  - `ProjectStore+Annotations.swift` — the project-wide annotation walk + open-note counts (M3 P2). Same cache shape as `+Tasks`, and the same lenient-but-never-silent rule: an unreadable closed doc is skipped and its id returned in `unreadableDocIds` (RULING-54), so a count surface says "unknown" rather than a number that is short.
   - `ProjectStore+CanvasAssets.swift` — the canvas's asset well (see below)
   - `ProjectStore+Statements.swift` — find-or-create a statement by scope (see below)
   - `ProjectStore+StatementAdoption.swift` — the one-time, on-open migration of legacy craft-intent notes (see below)
