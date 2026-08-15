@@ -34,6 +34,10 @@ public enum KeyboardShortcuts {
             // documentation and had no entry on either surface.
             Entry(label: "Save Checkpoint As…",     shortcut: "⌘⇧S"),
             Entry(label: "Check Writing",           shortcut: "⌘R"),
+            // Same reason as the two above: ⌘⇧R is outside the ⌘⌥ family
+            // `DocSyncTests`' cheatsheet guard covers, so nothing would report
+            // its absence (M3-P3 Task 6).
+            Entry(label: "Fresh Eyes",              shortcut: "⌘⇧R"),
             Entry(label: "Promote…",                shortcut: "⌘⇧↩"),
             Entry(label: "Project Settings…",       shortcut: "⌘⇧,"),
         ]),

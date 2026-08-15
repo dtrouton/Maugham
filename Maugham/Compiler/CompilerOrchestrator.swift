@@ -80,15 +80,22 @@ final class CompilerOrchestrator {
         case started
         /// One was already running, and this press started nothing.
         case alreadyChecking
+        /// A **cold** run just started on this document (⌘⇧R): the warm
+        /// session retired, the piece read whole. Its own case because the two
+        /// presses promise different things — a delta comes back in seconds
+        /// and a whole piece in minutes — and "Checking…" over the second is
+        /// the wrong promise, not merely a duller one.
+        case freshEyes
 
         /// The capsule's word. Kept beside the case rather than in the window
-        /// that draws it, so both sentences are assertable without a mount —
-        /// and so the difference between them cannot be lost in a view's
-        /// `switch`.
+        /// that draws it, so all three sentences are assertable without a
+        /// mount — and so the difference between them cannot be lost in a
+        /// view's `switch`.
         var flashLabel: String {
             switch self {
             case .started: return "Checking\u{2026}"
             case .alreadyChecking: return "Still checking\u{2026}"
+            case .freshEyes: return "Reading whole\u{2026}"
             }
         }
     }
@@ -295,6 +302,10 @@ final class CompilerOrchestrator {
         /// round from the answer that supersedes it.
         let passId: String?
         let round: Int?
+        /// Whether this round was read cold (⌘⇧R) — carried for the same
+        /// reason the lane is: the preview and the answer must describe one
+        /// round, and the pane draws its header off this stamp.
+        let freshEyes: Bool
         /// Text delivered that has not closed a line yet. A chunk is cut by
         /// the transport, not by the contract — a section's JSON object
         /// routinely arrives in three pieces — so nothing is read until a
@@ -342,7 +353,20 @@ final class CompilerOrchestrator {
     /// The run key. Builds the delta, assembles the prompt, sends it, ingests
     /// the answer — and refuses, quietly, in the two cases where the honest
     /// thing to do is nothing.
-    func runRequested(docId: String) {
+    ///
+    /// **`freshEyes` is the same run read cold** (⌘⇧R, M3-P3 §6): the warm
+    /// session is retired so the process that answers has read nothing, the
+    /// marker is not consulted so the delta is the whole standing manuscript,
+    /// and the round is briefed on no prior round. Everything else is
+    /// identical — the pass and the round number are minted normally, the
+    /// marker advances normally, and the run records what it was
+    /// (`CompilerRun.freshEyes`), so the NEXT plain ⌘R is warm again and back
+    /// on the marker.
+    ///
+    /// Defaulted `false` so the ordinary key and every caller predating it —
+    /// the cold-start offer's Read button among them — say what they always
+    /// said.
+    func runRequested(docId: String, freshEyes: Bool = false) {
         guard let environment, diagnostics != nil else { return }
         // A run already in flight. Nothing is queued — there is one session per
         // window, and a second turn is something the next keystroke can do —
@@ -369,7 +393,14 @@ final class CompilerOrchestrator {
         // Synchronous with the keystroke, and deliberately ahead of the hop
         // below: the flash is ⌘S's muscle-memory acknowledgment, not a progress
         // indicator, and one that waited on a disk write would be neither.
-        environment.onRunAcknowledged(.started)
+        //
+        // **Below the refusals on purpose, both of them.** A fresh-eyes press
+        // that arrives mid-run must be answered "still checking" like any
+        // other, and must not have retired the session on its way past — the
+        // retirement lives in `beginRun`, downstream of everything here, so
+        // the turn the writer is waiting on cannot be killed by the keystroke
+        // that was refused.
+        environment.onRunAcknowledged(freshEyes ? .freshEyes : .started)
 
         // **The burst first, the delta second.** The writer's last sentences
         // are in the `PendingBuffer` until a pause closes the burst, so a
@@ -393,6 +424,7 @@ final class CompilerOrchestrator {
                   let diagnostics = self.diagnostics,
                   let reading = environment.reading(docId) else { return }
             self.beginRun(docId: docId, reading: reading, generation: generation,
+                          freshEyes: freshEyes,
                           environment: environment, diagnostics: diagnostics)
         }
     }
@@ -400,12 +432,18 @@ final class CompilerOrchestrator {
     /// The run proper, from the delta on — everything that was `runRequested`'s
     /// body before the burst-flush hop moved in above it.
     private func beginRun(
-        docId: String, reading: DocumentReading, generation: Int,
+        docId: String, reading: DocumentReading, generation: Int, freshEyes: Bool,
         environment: Environment, diagnostics: DiagnosticsStore
     ) {
         let marker = diagnostics.lastOpId(docId: docId)
+        // **A cold read does not consult the marker** (M3-P3 §6). `since: nil`
+        // is `DeltaBuilder`'s "everything is new", which is what makes ⌘⇧R
+        // over untouched prose a real read where ⌘R is honestly `nothingNew`.
+        // The marker is still READ above and still advances below — a fresh
+        // run leaves the document exactly as any run does, or the ⌘R after it
+        // would re-read the piece a second time.
         let delta = DeltaBuilder.delta(
-            ops: reading.ops, since: marker,
+            ops: reading.ops, since: freshEyes ? nil : marker,
             currentParagraphs: reading.paragraphs, sequence: reading.sequence)
 
         guard !delta.isEmpty else {
@@ -454,7 +492,16 @@ final class CompilerOrchestrator {
         // section onward the standing content is this run's own preview, and
         // a briefing assembled then would hand the model its own half-report
         // as "what the last round found".
-        let previousRound = Self.previousRound(
+        //
+        // **A cold read is briefed on none of it.** The round section hands
+        // the model what the last round raised and asks it to say what became
+        // of each — the opposite of reading the piece as if for the first
+        // time. So fresh eyes skips the gather entirely rather than passing a
+        // flag downward: nothing is asked of the store, and the pane's
+        // since-last-round line refuses the same round from the other end
+        // (`DiagnosticsPane.sinceLastRoundLine`), so the briefing and the
+        // report agree about what this round was measured against — nothing.
+        let previousRound = freshEyes ? nil : Self.previousRound(
             inLane: passId, docId: docId, diagnostics: diagnostics, environment: environment)
 
         let briefing = environment.intent(docId)
@@ -472,6 +519,21 @@ final class CompilerOrchestrator {
         let paletteListing = environment.paletteListing()
         let bibleFacts = environment.bibleSlice(Self.prose(of: delta))
 
+        // **The warm process dies HERE, and the read happens on its
+        // replacement.** Fresh eyes is a cold read in the literal sense: a
+        // session that has already read this piece carries every earlier turn
+        // in its context, so re-sending the whole manuscript to it would be
+        // the same tired reader given the same pages again. `retireSession`
+        // is `shutdown()`'s body minus the surface — the process is signalled
+        // and reaped, the config file goes with it, and `sentBriefing` clears
+        // so the replacement is told the essay, the world and the bible in
+        // full rather than "unchanged since last run".
+        //
+        // Late on purpose: below the in-flight refusal (`runRequested`), below
+        // the burst-flush hop's generation check, and below the empty-delta
+        // guard — a keystroke that is refused, abandoned or has nothing to
+        // read must not have cost the writer their warm session on the way.
+        if freshEyes { retireSession() }
         guard let runner = ensureRunner(model: environment.model) else {
             runState = .failed(
                 docId: docId,
@@ -530,7 +592,8 @@ final class CompilerOrchestrator {
             self.streaming = StreamingRun(
                 generation: generation, docId: docId, runId: runId, model: model,
                 lastOpId: lastOpId, deltaSummary: deltaSummary,
-                intentSnapshot: briefing?.statementText, passId: passId, round: round)
+                intentSnapshot: briefing?.statementText, passId: passId, round: round,
+                freshEyes: freshEyes)
             runner.setPartialHandler { [weak self] chunk in
                 self?.receivePartial(chunk, generation: generation)
             }
@@ -539,7 +602,7 @@ final class CompilerOrchestrator {
             self.finish(event, docId: docId, runId: runId, lastOpId: lastOpId,
                         deltaSummary: deltaSummary,
                         intentSnapshot: briefing?.statementText,
-                        passId: passId, round: round,
+                        passId: passId, round: round, freshEyes: freshEyes,
                         briefingHash: briefingHash, model: model)
         }
     }
@@ -597,6 +660,7 @@ final class CompilerOrchestrator {
                              deltaSummary: run.deltaSummary,
                              intentSnapshot: run.intentSnapshot,
                              passId: run.passId, round: run.round,
+                             freshEyes: run.freshEyes,
                              outcome: run.outcome),
             diagnostics: run.outcome.accepted, docId: docId)
     }
@@ -619,13 +683,14 @@ final class CompilerOrchestrator {
     /// answer**, so what the pane says mid-check and what it says afterwards
     /// cannot describe the same check differently.
     ///
-    /// `passId`/`round` are required rather than defaulted: they are minted at
-    /// the keystroke and carried, and a third call site that could quietly
-    /// omit them would file an unnumbered round nothing downstream could
-    /// notice — the preview and the answer would simply disagree.
+    /// `passId`/`round`/`freshEyes` are required rather than defaulted: they
+    /// are minted at the keystroke and carried, and a third call site that
+    /// could quietly omit them would file an unnumbered round nothing
+    /// downstream could notice — the preview and the answer would simply
+    /// disagree.
     private static func record(
         id: String, model: String, lastOpId: String?, deltaSummary: String,
-        intentSnapshot: String?, passId: String?, round: Int?,
+        intentSnapshot: String?, passId: String?, round: Int?, freshEyes: Bool,
         outcome: DiagnosticIngest.SectionedOutcome
     ) -> CompilerRun {
         CompilerRun(
@@ -644,6 +709,14 @@ final class CompilerOrchestrator {
             // The lane and its number. Both nil on a passless run, which is an
             // ordinary M2 run rather than a degenerate round.
             passId: passId, round: round,
+            // **An ordinary run stamps NOTHING, not `false`** (M3-P3 Task 6).
+            // The field is what the pane's header and the since-last-round
+            // line both read, and both ask `== true`, so `false` and absent
+            // are the same answer to every reader — which makes the absent one
+            // strictly better: a ⌘R's sidecar stays byte-for-byte what it was
+            // before this task existed, and "read cold" stays a thing a record
+            // says rather than a thing every record carries an opinion about.
+            freshEyes: freshEyes ? true : nil,
             // The round's judgement of the draft against the declared intent
             // (M3-P3 Task 4). Read straight off the outcome, so the preview
             // and the finished answer say the same thing about the same turn
@@ -812,7 +885,7 @@ final class CompilerOrchestrator {
     private func finish(
         _ event: CompilerRunEvent, docId: String, runId: String, lastOpId: String?,
         deltaSummary: String, intentSnapshot: String?, passId: String?, round: Int?,
-        briefingHash: String?, model: String
+        freshEyes: Bool, briefingHash: String?, model: String
     ) {
         switch event {
         case .started:
@@ -861,7 +934,7 @@ final class CompilerOrchestrator {
                 // store's own standing content is this run's preview by now,
                 // and the writer may have moved the piece to another pass
                 // while it ran.
-                passId: passId, round: round,
+                passId: passId, round: round, freshEyes: freshEyes,
                 outcome: outcome)
             // Dropped rather than discarded: `replace` below supersedes the
             // preview wholesale, so taking it off the pane first would blink

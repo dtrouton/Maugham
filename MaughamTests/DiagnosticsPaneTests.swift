@@ -1248,6 +1248,92 @@ final class DiagnosticsPaneTests: XCTestCase {
                       "the since-last-round line leads the report")
     }
 
+    // MARK: - Fresh eyes (M3-P3 Task 6)
+    //
+    // The cold read's header occupies the slot the since-last-round line would
+    // have taken, and the two are mutually exclusive by construction: a round
+    // that was briefed on no prior findings has no distance to report.
+
+    func test_freshEyesHeader_namesTheRoundWhenThereIsOne() {
+        XCTAssertEqual(
+            DiagnosticsPane.freshEyesHeader(
+                run: makeRun(passId: "line", round: 3, freshEyes: true)),
+            "Fresh eyes \u{00b7} round 3")
+    }
+
+    /// A passless cold read is still a cold read — it just has no number to
+    /// name, the way an ordinary passless ⌘R has none.
+    func test_freshEyesHeader_saysSoWithoutARoundNumber() {
+        XCTAssertEqual(
+            DiagnosticsPane.freshEyesHeader(run: makeRun(freshEyes: true)),
+            "Fresh eyes")
+    }
+
+    func test_freshEyesHeader_isNilForAnOrdinaryRun() {
+        XCTAssertNil(DiagnosticsPane.freshEyesHeader(run: nil))
+        XCTAssertNil(DiagnosticsPane.freshEyesHeader(
+            run: makeRun(passId: "line", round: 2)),
+            "a run that was never stamped is an ordinary round")
+        XCTAssertNil(DiagnosticsPane.freshEyesHeader(
+            run: makeRun(passId: "line", round: 2, freshEyes: false)),
+            "…and so is one stamped false by some earlier build")
+    }
+
+    /// **The two lines never co-render.** Task 3's guard refuses the
+    /// comparison for a fresh-eyes round; this is the same rule read from the
+    /// other end, so a later change to either function cannot quietly put both
+    /// sentences on one report.
+    func test_theRoundHeaderAndTheSinceLastRoundLineAreMutuallyExclusive() {
+        let previous = makeRoundRecord(round: 1, fingerprints: [
+            fingerprint(.continuity, clause: "the fog", paragraph: "c3d4"),
+        ])
+        for run in [makeRun(passId: "line", round: 2),
+                    makeRun(passId: "line", round: 2, freshEyes: true),
+                    makeRun(freshEyes: true),
+                    makeRun()] {
+            let since = DiagnosticsPane.sinceLastRoundLine(
+                history: [previous], run: run, current: [])
+            let fresh = DiagnosticsPane.freshEyesHeader(run: run)
+            XCTAssertFalse(since != nil && fresh != nil,
+                           "both lines spoke for one round: \(String(describing: since)) "
+                           + "/ \(String(describing: fresh))")
+        }
+    }
+
+    /// Mounted: the header leads the report, and the comparison the ordinary
+    /// round would have drawn is nowhere on the pane.
+    func test_theFreshEyesHeaderLeadsTheReportAndTheComparisonIsAbsent() throws {
+        let docId = "doc-fresh"
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let quote = "Cold, and never wistful."
+        let note = makeDiagnostic(
+            docId: docId, anchor: .init(paragraphId: "a1b2", anchorText: "The fog came."),
+            body: "The last line reaches for a sigh.", kind: .conformanceStrain,
+            clauseQuote: quote)
+        store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")],
+                                   passId: "line", round: 1),
+                      diagnostics: [note], docId: docId)
+        store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "holds")],
+                                   passId: "line", round: 2, freshEyes: true),
+                      diagnostics: [], docId: docId)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
+            currentText: { _ in "The fog came." }, compilerModel: .standard)))
+        pump(0.3)
+
+        let labels = allLabels(in: window)
+        let headerIndex = labels.firstIndex { $0 == "Fresh eyes \u{00b7} round 2" }
+        let conformanceIndex = labels.firstIndex { $0 == "CONFORMANCE" }
+        XCTAssertNotNil(headerIndex, "got: \(labels)")
+        XCTAssertNotNil(conformanceIndex, "got: \(labels)")
+        XCTAssertTrue((headerIndex ?? .max) < (conformanceIndex ?? -1),
+                      "the fresh-eyes header leads the report")
+        XCTAssertTrue(labels.allSatisfy { !$0.hasPrefix("Since round") },
+                      "a cold read reports no distance travelled; got \(labels)")
+    }
+
     // MARK: - Click-to-jump (wiring census — see reasoning below)
 
     /// A diagnostic's row has no button role for its tap target (it is the

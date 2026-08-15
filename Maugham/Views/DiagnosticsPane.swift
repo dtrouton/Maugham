@@ -487,6 +487,7 @@ struct DiagnosticsPane: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    freshEyesLine
                     roundLine
                     driftLine
                     conformanceSection
@@ -543,6 +544,26 @@ struct DiagnosticsPane: View {
     private var roundLine: some View {
         if let line = Self.sinceLastRoundLine(
             history: roundHistory, run: lastRun, current: rows) {
+            Text(line)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+            Divider()
+        }
+    }
+
+    /// **The cold read names itself**, in `roundLine`'s own register and its
+    /// own slot — the two never render together (`freshEyesHeader`). Drawn
+    /// above the comparison line rather than below it because it is the same
+    /// sentence's place in the report: what this round IS, before what it
+    /// found.
+    @ViewBuilder
+    private var freshEyesLine: some View {
+        if let line = Self.freshEyesHeader(run: lastRun) {
             Text(line)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -758,6 +779,29 @@ struct DiagnosticsPane: View {
         let outcome = RoundComparison.compare(previous: previous, current: current)
         return "Since round \(previousNumber): \(outcome.resolved) resolved "
             + "\u{00b7} \(outcome.persisting) persisting \u{00b7} \(outcome.new) new"
+    }
+
+    /// **"Fresh eyes · round N"** — what a cold read (⌘⇧R) says about itself,
+    /// in the slot the since-last-round line would have taken.
+    ///
+    /// The two are mutually exclusive by construction and that is the point:
+    /// a fresh-eyes round was briefed on no prior findings (spec §6), so it
+    /// has no distance to report, and a comparison drawn over it would name a
+    /// difference the run never made. `sinceLastRoundLine` refuses the same
+    /// round from the other end; this is what stands in its place, so a report
+    /// that leads with nothing is never how the writer learns their expensive
+    /// keystroke did something different.
+    ///
+    /// `nil` round is a passless cold read — an ordinary M2 ⌘⇧R — which is
+    /// still worth saying, just with no number to name.
+    ///
+    /// `== true` rather than `?? false`: the stamp is `Bool?` on the wire and
+    /// an ordinary run writes no key at all, so absent and `false` must read
+    /// alike.
+    static func freshEyesHeader(run: CompilerRun?) -> String? {
+        guard let run, run.freshEyes == true else { return nil }
+        guard let round = run.round else { return "Fresh eyes" }
+        return "Fresh eyes \u{00b7} round \(round)"
     }
 
     // MARK: - Drift (spec §4's last bullet; findings computed by `DriftDetector`)

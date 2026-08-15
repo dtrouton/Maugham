@@ -192,6 +192,12 @@ final class CompilerRunCommandTests: XCTestCase {
         /// The delta prose the bible slice was asked about.
         var sliceQueries: [String] { slicesAsked() }
         let slicesAsked: () -> [String]
+        /// How many times the orchestrator asked for a NEW session — the only
+        /// thing on this side of the seam that can tell "the warm process
+        /// answered again" from "it was retired and one was spawned in its
+        /// place", since `makeRunner` hands back the same spy either way.
+        var spawns: Int { runnerSpawns() }
+        let runnerSpawns: () -> Int
     }
 
     /// A `prepareForRun` the test can hold open, so the window between the
@@ -252,6 +258,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let recorded = Box<[BibleFact]>([])
         let slices = Box<[String]>([])
         let pass = Box(activePass)
+        let spawns = Box(0)
         let orchestrator = CompilerOrchestrator()
         orchestrator.configure(
             environment: CompilerOrchestrator.Environment(
@@ -284,7 +291,10 @@ final class CompilerRunCommandTests: XCTestCase {
                     try Data("{}".utf8).write(to: configURL, options: .atomic)
                     return configURL
                 },
-                makeRunner: { _, _ in runner },
+                makeRunner: { _, _ in
+                    spawns.value += 1
+                    return runner
+                },
                 onRunAcknowledged: { flashes.value.append($0) }),
             diagnostics: diagnostics)
         return Harness(orchestrator: orchestrator, diagnostics: diagnostics,
@@ -294,7 +304,8 @@ final class CompilerRunCommandTests: XCTestCase {
                        setActivePass: { pass.value = $0 },
                        derivationCount: { derivations.value },
                        factsRecorded: { recorded.value },
-                       slicesAsked: { slices.value })
+                       slicesAsked: { slices.value },
+                       runnerSpawns: { spawns.value })
     }
 
     private final class Box<T> {
@@ -3363,5 +3374,291 @@ final class CompilerRunCommandTests: XCTestCase {
                 currentStatementText: intent),
             "a later round said the draft holds; the mark must clear with no "
             + "stored state to un-set")
+    }
+
+    // MARK: - Fresh eyes (M3-P3 Task 6)
+    //
+    // ⌘⇧R is one keystroke with three parts, and each of them is separately
+    // deletable while the other two keep working: the warm process dies, the
+    // read is of the whole piece rather than the delta, and the round is
+    // briefed on no prior round. A test per part, each with the ordinary ⌘R
+    // beside it as its control.
+
+    /// The failure a spawn refused by the AI toggle comes back as, whichever
+    /// key asked for it — pulled out of the state so two runs can be compared
+    /// without their timestamps taking part.
+    private func failure(
+        of state: CompilerOrchestrator.RunState
+    ) -> (docId: String, failure: CompilerRunFailure)? {
+        guard case .failed(let docId, let failure, _) = state else { return nil }
+        return (docId, failure)
+    }
+
+    /// **The wiring census, Fresh Eyes' half.** Same reasoning as ⌘R's: the
+    /// menu item and the modifier's subscription are the two ends no test can
+    /// mount, and deleting either leaves every assertion below green over a
+    /// keystroke that does nothing.
+    func test_theFreshEyesCommandIsWiredFromTheMenuToTheWindow() throws {
+        let app = try source(at: "Maugham/MaughamApp.swift")
+        XCTAssertTrue(app.contains("MaughamEvent.postCompilerFreshEyes()"),
+                      "the menu item must post through the typed wrapper (tripwire 21)")
+        XCTAssertTrue(app.contains(#".keyboardShortcut("r", modifiers: [.command, .shift])"#),
+                      "…and carry ⌘⇧R, which was verified unbound at implementation time")
+
+        let modifier = try source(at: "Maugham/Views/CompilerRunModifier.swift")
+        for token in [".onKeyWindowCommand(.maughamFreshEyesCompiler",
+                      "freshEyes: true"] {
+            XCTAssertTrue(modifier.contains(token),
+                          "CompilerRunModifier is missing \(token) \u{2014} without it "
+                          + "⌘⇧R reaches no orchestrator, or reaches it as an "
+                          + "ordinary ⌘R")
+        }
+        XCTAssertFalse(modifier.contains(".onKeyWindowCommand(.maughamNotARealEvent"),
+                       "the scan reads the file rather than always answering true")
+    }
+
+    /// **The discriminator.** A ⌘R over unchanged prose is an empty delta and
+    /// spends nothing — that is the whole of M2's marker discipline. Fresh
+    /// eyes over the same unchanged prose reads the piece: the marker is not
+    /// consulted, so the paragraph the last run already checked is in this
+    /// message.
+    ///
+    /// Falsification: keep the marker read on the fresh path and this run is
+    /// `nothingNew` with no second send at all.
+    func test_freshEyesReadsTheWholePieceThoughTheMarkerIsCurrent() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertTrue(runner.sends[0].message.contains("The fog came."))
+
+        // Control: the ordinary key, over prose the marker has already seen.
+        harness.orchestrator.runRequested(docId: docId)
+        settle()
+        XCTAssertEqual(runner.sends.count, 1,
+                       "control: ⌘R over unchanged prose spends no turn")
+        guard case .nothingNew = harness.orchestrator.runState else {
+            return XCTFail("control: the ordinary key must report nothing new, "
+                           + "got \(harness.orchestrator.runState)")
+        }
+
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertTrue(runner.sends[1].message.contains("The fog came."),
+                      "the cold read must carry the paragraph the marker already "
+                      + "covered; got \(runner.sends[1].message)")
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.deltaSummary,
+                       "1 new, 0 revised \u{00b6}",
+                       "the whole standing manuscript arrives as new")
+    }
+
+    /// **The process dies before the read, and the cold one is told everything
+    /// again.** `sentBriefing` is cleared with the session, so the message
+    /// carries the essay rather than the marker line a warm session gets.
+    func test_freshEyesRetiresTheWarmSessionAndBriefsItWhole() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertTrue(runner.sends[0].message.contains("Cold, and never wistful."),
+                      "the first run of a session is briefed whole")
+        XCTAssertEqual(harness.spawns, 1)
+
+        // Control: an ordinary second run rides the same process, and the
+        // briefing is elided because that process has already read it.
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+        XCTAssertTrue(runner.sends[1].message.contains("unchanged since last run"),
+                      "control: a warm session is told the briefing is unchanged; "
+                      + "got \(runner.sends[1].message)")
+        XCTAssertEqual(runner.shutdowns, 0, "control: ⌘R retires nothing")
+        XCTAssertEqual(harness.spawns, 1, "control: ⌘R spawns nothing")
+
+        harness.setReading(readingAfterAThirdParagraph())
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(3, on: runner)
+        settle()
+
+        XCTAssertEqual(runner.shutdowns, 1,
+                       "the warm process must be shut down, not merely dropped")
+        XCTAssertEqual(harness.spawns, 2,
+                       "…and a new one asked for in its place")
+        XCTAssertFalse(runner.sends[2].message.contains("unchanged since last run"),
+                       "a cold process has read nothing; got \(runner.sends[2].message)")
+        XCTAssertTrue(runner.sends[2].message.contains("Cold, and never wistful."),
+                      "…so the whole briefing re-embeds; got \(runner.sends[2].message)")
+    }
+
+    /// **A cold read is briefed on no prior round, though its lane has one.**
+    /// The round section would hand the model the last round's findings and
+    /// ask it to compare — which is exactly what fresh eyes exists not to do.
+    /// The lane and the number are minted normally: it is round N of the pass,
+    /// and it says so on the record.
+    func test_freshEyesIsBriefedOnNoPriorRoundThoughItsLaneHasOne() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            oneQuestion("Whose coat is on the chair?", about: "a1b2"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.round, 1)
+
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(2, on: runner)
+        settle()
+
+        let second = runner.sends[1].message
+        XCTAssertFalse(second.contains("Round 1 of the \u{201C}line\u{201D} pass"),
+                       "the cold read must be briefed on no prior round; got \(second)")
+        XCTAssertFalse(second.contains("Whose coat is on the chair?"),
+                       "…and on none of its findings; got \(second)")
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.passId, "line", "the lane is minted normally")
+        XCTAssertEqual(run.round, 2, "…and so is the number")
+        XCTAssertEqual(run.freshEyes, true, "…and the round says how it was read")
+    }
+
+    /// **The stamp reaches disk**, because the pane's header and every later
+    /// build read a decoded file. An ordinary run writes no key at all, so
+    /// "read cold" stays distinguishable from "never asked".
+    func test_theFreshEyesStampReachesTheSidecar() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        let ordinary = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        XCTAssertFalse(ordinary.contains("\"freshEyes\""),
+                       "control: an ordinary run stamps no key; got \(ordinary)")
+
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(2, on: runner)
+        settle()
+
+        let cold = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        XCTAssertTrue(cold.contains("\"freshEyes\":true"),
+                      "the stamp never reached disk; got \(cold)")
+    }
+
+    /// **The next plain ⌘R is warm again and back on the marker.** A fresh
+    /// read advances the marker exactly as any run does, so the keystroke
+    /// after it reads the delta since the cold read — not the piece, and not
+    /// nothing.
+    func test_theRunAfterFreshEyesIsWarmAndBackOnTheMarker() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(harness.spawns, 1)
+
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        let second = runner.sends[1].message
+        XCTAssertTrue(second.contains("It stayed."),
+                      "the run after a cold read is an ordinary delta; got \(second)")
+        XCTAssertFalse(second.contains("The fog came."),
+                       "…measured from the marker the cold read advanced; got \(second)")
+        XCTAssertTrue(second.contains("unchanged since last run"),
+                      "…on the session the cold read spawned, which has read the "
+                      + "briefing; got \(second)")
+        XCTAssertEqual(harness.spawns, 1, "no second session was asked for")
+    }
+
+    /// The capsule says what this keystroke is doing, and it is not what ⌘R
+    /// does — a cold read of the whole piece takes minutes where a delta takes
+    /// seconds, and "Checking…" over it is the wrong promise.
+    func test_freshEyesFlashesThatItIsReadingWhole() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.flashesSaid, [.freshEyes])
+        XCTAssertEqual(CompilerOrchestrator.Acknowledgment.freshEyes.flashLabel,
+                       "Reading whole\u{2026}")
+    }
+
+    /// **⌘⇧R while a run is in flight refuses exactly as ⌘R does** — and,
+    /// sharper than the ordinary key, it must not reach the session on its way
+    /// to refusing. A retire-first written above the guard would kill the turn
+    /// the writer is waiting on.
+    func test_freshEyesWhileARunIsInFlightRefusesAndTouchesNothing() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        settle()
+
+        XCTAssertEqual(runner.sends.count, 1, "no second turn was started")
+        XCTAssertEqual(runner.shutdowns, 0,
+                       "the run in flight must survive a fresh-eyes press")
+        XCTAssertEqual(harness.spawns, 1)
+        XCTAssertEqual(harness.flashesSaid, [.started, .alreadyChecking],
+                       "the refusal says what ⌘R's says")
+        XCTAssertEqual(harness.orchestrator.runState, runningOnTheStandingReading)
+
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+    }
+
+    /// **The AI toggle refuses both keys identically.** The toggle is enforced
+    /// at the spawn (`ClaudeCLISession`), so a cold read that retired the warm
+    /// session finds the same closed door — and must surface it the same way,
+    /// rather than as a special failure of its own.
+    func test_freshEyesWithTheToggleOffRefusesExactlyAsTheRunKeyDoes() throws {
+        let ordinaryRunner = SpyRunner()
+        ordinaryRunner.nextEvent = .failed(.disabledByToggle)
+        let ordinary = try makeHarness(runner: ordinaryRunner, reading: standingReading())
+        ordinary.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: ordinaryRunner)
+        settle()
+
+        let coldRunner = SpyRunner()
+        coldRunner.nextEvent = .failed(.disabledByToggle)
+        let cold = try makeHarness(runner: coldRunner, reading: standingReading())
+        cold.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(1, on: coldRunner)
+        settle()
+
+        let expected = try XCTUnwrap(failure(of: ordinary.orchestrator.runState),
+                                     "control: the ordinary key surfaces the toggle")
+        XCTAssertEqual(expected.failure, .disabledByToggle)
+        let got = try XCTUnwrap(failure(of: cold.orchestrator.runState),
+                                "the cold read must surface the same refusal")
+        XCTAssertEqual(got.failure, expected.failure)
+        XCTAssertEqual(got.docId, expected.docId)
+        XCTAssertNil(cold.diagnostics.lastRun(docId: docId),
+                     "a refused run records nothing, cold or warm")
     }
 }
