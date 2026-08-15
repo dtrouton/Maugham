@@ -42,6 +42,16 @@ The toolbar's flag menu filters by mark — **All**, **Do**, **Decline**, **Disc
 
 Triage lives in the pane only. The margin cards in the editor answer one note beside the sentence it's about; there's no pile there to sort.
 
+### One piece, or the whole project
+
+The pane's scope menu switches between **This Piece** and **All Pieces**. Widened, it shows every piece's notes at once, grouped by piece and in the order your binder holds them — parts and chapters where you put them, so the queue reads like the book. Every filter above still applies across the whole set, so "every unanswered suggestion in the manuscript" is two clicks.
+
+Notes belonging to a piece that's **open** can be answered where they sit. A closed piece's notes are readable but its buttons are off, with *Open this piece to act* on the tooltip: clicking the note takes you to that piece, and once it's open the buttons come alive. Nothing moves you out of Review while you do it.
+
+Multiselect and the bulk bar stay in **This Piece** — a batch runs against one piece at a time, and a count that quietly skipped every closed chapter would be worse than no count. Widen to find the work; travel to the piece to do it in bulk.
+
+If a piece's history can't be read, the queue says so in a line at the foot naming the piece, rather than showing you a short list as if it were the whole one.
+
 ### Undoing reject, archive, and your own notes
 
 Reject, archive, and the other non-text-mutating annotation actions are undoable the same way as anywhere else in Maugham: **⌘Z** reverses the most recent one, and each ⌘Z you press walks one step further back, exactly like undoing typed edits. **⌘⇧Z** redoes forward again, and redoing re-arms the action so you can keep cycling ⌘Z ⟷ ⌘⇧Z.
