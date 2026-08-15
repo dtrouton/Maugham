@@ -295,3 +295,64 @@ None of this is load-dependence in the ordinary sense: a quiet machine hits it
 just as readily, because the ceiling is reached at launch and has nothing to do
 with how busy the machine is. That is why "it happened on a QUIET machine" was
 so confusing in the reopened section above.
+
+## CLOSED, 2026-08-15: it was window state restoration
+
+The last open question — what starts the animations — has an answer, caught by
+attaching `lldb` at exec (`process attach --name Maugham --waitfor`, so the
+breakpoints exist before the app's launch code runs) with a breakpoint on
+`-[NSAnimation startAnimation]`. The receiver is `_NSWindowTransformAnimation`
+and the stack names the whole chain:
+
+```
+-[NSAnimation startAnimation]
+-[_NSWindowTransformAnimation startAnimation]
+NSPerformVisuallyAtomicChange
+-[NSWindow _doOrderWindow:]
+-[NSWindow makeKeyAndOrderFront:]
+SwiftUI`closure #1 in AppWindowsController.showInitialWindows()
+SwiftUI`AppDelegate.applicationOpenUntitledFile(_:)
+AppKit`-[NSApplication _doOpenUntitled]
+AppKit`-[NSApplication _reopenWindowsAsNecessaryIncludingRestorableState:...]
+AppKit`-[NSDocumentController _autoreopenDocumentsIgnoringExpendable:...]
+```
+
+**macOS window restoration.** Every test-host launch went through
+`_reopenWindowsAsNecessaryIncludingRestorableState:` into SwiftUI's
+`showInitialWindows()`, and each `makeKeyAndOrderFront:` gets a
+`_NSWindowTransformAnimation` that AppKit runs BLOCKING on a dispatch worker.
+In a test host the window is never really presented, so the animation never
+completes and the worker is held for the life of the process — up to the
+64-thread ceiling, reached before the first test runs.
+
+This is also why suppressing the Welcome window changed nothing: the windows
+being restored are not the Welcome scene, they are whatever the developer had
+open.
+
+### The fix
+
+`project.yml`'s Maugham test action now passes `-ApplePersistenceIgnoreState
+YES` to the host, so tests never restore windows. Measured on
+`DiagnosticsPaneTests` (72 tests, heaviest mounting suite):
+
+| | peak threads | in `_runBlocking` | soft limit | tests |
+|---|---|---|---|---|
+| before | 74 | 51–63 | **reached** | 75 pass |
+| after | 37 | 6 | not reached | 75 pass |
+
+**Second reason to want this independently of the hang:** the test host was
+reopening whatever project windows the developer happened to have had open — a
+hidden dependency on machine state that no test asks for and none should have.
+
+### What this means for the two earlier fixes
+
+Both stand, and neither is redundant:
+
+- The dedicated `Thread`s in the three MCP test classes are what make a
+  starved pool *diagnosable* rather than an unkillable park. Cheap insurance.
+- `MCPServer.blockingAccept`/`blockingRecv` on dedicated threads is a product
+  property in its own right — MCP must not stop answering because something
+  else saturated GCD — and does not depend on this note being true.
+
+The ceiling itself is now gone, so a future test that reaches for
+`DispatchQueue.global` is no longer walking into a trap.
