@@ -766,6 +766,12 @@ struct EditorHost: View {
                     // reason (a follow-up could surface the sheet from here).
                     try? await doc.rejectAnnotation(id: id, undoManager: um)
                 },
+                reviewStetHandler: { id in
+                    // M3 P2's fourth resolution. Like reject, the card has no
+                    // reasoning field — a stet needs none: the answer IS "no
+                    // change", and the pane is where a writer explains one.
+                    try? await doc.stetAnnotation(id: id, undoManager: um)
+                },
                 reviewArchiveHandler: { id in
                     try? await doc.archiveAnnotation(id: id, undoManager: um)
                 },

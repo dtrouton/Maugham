@@ -733,7 +733,7 @@ extension Document {
                 guard live?.status == .stetted else {
                     documentLog.error("stetAnnotation undo: \(id, privacy: .public) drifted (\(String(describing: live?.status), privacy: .public)) — ignoring")
                     doc.notifyWriter(
-                        "Couldn't undo letting the note stand — it changed on another device.")
+                        "Couldn't undo stetting the note — it changed on another device.")
                     return
                 }
                 try? await doc.reopenAnnotation(id: id)

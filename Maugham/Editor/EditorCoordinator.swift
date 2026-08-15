@@ -345,11 +345,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// on the rail) so a redraw / recompute can reconcile it.
     var selectedReviewCardId: String?
 
-    /// The annotation id of a just-rejected suggested change whose margin card is
-    /// holding the brief "stet" acknowledgement before it resolves out of the open
-    /// set. While set, `ReviewMarginRailView.drawCard` paints the STET treatment on
-    /// that card and the mark is deliberately NOT refreshed away. Mirrors the
-    /// AnnotationsPane `stetIds` dwell so the gesture reads in both surfaces.
+    /// The annotation id of a just-STETTED note whose margin card is holding the
+    /// brief "stet" acknowledgement before it resolves out of the open set. While
+    /// set, `ReviewMarginRailView.drawCard` paints the STET treatment on that card
+    /// and the mark is deliberately NOT refreshed away. Mirrors the
+    /// AnnotationsPane `stetFlourishIds` dwell so the gesture reads in both
+    /// surfaces. (M3 P2 moved it off reject, where the word was a lie: a rejected
+    /// note is exactly the one that did NOT stand.)
     var stetReviewCardId: String?
 
     /// Handlers for the interactive margin-card actions, threaded ONE-WAY from
@@ -360,6 +362,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// binding back (tripwires 6/7) — these are op-log appends, not text writes.
     var reviewAcceptHandler: ((String) async -> Void)?
     var reviewRejectHandler: ((String) async -> Void)?
+    var reviewStetHandler: ((String) async -> Void)?
     var reviewArchiveHandler: ((String) async -> Void)?
     var reviewReplyHandler: ((String, String) async -> Void)?
     var reviewEditHandler: ((String, String, String?) async -> Void)?

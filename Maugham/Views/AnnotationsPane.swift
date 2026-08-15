@@ -11,6 +11,7 @@ struct AnnotationsPane: View {
     @Environment(\.undoManager) private var undoManager
 
     @State private var kindFilter: KindOption = .all
+    @State private var triageFilter: AnnotationTriageFilter = .all
     @State private var authorFilter: String = AnnotationAuthorFilter.all
     @State private var showResolved: Bool = false
     @State private var rejectSheet: Annotation?
@@ -31,10 +32,14 @@ struct AnnotationsPane: View {
     @State private var editSheet: Annotation?
     /// The annotation pending a withdraw (delete) confirmation.
     @State private var withdrawConfirm: Annotation?
-    /// Annotation ids currently showing the transient "stet" flourish after a
-    /// reject of a suggested change. Keyed per-row so it survives the ~2.5s
-    /// window between the reject op and the row leaving the open list.
-    @State private var stetIds: Set<String> = []
+    /// Annotation ids currently showing the transient "stet" flourish after the
+    /// writer STETS a note. Keyed per-row so it survives the ~2.5s window
+    /// between the stet op and the row leaving the open list.
+    ///
+    /// It fired on REJECT until M3 P2, where the word got a verb of its own and
+    /// the flourish went with it: "stet" means *let it stand*, and a rejected
+    /// note is precisely the one that did not.
+    @State private var stetFlourishIds: Set<String> = []
 
     enum KindOption: String, CaseIterable, Identifiable, FilterRowItem {
         case all, comments, suggestions, queries, craft
@@ -97,21 +102,26 @@ struct AnnotationsPane: View {
 
     private var visibleAnnotations: [Annotation] {
         var rows = kindStatusAnnotations
-        // Keep any row mid-"stet" on screen even after its reject flips the
-        // status out of the open filter, so the ~2.5s flourish is visible. The
-        // retained row is appended at the end (not re-spliced at its prior
-        // index) — it only lingers briefly before the stet completes and it
-        // drops out.
-        if !stetIds.isEmpty {
+        // Keep any row mid-"stet" on screen even after the stet flips its status
+        // out of the open filter, so the ~2.5s flourish is visible. Where it is
+        // re-inserted no longer matters: the queue sort below puts it back in
+        // its own place, which is where the writer's eye already is.
+        if !stetFlourishIds.isEmpty {
             let present = Set(rows.map(\.id))
             let retained = document.annotations(filter: AnnotationFilter(statuses: nil))
-                .filter { stetIds.contains($0.id) && !present.contains($0.id) }
+                .filter { stetFlourishIds.contains($0.id) && !present.contains($0.id) }
             rows.append(contentsOf: retained)
         }
         let selected = effectiveAuthorFilter
-        return rows.filter {
+        let filtered = rows.filter {
             AnnotationAuthorFilter.matches($0, selected: selected)
+                && triageFilter.matches($0)
         }
+        // The queue's working order (M3 P2): what the writer said they'd do,
+        // then document order. The DERIVER's newest-first order (claim
+        // M5-AN-004) is untouched — that claim is about the projection, and
+        // this sorts the pane's rows out of it.
+        return AnnotationQueueOrder.sorted(filtered, sequence: document.sequence)
     }
 
     private var authorLabels: [String] {
@@ -137,11 +147,13 @@ struct AnnotationsPane: View {
                             AnnotationRow(
                                 annotation: ann,
                                 revertIsEnabled: AnnotationRowPolicy.revertEnabled(ann, livePids: livePids),
-                                showingStet: stetIds.contains(ann.id),
+                                showingStet: stetFlourishIds.contains(ann.id),
                                 isOwn: AnnotationOwnership.isOwn(
                                     ann, localName: userPreferences.collaboratorDisplayName),
                                 onAccept: { accept(ann) },
                                 onReject: { rejectSheet = ann },
+                                onStet: { stet(ann) },
+                                onTriage: { mark in triage(ann, mark: mark) },
                                 onArchive: { archive(ann) },
                                 onReply: { querySheet = ann },
                                 onEdit: { editSheet = ann },
@@ -267,6 +279,7 @@ struct AnnotationsPane: View {
                 selection: $kindFilter)
                 .layoutPriority(1)
             Spacer(minLength: 4)
+            triageFilterMenu
             authorMenu
             Button {
                 showResolved.toggle()
@@ -282,6 +295,36 @@ struct AnnotationsPane: View {
                 : "Showing open only · click to include resolved")
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
+    }
+
+    /// The queue's own filter (M3 P2): show only what you said you'd do, only
+    /// what you said you'd decline, only what you haven't looked at yet. A menu
+    /// rather than another segmented row — the toolbar already carries the kind
+    /// filter, and five more segments would push both into icon-only mode in a
+    /// 280pt column.
+    @ViewBuilder
+    private var triageFilterMenu: some View {
+        Menu {
+            ForEach(AnnotationTriageFilter.allCases) { option in
+                Button {
+                    triageFilter = option
+                } label: {
+                    if option == triageFilter {
+                        Label(option.label, systemImage: "checkmark")
+                    } else {
+                        Text(option.label)
+                    }
+                }
+            }
+        } label: {
+            Label(
+                triageFilter == .all ? "Triage" : triageFilter.label,
+                systemImage: triageFilter == .all ? "flag" : "flag.fill")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Filter by what you plan to do about each note")
     }
 
     @ViewBuilder
@@ -344,23 +387,29 @@ struct AnnotationsPane: View {
     }
 
     private func reject(_ ann: Annotation, reason: String) {
-        // For a suggested change, show the proofreader's "stet" flourish briefly
-        // before the rejected row leaves the open list. The op is recorded
-        // immediately (never blocked); the stet flag keeps the row on-screen for
-        // ~1.5s so the strike-through resolves back with a "stet" mark.
-        if ann.kind == .suggestedChange {
-            stetIds.insert(ann.id)
-            Task {
-                try? await document.rejectAnnotation(id: ann.id, userResponse: reason, undoManager: undoManager)
-                // Hold ~2.5s so the strike-removed "prior" text + the STET badge
-                // read clearly before the row resolves out of the open list. The
-                // op above already landed; this only governs the visual dwell.
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
-                stetIds.remove(ann.id)
-            }
-        } else {
-            Task { try? await document.rejectAnnotation(id: ann.id, userResponse: reason, undoManager: undoManager) }
+        Task { try? await document.rejectAnnotation(
+            id: ann.id, userResponse: reason, undoManager: undoManager) }
+    }
+
+    /// Stet — the proofreader's own gesture, and now the only one that wears the
+    /// proofreader's mark. The op is recorded immediately (never blocked); the
+    /// flag holds the row on-screen ~2.5s so the STET badge and the reinstated
+    /// text read clearly before the row resolves out of the open list.
+    private func stet(_ ann: Annotation) {
+        stetFlourishIds.insert(ann.id)
+        Task {
+            try? await document.stetAnnotation(id: ann.id, undoManager: undoManager)
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            stetFlourishIds.remove(ann.id)
         }
+    }
+
+    /// Mark (or clear) what the writer plans to do about a note. Not a
+    /// resolution — the row stays exactly as open as it was; only its place in
+    /// the queue moves.
+    private func triage(_ ann: Annotation, mark: TriageMark?) {
+        Task { try? await document.triageAnnotation(
+            id: ann.id, mark: mark, undoManager: undoManager) }
     }
 
     private func archive(_ ann: Annotation) {
@@ -460,13 +509,18 @@ struct AnnotationRow: View {
     var isOwn: Bool = false
     let onAccept: () -> Void
     let onReject: () -> Void
+    /// M3 P2's fourth resolution — read, considered, and the words stand.
+    var onStet: () -> Void = {}
+    /// Set or clear the note's triage mark (nil clears). Pane-only: the margin
+    /// card deliberately has no triage affordance — see `ReviewCardActions`.
+    var onTriage: (TriageMark?) -> Void = { _ in }
     let onArchive: () -> Void
     let onReply: () -> Void
     var onEdit: () -> Void = {}
     var onWithdraw: () -> Void = {}
     var onRevert: () -> Void = {}
     /// RULING-29: resolution is the writer's to reverse, from the surface that
-    /// shows it — rendered for archived/rejected rows.
+    /// shows it — rendered for archived, rejected and (M3 P2) stetted rows.
     var onReopen: () -> Void = {}
     let onJumpToParagraph: () -> Void
 
@@ -484,7 +538,11 @@ struct AnnotationRow: View {
                     .foregroundStyle(.secondary)
                     .italic()
             }
-            if annotation.kind == .suggestedChange {
+            // Stet reaches every kind now, so the flourish has to as well —
+            // it can no longer live inside the suggestion-only diff card.
+            if showingStet {
+                stetCard
+            } else if annotation.kind == .suggestedChange {
                 diffCard
             }
             actionRow
@@ -546,37 +604,33 @@ struct AnnotationRow: View {
 
     @ViewBuilder
     private var diffCard: some View {
-        if showingStet {
-            stetCard
-        } else {
-            VStack(alignment: .leading, spacing: 1) {
-                // "Before" matches the suggestion's grain: the SPAN's original
-                // text for a sub-paragraph suggestion, else the whole paragraph —
-                // so a one-word suggestion reads `very angry → furious`, not
-                // `<whole paragraph> → furious` (SuggestionDisplay, shared w/ phone).
-                if let prior = SuggestionDisplay.before(for: annotation) {
-                    Text("\u{2212} \(AnnotationRow.displayText(prior))")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.red)
-                        .padding(.horizontal, 6).padding(.vertical, 3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.red.opacity(0.08))
-                }
-                if let suggested = annotation.suggestedText {
-                    Text("+ \(AnnotationRow.displayText(suggested))")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.green)
-                        .padding(.horizontal, 6).padding(.vertical, 3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.green.opacity(0.08))
-                }
+        VStack(alignment: .leading, spacing: 1) {
+            // "Before" matches the suggestion's grain: the SPAN's original
+            // text for a sub-paragraph suggestion, else the whole paragraph —
+            // so a one-word suggestion reads `very angry → furious`, not
+            // `<whole paragraph> → furious` (SuggestionDisplay, shared w/ phone).
+            if let prior = SuggestionDisplay.before(for: annotation) {
+                Text("\u{2212} \(AnnotationRow.displayText(prior))")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.08))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            if let suggested = annotation.suggestedText {
+                Text("+ \(AnnotationRow.displayText(suggested))")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.green)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.green.opacity(0.08))
+            }
         }
+        .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
-    /// The proofreader's "stet" treatment shown briefly on rejecting a suggested
-    /// change: the struck prior text is reinstated (no strike), marked with a
+    /// The proofreader's "stet" treatment shown briefly on stetting a note: for
+    /// a suggestion the struck prior text is reinstated (no strike), marked with a
     /// dotted underline, and headed by a clear "STET — let it stand" badge so the
     /// gesture is unmistakable rather than a faint italic aside. A subtle tinted
     /// card + the row-level fade give the eye something to catch in the ~2.5s
@@ -617,51 +671,147 @@ struct AnnotationRow: View {
     /// from the red/green diff so the eye reads it as a separate gesture.
     private var stetAccent: Color { Color(red: 0.20, green: 0.45, blue: 0.78) }
 
+    /// RULING-29's arm: a resolution is the writer's to reverse, from the
+    /// surface that shows it. Stet joined archive and reject there in M3 P2 — it
+    /// is a resolution like the other two. Exhaustive on purpose: a fifth status
+    /// must decide whether it is reopenable, not inherit an `else`.
+    private var showsReopen: Bool {
+        switch annotation.status {
+        case .archived, .rejected, .stetted: return true
+        case .open, .accepted: return false
+        }
+    }
+
+    /// The row's answers. Every verb keeps its word at the pane's default width;
+    /// under pressure (a 240pt column, an own suggestion carrying seven
+    /// controls) the secondary ones fall back to icons with the same word as the
+    /// tooltip, the way `AdaptiveFilterRow` degrades the kind filter above. The
+    /// primary verb — Accept / Got it / Reply — never loses its label.
     @ViewBuilder
     private var actionRow: some View {
+        ViewThatFits(in: .horizontal) {
+            actions(useIcons: false)
+            actions(useIcons: true)
+        }
+        .controlSize(.small)
+    }
+
+    @ViewBuilder
+    private func actions(useIcons: Bool) -> some View {
         HStack(spacing: 8) {
-            if annotation.status == .archived || annotation.status == .rejected {
-                // RULING-29: any archived or rejected annotation can be
-                // reopened from the pane. (An accepted suggestion keeps its
-                // Revert below — reopening it is Revert's job, text included.)
+            if showsReopen {
+                // (An accepted suggestion keeps its Revert below — reopening it
+                // is Revert's job, text included.)
                 Button("Reopen", action: onReopen).buttonStyle(.bordered)
                     .help("Return this to the open list — resolution is yours to reverse (⌘Z re-applies it)")
             } else {
-            switch annotation.kind {
-            case .comment:
-                Button("Got it", action: onAccept).buttonStyle(.borderedProminent)
-                Button("Archive", action: onArchive).buttonStyle(.bordered)
-            case .suggestedChange:
-                if annotation.status == .accepted {
-                    // Accepted rows (visible under the resolved/All filter):
-                    // the one meaningful action is putting the text back.
-                    // ⌘Z only reaches the MOST RECENT accept; this reaches
-                    // any accepted suggestion at any time.
-                    Button("Revert", action: onRevert).buttonStyle(.bordered)
-                        .disabled(!revertIsEnabled)
-                        .help(revertIsEnabled
-                              ? "Restore the pre-accept text and reopen this suggestion"
-                              : "Its paragraph was deleted — there is nothing to revert into")
-                } else {
-                    Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
-                    Button("Reject\u{2026}", action: onReject).buttonStyle(.bordered)
-                    Button("Archive", action: onArchive).buttonStyle(.bordered)
-                }
-            case .query:
-                Button("Reply\u{2026}", action: onReply).buttonStyle(.borderedProminent)
-                Button("Archive", action: onArchive).buttonStyle(.bordered)
-            case .craftNote:
-                Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
-                Button("Reject\u{2026}", action: onReject).buttonStyle(.bordered)
-                Button("Archive", action: onArchive).buttonStyle(.bordered)
+                dispositions(useIcons: useIcons)
             }
-            }
+            triageMenu
             if isOwn {
                 Spacer(minLength: 4)
                 ownAffordances
             }
         }
-        .controlSize(.small)
+    }
+
+    @ViewBuilder
+    private func dispositions(useIcons: Bool) -> some View {
+        switch annotation.kind {
+        case .comment:
+            Button("Got it", action: onAccept).buttonStyle(.borderedProminent)
+            stetButton(useIcons: useIcons)
+            secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
+        case .suggestedChange:
+            if annotation.status == .accepted {
+                // Accepted rows (visible under the resolved/All filter):
+                // the one meaningful action is putting the text back.
+                // ⌘Z only reaches the MOST RECENT accept; this reaches
+                // any accepted suggestion at any time.
+                Button("Revert", action: onRevert).buttonStyle(.bordered)
+                    .disabled(!revertIsEnabled)
+                    .help(revertIsEnabled
+                          ? "Restore the pre-accept text and reopen this suggestion"
+                          : "Its paragraph was deleted — there is nothing to revert into")
+            } else {
+                Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
+                secondary("Reject\u{2026}", symbol: "xmark", useIcons: useIcons, action: onReject)
+                stetButton(useIcons: useIcons)
+                secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
+            }
+        case .query:
+            Button("Reply\u{2026}", action: onReply).buttonStyle(.borderedProminent)
+            stetButton(useIcons: useIcons)
+            secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
+        case .craftNote:
+            Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
+            secondary("Reject\u{2026}", symbol: "xmark", useIcons: useIcons, action: onReject)
+            stetButton(useIcons: useIcons)
+            secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
+        }
+    }
+
+    /// Stet — offered wherever Archive is, and the margin card mirrors it
+    /// (`ReviewCardActions`). The symbol is the proofreader's own mark: dots
+    /// under the words that stand.
+    @ViewBuilder
+    private func stetButton(useIcons: Bool) -> some View {
+        secondary(
+            "Stet", symbol: "textformat.abc.dottedunderline", useIcons: useIcons,
+            help: "Read, considered — and the words stand. Resolves the note without applying or refusing anything.",
+            action: onStet)
+    }
+
+    @ViewBuilder
+    private func secondary(
+        _ title: String, symbol: String, useIcons: Bool,
+        help: String? = nil, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            if useIcons {
+                Image(systemName: symbol)
+            } else {
+                Text(title)
+            }
+        }
+        .buttonStyle(.bordered)
+        .help(help ?? title)
+    }
+
+    /// What the writer plans to DO about this note — the queue's sort key, not a
+    /// resolution. The mark it already holds is checked AND disabled: re-applying
+    /// it appends an op whose ⌘Z undoes nothing the writer can see, so the
+    /// affordance refuses rather than the verb.
+    @ViewBuilder
+    private var triageMenu: some View {
+        Menu {
+            ForEach(TriageMark.allCases, id: \.self) { mark in
+                Button {
+                    onTriage(mark)
+                } label: {
+                    if annotation.triage == mark {
+                        Label(mark.queueLabel, systemImage: "checkmark")
+                    } else {
+                        Text(mark.queueLabel)
+                    }
+                }
+                .disabled(annotation.triage == mark)
+            }
+            if annotation.triage != nil {
+                Divider()
+                Button("Clear") { onTriage(nil) }
+            }
+        } label: {
+            if let mark = annotation.triage {
+                Label(mark.queueLabel, systemImage: mark.symbolName)
+            } else {
+                Image(systemName: "flag")
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(annotation.triage.map { "Triaged \($0.queueLabel) — change or clear it" }
+              ?? "Mark what you plan to do about this note")
     }
 
     /// Edit (pencil) + Delete (trash) for the reviewer's own annotation only.

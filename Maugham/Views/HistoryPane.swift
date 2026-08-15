@@ -743,7 +743,7 @@ private struct HistoryRow: View {
                     Text(body).font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1)
                 } else {
-                    Text("Let stand").font(.caption).foregroundStyle(.secondary)
+                    Text("Stetted").font(.caption).foregroundStyle(.secondary)
                 }
             case .annotationTriage:
                 Text(op.provenance?.triageMark.map { "Triaged · \($0)" } ?? "Triage cleared")
@@ -867,7 +867,10 @@ private struct HistoryRow: View {
             case .annotationEdit: return "Annotation edited"
             case .annotationWithdraw: return "Annotation withdrawn"
             case .annotationReopen: return "Annotation reopened"
-            case .annotationStet: return "Let stand"
+            // "Stet" is the one user-facing word for the verb (M3 P2) — the
+            // pane's button, the margin card's tooltip, the Edit menu's undo
+            // and this row all say it.
+            case .annotationStet: return "Annotation stetted"
             case .annotationTriage: return "Annotation triaged"
             case .unknown: return "Newer version"
             }

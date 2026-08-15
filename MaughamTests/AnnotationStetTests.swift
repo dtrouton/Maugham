@@ -191,7 +191,7 @@ final class AnnotationStetTests: XCTestCase {
         }
 
         XCTAssertEqual(said, [
-            "Couldn't undo letting the note stand — it changed on another device."])
+            "Couldn't undo stetting the note — it changed on another device."])
         XCTAssertEqual(h.doc._opLogMirror.count, opsBefore,
                        "a declined undo appends nothing")
     }
@@ -375,6 +375,52 @@ final class AnnotationStetTests: XCTestCase {
         }
         XCTAssertEqual(spelling, ["Document+Annotations.swift"],
                        "the lifecycle set is spelled out once; everything else asks")
+    }
+
+    /// **The verbs have faces, and the two do not have the SAME face** (M3 P2
+    /// Task 4). A verb with no production caller is the shape M1A's
+    /// `RegionBinding.references` shipped in — correct, tested, and reachable by
+    /// nobody — so both halves are pinned here rather than left to the eye.
+    ///
+    /// Stet is a resolution: it reaches the writer from the queue AND from the
+    /// margin card, exactly like archive. Triage is a MARK, and marks are how a
+    /// writer plans a pass over a pile — the margin card is one note beside the
+    /// sentence it is about, with no pile to sort, so its absence from
+    /// `EditorHost` is a decision. `ReviewCardActions`' doc comment says so in
+    /// prose and `ReviewCardActionsTests` says so about the declared set; this
+    /// says it about the WIRING, which is the layer where a later hand adding a
+    /// triage handler would not contradict either.
+    func test_theVerbsProductionCallers() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // MaughamTests/
+            .deletingLastPathComponent()   // repo root
+            .appendingPathComponent("Maugham")
+        let files = FileManager.default.enumerator(
+            at: root, includingPropertiesForKeys: nil)!
+            .compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "swift" }
+        XCTAssertGreaterThan(files.count, 100, "control: the scan found the sources")
+
+        func callers(of call: String) -> Set<String> {
+            var found: Set<String> = []
+            for file in files {
+                guard let text = try? String(contentsOf: file, encoding: .utf8),
+                      text.contains(call) else { continue }
+                found.insert(file.lastPathComponent)
+            }
+            return found
+        }
+
+        XCTAssertEqual(callers(of: "stetAnnotation("), [
+            "Document+Annotations.swift",   // the definition (+ its own redo)
+            "AnnotationsPane.swift",        // the queue's Stet button
+            "EditorHost.swift",             // the margin card's Stet handler
+        ], "the stet caller census — update deliberately, never accidentally")
+
+        XCTAssertEqual(callers(of: "triageAnnotation("), [
+            "Document+Annotations.swift",   // the definition (+ its own redo)
+            "AnnotationsPane.swift",        // the row's Do / Decline / Discuss menu
+        ], "triage is a queue verb: a margin-card caller here is a design change")
     }
 
     // MARK: - The rewind's copy, on the delivery path
