@@ -568,4 +568,31 @@ public extension Persona {
         case .plan, .author, .publish: return true
         }
     }
+
+    /// **The one spelling of "this persona's centre studies a pinned
+    /// reference beside the prose."** Denver's 2026-08-14 ruling (spec §9)
+    /// closes the M2-era held decision: a reviewer adjudicating a pin needs
+    /// the same column a drafter does, so the assistant column widens from
+    /// Author alone to Author and Review both.
+    ///
+    /// **Read at the two sites that used to spell `== .author` on their own**
+    /// — `AssistantColumn.isPresented` (whether the column mounts) and
+    /// `ReferencesPane.isInteractive` (whether a shelf row can promote into
+    /// it). Widening one without the other is exactly the defect this
+    /// predicate exists to make impossible: a pin that looks pressable in
+    /// Review with no column on screen to receive it.
+    ///
+    /// **Plan and Publish stay out, for reasons already on record rather than
+    /// new ones minted here.** Plan: the column would take 260–620pt from the
+    /// canvas §8A.3 protects. Publish: no registry pane ever offered a study
+    /// column, and its centre is the compiled book.
+    ///
+    /// Exhaustive with no `default:`, so a fifth persona has to say whether
+    /// it studies pins rather than inheriting "no".
+    var studiesPinnedReferences: Bool {
+        switch self {
+        case .author, .review: return true
+        case .plan, .publish: return false
+        }
+    }
 }
