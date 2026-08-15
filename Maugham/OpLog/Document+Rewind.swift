@@ -269,12 +269,13 @@ extension Document {
         var travelReopenedIds: [String] = []
         var travelReacceptedIds: [String] = []
         if synthesisSource == .rewind {
-            let statusKinds: Set<OpKind> = [
-                .claudeAccept, .claudeReject, .claudeArchive,
-                .claudeAcceptRevert, .annotationReopen
-            ]
+            // The deriver's own lifecycle rule (`Document.lifecycleOpKinds`),
+            // asked for rather than restated: this set and `RewindImpact`'s
+            // each held a literal copy of it until M3 P2, and the two have to
+            // agree — the preview promises what this loop then does.
             var lifecycleBySource: [String: [Op]] = [:]
-            for op in _opLogMirror where statusKinds.contains(op.kind) {
+            for op in _opLogMirror
+            where Document.lifecycleOpKinds.contains(op.kind) {
                 if let src = op.provenance?.sourceAnnotationId {
                     lifecycleBySource[src, default: []].append(op)
                 }

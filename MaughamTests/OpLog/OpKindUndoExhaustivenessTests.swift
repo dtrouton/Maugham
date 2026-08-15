@@ -63,15 +63,14 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             return .inverseCovered(mechanism: "compensating op of AnnotationInverse.reopenOp; reversed by the original resolution's OpUndoRegistrar redo")
 
         case .annotationStet:
-            // AnnotationInverse.reopenOp gained the `.annotationStet → expected
-            // .stetted` arm in M3 P2 Task 1 (AnnotationInverse.swift, read to
-            // confirm), so a stet's inverse is the ordinary reopen — the same
-            // mechanism as reject and archive. NOTE FOR TASK 2: the
-            // writer-facing `Document.stetAnnotation` verb and its
-            // `OpUndoRegistrar` registration do not exist yet at Task 1, so
-            // nothing can WRITE this kind in a real project; this arm names the
-            // factory, and Task 2 must return here and name the registrar.
-            return .inverseCovered(mechanism: "AnnotationInverse.reopenOp(undoing: .annotationStet) — registrar lands with Document.stetAnnotation, M3 P2 Task 2")
+            // Document+Annotations.swift stetAnnotation(...) registers
+            // OpUndoRegistrar whose undo closure re-checks the live status and
+            // calls reopenAnnotation(id:), which builds its compensating op via
+            // AnnotationInverse.reopenOp(undoing: .annotationStet, ...) — the
+            // `.stetted` arm Task 1 added to the factory. Same mechanism as
+            // reject and archive; the registrar landed in M3 P2 Task 2, so
+            // this arm no longer names a factory with no writer.
+            return .inverseCovered(mechanism: "AnnotationInverse.reopenOp via Document.reopenAnnotation, registered by Document.stetAnnotation")
 
         case .annotationTriage:
             // Triage is its own inverse's kind, the way annotationEdit is:

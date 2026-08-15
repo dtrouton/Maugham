@@ -33,10 +33,6 @@ enum RewindImpact {
         var changesAnything: Bool
     }
 
-    private static let statusKinds: Set<OpKind> = [
-        .claudeAccept, .claudeReject, .claudeArchive,
-        .claudeAcceptRevert, .annotationReopen
-    ]
     private static let taskKinds: Set<OpKind> = [
         .taskCreate, .taskStatusChange, .taskPriorityChange,
         .taskParentChange, .taskBodyEdit, .taskArchive
@@ -61,7 +57,11 @@ enum RewindImpact {
 
         let annotations = AnnotationDeriver.derive(ops: ops, paragraphs: now.paragraphs)
         var lifecycleBySource: [String: [Op]] = [:]
-        for op in ops where statusKinds.contains(op.kind) {
+        // The deriver's own lifecycle rule, asked for rather than restated —
+        // this set and `restoreToOp`'s each carried a literal copy until M3 P2,
+        // and a stet missing from one of them reads a settled note's history as
+        // if the settlement had never happened.
+        for op in ops where Document.lifecycleOpKinds.contains(op.kind) {
             if let src = op.provenance?.sourceAnnotationId {
                 lifecycleBySource[src, default: []].append(op)
             }
@@ -105,13 +105,14 @@ enum RewindImpact {
                    targetSet.contains(pid) {
                     p.acceptsToReopen += 1
                 }
-            case .rejected:
-                break
-            case .stetted:
-                // A stet moved no text, so rewinding past one restores no
-                // text either. Task 2 decides whether the preview should
-                // count a stet the way it counts an archive; until a verb
-                // can write one, there is nothing here to preview.
+            case .rejected, .stetted:
+                // Neither moved any text, so a restore past one restores no
+                // text either, and neither is a class the rewind reopens: the
+                // return journey (step 9) acts on notes MAUGHAM archived
+                // during a rewind, not on resolutions the writer made. A stet
+                // still has to be in `lifecycleOpKinds` above, because it is
+                // part of the HISTORY the archived arm reads. (Task 2's
+                // answer to the question Task 1 left in this arm.)
                 break
             }
         }

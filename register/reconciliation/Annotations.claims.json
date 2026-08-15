@@ -3,10 +3,10 @@
   "claim_id": "M5-AN-001",
   "scope": "Document.isAnnotationOpKind",
   "kind": "INVARIANT",
-  "statement": "exactly eleven of OpKind's cases are annotation ops (four creations, four Claude lifecycle kinds, three author self-service kinds); the census decides which merged ops flip the sticky _hasAnyAnnotationOps flag",
+  "statement": "exactly thirteen of OpKind's cases are annotation ops (four creations, four Claude lifecycle kinds, five author self-service kinds — edit, withdraw, reopen, and M3 P2's stet and triage); the census decides which merged ops flip the sticky _hasAnyAnnotationOps flag. A narrower LIFECYCLE list (the kinds that can move a status) excludes triage; AnnotationStetTests binds it to AnnotationDeriver.isLifecycleKind case by case",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "AnnotationsCharacterization.test_annotationOpKindsAreExactlyTheElevenAnnotationCases"
+   "ref": "AnnotationsCharacterization.test_annotationOpKindsAreExactlyTheThirteenAnnotationCases"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
@@ -19,7 +19,7 @@
   "claim_id": "M5-AN-002",
   "scope": "AnnotationFilter / Document.annotations(filter:)",
   "kind": "POSTCONDITION",
-  "statement": "AnnotationFilter()'s default `statuses` is [.open], so an argument-free annotations() call hides every accepted, rejected and archived annotation",
+  "statement": "AnnotationFilter()'s default `statuses` is [.open], so an argument-free annotations() call hides every resolved annotation — accepted, rejected, archived, and (M3 P2) stetted",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_theDefaultFilterShowsOnlyOpenAnnotations"

@@ -16,7 +16,8 @@ extension Document {
         switch kind {
         case .claudeComment, .claudeSuggestion, .claudeQuery, .claudeCraftNote,
              .claudeAccept, .claudeReject, .claudeArchive, .claudeAcceptRevert,
-             .annotationEdit, .annotationWithdraw, .annotationReopen:
+             .annotationEdit, .annotationWithdraw, .annotationReopen,
+             .annotationStet, .annotationTriage:
             return true
         default:
             return false
@@ -689,6 +690,60 @@ extension Document {
             })
     }
 
+    /// **Stet** — the fourth resolution (spec §5): the note was read,
+    /// considered, and the words stand. Not an accept (nothing is applied),
+    /// not a reject (nothing is refused), not an archive (it was not set aside
+    /// unread) — the writer answered it, and the answer was no change.
+    ///
+    /// Status-only, exactly like reject and archive: no manuscript text moves,
+    /// so none of accept's `removeAllActions` / `_undoCoherentApplyPending`
+    /// choreography applies (ADR 0023's D1 is about undo stacks that reference
+    /// pre-replace text storage; there is no replace here).
+    ///
+    /// Like reject, it refuses nothing on the way in: the deriver's
+    /// latest-lifecycle-op-wins rule settles a stet over an earlier
+    /// resolution. Which notes the queue OFFERS Stet on is the pane's business.
+    public func stetAnnotation(
+        id: String, userResponse: String? = nil,
+        undoManager: UndoManager? = nil
+    ) async throws {
+        try await appendLifecycleOp(
+            kind: .annotationStet,
+            sourceAnnotationId: id,
+            userResponse: userResponse)
+
+        // ⌘Z: undo reopens (annotationReopen → .open); redo re-stets,
+        // forwarding the original userResponse AND the LIVE undo manager so
+        // ⇧⌘Z re-arms a fresh undo pair (reject's precedent — indefinite
+        // ⌘Z/⇧⌘Z cycling; `[weak undoManager]` because NSUndoManager retains
+        // the closure).
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Stet Annotation", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in
+                // Fire-time re-check with a LOUD decline (RULING-22,
+                // `editReviewerAnnotation`'s shape). Reject and archive lean on
+                // `reopenAnnotation`'s own drift guard, which declines to
+                // `documentLog` and to nobody else; the Edit menu still read
+                // "Undo Stet Annotation" and the writer pressed it. Unfiltered
+                // query — a `.stetted` note is invisible to the default
+                // `[.open]` filter (M5-AN-002).
+                let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
+                    .first { $0.id == id }
+                guard live?.status == .stetted else {
+                    documentLog.error("stetAnnotation undo: \(id, privacy: .public) drifted (\(String(describing: live?.status), privacy: .public)) — ignoring")
+                    doc.notifyWriter(
+                        "Couldn't undo letting the note stand — it changed on another device.")
+                    return
+                }
+                try? await doc.reopenAnnotation(id: id)
+            },
+            redo: { [weak undoManager] doc in
+                try? await doc.stetAnnotation(
+                    id: id, userResponse: userResponse, undoManager: undoManager)
+            })
+    }
+
     public func archiveAnnotation(
         id: String, undoManager: UndoManager? = nil
     ) async throws {
@@ -726,6 +781,7 @@ extension Document {
         switch current?.status {
         case .rejected: undoneKind = .claudeReject
         case .archived: undoneKind = .claudeArchive
+        case .stetted:  undoneKind = .annotationStet
         case nil:
             // Absent from the projection — withdrawn iff the latest
             // withdraw/reopen op for this id is a withdraw; otherwise the id is
@@ -761,15 +817,17 @@ extension Document {
 
     /// The pane's Reopen (RULING-29): `reopenAnnotation` wrapped in a ⌘Z pair.
     /// Undo re-applies the PRIOR resolution whole — a reject returns with its
-    /// written reason (RULING-31's history is the projection's job; undo's job
-    /// is fidelity). Statuses without a clean prior resolution to re-apply
-    /// (withdrawn) fall through to the plain reopen, un-registered.
+    /// written reason, and so does a stet (RULING-31's history is the
+    /// projection's job; undo's job is fidelity). Statuses without a clean
+    /// prior resolution to re-apply (withdrawn) fall through to the plain
+    /// reopen, un-registered.
     public func reopenAnnotation(id: String, undoManager: UndoManager?) async throws {
         let prior = annotations(filter: AnnotationFilter(statuses: nil))
             .first { $0.id == id }
         try await reopenAnnotation(id: id)
         guard let priorStatus = prior?.status,
-              priorStatus == .rejected || priorStatus == .archived else { return }
+              priorStatus == .rejected || priorStatus == .archived
+                || priorStatus == .stetted else { return }
         let priorResponse = prior?.userResponse
         OpUndoRegistrar.register(
             undoManager, actionName: "Reopen Annotation", target: self,
@@ -780,6 +838,8 @@ extension Document {
                     try? await doc.rejectAnnotation(id: id, userResponse: priorResponse)
                 case .archived:
                     try? await doc.archiveAnnotation(id: id)
+                case .stetted:
+                    try? await doc.stetAnnotation(id: id, userResponse: priorResponse)
                 default:
                     break
                 }
@@ -1016,17 +1076,37 @@ extension Document {
     }
 
     /// The kinds `AnnotationDeriver` reads as lifecycle — the ops that can move
-    /// an annotation's status. Mirrors its private `isLifecycleKind`; the two
-    /// are read together by `repairRejectedButSplicedAnnotations`, whose whole
-    /// correctness is that it applies the deriver's own rule rather than a
-    /// second opinion about which op wins.
-    private static func isLifecycleOpKind(_ kind: OpKind) -> Bool {
+    /// an annotation's status. Mirrors its `isLifecycleKind`, which is internal
+    /// to MaughamCore and so unreachable from here; the two are read together
+    /// by `repairRejectedButSplicedAnnotations`, whose whole correctness is
+    /// that it applies the deriver's own rule rather than a second opinion
+    /// about which op wins. `AnnotationStetTests`' census binds the restatement
+    /// case by case — `.annotationStet` is exactly the member one list gains
+    /// and the other silently does not.
+    ///
+    /// `.annotationTriage` is deliberately NOT here: a triage is a MARK on a
+    /// note the writer is still holding, and a mark that could displace a
+    /// resolution would take notes out of the queue for being labelled.
+    internal nonisolated static func isLifecycleOpKind(_ kind: OpKind) -> Bool {
         switch kind {
         case .claudeAccept, .claudeReject, .claudeArchive, .claudeAcceptRevert,
-             .annotationReopen:
+             .annotationReopen, .annotationStet:
             return true
         default:
             return false
         }
     }
+
+    /// The same rule as a `Set`, for the two rewind sites that test membership
+    /// over an op stream rather than filtering with a predicate
+    /// (`RewindImpact.preview` and `restoreToOp`'s step-9 return journey).
+    /// Each carried its own literal copy until M3 P2 — four spellings of one
+    /// rule, none of them tested. Derived from the predicate so there is
+    /// nothing left to keep in step.
+    ///
+    /// `nonisolated` because `RewindImpact.preview` is a pure function with no
+    /// isolation of its own; an immutable `Set<OpKind>` is `Sendable`, so the
+    /// only thing `Document`'s `@MainActor` would buy here is a Swift 6 error.
+    internal nonisolated static let lifecycleOpKinds: Set<OpKind> =
+        Set(OpKind.allCases.filter(Document.isLifecycleOpKind))
 }
