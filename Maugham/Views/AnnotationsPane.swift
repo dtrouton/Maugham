@@ -40,6 +40,24 @@ struct AnnotationsPane: View {
     /// the flourish went with it: "stet" means *let it stand*, and a rejected
     /// note is precisely the one that did not.
     @State private var stetFlourishIds: Set<String> = []
+    /// Selection mode (M3 P2 Task 5). While on, every row grows a leading
+    /// selection control and the bulk bar sits at the foot of the column. Off
+    /// by default and off is the pane Task 4 left: a writer working one note at
+    /// a time never sees a checkbox.
+    @State private var showBulkBar: Bool = false
+    /// The ids the writer has ticked. Read through `effectiveSelection`, never
+    /// directly — an id in here can stop being on screen (a bulk stet hides its
+    /// row under the default `[.open]` filter; a filter change narrows the set),
+    /// and acting on a row nobody can see is the author filter's stale-target
+    /// bug in another key.
+    @State private var selectedIds: Set<String> = []
+    /// The one summary a bulk run posts when some of it could not be done
+    /// (`AnnotationBulkActions.Outcome.notice`). One notice for the batch —
+    /// never an alert per refusal, and never silence.
+    @State private var bulkNotice: String?
+    /// True while a batch is running, so the bar's verbs cannot be fired twice
+    /// over a set the first run is still changing.
+    @State private var bulkInFlight: Bool = false
 
     enum KindOption: String, CaseIterable, Identifiable, FilterRowItem {
         case all, comments, suggestions, queries, craft
@@ -128,6 +146,26 @@ struct AnnotationsPane: View {
         AnnotationAuthorFilter.distinctLabels(in: kindStatusAnnotations)
     }
 
+    /// The selection narrowed to what is actually on screen — the self-healing
+    /// read of `selectedIds`, mirroring `effectiveAuthorFilter`'s shape (a
+    /// computed fallback, because a stored set cannot be pruned from inside
+    /// `body`). A bulk stet that hides its own rows leaves the tick marks
+    /// pointing at nothing; this is what stops the next verb acting on them.
+    /// The stored set is pruned to this after each run.
+    private var effectiveSelection: Set<String> {
+        guard !selectedIds.isEmpty else { return [] }
+        return selectedIds.intersection(visibleAnnotations.map(\.id))
+    }
+
+    /// What a bulk verb acts on: the selection when there is one, else the
+    /// whole visible filtered set (spec §5's "over the current filtered set").
+    /// The bar says which, so the writer is never guessing.
+    private var bulkTargets: [Annotation] {
+        let selection = effectiveSelection
+        guard !selection.isEmpty else { return visibleAnnotations }
+        return visibleAnnotations.filter { selection.contains($0.id) }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
@@ -142,6 +180,7 @@ struct AnnotationsPane: View {
             } else {
                 ScrollView {
                     let livePids = Set(document.sequence)
+                    let selection = effectiveSelection
                     LazyVStack(spacing: 0) {
                         ForEach(visibleAnnotations) { ann in
                             AnnotationRow(
@@ -150,6 +189,9 @@ struct AnnotationsPane: View {
                                 showingStet: stetFlourishIds.contains(ann.id),
                                 isOwn: AnnotationOwnership.isOwn(
                                     ann, localName: userPreferences.collaboratorDisplayName),
+                                isSelectable: showBulkBar,
+                                isSelected: selection.contains(ann.id),
+                                onToggleSelection: { toggleSelection(ann.id) },
                                 onAccept: { accept(ann) },
                                 onReject: { rejectSheet = ann },
                                 onStet: { stet(ann) },
@@ -192,6 +234,13 @@ struct AnnotationsPane: View {
                             }
                         }
                     }
+                }
+                // Only over rows: the Deleted section below the queue is
+                // restore-only, and a bar offering to accept nothing is a
+                // dead control (RULING-35).
+                if showBulkBar && !visibleAnnotations.isEmpty {
+                    Divider()
+                    bulkBar
                 }
             }
         }
@@ -249,6 +298,16 @@ struct AnnotationsPane: View {
         } message: {
             Text("Reverting will replace the current paragraph text with what it was before the accept. Edits made since the accept will be lost.")
         }
+        .alert(
+            "Not everything in the batch could be done",
+            isPresented: Binding(
+                get: { bulkNotice != nil },
+                set: { if !$0 { bulkNotice = nil } })
+        ) {
+            Button("OK") { bulkNotice = nil }
+        } message: {
+            Text(bulkNotice ?? "")
+        }
         .sheet(item: $editSheet) { ann in
             EditAnnotationSheet(annotation: ann) { newBody, newSuggested in
                 editOwn(ann, newBody: newBody, newSuggested: newSuggested)
@@ -279,6 +338,7 @@ struct AnnotationsPane: View {
                 selection: $kindFilter)
                 .layoutPriority(1)
             Spacer(minLength: 4)
+            selectionModeButton
             triageFilterMenu
             authorMenu
             Button {
@@ -295,6 +355,174 @@ struct AnnotationsPane: View {
                 : "Showing open only · click to include resolved")
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
+    }
+
+    /// Selection mode's door. A mode rather than always-on checkboxes: the
+    /// column is 280pt and a writer answering notes one at a time should not
+    /// pay for a control they are not using. Leaving the mode drops the ticks —
+    /// a selection nobody can see is a trap the next entry would spring.
+    @ViewBuilder
+    private var selectionModeButton: some View {
+        Button {
+            showBulkBar.toggle()
+            if !showBulkBar { selectedIds.removeAll() }
+        } label: {
+            Image(systemName: "checklist")
+                .font(.caption)
+                .foregroundStyle(showBulkBar ? Color.accentColor : .secondary)
+        }
+        .buttonStyle(.plain)
+        .help(showBulkBar
+            ? "Leave selection mode"
+            : "Select several notes and answer them together")
+    }
+
+    /// The bulk bar. Two rows so nothing truncates in a narrow column: the
+    /// scope on top (what is being acted on, and the one control that changes
+    /// it), the verbs below.
+    @ViewBuilder
+    private var bulkBar: some View {
+        let targets = bulkTargets
+        let selection = effectiveSelection
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button(selection.isEmpty ? "Select All" : "Deselect All") {
+                    selectedIds = selection.isEmpty
+                        ? Set(visibleAnnotations.map(\.id))
+                        : []
+                }
+                .buttonStyle(.link)
+                Spacer(minLength: 4)
+                Text(selection.isEmpty
+                     ? "All \(targets.count) shown"
+                     : "\(selection.count) selected")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                bulkTriageMenu(targets: targets, hasSelection: !selection.isEmpty)
+            }
+            HStack(spacing: 8) {
+                bulkButton(.accept, targets: targets,
+                           hasSelection: !selection.isEmpty,
+                           help: "Answer these at once. ⌘Z reverses the batch — "
+                               + "except for accepted suggestions, where it reaches "
+                               + "only the last; use a row's Revert for the others.")
+                bulkButton(.stet, targets: targets,
+                           hasSelection: !selection.isEmpty,
+                           help: "Read, considered — and the words stand. "
+                               + "Resolves these without applying or refusing anything.")
+                Spacer(minLength: 0)
+            }
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 8).padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private func bulkButton(
+        _ verb: AnnotationBulkActions.BulkVerb, targets: [Annotation],
+        hasSelection: Bool, help: String
+    ) -> some View {
+        let planned = AnnotationBulkActions.plan(targets, verb: verb)
+        Button(AnnotationBulkActions.buttonTitle(
+            verb, planned: planned.count, targetCount: targets.count,
+            hasSelection: hasSelection)
+        ) {
+            runBulk(verb, on: planned)
+        }
+        .buttonStyle(.bordered)
+        .disabled(planned.isEmpty || bulkInFlight)
+        .help(help)
+    }
+
+    /// Marking a pile is the gesture bulk was built for — a writer skims forty
+    /// notes, flags what they mean to do, then works the `Do` band. Each item
+    /// carries its own honest count, since the notes already holding that mark
+    /// are not reached (the row's menu refuses the same re-mark).
+    @ViewBuilder
+    private func bulkTriageMenu(
+        targets: [Annotation], hasSelection: Bool
+    ) -> some View {
+        Menu {
+            ForEach(TriageMark.allCases, id: \.self) { mark in
+                bulkMenuItem(.triage(mark), targets: targets,
+                             hasSelection: hasSelection)
+            }
+            Divider()
+            bulkMenuItem(.triage(nil), targets: targets,
+                         hasSelection: hasSelection)
+        } label: {
+            Label("Triage", systemImage: "flag")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(bulkInFlight)
+        .help("Mark what you plan to do about all of these")
+    }
+
+    @ViewBuilder
+    private func bulkMenuItem(
+        _ verb: AnnotationBulkActions.BulkVerb, targets: [Annotation],
+        hasSelection: Bool
+    ) -> some View {
+        let planned = AnnotationBulkActions.plan(targets, verb: verb)
+        Button(AnnotationBulkActions.buttonTitle(
+            verb, planned: planned.count, targetCount: targets.count,
+            hasSelection: hasSelection)
+        ) {
+            runBulk(verb, on: planned)
+        }
+        .disabled(planned.isEmpty)
+    }
+
+    /// Run one verb over the planned ids.
+    ///
+    /// **No undo group wraps this** (ADR 0023's D1 corollary): a group would
+    /// have to cover accept, and `Document.acceptAnnotation` calls
+    /// `removeAllActions` from inside itself. Each note registers its own undo
+    /// action instead; `NSUndoManager`'s event grouping then coalesces the
+    /// batch, so one ⌘Z reverses it — which is what one deliberate click should
+    /// cost. The accepted consequence is accept's own: each accept wipes the
+    /// previous one's registration, so after a bulk accept only the LAST
+    /// suggestion is reachable by ⌘Z and the rest need a row's Revert. The
+    /// Accept button's tooltip says so; `AnnotationBulkActionsTests` pins it.
+    private func runBulk(
+        _ verb: AnnotationBulkActions.BulkVerb, on ids: [String]
+    ) {
+        guard !ids.isEmpty, !bulkInFlight else { return }
+        bulkInFlight = true
+        // The same flourish a single Stet wears, at scale: the rows stay put
+        // for ~2.5s wearing the proofreader's mark before they resolve out of
+        // the open list, so the writer sees what they just did.
+        if verb == .stet { stetFlourishIds.formUnion(ids) }
+        Task {
+            let outcome = await AnnotationBulkActions.perform(
+                verb, on: ids, in: document, undoManager: undoManager)
+            bulkInFlight = false
+            // Selection hygiene: the run may have taken its own rows off
+            // screen. Prune to what is still visible rather than leaving ticks
+            // pointing at nothing.
+            selectedIds = effectiveSelection
+            if let notice = outcome.notice { bulkNotice = notice }
+            if verb == .stet {
+                // Drop the mark from anything that did NOT stet immediately:
+                // the flourish says "this note has been let stand", and a row
+                // wearing it for 2.5s over a note that is still open is the
+                // surface lying about what happened.
+                stetFlourishIds.subtract(
+                    Set(ids).subtracting(outcome.succeeded))
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                stetFlourishIds.subtract(outcome.succeeded)
+            }
+        }
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedIds.contains(id) {
+            selectedIds.remove(id)
+        } else {
+            selectedIds.insert(id)
+        }
     }
 
     /// The queue's own filter (M3 P2): show only what you said you'd do, only
@@ -507,6 +735,14 @@ struct AnnotationRow: View {
     /// Edit + Delete (withdraw) affordances. Claude's / other humans' rows
     /// never show them.
     var isOwn: Bool = false
+    /// Multiselect (M3 P2 Task 5) — true only while the pane is in selection
+    /// mode. The control is a `Button`, so it takes the click the row's
+    /// whole-body `.onTapGesture` would otherwise read as navigation: selecting
+    /// a note and travelling to it are different intentions and must not share
+    /// a gesture.
+    var isSelectable: Bool = false
+    var isSelected: Bool = false
+    var onToggleSelection: () -> Void = {}
     let onAccept: () -> Void
     let onReject: () -> Void
     /// M3 P2's fourth resolution — read, considered, and the words stand.
@@ -525,6 +761,31 @@ struct AnnotationRow: View {
     let onJumpToParagraph: () -> Void
 
     var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            if isSelectable { selectionToggle }
+            rowContent
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(isSelected ? Color.accentColor.opacity(0.10) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture { onJumpToParagraph() }
+        .animation(.easeInOut(duration: 0.3), value: showingStet)
+    }
+
+    @ViewBuilder
+    private var selectionToggle: some View {
+        Button(action: onToggleSelection) {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 1)
+        .help(isSelected ? "Deselect this note" : "Select this note")
+        .accessibilityLabel(isSelected ? "Selected" : "Not selected")
+    }
+
+    @ViewBuilder
+    private var rowContent: some View {
         VStack(alignment: .leading, spacing: 6) {
             header
             Text(annotation.body)
@@ -547,10 +808,6 @@ struct AnnotationRow: View {
             }
             actionRow
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .onTapGesture { onJumpToParagraph() }
-        .animation(.easeInOut(duration: 0.3), value: showingStet)
     }
 
     @ViewBuilder

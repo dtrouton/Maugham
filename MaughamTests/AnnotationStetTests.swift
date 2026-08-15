@@ -415,11 +415,13 @@ final class AnnotationStetTests: XCTestCase {
             "Document+Annotations.swift",   // the definition (+ its own redo)
             "AnnotationsPane.swift",        // the queue's Stet button
             "EditorHost.swift",             // the margin card's Stet handler
+            "AnnotationBulkActions.swift",  // (Task 5) the bulk bar's executor
         ], "the stet caller census — update deliberately, never accidentally")
 
         XCTAssertEqual(callers(of: "triageAnnotation("), [
             "Document+Annotations.swift",   // the definition (+ its own redo)
             "AnnotationsPane.swift",        // the row's Do / Decline / Discuss menu
+            "AnnotationBulkActions.swift",  // (Task 5) the bulk bar's executor
         ], "triage is a queue verb: a margin-card caller here is a design change")
     }
 
