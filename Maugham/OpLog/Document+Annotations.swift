@@ -763,6 +763,90 @@ extension Document {
             })
     }
 
+    // MARK: - Triage (the mark, not a resolution)
+
+    /// **Triage** — what the writer intends to DO about a note they are still
+    /// holding (spec §5): `do`, `decline`, `discuss`, or `nil` for untriaged.
+    /// This is how a writer plans a pass over a queue rather than answering it
+    /// note by note in arrival order.
+    ///
+    /// It is NOT a resolution and must never read as one. `.annotationTriage`
+    /// is outside `lifecycleOpKinds` (Task 1's deriver indexes marks
+    /// separately), so a mark can neither displace a resolution nor be
+    /// displaced by one, and a triaged note stays exactly as open as it was.
+    ///
+    /// A RESOLVED note takes a mark too, deliberately: the mark is metadata,
+    /// and a note the writer let stand can still be worth marking `discuss`
+    /// for the conversation that follows. Refusing here would make them reopen
+    /// a note they had already settled just to label it.
+    ///
+    /// Loud no-op when the projection does not hold the id (unknown, or
+    /// withdrawn) — a mark op naming a note nobody can see would sit in the
+    /// log forever marking nothing.
+    public func triageAnnotation(
+        id: String, mark: TriageMark?, undoManager: UndoManager? = nil
+    ) async throws {
+        // Unfiltered: `annotations()` defaults to `[.open]`, and a resolved
+        // note is a legitimate target (M5-AN-002, the documented footgun).
+        // This query is doing two jobs — the existence guard, and reading the
+        // mark ⌘Z has to put back.
+        let current = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }
+        guard let current else {
+            documentLog.error("triageAnnotation: \(id, privacy: .public) is not in the projection — ignoring")
+            return
+        }
+        let priorMark = current.triage
+
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .annotationTriage, changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                sourceAnnotationId: id,
+                triageMark: mark?.rawValue))
+        try await appendAnnotationOpInternal(op)
+
+        // ⌘Z: undo appends another triage carrying the mark the note had
+        // BEFORE this one — not a clear. Marking `do`, changing your mind to
+        // `discuss` and pressing ⌘Z must leave `do` standing; blanket-clearing
+        // would take a decision the writer never asked to undo (M5-AN-036's
+        // lesson in the mark's own key). `nil` is a legitimate prior state and
+        // the factory writes it as one.
+        //
+        // Redo re-marks with the LIVE undo manager so ⇧⌘Z re-arms a fresh
+        // pair (reject's precedent — indefinite cycling; `[weak undoManager]`
+        // because NSUndoManager retains the closure).
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Triage Annotation", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in
+                // Fire-time re-check with a LOUD decline (RULING-22,
+                // `stetAnnotation`'s shape): if a peer has re-marked the note
+                // since, reverting would overwrite their mark with
+                // capture-time state, and declining silently is the Edit menu
+                // saying "Undo Triage Annotation" and doing nothing.
+                let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
+                    .first { $0.id == id }
+                guard let live, live.triage == mark else {
+                    documentLog.error("triageAnnotation undo: \(id, privacy: .public) drifted (\(String(describing: live?.triage), privacy: .public)) — ignoring")
+                    doc.notifyWriter(
+                        "Couldn't undo the triage mark — it changed on another device.")
+                    return
+                }
+                let revert = AnnotationInverse.triageRevertOp(
+                    annotationId: id, priorMark: priorMark,
+                    docId: doc.docId, device: doc.device, session: doc.session)
+                try? await doc.appendAnnotationOpInternal(revert)
+            },
+            redo: { [weak undoManager] doc in
+                try? await doc.triageAnnotation(
+                    id: id, mark: mark, undoManager: undoManager)
+            })
+    }
+
     /// Appends the compensating reopen for a rejected / archived / withdrawn
     /// annotation. Loud no-op (log + return, never throw/crash) when the current
     /// derived status no longer matches what's being undone — a stale ⌘Z after

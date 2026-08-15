@@ -76,10 +76,10 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             // Triage is its own inverse's kind, the way annotationEdit is:
             // AnnotationInverse.triageRevertOp appends another annotationTriage
             // carrying the mark the note had before (nil = untriaged), and the
-            // deriver's latest-op-wins rule does the rest. NOTE FOR TASK 3: the
-            // `Document.triageAnnotation` verb and its registration land there;
-            // this arm names the factory only.
-            return .inverseCovered(mechanism: "AnnotationInverse.triageRevertOp (compensating annotationTriage) — registrar lands with Document.triageAnnotation, M3 P2 Task 3")
+            // deriver's latest-op-wins rule does the rest. The registrar landed
+            // in M3 P2 Task 3, so this arm no longer names a factory with no
+            // writer.
+            return .inverseCovered(mechanism: "AnnotationInverse.triageRevertOp (compensating annotationTriage), registered by Document.triageAnnotation")
 
         // MARK: - Accept / revert (bespoke choreography, predates OpUndoRegistrar's generalization — see TaskInverse.swift doc comment on OpUndoRegistrar)
 
@@ -173,6 +173,58 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
                 XCTAssertFalse(reason.isEmpty, "\(kind) is excluded but gives no reason")
             }
         }
+    }
+
+    /// The mechanism strings are the whole value of this gate — a kind is
+    /// "covered" because a NAMED thing covers it — and until M3 P2 nothing
+    /// checked that the named thing exists. `.annotationStet` and
+    /// `.annotationTriage` both shipped in Task 1 naming a registrar that
+    /// would land two tasks later, and the only thing that would have caught
+    /// a forgotten one was a human re-reading a comment. This scans every
+    /// `Type.member` a mechanism names and requires a declaration in
+    /// production source, so a mechanism can name a factory that was renamed,
+    /// deleted, or never written exactly once — at the commit that does it.
+    func test_everyMechanismNamesSomethingThatExists() throws {
+        let repo = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // MaughamTests/OpLog/
+            .deletingLastPathComponent()   // MaughamTests/
+            .deletingLastPathComponent()   // repo root
+        let roots = [
+            repo.appendingPathComponent("Maugham"),
+            repo.appendingPathComponent("Packages/MaughamCore/Sources"),
+        ]
+        let sources: [String] = roots.flatMap { root in
+            (FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
+                .compactMap { $0 as? URL }
+                .filter { $0.pathExtension == "swift" }
+                .compactMap { try? String(contentsOf: $0, encoding: .utf8) }) ?? []
+        }
+        XCTAssertGreaterThan(sources.count, 100, "control: the scan found the sources")
+
+        // A `func` or an enum `case` of that name, anywhere in production.
+        func isDeclared(_ member: String) -> Bool {
+            sources.contains {
+                $0.range(of: "func \(member)\\b", options: .regularExpression) != nil
+                    || $0.range(of: "case \(member)\\b", options: .regularExpression) != nil
+            }
+        }
+        XCTAssertFalse(isDeclared("triageAnnotationThatNeverLanded"),
+                       "planted offender: the scanner must reject a name nothing declares")
+
+        var checked = 0
+        for kind in OpKind.allCases {
+            guard case .inverseCovered(let mechanism) = classify(kind) else { continue }
+            let named = mechanism.matches(
+                of: try Regex("\\b[A-Z][A-Za-z]*\\.([a-z][A-Za-z]*)\\b"))
+            for match in named {
+                let member = String(match[1].substring ?? "")
+                checked += 1
+                XCTAssertTrue(
+                    isDeclared(member),
+                    "\(kind.rawValue)'s mechanism names \(member), which no production source declares")
+            }
+        }
+        XCTAssertGreaterThan(checked, 8, "control: the mechanism strings were parsed")
     }
 
     /// Documents which kinds fall in which bucket so a diff on this test is
